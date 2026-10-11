@@ -14,7 +14,7 @@ import { probeDevice } from '../src/connect/probe.js';
 import { readConnect } from '../src/connect/read.js';
 import { splitWords, wrapLine } from '../src/connect/repl.js';
 import { scrubRemote, scrubShown } from '../src/connect/scrub.js';
-import { classifySsh, sshArgs } from '../src/connect/ssh.js';
+import { classifySsh, parseSshVersion, sshArgs } from '../src/connect/ssh.js';
 import { connectPaths, ensureConnect, readDevices, type ConnectPaths } from '../src/connect/store.js';
 import type { DeviceRecord, RemoteJobRecord } from '../src/connect/types.js';
 import { checkAddress, checkIdentity, checkJobPath, checkPort, checkRemoteDir, checkUser } from '../src/connect/validate.js';
@@ -175,6 +175,35 @@ describe('ssh\'s own words, read', () => {
     // the remote command ran (its marker came back): whatever its exit, ssh connected
     expect(classifySsh(ran('', { code: 255, stdout: Buffer.from('TIMMY-STATUS-BEGIN\n') }), d, 'TIMMY-STATUS-BEGIN')).toBeNull();
   });
+
+  it('only a failure before any session ("ssh: connect to host … port …:") is "not sent"; the same reasons in mid-session leave what was sent unknown', () => {
+    const d = device();
+    const sent = (stderr: string): boolean | undefined => classifySsh(ran(stderr), d)?.notSent;
+    for (const before of ['ssh: connect to host 127.0.0.1 port 2222: Connection timed out', 'ssh: connect to host 127.0.0.1 port 2222: Operation timed out', 'ssh: connect to host 127.0.0.1 port 2222: No route to host', 'ssh: connect to host 127.0.0.1 port 2222: Network is unreachable', 'ssh: connect to host 127.0.0.1 port 2222: Connection refused', 'ssh: Could not resolve hostname studio: Name or service not known', 'Connection timed out during banner exchange']) {
+      expect(sent(before), before).toBe(true);
+    }
+    for (const during of ['Read from remote host 127.0.0.1: Connection timed out', 'Read from remote host 127.0.0.1: Operation timed out', 'Read from remote host 127.0.0.1: No route to host', 'Read from remote host 127.0.0.1: Network is unreachable', 'Read from remote host 127.0.0.1: Connection reset by peer', 'Timeout, server 127.0.0.1 not responding.', 'client_loop: send disconnect: Broken pipe']) {
+      const f = classifySsh(ran(during), d);
+      expect(f, during).toMatchObject({ outcome: 'unreachable', why: 'closed', notSent: false });
+      expect(f!.words, during).toMatch(/^the connection to 127\.0\.0\.1:2222 ended before Timmy got an answer/);
+    }
+  });
+});
+
+describe('the ssh version, and the settings that win over an account\'s own config', () => {
+  it('reads ssh -V; KnownHostsCommand=none goes only to an ssh that knows it (8.5 on); VerifyHostKeyDNS=no always', () => {
+    expect(parseSshVersion('OpenSSH_9.6p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13 30 Jan 2024\n')).toEqual({ major: 9, minor: 6, words: 'OpenSSH 9.6' });
+    expect(parseSshVersion('OpenSSH_8.4p1, LibreSSL 2.8.3')).toEqual({ major: 8, minor: 4, words: 'OpenSSH 8.4' });
+    expect(parseSshVersion('OpenSSH_for_Windows_9.5p1, LibreSSL 3.8.2')).toEqual({ major: 9, minor: 5, words: 'OpenSSH 9.5' });
+    expect(parseSshVersion('Dropbear SSH multi-purpose v2022.83')).toBeNull();
+    const a = sshArgs(device({ ssh_config: 'account' }), p, ['sh', '-s'], { knownHostsCommand: true });
+    expect(a).toEqual(expect.arrayContaining(['VerifyHostKeyDNS=no', 'KnownHostsCommand=none']));
+    // the -o settings come before the address: ssh takes the first value it is given for each
+    expect(a.indexOf('KnownHostsCommand=none')).toBeLessThan(a.indexOf('--'));
+    const b = sshArgs(device(), p, ['sh', '-s']);
+    expect(b).toContain('VerifyHostKeyDNS=no');
+    expect(b.some((x) => x.startsWith('KnownHostsCommand'))).toBe(false);
+  });
 });
 
 describe('scrubbing what a device sends', () => {
@@ -204,6 +233,17 @@ describe('scrubbing what a device sends', () => {
     expect(parseStatus('no markers')).toBeNull();
   });
 
+  it('what a device sends is plain text before it is stored or printed: no escape sequence or control character survives', () => {
+    const s = parseStatus(['TIMMY-STATUS-BEGIN', 'where=status', 'state=running', 'pid=10', 'pgid=10', 'pid_start=Sun Oct 11 09:00:00 2026\u001b[2J', 'alive=yes', 'runner=yes', 'stop.asked_at=2026-10-11T09:00:05Z\u001b]52;c;ZXZpbA==\u0007', 'stop.signals=TERM', 'out|a\u001b]52;c;ZXZpbA==\u0007b', 'out|\u001b[1A\u001b[2K✓ sha256 equal\r', 'out|tab\there\u0000', 'TIMMY-STATUS-END'].join('\n'), 'T')!;
+    expect(s.tail).toEqual(['ab', '✓ sha256 equal', 'tab    here']);
+    expect(s.pid_start).toBe('Sun Oct 11 09:00:00 2026');
+    expect(s.runner).toBe('yes');
+    // a stop's time that is not a time is not kept
+    expect(s.stop).toEqual({ signals: ['TERM'] });
+    expect(JSON.stringify(s)).not.toMatch(/\\u001b|\\u0007|\\u0000|\\r/);
+    expect(scrubShown('ok \u001b]8;;https://example.com\u0007link\u001b]8;;\u0007 \u009b31m')).toBe('ok link 31m');
+  });
+
   it('exit words say what the shell reported, and a signal only as what it may mean', () => {
     const s = (o: object) => ({ read_at: 'T', where: 'status' as const, state: 'ended' as const, ...o });
     expect(exitWords(s({ exit_status: 0 }))).toBe('exit 0');
@@ -211,6 +251,9 @@ describe('scrubbing what a device sends', () => {
     expect(exitWords(s({ exit_status: 143, stop_signal: 'TERM' }))).toMatch(/^stopped: its supervisor received SIGTERM, and the job ended with status 143/);
     expect(exitWords(s({ exit_status: 137 }))).toBe('exit status 137 (a shell reports a death by SIGKILL so; it may also have exited with that code)');
     expect(exitWords(s({ exit_status: null, by: 'stop', stop: { signals: ['TERM', 'KILL'] } }))).toMatch(/^ended by its stop with SIGKILL \(signals sent: TERM, KILL\); no exit status was recorded/);
+    // the signal the stop says is the one it sent: its status file names it
+    expect(exitWords(s({ exit_status: null, by: 'stop', stop_signal: 'TERM', stop: { signals: ['TERM'] } }))).toMatch(/^ended by its stop with SIGTERM \(signals sent: TERM\); no exit status was recorded/);
+    expect(exitWords(s({ exit_status: null, by: 'stop', stop_signal: 'taskkill', stop: { signals: ['taskkill'] } }))).toMatch(/^ended by its stop with taskkill \/T \/F; no exit status was recorded/);
     const j: RemoteJobRecord = { id: 'r0123abcd', kind: 'remote', label: 'x', device: 'dev', remote_dir: 'd', script: { sha256: 'a'.repeat(64), bytes: 1, from: 'command', shell: 'posix' }, state: 'unknown', submitted_at: 'T', last_seen: '2026-10-11T09:00:00Z', unknown: { since: '2026-10-11T09:05:00Z', why: 'unreachable: no route to 127.0.0.1', not_known: 'whether it still runs' }, events: [] };
     expect(jobWords(j)).toBe('unknown since 2026-10-11 09:05 UTC: unreachable: no route to 127.0.0.1; last seen 2026-10-11 09:00 UTC; not known: whether it still runs');
   });

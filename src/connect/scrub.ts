@@ -1,9 +1,12 @@
 /**
- * Round R4 (helper H90): what a device sends back (a job's output lines, ssh's own words) is scrubbed before Timmy stores
- * or prints it: private-key blocks and the token shapes src/utils/redact.ts redactString knows, and more (GitHub, Hugging
- * Face, Anthropic, AWS, Tailscale, Slack, JWT). A fetched file is the one exception: it is kept byte for byte, since its
- * sha256 is checked against the device's.
+ * Round R4 (helper H90): what a device sends back (a job's output lines, ssh's own words, a tailnet peer's names) is made
+ * plain text and scrubbed before Timmy stores or prints it: first every terminal escape sequence and control character goes
+ * (src/term/sanitize.ts: CSI, OSC such as an OSC 52 clipboard write or an OSC 8 link, C1 controls; tabs become spaces), so
+ * a job cannot move the cursor, rewrite what Timmy printed or set the clipboard; then private-key blocks and the token shapes
+ * src/utils/redact.ts redactString knows, and more (GitHub, Hugging Face, Anthropic, AWS, Tailscale, Slack, JWT). A fetched
+ * file is the one exception: it is kept byte for byte, since its sha256 is checked against the device's.
  */
+import { sanitize } from '../term/sanitize.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { redactString } from '../utils/redact.js';
 
@@ -24,12 +27,13 @@ const TOKENS: Array<[RegExp, string]> = [
 ];
 
 /**
- * Text from a device with private-key blocks and token shapes taken out: a whole block, a block cut off at either end of
- * the text, and a lone line that looks like a key block's middle (a tail of output can start or end inside a block).
+ * Text from a device as plain text (escape sequences and control characters out, first, so none can split a token and hide
+ * it), with private-key blocks and token shapes taken out: a whole block, a block cut off at either end of the text, and a
+ * lone line that looks like a key block's middle (a tail of output can start or end inside a block).
  */
 export function scrubRemote(text: string): string {
   if (!text) return text;
-  let out = text.replace(KEY_BLOCK, '[REDACTED_PRIVATE_KEY]').replace(KEY_END, '[REDACTED_PRIVATE_KEY]').replace(KEY_LINE, '[REDACTED_KEY_LINE]');
+  let out = sanitize(text).replace(KEY_BLOCK, '[REDACTED_PRIVATE_KEY]').replace(KEY_END, '[REDACTED_PRIVATE_KEY]').replace(KEY_LINE, '[REDACTED_KEY_LINE]');
   for (const [rx, word] of TOKENS) out = out.replace(rx, word);
   return redactString(out);
 }

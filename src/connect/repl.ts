@@ -7,6 +7,7 @@
  */
 import { askPerson, type ApprovalRequest, type Decision } from '../repl/approvals.js';
 import type { GlyphSet } from '../term/glyphs.js';
+import { sanitize } from '../term/sanitize.js';
 import type { Segment } from '../term/theme.js';
 import { visibleWidth } from '../term/width.js';
 import { connectDo, connectHelp, connectSummary } from './commands.js';
@@ -75,7 +76,8 @@ export function wrapLine(line: Segment[], width: number): Segment[][] {
 
 export async function connectRepl(args: string, c: ConnectReplContext): Promise<void> {
   const width = Math.max(40, (c.columns ?? process.stdout.columns ?? 100) - 1);
-  const print = (line: Segment[]): void => { for (const row of wrapLine(line, width)) c.print(row); };
+  // every line's words as plain text (a device's words are cleaned when they are read; a record from before is cleaned here)
+  const print = (line: Segment[]): void => { for (const row of wrapLine(line.map((s) => ({ ...s, text: sanitize(s.text) })), width)) c.print(row); };
   const words = splitWords(args);
   if ('error' in words) { c.print([{ text: `  ${words.error}`, role: 'secondary' }]); return; }
   if (!words.length) { for (const line of connectSummary({ glyphs: c.glyphs, by: 'repl', ...(c.home ? { home: c.home } : {}) })) print(line); return; }

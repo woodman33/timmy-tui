@@ -18,7 +18,13 @@ export function when(iso: string | undefined): string {
 export function exitWords(s: RemoteStatus | undefined): string {
   if (!s || s.state !== 'ended') return 'not ended';
   const code = s.exit_status;
-  if (s.by === 'stop') return `ended by its stop with SIGKILL${s.stop?.signals.length ? ` (signals sent: ${s.stop.signals.join(', ')})` : ''}; no exit status was recorded`;
+  if (s.by === 'stop') {
+    // the stop wrote the end (its group ended and its supervisor wrote none): the last signal it sent, as its file names it
+    const sig = s.stop_signal ?? s.stop?.signals.at(-1);
+    const how = !sig ? '' : sig === 'taskkill' ? ' with taskkill /T /F' : /^[A-Z]+$/.test(sig) ? ` with SIG${sig}` : ` with ${sig}`;
+    const sent = s.stop?.signals.length && !(s.stop.signals.length === 1 && s.stop.signals[0] === 'taskkill') ? ` (signals sent: ${s.stop.signals.join(', ')})` : '';
+    return `ended by its stop${how}${sent}; no exit status was recorded`;
+  }
   if (code === undefined || code === null) return 'ended; no exit status was recorded';
   if (code === 0) return 'exit 0';
   if (code > 128 && code - 128 < 65) {
@@ -38,9 +44,11 @@ export function jobWords(j: RemoteJobRecord): string {
     case 'submitted':
       return s?.where === 'claimed'
         ? `submitted ${on} ${when(j.submitted_at)}: claimed there, and its supervisor wrote no status (read ${when(s.read_at)}); Timmy will not start it again`
-        : `submitted ${on} ${when(j.submitted_at)}, not confirmed by ${j.device}${j.unknown ? `: ${j.unknown.why}` : s ? ` (read ${when(s.read_at)}: ${s.where === 'absent' ? 'no folder for it there' : 'its folder is there, not started'})` : ''}`;
+        : `submitted ${on} ${when(j.submitted_at)}, not confirmed by ${j.device}${j.unknown ? `: ${j.unknown.why}` : s ? ` (read ${when(s.read_at)}: ${s.owner === 'other' ? 'the folder for its id there holds another job' : s.where === 'absent' ? 'no folder for it there' : 'its folder is there, not started'})` : ''}`;
     case 'running':
-      return `running ${on}: its status file said so ${when(s?.read_at)}${s?.started_at ? ` (started ${when(s.started_at)})` : ''}${s?.alive === 'unchecked' ? '; ps gave no start time there, so that it is the same process is not checked (a stop will refuse to signal)' : ''}`;
+      return `running ${on}: its status file said so ${when(s?.read_at)}${s?.started_at ? ` (started ${when(s.started_at)})` : ''}${s?.alive === 'unchecked' ? '; ps gave no start time there, so that it is the same process is not checked (a stop will refuse to signal)' : ''}`
+        + `${s?.recorded === 'differs' ? '; its status file there now names another process than the one Timmy recorded when it started (a stop will refuse to signal)' : ''}`
+        + `${s?.runner === 'no' && !j.process ? '; the process its status file names is not this job\'s supervisor as ps shows it (a stop will refuse to signal)' : ''}`;
     case 'ended':
       return s?.state === 'ended'
         ? `ended ${on} ${when(s.ended_at)}: ${exitWords(s)}`

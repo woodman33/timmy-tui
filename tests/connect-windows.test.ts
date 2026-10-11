@@ -14,20 +14,43 @@ import { addDevice } from '../src/connect/devices.js';
 import { scanDevice, trustKey } from '../src/connect/hostkeys.js';
 import { parseProbe, probeDevice, probeWords } from '../src/connect/probe.js';
 import { DETECT_WORDS, detectShell, windowsCommandScript, windowsFetchScript, windowsProbeScript, windowsStatusScript, windowsStopScript, windowsSubmitInput, windowsSubmitScript, windowsWaitScript, WINDOWS_RUNNER } from '../src/connect/remote-windows.js';
-import { CMD_MAX, decodePowerShell, encodePowerShell, powershellWords } from '../src/connect/shells.js';
+import { CMD_MAX, decodePowerShell, encodePowerShell, powershellWords, psQuote } from '../src/connect/shells.js';
 import { connectPaths } from '../src/connect/store.js';
 import { makeKit, REPO, type Kit } from './fixtures/connect/kit.js';
 
 const FIXTURE = path.join(REPO, 'tests', 'fixtures', 'connect', 'windows-probe-answer.txt');
 const SHA = 'c'.repeat(64);
+const NONCE = 'd'.repeat(32);
+/** A job's first process as Timmy records it (the longest start time Windows writes, and a pid of 10 digits). */
+const PROCESS = { pid: 4294967294, pgid: 4294967294, pid_start: '2026-10-11T09:00:00.123Z', recorded_at: '2026-10-11T09:00:01Z' };
+
+/**
+ * A model of how PowerShell reads a single-quoted (verbatim) string: its language specification's single-quote-character
+ * is any of ' ‘ ’ ‚ ‛ (U+0027, U+2018, U+2019, U+201A, U+201B), any of them ends the string, and two of them in a row are one
+ * quote in its value (the tokenizer keeps the second). The literal at `at`: its value, and where it ends. A MODEL written
+ * from the specification: no PowerShell ran here.
+ */
+function psLiteral(text: string, at: number): { value: string; end: number } {
+  const quote = (c: string | undefined): boolean => c !== undefined && /['‘’‚‛]/.test(c);
+  if (!quote(text[at])) throw new Error(`no quote at ${at}`);
+  let value = '';
+  for (let i = at + 1; i < text.length; i++) {
+    if (quote(text[i])) {
+      if (quote(text[i + 1])) { value += text[i + 1]; i++; continue; }
+      return { value, end: i + 1 };
+    }
+    value += text[i];
+  }
+  throw new Error('the literal is not closed');
+}
 
 describe('the PowerShell command builder', () => {
   const scripts: Record<string, string> = {
     probe: windowsProbeScript('.timmy-connect/jobs'),
-    submit: windowsSubmitScript('.timmy-connect/jobs', 'r0123abcd', SHA),
-    status: windowsStatusScript('.timmy-connect/jobs', 'r0123abcd'),
-    stop: windowsStopScript('.timmy-connect/jobs', 'r0123abcd'),
-    wait: windowsWaitScript('.timmy-connect/jobs', 'r0123abcd'),
+    submit: windowsSubmitScript('.timmy-connect/jobs', 'r0123abcd', SHA, NONCE),
+    status: windowsStatusScript('.timmy-connect/jobs', 'r0123abcd', { process: PROCESS }),
+    stop: windowsStopScript('.timmy-connect/jobs', 'r0123abcd', { process: PROCESS }),
+    wait: windowsWaitScript('.timmy-connect/jobs', 'r0123abcd', { process: PROCESS }),
     fetch: windowsFetchScript('.timmy-connect/jobs', 'r0123abcd', "work/it's here/out.bin"),
   };
   for (const [name, script] of Object.entries(scripts)) {
@@ -45,6 +68,53 @@ describe('the PowerShell command builder', () => {
     expect(scripts.fetch).toContain("$rel = 'work/it''s here/out.bin'");
     expect(() => powershellWords(`'${'x'.repeat(4000)}'`)).toThrow(/past cmd\.exe's 8191: it was not sent/);
     expect(encodePowerShell('é')).toBe(Buffer.from('é', 'utf16le').toString('base64'));
+  });
+
+  it('a literal stays one literal whichever of PowerShell\'s five single quotes it holds (’ ‘ ‚ ‛ and \'): no word in it runs', () => {
+    for (const q of ["'", '‘', '’', '‚', '‛']) {
+      const text = `work/a${q}; Start-Process calc.exe; ${q}b.txt`;
+      const quoted = psQuote(text);
+      expect(psLiteral(quoted, 0), JSON.stringify(q)).toEqual({ value: text, end: quoted.length });
+      // a fetch path, as the fetch script holds it: one literal, and the statement ends right after it
+      const fetch = windowsFetchScript('.timmy-connect/jobs', 'r0123abcd', text);
+      const at = fetch.indexOf('$rel = ') + '$rel = '.length;
+      const lit = psLiteral(fetch, at);
+      expect(lit.value).toBe(text);
+      expect(fetch.slice(lit.end, lit.end + 1)).toBe('\n');
+    }
+    // a job's words: "It’s done" is one argument, not a parse error
+    const job = windowsCommandScript(['echo', 'It’s done']);
+    const first = psLiteral(job, 2);
+    expect(first.value).toBe('echo');
+    expect(psLiteral(job, first.end + 1)).toEqual({ value: 'It’s done', end: job.indexOf('\r\n') });
+  });
+
+  it('a stop on Windows signals only the process Timmy recorded, while the status file and Get-Process agree with it and its command line is this job\'s run.ps1; it writes the end only when that process is gone', () => {
+    const stop = scripts.stop;
+    expect(stop).toContain(`$wp = '${PROCESS.pgid}'; $ws = '${PROCESS.pid_start}'`);
+    for (const word of ['TIMMY-STOP status-differs', 'TIMMY-STOP gone', 'TIMMY-STOP reused', 'TIMMY-STOP not-runner']) expect(stop).toContain(word);
+    expect(stop.indexOf('TIMMY-STOP not-runner')).toBeLessThan(stop.indexOf('taskkill.exe'));
+    expect(stop).toMatch(/if \(-not \(Get-Process -Id \(\[int\]\$g\) -ErrorAction SilentlyContinue\)\) \{ try \{ \[void\]\(New-Item -ItemType Directory -Path \(Join-Path \$job '\.end'\)/);
+    // the status lines it reads are only its own keys: lines a job wrote in the shape of Timmy's are not read
+    expect(scripts.status).toContain("Where-Object { $_ -match '^(state|pid|pgid|pid_start|child|started_at|ended_at|exit_status|stop_signal|by)=' }");
+    expect(windowsStopScript('.timmy-connect/jobs', 'r0123abcd')).toContain("$wp = ''; $ws = ''");
+  });
+
+  it('a submission on Windows takes a folder already there only when it is this job\'s own (its owner file), and says when the id is taken', () => {
+    expect(scripts.submit).toContain(`$nonce = '${NONCE}'`);
+    expect(scripts.submit).toContain("'TIMMY-SUBMIT id-taken'");
+    expect(scripts.submit.indexOf("'TIMMY-SUBMIT id-taken'")).toBeLessThan(scripts.submit.indexOf('[IO.File]::WriteAllBytes'));
+    // the longest control script still fits cmd.exe's line with a job folder of 128 characters
+    const long = `C:/${'a'.repeat(120)}/jobs`;
+    for (const script of [windowsSubmitScript(long, 'r0123abcd', SHA, NONCE), windowsStopScript(long, 'r0123abcd', { process: PROCESS }), windowsStatusScript(long, 'r0123abcd', { process: PROCESS, nonce: NONCE })]) {
+      expect(powershellWords(script).join(' ').length).toBeLessThanOrEqual(CMD_MAX);
+    }
+  });
+
+  it('a fetch on Windows hashes the very bytes it sends (one read), and looks for a link on the path again after reading', () => {
+    expect(scripts.fetch).toContain('ComputeHash($bytes)');
+    expect(scripts.fetch).not.toContain('Get-FileHash');
+    expect(scripts.fetch.match(/if \(Lk\) \{ 'TIMMY-FETCH link'; exit 0 \}/g)).toHaveLength(2);
   });
 
   it('a job\'s words run as literals (&), its exit passed on; a submission\'s bytes ride on stdin, never in the command', () => {

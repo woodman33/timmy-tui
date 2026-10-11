@@ -14,6 +14,7 @@ import { fetchFile, listJobs, readJob, reconcileJob, retryJob, runJob, stopJob, 
 import { probeDevice } from './probe.js';
 import { deviceView, jobView, readConnect } from './read.js';
 import { scrubShown } from './scrub.js';
+import { overrideWords, sshVersion } from './ssh.js';
 import { connectPaths, findDevice, readDevices, shown, type ConnectPaths } from './store.js';
 import { readTailnet } from './tailnet.js';
 import { REMOTE_JOB_ID } from './validate.js';
@@ -27,6 +28,11 @@ export interface ConnectContext {
   glyphs: GlyphSet;
   /** which surface asks: the CLI confirms a host key by its exact fingerprint, the REPL through its approval box */
   by: 'cli' | 'repl';
+  /**
+   * whether the CLI's stdin is a terminal (src/connect/cli.ts sets it). The CLI's `trust` needs one: a person types the
+   * fingerprint there; from a pipe (a script, an agent's plain command) nothing is pinned. Absent: not a terminal.
+   */
+  terminal?: boolean;
   /** the folder a relative --to is resolved from */
   cwd?: string;
   /** the REPL's NEEDS YOU box (src/repl/approvals.ts askPerson wraps it); absent where no one can be asked */
@@ -56,7 +62,7 @@ export function connectHelp(surface: 'cli' | 'repl' = 'cli'): string[] {
     `      [--name <text>] [--remote-dir <dir>] [--account-ssh-config]   record it; fetch its host keys (none trusted)`,
     `  ${c} scan <id>                fetch its host keys again`,
     surface === 'cli'
-      ? `  ${c} trust <id> SHA256:<…>   you confirm that exact fingerprint (one just fetched)`
+      ? `  ${c} trust <id> SHA256:<…>   you confirm that exact fingerprint (one just fetched), typed in a terminal`
       : `  ${c} trust <id> [SHA256:<…>] you confirm a fetched key in the NEEDS YOU box`,
     `  ${c} devices                  the computers, their keys and last probes (no contact)`,
     `  ${c} remove <id>              forget it here (nothing on it changes)`,
@@ -176,8 +182,12 @@ export async function connectDo(args: readonly string[], c: ConnectContext): Pro
       else {
         lines.push([label('  '), { text: scan.words }]);
         for (const k of scan.keys) lines.push([label(`    ${k.label.padEnd(8)} `), { text: k.fingerprint, role: 'strong' }]);
-        if (scan.keys.length) lines.push([label('  Check it on the computer itself (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub), then: '), cmd(c.by === 'cli' ? `timmy connect trust ${id} ${scan.keys[0].fingerprint}` : `/connect trust ${id}`)]);
-        else lines.push([label('  When it answers: '), cmd(`timmy connect scan ${id}`)]);
+        // no ready command holds a fetched fingerprint: the person reads it on the computer itself and types what they read
+        if (scan.keys.length) {
+          lines.push(c.by === 'cli'
+            ? [label('  Read its fingerprint on the computer itself (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub there); if it is one of these, type in a terminal: '), cmd(`timmy connect trust ${id} SHA256:<the fingerprint as you read it there>`)]
+            : [label('  Read its fingerprint on the computer itself (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub there), then: '), cmd(`/connect trust ${id}`)]);
+        } else lines.push([label('  When it answers: '), cmd(`timmy connect scan ${id}`)]);
       }
       const device = findDevice(p, id).device ?? added.device;
       return { code: 0, lines, json: { ok: true, verb, device: deviceView(device), scan: 'error' in scan ? { error: scan.error } : { keys: scan.scan.keys, words: scan.words } } };
@@ -220,6 +230,11 @@ export async function connectDo(args: readonly string[], c: ConnectContext): Pro
         const r = trustKey(p, id, key.fingerprint, 'repl');
         return { code: r.ok ? 0 : 1, lines: [r.ok ? okLine(g, `${r.words}${r.receipt ? `; receipt ${r.receipt}` : ''}`) : failLine(g, r.words)], json: { ok: r.ok, verb, words: r.words, ...(r.device ? { device: deviceView(r.device) } : {}), ...(r.receipt ? { receipt: r.receipt } : {}) } };
       }
+      // the CLI pins a host key only for a person at a terminal: from a pipe (a script, an agent's plain command) it refuses
+      if (!c.terminal) {
+        const why = `not trusted: timmy connect trust needs a person at a terminal (its stdin is not one here), so a script or an agent's command cannot pin a host key; nothing was trusted. Read the fingerprint on the computer itself, then type the command in a terminal, or use /connect trust ${id} in Timmy's REPL (its NEEDS YOU box)`;
+        return { code: 1, lines: [failLine(g, why)], json: { ok: false, verb, error: why } };
+      }
       const r = trustKey(p, id, given!, 'cli');
       return { code: r.ok ? 0 : 1, lines: [r.ok ? okLine(g, `${r.words}${r.receipt ? `; receipt ${r.receipt}` : ''}`) : failLine(g, r.words)], json: { ok: r.ok, verb, words: r.words, ...(r.device ? { device: deviceView(r.device) } : {}), ...(r.receipt ? { receipt: r.receipt } : {}) } };
     }
@@ -244,7 +259,7 @@ export async function connectDo(args: readonly string[], c: ConnectContext): Pro
       const ok = r.probe.outcome === 'connected';
       const lines: Line[] = [ok ? okLine(g, r.probe.words) : failLine(g, r.probe.words)];
       if (r.ssh) lines.push([label('    ssh: '), { text: r.ssh.split('\n').slice(-4).join(' / ') }]);
-      if (r.device.ssh_config === 'account') lines.push([label('    ssh used your own ssh config (~/.ssh/config), as this device asks')]);
+      if (r.device.ssh_config === 'account') lines.push([label(`    ssh used your own ssh config (~/.ssh/config), as this device asks; ${overrideWords(await sshVersion())}`)]);
       for (const need of deviceNeeds(r.device)) lines.push([{ text: `    ${g.warn} `, role: 'estimate' }, { text: need }]);
       return { code: ok ? 0 : 1, lines, json: { ok, verb, outcome: r.probe.outcome, ...(r.probe.why ? { why: r.probe.why } : {}), words: r.probe.words, ...(r.probe.facts ? { facts: r.probe.facts } : {}), ...(r.ssh ? { ssh: r.ssh } : {}), device: deviceView(r.device) } };
     }

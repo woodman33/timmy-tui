@@ -9,15 +9,21 @@ import { scrubShown } from './scrub.js';
 export interface TailnetPeer { name: string; dns_name: string | null; addresses: string[]; os: string | null; online: boolean | null; self: boolean }
 export interface TailnetRead { ok: boolean; words: string; peers: TailnetPeer[] }
 
-const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+/** A peer's own words (other computers name themselves): plain text, scrubbed, at most 120 characters; null when empty. */
+const str = (v: unknown): string | null => {
+  const text = typeof v === 'string' ? scrubShown(v).trim().slice(0, 120) : '';
+  return text || null;
+};
+/** An address is kept only when it reads as an IPv4 or IPv6 address. */
+const ADDRESS = /^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}|[0-9A-Fa-f:]{2,39})$/;
 
 function peerOf(raw: unknown, self: boolean): TailnetPeer | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const name = str(r.HostName);
   if (!name) return null;
-  const ips = Array.isArray(r.TailscaleIPs) ? r.TailscaleIPs.filter((x): x is string => typeof x === 'string').slice(0, 4) : [];
-  return { name: scrubShown(name), dns_name: str(r.DNSName)?.replace(/\.$/, '') ?? null, addresses: ips, os: str(r.OS), online: typeof r.Online === 'boolean' ? r.Online : null, self };
+  const ips = Array.isArray(r.TailscaleIPs) ? r.TailscaleIPs.filter((x): x is string => typeof x === 'string' && ADDRESS.test(x)).slice(0, 4) : [];
+  return { name, dns_name: str(r.DNSName)?.replace(/\.$/, '') ?? null, addresses: ips, os: str(r.OS), online: typeof r.Online === 'boolean' ? r.Online : null, self };
 }
 
 export async function readTailnet(): Promise<TailnetRead> {
