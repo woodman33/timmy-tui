@@ -58,9 +58,14 @@ import { meteredQualifyClient, sdkQualifyClient, unlessAborted, type QualifyClie
 import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal } from '../evidence/observation-check.js';
 // R4 (H20): what an observation keeps privately: a model's whole output past 64 KiB, its whole record when its file cannot be written.
 import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
-import { findUpmd, findWorkflowDocs, parseWorkflow, runOrder, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
+import { findUpmd, findWorkflowDocs, parseWorkflow, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
 import { makeRunFolder, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67)
+// R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
+import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
+import { askRun, gateLines, HeldRuns, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
+import { blockReceiptsOf } from '../workflows/block-receipts.js';
+import type { ApprovalRequest, Decision } from './approvals.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
 import { spawnSync, execFile } from 'node:child_process';
 import { copyFileSync, writeFileSync } from 'node:fs';
@@ -176,6 +181,9 @@ export interface WorkspaceDeps {
   canvas?: () => BoardCanvas | undefined;
   /** R4 (H55): /board live started (its bare address, never its token) or stopped (null), so a canvas on this project links to it. */
   onBoardLive?: (address: string | null) => void;
+  /** R4 (H74): the NEEDS YOU box of a terminal (the REPL's own, `timmy md`'s); absent where no one can be asked (`timmy act`):
+   *  a /run whose blocks include a risky one is then refused before anything runs. */
+  askPerson?: (req: ApprovalRequest) => Promise<Decision>;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -334,9 +342,14 @@ export class Workspace {
   readonly ops: OperationLog;
   /** R4 (H52): this REPL's OpenHands runs: their copies, their containers' stops and their write-backs */
   private readonly openhands: OpenHandsRuns;
+  /** R4 (H74): the block receipts of this REPL's /run jobs, sealed as each block ends */
+  private readonly blockSeals: BlockSealer;
+  /** R4 (H74): the live board's runs refused because a block needs a person (listed in "Waiting on you") */
+  private readonly heldRuns = new HeldRuns();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
+    this.blockSeals = new BlockSealer({ seal: (input) => this.d.seal(input), chain: () => this.chainNow(), scrub: (t, root) => this.scrub(t, root) });
     // R4 (H51): an operation ends when its request has returned and none of its runs (jobs, flows, VoxVision actions) runs.
     this.ops = new OperationLog({
       scrub: (t, root) => this.scrub(t, root),
@@ -975,27 +988,42 @@ export class Workspace {
     return workflowSummaryLines(w, { sep: this.sep, link: (rel) => this.fileLink(rel), upmd: await this.upmd(), ...(title ? { title } : {}) });
   }
 
-  async run(args: string): Promise<Line[]> {
+  /** `/run <file> [<block>]`. R4 (H74): `o.from` 'board': the live board's Run, which cannot show a NEEDS YOU box. */
+  async run(args: string, o: { from?: 'board' } = {}): Promise<Line[]> {
     const [docArg, blockArg] = args.trim().split(/\s+/).filter(Boolean);
     if (!docArg) return this.workflows('');
-    const r = readProjectFile(this.root, docArg, 1024 * 1024);
-    if (!r.ok) return this.say(r.error);
-    if (r.binary || r.text === undefined) return this.say(`${r.rel} is not a Markdown workflow.`);
-    const blocks = parseWorkflow(r.text);
-    const named = blocks.filter((b) => b.name).map((b) => b.name as string);
-    if (!named.length) return this.say(`${r.rel} has no named blocks. upmd runs blocks named like \`\`\`bash [name:build]`);
-    const target = blockArg ?? (named.length === 1 ? named[0] : undefined);
-    if (!target) return this.say(`Which block? /run ${r.rel} <${named.join(' | ')}>`);
-    if (!named.includes(target)) return this.say(`No block named ${target} in ${r.rel}: ${named.join(', ')}`);
-    const plan = runOrder(blocks, target);
-    if (plan.missing.length) return this.say(`${target} needs ${plan.missing.join(', ')}, which ${r.rel} does not define. Nothing ran.`, 'failure');
-    if (plan.cycle) return this.say(`${target}'s dependencies loop (${plan.cycle.join(' -> ')}). Nothing ran.`, 'failure');
+    // R4 (H74): one reading of the run for /run and `timmy md` (src/repl/workflow-gate.ts planRun), the same words as before
+    const p = planRun(this.root, docArg, blockArg);
+    if (!p.ok) return this.say(p.why, p.failure ? 'failure' : undefined);
+    const r = { rel: p.rel, sha256: p.sha256 };
+    const { blocks, target } = p;
+    const plan = { order: p.order };
     const tool = await this.upmd();
     if (!tool) return [...this.say(`upmd is not installed, so ${r.rel} › ${target} did not run.`, 'estimate'), ...this.say('Setup: brew install rezigned/tap/upmd, then /run again.')];
+    // R4 (H74): NEEDS YOU before a risky block. upmd runs a block only after the blocks it needs, with no stop between them,
+    // so every risky block of the run is asked about once, before anything runs; where no box can be shown it is refused.
+    let approved: Decision | undefined;
+    if (p.risky.length) {
+      const ask = o.from === 'board' ? undefined : this.d.askPerson;
+      for (const l of gateLines(p, { arrow: this.d.glyphs.arrow, sep: this.sep, answer: ask ? 'box' : 'none' })) this.d.notify(l);
+      if (!ask) {
+        const op = currentOperation();
+        if (o.from === 'board') this.heldRuns.hold({ root: this.root, rel: r.rel, target, ...(r.sha256 ? { sha256: r.sha256 } : {}), at: Date.now(), order: plan.order, risky: p.risky, ...(op ? { operation: op } : {}) });
+        return this.say(needsPersonText(r.rel, target, p.risky, o.from === 'board' ? 'the board' : 'this Timmy (no terminal)'), 'estimate');
+      }
+      const answer = await askRun({ root: this.root, rel: r.rel, target, order: plan.order, risky: p.risky, ...(r.sha256 ? { sha256: r.sha256 } : {}) }, ask);
+      if (!answer.ok) return this.say(answer.why, answer.denied ? 'secondary' : 'estimate');
+      approved = answer.decision;
+    }
     // F-3: the prediction is sealed before anything runs, with the document's hash as its input identity.
     const predicted = this.d.seal({
       kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: this.project.name, project_id: projectId(this.root),
-      prediction: { doc: r.rel, block: target, order: plan.order, expect: 'each block exits 0' },
+      prediction: {
+        doc: r.rel, block: target, order: plan.order, expect: 'each block exits 0',
+        // R4 (H74): its risky blocks and how they were asked about; the answer as a decision
+        ...(p.risky.length ? { risky: p.risky.map((b) => ({ name: b.name, reason: b.reason, code_sha256: b.code_sha256 })), gate: UPMD_GATE } : {}),
+      },
+      ...(approved ? { decisions: [{ decision: `allow ${approved}`, effect: `run ${plan.order.join(' → ')}`, tier: 'NEEDS YOU (the person, in its box)', reason: `${p.risky.map((b) => b.name).join(', ')}: ${p.risky[0].reason}` }] } : {}),
       files: [{ path: r.rel, ...(r.sha256 ? { sha256: r.sha256 } : {}) }],
     });
     // R4 (H58): upmd on a pty of its own (workers/upmd/pty_run.py), so each block's state arrives as it happens; else a pipe.
@@ -1012,7 +1040,11 @@ export class Workspace {
     });
     this.mine.add(job.id);
     this.predictions.set(job.id, { doc: r.rel, block: target, order: plan.order, ...(predicted ? { receipt: predicted } : {}) });
+    // R4 (H74): each block's receipt is sealed as it ends, from what /run read before upmd started
+    this.blockSeals.begin(job.id, { root: this.root, project: this.project.name, projectId: projectId(this.root), doc: r.rel, ...(r.sha256 ? { docSha256: r.sha256 } : {}), blocks, ...(predicted ? { prediction: predicted } : {}) });
+    this.heldRuns.settle(this.root, r.rel, target);
     return [
+      ...(approved ? [[{ text: '  Approved   ', role: 'secondary' as const }, { text: `${p.risky.map((b) => b.name).join(', ')}, ${approved}, in its NEEDS YOU box`, role: 'strong' as const }]] : []),
       [{ text: '  Predicted  ', role: 'secondary' }, { text: plan.order.join(` ${this.d.glyphs.arrow} `), role: 'strong' }, { text: `, each exits 0${predicted ? `${this.sep}receipt ${predicted}` : ''}`, role: 'secondary' }],
       [{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }],
       ...(how.live ? [] : this.say(`Live block states are not available: ${how.why}, so upmd's output is a pipe and it prints each block only when the block ends.`, 'estimate')),
@@ -1093,6 +1125,8 @@ export class Workspace {
 
   private changed(job: JobRecord): void {
     if (job.kind === 'workflow') this.stepClock.note(job);
+    // R4 (H74): each block that has ended since is sealed now (its receipt named in its notice below)
+    if (job.kind === 'workflow') this.blockSeals.note(job);
     // R4 (H51): a job that ended may end its operation (checked once this change is through).
     if (job.operation && TERMINAL.has(job.state)) queueMicrotask(() => this.ops.check());
     const before = this.seen.get(job.id) ?? { state: 'queued', done: 0 };
@@ -1103,7 +1137,9 @@ export class Workspace {
       const s = job.steps.filter((x) => x.state !== 'running').at(-1);
       const total = this.expected(job) ?? job.steps.length;
       // R4 (H58): a block's exit may come after upmd says it failed; a stopped block is said as stopped
-      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state}${this.sep}${done} of ${total}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
+      // R4 (H74): with its block receipt, once sealed
+      const sealed = s ? this.blockSeals.receiptOf(job.id, job.steps.lastIndexOf(s)) : undefined;
+      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
     const recipe = this.recipes.get(job.id);
@@ -1217,6 +1253,11 @@ export class Workspace {
       : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
+    // R4 (H74): a /run's blocks not sealed yet are sealed first; this receipt names each block's (its steps, child_receipts)
+    const stopWords = this.stopBy.get(job.id);
+    let blocks: ReturnType<BlockSealer['finish']> = [];
+    try { if (job.kind === 'workflow') blocks = this.blockSeals.finish(job, stopWords ? { stop: stopWords } : {}); } catch { blocks = []; }
+    const blockIds = blocks.flatMap((b) => (b.receipt ? [b.receipt] : []));
     try {
       return this.d.seal({
         kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${judged && job.state !== 'cancelled' ? judged.native.outcome : job.state}`, policy: 'human-gated',
@@ -1225,9 +1266,10 @@ export class Workspace {
         project: job.project, project_id: projectId(job.root),
         job: {
           id: job.id, kind: job.kind, label, state: job.state, exit_code: job.exitCode ?? null,
-          steps: job.steps.map(({ name, state, code }) => ({ name, state, ...(code === undefined ? {} : { code }) })),
+          steps: job.steps.map(({ name, state, code }, i) => ({ name, state, ...(code === undefined ? {} : { code }), ...(blocks[i]?.receipt ? { receipt: blocks[i].receipt } : {}) })),
           ...(log ? { log_sha256: log } : {}), ...(job.url ? { url: job.url } : {}), ...(ms !== undefined ? { ms } : {}), ...(error ? { error } : {}),
         },
+        ...(blockIds.length ? { child_receipts: blockIds } : {}),
         ...(outputs.length ? { outputs } : {}),
         ...(p ? { prediction: { doc: p.doc, block: p.block, order: p.order, expect: 'each block exits 0', ...(met === undefined ? {} : { met }), ...(p.receipt ? { receipt: p.receipt } : {}) } } : {}),
       });
@@ -1236,7 +1278,8 @@ export class Workspace {
 
   /** R4 (H67): `/jobs <id>` of a /run: every block it was to run, in order, as its card reads them, each with its own time. */
   private blockLines(j: JobRecord): Line[] {
-    return jobBlockLines(j, this.predictions.get(j.id)?.order ?? j.expected?.steps ?? [], { glyphs: this.d.glyphs, clock: (i) => this.stepClock.ms(j.id, i) });
+    // R4 (H74): each block with its own receipt, from the chain
+    return jobBlockLines(j, this.predictions.get(j.id)?.order ?? j.expected?.steps ?? [], { glyphs: this.d.glyphs, clock: (i) => this.stepClock.ms(j.id, i), receipts: blockReceiptsOf(this.chainNow(), j.id) });
   }
 
   private jobLine(j: JobRecord): Line {
@@ -1613,7 +1656,8 @@ export class Workspace {
         },
         open: () => !this.launches.closing,
         // R4 (H58): /run jobs an ended REPL left running: ended in their own records as interrupted
-        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing }),
+        // R4 (H74): with what seals the block receipts its runs still need (a block interrupted, or ended unseen)
+        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, blocks: (job) => sealLeftBlocks({ seal: this.d.seal, chain: () => this.chainNow(), scrub: (t) => this.scrub(t, root), project: job.project, projectId: projectId(root) }, job) }),
         // R4 (H59): code agent runs an ended REPL left, each run's own record ended (src/repl/recover-agents.ts); then
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
         agents: async () => [
@@ -2112,7 +2156,7 @@ export class Workspace {
       const voxTools = (): ToolStatus[] => { try { return toolStatuses({ env: this.d.env, onPath: this.d.onPath, root }); } catch { return []; } };
       return gatherDecisions({
         root, projectId: projectId(root), jobs: o.jobs, chain: o.chain, ...(o.flows ? { flows: o.flows } : {}),
-        activeFlows: this.flows.active, approvals: waitingApprovals(), staleSaves: this.staleSaves.list(root),
+        activeFlows: this.flows.active, approvals: [...waitingApprovals(), ...this.heldRuns.list(root)], staleSaves: this.staleSaves.list(root), // R4 (H74): the board's held runs
         ...(this.roomTools ? { tools: this.roomTools } : {}), voxTools,
         scrub: (t) => this.scrub(t, root), ...(o.max ? { max: o.max } : {}),
       });
@@ -2573,7 +2617,7 @@ export class Workspace {
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
     // R4 (H70): View in Rerun prints its window warning before Rerun starts (notified then); the page gets those lines first.
     const early: Line[] = [];
-    const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)
+    const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args, { from: 'board' }) // R4 (H74): no NEEDS YOU box there
       : c.name === 'recipe' ? await this.recipe(c.args)
         // R4 (H49): VoxVision's buttons, as the typed /inspect, /measure, /detect, /compare.
         : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args)

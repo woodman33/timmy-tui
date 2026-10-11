@@ -31,6 +31,11 @@
  *                  interrupted where a stop or an ended session found them; its own time is from those two moments. A
  *                  run over a pipe (no python3, or a run before H58) saw each block only when it ended: its own time is
  *                  not shown, and the card says live states were not available
+ *   block receipts R4 (H74): each block's own receipt, sealed as it ended (src/workflows/block-receipts.ts), named in the
+ *                  run bar ("block build: receipt 1a2b3c4d"), the inspector's last result and /workflows <file>
+ *   needs you      R4 (H74): a node whose run includes a block with a destructive shell command says so: /run asks first in
+ *                  the REPL's NEEDS YOU box; the board cannot show that box, so its Run is refused and waits on you
+ *                  (src/repl/workflow-gate.ts)
  *
  * Every string is escaped. Colour never stands alone: each state is a word, each glyph its own shape; green is for
  * interaction (the selection, the primary action), never for an outcome.
@@ -49,6 +54,9 @@ import { isLiveRun, type PtyReady } from '../workflows/upmd-live.js';
 // R4 (H67): one reading of a run's blocks for the card, /workflows and /jobs; the wrapper's account in words
 import { blockDetail, NOT_SEEN_WHY, runBlocks, secondsText, type RunBlockWord } from '../workflows/run-blocks.js';
 import { wrapperDid } from '../workflows/pty-stop.js';
+// R4 (H74): each block's own receipt, from the chain
+import { blockReceiptsOf, blockReceiptWords, type BlockReceipt } from '../workflows/block-receipts.js';
+import { RISKY_REASON, riskyCode } from './workflow-risk.js'; // R4 (H74): the blocks that need a person before they run
 import { renderParamsCard, type ParamsCard } from './board-cards.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 import type { NodeInput, WorkflowDocInput } from './board-nodes.js';
@@ -104,7 +112,7 @@ export interface WorkflowRun {
   predicted?: string;
   /** each block of the run, in order, with its state, exit code and (for a run with live states) its own time; R4 (H67):
    *  `seen` when its end is what the run's pty wrapper saw once its REPL no longer followed it */
-  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper' }>;
+  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string }>;
   /** the block that was running when an interrupted run's session ended */
   interruptedAt?: string;
   /** R4 (H58): upmd ran on a pty, so each block's start and end were seen as they happened (else over a pipe) */
@@ -141,6 +149,8 @@ export interface NodeView {
   cycle?: string[];
   neededBy: string[];
   params: ParamRef[];
+  /** R4 (H74): the blocks of `order` whose command is a destructive shell command: a run of this node asks a person first */
+  risky: Array<{ name: string; command: string }>;
 }
 
 export interface ConnectedWorkflow {
@@ -313,7 +323,8 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
   const pty = isLiveRun(j.args);
   // R4 (H67): each block's state, as /jobs reads it too (src/workflows/run-blocks.ts): 'not run' only where it is known
-  const blocks = runBlocks(j, runOrderNow, (at) => c.clock?.ms(j.id, at));
+  // R4 (H74): and each block's own receipt (sealed as it ended)
+  const blocks = runBlocks(j, runOrderNow, (at) => c.clock?.ms(j.id, at), blockReceiptsOf(c.chain, j.id));
   const interruptedAt = interrupted ? j.interrupted?.step ?? blocks.find((b) => b.word === 'interrupted')?.name : undefined;
   const interruptedHow: WorkflowRun['interruptedHow'] = j.stale ? 'gone' : j.interrupted ? (j.state === 'cancelled' ? 'recovery stopped it' : 'recorded gone') : undefined;
   const wrapper = j.interrupted?.wrapper;
@@ -374,6 +385,9 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
   let whole: Map<number, string> | undefined;
   try { whole = w.text !== undefined ? new Map(parseWorkflow(w.text).map((b) => [b.index, b.code])) : undefined; } catch { whole = undefined; }
   const used = new Set<string>();
+  // R4 (H74): each block whose whole command (else the lines the board read) is a destructive shell command
+  const riskyNow = new Map<string, string>();
+  for (const b of w.blocks) { const code = (b.index !== undefined ? whole?.get(b.index) : undefined) ?? b.code; if (code !== undefined && riskyCode(code) && !riskyNow.has(b.name)) riskyNow.set(b.name, code); }
   const nodes = w.blocks.map((b, i): NodeView => {
     const run = runs.find((r) => r.blocks.some((x) => x.name === b.name));
     const at = run?.blocks.find((x) => x.name === b.name);
@@ -386,6 +400,7 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
       order: plan.order, missing: plan.missing, ...(plan.cycle ? { cycle: plan.cycle } : {}),
       neededBy: w.blocks.filter((o) => o.deps.includes(b.name)).map((o) => o.name),
       params: paramRefs(command ?? b.code ?? '', scadModels),
+      risky: plan.order.flatMap((name) => (riskyNow.has(name) ? [{ name, command: riskyNow.get(name)! }] : [])),
     };
   });
   const latest = runs[0]?.job;
@@ -448,6 +463,8 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   if (!r) return `<div class="wfx-run wfx-run-none"><p class="meta">${esc(`No run of ${w.rel} yet. Run up to here on a block runs it through upmd as /run ${w.rel} <block>: the prediction is sealed first, the outcome after.`)}</p>${upmd}${noLive}</div>`;
   const what = `${r.target}${r.order.length > 1 ? ` (${arrow(r.order)})` : ''}`;
   const steps = r.blocks.map((b) => `${b.name} ${b.word}`).join(', ');
+  // R4 (H74): each block's own receipt, sealed as it ended
+  const sealedBlocks = r.blocks.flatMap((b) => (b.receipt ? [blockReceiptWords(b.name, b.receipt)] : [])).join(' · ');
   const failedAt = r.blocks.find((b) => b.word === 'failed');
   const when = `started ${stamp(r.startedAt)}${r.endedAt ? `, ended ${stamp(r.endedAt)}` : ''}${r.ms !== undefined && r.endedAt ? ` (${seconds(r.ms)})` : ''}`;
   const head = r.word === 'interrupted' ? 'interrupted run' : r.word === 'running' || r.word === 'starting' ? 'run' : 'last run';
@@ -480,7 +497,7 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     : '';
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
   return `<div class="wfx-run${cls}" role="status"><div class="wfx-run-head"><span class="wfx-run-label">${esc(head)}</span> <strong class="wfx-run-job">${esc(r.job)}</strong> <span class="wfx-run-what">${esc(what)}</span> ${wordHtml(r.word)}</div>`
-    + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
+    + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${sealedBlocks ? `<p class="meta wfx-run-blocks">${esc(sealedBlocks)}</p>` : ''}${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
     + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
 }
 
@@ -621,6 +638,7 @@ function lastHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit
     : r.receipt ? `<p class="meta">${esc('Its sealed outcome names no output file.')}</p>` : '';
   const facts = [
     `${r.target}${r.order.length > 1 ? ` (${arrow(r.order)})` : ''}`, `started ${stamp(r.startedAt)}`,
+    at.receipt ? blockReceiptWords(n.name, at.receipt) : '', // R4 (H74)
     r.receipt ? `outcome receipt ${r.receipt}` : '', r.met === undefined ? '' : r.met ? 'prediction met' : 'prediction missed',
     r.docSha256 && w.sha256 && r.docSha256 !== w.sha256 ? `it ran an earlier version of ${w.rel} (sha256 ${r.docSha256.slice(0, 12)})` : '',
   ].filter(Boolean).join(' · ');
@@ -650,7 +668,13 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
     : '';
   const live = c.runs.find((r) => r.job === c.latest && (r.word === 'running' || r.word === 'starting'));
   const busy = live && k.live ? `<p class="meta">${esc(`${live.job} is running now (${live.target}); another run starts beside it.`)}</p>` : '';
-  return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
+  // R4 (H74): NEEDS YOU before a risky block: asked in the REPL's box, once, before anything runs; the board cannot show it
+  // (wf-needs-you: the block editor's .wf-needs is its row of dependencies, src/repl/board-edits.ts)
+  const first = (code: string): string => code.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const needs = n.risky.length
+    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.' : ''}`)}</p>`
+    : '';
+  return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${needs}${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
 }
 
 /** The command: editable on the live board (the existing save-workflow edit), else as text. */
@@ -737,7 +761,8 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
     const n = c.nodes[i];
     const needs = b.deps.length ? `needs ${b.deps.join(', ')}` : '';
     const r = runOf2(c, n.run);
-    const last = r ? `${n.word}${n.detail ? ` ${n.detail}` : ''}${o.sep}${r.job}${r.endedAt ? ` ${stamp(r.endedAt)}` : ` started ${stamp(r.startedAt)}`}${r.receipt ? `${o.sep}receipt ${r.receipt}` : ''}` : 'not run yet';
+    const own = r?.blocks.find((x) => x.name === b.name)?.receipt; // R4 (H74): the block's own receipt
+    const last = r ? `${n.word}${n.detail ? ` ${n.detail}` : ''}${o.sep}${r.job}${r.endedAt ? ` ${stamp(r.endedAt)}` : ` started ${stamp(r.startedAt)}`}${r.receipt ? `${o.sep}receipt ${r.receipt}` : ''}${own ? `${o.sep}${blockReceiptWords(b.name, own)}` : ''}` : 'not run yet';
     const role: Segment['role'] = n.word === 'failed' ? 'failure' : n.word === 'interrupted' || n.word === 'running' || n.word === 'stopped' ? 'estimate' : undefined;
     lines.push([{ text: `   ${String(b.index ?? '').padStart(2)} ${b.name.padEnd(width)}` }, { text: `${(b.lang ?? '').padEnd(6)}${needs ? ` ${needs}` : ''}`, role: 'secondary' }, { text: `  ${NODE_GLYPH[n.word]} `, role }, { text: last, role: role ?? 'secondary' }]);
     for (const p of n.params) {
@@ -785,11 +810,12 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
  * read as the card reads it (src/workflows/run-blocks.ts): its state, exit code and own time where the card shows one, and
  * who saw its end when Timmy did not; a block not seen says why. Before, /jobs listed only the steps it had seen.
  */
-export function jobBlockLines(j: JobRecord, order: readonly string[], o: { glyphs: { ok: string; fail: string; bullet: string }; clock?: (i: number) => number | undefined }): Line[] {
-  return runBlocks(j, order, o.clock).map((b): Line => {
+export function jobBlockLines(j: JobRecord, order: readonly string[], o: { glyphs: { ok: string; fail: string; bullet: string }; clock?: (i: number) => number | undefined; receipts?: ReadonlyMap<string, BlockReceipt> }): Line[] {
+  return runBlocks(j, order, o.clock, o.receipts).map((b): Line => {
     const mark = b.word === 'completed' ? o.glyphs.ok : b.word === 'failed' ? o.glyphs.fail : o.glyphs.bullet;
     const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}` : b.word;
-    const said = [word, blockDetail(b, { seen: 'long' })].filter(Boolean).join(' · ');
+    // R4 (H74): its own receipt, once sealed
+    const said = [word, blockDetail(b, { seen: 'long' }), b.receipt ? `receipt ${b.receipt}` : ''].filter(Boolean).join(' · ');
     const role: Segment['role'] = b.word === 'failed' ? 'failure' : b.word === 'interrupted' || b.word === 'stopped' || b.word === 'not seen' ? 'estimate' : 'secondary';
     return [{ text: `      ${mark} ${b.name}`, ...(b.word === 'failed' ? { role: 'failure' as const } : {}) }, { text: said ? `  ${said}` : '', role }];
   });
@@ -1074,6 +1100,8 @@ export const WORKFLOWS_CSS = `
 .wfx-run-label { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .wfx-run-say, .wf-say { font-size: ${TYPE.size.small}px; color: ${HOMEBREW.text}; overflow-wrap: anywhere; margin: 0; }
 .wf-note { color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; margin: 0; }
+.wf-needs-you { color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; margin: 0; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; overflow-wrap: anywhere; }
+.wf-needs-you strong { color: ${HOMEBREW.attention}; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-right: 4px; }
 .wf-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .wf-acts .act[disabled] { opacity: .5; cursor: not-allowed; }
 .act.act-stop { color: ${HOMEBREW.text}; background: ${HOMEBREW.raised}; border-color: ${HOMEBREW.failure}; }

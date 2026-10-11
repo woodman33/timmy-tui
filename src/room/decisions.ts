@@ -81,6 +81,8 @@ export interface Decision {
   operations?: string[];
   /** the run it is about (a flow, a job), when there is one */
   run?: string;
+  /** R4 (H74): what kind of wait it is in words, when its kind's own words do not fit (the board's refused Run) */
+  kindWords?: string;
   /** when (ms), for the order */
   at: number;
 }
@@ -164,6 +166,14 @@ function approvalItems(c: DecisionContext): Decision[] {
   return (c.approvals ?? []).map((a): Decision => {
     const summary = cleanLine(a.summary, c.scrub, 100);
     const keys = ['y: allow it once', ...(a.session ? ['a: allow it for this session'] : []), 'n, Esc or Enter: deny it'];
+    // R4 (H74): a wait with its own words (a workflow run whose blocks include a destructive shell command)
+    if (a.words) {
+      return {
+        key: `approval:${a.since}:${a.tool}`, kind: 'approval', blocks: true, title: cleanLine(a.words.title, c.scrub, 200), needed: cleanLine(a.words.needed, c.scrub, 300),
+        why: cleanLine(a.words.why, c.scrub, 900), ...(a.words.keys ? { keys } : {}), commands: a.words.commands.map((x) => cleanLine(x, c.scrub, 300)),
+        ...(a.words.kind ? { kindWords: cleanLine(a.words.kind, c.scrub, 60) } : {}), ...(a.operation ? { operation: a.operation } : {}), at: a.since,
+      };
+    }
     return {
       key: `approval:${a.since}:${a.tool}`, kind: 'approval', blocks: true,
       title: `NEEDS YOU: ${a.tool}${summary ? ` (${summary})` : ''}`,

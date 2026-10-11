@@ -26,6 +26,11 @@
  * REPL no longer followed it is recorded completed or failed as the wrapper saw it (did 'judged'). Without such a file (a run over a
  * pipe, a wrapper that was itself killed, a record from before), the blocks after the running one are 'not seen': its REPL
  * had ended, and upmd may have gone on until it ended.
+ *
+ * Round R4 (helper H74): once a run's record is ended, the block receipts it still needs are sealed (`blocks`, the
+ * Workspace's src/repl/workflow-blocks.ts sealLeftBlocks): the block that was running is sealed interrupted (its REPL ended),
+ * and each block whose end only its pty wrapper saw is sealed as the wrapper saw it; a block the REPL sealed before it ended
+ * is not sealed again, and a block that never started gets none. Each names the run's operation.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -53,6 +58,16 @@ export interface WorkflowRecoverDeps {
   settleMs?: number;
   /** test seam: the process table (recover.ts processTable) */
   table?: () => Proc[] | undefined;
+  /** R4 (H74): seals the block receipts a run ended here still needs, from its record as written; the receipts sealed */
+  blocks?: (job: JobRecord) => Array<{ name: string; receipt: string }>;
+}
+
+/** R4 (H74): the block receipts a run ended here still needs, sealed from its record as recovery wrote it, in words. */
+function sealBlocks(d: WorkflowRecoverDeps, recorded: JobRecord | undefined): string {
+  if (!recorded || !d.blocks) return '';
+  let sealed: Array<{ name: string; receipt: string }> = [];
+  try { sealed = d.blocks(recorded); } catch { sealed = []; }
+  return sealed.length ? `; ${sealed.map((b) => `block ${b.name}: receipt ${b.receipt}`).join(', ')}` : '';
 }
 
 /** After SIGKILL, how long the group is given to go (the job manager's own wait). */
@@ -175,9 +190,10 @@ function endGone(d: WorkflowRecoverDeps, job: JobRecord): RecoveryItem | undefin
   let recorded: JobRecord | undefined;
   try { recorded = d.jobs.endLeft?.(now.id, { state: 'failed', error, interrupted: { rest: 'not seen' } }); } catch { recorded = undefined; }
   if (!recorded) return { kind: 'workflow', id: now.id, did: 'failed', job: now.id, text: `${w.name} was interrupted ${at.words} (its REPL ended; its process is gone), but its job record could not be written: /jobs ${now.id} still shows it as it was left` };
+  const sealed = sealBlocks(d, recorded); // R4 (H74)
   return {
     kind: 'workflow', id: now.id, did: 'interrupted', job: now.id, state: recorded.state,
-    text: `${w.name} was interrupted ${at.words}: its REPL ended and its process is gone; its job record now says ${recorded.state}: ${d.scrub(error)}; nothing was run again: ${w.again} runs it again`,
+    text: `${w.name} was interrupted ${at.words}: its REPL ended and its process is gone; its job record now says ${recorded.state}: ${d.scrub(error)}${sealed}; nothing was run again: ${w.again} runs it again`,
   };
 }
 
@@ -207,7 +223,7 @@ function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, r
     const note = `its REPL did not see it end: ${did}${seen} (its wrapper's stop file)${also}`;
     const error = ok ? undefined : `upmd exited ${stop.exit} (seen by its pty wrapper, not by its REPL)`;
     try { recorded = d.jobs.endLeft?.(job.id, { state, note, steps: m.steps, ...(error ? { error } : {}) }); } catch { recorded = undefined; }
-    item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its REPL: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file` : 'its job record could not be written'}; nothing was run again` };
+    item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its REPL: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };
   } else {
     const at = m.running ? `while ${m.running} was running` : 'while no block was running';
     const after = unrecorded(job, m.steps);
@@ -222,7 +238,7 @@ function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, r
         interrupted: { ...(m.running ? { step: m.running } : {}), rest: m.rest, wrapper: m.account },
       });
     } catch { recorded = undefined; }
-    item = { did: 'interrupted', text: `${w.name} was interrupted ${at}: ${did}${seen}${rest}; ${recorded ? `its job record now says ${recorded.state}: ${d.scrub(error)}` : 'its job record could not be written'}; nothing was run again: ${w.again} runs it again` };
+    item = { did: 'interrupted', text: `${w.name} was interrupted ${at}: ${did}${seen}${rest}; ${recorded ? `its job record now says ${recorded.state}: ${d.scrub(error)}${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again: ${w.again} runs it again` };
   }
   if (!recorded) return { kind: 'workflow', id: job.id, did: 'failed', job: job.id, text: item.text };
   const unresolved = stop.left.length > 0 || recovery?.cleanup === 'unresolved';
@@ -272,6 +288,6 @@ async function stopLeftRun(d: WorkflowRecoverDeps, job: JobRecord): Promise<Reco
   return {
     kind: 'workflow', id: now.id, did: 'interrupted', job: now.id, stopped, ...(recorded ? { state: recorded.state } : {}), ...(gone ? {} : { attention: true }),
     text: `${w.name} was interrupted ${at.words}: its REPL ended and it still ran, so recovery stopped its process group ${pgid} (${n}) with ${signals.join(', then ')}`
-      + `${gone ? '' : `, and some of it did not stop: kill -KILL -- -${pgid}`}; ${recorded ? `its job record now says ${recorded.state}: ${d.scrub(error)}` : 'its job record could not be written'}; nothing was run again: ${w.again} runs it again`,
+      + `${gone ? '' : `, and some of it did not stop: kill -KILL -- -${pgid}`}; ${recorded ? `its job record now says ${recorded.state}: ${d.scrub(error)}${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again: ${w.again} runs it again`,
   };
 }

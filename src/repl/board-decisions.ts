@@ -21,7 +21,7 @@ export function decisionHtml(d: Decision, k: Kit): string {
     ...(d.steps ?? []).map((s) => `<dt>step</dt><dd><code class="dec-step">${esc(s)}</code></dd>`),
   ].join('');
   return `<li class="dec dec-${esc(d.kind)}${d.blocks ? ' dec-blocks' : ''}" data-decision="${esc(d.key)}">`
-    + `<div class="dec-head"><strong class="dec-title">${esc(d.title)}</strong> <span class="dec-kind">${esc(KIND_WORDS[d.kind])}</span></div>`
+    + `<div class="dec-head"><strong class="dec-title">${esc(d.title)}</strong> <span class="dec-kind">${esc(d.kindWords ?? KIND_WORDS[d.kind])}</span></div>`
     + `<dl class="dec-facts">${facts}</dl>${k.cmds(d.commands)}<p class="dec-nothing">${esc(NOTHING_DONE)}</p></li>`;
 }
 

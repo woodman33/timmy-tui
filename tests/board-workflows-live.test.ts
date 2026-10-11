@@ -243,7 +243,10 @@ describe('a run on the live board: the blocks\' states come from the run job\'s 
     expect(during).toMatch(/<span class="wf-chip-state">running<\/span>/);
     // when it ends: each block completed, with its exit and its own time; the run's sealed outcome
     const ended = await ws.jobs.done(job.id);
-    expect(ended.receipt).toBe('00000001');
+    // R4 (H74): the prediction, each block's receipt as it ended, then the run's own (which names them)
+    expect(sealed.map((r) => [r.kind, r.block?.name ?? null])).toEqual([['predict', null], ['workflow-block', 'setup'], ['workflow-block', 'build'], ['workflow-block', 'verify'], ['workflow', null]]);
+    expect(ended.receipt).toBe('00000004');
+    expect(sealed[4].child_receipts).toEqual(['00000001', '00000002', '00000003']);
     const after = (await state(port, token)).html;
     expect(nodeState(after, '1')).toMatch(/^✓ completed · exit 0 · (<0\.1 s|\d+\.\d s)$/);
     expect(nodeState(after, '2')).toMatch(/^✓ completed · exit 0 · (1\.[6-9]|[2-9]\.\d) s$/);
@@ -253,6 +256,8 @@ describe('a run on the live board: the blocks\' states come from the run job\'s 
     expect(outcome).toMatchObject({ job: { id: job.id, state: 'completed' }, prediction: { order: ['setup', 'build', 'verify'], met: true } });
     expect(after).toContain(`outcome receipt ${ended.receipt}`);
     expect(after).toContain('its sealed prediction was met');
+    // R4 (H74): the run bar names each block's own receipt
+    expect(after).toContain('<p class="meta wfx-run-blocks">block setup: receipt 00000001 · block build: receipt 00000002 · block verify: receipt 00000003</p>');
     // each block's last result names the run and the files it wrote (from the sealed outcome), as text on the live board
     expect(after).toContain('<span class="file">dist/out.txt</span> <span class="tier">as the run wrote it</span>');
     // the REPL says the same in text
