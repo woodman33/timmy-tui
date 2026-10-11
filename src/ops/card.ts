@@ -37,8 +37,12 @@ import { listNativeRuns, readNativeRecord } from '../native/index.js';
 import { MCP_CALL_ID, MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { flowClaims } from './outcome.js';
 import { listOperationRecords, operationRel, readOperationRecord, type OperationRecord } from './operations.js';
-import { runBlocks } from '../workflows/run-blocks.js'; // R4 (H67)
 import { blockReceiptsOf } from '../workflows/block-receipts.js'; // R4 (H74): each block's own receipt
+// R4 (H73): a workflow run's blocks counted once, as /jobs and the Control Room count them (it reads runBlocks, H67)
+import { blockCount } from '../workflows/block-count.js';
+// R4 (H73): each run as Timmy judged it (a record's judgement, never a process's exit), as the operation counts it
+import { jobJudgement, judgeIndex, judgeWords, outcomeMark, type JobMark, type JudgeIndex } from '../room/judge.js';
+import { runOutcome } from './outcome.js';
 import { OPERATION_ID } from './context.js';
 import { writerState } from './process-proof.js';
 
@@ -162,6 +166,8 @@ export interface OpIndex {
   natives: Map<string, string[]>;
   mcps: Map<string, string[]>;
   receipts: Map<string, Receipt[]>;
+  /** R4 (H73): what the project's records judged of its jobs (src/room/judge.ts), read once with the rest */
+  judged?: JudgeIndex;
 }
 
 export interface IndexContext {
@@ -231,7 +237,9 @@ export function buildIndex(c: IndexContext): OpIndex {
   }
   const receipts = new Map<string, Receipt[]>();
   for (const r of c.chain) if (r && r.project_id === c.projectId) push(receipts, str(r.operation_id), r);
-  return { root, chain: c.chain, scrub: c.scrub, records, unreadableRecords: listed.unreadable, jobs, flows, vox, agents, natives, mcps, receipts };
+  let judged: JudgeIndex | undefined;
+  try { judged = judgeIndex({ root, chain: c.chain, projectId: c.projectId, scrub: c.scrub }); } catch { judged = undefined; }
+  return { root, chain: c.chain, scrub: c.scrub, records, unreadableRecords: listed.unreadable, jobs, flows, vox, agents, natives, mcps, receipts, ...(judged ? { judged } : {}) };
 }
 
 /** Every operation the index knows of: by its record, or by the runs and receipts that name it (another process's). */
@@ -242,6 +250,10 @@ export function knownOperations(ix: OpIndex): string[] {
 }
 
 // ── the parts of a card ───────────────────────────────────────────────────────
+
+/** R4 (H73): a judged mark as a card's tone (unknown is attention: never ok, and not a failure). */
+const MARK_TONE: Readonly<Record<JobMark, CardTone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running' };
+const cutWords = (t: string, max: number): string => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
 
 const toneOf = (state: string): CardTone => (/^(running|starting|queued|ready)/.test(state) ? 'running'
   : /^(succeeded|completed|ok|matches|answered|verified|checked)/.test(state) ? 'ok'
@@ -338,14 +350,13 @@ function workflowParts(ix: OpIndex, id: string): CardWorkflow[] {
         : !predicted || typeof now !== 'string' ? { status: 'unverified', words: 'its sha256 could not be compared', receipt: shortReceipt(p) }
           : now === predicted ? { status: 'verified', words: `the document as it ran (sha256 ${short(now)}), as prediction receipt ${shortReceipt(p)} sealed it`, receipt: shortReceipt(p) }
             : { status: 'stale', words: `the document changed since it ran: sha256 ${short(now)} now, ${short(predicted)} when it ran (receipt ${shortReceipt(p)})`, receipt: shortReceipt(p) };
-    const order = p?.prediction?.order ?? [];
-    // R4 (H74): each block that ran with its own receipt
-    const own = blockReceiptsOf(ix.chain, j.id);
-    const steps: CardStep[] = j.steps.map((s) => ({ name: s.name, state: s.state, ...(s.code !== undefined ? { code: s.code } : {}), ...(own.get(s.name) ? { receipt: own.get(s.name)!.receipt } : {}) }));
-    // R4 (H67, r20): a block with no step reads as the workflow card reads it: "not run" only where that is known
-    const unseen = runBlocks(j, order);
-    for (const name of order) if (!steps.some((s) => s.name === name)) steps.push({ name, state: unseen.find((b) => b.name === name)?.word ?? 'not run' });
-    const state = j.stale ? `${j.state}; its process is gone` : j.state === 'cancelled' ? 'stopped' : j.state;
+    // R4 (H73): its blocks counted once, as /jobs and the Control Room count them: against the order the run was to run (its
+    // record's own, kept from its sealed prediction since H67; else this operation's prediction receipt), each block with
+    // runBlocks' word ("not run" only where that is known, H67) and its own receipt (H74); without an order, what was seen
+    const order = j.expected?.steps?.length ? j.expected.steps : p?.prediction?.order;
+    const count = blockCount(j, { ...(order ? { order } : {}), receipts: blockReceiptsOf(ix.chain, j.id) });
+    const steps: CardStep[] = count.blocks.map((b) => ({ name: b.name, state: b.word, ...(b.code !== undefined ? { code: b.code } : {}), ...(b.receipt ? { receipt: b.receipt } : {}) }));
+    const state = `${j.stale ? `${j.state}; its process is gone` : j.state === 'cancelled' ? 'stopped' : j.state} · ${count.words}`;
     return {
       doc, block, job: j.id, state, tone: toneOf(state), steps, check,
       commands: [...(block ? [`/run ${doc} ${block}`] : []), `/workflows ${doc}`, `/jobs ${j.id}`],
@@ -513,11 +524,26 @@ function runParts(ix: OpIndex, id: string, rec: OperationRecord | undefined, flo
     const started = outcome ? undefined : readJson(ix.root, `${AGENTS_DIR}/${run}/run.json`);
     const interrupted = started?.ok && obj(started.value)?.state === 'interrupted';
     const state = outcome ?? (interrupted ? 'interrupted (no result was written)' : 'running or not finished');
-    add({ kind: 'agent', id: run, role: roleOf('agent'), state, tone: toneOf(outcome ?? (interrupted ? 'interrupted' : 'running')) });
+    // R4 (H73): its tone from Timmy's judgement: unknown (H69: an OpenHands run that finished after 0 steps) is not a failure
+    add({ kind: 'agent', id: run, role: roleOf('agent'), state, tone: outcome ? MARK_TONE[outcomeMark(outcome)] : toneOf(interrupted ? 'interrupted' : 'running') });
   }
-  for (const run of ix.natives.get(id) ?? []) add({ kind: 'native', id: run.slice(0, 8), role: roleOf('native'), state: 'native run', tone: 'neutral' });
+  // R4 (H73): a native run as its operation counts it (src/ops/outcome.ts runOutcome: its verdict; an Unreal run's readback;
+  // an Illustrator export Timmy's own reading finds different), with its verdict's words; it was "native run" before (u23)
+  for (const run of ix.natives.get(id) ?? []) {
+    let o: ReturnType<typeof runOutcome>;
+    try { o = runOutcome({ kind: 'native', id: run, at: '' }, ix.root, { get: (jid) => (ix.jobs.get(id) ?? []).find((x) => x.id === jid) }); } catch { o = { state: 'unknown', words: 'its record could not be read' }; }
+    const why = ix.judged?.byRun.get(run)?.why;
+    const state = `${o.words}${why && o.state !== 'succeeded' ? `: ${judgeWords(why, ix.scrub, 120)}` : ''}`;
+    add({ kind: 'native', id: run.slice(0, 8), role: roleOf('native'), state, tone: o.state === 'succeeded' ? 'ok' : o.state === 'failed' || o.state === 'differs' ? 'failed' : o.state === 'stopped' ? 'stopped' : o.state === 'running' ? 'running' : 'attention' });
+  }
   for (const j of ix.jobs.get(id) ?? []) {
     if (claimed.has(`job:${j.id}`)) continue;
+    // R4 (H73): a job a record judges reads as it was judged (src/room/judge.ts); one its own end judges, as before
+    const judged = jobJudgement(j, ix.judged);
+    if (judged.by === 'record' && judged.mark !== 'running') {
+      add({ kind: 'job', id: j.id, role: roleOf('job', j.label), state: `${judged.word}${judged.why ? `: ${cutWords(judged.why, 120)}` : ''}`, tone: MARK_TONE[judged.mark] });
+      continue;
+    }
     const state = j.stale ? `${j.state}; its process is gone` : j.state === 'cancelled' ? 'stopped' : j.state;
     add({ kind: j.kind === 'workflow' ? 'workflow run' : 'job', id: j.id, role: j.kind === 'workflow' ? 'role not recorded (a workflow run: its blocks act)' : roleOf('job', j.label), state, tone: toneOf(state) });
   }

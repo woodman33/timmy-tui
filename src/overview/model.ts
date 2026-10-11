@@ -9,8 +9,9 @@
  *   and the typed command that opens it; most also name the board section that already shows them;
  * - a run is `running` only when that is proven by a live process; one whose owner process is gone is `left` (it still
  *   runs, and the Timmy that started it has ended) or `stale` (its own process is gone too), never running;
- * - a cost is a reported number, null when a request went out and no cost came back (unknown), or absent when no cost is
- *   recorded; an unknown cost is never summed as 0;
+ * - a cost is a reported number, null when a request went out and no cost came back (unknown), or absent when Timmy sent
+ *   no request (R4, H73: the Control Room's reading; a chat turn whose receipt records no cost asked a model, so it is null);
+ *   an unknown cost is never summed as 0;
  * - counts say what they count, and every list is bounded, its rest counted (`more`).
  */
 import type { DecisionKind } from '../room/decisions.js';
@@ -50,7 +51,7 @@ export type Life = 'running' | 'left' | 'stale' | 'ended' | 'unknown';
 /** A count and what it counts, in words. */
 export interface Count { n: number; of: string }
 
-/** A cost as recorded: a reported number (known, or free on a local endpoint), or null when unknown. Absent: none recorded. */
+/** A cost as recorded: a reported number (known, or free on a local endpoint), or null when unknown. Absent: no request went out. */
 export interface OverviewCost {
   kind: 'known' | 'free' | 'unknown';
   usd: number | null;

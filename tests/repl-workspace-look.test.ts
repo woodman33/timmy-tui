@@ -283,7 +283,8 @@ describe('/observe with a question', () => {
     const id = started.job.id;
     await api.sent;
     const jobs = text(ws.jobsView(''));
-    expect(jobs).toMatch(new RegExp(`${id}\\s+completed\\s+look refs/card\\.png`));
+    // R4 (H73): its observe receipt judges it, and is sealed once the model's answer ends: until then it reads measured
+    expect(jobs).toMatch(new RegExp(`${id}\\s+measured\\s+look refs/card\\.png`));
     expect(jobs).toMatch(/measured; interpreting with anthropic\/claude-haiku-4\.5/);
     expect(text(ws.jobsView(id))).toMatch(/measured; interpreting with anthropic\/claude-haiku-4\.5/);
     expect(notes.join('\n')).toMatch(new RegExp(`${id} measured.*interpreting with anthropic/claude-haiku-4\\.5`));
