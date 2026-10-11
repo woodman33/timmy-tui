@@ -453,6 +453,33 @@ describe('Pro cancelled: everything retained, nothing deleted, every domain deci
   });
 });
 
+describe('Pro cancelled, then later', () => {
+  it('a domain whose registration ended with no decision is named as such; nothing lapses silently', async () => {
+    let offsetMs = 0;
+    stack = await startStack({ clock: () => new Date(Date.now() + offsetMs) });
+    const a = await newCustomer(stack);
+    await ownDomain(stack, a, 'undecided.example');
+    await stack.op('POST', '/v1/operator/billing-notices', { notice_id: 'c1', customer_id: a.id, state: 'canceled' });
+    offsetMs = 400 * 86_400_000;
+    const item = (await stack.op('GET', '/v1/operator/overview')).json.needs_person.find((n: any) => n.kind === 'domain_decision');
+    expect(item.reason).toMatch(/its registration ended on .* with no decision\. The backend never lets a domain lapse without a person's decision\./);
+    expect((await a.get('/v1/resources')).json.resources[0].state).toBe('retained');
+  });
+
+  it('billing saying active again ends the retention and closes the open items', async () => {
+    stack = await startStack();
+    const a = await newCustomer(stack);
+    await ownDomain(stack, a, 'back.example');
+    await stack.op('POST', '/v1/operator/billing-notices', { notice_id: 'c1', customer_id: a.id, state: 'canceled' });
+    expect((await stack.op('GET', '/v1/operator/overview')).json.needs_person.map((n: any) => n.kind)).toEqual(['domain_decision']);
+    const back = await stack.op('POST', '/v1/operator/billing-notices', { notice_id: 'c2', customer_id: a.id, state: 'active' });
+    expect(back.json.subscription.state).toBe('active');
+    expect((await a.get('/v1/resources')).json.resources.map((r: any) => [r.state, r.retained])).toEqual([['active', null]]);
+    expect((await stack.op('GET', '/v1/operator/overview')).json.needs_person).toEqual([]);
+    expect((await a.order({ kind: 'vps', item_id: VPS_ITEM }, 'again')).status).toBe(201);
+  });
+});
+
 describe('the overview', () => {
   it('counts every step\'s states exactly as the orders themselves report them', async () => {
     stack = await startStack();
