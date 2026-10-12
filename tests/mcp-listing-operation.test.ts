@@ -95,3 +95,36 @@ describe('/mcp tools through `timmy act` and the REPL (real SDK route, the MCP s
     expect(card).not.toContain('started nothing');
   }, 180_000);
 });
+
+describe('a server\'s own words in the operation record (R4 H99, the review: they were kept scrubbed for addresses only)', () => {
+  it('its stderr line is kept as Timmy keeps any text from outside: no escapes, no key or token, no home folder, addresses in their safe form', async () => {
+    const s = sandbox(kit, 'mcp-listing-leak-');
+    // a FAKE MCP server: it says an error with secrets in it on stderr (FAKE values, none real) and exits, answering nothing
+    const token = `ghp_${'A1b2C3d4'.repeat(5)}`;
+    const key = `sk-${'q9W8e7R6t5'.repeat(3)}`;
+    fs.writeFileSync(path.join(s.root, 'leaky-server.mjs'), [
+      '// a FAKE MCP server (a TEST DOUBLE): one error line on stderr, then it exits; nothing it says is a real secret',
+      `process.stderr.write('\\u001b[31mError: login failed for token ${token} with key ${key}; see ${s.home}/.config/leaky/config.json and https://auth.example.invalid/start?session=abcdef1234567890\\u001b[0m\\n');`,
+      'process.exit(3);',
+    ].join('\n'));
+    const run = await act(kit, s, [`/mcp tools --route sdk -- ${NODE} leaky-server.mjs`, '--json']).done;
+    expect(run.code, run.stdout + run.stderr).toBe(1);
+    const j = lastJson(run.stdout);
+    const rec = readOperationRecord(s.root, String(j.operation));
+    expect(rec.ok).toBe(true);
+    const kept = JSON.stringify(rec.ok ? rec.record : {});
+    const ended = String((rec.ok ? rec.record.processes : [])[0]?.ended ?? '');
+    // the server's own line is there, as its words
+    expect(ended).toContain('Error: login failed for token');
+    // and none of what must not be kept: the token, the key, the home folder, the escape sequences, the address's secret
+    for (const secret of [token, key, s.home, '\u001b', 'abcdef1234567890']) expect(kept, secret).not.toContain(secret);
+    expect(ended).toContain('[REDACTED_GITHUB_TOKEN]');
+    expect(ended).toContain('[REDACTED_API_KEY]');
+    expect(ended).toContain('~/.config/leaky/config.json');
+    expect(ended).toContain('https://auth.example.invalid/start');
+    // `timmy act`'s own words for it, and the lines it shows, say the same
+    for (const secret of [token, key, '\u001b', 'abcdef1234567890']) expect(JSON.stringify(j), secret).not.toContain(secret);
+    expect(JSON.stringify(j.lines)).toContain('Error: login failed for token [REDACTED_GITHUB_TOKEN] with key [REDACTED_API_KEY]');
+    expect(ended).not.toContain('[0m');
+  }, 120_000);
+});
