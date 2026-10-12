@@ -30,6 +30,10 @@
  * Round R4 (helper H67, ledger row 162, r20): the wrapper is told its parent (`--parent`, the REPL's pid) and where to leave
  * its stop file (`--stop-file`, in the run's own folder: src/workflows/pty-stop.ts). It stops upmd at once when that parent
  * ends, and writes what it saw before it exits; a REPL's recovery reads that file (src/repl/workflow-recover.ts).
+ *
+ * Round R4 (helper H114): and where to write each block's start and end as it reads them (`--blocks-file`, beside the stop
+ * file), before it copies those lines on: a block's own time is the wrapper's reading, not when Timmy parsed the lines (see
+ * upmdLineParser).
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -37,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 import type { JobRecord, JobStep } from '../jobs/index.js';
 import { spawnProcess } from '../runtime/spawn-runtime.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
+import { readBlockMoments, type BlockMoments } from './pty-stop.js'; // R4 (H114)
 import { parseUpmdLine, stepsFromEvent, type WorkflowBlock } from './upmd.js';
 
 /** workers/upmd/pty_run.py at the package root (as src/flows/iterate.ts finds its readback worker). */
@@ -104,10 +109,12 @@ async function probe(python: string, script: string): Promise<PtyReady> {
  * The job that runs `upmd <upmdArgs>`: through the wrapper on a pty when `pty` is ready, else upmd itself over a pipe.
  * R4 (H67): `parent` is the process that starts the job (the REPL's: the wrapper stops upmd at once when it ends), and
  * `stopFile` where the wrapper writes what it saw before it exits (in the run's own folder); both are the wrapper's.
+ * R4 (H114): `blocksFile` where the wrapper writes each block's start and end as it reads them (src/workflows/pty-stop.ts
+ * runBlocksFile), for upmdLineParser's `blocksFile`.
  */
 export type UpmdJob = { command: string; args: string[]; live: true } | { command: string; args: string[]; live: false; why: string };
-export function upmdJob(bin: string, upmdArgs: string[], pty: PtyReady, o: { parent?: number; stopFile?: string } = {}): UpmdJob {
-  const options = [...(o.parent ? ['--parent', String(o.parent)] : []), ...(o.stopFile ? ['--stop-file', o.stopFile] : [])];
+export function upmdJob(bin: string, upmdArgs: string[], pty: PtyReady, o: { parent?: number; stopFile?: string; blocksFile?: string } = {}): UpmdJob {
+  const options = [...(o.parent ? ['--parent', String(o.parent)] : []), ...(o.stopFile ? ['--stop-file', o.stopFile] : []), ...(o.blocksFile ? ['--blocks-file', o.blocksFile] : [])];
   return pty.ok
     ? { command: pty.python, args: ['-I', pty.script, ...options, '--', bin, ...upmdArgs], live: true }
     : { command: bin, args: [...upmdArgs], live: false, why: pty.why };
@@ -168,10 +175,20 @@ export type LiveFormat = 'pty' | 'pipe';
  * the wrapper, 'pipe' for upmd's own pipe output. `blocks` are the document's blocks as /run read it; `now` stamps when a
  * block's start and end were seen (a pty run's only: on a pipe both arrive when the block ends). It changes `steps` in
  * place; see the module comment for what each line means.
+ *
+ * R4 (H114; the full suite at c56303c measured a block that sleeps 1.6 s as 1.5 s): `now` is when this parser reads a line,
+ * and the job manager parses a chunk's lines one by one, each step change first written and told to its listeners (the
+ * block before's receipt is sealed there, as that block ends): so the next block's start was stamped only after that seal,
+ * and a slow seal was taken off that block's own time. With `blocksFile` (the run's blocks file: the wrapper writes each
+ * block's start and end there as it reads them from upmd's terminal, before it copies those lines on), a block's start and
+ * end are the wrapper's moments, and `now` only where the file does not say.
  */
-export function upmdLineParser(blocks: readonly WorkflowBlock[], format: LiveFormat, now: () => Date = () => new Date()): (line: string, steps: JobStep[]) => void {
+export function upmdLineParser(blocks: readonly WorkflowBlock[], format: LiveFormat, now: () => Date = () => new Date(), o: { blocksFile?: string } = {}): (line: string, steps: JobStep[]) => void {
   if (format === 'pipe') return (line, steps) => { const ev = parseUpmdLine(line); if (ev) stepsFromEvent(steps, ev); };
   const stamp = (): string => now().toISOString();
+  /** R4 (H114): block n's start or end as the wrapper read it (its blocks file), else now */
+  const moment = (n: number | undefined, which: keyof BlockMoments): string =>
+    (n !== undefined && o.blocksFile ? readBlockMoments(o.blocksFile).get(n)?.[which] : undefined) ?? stamp();
   const latest = (steps: JobStep[], pred: (s: JobStep) => boolean): JobStep | undefined => { for (let i = steps.length - 1; i >= 0; i--) if (pred(steps[i])) return steps[i]; return undefined; };
   /** the step whose summary is being written (between `==> name [block n]` and the next block's lines) */
   let summary: JobStep | undefined;
@@ -193,7 +210,7 @@ export function upmdLineParser(blocks: readonly WorkflowBlock[], format: LiveFor
       const mapped = Number(head[2]) === blocks.length ? blocks[n - 1] : undefined;
       // upmd shows a block's needs, and only then, in brackets: a line that disagrees is not that block's header
       if (mapped && (head[4] !== undefined) !== (mapped.deps.length > 0)) return;
-      steps.push({ name: mapped?.name ?? `block ${n}`, index: n, state: 'running', startedAt: stamp() });
+      steps.push({ name: mapped?.name ?? `block ${n}`, index: n, state: 'running', startedAt: moment(n, 'startedAt') });
       return;
     }
     const sum = SUMMARY.exec(text);
@@ -216,13 +233,13 @@ export function upmdLineParser(blocks: readonly WorkflowBlock[], format: LiveFor
       const code = Number(end[1]);
       summary.code = code; // the summary's last such line is upmd's own (a block's output is written before it)
       if (summary.state === 'running' || summary.state === 'completed' || summary.state === 'failed') summary.state = code === 0 ? 'completed' : 'failed';
-      summary.endedAt ??= stamp();
+      summary.endedAt ??= moment(summary.index, 'endedAt');
       return;
     }
     const chain = CHAIN.exec(text);
     if (chain) {
       const step = latest(steps, (s) => s.index === Number(chain[1]));
-      if (step?.state === 'running') { step.state = 'failed'; step.endedAt ??= stamp(); }
+      if (step?.state === 'running') { step.state = 'failed'; step.endedAt ??= moment(step.index, 'endedAt'); }
       return;
     }
     const pipeEnd = PIPE_END.exec(text);

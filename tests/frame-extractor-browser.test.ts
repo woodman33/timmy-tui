@@ -46,7 +46,11 @@ describe.skipIf(!browserPath)('the Rive frame extractor in a real browser (R4 H9
   const launch = () => ({ launch: { executablePath: browserPath } });
 
   beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'h97-rive-')); });
-  afterEach(async () => { await x?.stop(); x = null; });
+  // R4 (H114; the suite at 86a10be: this hook timed out at 10 s, then the next test read `refused` of null): the extractor is
+  // taken off `x` before its stop is awaited, so a stop that ends after the hook's limit cannot clear the next test's. Its
+  // stop awaits Playwright's close of Chromium, which has no deadline of its own (tests/suite-causes-teardowns.test.ts says
+  // what was measured): 30 s for it under a loaded machine
+  afterEach(async () => { const was = x; x = null; await was?.stop(); }, 30_000);
   afterAll(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it('with no file named, downloads nothing and says so on the canvas; its frames are real PNGs of that canvas', async () => {

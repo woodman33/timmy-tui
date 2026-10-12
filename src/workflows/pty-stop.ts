@@ -15,6 +15,8 @@
  *                   after is 'not run' only when the file proves nothing more could start (the wrapper stopped every
  *                   process group of upmd's, or upmd had ended, or was never started), else 'not seen'.
  *   wrapperDid      what the wrapper did, in words
+ *   runBlocksFile   R4 (H114): the run's blocks file beside the stop file (`--blocks-file`), which the wrapper writes as it
+ *                   reads each block's start and end, before it copies those lines on; readBlockMoments reads its moments
  */
 import { randomBytes } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
@@ -121,6 +123,44 @@ function parseStop(raw: unknown): PtyStop | undefined {
     signals: r.stopped ? [...r.signals as string[]] : [], groups: r.stopped ? [...r.groups as number[]] : [], left: r.stopped ? [...r.left as number[]] : [],
     exit: r.exit as number | null, blocks,
   };
+}
+
+/**
+ * R4 (H114; the full suite at c56303c measured a block that sleeps 1.6 s as 1.5 s): the run's blocks file
+ * (workers/upmd/pty_run.py --blocks-file), in the run's own folder beside its stop file. The wrapper writes it each time it
+ * reads a block's start or end from upmd's terminal, before it copies those bytes on, so the moment a line was read is in
+ * the file before Timmy parses that line (src/workflows/upmd-live.ts upmdLineParser).
+ */
+export const PTY_BLOCKS_SCHEMA = 'timmy.pty-blocks/1';
+const BLOCKS_FILE = 'blocks.json';
+export const runBlocksFile = (stopFile: string): string => path.join(path.dirname(stopFile), BLOCKS_FILE);
+
+/** R4 (H114): a block's start and end, when the pty wrapper read them from upmd's terminal. */
+export interface BlockMoments { startedAt?: string; endedAt?: string }
+
+/**
+ * R4 (H114): the moments of a run's blocks file, by block number (a number's last entry, as the wrapper finds a block by its
+ * number). Empty when there is no such file yet or it is not one Timmy reads: a regular file of at most 64 KB, one JSON object
+ * of schema timmy.pty-blocks/1. An entry whose number is not a positive integer is left out, and a moment that is not a UTC
+ * stamp is not taken.
+ */
+export function readBlockMoments(file: string): Map<number, BlockMoments> {
+  const out = new Map<number, BlockMoments>();
+  try {
+    const st = lstatSync(file);
+    if (!st.isFile() || st.size > MAX_BYTES) return out;
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || (raw as Record<string, unknown>).schema !== PTY_BLOCKS_SCHEMA) return out;
+    const blocks = (raw as Record<string, unknown>).blocks;
+    if (!Array.isArray(blocks)) return out;
+    for (const b of blocks.slice(0, 1000) as unknown[]) {
+      if (!b || typeof b !== 'object') continue;
+      const e = b as Record<string, unknown>;
+      if (!int(e.n) || e.n < 1) continue;
+      out.set(e.n, { ...(stamp(e.started_at) ? { startedAt: e.started_at } : {}), ...(stamp(e.ended_at) ? { endedAt: e.ended_at } : {}) });
+    }
+  } catch { /* no file yet, or not JSON: no moments from it */ }
+  return out;
 }
 
 /** What a merge of the job's steps with the wrapper's stop file says (see the module comment). */

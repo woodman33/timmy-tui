@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """timmy-pty-run: one command run on a pseudo-terminal of its own, the terminal's bytes copied to stdout as they come.
 
-Usage: pty_run.py [--parent <pid>] [--stop-file <path>] -- <command> [<arg> ...]
+Usage: pty_run.py [--parent <pid>] [--stop-file <path>] [--blocks-file <path>] -- <command> [<arg> ...]
 
 Round R4 (helper H58, ledger row 157): with its output a pipe, upmd 0.2.7 writes a block's start line, its output and
 its end line all at once, when the block ends; on a terminal it draws each block as it starts and its output as it
@@ -51,6 +51,17 @@ before it did. So:
   file when the REPL that started the run has ended (src/repl/workflow-recover.ts): it is what this process saw that the
   REPL could not.
 
+Round R4 (helper H114; the full suite at c56303c measured a block that sleeps 1.6 s as 1.5 s): Timmy stamped a block's start
+and end when it parsed their lines, and between two lines it does other work first (the block before's receipt is sealed as
+that block ends, before the next block's start line is parsed), so a slow seal was taken off the next block's own time. So:
+- --blocks-file: each time this process takes a block's start or end moment (as above: when it reads that line from the
+  terminal), it writes every block it has seen so far to that file, as one JSON object (schema timmy.pty-blocks/1: each
+  block's number, count, name, state, exit code and the moments its start and end were read), mode 0600, through a
+  temporary file and a rename, before it copies the bytes that showed them to stdout. Whoever reads a block's line from
+  stdout therefore finds its moment in the file already: Timmy's parser takes a block's moments from it
+  (src/workflows/upmd-live.ts), and its own clock only where the file does not say. A file that cannot be written is said
+  once on stderr, and the run goes on (Timmy then times the blocks by its own reading, as before).
+
 Python 3.8 or later, standard library only; macOS and Linux.
 """
 import codecs
@@ -79,6 +90,8 @@ DRAIN_MAX = 2.0
 POLL = 0.05
 STOPS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 STOP_SCHEMA = 'timmy.pty-stop/1'
+# R4 (H114): the blocks file (--blocks-file), written as each block's start or end is read
+BLOCKS_SCHEMA = 'timmy.pty-blocks/1'
 # R4 (H107; r25 D5): the size the terminal is given (a new pty has none: 0 by 0); wide, so a long line is kept whole
 ROWS = 200
 COLUMNS = 1000
@@ -198,6 +211,8 @@ class Blocks:
         self.summary = None
         # set once a stop begins: [the block running then, or None]
         self.frozen = None
+        # R4 (H114): a block's start or end moment was taken since the blocks file was last written
+        self.marked = False
 
     def find(self, n):
         for b in reversed(self.seen):
@@ -224,6 +239,7 @@ class Blocks:
             b = {'n': n, 'count': int(m.group(2)), 'state': 'running', 'started_at': stamp()}
             self.seen.append(b)
             self.running = b
+            self.marked = True
             return
         m = SUMMARY.match(text)
         if m:
@@ -251,6 +267,7 @@ class Blocks:
             b.setdefault('ended_at', stamp())
             if b is self.running:
                 self.running = None
+            self.marked = True
             return
         m = CHAIN.match(text)
         if m and self.running is not None and self.running['n'] == int(m.group(1)):
@@ -259,6 +276,7 @@ class Blocks:
             b['chain'] = True
             b.setdefault('ended_at', stamp())
             self.running = None
+            self.marked = True
 
     def freeze(self):
         """A stop begins: the block running now is the one it stops."""
@@ -362,12 +380,15 @@ def send(groups, sig):
 
 
 class Run:
-    def __init__(self, cmd0, child, master):
+    def __init__(self, cmd0, child, master, blocks_file=None):
         self.cmd0 = cmd0
         self.child = child
         self.master = master
         self.out_ok = True
         self.blocks = Blocks()
+        # R4 (H114): where each block's moments are written as they are taken (--blocks-file), and whether a write failed
+        self.blocks_file = blocks_file
+        self.blocks_failed = False
         # what a stop did, for the stop file
         self.said = None
         self.signals = []
@@ -376,13 +397,27 @@ class Run:
         self.stopping_at = None
 
     def take(self, data):
-        """What the terminal gave: read for upmd's blocks, and copied to stdout while it can be written."""
+        """What the terminal gave: read for upmd's blocks, and copied to stdout while it can be written. R4 (H114): a block's
+        start or end moment taken from these bytes is written to the blocks file first, before the bytes are copied on."""
         self.blocks.feed(data)
+        if self.blocks.marked:
+            self.blocks.marked = False
+            self.write_blocks()
         if self.out_ok:
             try:
                 write_all(data)
             except OutputGone:
                 self.out_ok = False
+
+    def write_blocks(self):
+        """R4 (H114): every block seen so far, with the moments their starts and ends were read, to the blocks file."""
+        if not self.blocks_file or self.blocks_failed:
+            return
+        record = {'schema': BLOCKS_SCHEMA, 'wrapper_pid': os.getpid(), 'at': stamp(), 'blocks': self.blocks.report(False, None)}
+        why = write_json(self.blocks_file, record)
+        if why:
+            self.blocks_failed = True
+            say('its blocks file could not be written (%s): Timmy times the blocks by when it reads their lines' % why)
 
     def pump(self, timeout):
         """Copies what the terminal has to stdout; False once the terminal has ended."""
@@ -456,10 +491,8 @@ def end_by(sig, fallback):
     os._exit(fallback)
 
 
-def write_stop(path, record):
-    """The stop file: one JSON object, mode 0600, written through a temporary file and a rename. Nothing when no path."""
-    if not path:
-        return
+def write_json(path, record):
+    """One JSON object to `path`, mode 0600, through a temporary file and a rename; None, or why it could not be written."""
     data = (json.dumps(record, ensure_ascii=False) + '\n').encode('utf-8')
     temp = '%s.%d.tmp' % (path, os.getpid())
     try:
@@ -472,20 +505,31 @@ def write_stop(path, record):
         finally:
             os.close(fd)
         os.replace(temp, path)
+        return None
     except OSError as e:
-        say('its stop file could not be written: %s' % (e.strerror or e))
         try:
             os.unlink(temp)
         except OSError:
             pass
+        return '%s' % (e.strerror or e)
+
+
+def write_stop(path, record):
+    """The stop file: one JSON object, mode 0600, written through a temporary file and a rename. Nothing when no path."""
+    if not path:
+        return
+    why = write_json(path, record)
+    if why:
+        say('its stop file could not be written: %s' % why)
 
 
 def parse_args(argv):
-    """(options, command) or None on a usage error: --parent <pid> and --stop-file <path>, each at most once, then --."""
-    opts = {'parent': None, 'stop_file': None}
+    """(options, command) or None on a usage error: --parent <pid>, --stop-file <path> and --blocks-file <path>, each at
+    most once, then --."""
+    opts = {'parent': None, 'stop_file': None, 'blocks_file': None}
     i = 0
     while i < len(argv) and argv[i] != '--':
-        key = {'--parent': 'parent', '--stop-file': 'stop_file'}.get(argv[i])
+        key = {'--parent': 'parent', '--stop-file': 'stop_file', '--blocks-file': 'blocks_file'}.get(argv[i])
         if key is None or i + 1 >= len(argv) or opts[key] is not None:
             return None
         value = argv[i + 1]
@@ -505,7 +549,7 @@ def parse_args(argv):
 def main(argv):
     parsed = parse_args(argv)
     if parsed is None:
-        say('usage: pty_run.py [--parent <pid>] [--stop-file <path>] -- <command> [<arg> ...]')
+        say('usage: pty_run.py [--parent <pid>] [--stop-file <path>] [--blocks-file <path>] -- <command> [<arg> ...]')
         return 64
     opts, cmd = parsed
     stop_file = opts['stop_file']
@@ -565,7 +609,7 @@ def main(argv):
         return 127
     began = stamp()
     os.close(slave)
-    run = Run(cmd[0], child, master)
+    run = Run(cmd[0], child, master, opts['blocks_file'])
     say('%s runs as process %d, the leader of its own session, on a terminal of its own' % (os.path.basename(cmd[0]), child.pid))
 
     def stop_and_end(sig, why, end_sig):

@@ -20,6 +20,8 @@ FAKE_SDK_SIGNAL_IN_WRITE=1: the worker's protocol channel sends this process a S
 action line (a signal arriving while the worker writes a line).
 FAKE_SDK_OWN_HANDLER=1: the FAKE conversation installs a SIGTERM handler of its own as it is made, one that does nothing
 (an SDK that would swallow the signal).
+FAKE_SDK_SIGNAL_IN_STDERR=1 (round R4, H114): before the worker's main() runs, a line written to sys.stderr raises SIGTERM
+in this process halfway through (a signal handled while the main thread writes to stderr, as the SDK's logs do).
 FAKE_SDK_NATIVE_TOOL_CALLING=0 or 1: the FAKE LLM's own native_tool_calling setting (absent when unset).
 
 A FAKE litellm (round R4, H69), always put in place of the real one, so no test ever imports LiteLLM (whose import could
@@ -269,5 +271,34 @@ if os.environ.get("FAKE_SDK_SIGNAL_IN_WRITE") == "1":
             real.flush()
 
     worker._proto = Interrupting()
+
+if os.environ.get("FAKE_SDK_SIGNAL_IN_STDERR") == "1":
+    # R4 (H114): a SIGTERM handled while the main thread is inside a write to sys.stderr, as when the SDK or LiteLLM logs a
+    # line there (the worker sends fd 1 there too) as docker stop comes. sys.stderr becomes a stream over fd 2 whose first
+    # write raises the signal halfway: the worker's handler runs then, inside sys.stderr's buffered write.
+    import io
+
+    class SignalHalfway(io.RawIOBase):
+        """fd 2, whose first write raises SIGTERM in this process halfway through."""
+
+        def __init__(self):
+            self.sent = False
+
+        def writable(self):
+            return True
+
+        def write(self, b):
+            data = bytes(b)
+            if self.sent:
+                return os.write(2, data)
+            self.sent = True
+            half = len(data) // 2
+            os.write(2, data[:half])
+            signal.raise_signal(signal.SIGTERM)  # its handler runs now, inside this write
+            os.write(2, data[half:])
+            return len(data)
+
+    sys.stderr = io.TextIOWrapper(io.BufferedWriter(SignalHalfway()), encoding="utf-8", line_buffering=True)
+    sys.stderr.write("fake-openhands-sdk: a line on stderr, as the SDK logs one\n")
 
 worker.main()

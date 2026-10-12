@@ -94,6 +94,22 @@ describe('the OpenHands worker, stopped by a signal (python3, a FAKE SDK)', () =
     expect(w.err()).toContain('timmy_openhands: stopped (SIGTERM) before it read its task');
   }, 30_000);
 
+  /**
+   * R4 (H114; the full suite at 1ec5671 failed the test above): it signals the moment the FAKE SDK's line "the worker is
+   * loaded" reaches stderr, and the worker's handler then often ran while that write was still inside sys.stderr (1 of 30
+   * runs quiet, 24 of 30 with one busy core, measured): its words, written through the same sys.stderr, met
+   * "RuntimeError: reentrant call inside <_io.BufferedWriter name='<stderr>'>", which its note() swallowed, so it exited 143
+   * saying nothing. In a container the same happens when docker stop comes while the SDK or LiteLLM logs to stderr. Here
+   * the signal is raised inside a stderr write on purpose (FAKE_SDK_SIGNAL_IN_STDERR), every time.
+   */
+  it('a signal handled while it writes to stderr (FAKE: a stderr line raises SIGTERM halfway): its words still reach stderr, exit 143', async () => {
+    const w = runWorker('HANG a long task', { open: true, env: { FAKE_SDK_SIGNAL_IN_STDERR: '1' } });
+    expect(await w.exited).toEqual({ code: 143, signal: null });
+    expect(w.out()).toBe('');
+    expect(w.err()).toContain('timmy_openhands: stopped (SIGTERM) before it read its task');
+    expect(w.err()).not.toContain('Traceback');
+  }, 30_000);
+
   it('a run that finished keeps its own result: a signal after it is not a second result', async () => {
     const w = runWorker('a short task');
     expect(await w.exited).toEqual({ code: 0, signal: null });

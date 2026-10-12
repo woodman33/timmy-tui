@@ -249,9 +249,11 @@ describe('a run on the live board: the blocks\' states come from the run job\'s 
     expect(sealed[4].child_receipts).toEqual(['00000001', '00000002', '00000003']);
     const after = (await state(port, token)).html;
     expect(nodeState(after, '1')).toMatch(/^✓ completed · exit 0 · (<0\.1 s|\d+\.\d s)$/);
-    // build sleeps 1.6 s; its own time runs from Timmy seeing its start to seeing its end, and under load the start can be
-    // seen a little late (the full suite at 5aa422c measured 1.5 s): a lower bound of 1.3 s keeps the check without the race
-    expect(nodeState(after, '2')).toMatch(/^✓ completed · exit 0 · (1\.[3-9]|[2-9]\.\d) s$/);
+    // build sleeps 1.6 s. R4 (H114): its own time runs from the moment the pty wrapper read its start from upmd's terminal to
+    // the moment it read its end (the run's blocks file). The full suites at 5aa422c and c56303c measured 1.5 s: Timmy then
+    // stamped a start when it parsed the line, after the block before's receipt was sealed (tests/suite-causes-board-times
+    // .test.ts makes that seal slow on purpose); the bound relaxed to 1.3 s here is 1.6 s again
+    expect(nodeState(after, '2')).toMatch(/^✓ completed · exit 0 · (1\.[6-9]|[2-9]\.\d) s$/);
     expect(nodeState(after, '3')).toMatch(/^✓ completed · exit 0/);
     expect(after).not.toContain(`data-wf-stop="${job.id}"`);
     const outcome = sealed.find((r) => r.kind === 'workflow')!;
