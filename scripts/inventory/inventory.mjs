@@ -5,8 +5,10 @@
 //
 // Reads the repository (the files git tracks, or a walk where there is no work tree), every npm manifest and lockfile,
 // the Python manifests, the container files, the registries the code keeps and the feature checklist and ledger, and
-// writes three files: docs/ui-cockpit/INVENTORY.md (for people), docs/ui-cockpit/inventory/sbom.json (CycloneDX 1.5) and
-// docs/ui-cockpit/inventory/features.json (the feature ledger). With --out, the three go flat into that folder instead.
+// writes five files: docs/ui-cockpit/INVENTORY.md (for people), docs/ui-cockpit/inventory/sbom.json (CycloneDX 1.5),
+// docs/ui-cockpit/inventory/features.json (the feature ledger), and the capability matrix (round R4, H106's second part):
+// docs/ui-cockpit/CAPABILITY-MATRIX.md (for people) and docs/ui-cockpit/inventory/capabilities.json. With --out, the five
+// go flat into that folder instead.
 // The same inputs and --date give the same bytes. It reads only: nothing is installed, fetched, run or changed, apart
 // from read-only git commands. No absolute path of this computer reaches the output: a run whose output would carry one
 // writes nothing and exits 3.
@@ -16,6 +18,8 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { absolutePathProblems, areaOf, byString, gitFacts, listFiles, OUTPUTS, purlConda, purlDocker, purlGeneric, purlNpm, purlPypi, readJson, readText, scrubText, sortStrings, uniq } from './lib/common.mjs';
 import { PY_MODULES, readRegistries, scanEnvNames, scanJsImports, scanPrograms, scanPythonImports, scriptPrograms } from './lib/code.mjs';
+import { buildCapabilities, capabilityMatrixMd } from './lib/capabilities.mjs';
+import { readControls } from './lib/controls.mjs';
 import { buildLedger, generatedGap, generatedNext } from './lib/features.mjs';
 import { readNpmProject } from './lib/npm.mjs';
 import { excludedReason, packagingFacts, parseCompose, parseCondaExplicit, parseDockerfile, parsePyproject, parseRequirement, profileOf, readEnvLocks, splitImage } from './lib/other.mjs';
@@ -219,6 +223,7 @@ export function collect(o) {
   }
 
   const registries = readRegistries(root, files);
+  const controls = readControls(root, files, registries);
   const programs = scanPrograms(root, files);
   const envNames = scanEnvNames(root, files);
   const envLocks = readEnvLocks(root, files);
@@ -230,7 +235,7 @@ export function collect(o) {
   const overlay = overlayRead.ok ? overlayRead.value : null;
   const ledger = buildLedger(root, files, facts, overlay);
 
-  return { o, root, facts, files, how, rootNpm, rootPkg, others, excluded, imports, importFindings, directRows, python, containers, registries, programs, envNames, envLocks, packaging, overlay, overlayProblem: overlayRead.ok ? null : overlayRead.why, overlayGiven: Boolean(o.overlay), ledger };
+  return { o, root, facts, files, how, rootNpm, rootPkg, others, excluded, imports, importFindings, directRows, python, containers, registries, controls, programs, envNames, envLocks, packaging, overlay, overlayProblem: overlayRead.ok ? null : overlayRead.why, overlayGiven: Boolean(o.overlay), ledger };
 }
 
 // ------------------------------------------------------------------------------------------------------------- the SBOM
@@ -483,7 +488,7 @@ export function buildFeatures(c) {
     benefit: e.benefit ?? 'unknown (not assessed in this pass)',
     implemented: e.implemented, implementedRevisions: e.implementedRevisions,
     tested: e.tested, testedWithFakes: e.testedWithFakes, testFiles: e.testFiles,
-    demonstrated: e.demonstrated, scripted: e.scripted, demonstratedWhere: e.demonstratedWhere, demonstrationRows: e.demonstrationRows, rowsNamed: e.rowsNamed,
+    demonstrated: e.demonstrated, scripted: e.scripted, demonstratedWhere: e.demonstratedWhere, demonstrationRows: e.demonstrationRows, rowsNamed: e.rowsNamed, rehearsalsNamed: e.rehearsalsNamed,
     demonstrationRevisions: e.demonstrationRevisions, demonstrationProviders: e.demonstrationProviders,
     lastCodeChange: e.lastCodeChange, changedSinceDemonstration: e.changedSinceDemonstration,
     surfaces: e.surfacesJudged ?? e.surfaces, surfacesFrom: e.surfacesJudged ? 'overlay' : 'the checklist\'s words (a keyword match)',
@@ -536,7 +541,7 @@ function blockerGroups(features) {
   return { groups: groups.filter((g) => g.ids.length), none };
 }
 
-export function buildReport(c, sbom, feats) {
+export function buildReport(c, sbom, feats, caps) {
   const L = [];
   const p = (...xs) => L.push(...xs);
   const rn = c.rootNpm;
@@ -549,6 +554,10 @@ export function buildReport(c, sbom, feats) {
   p('# Timmy inventory: features and dependencies', '');
   p(`Date: ${c.o.date}. Pass ${ov.pass ?? 1}: **partial**, generated where possible. Source: ${rev}${c.facts?.changed ? `, with ${plural(c.facts.changed, 'tracked file')} changed and not committed` : ''}${c.facts?.shallow ? ' (a shallow clone: history before its first commit is not read)' : ''}; ${plural(c.files.length, 'file')} read (${c.how}).`, '');
   p('Generated by `node scripts/inventory/inventory.mjs --date ' + c.o.date + '`: every count, table and check below comes from the files, except the', 'judgement columns (user benefit, stage, gap, owner, next task), which come from the hand-kept', '`docs/ui-cockpit/inventory/overlay.json` and say so. Machine-readable: [`inventory/sbom.json`](inventory/sbom.json) (CycloneDX 1.5)', 'and [`inventory/features.json`](inventory/features.json). There is no single completion percentage here, on purpose.', '');
+  if (caps) {
+    const cn = caps.counts;
+    p('**The capability matrix** ([`CAPABILITY-MATRIX.md`](CAPABILITY-MATRIX.md), [`inventory/capabilities.json`](inventory/capabilities.json)) is made from', `this inventory: ${cn.capabilities} user-facing capabilities, each with its control paths checked against the code, its screen, renderer, backend and UI`, `status and their evidence revisions; ${cn.withoutPath} have no operation path, ${cn.backend['live-qualified on the Mac']} ran on the operator's Mac (backend), and visual and usability`, `acceptance stay the operator's (recorded for ${cn.accepted}). Read it first; this file is the complete inventory beneath it.`, '');
+  }
   p('Words used exactly: **named in code** (the code names it; whether that path runs is not decided here); **declared** (a manifest', 'lists it); **locked** (a lockfile pins its exact version); **installed** (present in the installed tree read here, on this', 'computer only); **imported** (a static import search finds it; "not imported" is not "unused"); **implemented, tested,', 'demonstrated** (the feature checklist\'s own marks, with its evidence); **qualified** and **deployed** are claimed for nothing', 'here: no qualification record or deployment was read. Unknown stays unknown.', '');
 
   // Scope and what is not reconciled.
@@ -701,7 +710,7 @@ export function buildReport(c, sbom, feats) {
     p(`### ${esc(s)}`, '');
     p('| Feature | Entry | Built · Tested | Demonstrated (where · with · rows · revisions) | Code since | Gap | Blocker | Stage · Owner · Next |', '|---|---|---|---|---|---|---|---|');
     for (const f of rows) {
-      const demo = f.demonstrated === 'no' ? 'no' : `${f.demonstrated}${f.scripted ? ', scripted' : ''} · ${f.demonstratedWhere.join(', ') || 'where unknown'}${f.demonstrationProviders.length ? ` · ${f.demonstrationProviders.slice(0, 4).join(', ')}` : ''}${f.demonstrationRows.length ? ` · rows ${f.demonstrationRows.join(', ')}` : ''}${f.demonstrationRevisions.length ? ` · ${f.demonstrationRevisions.map((r) => `${r.rev}${r.date ? ` (${r.date.slice(5)})` : ''}`).join(', ')}` : ''}`;
+      const demo = f.demonstrated === 'no' ? 'no' : `${f.demonstrated}${f.scripted ? ', scripted' : ''} · ${f.demonstratedWhere.join(', ') || 'where unknown'}${f.demonstrationProviders.length ? ` · ${f.demonstrationProviders.slice(0, 4).join(', ')}` : ''}${f.demonstrationRows.length ? ` · rows ${f.demonstrationRows.join(', ')}` : ''}${f.rehearsalsNamed?.length ? ` · ${f.rehearsalsNamed.join(', ')} (no ledger row yet)` : ''}${f.demonstrationRevisions.length ? ` · ${f.demonstrationRevisions.map((r) => `${r.rev}${r.date ? ` (${r.date.slice(5)})` : ''}`).join(', ')}` : ''}`;
       const since = f.changedSinceDemonstration.startsWith('yes') ? `changed: ${f.lastCodeChange.rev} (${f.lastCodeChange.date.slice(5)})${f.lastCodeChange.of === 'shared files only' ? ', shared files' : ''}` : f.changedSinceDemonstration.startsWith('no:') ? 'inside the demo' : f.changedSinceDemonstration === 'not demonstrated' ? '–' : 'unknown';
       const tested = `${f.tested}${f.testedWithFakes ? ' (fakes)' : ''}`;
       const name = `**${cut(f.feature, 110)}**${f.benefit && !f.benefit.startsWith('unknown') ? ` Benefit: ${cut(f.benefit, 120)}` : ''} <sub>${f.id}</sub>`;
@@ -808,10 +817,11 @@ export function generate(o) {
   const c = collect(o);
   const sbom = buildSbom(c);
   const feats = buildFeatures(c);
-  const report = buildReport(c, sbom, feats);
-  const out = { 'INVENTORY.md': report, 'sbom.json': stableJson(sbom), 'features.json': stableJson(feats) };
+  const caps = buildCapabilities(c);
+  const report = buildReport(c, sbom, feats, caps);
+  const out = { 'INVENTORY.md': report, 'sbom.json': stableJson(sbom), 'features.json': stableJson(feats), 'CAPABILITY-MATRIX.md': capabilityMatrixMd(caps, c), 'capabilities.json': stableJson(caps) };
   const problems = Object.entries(out).flatMap(([name, text]) => absolutePathProblems(text, o.root).map((p) => `${name}: ${p}`));
-  return { c, sbom, feats, out, problems };
+  return { c, sbom, feats, caps, out, problems };
 }
 
 function main() {
@@ -822,14 +832,13 @@ function main() {
   }
   if (o.help) { process.stdout.write('node scripts/inventory/inventory.mjs [--date YYYY-MM-DD] [--root <dir>] [--out <dir>] [--overlay <file>] [--no-installed]\n'); return; }
   if (o.overlay && !isAbsolute(o.overlay)) o.overlay = resolve(o.overlay);
-  const { c, sbom, feats, out, problems } = generate(o);
+  const { c, sbom, feats, caps, out, problems } = generate(o);
   if (problems.length) {
     process.stderr.write(`inventory: nothing written: the output would carry a local path:\n${problems.map((p) => `  ${p}`).join('\n')}\n`);
     process.exit(3);
   }
-  const targets = o.out
-    ? { 'INVENTORY.md': join(o.out, 'INVENTORY.md'), 'sbom.json': join(o.out, 'sbom.json'), 'features.json': join(o.out, 'features.json') }
-    : { 'INVENTORY.md': join(o.root, OUTPUTS[0]), 'sbom.json': join(o.root, OUTPUTS[1]), 'features.json': join(o.root, OUTPUTS[2]) };
+  const names = ['INVENTORY.md', 'sbom.json', 'features.json', 'CAPABILITY-MATRIX.md', 'capabilities.json'];
+  const targets = Object.fromEntries(names.map((n, i) => [n, o.out ? join(o.out, n) : join(o.root, OUTPUTS[i])]));
   for (const [name, path] of Object.entries(targets)) {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp-${process.pid}`;
@@ -837,7 +846,7 @@ function main() {
     renameSync(tmp, path);
   }
   const pk = c.rootNpm?.packages ?? [];
-  process.stdout.write(`inventory ${o.date}: ${pk.length} locked npm entries, ${c.others.length} other npm projects, ${c.python.imports.length} Python modules, ${sbom.components.length} SBOM components, ${sbom.services.length} services, ${feats.features.length} features; written ${o.out ? 'to the --out folder' : 'under docs/ui-cockpit'}\n`);
+  process.stdout.write(`inventory ${o.date}: ${pk.length} locked npm entries, ${c.others.length} other npm projects, ${c.python.imports.length} Python modules, ${sbom.components.length} SBOM components, ${sbom.services.length} services, ${feats.features.length} features, ${caps.counts.capabilities} capabilities (${caps.counts.withoutPath} without an operation path); written ${o.out ? 'to the --out folder' : 'under docs/ui-cockpit'}\n`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
