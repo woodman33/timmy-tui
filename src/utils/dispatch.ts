@@ -14,6 +14,22 @@ import { captureEnvLock, type EnvLock } from './envlock.js';
 import { harnessFields } from '../harness/policy.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
+
+/** R4 lead (2026-10-12): a shell word that holds `text` as it is: single-quoted, each ' inside written '\''. */
+export const shellWord = (text: string): string => `'${text.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * R4 lead (2026-10-12; found by H115 reading the Pi lane): a lane's one-shot command with its task in it, as the pane's shell
+ * gets it. Before, only " was escaped in the objective, so $(...), `...`, $VAR and \ in it (a dropped file's name, a page's
+ * request, a phrase) ran as shell code in the lane's pane. Where the template quotes its task ("{task}": a prompt), the task is
+ * one shell word holding the objective exactly; where it takes the task as words (paths and flags: `hyperframes render
+ * {task}`), each word is quoted so: words, never shell code.
+ */
+export function laneCommand(template: string, objective: string): string {
+  if (template.includes('"{task}"')) return template.replace('"{task}"', () => shellWord(objective));
+  const words = objective.trim().split(/\s+/).filter(Boolean).map(shellWord).join(' ');
+  return template.replace('{task}', () => words);
+}
 import { mcporterLaneServer, mcporterServerConfigured } from '../connectors/mcp-configured.js'; // R4 (H107; r25 D13)
 import { keySet } from './keys.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
@@ -263,8 +279,8 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
   }
   const runner = LANE_RUNNERS[s.plan.harnesses[0]];
   const session = `timmy-dp-${s.id}`;
-  const task = s.plan.objective.replace(/"/g, '\\"');
-  const cmd = (runner.task ?? `${runner.cmd} "{task}"`).replace('{task}', task);
+  // R4 lead (H115's finding): the objective reaches the shell as text, never as shell code (laneCommand)
+  const cmd = laneCommand(runner.task ?? `${runner.cmd} "{task}"`, s.plan.objective);
   tmux(['kill-session', '-t', session]);
   const ns = tmux(['new-session', '-d', '-s', session, '-c', iso.workdir!]);
   if (ns.status !== 0) {
@@ -276,7 +292,7 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
   // real harness (tests, demos). Isolation + approval gates still apply.
   const launchCmd = process.env.TIMMY_DISPATCH_DRYRUN === '1'
     ? `echo TIMMY_DISPATCH_DRYRUN ${s.id}; sleep 30`
-    : `cd ${JSON.stringify(iso.workdir)} && ${cmd}`;
+    : `cd ${shellWord(iso.workdir!)} && ${cmd}`;
   tmux(['send-keys', '-t', session, launchCmd, 'Enter']);
   s.session = session;
   s.lifecycle = 'running';
