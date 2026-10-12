@@ -6,7 +6,7 @@
 // and Ctrl+C ends it with 130. R4 (H98, journey-2): q never quits the monitor (on HOME it opens the companion's address):
 // on this screen it does nothing, and the footer says Esc and Ctrl+C quit.
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
@@ -119,6 +119,33 @@ describe('the monitor\'s FIRST RUN, answered (R4 H98)', () => {
         splash: true, stayed: true, exit: 130, line: true, top: true, footer: true, journey: true, lanes: true,
         cardAddress: true, qrDrawn: false, saved: ['the monitor', 'local'],
       });
+    } finally {
+      await h.dispose();
+    }
+  }, 120_000);
+
+  // R4 lead (suite 33): once in the full suite HOME was drawn one row low, the FIRST RUN's blank top row left above it. One row
+  // written to the terminal outside Ink's count while the FIRST RUN shows makes exactly that screen: Ink's erase then stops a
+  // row short. The switch to HOME now clears the screen and starts at its top. The stray row is written here on purpose.
+  it('a row written outside the monitor while the FIRST RUN shows does not push HOME down', async () => {
+    const h = monitorHome('first-run', { git: true });
+    const script = `sleep 0.5; ${process.execPath} --import ${LOADER} ${MONITOR} --companion-port ${await freePort()}; echo EXIT=$?; sleep 60`;
+    try {
+      h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '40', '-c', h.repo, 'bash', '--norc', '-c', script);
+      await h.waitFor(/One setup question has no answer yet: Chat model\./);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/question 1 of 1[\s\S]*Chat model/);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/Save these answers\?/);
+      await sleep(300);
+      // one row straight to the monitor's terminal, as any program writing to it would, outside what Ink counts
+      writeFileSync(h.tmux('display', '-p', '-t', 't', '#{pane_tty}').trim(), '\n');
+      await sleep(300);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/YOUR JOURNEY[\s\S]*NORMAL/);
+      await sleep(800); // the full HOME frame follows its first lines
+      const rows = h.tmux('capture-pane', '-p', '-t', 't').split('\n');
+      expect({ top: rows[0].slice(0, 6), second: rows[1].slice(0, 6) }).toEqual({ top: 'TIMMY ', second: '──────' });
     } finally {
       await h.dispose();
     }

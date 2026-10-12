@@ -84,7 +84,11 @@ describe.skipIf(process.platform === 'win32')('a recipe supervisor whose job fol
     // worker.log is the supervisor's stdout and stderr: an open descriptor still reads it after the folder is gone
     const log = fs.openSync(path.join(dir, 'worker.log'), 'r');
     try {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      // R4 lead (suite 33): the folder leaves its path at once (a rename), as a removal by another program would leave it.
+      // A recursive removal here raced the supervisor itself: its heartbeat makes a new heartbeat.json.<uuid> in the folder
+      // every 250 ms (lanes/recipes/jobs.ts atomic), so under a loaded suite one landed between the last unlink and the
+      // rmdir, five times over, and the test's own rmSync failed ENOTEMPTY before the supervisor was ever tested.
+      fs.renameSync(dir, `${dir}.gone`);
       await wait('the supervisor to exit', () => sup.closed, 15_000);
       await wait('the native process group to be gone', () => !groupLive(leader), 5_000);
       expect(groupLive(pid)).toBe(false);

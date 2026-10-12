@@ -90,6 +90,11 @@ function MonitorRoot({ columns, config, setup, intro }: { columns: number; confi
         try { apiKey = loadConfig().apiKey || apiKey; } catch { /* as before */ }
         setCfg({ ...(config as object), apiKey, onboarded: true });
         setLine(`Set up here: ${setupLine(readSetupState())}`);
+        // R4 lead (suite 33): HOME replaces the FIRST RUN from the top of the screen. Once in the full suite HOME was drawn
+        // one row low: one row was written outside Ink's count while the FIRST RUN was shown, so Ink's erase stopped a row
+        // short and the FIRST RUN's blank top row stayed above HOME (not caught again in 16 runs under load; the writer was
+        // not identified). The monitor owns this screen: the switch clears it and homes the cursor first, as a resize does.
+        if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[H');
         setPhase('shell');
       },
     });
