@@ -68,7 +68,7 @@ type Line = Segment[];
 /** A block's state, always in words. R4 (H67): 'not seen', a block after an ended REPL that nothing proves did not run
  *  (src/workflows/run-blocks.ts). */
 export type NodeWord = RunBlockWord | 'not run yet';
-export const NODE_GLYPH: Record<NodeWord, string> = { waiting: '○', running: '●', completed: '✓', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', 'not seen': '◌', 'not run yet': '·', unknown: '?' };
+export const NODE_GLYPH: Record<NodeWord, string> = { waiting: '○', running: '●', completed: '✓', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', 'not seen': '◌', 'not run yet': '·', unknown: '?', 'no change': '=' };
 /** The class a state word gives (colour and border only; the word and the glyph carry the meaning). */
 export const wordClass = (w: string): string => `wfs-${w.replace(/[^a-z]/g, '')}`;
 
@@ -344,7 +344,10 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   const live = !j.stale && !TERMINAL.has(j.state);
   // R4 (H58): ended by a later session's recovery because its session ended while it ran (src/jobs endLeft)
   const interrupted = j.stale || !!j.interrupted;
-  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : j.state;
+  // R4 (H99, r24): a run that stopped at a block whose own flows made no change reads "no change", never "failed"
+  const failedSteps = j.steps.filter((s) => s.state === 'failed');
+  const stillStop = j.state === 'failed' && failedSteps.length > 0 && failedSteps.every((s) => s.outcome === 'no change');
+  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop ? 'no change' : j.state;
   // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
   const pty = isLiveRun(j.args);
   // R4 (H67): each block's state, as /jobs reads it too (src/workflows/run-blocks.ts): 'not run' only where it is known
@@ -1142,7 +1145,7 @@ export const WORKFLOWS_CSS = `
 .wf-word strong { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
 .wf-word .wf-detail { color: ${HOMEBREW.textSecondary}; white-space: normal; }
 .wf-glyph { display: inline-block; min-width: 1em; text-align: center; font-weight: ${TYPE.weight.strong}; }
-.wfs-completed { color: ${HOMEBREW.text}; }
+.wfs-completed, .wfs-nochange { color: ${HOMEBREW.text}; } /* R4 (H99): no change, an outcome in the text colour */
 .wfs-running, .wfs-stopped, .wfs-interrupted, .wfs-notseen { color: ${HOMEBREW.attention}; }
 .wfs-failed { color: ${HOMEBREW.failure}; }
 .wfs-waiting, .wfs-notrun, .wfs-notrunyet, .wfs-unknown { color: ${HOMEBREW.textSecondary}; }
@@ -1197,7 +1200,7 @@ dl.wf-facts { font-size: ${TYPE.size.small}px; }
 .wf-node:focus-visible .wf-box, .wf-node:hover .wf-box { stroke: ${HOMEBREW.accent}; }
 .wf-node.wf-sel .wf-box { stroke: ${HOMEBREW.accent}; stroke-width: 2.5; }
 .wf-state { font-size: 11px; font-weight: ${TYPE.weight.strong}; letter-spacing: .03em; }
-.wf-state.wfs-completed { fill: ${HOMEBREW.text}; }
+.wf-state.wfs-completed, .wf-state.wfs-nochange { fill: ${HOMEBREW.text}; }
 .wf-state.wfs-running, .wf-state.wfs-stopped, .wf-state.wfs-interrupted, .wf-state.wfs-notseen { fill: ${HOMEBREW.attention}; }
 .wf-state.wfs-failed { fill: ${HOMEBREW.failure}; }
 .wf-state.wfs-waiting, .wf-state.wfs-notrun, .wf-state.wfs-notrunyet, .wf-state.wfs-unknown { fill: ${HOMEBREW.textSecondary}; }

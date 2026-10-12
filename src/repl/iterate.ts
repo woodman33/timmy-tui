@@ -44,9 +44,9 @@ import { cancel, status } from '../../lanes/recipes/jobs.js';
 import { projectId } from '../project/index.js';
 import { splitCommandLine } from '../connectors/mcp-cli.js';
 import {
-  compareReadback, diffText, DOCTRINE_15, FLOW_ID, FLOW_SCHEMA, flowRecordPath, flowWorkDir, iterateTask, judgeAgentChanges, listFlows, mm3Text, mmText,
-  newFlowId, paramDiff, parseReadbackOutput, READBACK_MAX_OUTPUT, READBACK_SCOPE, READBACK_SCRIPT, READBACK_TIMEOUT_MS, READBACK_TOLERANCE, STEP_EXPORT, toleranceText,
-  writeFlowRecord, writeProjectJson, type FlowOutcome, type FlowRecord, type FlowStep, type ReadbackFailure, type ReadbackMeasured,
+  compareReadback, diffText, DOCTRINE_15, FLOW_ID, FLOW_SCHEMA, flowFailed, flowMark, outcomeWhy, flowRecordPath, flowWorkDir, iterateTask, judgeAgentChanges, listFlows, mm3Text, mmText,
+  newFlowId, NO_CHANGE, noChangeWhy, paramDiff, parseReadbackOutput, READBACK_MAX_OUTPUT, READBACK_SCOPE, READBACK_SCRIPT, READBACK_TIMEOUT_MS, READBACK_TOLERANCE, STEP_EXPORT, toleranceText,
+  trayLastBuild, writeFlowRecord, writeProjectJson, type FlowOutcome, type FlowRecord, type FlowStep, type ReadbackFailure, type ReadbackMeasured,
 } from '../flows/iterate.js';
 import type { RecipeStarted } from './recipe.js';
 // R4 (H26): /iterate blender <script.py> "<instruction>", run by src/repl/iterate-blender.ts.
@@ -208,8 +208,10 @@ export function flowListRow(rel: string, record: FlowRecord, o: { glyphs: GlyphS
     const given: unknown = record.parameters?.diff;
     const diff = native || (given !== undefined && given !== null ? diffText(given, g.arrow) : blenderFlowSummary(record));
     const verdict = record.readback?.verdict ? `${o.sep}readback ${String(record.readback.verdict)}` : '';
-    return [{ text: `    ${ok ? g.ok : record.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : record.outcome === 'cancelled' ? undefined : 'failure' }, { text: record.id, role: 'strong' },
-      { text: `  ${String(record.outcome).padEnd(9)} ${diff}${verdict}${o.sep}${rel}`, role: 'secondary' }];
+    // R4 (H99): a flow that made no change says so (=), with the last build's state, never as a failure
+    const lb = record.outcome === NO_CHANGE && record.last_build && typeof record.last_build.state === 'string' ? `${o.sep}last build ${String(record.last_build.state)}` : '';
+    return [{ text: `    ${flowMark(record.outcome, g)} `, role: ok || !flowFailed(record.outcome) ? undefined : 'failure' }, { text: record.id, role: 'strong' },
+      { text: `  ${String(record.outcome).padEnd(9)} ${diff}${verdict}${lb}${o.sep}${rel}`, role: 'secondary' }];
   } catch (err) {
     const why = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 200);
     return [{ text: `    ${g.fail} `, role: 'failure' }, { text: `unreadable record: ${rel}`, role: 'failure' }, { text: ` (its row could not be made: ${why})`, role: 'secondary' }];
@@ -602,7 +604,8 @@ export class IterateFlows {
     const now = sha(text);
     const seen = judged.params === 'changed' ? judged.change?.sha256 ?? null : f.record.parameters.before.sha256;
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); nothing was built`);
-    if (judged.params === 'unchanged') return this.end(f, 'stopped', 'checks', 'the agent changed nothing; nothing was rebuilt');
+    // R4 (H99, r24): no change is its own outcome, with what a check of the last build's recorded inputs found.
+    if (judged.params === 'unchanged') return this.noChange(f, 'the agent changed nothing', f.record.parameters.before.values, kept);
     const parsed = parseParams(text);
     if (!parsed.ok) {
       f.record.parameters.invalid = { sha256: now, error: parsed.error };
@@ -611,9 +614,20 @@ export class IterateFlows {
     const diff = paramDiff(f.record.parameters.before.values, parsed.parameters);
     f.record.parameters.after = { sha256: now, values: parsed.parameters };
     f.record.parameters.diff = diff;
-    if (!diff.some((x) => x.changed)) return this.end(f, 'stopped', 'checks', `the agent rewrote ${rel} but changed no value; nothing was rebuilt`);
+    if (!diff.some((x) => x.changed)) return this.noChange(f, `the agent rewrote ${rel} but changed no value`, parsed.parameters, kept);
     this.note(f, `agent ${a.agent} ${a.run} completed: changed ${rel}${this.sep}${diffText(diff, this.d.glyphs.arrow)}`);
     this.saveState(f);
+  }
+
+  /**
+   * R4 (H99, r24): the flow made no change: it ends 'no change' (never succeeded: the requested change was not made), with
+   * what a check of the last build's recorded inputs against the parameter file's values found (src/flows/iterate.ts
+   * trayLastBuild): current, stale, none or unknown, in its words.
+   */
+  private noChange(f: FlowRun, what: string, values: Record<string, number>, kept: string): void {
+    const lb = trayLastBuild(f.root, values);
+    f.record.last_build = { ...lb, words: this.d.scrub(lb.words, f.root) };
+    this.end(f, NO_CHANGE, 'checks', noChangeWhy(what, f.record.last_build, kept));
   }
 
   private statusOf(f: FlowRun): { state: string; progress?: string; reason?: string; error?: string } {
@@ -793,12 +807,13 @@ export class IterateFlows {
     const r = rec.receipts;
     rec.child_receipts = [r.agent, r.prediction, r.build, r.readback].filter((x): x is string => typeof x === 'string');
     const w = writeFlowRecord(f.root, rec);
-    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
+    // R4 (H99): a flow that made no change is sealed with no status: neither ok (no change was made) nor failed
+    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : rec.outcome === NO_CHANGE ? undefined : 'failed' as const;
     const cost = rec.agent?.cost_usd;
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
-        kind: 'flow', subject: `flow · iterate · tray · ${f.id} · ${rec.outcome}`, policy: 'human-gated', status,
+        kind: 'flow', subject: `flow · iterate · tray · ${f.id} · ${rec.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
         project: f.project, project_id: projectId(f.root),
         prompt_hash: `sha256:${sha(rec.instruction)}`,
         ...(w.ok ? { outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }] } : { discrepancies: [`the flow record could not be written: ${this.d.scrub(w.error, f.root)}`] }),
@@ -820,10 +835,11 @@ export class IterateFlows {
   private endLines(f: FlowRun, file: string | undefined, receipt: string | undefined): Line[] {
     const g = this.d.glyphs;
     const rec = f.record;
-    const ok = rec.outcome === 'succeeded';
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
-    const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
-      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 (H99): no change is marked = and said in the text colour, never as a failure
+    const bad = flowFailed(rec.outcome);
+    const lines: Line[] = [[{ text: `  ${flowMark(rec.outcome, g)} `, role: bad ? 'failure' : undefined },
+      { text: `${f.id} ${rec.outcome}`, role: bad ? 'failure' : 'strong' }, { text: `: ${outcomeWhy(rec.outcome, rec.why)}${tail}`, role: 'secondary' }]];
     // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
     const unseen = notComparedText(rec.agent?.compared);
     if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);

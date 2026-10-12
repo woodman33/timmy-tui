@@ -35,8 +35,9 @@ export type OperationVia = 'repl' | 'board' | 'act' | 'md';
  * An operation's state, in words: running, then how it ended. R4 (H68): 'interrupted' is written only by a later session's
  * recovery (endLeftOperation), for an operation whose own process ended before it did; no run's result is claimed by it.
  */
-export type OperationState = 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'answered' | 'interrupted';
-export const OPERATION_STATES: readonly OperationState[] = ['running', 'succeeded', 'failed', 'differs', 'stopped', 'refused', 'answered', 'interrupted'];
+/** R4 (H99, r24): 'no change', a request whose runs made no change (an /iterate whose agent changed nothing). */
+export type OperationState = 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'answered' | 'interrupted' | 'no change';
+export const OPERATION_STATES: readonly OperationState[] = ['running', 'succeeded', 'failed', 'differs', 'stopped', 'refused', 'answered', 'interrupted', 'no change'];
 
 export interface OperationRun { kind: OperationRunKind; id: string; at: string }
 
@@ -64,9 +65,11 @@ export interface OperationRecord {
 
 /** How one run ended, by its own record: its state, a few words, and the runs its record names (as `kind:id`). */
 export interface RunOutcome {
-  state: 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'unknown';
+  state: 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'unknown' | 'no change';
   words: string;
   claims?: string[];
+  /** R4 (H99): with 'no change', whether its own check found the last build current (its record's last_build) */
+  current?: boolean;
 }
 
 // ── the records ───────────────────────────────────────────────────────────────
@@ -202,8 +205,9 @@ export interface OperationHandle {
   readonly started: string;
   /** the runs this process started under it, oldest first */
   readonly runs: OperationRun[];
-  /** set once this process's part of it has ended */
-  ended?: { at: string; state: OperationState; why: string };
+  /** set once this process's part of it has ended; R4 (H99): `current`, with 'no change', when every run that made no change
+   *  found the last build current (`timmy act` then exits 0, so the blocks that need it run on that build) */
+  ended?: { at: string; state: OperationState; why: string; current?: boolean };
   /** written to its record file in the project (never for a joined one) */
   recorded: boolean;
   /** how many receipts this process sealed under it */
@@ -224,11 +228,12 @@ interface Entry {
   waiters: Array<(h: OperationHandle) => void>;
 }
 
-/** The order an ended operation's state is decided in: the first state any of its runs has wins. */
-const PRECEDENCE: ReadonlyArray<RunOutcome['state']> = ['stopped', 'failed', 'unknown', 'differs', 'refused', 'succeeded'];
+/** The order an ended operation's state is decided in: the first state any of its runs has wins. R4 (H99): a run that made no
+ *  change ranks before a success, so a request whose change was not made never reads as succeeded. */
+const PRECEDENCE: ReadonlyArray<RunOutcome['state']> = ['stopped', 'failed', 'unknown', 'differs', 'refused', 'no change', 'succeeded'];
 
 /** An operation's state from how its runs ended (the runs another run's record names are counted with that run). */
-export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered'): { state: OperationState; why: string } {
+export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered'): { state: OperationState; why: string; current?: boolean } {
   const claimed = new Set(outcomes.flatMap((o) => o.out.claims ?? []));
   const decisive = outcomes.filter((o) => !claimed.has(`${o.run.kind}:${o.run.id}`));
   if (!decisive.length) return { state: answer, why: answer === 'refused' ? 'it started nothing: the request was refused' : 'it started nothing: the request was answered' };
@@ -238,6 +243,8 @@ export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome
   const state: OperationState = first === 'unknown' ? 'failed' : first;
   const words = decisive.map((o) => `${o.run.kind} ${o.run.id} ${o.out.words}`);
   const why = words.length > 6 ? `${words.slice(0, 6).join('; ')}; and ${words.length - 6} more` : words.join('; ');
+  // R4 (H99): no change is current only when every run that made no change found the last build current
+  if (state === 'no change') return { state, why, current: decisive.filter((o) => o.out.state === 'no change').every((o) => o.out.current === true) };
   return { state, why };
 }
 
@@ -371,9 +378,9 @@ export class OperationLog {
     this.later();
   }
 
-  private finish(e: Entry, end: { state: OperationState; why: string }): void {
+  private finish(e: Entry, end: { state: OperationState; why: string; current?: boolean }): void {
     const h = e.h;
-    h.ended = { at: new Date().toISOString(), state: end.state, why: end.why };
+    h.ended = { at: new Date().toISOString(), state: end.state, why: end.why, ...(end.current !== undefined ? { current: end.current } : {}) };
     if (h.recorded) this.persist(e);
     for (const w of e.waiters.splice(0)) w(h);
   }

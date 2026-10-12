@@ -415,18 +415,75 @@ describe('/iterate end to end (FAKE agent, FAKE recipe executor, FAKE readback)'
     expect(recipeJobs()).toEqual([]);
   }, 90000);
 
-  it('no change: "the agent changed nothing; nothing was rebuilt"', async () => {
+  // R4 (H99, r24): the agent changing nothing is its own outcome, "no change" (before: 'stopped', which every view read as a
+  // failure), with what a check of the last build's recorded inputs found.
+  it('no change with no build yet: outcome "no change", the last build none, no status on its receipt, nothing built', async () => {
     fs.mkdirSync(path.join(root, 'recipes'));
     fs.writeFileSync(path.join(root, PARAMS), '{"schema":"timmy.recipe-params/1","recipe":"enclosure.tray/1","parameters":{"width":150}}\n');
-    const { ws, sealed } = make();
+    const { ws, sealed, notes } = make();
     const out = text(await ws.iterate('tray "keep it as it is"'));
     expect(out).not.toContain('did not exist');
     const id = flowIdIn(out);
     await until(ended(sealed, id));
     const rec = recordOf(id);
-    expect(rec).toMatchObject({ outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; nothing was rebuilt', parameters: { created: false, before: { values: { width: 150 } } } });
+    expect(rec).toMatchObject({ outcome: 'no change', ended_in: 'checks', parameters: { created: false, before: { values: { width: 150 } } }, last_build: { state: 'none' } });
+    expect(rec.why).toMatch(/^no change: the agent changed nothing, so nothing was rebuilt; there is no build of the tray in this project yet: \/recipe tray builds it from recipes\/tray\.params\.json/);
     expect(recipeJobs()).toEqual([]);
+    // its receipt: neither ok nor failed
+    const receipt = sealed.find((r) => r.kind === 'flow' && String(r.subject).includes(id))!;
+    expect(receipt.subject).toBe(`flow · iterate · tray · ${id} · no change`);
+    expect(receipt.status).toBeUndefined();
+    // the notice: marked =, the outcome said once, never as a failure
+    expect(notes.join('\n')).toContain(`= ${id} no change: the agent changed nothing, so nothing was rebuilt; there is no build`);
+    expect(notes.join('\n')).not.toContain(`✖ ${id}`);
+    // /iterate's list says no change and the last build's state
+    expect(text(await ws.iterate(''))).toMatch(new RegExp(`= ${id}  no change .*last build none`));
   }, 90000);
+
+  it('no change after a build that still matches its recorded inputs: the last build current, named by its recipe job, nothing rebuilt', async () => {
+    const { ws, sealed } = make();
+    const first = flowIdIn(text(await ws.iterate('tray "make it 150 mm wide PARAM:width=150"')));
+    await until(ended(sealed, first));
+    expect(recordOf(first).outcome).toBe('succeeded');
+    const built = recordOf(first).rebuild!.operation!;
+    expect(recipeJobs()).toEqual([built]);
+    // r24: the same request again; the (FAKE) agent changes nothing
+    const id = flowIdIn(text(await ws.iterate('tray "make it 150 mm wide"')));
+    await until(ended(sealed, id));
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'no change', ended_in: 'checks', last_build: { state: 'current', build: { kind: 'recipe', id: built, outputs: `out/recipes/${built.slice(0, 8)}/` } } });
+    expect(rec.why).toContain(`no change: the agent changed nothing, so nothing was rebuilt; the last build (recipe job ${built.slice(0, 8)}`);
+    expect(rec.why).toContain('still matches its recorded inputs: its request is the parameter file\'s values (width 150, wall 3, supportOffset 10, bore 3)');
+    expect(rec.why).toContain(`its exports in out/recipes/${built.slice(0, 8)}/ are the bytes its signed result names`);
+    // every recorded input was compared: the request, each source the job recorded (by file name only), the exports
+    const checks = rec.last_build!.checks;
+    expect(checks[0]).toMatchObject({ what: 'the request (the parameter values it was built from)', same: true });
+    expect(checks.filter((c) => c.what.startsWith('source ')).length).toBeGreaterThanOrEqual(4);
+    expect(checks.every((c) => c.same)).toBe(true);
+    expect(JSON.stringify(rec.last_build)).not.toContain(fixtures);
+    noAbsolute(JSON.stringify(rec));
+    // nothing was built again, and the requested change is never reported as made
+    expect(recipeJobs()).toEqual([built]);
+    expect(rec.rebuild).toBeUndefined();
+    expect(rec.readback).toBeUndefined();
+  }, 120000);
+
+  it('no change while the parameter file no longer holds the values the last build was made from: the last build stale, with both values', async () => {
+    const { ws, sealed } = make();
+    const first = flowIdIn(text(await ws.iterate('tray "PARAM:width=150"')));
+    await until(ended(sealed, first));
+    const built = recordOf(first).rebuild!.operation!;
+    // edited by hand after the build, never rebuilt
+    fs.writeFileSync(path.join(root, PARAMS), '{"schema":"timmy.recipe-params/1","recipe":"enclosure.tray/1","parameters":{"width":160,"wall":3,"supportOffset":10,"bore":3}}\n');
+    const id = flowIdIn(text(await ws.iterate('tray "make it 160 mm wide"')));
+    await until(ended(sealed, id));
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'no change', last_build: { state: 'stale', build: { id: built } } });
+    expect(rec.why).toContain(`the last build (recipe job ${built.slice(0, 8)}`);
+    expect(rec.why).toContain('is stale: it was built from width 150, and the parameter file holds width 160 now; /recipe tray rebuilds it from the file');
+    expect(rec.last_build!.checks[0]).toMatchObject({ what: 'the request (the parameter values it was built from)', same: false });
+    expect(recipeJobs()).toEqual([built]);
+  }, 120000);
 
   it('the recipe job fails: the flow failed, the raw failure kept and named; no readback', async () => {
     const { ws, sealed } = make({ recipe: 'reported-failure' });

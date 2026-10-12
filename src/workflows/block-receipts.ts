@@ -24,7 +24,9 @@
  *                                so the code hashed is the code upmd was given; doc_at_end says whether the project's
  *                                document still holds them
  *   state, outcome               the step's state as Timmy read it (completed, failed, stopped, interrupted, running) and
- *                                the block's outcome: completed, failed, interrupted, unknown
+ *                                the block's outcome: completed, failed, interrupted, unknown; R4 (H99) no change, when the
+ *                                flows the block ran each made no change (no_change: those flows, the last build's state
+ *                                and their words; such a receipt has no status, as an unknown one)
  *   interrupted_by, stop_words   what cut it, and the stop's own words when they are known
  *   exit_code                    upmd's word for it ("exited with code N"); null when not seen
  *   started_at, ended_at, ms     when Timmy saw its start and end (a run on a pty only: over a pipe upmd prints both when the
@@ -47,7 +49,15 @@ import type { WorkflowBlock } from './upmd.js';
 /** The kind of a block's receipt on the runs chain. */
 export const BLOCK_RECEIPT_KIND = 'workflow-block';
 
-export type BlockOutcome = 'completed' | 'failed' | 'interrupted' | 'unknown';
+/** R4 (H99, r24): 'no change', a block whose own flows each made no change (blockOutcome). */
+export type BlockOutcome = 'completed' | 'failed' | 'interrupted' | 'unknown' | 'no change';
+
+/**
+ * R4 (H99, r24): the exit `timmy act` gives a request that made no change while the last build does not match its inputs
+ * now (stale, none or unknown), so upmd runs none of the blocks that need it; with the last build current it exits 0, and
+ * they run on that build (src/ops/act.ts).
+ */
+export const NO_CHANGE_EXIT = 4;
 export type BlockCut = 'stop' | 'time limit' | 'repl ended';
 export type DocAtEnd = 'unchanged' | 'changed' | 'gone' | 'unreadable';
 
@@ -91,6 +101,8 @@ export interface BlockFacts {
   /** how many more files were found than `files` names (src/workflows/block-files.ts BLOCK_FILES_MAX) */
   files_more?: number;
   files_checked: string;
+  /** R4 (H99): with outcome 'no change', its flows (each made no change) and their words, the last build's state among them */
+  no_change?: { flows: string[]; last_build: string | null; words: string };
 }
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
@@ -135,11 +147,29 @@ export function outcomeOf(s: Pick<JobStep, 'state'>): BlockOutcome {
 }
 
 /**
+ * R4 (H99, r24): a block's outcome from its step and the flows it ran (src/workflows/block-files.ts provenFiles): 'no change'
+ * when the block ran at least one flow, every one of them made no change, and the block ended as `timmy act` ends such a
+ * request (exit 0 with the last build current, or NO_CHANGE_EXIT); otherwise as outcomeOf says. Never from an exit alone.
+ */
+export function blockOutcome(s: Pick<JobStep, 'state' | 'code'>, flows: ReadonlyArray<{ outcome: string }> = []): BlockOutcome {
+  const ended = s.state === 'completed' || (s.state === 'failed' && s.code === NO_CHANGE_EXIT);
+  return ended && flows.length && flows.every((f) => f.outcome === 'no change') ? 'no change' : outcomeOf(s);
+}
+
+/** R4 (H99): what a block that made no change says, from its flows' own words: the first flow's, and how many there were. */
+export function noChangeWords(flows: ReadonlyArray<{ id: string; why?: string }>): string {
+  const first = flows[0];
+  const said = first?.why ? first.why.replace(/^no change: /, '') : 'its flow made no change';
+  return `${first ? `flow ${first.id}: ` : ''}${said}${flows.length > 1 ? ` (and ${flows.length - 1} more flow${flows.length === 2 ? '' : 's'} that made no change)` : ''}`;
+}
+
+/**
  * A block's receipt as sealed (see the module comment); `project` and `projectId` are the run's. R4 (H81): a block whose
  * outcome is unknown (upmd ended while it ran, and nothing stopped it) is sealed with no status: neither ok nor failed is
  * known of it; its words (the subject and block.outcome) say unknown.
  */
 export function blockReceiptInput(f: BlockFacts, o: { label: string; project: string; projectId: string; operation?: string }): ReceiptInput {
+  // R4 (H99): a block that made no change has no status either: neither ok (no change was made) nor failed
   const status = f.outcome === 'completed' ? 'ok' as const : f.outcome === 'failed' ? 'failed' as const : f.outcome === 'interrupted' ? 'cancelled' as const : undefined;
   return {
     kind: BLOCK_RECEIPT_KIND, subject: `workflow · block · ${o.label} · ${f.name} · ${f.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),

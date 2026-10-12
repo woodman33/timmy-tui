@@ -306,7 +306,9 @@ describe.skipIf(!python)('/iterate freecad end to end (FAKE agent, FAKE freecadc
     fs.copyFileSync(STARTER, path.join(root, 'plate.py'));
     const none = flowIdIn(text(await ws.iterate('freecad plate.py "keep it as it is"')));
     await until(ended(sealed, none));
-    expect(recordOf(none)).toMatchObject({ outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; FreeCAD did not run' });
+    // R4 (H99, r24): no change is its own outcome, with the last /freecad run checked (none here)
+    expect(recordOf(none)).toMatchObject({ outcome: 'no change', ended_in: 'checks', last_build: { state: 'none' } });
+    expect(recordOf(none).why).toMatch(/^no change: the agent changed nothing, so nothing was rebuilt; there is no FreeCAD run of plate\.py in this project yet: \/freecad plate\.py runs it/);
     expect(nativeRuns()).toEqual([]);
     expect(sealed.map((r) => r.kind)).toEqual(['agent', 'flow', 'agent', 'flow', 'agent', 'flow']);
   }, 120000);

@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
 import { AGENTS_DIR } from '../code-agents/index.js';
-import { flowRecordPath } from '../flows/iterate.js';
+import { flowRecordPath, NO_CHANGE } from '../flows/iterate.js';
 import { voxRecordPath } from '../vox/record.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { readNativeRecord } from '../native/index.js';
@@ -55,12 +55,21 @@ export function flowClaims(record: unknown): string[] {
   return [...out];
 }
 
-/** A flow's outcome as an operation counts it: succeeded; differs; failed (Timmy's checks stopped it, or it failed); stopped (/stop, interrupted). */
+/**
+ * A flow's outcome as an operation counts it: succeeded; differs; failed (Timmy's checks stopped it, or it failed); stopped
+ * (/stop, interrupted). R4 (H99, r24): no change (the agent changed nothing, so nothing was rebuilt), with the last build's
+ * state from the record's own check: `current` only when that check found it current.
+ */
 export function flowOutcome(record: unknown): RunOutcome {
   const r = obj(record) ?? {};
   const outcome = String(r.outcome ?? 'unknown');
   const verdict = str(obj(r.readback)?.verdict);
   const ended = str(r.ended_in);
+  if (outcome === NO_CHANGE) {
+    const lb = obj(r.last_build);
+    const said = str(lb?.words);
+    return { state: 'no change', words: `no change${said ? `: ${said}` : ': its record does not say whether the last build still matches'}`, claims: flowClaims(r), current: lb?.state === 'current' };
+  }
   const words = `${outcome}${verdict ? ` (readback ${verdict})` : ''}${outcome !== 'succeeded' && ended ? `, ended in its ${ended} step` : ''}`;
   const state: RunOutcome['state'] = outcome === 'succeeded' ? 'succeeded' : outcome === 'differs' ? 'differs'
     : outcome === 'cancelled' || outcome === 'interrupted' ? 'stopped' : outcome === 'running' ? 'running' : outcome === 'failed' || outcome === 'stopped' ? 'failed' : 'unknown';
@@ -78,10 +87,23 @@ export function voxOutcome(record: unknown): RunOutcome {
   return { state, words: status, claims };
 }
 
-/** A job's final state: completed, failed, stopped. */
+/**
+ * A job's final state: completed, failed, stopped. R4 (H99, r24): a /run whose failed blocks each made no change (their step
+ * says so: Timmy's block sealer read it from the flows the block ran, src/workflows/block-receipts.ts blockOutcome) stopped
+ * there with no change, never failed; one that completed says which blocks made no change.
+ */
 export function jobOutcome(j: JobRecord | undefined): RunOutcome {
   if (!j) return { state: 'unknown', words: 'its job record is not in this Timmy\'s jobs folder' };
   if (j.stale) return { state: 'stopped', words: `${j.state}; its process is gone` };
+  const still = j.kind === 'workflow' ? j.steps.filter((s) => s.outcome === NO_CHANGE) : [];
+  if (still.length) {
+    const named = still.map((s) => s.name).join(', ');
+    if (j.state === 'completed') return { state: 'succeeded', words: `completed; ${named}: no change` };
+    const failed = j.steps.filter((s) => s.state === 'failed');
+    if (j.state === 'failed' && failed.length && failed.every((s) => s.outcome === NO_CHANGE)) {
+      return { state: 'no change', words: `stopped at ${named}, which made no change${still[0].why ? `: ${still[0].why}` : ''}`, current: false };
+    }
+  }
   if (j.state === 'completed') return { state: 'succeeded', words: 'completed' };
   if (j.state === 'cancelled') return { state: 'stopped', words: 'stopped' };
   if (j.state === 'failed') return { state: 'failed', words: `failed${j.error ? `: ${j.error.slice(0, 160)}` : ''}` };

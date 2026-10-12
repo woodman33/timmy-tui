@@ -36,7 +36,8 @@ import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, 
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { blenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, readNativeResult, sha256File, type NativeJobSpec } from '../native/index.js';
 import { projectId, resolveInside } from '../project/index.js';
-import { DOCTRINE_15, FLOW_SCHEMA, flowRecordPath, flowWorkDir, newFlowId, writeProjectJson } from '../flows/iterate.js';
+import { DOCTRINE_15, FLOW_SCHEMA, flowFailed, flowMark, outcomeWhy, flowRecordPath, flowWorkDir, newFlowId, NO_CHANGE, noChangeWhy, writeProjectJson } from '../flows/iterate.js';
+import { nativeLastRun } from '../flows/iterate-native.js'; // R4 (H99)
 import {
   BLEND_READBACK_MAX_OUTPUT, BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, BLEND_READBACK_TIMEOUT_MS, blenderIterateTask, changeText, compareBlendReadback,
   differencesText, DIMENSIONS_SCOPE, dimensionsSummary, dimensionsText, findBeforeRun, judgeScriptChanges, parseBlendReadback, parseSyntaxOutput, reportedByResult,
@@ -322,7 +323,12 @@ export class BlenderFlows {
     const now = sha(bytes);
     const seen = judged.params === 'changed' ? judged.change?.sha256 ?? null : before.sha256;
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); Blender did not run`);
-    if (judged.params === 'unchanged') return this.end(f, 'stopped', 'checks', 'the agent changed nothing; Blender did not run');
+    // R4 (H99, r24): no change is its own outcome, with what a check of the last /blender run's recorded inputs found.
+    if (judged.params === 'unchanged') {
+      const lb = nativeLastRun(f.root, { app: 'blender', appName: 'Blender', input: rel, again: `/blender ${rel}` });
+      f.record.last_build = { ...lb, words: this.d.scrub(lb.words, f.root) };
+      return this.end(f, NO_CHANGE, 'checks', noChangeWhy('the agent changed nothing', f.record.last_build, kept));
+    }
     const afterText = bytes.toString('utf8');
     const change = scriptChange(f.beforeText, afterText);
     f.record.script.after = { sha256: now, bytes: bytes.length, lines: lineCount(afterText) };
@@ -592,12 +598,13 @@ export class BlenderFlows {
     const r = rec.receipts;
     rec.child_receipts = [r.agent, r.blender, r.readback].filter((x): x is string => typeof x === 'string');
     const w = writeProjectJson(f.root, flowRecordPath(f.id), rec);
-    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
+    // R4 (H99): a flow that made no change is sealed with no status: neither ok (no change was made) nor failed
+    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : rec.outcome === NO_CHANGE ? undefined : 'failed' as const;
     const cost = rec.agent?.cost_usd;
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
-        kind: 'flow', subject: `flow · iterate · blender · ${f.id} · ${rec.outcome}`, policy: 'human-gated', status,
+        kind: 'flow', subject: `flow · iterate · blender · ${f.id} · ${rec.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
         project: f.project, project_id: projectId(f.root),
         prompt_hash: `sha256:${sha(rec.instruction)}`,
         ...(w.ok ? { outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }] } : { discrepancies: [`the flow record could not be written: ${this.d.scrub(w.error, f.root)}`] }),
@@ -619,10 +626,11 @@ export class BlenderFlows {
   private endLines(f: BlenderRun, file: string | undefined, receipt: string | undefined): Line[] {
     const g = this.d.glyphs;
     const rec = f.record;
-    const ok = rec.outcome === 'succeeded';
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
-    const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
-      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 (H99): no change is marked = and said in the text colour, never as a failure
+    const bad = flowFailed(rec.outcome);
+    const lines: Line[] = [[{ text: `  ${flowMark(rec.outcome, g)} `, role: bad ? 'failure' : undefined },
+      { text: `${f.id} ${rec.outcome}`, role: bad ? 'failure' : 'strong' }, { text: `: ${outcomeWhy(rec.outcome, rec.why)}${tail}`, role: 'secondary' }]];
     // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
     const unseen = notComparedText(rec.agent?.compared);
     if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);

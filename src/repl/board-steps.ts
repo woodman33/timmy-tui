@@ -34,7 +34,8 @@ import { scadDiffText } from '../flows/iterate-scad.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 
 export type FlowKind = 'tray' | 'blender' | 'scad' | 'freecad' | 'ae';
-export type StepState = 'completed' | 'running' | 'waiting' | 'failed' | 'stopped' | 'interrupted' | 'not run' | 'unknown';
+/** R4 (H99, r24): 'no change', the step a flow that made no change ended in (its checks step). */
+export type StepState = 'completed' | 'running' | 'waiting' | 'failed' | 'stopped' | 'interrupted' | 'not run' | 'unknown' | 'no change';
 export interface StripStep {
   /** the step's name as the record and the state file write it ('build', 'openscad', 'readback'…) */
   step: string;
@@ -131,7 +132,7 @@ export const STEP_NAMES: Record<FlowKind, readonly string[]> = {
 };
 
 /** How a finished flow's outcome leaves the step it ended in. */
-const END_STATE: Record<string, StepState> = { succeeded: 'completed', differs: 'completed', failed: 'failed', stopped: 'stopped', cancelled: 'stopped', interrupted: 'interrupted' };
+const END_STATE: Record<string, StepState> = { succeeded: 'completed', differs: 'completed', failed: 'failed', stopped: 'stopped', cancelled: 'stopped', interrupted: 'interrupted', 'no change': 'no change' };
 
 /** A step's state from its own part only (when the record does not say where it ended). */
 function partState(d: Def, r: Obj): StepState {
@@ -186,7 +187,7 @@ export function flowSteps(record: unknown): Strip | undefined {
   };
 }
 
-const GLYPH: Record<StepState, string> = { completed: '✓', running: '●', waiting: '○', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', unknown: '?' };
+const GLYPH: Record<StepState, string> = { completed: '✓', running: '●', waiting: '○', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', unknown: '?', 'no change': '=' };
 const stateClass = (s: StepState): string => s.replace(/[^a-z]/g, '');
 
 /** The strip as an ordered list: each step's name and state in words; the step it ended in (or that runs) marked. */

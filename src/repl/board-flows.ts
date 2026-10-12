@@ -389,7 +389,7 @@ export const FLOWS_CSS = `
 .flow .verdict-matches { color: ${HOMEBREW.text}; }
 .flow .verdict-differs, .flow .verdict-failed { color: ${HOMEBREW.failure}; }
 /* Green is for actions: an outcome or a seal keeps its word in the text colour, on a flow card and (R4, H46) on every other card. */
-.state-succeeded { color: ${HOMEBREW.text}; }
+.state-succeeded, .state-nochange { color: ${HOMEBREW.text}; } /* R4 (H99): no change, an outcome in the text colour */
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
 .state-unreadable { color: ${HOMEBREW.failure}; }
 ${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}${AE_FLOW_CSS}${STEPS_CSS}`;

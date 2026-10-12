@@ -25,7 +25,8 @@ const stamp = (iso: string | undefined): string => (iso && !Number.isNaN(Date.pa
 
 function mark(r: RoomRun, g: GlyphSet): string {
   if (r.running) return g.bullet;
-  return r.tone === 'ok' ? g.ok : r.tone === 'failed' ? g.fail : r.tone === 'stopped' ? ' ' : '?';
+  // R4 (H99): a run that made no change is marked =, never ? (its outcome is known: nothing was made)
+  return r.tone === 'ok' ? g.ok : r.tone === 'failed' ? g.fail : r.tone === 'stopped' ? ' ' : /^no change\b/.test(r.state) ? '=' : '?';
 }
 
 /** How a run's cost reads in one phrase. */

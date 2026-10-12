@@ -368,7 +368,9 @@ describe('/iterate scad end to end (FAKE agent, FAKE OpenSCAD)', () => {
     fs.copyFileSync(path.join(STARTER, PARAMS), path.join(root, PARAMS));
     const none = flowIdIn(text(await ws.iterate('scad box.scad "keep it as it is"')));
     await until(ended(sealed, none));
-    expect(recordOf(none)).toMatchObject({ outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; OpenSCAD did not run' });
+    // R4 (H99, r24): no change is its own outcome, with the last /scad run checked (none here: the flow's first run)
+    expect(recordOf(none)).toMatchObject({ outcome: 'no change', ended_in: 'checks', last_build: { state: 'none' } });
+    expect(recordOf(none).why).toMatch(/^no change: the agent changed nothing, so nothing was rebuilt; there is no OpenSCAD run of box\.scad in this project yet: \/scad box\.scad runs it/);
     expect(nativeRuns()).toEqual([]);
     expect(sealed.map((r) => r.kind)).toEqual(['agent', 'flow', 'agent', 'flow', 'agent', 'flow']);
   }, 120000);

@@ -624,7 +624,9 @@ describe.skipIf(!python)('/iterate ae end to end (FAKE agent, FAKE After Effects
     fs.copyFileSync(STARTER, path.join(root, 'author.jsx'));
     const none = flowIdIn(text(await ws.iterate('ae author.jsx "keep it as it is"')));
     await until(ended(sealed, none));
-    expect(recordOf(none)).toMatchObject({ outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; After Effects did not run' });
+    // R4 (H99, r24): no change is its own outcome, with the last scripted build checked (none here)
+    expect(recordOf(none)).toMatchObject({ outcome: 'no change', ended_in: 'checks', last_build: { state: 'none' } });
+    expect(recordOf(none).why).toMatch(/^no change: the agent changed nothing, so nothing was rebuilt; there is no After Effects run of author\.jsx in this project yet: \/iterate ae author\.jsx runs it/);
     expect(nativeRuns()).toEqual([]);
     expect(sealed.map((x) => x.kind)).toEqual(['agent', 'flow', 'agent', 'flow', 'agent', 'flow']);
     // the card of the one that no longer compiles says so

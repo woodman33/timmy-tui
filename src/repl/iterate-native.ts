@@ -22,7 +22,7 @@ import type { JobRecord } from '../jobs/index.js';
 import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { projectId, resolveInside } from '../project/index.js';
-import { flowRecordPath, flowWorkDir, writeProjectJson, type FlowOutcome } from '../flows/iterate.js';
+import { flowFailed, flowMark, outcomeWhy, flowRecordPath, flowWorkDir, NO_CHANGE, noChangeWhy, writeProjectJson, type FlowOutcome, type LastBuildCheck } from '../flows/iterate.js';
 import { parseSyntaxOutput, SYNTAX_CHECK_CODE, SYNTAX_TIMEOUT_MS, type NativeFlowRecordBase, type NativeTarget, type SyntaxCheck } from '../flows/iterate-native.js';
 import type { IterateDeps } from './iterate.js';
 import type { FlowLock } from './flow-lock.js';
@@ -209,6 +209,15 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
     f.record.why = why;
   }
 
+  /**
+   * R4 (H99, r24): the flow made no change: it ends 'no change' in its checks step (never succeeded: the requested change was
+   * not made), with what a check of the last run's recorded inputs found (`lb`, src/flows/iterate-native.ts nativeLastRun).
+   */
+  protected noChange(f: NativeRun<R>, what: string, lb: LastBuildCheck, kept = ''): void {
+    f.record.last_build = { ...lb, words: this.d.scrub(lb.words, f.root) };
+    this.end(f, NO_CHANGE, 'checks', noChangeWhy(what, f.record.last_build, kept));
+  }
+
   protected stopped(f: NativeRun<R>): boolean { return f.abort.signal.aborted; }
 
   protected note(f: NativeRun<R>, text: string, role: Segment['role'] = 'secondary'): void {
@@ -302,12 +311,13 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
     rec.ended_at = new Date().toISOString();
     rec.child_receipts = this.childReceipts(rec);
     const w = writeProjectJson(f.root, flowRecordPath(f.id), rec);
-    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
+    // R4 (H99): a flow that made no change is sealed with no status: neither ok (no change was made) nor failed
+    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : rec.outcome === NO_CHANGE ? undefined : 'failed' as const;
     const cost = rec.agent?.cost_usd;
     let receipt: string | undefined;
     try {
       const input: ReceiptInput = {
-        kind: 'flow', subject: `flow · iterate · ${this.target} · ${f.id} · ${rec.outcome}`, policy: 'human-gated', status,
+        kind: 'flow', subject: `flow · iterate · ${this.target} · ${f.id} · ${rec.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
         project: f.project, project_id: projectId(f.root),
         prompt_hash: `sha256:${sha(rec.instruction)}`,
         ...(w.ok ? { outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }] } : { discrepancies: [`the flow record could not be written: ${this.d.scrub(w.error, f.root)}`] }),
@@ -330,12 +340,13 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
   private endLines(f: NativeRun<R>, file: string | undefined, receipt: string | undefined): Line[] {
     const g = this.d.glyphs;
     const rec = f.record;
-    const ok = rec.outcome === 'succeeded';
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
     const unseen = notComparedText(rec.agent?.compared);
-    return [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
-      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }],
+    // R4 (H99): no change is marked = and said in the text colour, never as a failure
+    const bad = flowFailed(rec.outcome);
+    return [[{ text: `  ${flowMark(rec.outcome, g)} `, role: bad ? 'failure' : undefined },
+      { text: `${f.id} ${rec.outcome}`, role: bad ? 'failure' : 'strong' }, { text: `: ${outcomeWhy(rec.outcome, rec.why)}${tail}`, role: 'secondary' }],
       ...(unseen ? [[{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' as const }]] : []), ...this.measuredLines(rec)];
   }
 

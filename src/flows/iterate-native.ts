@@ -8,10 +8,97 @@
  * agent's comparison does not see) are COPIED from src/flows/iterate-blender.ts (round R4, H26), not imported or moved:
  * another helper edits that file this round. They behave the same; once both settle, one copy can replace the other.
  */
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agents/index.js';
-import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type OtherChange } from './iterate.js';
+import { listNativeRuns, readNativeRecord, type NativeApp } from '../native/index.js';
+import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type LastBuildCheck, type OtherChange } from './iterate.js';
 
 export { DOCTRINE_15 };
+
+// ── R4 (H99, r24): the last run of a native app on a file, checked when a flow made no change ──────
+
+/** A project file's sha256 now, read in place (never through a link), or null when it is not a regular file there. */
+function hashInProject(root: string, rel: string): string | null {
+  try {
+    const parts = rel.split('/');
+    if (!rel || rel.startsWith('/') || parts.includes('..')) return null;
+    const abs = path.join(root, ...parts);
+    const st = fs.lstatSync(abs);
+    return st.isFile() ? createHash('sha256').update(fs.readFileSync(abs)).digest('hex') : null;
+  } catch { return null; }
+}
+
+/**
+ * R4 (H99, r24): whether the last run of a native app on a file still matches its recorded inputs, for a flow that made no
+ * change. The last run is the project's newest run of `app` whose submission names `input` and whose newest verdict is ok
+ * (src/native: job.json, verdicts.jsonl). It is current only when the file it was given hashes now as its submission
+ * recorded, each of `extra` (its other recorded inputs, such as OpenSCAD's parameter file) hashes as recorded, and every
+ * file its verdict says it wrote is there with the sha256 the verdict names. A newer run of the file with no verdict leaves it
+ * unknown (whether that run still goes is not read here). What the app itself is (its program) is not hashed, and the words
+ * say so. Nothing runs, and nothing is written.
+ */
+export function nativeLastRun(root: string, o: {
+  app: NativeApp; appName: string; input: string; again: string;
+  /**
+   * the run's other recorded inputs, read from its folder: what, the project file, its sha256 as recorded (null: none
+   * recorded); `why`, when the run's record itself shows it did not take its values from that file alone (said as stale)
+   */
+  extra?: (dir: string) => Array<{ what: string; path: string; recorded: string | null; why?: string }>;
+  now?: () => Date;
+}): LastBuildCheck {
+  const checked_at = (o.now ?? (() => new Date()))().toISOString();
+  const s8 = (h: string | null | undefined): string => (h ? h.slice(0, 8) : '?');
+  try {
+    const runs = listNativeRuns(root).filter((r) => r.app === o.app).flatMap((r) => {
+      let rec: ReturnType<typeof readNativeRecord>;
+      try { rec = readNativeRecord(root, r.run); } catch { rec = undefined; }
+      return rec && rec.job.input?.path === o.input ? [{ run: r.run, started_at: r.started_at, rec }] : [];
+    });
+    if (!runs.length) return { state: 'none', checked_at, checks: [], words: `there is no ${o.appName} run of ${o.input} in this project yet: ${o.again} runs it` };
+    const at = runs.findIndex((r) => r.rec.verdicts.at(-1)?.outcome === 'ok');
+    const unjudged = (at < 0 ? runs : runs.slice(0, at)).find((r) => !r.rec.verdicts.length);
+    if (at < 0) {
+      return unjudged
+        ? { state: 'unknown', checked_at, checks: [], words: `whether the last ${o.appName} run still matches its inputs is not known: its newest run of ${o.input} (${unjudged.run.slice(0, 8)}) has no verdict yet` }
+        : { state: 'none', checked_at, checks: [], words: `no ${o.appName} run of ${o.input} in this project was judged ok: ${o.again} runs it` };
+    }
+    const last = runs[at];
+    const stamp = `${last.started_at.slice(0, 16).replace('T', ' ')} UTC`;
+    const build: LastBuildCheck['build'] = { kind: 'native', id: last.run, app: o.app, at: stamp, ...(last.rec.started?.job ? { job: last.rec.started.job } : {}) };
+    const name = `the last ${o.appName} run (${last.run.slice(0, 8)}, ${stamp})`;
+    if (unjudged) return { state: 'unknown', checked_at, build, checks: [], words: `whether ${name} still matches its inputs is not known: a newer run of ${o.input} (${unjudged.run.slice(0, 8)}) has no verdict yet` };
+    const checks: LastBuildCheck['checks'] = [];
+    const given = last.rec.job.input!;
+    const inputNow = hashInProject(root, given.path);
+    checks.push({ what: given.path, recorded: given.sha256, now: inputNow, same: inputNow === given.sha256 });
+    const odd: string[] = [];
+    for (const x of o.extra?.(last.rec.dir) ?? []) {
+      const now = hashInProject(root, x.path);
+      checks.push({ what: x.what, recorded: x.recorded, now, same: !x.why && x.recorded !== null && now === x.recorded });
+      if (x.why) odd.push(x.why);
+    }
+    if (odd.length) return { state: 'stale', checked_at, build, checks, words: `${name} is stale: ${odd[0]}; ${o.again} runs it again` };
+    const wrote = (last.rec.verdicts.at(-1)?.files ?? []).filter((f) => f.present && f.written && typeof f.sha256 === 'string' && !f.path.startsWith('/') && !f.path.split('/').includes('..'));
+    for (const f of wrote) {
+      const now = hashInProject(root, f.path);
+      checks.push({ what: f.path, recorded: f.sha256!, now, same: now === f.sha256 });
+    }
+    const off = checks.find((c) => !c.same);
+    if (off) {
+      const how = off.recorded === null ? 'was not recorded by it' : off.now === null ? 'is not there now' : `has changed since (sha256 ${s8(off.recorded)} then, ${s8(off.now)} now)`;
+      return { state: 'stale', checked_at, build, checks, words: `${name} is stale: ${off.what} ${how}; ${o.again} runs it again` };
+    }
+    const inputs = checks.length - wrote.length;
+    return {
+      state: 'current', checked_at, build, checks,
+      words: `${name} still matches its recorded inputs: ${inputs === 1 ? `${given.path} hashes` : `${checks.slice(0, inputs).map((c) => c.what).join(' and ')} hash`} as recorded, and the ${wrote.length} file${wrote.length === 1 ? '' : 's'} its verdict says it wrote ${wrote.length === 1 ? 'is' : 'are'} the bytes it names (${o.appName} itself is not hashed)`,
+    };
+  } catch (e) {
+    return { state: 'unknown', checked_at, checks: [], words: `whether the last ${o.appName} run still matches its inputs is not known: its records could not be read (${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').slice(0, 200)})` };
+  }
+}
 
 /** The agent is given the whole file it may change, so the native flows take files up to this size. */
 export const NATIVE_FILE_MAX_BYTES = 256 * 1024;
@@ -231,6 +318,8 @@ export interface NativeFlowRecordBase {
   doctrine: string;
   /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
   lessons?: Array<{ id: string; sha256: string; status: string }>;
+  /** R4 (H99): with outcome 'no change', what the check of the last run found (src/flows/iterate.ts LastBuildCheck) */
+  last_build?: LastBuildCheck;
 }
 
 /** Whether a record (as read from its file) is a native flow's (scad or freecad). */

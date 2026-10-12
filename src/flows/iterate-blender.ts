@@ -23,7 +23,7 @@ import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agent
 import { listNativeRuns, readNativeRecord, sha256File } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
-import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type OtherChange } from './iterate.js';
+import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type LastBuildCheck, type OtherChange } from './iterate.js';
 
 export { DOCTRINE_15 };
 
@@ -761,6 +761,8 @@ export interface BlenderFlowRecord {
   outcome: FlowOutcome;
   ended_in?: BlenderFlowStep;
   why?: string;
+  /** R4 (H99): with outcome 'no change', what the check of the last Blender run found (src/flows/iterate.ts LastBuildCheck) */
+  last_build?: LastBuildCheck;
   script: {
     path: string;
     /** as read before the agent ran; `kept`: a copy of those bytes in the flow's folder */
