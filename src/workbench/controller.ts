@@ -83,6 +83,9 @@ export interface ControllerDeps {
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
 
+/** R4 lead: the keys that start or stop something, taken only when pressed alone (never from keys that arrived together). */
+const TAKEN_ALONE = new Set(['x', 'c', 's', 'C', 'S']);
+
 export class Controller {
   ui: Ui;
   data: Data;
@@ -220,7 +223,10 @@ export class Controller {
     this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
     this.data.decisions = readDecisions(root, this.records, chain, this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
     this.data.activity = this.activity();
-    this.data.route = readRoute(this.d.env, root);
+    // R4 lead: the one route (chatRouteNow), read as the chat session reads it (this process's folder), and the open session's
+    // own route read again with it, so the top line, Chat and Settings follow a /setup made elsewhere
+    this.data.route = readRoute(this.d.env);
+    if (this.chat?.state === 'open' && this.chat.root === root) { try { this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ } }
     this.data.chat = readChatTail(root);
     this.data.vox = readVoxRecords(root);
     this.data.native = { create3d: readNativeRows(root, 'create3d'), motion: readNativeRows(root, 'motion') };
@@ -457,6 +463,24 @@ export class Controller {
       return;
     }
     if (this.ui.input.field) { this.typing(input, k); return; }
+    // R4 lead (2026-10-12; found by the integrated suite under load, tests/workbench-interaction-pty.test.ts): keys typed one
+    // after another that reach Ink together (the Workbench busy drawing, the computer loaded) come as one chunk, which no key
+    // matched, so all of them were lost: "a" then "/" did nothing, "a" then Tab did nothing. Outside a field, with no box
+    // open, such a chunk is its keys, each in turn (a Tab among them too): each acts as it would alone, so a "/" opens the
+    // finder and the letters after it are typed into it. Pasted text never comes this way: the terminal marks a paste
+    // (src/workbench/app.tsx usePaste) and paste() takes it, never as keys.
+    if (!o && !k.ctrl && !k.meta && input.length > 1 && /^[\x20-\x7e\t]+$/.test(input)) {
+      for (const ch of input) {
+        // a key that starts or stops something (x Stop, c and s Show, C and S Stop serving) is taken only alone: a chunk is
+        // taken up to it, and the Workbench says so (a terminal that does not mark pastes could deliver one this way)
+        if (!this.ui.input.field && TAKEN_ALONE.has(ch)) {
+          this.say(`Keys that arrived together were taken up to ${ch}: ${ch === 'x' ? 'x stops the current job' : 'c, s, C and S start or stop a server'}, so it is taken only when pressed alone. Press it again.`, 'attention');
+          return;
+        }
+        this.key(ch === '\t' ? '' : ch, ch === '\t' ? { tab: true } : {});
+      }
+      return;
+    }
     // R4 (H112): what the key acts on is the item the person sees selected, wherever the records have moved it since
     this.reselect();
     if (o && this.overlayKey(o, input, k)) return;
@@ -761,7 +785,9 @@ export class Controller {
     this.turnAbort = abort;
     this.emit();
     try {
-      const r = await ws.ops.run(h, () => session.send(text, {
+      // R4 lead: sent once (src/contracts/chat-session.ts sendOnce): the message's key is its operation's, so nothing that
+      // sends this message again (a repeat of its Enter, a retry after a timeout, another process) repeats a turn that went out
+      const r = await ws.ops.run(h, () => session.sendOnce(`wb-${h.id}`, text, {
         onText: (full) => { turn.answer = full; this.emit(); },
         onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
         askPerson: (req) => this.askPerson(req),
@@ -826,6 +852,19 @@ export class Controller {
       this.open({ kind: 'needs-you', req, since: this.now(), answer });
       this.refreshDecisions();
     });
+  }
+
+  /**
+   * R4 lead (2026-10-12): pasted text (the terminal's bracketed paste, src/workbench/app.tsx usePaste), apart from typed keys:
+   * into the field that has the keyboard (its lines joined by spaces, its control characters dropped: a paste never sends);
+   * a NEEDS YOU box denies (a pasted y never approves); anywhere else nothing is done with it, and that is said (pasted text
+   * is never taken as keys: an x in it never stops a job).
+   */
+  paste(text: string): void {
+    const o = this.ui.overlay;
+    if (o?.kind === 'needs-you') { o.answer('deny'); return; }
+    if (this.ui.input.field) { this.typing(text.replace(/\r\n|\r|\n/g, ' '), {}); return; }
+    this.say('Pasted text is taken only into a field (the composer, a search, a name): nothing was done with it.', 'secondary');
   }
 
   private needsYouKey(o: Extract<NonNullable<Overlay>, { kind: 'needs-you' }>, input: string, k: Partial<Key>): void {

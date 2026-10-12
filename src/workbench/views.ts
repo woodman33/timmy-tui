@@ -193,11 +193,22 @@ const fitTo = (line: Line, w: number, g: Glyphs): Line => {
   return out;
 };
 
+/**
+ * R4 lead (2026-10-12): the chat's route as the Workbench shows it everywhere (the top line, Chat, Settings): the open chat
+ * session's own (src/contracts/chat-session.ts route()), else the one route read here (src/workbench/state.ts readRoute,
+ * chatRouteNow as the session reads it): one set of words, never two.
+ */
+export function routeShown(data: Data): { words: string; ready: boolean; refusal?: readonly string[] } {
+  const r = data.chatRoute ?? data.route;
+  return { words: r.words, ready: r.ready, ...(r.refusal?.length ? { refusal: r.refusal } : {}) };
+}
+
 export function topLines(c: ViewCtx): Line[] {
   const { ui, data, width, height } = c;
   const ws = navItem(ui.workspace);
   const crumb: Line = [S(data.project.name, 'strong'), S(' / ', 'secondary'), S(ws.label, 'text')];
-  const env: Line = [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(data.route.words, data.route.ready ? 'text' : 'secondary')];
+  const route = routeShown(data);
+  const env: Line = [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(route.words, route.ready ? 'text' : 'secondary')];
   const stop = stopWords(data, selectedItem(c), ui.workspace);
   const state: Line = [S(runWords(data), data.decisions.total ? 'attention' : 'secondary')];
   const stopLine: Line = stop.target ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, 'secondary')];
@@ -447,11 +458,12 @@ function chatView(c: ViewCtx): View {
   const { data, g, ui } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
-  // the chat session's own route once one is open (src/contracts/chat-session.ts); else the setup's, read here
-  const route = data.chatRoute ? { words: data.chatRoute.words, ready: data.chatRoute.ready } : data.route;
+  // the chat session's own route once one is open (src/contracts/chat-session.ts); else the one route, read here as the
+  // session reads it (R4 lead: routeShown, the same words as the top line and Settings)
+  const route = routeShown(data);
   lines.push(field('Route', route.words, route.ready ? 'text' : 'secondary', 8));
   lines.push(field('Ready', route.ready ? 'a message can be sent on this route' : 'not ready: /setup in the REPL chooses a route', route.ready ? 'text' : 'attention', 8));
-  if (data.chatRoute && !data.chatRoute.ready && data.chatRoute.refusal?.length) for (const r of data.chatRoute.refusal) lines.push(...para(r, c.width, 'secondary', '  '));
+  if (!route.ready && route.refusal?.length) for (const r of route.refusal) lines.push(...para(r, c.width, 'secondary', '  '));
   lines.push(blank);
   const t = data.chat;
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
@@ -617,7 +629,7 @@ function connectionsView(c: ViewCtx): View {
   server('studio', 1);
   lines.push(blank);
   lines.push(heading('This computer'));
-  lines.push(field('Chat', data.route.words));
+  lines.push(field('Chat', routeShown(data).words));
   lines.push(field('Project', data.project.shown));
   lines.push(field('Mouse', ui.mouse ? 'reported to the Workbench ([m] gives it back to the terminal, for selecting text)' : 'the terminal\'s ([m] lets the Workbench take clicks)'));
   lines.push(field('Settings', tildePath(ui.settings.path)));

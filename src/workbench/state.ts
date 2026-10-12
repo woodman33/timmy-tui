@@ -15,7 +15,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { localRouteWords, resolveChatRoute } from '../agent/chat-route.js';
+import { chatRouteNow } from '../agent/chat-route.js';
 import { ConversationManager } from '../agent/conversation.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns } from '../native/index.js';
@@ -30,10 +30,9 @@ import { connectWorkflow, NODE_GLYPH, type NodeWord } from '../repl/board-workfl
 import { gatherDecisions, type DecisionsView } from '../room/decisions.js';
 import { jobJudgement, judgeIndex, type JobMark } from '../room/judge.js';
 import type { RoomTools } from '../room/index.js';
-import { chatRoute } from '../setup/questions.js';
 import { tildePath, scrubHomes } from '../utils/home-scrub.js';
 import { timmyHome } from '../setup/home.js';
-import { modelKeySource } from '../utils/model-key.js';
+import { loadConfig } from '../utils/config.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
 import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { blockCount } from '../workflows/block-count.js';
@@ -359,21 +358,28 @@ export function stopTarget(rows: readonly JobRow[], away: readonly JobRow[] = []
 // ── the chat route ─────────────────────────────────────────────────────────────
 
 export interface RouteView {
-  kind: 'openrouter' | 'local';
+  kind: 'openrouter' | 'local' | 'none';
   /** the words the REPL's header and the monitor's top line use */
   words: string;
   /** a message could be sent on this route now (a key, or a local model chosen); not whether it would be answered */
   ready: boolean;
+  /** R4 lead: why a message would not be sent on it (the one route's own lines), when it is not ready */
+  refusal?: string[];
 }
 
+/**
+ * The chat's route, read here for the Workbench's top line, Chat and Settings until its chat session is open (views.ts
+ * routeShown prefers the session's own). R4 lead (2026-10-12): the one route every surface reads (src/agent/chat-route.ts
+ * chatRouteNow, as the Workbench: the key looked for where the chat session looks, from this process's folder; the OpenRouter
+ * model the settings name, as the session's agent has it), so these say what the session's route() says, word for word.
+ */
 export function readRoute(env: Env = process.env, cwd: string = process.cwd()): RouteView {
   try {
-    const r = resolveChatRoute({ env });
-    if (r.kind === 'local') return { kind: 'local', words: localRouteWords(r), ready: !('error' in r.at) && !!r.model };
-    const key = modelKeySource(env, cwd) !== null;
-    return { kind: 'openrouter', words: chatRoute({ key }), ready: key };
+    const model = (() => { try { return loadConfig().model || null; } catch { return null; } })();
+    const now = chatRouteNow({ env, cwd, openRouterModel: model, surface: 'workbench' });
+    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}) };
   } catch (e) {
-    return { kind: 'openrouter', words: `chat: unknown (${e instanceof Error ? e.message : String(e)})`, ready: false };
+    return { kind: 'none', words: `chat: unknown (${e instanceof Error ? e.message : String(e)})`, ready: false };
   }
 }
 

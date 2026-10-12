@@ -384,6 +384,41 @@ describe('keys that arrive together (R4 H112; found in tmux under load)', () => 
     await press(f.r, 'xq\r');
     expect(c.ui.workspace).toBe('chat');
   });
+
+  // R4 lead (2026-10-12; tests/workbench-interaction-pty.test.ts failed under load at the integrated head: "a" then "/", and
+  // "a" then Tab, sent a quarter second apart, reached the Workbench as one chunk, and neither key acted)
+  it('keys typed one after another that arrive as one chunk act in turn: "a/" expands Activity and opens the finder, "a" and Tab expand it and move the focus; x, c, s, C and S only alone; a paste is never keys', async () => {
+    sandbox();
+    const a = trayProject('chunk-keys');
+    const { c } = workbench(a);
+    c.start();
+    const f = frameOf(c, 180, 50);
+    await sleep(150);
+    c.ui.focus = 'center';
+    const open = c.ui.activityOpen;
+    await press(f.r, 'a/');
+    expect(c.ui.activityOpen).toBe(!open);
+    expect(c.ui.input.field).toBe('search');
+    await press(f.r, 'Control\r');
+    expect(c.ui.workspace).toBe('control');
+    c.ui.focus = 'center';
+    await press(f.r, 'a\t');
+    expect(c.ui.activityOpen).toBe(open);
+    expect(c.ui.focus).not.toBe('center');
+    // x (Stop) and the servers' keys are taken only alone: the chunk is taken up to it, and that is said
+    await press(f.r, 'ax');
+    expect(c.ui.activityOpen).toBe(!open);
+    expect(regionText(c, 'bottom')).toContain('Keys that arrived together were taken up to x: x stops the current job, so it is taken only when pressed alone. Press it again.');
+    // a paste the terminal marks (bracketed paste) is never keys: outside a field nothing is done with it, and that is said
+    await press(f.r, '\u001b[200~xq/a\u001b[201~');
+    expect(c.ui.activityOpen).toBe(!open);
+    expect(c.ui.input.field).toBe(null);
+    expect(regionText(c, 'bottom')).toContain('Pasted text is taken only into a field (the composer, a search, a name): nothing was done with it.');
+    // into a field it is text, its lines joined, never an Enter
+    await press(f.r, '/');
+    await press(f.r, '\u001b[200~Temp\nlates\u001b[201~');
+    expect(c.ui.input).toEqual({ field: 'search', text: 'Temp lates' });
+  });
 });
 
 describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)', () => {

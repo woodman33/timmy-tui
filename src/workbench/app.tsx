@@ -3,7 +3,7 @@
  * (src/workbench/screen.ts: every row exactly the terminal's width) and hands every key and mouse report to the controller.
  */
 import React, { useEffect, useReducer } from 'react';
-import { Box, Text, useInput, useWindowSize } from 'ink';
+import { Box, Text, useInput, usePaste, useWindowSize } from 'ink';
 import { parseMouse } from '../tui/mouse.js';
 import type { Controller } from './controller.js';
 import { styleOf } from './theme.js';
@@ -27,6 +27,9 @@ export function WorkbenchApp({ controller, colour, size }: WorkbenchAppProps): R
     if (m) { controller.mouse(m); return; }
     controller.key(input, key);
   });
+  // R4 lead (2026-10-12): the terminal marks a paste (bracketed paste, which this turns on while the Workbench runs), so pasted
+  // text reaches the controller apart from typed keys: never taken as keys
+  usePaste((text) => controller.paste(text));
   const f = controller.frame(columns, rows);
   return (
     <Box flexDirection="column">

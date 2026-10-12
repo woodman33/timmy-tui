@@ -137,7 +137,7 @@ const TAB = '\t';
 const ENTER = '\r';
 const NO_CHAT: Producers['openChat'] = async () => ({ ok: false, why: 'FIXTURE: no chat session in this test' });
 /** One region's words, its wrapped rows joined (the frame the app draws, read by cell). */
-function regionText(c: Controller, region: 'center' | 'right' | 'bottom', columns = 180, rows = 50): string {
+function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top', columns = 180, rows = 50): string {
   const fr = c.frame(columns, rows);
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
@@ -304,11 +304,14 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     sandbox();
     const p = trayProject('tray-chat');
     const sent: string[] = [];
+    const keys: string[] = [];
     // FIXTURE: a chat session in the contract's shape; it answers without any model and says so
     const openChat: OpenChatSession = async (o) => {
       expect(o).toMatchObject({ project: { name: 'tray-chat', root: p.root }, surface: 'workbench' });
       const session: ChatSession = {
         route: () => ({ kind: 'local', words: 'chat: FIXTURE route', ready: true }),
+        // R4 lead: the composer sends once (the contract's sendOnce), its key the message's operation's
+        sendOnce: async (key: string, text: string, hooks: ChatTurnHooks) => { keys.push(key); return session.send(text, hooks); },
         send: async (text: string, hooks: ChatTurnHooks) => {
           sent.push(text);
           hooks.onText('Hello');
@@ -338,6 +341,11 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(regionText(c, 'center')).toContain('Timmy: Hello from the FIXTURE session; the tool was denied.');
     expect(regionText(c, 'center')).toContain('You: hi there');
     expect(sent).toEqual(['hi there']);
+    // R4 lead: through sendOnce, keyed by the operation the turn is recorded under (the one the center names)
+    const op = /operation (o[0-9a-f]{8})/.exec(regionText(c, 'center'))![1];
+    expect(keys).toEqual([`wb-${op}`]);
+    // R4 lead: one route on every part of the Workbench: the top line and Settings say the session's own words
+    expect(regionText(c, 'top')).toContain('chat: FIXTURE route');
   });
 
   it('without the producers: the Inspector and the composer say what they need; nothing is sent', async () => {
