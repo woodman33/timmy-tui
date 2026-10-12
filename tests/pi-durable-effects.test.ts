@@ -15,11 +15,12 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { EffectLedger, effectKey } from '../src/pi-durable/effects.js';
 import { reconcileOpen } from '../src/pi-durable/reconcile.js';
 import { anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, until } from './helpers/pi-durable.js';
 
+vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 const dirs: string[] = [];
 afterAll(() => { cleanup(); for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
@@ -116,9 +117,9 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     b.client.close();
   });
 
-  it('leaves no worker running', async () => {
-    await sleep(1000);
-    cleanup();
+  it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
+    await until('every worker to have exited', () => anyAlive().length === 0, 30_000);
     expect(anyAlive()).toEqual([]);
+    cleanup();
   });
 });

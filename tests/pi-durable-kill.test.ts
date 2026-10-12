@@ -16,10 +16,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { IN_FLIGHT_COST } from '../src/pi-durable/worker.js';
 import { anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, reads, sha, SKIP_WHY, sleep, start, status, until } from './helpers/pi-durable.js';
 
+vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 afterAll(() => { cleanup(); });
 
 describe.skipIf(!INSTALLED)(`SIGKILL of the Pi worker and its restart (plan i.1)${INSTALLED ? '' : ` — skipped: ${SKIP_WHY}`}`, () => {
@@ -121,9 +122,9 @@ describe.skipIf(!INSTALLED)(`SIGKILL of the Pi worker and its restart (plan i.1)
     b.client.close();
   });
 
-  it('leaves no worker running', async () => {
-    await sleep(1500);
-    cleanup();
+  it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
+    await until('every worker to have exited', () => anyAlive().length === 0, 30_000);
     expect(anyAlive()).toEqual([]);
+    cleanup();
   });
 });

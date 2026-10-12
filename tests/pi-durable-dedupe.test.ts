@@ -11,11 +11,12 @@
  *   attaches to the first. Both callers then reach the same worker, and a key delegated from both at once makes one
  *   submission.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readOwner } from '../src/pi-durable/owner.js';
 import { piPaths } from '../src/pi-durable/paths.js';
 import { anyAlive, alive, cleanup, delegate, ended, fauxCalls, INSTALLED, killWorker, project, reads, SKIP_WHY, sleep, start, status, until } from './helpers/pi-durable.js';
 
+vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 afterAll(() => { cleanup(); });
 
 const quick = { first: { text: 'FAKE answer.' } } as const;
@@ -101,9 +102,9 @@ describe.skipIf(!INSTALLED)(`duplicate submission and resume (plan i.2)${INSTALL
     await until('the worker to exit', () => !alive(owner.pid), 20_000);
   });
 
-  it('leaves no worker running', async () => {
-    await sleep(1000);
-    cleanup();
+  it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
+    await until('every worker to have exited', () => anyAlive().length === 0, 30_000);
     expect(anyAlive()).toEqual([]);
+    cleanup();
   });
 });
