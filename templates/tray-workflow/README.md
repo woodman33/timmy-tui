@@ -6,23 +6,36 @@ it back, inspect its STEP, and see the result.
 | File | What it is |
 |---|---|
 | `WORKFLOW.md` | the workflow (upmd): its prose says the request; its blocks are `change`, `inspect` (needs `change`), `result` (needs `inspect`) and `lesson` (needs `result`: a draft lesson with this run's records as its evidence) |
+| `APPROVAL.md` | a guided approval example: one harmless block whose command deletes a file it made, so the REPL asks first in a NEEDS YOU box |
 | `recipes/tray.params.json` | the CadQuery tray recipe's parameters (enclosure.tray/1, millimetres): the recipe card's defaults |
 
 ## Run it
 
 ```
 /project new mytray --from tray-workflow
+/workflows                      the two documents and their blocks
 /workflows WORKFLOW.md          the document, its blocks and its last runs
 /run WORKFLOW.md lesson         change, then inspect, then result, then a draft lesson
 /lesson check <id>              the lesson checked against its records and receipts
 /op                             the operation in full; /ops lists the recent ones
 /board live                     the same on the board: the operation's card tops the Control Room
+/run APPROVAL.md tidy           a NEEDS YOU box: y runs the block once; n, Esc or Enter deny it
 ```
 
 `/run` predicts the order (change → inspect → result → lesson) and seals that prediction before upmd runs a
 block. Each block runs `timmy act "<command>" --wait`, which waits for what the command started and
 exits 0 when it succeeded, 1 when it failed or differs, 2 when it was refused (a missing tool, a busy
 project) and 3 when it was stopped; a block that exits otherwise than 0 stops the chain.
+
+The `inspect` and `lesson` blocks find this run's own evidence by the run's operation id, with
+`timmy evidence step`, `timmy evidence flow` and `timmy evidence vox --of <file>`: the STEP this run's flow
+delivered, its flow record and the VoxVision record of that STEP, each only while its bytes are the ones
+recorded and a receipt on the runs chain seals the record that names them. Another run's files are never
+taken, however new they are; with no record of this run, the block says why and stops.
+
+`APPROVAL.md` shows what Timmy asks before a risky block: its prose says what the NEEDS YOU box is, that
+`y` allows the block once, and that the board will not run it (its Run is refused, with the line to type
+in the REPL instead). None of `WORKFLOW.md`'s blocks needs a person.
 
 ## What it needs
 

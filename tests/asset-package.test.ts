@@ -83,6 +83,8 @@ describe('the npm package', () => {
 
 type Probe = {
   starters: string | null; list: string[]; look: string; lookExists: boolean; c4d: string | null; root: string | null; copied: { files: string[] } | { error: string } | null;
+  /** R4 (H102): the tray-workflow starter copied from the installed package, as /project new … --from tray-workflow does */
+  tray: { files: string[] } | { error: string } | null;
   /** R4 (H40): the OpenSCAD runner and the FreeCAD worker (from src/native/), and the readback workers (from src/flows/; R4 H46: the video one too) */
   scad: string | null; freecad: string | null; step: string | null; blend: string | null; video: string | null;
 };
@@ -119,9 +121,10 @@ describe('an installed Timmy finds its starters and workers', () => {
       const flows = pathToFileURL(process.env.PROBE_FLOWS_MODULE).href;
       const dest = process.env.PROBE_DEST;
       const copied = dest ? copyStarter('web-starter', dest) : null;
+      const tray = process.env.PROBE_TRAY ? copyStarter('tray-workflow', process.env.PROBE_TRAY) : null;
       const found = (rel, from) => packagedPath(rel, from, { kind: 'file' }) ?? null;
       console.log(JSON.stringify({ starters: startersDir() ?? null, list: listStarters().map((s) => s.name).sort(), look: LOOK_SCRIPT, lookExists: existsSync(LOOK_SCRIPT),
-        c4d: found('workers/c4d/timmy_c4d.py', native), root: packageRoot(native) ?? null, copied,
+        c4d: found('workers/c4d/timmy_c4d.py', native), root: packageRoot(native) ?? null, copied, tray,
         scad: found('workers/scad/timmy_scad_run.mjs', native), freecad: found('workers/freecad/timmy_freecad.py', native),
         step: found('workers/readback/step_readback.py', flows), blend: found('workers/readback/blend_readback.py', flows),
         video: found('workers/readback/video_readback.py', flows) }));`;
@@ -144,9 +147,9 @@ describe('an installed Timmy finds its starters and workers', () => {
     layouts[BUNDLE] = { probe: join(pkg, 'dist/bundle-probe.js'), native: join(pkg, 'dist/chunk-NATIVE.js'), flows: join(pkg, 'dist/chunk-FLOWS.js') };
   }, 180_000);
 
-  const run = (layout: string, dest?: string): Probe => {
+  const run = (layout: string, dest?: string, tray?: string): Probe => {
     const { probe, native, flows } = layouts[layout];
-    return JSON.parse(execFileSync(process.execPath, [probe], { cwd: base, encoding: 'utf8', timeout: 30_000, env: { ...env(), PROBE_NATIVE_MODULE: native, PROBE_FLOWS_MODULE: flows, PROBE_DEST: dest ?? '' } })) as Probe;
+    return JSON.parse(execFileSync(process.execPath, [probe], { cwd: base, encoding: 'utf8', timeout: 30_000, env: { ...env(), PROBE_NATIVE_MODULE: native, PROBE_FLOWS_MODULE: flows, PROBE_DEST: dest ?? '', PROBE_TRAY: tray ?? '' } })) as Probe;
   };
   const sortedCopy = (c: Probe['copied']): Probe['copied'] => (c && 'files' in c ? { files: [...c.files].sort() } : c);
 
@@ -170,6 +173,12 @@ describe('an installed Timmy finds its starters and workers', () => {
       expect([r.scad, r.freecad, r.step, r.blend, r.video]).toEqual(['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py', 'workers/readback/video_readback.py'].map((w) => join(pkg, w)));
       expect(sortedCopy(r.copied)).toEqual({ files: tracked('templates/web-starter').map((f) => f.slice('templates/web-starter/'.length)).sort() });
       expect(readFileSync(join(dest, 'index.html'))).toEqual(readFileSync(join(root, 'templates/web-starter/index.html')));
+      // R4 (H102): /project new … --from tray-workflow from the installed package gets every file of the starter, the guided
+      // approval example (APPROVAL.md) and the workflow whose blocks find this run's evidence by its operation id among them
+      const trayDest = join(temp('timmy-asset-project-'), 'mytray');
+      const t = run(layout, undefined, trayDest);
+      expect(sortedCopy(t.tray)).toEqual({ files: tracked('templates/tray-workflow').map((f) => f.slice('templates/tray-workflow/'.length)).sort() });
+      for (const f of ['APPROVAL.md', 'WORKFLOW.md']) expect(readFileSync(join(trayDest, f)), f).toEqual(readFileSync(join(root, 'templates/tray-workflow', f)));
     });
   }
 

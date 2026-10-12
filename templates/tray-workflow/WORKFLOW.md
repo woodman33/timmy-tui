@@ -8,7 +8,8 @@ Run it in the REPL with `/run WORKFLOW.md lesson` (the board's Run does the same
 to stop before the lesson. Each block runs
 `timmy act`, which joins the operation of that run (through `TIMMY_OPERATION`), so the flow, the agent's
 run, the rebuild, the readback, the VoxVision record and every receipt carry one operation id, and
-`/op` shows them together.
+`/op` shows them together. The blocks that need this run's records ask `timmy evidence` for them, by that
+same id: another run's files, however new, are never taken.
 
 ## The request
 
@@ -24,12 +25,15 @@ timmy act '/iterate tray "make the tray 150 mm wide"' --wait
 ## Inspect the STEP the rebuild exported
 
 Once its signed result verifies, the rebuild copies its exports into `out/recipes/<first 8 characters of
-its job>/`. This block inspects the newest `console-tray.step` there with VoxVision: OCP reads the STEP in
-its own process. It measures the CAD file, never a physical part.
+its job>/`, and the flow's record names the STEP it delivered, with its sha256. This block asks for that
+STEP with `timmy evidence step`, which finds this run's flow by the run's operation id, never by a file's
+time, and gives the STEP only while its bytes are the ones the flow recorded and a receipt seals the flow's
+record. When the request made no change and the flow's check found the last build current, it gives that
+build's STEP. When there is none, it says why and the block stops. VoxVision then inspects the STEP: OCP
+reads it in its own process. It measures the CAD file, never a physical part.
 
 ```bash [name:inspect, deps:change]
-step=$(ls -t out/recipes/*/console-tray.step 2>/dev/null | head -n 1)
-if [ -z "$step" ]; then echo "no console-tray.step in out/recipes/ yet: the change block delivered none"; exit 1; fi
+step=$(timmy evidence step) || exit 1
 timmy act "/inspect $step" --wait
 ```
 
@@ -45,15 +49,16 @@ timmy act '/op' --wait
 ## Keep a lesson
 
 A lesson is a sentence kept with the records that show it. This block adds the sentence below as a draft
-lesson whose evidence is this run's flow record and the VoxVision record of its STEP (the newest of each).
-Edit the sentence to say what you learned. `/lesson check <id>` (or Check on the board) checks it against
-those files and their receipts; only a checked lesson is given to a later `/iterate tray` as context, and
+lesson whose evidence is this run's flow record and the VoxVision record of its STEP, each found by the
+run's operation id with `timmy evidence` (`vox --of` takes the record about that STEP's bytes). Edit the
+sentence to say what you learned. `/lesson check <id>` (or Check on the board) checks it against those
+files and their receipts; only a checked lesson is given to a later `/iterate tray` as context, and
 `/lesson eval <id>` compares runs before and after it. No model is trained.
 
 ```bash [name:lesson, deps:result]
-flow=$(ls -t results/flows/*.json 2>/dev/null | head -n 1)
-vox=$(ls -t results/vox/*.json 2>/dev/null | head -n 1)
-if [ -z "$flow" ] || [ -z "$vox" ]; then echo "no flow record or VoxVision record yet: the change and inspect blocks made none"; exit 1; fi
+flow=$(timmy evidence flow) || exit 1
+step=$(timmy evidence step) || exit 1
+vox=$(timmy evidence vox --of "$step") || exit 1
 timmy act "/lesson add \"A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP.\" --from $flow --from $vox --applies tray" --wait
 ```
 
