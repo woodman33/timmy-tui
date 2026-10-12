@@ -120,14 +120,20 @@ describe('a /run block whose own flows made no change, and a run that stopped th
     expect(j).toMatchObject({ kind: 'workflow', by: 'exit', mark: 'unchanged', word: 'no change' });
     expect(markGlyph(j.mark, { ok: '✓', fail: '✖', bullet: '●' })).toBe('=');
     expect(jobOutcome(job)).toMatchObject({ state: 'no change', current: false });
-    expect(jobOutcome(job).words).toBe('stopped at change, which made no change: flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    // R4 (H99, the review): upmd's word for the block is failed (its exit was not 0); Timmy's is no change, never that the request failed
+    expect(jobOutcome(job).words).toBe('stopped at change, which made no change (upmd counted it as failed: exit 4, so it ran nothing after it): flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    expect(jobOutcome(job).words).not.toMatch(/request failed|run failed/);
     // a block that failed for another reason beside it: failed, as before
     const both = { ...job, steps: [...steps, { name: 'other', state: 'failed', code: 1 }] } as JobRecord;
     expect(jobJudgement(both).mark).toBe('failed');
-    // a run that completed with a block that made no change: completed (each block exited 0), the block named
-    const done = { ...job, state: 'completed', exitCode: 0, steps: [{ ...steps[0], state: 'completed', code: 0 }, { name: 'inspect', state: 'completed', code: 0 }, { name: 'result', state: 'completed', code: 0 }] } as JobRecord;
-    expect(jobJudgement(done)).toMatchObject({ mark: 'ok', word: 'completed' });
-    expect(jobOutcome(done)).toEqual({ state: 'succeeded', words: 'completed; change: no change' });
+    expect(jobOutcome(both).state).toBe('failed');
+    // R4 (H99, the review; the lead's decision): a run that completed with a block that made no change is no change (=), never
+    // ✓ completed or succeeded; current only when each such block found the last build current (its blocks after it ran on it)
+    const done = { ...job, state: 'completed', exitCode: 0, steps: [{ ...steps[0], state: 'completed', code: 0, current: true, last_build: 'current' }, { name: 'inspect', state: 'completed', code: 0 }, { name: 'result', state: 'completed', code: 0 }] } as JobRecord;
+    expect(jobJudgement(done)).toMatchObject({ mark: 'unchanged', word: 'no change' });
+    expect(jobOutcome(done)).toEqual({ state: 'no change', words: 'every block exited 0; change made no change: flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale', current: true });
+    const unknown = { ...done, steps: [{ ...done.steps[0], current: undefined, last_build: undefined }, ...done.steps.slice(1)] } as JobRecord;
+    expect(jobOutcome(unknown)).toMatchObject({ state: 'no change', current: false });
     expect(blockCountLine(blockCount(done))).toBe('3 of 3 steps; change no change');
   });
 });

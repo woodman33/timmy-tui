@@ -42,7 +42,25 @@ export interface JobStep {
   outcome?: 'no change';
   /** R4 (H99): with `outcome`, the words of the flow that made no change (the last build's state among them) */
   why?: string;
+  /** R4 (H99, the review): with `outcome`, true when the check of every flow the block ran found the last build current (its
+   *  `timmy act` then exits 0, so upmd ran the blocks that need it on that build); false when one found it stale, absent or
+   *  not known */
+  current?: boolean;
+  /** R4 (H99, the review): with `outcome`, the last build's state as those checks found it: current, or the first other state
+   *  (stale, none, unknown) */
+  last_build?: string;
 }
+
+/** R4 (H99): what Timmy's block sealer notes on a step whose block made no change (its state and code stay as upmd gave them). */
+export interface StepNote { outcome: 'no change'; why?: string; current?: boolean; last_build?: string }
+/** Puts a note on a step (the live record's, or a record recovery is about to write). */
+export function noteOn(step: JobStep, note: StepNote): void {
+  step.outcome = note.outcome;
+  if (note.why) step.why = note.why.slice(0, 600);
+  if (typeof note.current === 'boolean') step.current = note.current;
+  if (typeof note.last_build === 'string') step.last_build = note.last_build.slice(0, 20);
+}
+
 /** Round R4 (H67): what a run's pty wrapper wrote in its stop file (workers/upmd/pty_run.py) once the REPL that started it
  *  had ended, as recovery keeps it: why it ended (its own words), when, whether it stopped upmd and with which signals,
  *  how many process groups were left after SIGKILL, and upmd's exit as it saw it (null: not known). */
@@ -404,12 +422,11 @@ export class JobManager {
    * no change), on its record: the step at `index`, only while it carries `name`. Its state and code stay as they were. The
    * record is written now; listeners hear of it with the job's next change (a job that is ending is written by its end).
    */
-  noteStep(id: string, index: number, name: string, note: { outcome: 'no change'; why?: string }): boolean {
+  noteStep(id: string, index: number, name: string, note: StepNote): boolean {
     const entry = this.jobs.get(id);
     const step = entry?.job.steps[index];
     if (!entry || !step || step.name !== name) return false;
-    step.outcome = note.outcome;
-    if (note.why) step.why = note.why.slice(0, 600);
+    noteOn(step, note);
     if (!entry.finished) this.persist(entry.job);
     return true;
   }
@@ -892,7 +909,7 @@ function parseStep(raw: unknown): JobStep[] {
   if (typeof s.endedAt === 'string') step.endedAt = s.endedAt;
   if (s.seen === 'wrapper') step.seen = 'wrapper';
   // R4 (H99): a block that made no change, as Timmy's block sealer noted it
-  if (s.outcome === 'no change') { step.outcome = 'no change'; if (typeof s.why === 'string') step.why = s.why.slice(0, 600); }
+  if (s.outcome === 'no change') { step.outcome = 'no change'; if (typeof s.why === 'string') step.why = s.why.slice(0, 600); if (typeof s.current === 'boolean') step.current = s.current; if (typeof s.last_build === 'string') step.last_build = s.last_build.slice(0, 20); }
   return [step];
 }
 

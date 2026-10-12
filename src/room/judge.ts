@@ -280,6 +280,8 @@ export function jobJudgement(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number
     // there with no change: never "failed"
     const failed = kind === 'workflow' && j.state === 'failed' ? j.steps.filter((s) => s.state === 'failed') : [];
     if (failed.length && failed.every((s) => s.outcome === 'no change')) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
+    // R4 (H99, the review; the lead's decision): one that completed with a block that made no change is no change, never ✓
+    if (kind === 'workflow' && j.state === 'completed' && j.steps.some((s) => s.outcome === 'no change')) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
     const mark: JobMark = j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'running';
     return { kind, by: 'exit', mark, word: j.state };
   }

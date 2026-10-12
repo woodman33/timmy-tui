@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readChain, type Receipt } from '../src/utils/receipts.js';
 import { readOperationRecord } from '../src/ops/operations.js';
-import { json, opsKit, replOf, sandbox as opsSandbox, text } from './helpers/ops-sandbox.js';
+import { act, FAKE_UPMD, json, opsKit, replOf, sandbox as opsSandbox, text, until } from './helpers/ops-sandbox.js';
 import { BOARD_FILE } from '../src/repl/board.js';
 
 const kit = opsKit();
@@ -71,7 +71,11 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     expect(json(path.join(root, 'results', 'flows', flows1[0])).outcome).toBe('succeeded');
     // R4 (H99, gap 4): /run names its operation when it starts and on its ✓ line
     expect(first.started).toContain(`Operation  ${first.op}`);
-    expect(notes.join('\n')).toMatch(new RegExp(`✓ ${first.job} completed .*operation ${first.op} \\(/op ${first.op}\\)`));
+    // R4 (H99, the review): the operation right after the id and word, so a line cut at 80 columns keeps it
+    const end1 = notes.find((n) => n.includes(`✓ ${first.job} completed`))!;
+    expect(end1).toMatch(new RegExp(`^ {2}✓ ${first.job} completed {2}operation ${first.op} · WORKFLOW\\.md › result · 3 of 3 steps · .* · /op ${first.op}$`));
+    expect(end1.slice(0, 80)).toContain(`operation ${first.op}`);
+    expect(end1.slice(0, 100)).toContain(`operation ${first.op}`);
 
     // 2. The same request again (r24): the agent changes nothing; the last /scad run still matches its recorded inputs, so the
     //    change block exits 0 and the blocks that need it run on that build.
@@ -95,14 +99,41 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     expect(r2.subject).toBe('workflow · block · WORKFLOW.md › result · change · no change');
     // the REPL's notices: the block, then the run, with the operation
     const said2 = notes.join('\n');
-    expect(said2).toMatch(new RegExp(`${second.job}  change no change: flow f[0-9a-f]{8}: the agent changed nothing, so nothing was rebuilt; the last OpenSCAD run`));
-    expect(said2).toMatch(new RegExp(`✓ ${second.job} completed  WORKFLOW\\.md › result · 3 of 3 steps · change: no change .*operation ${second.op}`));
+    // R4 (H99, the review): the block's short reason first (the last build's state, its exit), the flow's long words last
+    expect(said2).toMatch(new RegExp(`${second.job} {2}change no change: the last build still matches its recorded inputs \\(exit 0\\) · 1 of 3 · block change: receipt [0-9a-f]{8} · flow f[0-9a-f]{8}: the agent changed nothing, so nothing was rebuilt; the last OpenSCAD run`));
+    // R4 (H99, the review; the lead's decision): the run that completed with a block that made no change reads no change (=),
+    // never ✓ completed: its operation, why, then the details
+    expect(said2).not.toContain(`✓ ${second.job} completed`);
+    const end2 = notes.find((n) => n.includes(`= ${second.job} no change`))!;
+    expect(end2).toMatch(new RegExp(`^ {2}= ${second.job} no change {2}operation ${second.op} · the last build still matches its recorded inputs: change made no change, so the blocks after it ran on that build · WORKFLOW\\.md › result · 3 of 3 steps; change no change · `));
+    expect(end2).toMatch(new RegExp(` · /op ${second.op} · change: flow f[0-9a-f]{8}: the agent changed nothing`));
+    expect(end2.slice(0, 80)).toContain(`operation ${second.op}`);
+    expect(end2.slice(0, 100)).toContain('the last build still matches its recorded inputs');
     // the operation card: the block in its words; the flow says no change once; the operation itself: no change
     const card2 = text(ws.op(second.op));
+    expect(card2).toMatch(new RegExp(`Operation ${second.op}\\s+no change`));
+    expect(card2).toMatch(/Workflow\s+WORKFLOW\.md › result\s+job j[0-9a-f]{6}\s+no change · 3 of 3 steps/);
     expect(card2).toContain('1 change no change · 2 inspect completed · 3 result completed');
     expect(card2).toMatch(/Flow\s+f[0-9a-f]{8}\s+scad\s+no change: the agent changed nothing, so nothing was rebuilt/);
     expect(card2).not.toMatch(/no change: no change/);
-    expect(readOperationRecord(root, second.op)).toMatchObject({ ok: true, record: { state: 'succeeded' } });
+    // the operation: no change, never succeeded (nothing was changed; whether the request is satisfied is not known)
+    expect(readOperationRecord(root, second.op)).toMatchObject({ ok: true, record: { state: 'no change' } });
+    expect(ws.ops.latest!.ended).toMatchObject({ state: 'no change', current: true });
+    // /jobs, the Control Room, God's Eye View and the board agree: no change (=), never completed (✓) or succeeded
+    expect(text(ws.jobsView(''))).toMatch(new RegExp(`= ${second.job} +no change`));
+    const room2 = text(await ws.room(''));
+    expect(room2).toMatch(new RegExp(`= ${second.job}  upmd \\(a workflow run\\)  no change`));
+    const overview2 = JSON.parse(text(await ws.overview('--json'))) as { workflows: { items: Array<{ doc: string; last_run?: { job: string; word: string } }> } };
+    expect(overview2.workflows.items.find((i) => i.doc === 'WORKFLOW.md')?.last_run).toMatchObject({ job: second.job, word: 'no change' });
+    ws.board('');
+    const html2 = fs.readFileSync(path.join(root, BOARD_FILE), 'utf8');
+    const at2 = html2.indexOf(`<strong class="label">${second.job} · `);
+    const result2 = html2.slice(html2.lastIndexOf('<article', at2), html2.indexOf('</article>', at2));
+    expect(result2).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> change made no change and the last build still matches its recorded inputs; every block exited 0, so the blocks after it ran on that build');
+    // `timmy act` agrees: a /run of it that completed this way is no change, current, and exits 0
+    const viaAct = await act(kit, s, ['/run WORKFLOW.md result', '--wait', '--json'], { env: { ...s.env, UPMD_BIN: FAKE_UPMD } }).done;
+    expect(viaAct.code, viaAct.stdout + viaAct.stderr).toBe(0);
+    expect(JSON.parse(viaAct.stdout.trim().split('\n').at(-1)!)).toMatchObject({ outcome: 'no change', exit_code: 0 });
 
     // 3. The parameter file changed by hand since the last build, and the same request again: the agent changes nothing, the
     //    last build is stale, so the change block exits 4 and nothing after it runs on the stale build.
@@ -121,7 +152,13 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     expect(String(flow3.why)).toMatch(/the last OpenSCAD run \([0-9a-f]{8}, [^)]+\) is stale: box\.params\.json has changed since \(sha256 [0-9a-f]{8} then, [0-9a-f]{8} now\); \/scad box\.scad runs it again/);
     // the job, as every view reads it: no change (=), never failed (✖)
     const said3 = notes.join('\n');
-    expect(said3).toMatch(new RegExp(`= ${third.job} no change  WORKFLOW\\.md › result: stopped at change, which made no change: flow f[0-9a-f]{8}: .*is stale.* · 1 of 3 steps; change no change, exit 4; inspect, result not run.*operation ${third.op}`));
+    // R4 (H99, the review): its operation first, then why (upmd counted the block as failed; Timmy's word is no change)
+    const end3 = notes.find((n) => n.includes(`= ${third.job} no change`))!;
+    expect(end3).toMatch(new RegExp(`^ {2}= ${third.job} no change {2}operation ${third.op} · the last build is stale: stopped at change, which made no change \\(upmd counted the block as failed: exit 4\\) · WORKFLOW\\.md › result · 1 of 3 steps; change no change, exit 4; inspect, result not run · `));
+    expect(end3).toMatch(/ · change: flow f[0-9a-f]{8}: .*is stale/);
+    expect(end3.slice(0, 80)).toContain(`operation ${third.op}`);
+    expect(end3.slice(0, 80)).toContain('the last build is stale');
+    expect(end3.slice(0, 100)).toContain('stopped at change');
     expect(said3).not.toContain(`✖ ${third.job} failed`);
     const jobs = text(ws.jobsView(''));
     expect(jobs).toMatch(new RegExp(`= ${third.job} +no change`));
@@ -146,7 +183,7 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     // its result card counts its blocks as /jobs does and says no change, never failed (r24: "0 of 1 steps completed")
     const at3 = html.indexOf(`<strong class="label">${third.job} · `);
     const result3 = html.slice(html.lastIndexOf('<article', at3), html.indexOf('</article>', at3));
-    expect(result3).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change, which made no change: flow f');
+    expect(result3).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change: it made no change and the last build is stale (upmd counted the block as failed: exit 4); flow f');
     expect(result3).toContain('workflow · 1 of 3 steps; change no change, exit 4; inspect, result not run');
     const overview = text(await ws.overview('--all'));
     expect(overview).toContain('no change');
@@ -156,4 +193,33 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     expect(r3.block).toMatchObject({ outcome: 'no change', state: 'failed', exit_code: 4, no_change: { last_build: 'stale' } });
     expect(r3.status).toBeUndefined();
   }, 300_000);
+});
+
+describe('a /run\'s end lines, cut at 80 and 100 columns, keep its operation (R4 H99, the review; FAKE upmd, real child processes)', () => {
+  it('✖ failed and stopped: "operation o…" right after the id and the word, the details after it', async () => {
+    const s = opsSandbox(kit, 'end-lines-');
+    const { ws, notes } = replOf(kit, s);
+    const F = '```';
+    fs.writeFileSync(path.join(s.root, 'FAIL.md'), ['# FAKE workflow for the end-line test', '', `${F}bash [name:broken]`, 'echo broken; exit 3', F, ''].join('\n'));
+    fs.writeFileSync(path.join(s.root, 'SLOW.md'), ['# FAKE workflow for the end-line test', '', `${F}bash [name:long]`, 'sleep 30', F, ''].join('\n'));
+    const start = async (doc: string, block: string): Promise<{ job: string; op: string }> => {
+      const out = text(await ws.operate(`/run ${doc} ${block}`, 'repl', () => ws.run(`${doc} ${block}`)));
+      const job = /Running\s+(j[0-9a-f]{6})/.exec(out)?.[1];
+      expect(job, out).toBeDefined();
+      return { job: job!, op: ws.ops.latest!.id };
+    };
+    const f = await start('FAIL.md', 'broken');
+    expect((await ws.jobs.done(f.job)).state).toBe('failed');
+    await until(() => notes.some((n) => n.includes(`✖ ${f.job} failed`)), 10_000, 'the failed line');
+    const failed = notes.find((n) => n.includes(`✖ ${f.job} failed`))!;
+    expect(failed).toMatch(new RegExp(`^ {2}✖ ${f.job} failed {2}operation ${f.op} · FAIL\\.md › broken: .* · /jobs ${f.job} shows its output · /op ${f.op}$`));
+    for (const cols of [80, 100]) expect(failed.slice(0, cols)).toContain(`✖ ${f.job} failed  operation ${f.op}`);
+    const l = await start('SLOW.md', 'long');
+    await ws.stop(l.job);
+    expect((await ws.jobs.done(l.job)).state).toBe('cancelled');
+    await until(() => notes.some((n) => n.startsWith(`  ${l.job} stopped`)), 10_000, 'the stopped line');
+    const stopped = notes.find((n) => n.startsWith(`  ${l.job} stopped`))!;
+    expect(stopped).toMatch(new RegExp(`^ {2}${l.job} stopped {2}operation ${l.op} · SLOW\\.md › long.* · /op ${l.op}$`));
+    for (const cols of [80, 100]) expect(stopped.slice(0, cols)).toContain(`${l.job} stopped  operation ${l.op}`);
+  }, 120_000);
 });

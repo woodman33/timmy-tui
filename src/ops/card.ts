@@ -361,7 +361,8 @@ function workflowParts(ix: OpIndex, id: string): CardWorkflow[] {
     // R4 (H88; r23): the record's own word for its state ("cancelled"), as /jobs says it: one word per state. R4 (H99, r24): a
     // run that stopped at a block whose own flows made no change says "no change", never "failed"
     const failed = j.steps.filter((s) => s.state === 'failed');
-    const word = j.state === 'failed' && failed.length && failed.every((s) => s.outcome === 'no change') ? 'no change' : j.state;
+    // R4 (H99, the review; the lead's decision): one that completed with a block that made no change says it too, never completed
+    const word = (j.state === 'failed' && failed.length && failed.every((s) => s.outcome === 'no change')) || (j.state === 'completed' && j.steps.some((s) => s.outcome === 'no change')) ? 'no change' : j.state;
     const state = `${j.stale ? `${j.state}; its process is gone` : word} · ${count.words}`;
     return {
       doc, block, job: j.id, state, tone: toneOf(state), steps, check,

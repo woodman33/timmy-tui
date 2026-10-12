@@ -16,7 +16,7 @@
  */
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import type { JobRecord, JobStep } from '../jobs/index.js';
+import type { JobRecord, JobStep, StepNote } from '../jobs/index.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { provenFiles, type BlockWindow } from '../workflows/block-files.js';
 import {
@@ -26,6 +26,12 @@ import {
 import { stepMs } from '../workflows/run-blocks.js';
 import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
 import { runOf } from './board-workflows.js';
+
+/** R4 (H99): the note a no-change block's step gets: its words, and whether every flow it ran found the last build current. */
+export const stepNote = (still: { words: string }, flows: ReadonlyArray<{ last_build?: string }>): StepNote => {
+  const current = flows.length > 0 && flows.every((f) => f.last_build === 'current');
+  return { outcome: 'no change', why: still.words, current, last_build: current ? 'current' : flows.find((f) => f.last_build !== 'current')?.last_build ?? 'unknown' };
+};
 
 /** A run the sealer follows: what /run read before upmd started. */
 export interface BlockRun {
@@ -53,7 +59,7 @@ export interface BlockSealerDeps {
   scrub: (text: string, root: string) => string;
   now?: () => number;
   /** R4 (H99, r24): a block whose own flows made no change is noted on its job's step (JobManager.noteStep) */
-  noteStep?: (job: string, index: number, name: string, note: { outcome: 'no change'; why?: string }) => void;
+  noteStep?: (job: string, index: number, name: string, note: StepNote) => void;
 }
 
 interface Followed { run: BlockRun; sealed: Map<number, string | null>; ends: Map<number, number> }
@@ -148,7 +154,7 @@ export class BlockSealer {
     let id: string | undefined;
     try { id = this.d.seal(blockReceiptInput(facts, { label: this.d.scrub(job.label, run.root), project: run.project, projectId: run.projectId })); } catch { id = undefined; }
     if (id) f.sealed.set(i, id);
-    if (still) { try { this.d.noteStep?.(job.id, i, s.name, { outcome: 'no change', why: still.words }); } catch { /* the receipt says it */ } }
+    if (still) { try { this.d.noteStep?.(job.id, i, s.name, stepNote(still, found.flows)); } catch { /* the receipt says it */ } }
   }
 }
 

@@ -90,7 +90,9 @@ export function voxOutcome(record: unknown): RunOutcome {
 /**
  * A job's final state: completed, failed, stopped. R4 (H99, r24): a /run whose failed blocks each made no change (their step
  * says so: Timmy's block sealer read it from the flows the block ran, src/workflows/block-receipts.ts blockOutcome) stopped
- * there with no change, never failed; one that completed says which blocks made no change.
+ * there with no change, never failed. R4 (H99, the review; the lead's decision): one that completed with a block that made no
+ * change is no change too, never succeeded (nothing was changed by that block, and whether the request is satisfied is not
+ * known), `current` when every such block found the last build current (its blocks after it ran on that build).
  */
 export function jobOutcome(j: JobRecord | undefined): RunOutcome {
   if (!j) return { state: 'unknown', words: 'its job record is not in this Timmy\'s jobs folder' };
@@ -98,10 +100,15 @@ export function jobOutcome(j: JobRecord | undefined): RunOutcome {
   const still = j.kind === 'workflow' ? j.steps.filter((s) => s.outcome === NO_CHANGE) : [];
   if (still.length) {
     const named = still.map((s) => s.name).join(', ');
-    if (j.state === 'completed') return { state: 'succeeded', words: `completed; ${named}: no change` };
+    const why = still[0].why ? `: ${still[0].why}` : '';
+    if (j.state === 'completed') {
+      const current = still.every((s) => s.current === true);
+      return { state: 'no change', words: `every block exited 0; ${named} made no change${why}`, current };
+    }
     const failed = j.steps.filter((s) => s.state === 'failed');
     if (j.state === 'failed' && failed.length && failed.every((s) => s.outcome === NO_CHANGE)) {
-      return { state: 'no change', words: `stopped at ${named}, which made no change${still[0].why ? `: ${still[0].why}` : ''}`, current: false };
+      // R4 (H99, the review): upmd's own word for the block is failed (its exit was not 0); Timmy's is no change
+      return { state: 'no change', words: `stopped at ${named}, which made no change (upmd counted it as failed: exit ${failed[0].code ?? '?'}, so it ran nothing after it)${why}`, current: false };
     }
   }
   if (j.state === 'completed') return { state: 'succeeded', words: 'completed' };

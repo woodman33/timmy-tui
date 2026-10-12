@@ -66,6 +66,7 @@ import { makeRunFolder, starterIn, wrapperDid } from '../workflows/pty-stop.js';
 import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
 import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
 import { RunProgress } from './run-progress.js';
+import { lastBuildWords, noChangeEndLine, opJoint, opLead, opTail } from './end-lines.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import type { ApprovalRequest, Decision } from './approvals.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
@@ -1180,10 +1181,11 @@ export class Workspace {
       // R4 (H58): a block's exit may come after upmd says it failed; a stopped block is said as stopped
       // R4 (H74): with its block receipt, once sealed
       const sealed = s ? this.blockSeals.receiptOf(job.id, job.steps.lastIndexOf(s)) : undefined;
-      // R4 (H99, r24): a block whose own flows made no change says so, with their words, never "failed"
+      // R4 (H99, r24): a block whose own flows made no change says so, never "failed"; R4 (H99, the review): its short reason
+      // first (the last build's state, and what upmd does with its exit), the flow's long words last
       const still = s?.outcome === 'no change';
-      const word = !s ? '' : still ? `no change${s.code ? ` (exit ${s.code})` : ''}${s.why ? `: ${s.why}` : ''}` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
-      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${word}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}`, role: s.state === 'failed' && !still ? 'failure' : 'secondary' }]);
+      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (exit ${s.code ?? '?'}${s.state === 'failed' ? ': upmd counts a non-zero exit as failed' : ''})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
+      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${word}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}${still && s.why ? `${this.sep}${s.why}` : ''}`, role: s.state === 'failed' && !still ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
     const recipe = this.recipes.get(job.id);
@@ -1244,21 +1246,22 @@ export class Workspace {
     } else if (job.state === 'completed') {
       const p = this.predictions.get(job.id);
       const met = p ? job.steps.length === p.order.length && job.steps.every((s, i) => s.name === p.order[i] && s.state === 'completed') : undefined;
-      // R4 (H99): the blocks that made no change are named (each exited 0: the last build matched, so the next ran on it)
-      const still = job.steps.filter((s) => s.outcome === 'no change').map((s) => s.name);
-      this.d.notify([{ text: `  ${g.ok} ` }, { text: `${job.id} completed`, role: 'strong' }, { text: `  ${job.label}${job.steps.length ? `${this.sep}${job.steps.length} of ${this.expected(job) ?? job.steps.length} steps` : ''}${still.length ? `${this.sep}${still.join(', ')}: no change` : ''}${this.sep}${seconds(job)}${met === undefined ? '' : met ? `${this.sep}prediction met` : `${this.sep}prediction missed`}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${this.opWords(job)}`, role: 'secondary' }]);
+      // R4 (H99, the review; the lead's decision): a /run with a block that made no change is no change (=), never ✓ completed
+      const still = noChangeEndLine(job, { glyphs: g, sep: this.sep, ...(p?.order ?? job.expected?.steps ? { order: p?.order ?? job.expected!.steps } : {}), seconds: seconds(job), ...(met !== undefined ? { met } : {}) });
+      if (still) { this.d.notify(still); return; }
+      // R4 (H99, the review): what matters first, should the line be cut: its operation right after its id and word
+      this.d.notify([{ text: `  ${g.ok} ` }, { text: `${job.id} completed`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.steps.length ? `${this.sep}${job.steps.length} of ${this.expected(job) ?? job.steps.length} steps` : ''}${this.sep}${seconds(job)}${met === undefined ? '' : met ? `${this.sep}prediction met` : `${this.sep}prediction missed`}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
     } else if (job.state === 'failed') {
       const step = job.steps.find((s) => s.state === 'failed');
-      // R4 (H99, r24): a run that stopped at a block whose own flows made no change reads "no change", never "failed"
-      if (job.kind === 'workflow' && step && job.steps.filter((s) => s.state === 'failed').every((s) => s.outcome === 'no change')) {
-        const count = blockCount(job, { order: this.predictions.get(job.id)?.order });
-        this.d.notify([{ text: '  = ' }, { text: `${job.id} no change`, role: 'strong' }, { text: `  ${job.label}: stopped at ${step.name}, which made no change${step.why ? `: ${step.why}` : ''}${this.sep}${blockCountLine(count)}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${this.opWords(job)}`, role: 'secondary' }]);
-        return;
-      }
+      // R4 (H99, r24 and the review): a run that stopped at a block whose own flows made no change reads "no change", never
+      // "failed"; it says upmd counted the block as failed (its exit was not 0)
+      const p = this.predictions.get(job.id);
+      const still = noChangeEndLine(job, { glyphs: g, sep: this.sep, ...(p?.order ?? job.expected?.steps ? { order: p?.order ?? job.expected!.steps } : {}), seconds: seconds(job) });
+      if (still) { this.d.notify(still); return; }
       const why = job.error ?? (step ? `${step.name} exited ${step.code ?? '?'}` : `exit ${job.exitCode ?? job.signal ?? '?'}`);
-      this.d.notify([{ text: `  ${g.fail} ` }, { text: `${job.id} failed`, role: 'failure' }, { text: `  ${job.label}: ${why}${this.sep}/jobs ${job.id} shows its output${this.opWords(job)}`, role: 'secondary' }]);
+      this.d.notify([{ text: `  ${g.fail} ` }, { text: `${job.id} failed`, role: 'failure' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}: ${why}${this.sep}/jobs ${job.id} shows its output${opTail(job, this.sep)}`, role: 'secondary' }]);
     } else if (job.state === 'cancelled') {
-      this.d.notify([{ text: '  ' }, { text: `${job.id} stopped`, role: 'strong' }, { text: `  ${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${this.opWords(job)}`, role: 'secondary' }]);
+      this.d.notify([{ text: '  ' }, { text: `${job.id} stopped`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
     }
   }
 
@@ -1351,10 +1354,6 @@ export class Workspace {
     return asking && r.missing ? { ...r, mark: 'running', word: 'measured', why: `${asking.sent ? 'asking' : 'about to ask'} ${asking.model}; its observe receipt is sealed when that ends` } : r;
   }
 
-  /** R4 (H99, gap 4): the operation a job belongs to, after its ✓/✖ line, so it can be found (/op <id>); "" when none. */
-  private opWords(j: Pick<JobRecord, 'operation'>): string {
-    return j.operation ? `${this.sep}operation ${j.operation} (/op ${j.operation})` : '';
-  }
 
   private jobLine(j: JobRecord, ix?: JudgeIndex): Line {
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';

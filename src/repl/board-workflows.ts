@@ -56,7 +56,8 @@ import { blockDetail, NOT_SEEN_WHY, runBlocks, secondsText, type RunBlockWord } 
 import { starterIn, wrapperDid } from '../workflows/pty-stop.js';
 // R4 (H74): each block's own receipt, from the chain
 import { blockReceiptsOf, blockReceiptWords, type BlockReceipt } from '../workflows/block-receipts.js';
-import { RISKY_REASON, riskyCode } from './workflow-risk.js'; // R4 (H74): the blocks that need a person before they run
+import { RISKY_REASON, riskyCode } from './workflow-risk.js';
+import { lastBuildWords } from './end-lines.js'; // R4 (H99, the review) // R4 (H74): the blocks that need a person before they run
 import { renderParamsCard, type ParamsCard } from './board-cards.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 import type { NodeInput, WorkflowDocInput } from './board-nodes.js';
@@ -112,7 +113,8 @@ export interface WorkflowRun {
   predicted?: string;
   /** each block of the run, in order, with its state, exit code and (for a run with live states) its own time; R4 (H67):
    *  `seen` when its end is what the run's pty wrapper saw once its REPL no longer followed it */
-  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string }>;
+  /** R4 (H99): with 'no change', the flow's words, the last build's state and whether it was current (runBlocks) */
+  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string; why?: string; last_build?: string; current?: boolean }>;
   /** the block that was running when an interrupted run's session ended */
   interruptedAt?: string;
   /** R4 (H58): upmd ran on a pty, so each block's start and end were seen as they happened (else over a pipe) */
@@ -347,7 +349,9 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   // R4 (H99, r24): a run that stopped at a block whose own flows made no change reads "no change", never "failed"
   const failedSteps = j.steps.filter((s) => s.state === 'failed');
   const stillStop = j.state === 'failed' && failedSteps.length > 0 && failedSteps.every((s) => s.outcome === 'no change');
-  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop ? 'no change' : j.state;
+  // R4 (H99, the review; the lead's decision): one that completed with a block that made no change reads "no change" too
+  const stillDone = j.state === 'completed' && j.steps.some((s) => s.outcome === 'no change');
+  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop || stillDone ? 'no change' : j.state;
   // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
   const pty = isLiveRun(j.args);
   // R4 (H67): each block's state, as /jobs reads it too (src/workflows/run-blocks.ts): 'not run' only where it is known
@@ -510,6 +514,12 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     const at = r.blocks.find((b) => b.word === 'stopped');
     // r19 F2: its job does not say who stopped it, so no one cause is claimed.
     lines.push(`Stopped before it ended${at ? `, while ${at.name} was running` : ''}: /stop, the board's Stop, or the Timmy that started it stopped its job.`);
+  } else if (r.word === 'no change') {
+    // R4 (H99, the review): why no change, in a few words; upmd's own word for a non-zero exit is said as upmd's
+    const still = r.blocks.filter((b) => b.word === 'no change');
+    const b = still[0];
+    const stop = b && b.code !== undefined && b.code !== 0;
+    if (b) lines.push(`${still.map((x) => x.name).join(', ')} made no change and ${lastBuildWords(b)}${stop ? `; upmd counted the block as failed (exit ${b.code}) and ran nothing after it` : `; every block exited 0${still.every((x) => x.current === true) ? ', so the blocks after it ran on that build' : ''}`}.`);
   }
   // R4 (H67): its REPL ended before it did, and its pty wrapper saw the end: what it saw, Timmy did not see itself
   if (r.word !== 'interrupted' && r.blocks.some((b) => b.seen === 'wrapper')) { const said = r.note ?? 'its REPL did not see it end'; lines.push(`${said[0].toUpperCase()}${said.slice(1)}.`); }

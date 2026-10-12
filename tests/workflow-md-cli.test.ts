@@ -93,7 +93,8 @@ describe('timmy md: its arguments and its help', () => {
     const help = await timmy(b, ['md', '--help']).done;
     expect(help.code).toBe(0);
     expect(help.stdout).toContain(MD_USAGE);
-    expect(help.stdout).toContain('0 succeeded (or --plan)   1 failed   2 refused, needs a person, or usage   3 stopped or interrupted');
+    expect(help.stdout).toContain('0 succeeded (or --plan), or no change while the last build still matches its recorded inputs   1 failed');
+    expect(help.stdout).toContain('2 refused, needs a person, or usage   3 stopped or interrupted');
     expect(help.stdout).toContain(`  ${UPMD_GATE}.`);
     expect(help.stdout).not.toMatch(/doctor/i);
     const all = await timmy(b, ['--help']).done;
