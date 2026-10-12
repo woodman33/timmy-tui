@@ -45,6 +45,13 @@ function row(line: Line, selected: boolean, g: Glyphs): Line {
 /** label: value, the label quiet and padded. */
 const field = (label: string, value: string, role: Role = 'text', pad = 12): Line => [S(`${label.padEnd(pad)} `, 'secondary'), S(value, role)];
 
+/** label: value, the value wrapped under itself when it is longer than the row (the Inspector's fields are never cut). */
+function fieldRows(label: string, value: string, width: number, role: Role = 'text', pad = 12): Line[] {
+  const room = Math.max(8, width - pad - 1);
+  const [first = '', ...rest] = wrapText(value, room);
+  return [[S(`${label.padEnd(pad)} `, 'secondary'), S(first, role)], ...rest.map((r) => [S(' '.repeat(pad + 1)), S(r, role)])];
+}
+
 /** Wrapped text as rows of one role, indented. */
 function para(text: string, width: number, role: Role = 'secondary', indent = ''): Line[] {
   return wrapText(text, Math.max(8, width - indent.length)).map((t) => [S(`${indent}${t}`, role)]);
@@ -210,6 +217,9 @@ export const cursorOf = (ui: Ui, list: string, n: number): number => Math.max(0,
 /** The item the center's cursor is on, for the Inspector and the actions. */
 export function selectedItem(c: ViewCtx): Item | null {
   if (c.ui.overlay) return null;
+  // Follow selected artifact: the run started here, until the cursor moves
+  const followed = c.ui.follow ? c.data.jobs.find((j) => j.id === c.ui.follow) : undefined;
+  if (followed) return { kind: 'job', key: `job:${followed.id}`, job: followed };
   const v = centerView(c);
   if (!v.items.length) return null;
   return v.items[cursorOf(c.ui, `center:${c.ui.workspace}`, v.items.length)].item;
@@ -294,14 +304,13 @@ function workflowsView(c: ViewCtx): View {
   const sel = all[cur];
   if (sel?.b) {
     const b = sel.b;
+    const run = actionsOf(c, { kind: 'block', key: `block:${sel.d.rel}:${b.key}`, doc: sel.d, block: b }).find((a) => a.key === 'Enter');
     lines.push(blank);
     lines.push([S('RUN ', 'secondary', { bold: true }), S(`${sel.d.rel} › ${b.name}`, 'strong')]);
     lines.push([S('  Runs ', 'secondary'), S(b.order.join(` ${g.arrow} `), 'text'), S(b.risky.length ? `  ${g.warn} its NEEDS YOU box asks first` : '', 'attention')]);
-    if (c.can.run) lines.push([S('  '), key('Enter'), S(' Run it here, through the REPL\'s own /run (one job, one operation)', 'text')]);
-    else {
-      lines.push([S('  In the REPL: ', 'secondary'), S(`/run ${sel.d.rel} ${b.name}`, 'action'), S('   from a shell: ', 'secondary'), S(`timmy md ${sel.d.rel} ${b.name}`, 'action')]);
-      if (c.can.runWhy) lines.push(...para(`From the Workbench: ${c.can.runWhy}`, c.width, 'secondary', '  '));
-    }
+    if (run?.enabled) lines.push([S('  '), key('Enter'), S(' Run it here, through the REPL\'s own /run (one job, one operation)', 'text')]);
+    else if (run?.why) lines.push(...para(`Not from here now: ${run.why}`, c.width, 'secondary', '  '));
+    lines.push([S('  In the REPL: ', 'secondary'), S(`/run ${sel.d.rel} ${b.name}`, 'action'), S('   in a shell, in the project: ', 'secondary'), S(`timmy md ${sel.d.rel} ${b.name}`, 'action')]);
   }
   return { lines, items };
 }
@@ -403,8 +412,11 @@ function chatView(c: ViewCtx): View {
   const { data, g, ui } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
-  lines.push(field('Route', data.route.words, data.route.ready ? 'text' : 'secondary', 8));
-  lines.push(field('Ready', data.route.ready ? 'a message can be sent on this route' : 'not ready: /setup in the REPL chooses a route', data.route.ready ? 'text' : 'attention', 8));
+  // the chat session's own route once one is open (src/contracts/chat-session.ts); else the setup's, read here
+  const route = data.chatRoute ? { words: data.chatRoute.words, ready: data.chatRoute.ready } : data.route;
+  lines.push(field('Route', route.words, route.ready ? 'text' : 'secondary', 8));
+  lines.push(field('Ready', route.ready ? 'a message can be sent on this route' : 'not ready: /setup in the REPL chooses a route', route.ready ? 'text' : 'attention', 8));
+  if (data.chatRoute && !data.chatRoute.ready && data.chatRoute.refusal?.length) for (const r of data.chatRoute.refusal) lines.push(...para(r, c.width, 'secondary', '  '));
   lines.push(blank);
   const t = data.chat;
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
@@ -416,10 +428,24 @@ function chatView(c: ViewCtx): View {
     const who = m.role === 'user' ? 'You' : 'Timmy';
     lines.push(row([S(`${who.padEnd(6)}`, m.role === 'user' ? 'strong' : 'ai'), S(m.text.replace(/\s+/g, ' '), 'text')], i === cur, g));
   });
+  // the composer's last message, as its turn went (the session's own words)
+  const turn = data.turn;
+  if (turn) {
+    lines.push(blank);
+    lines.push(heading(turn.state === 'sending' ? 'Sending now' : 'Your last message here'));
+    lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
+    if (turn.answer) lines.push(...para(`Timmy: ${turn.answer}`, c.width, 'text'));
+    for (const t of turn.tools.slice(-4)) lines.push([S(`  ${t.phase === 'start' ? g.bullet : g.ok} ${t.name}`, 'secondary'), S(t.outcome ? ` ${t.outcome}` : t.phase === 'start' ? ' running' : '', 'secondary')]);
+    for (const l of turn.lines) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+    const after = turn.state === 'sending'
+      ? [`sending${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc stops it']
+      : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', turn.receipt ? `receipt ${turn.receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
+    lines.push(...para(after.filter(Boolean).join(` ${g.sep} `), c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+  }
   lines.push(blank);
   lines.push(heading('Composer'));
-  if (ui.input.field === 'composer') lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
-  else lines.push([key('Enter'), S(c.can.chat ? ' Type a message to Timmy (sent on the route above)' : ' Type a message', 'text')]);
+  if (ui.input.field === 'composer') lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], [S('  Enter sends · Esc leaves the composer', 'secondary')]);
+  else lines.push([key('Enter'), S(c.can.chat ? ' Type a message to Timmy (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
   return { lines, items };
 }
@@ -549,7 +575,8 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['Tab / Shift+Tab', 'the next or previous region (the one with the keyboard has a heavy green border and ◆)'],
   ['↑ ↓ or k j', 'move within the region; PgUp PgDn a page'],
   ['← →', 'the right dock\'s tabs (Tools, Inspector, Files); the top\'s buttons'],
-  ['Enter', 'open or do what the selection offers (its words say what and to what)'],
+  ['Enter', 'open or do what the selection offers (its words say what and to what); a workflow block: run it, after a confirm'],
+  ['y  a  n', 'a NEEDS YOU box: allow once, for this session (when offered), or deny; Esc and Enter deny too (the default)'],
   ['Esc', 'close a drawer, a box or a search'],
   ['p  n', 'switch project (search, recent, open a folder)  ·  a new blank project'],
   ['/', 'find a workspace (in the navigation), or search All tools there'],
@@ -640,6 +667,11 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push(field('How', 'the REPL\'s own /run: its prediction sealed first, upmd runs each block after the blocks it needs'));
       lines.push(field('Where', `${data.project.name} (${data.project.shown}), on this computer`));
       if (o.risky.length) lines.push(field('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, 'attention'));
+      {
+        // a run of it that goes on now: Enter would start another, separate one
+        const now = data.jobs.find((j) => j.live && j.label === `${o.doc} › ${o.block}`);
+        if (now) lines.push(...para(`Running now: ${now.id} (${now.ownerWords}). Enter starts a second, separate run; x stops the one running.`, c.width, 'attention'));
+      }
       lines.push(blank);
       lines.push([key('Enter'), S(' Run it   ', 'text'), key('Esc'), S(' Do not run', 'text')]);
       return { lines, items };
@@ -767,21 +799,22 @@ function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx): Line[] {
   if (d.state === 'loading') return [[S('Run detail: reading…', 'secondary')]];
   if (d.state === 'failed') return para(`Run detail: ${d.why}`, c.width, 'failure');
   const r = d.value;
-  const out: Line[] = [heading(`Run detail ${c.g.sep} ${r.operation}`)];
-  out.push(field('Objective', r.objective?.value ?? 'not recorded', 'text', 10));
-  out.push(field('Verdict', `${r.verdict.state}: ${r.verdict.words}`, r.verdict.state === 'failed' ? 'failure' : 'strong', 10));
-  out.push(field('Stage', `${r.stage.current ?? 'none'} ${c.g.sep} ${r.stage.done} of ${r.stage.total ?? 'unknown'} steps`, 'text', 10));
-  for (const e of r.exits.slice(0, 4)) out.push(field('Exit', `${e.who}: ${e.code ?? 'none'}${e.state ? ` (${e.state})` : ''}`, 'secondary', 10));
-  out.push(field('Freshness', `${r.freshness.state}: ${r.freshness.why}`, 'text', 10));
-  out.push(field('Accepted', r.acceptance.state, 'text', 10));
-  out.push(field('Elapsed', took(r.time.elapsedMs), 'text', 10));
-  out.push(field('Cost', r.cost.measured ? `$${r.cost.usd} (reported)` : `unknown: ${r.cost.why}`, 'text', 10));
-  if (r.prediction) out.push(field('Predicted', r.prediction.words, 'secondary', 10));
-  for (const ch of r.checks.slice(0, 4)) out.push(field('Check', `${ch.name}: ${ch.actual}${ch.differs ? ' (differs)' : ''}`, ch.differs ? 'attention' : 'secondary', 10));
-  for (const f of r.files.slice(0, 6)) out.push(field(f.role, f.path, 'secondary', 10));
-  if (r.receipts.length) out.push(field('Receipts', r.receipts.slice(0, 4).map((x) => x.id).join(', '), 'secondary', 10));
-  if (r.next) out.push(field('Next', `${r.next.words}${r.next.command ? `: ${r.next.command}` : ''}`, 'action', 10));
-  for (const u of r.unknown.slice(0, 3)) out.push(field('Unknown', `${u.field}: ${u.why}`, 'secondary', 10));
+  // the operation's id as written (a heading's capitals would change it)
+  const out: Line[] = [[S('RUN DETAIL', 'secondary', { bold: true }), S(` ${c.g.sep} ${r.operation}`, 'strong')]];
+  out.push(...fieldRows('Objective', r.objective?.value ?? 'not recorded', c.width, 'text', 10));
+  out.push(...fieldRows('Verdict', `${r.verdict.state}: ${r.verdict.words}`, c.width, r.verdict.state === 'failed' ? 'failure' : 'strong', 10));
+  out.push(...fieldRows('Stage', `${r.stage.current ?? 'none'} ${c.g.sep} ${r.stage.done} of ${r.stage.total ?? 'unknown'} steps`, c.width, 'text', 10));
+  for (const e of r.exits.slice(0, 4)) out.push(...fieldRows('Exit', `${e.who}: ${e.code ?? 'none'}${e.state ? ` (${e.state})` : ''}`, c.width, 'secondary', 10));
+  out.push(...fieldRows('Freshness', `${r.freshness.state}: ${r.freshness.why}`, c.width, 'text', 10));
+  out.push(...fieldRows('Accepted', r.acceptance.state, c.width, 'text', 10));
+  out.push(...fieldRows('Elapsed', took(r.time.elapsedMs), c.width, 'text', 10));
+  out.push(...fieldRows('Cost', r.cost.measured ? `$${r.cost.usd} (reported)` : `unknown: ${r.cost.why}`, c.width, 'text', 10));
+  if (r.prediction) out.push(...fieldRows('Predicted', r.prediction.words, c.width, 'secondary', 10));
+  for (const ch of r.checks.slice(0, 4)) out.push(...fieldRows('Check', `${ch.name}: ${ch.actual}${ch.differs ? ' (differs)' : ''}`, c.width, ch.differs ? 'attention' : 'secondary', 10));
+  for (const f of r.files.slice(0, 6)) out.push(...fieldRows(f.role, f.path, c.width, 'secondary', 10));
+  if (r.receipts.length) out.push(...fieldRows('Receipts', r.receipts.slice(0, 4).map((x) => x.id).join(', '), c.width, 'secondary', 10));
+  if (r.next) out.push(...fieldRows('Next', `${r.next.words}${r.next.command ? `: ${r.next.command}` : ''}`, c.width, 'action', 10));
+  for (const u of r.unknown.slice(0, 3)) out.push(...fieldRows('Unknown', `${u.field}: ${u.why}`, c.width, 'secondary', 10));
   return out;
 }
 
@@ -789,7 +822,7 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
   const lines: Line[] = [];
   const w = c.width;
   if (!item) return { lines: [heading('Inspector'), [S('Nothing is selected: choose a row in the center.', 'secondary')]], items: [] };
-  const f = (l: string, v: string, r: Role = 'text'): void => { lines.push(field(l, v, r, 10)); };
+  const f = (l: string, v: string, r: Role = 'text'): void => { lines.push(...fieldRows(l, v, w, r, 10)); };
   switch (item.kind) {
     case 'file': {
       const x: FileRow = item.file;

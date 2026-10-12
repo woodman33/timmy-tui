@@ -4,13 +4,17 @@
 // Workbench is started as the installed command starts it (src/cli.ts through tsx's loader).
 //
 // FAKE here: one job, started through Timmy's real job store by a helper this test writes (a session that ends without
-// stopping its job, as a REPL killed outright leaves one; the job runs a real `sleep 300`), and the browser openers on PATH
-// (`open` and `xdg-open` stubs that only log; nothing in this file presses Show). Everything else is the real program.
+// stopping its job, as a REPL killed outright leaves one; the job runs a real `sleep 300`); upmd, a TEST DOUBLE of upmd
+// 0.2.7 (tests/fixtures/fake-upmd.mjs, through UPMD_BIN; its blocks run for real through sh, on a pty through Timmy's own
+// workers/upmd/pty_run.py where python3 is on PATH); and the browser openers on PATH (`open` and `xdg-open` stubs that only
+// log; nothing in this file presses Show). The person at the NEEDS YOU box is this test's key presses. Everything else is the
+// real program: the run detail's and the chat session's producers are absent in this revision, and the screens say so.
 //
 // The screens are kept (capture-pane -e as .ansi, plain as .txt) in <tmpdir>/timmy-workbench-captures, whose path the test
-// prints: 160x45 Workflows, 100x30 Control Room and 80x24 Files.
+// prints: 160x45 Workflows, 100x30 Control Room and 80x24 Files (slice A); the NEEDS YOU box, Activity after the run and
+// Control Room with the run, at 160x45 (slice B).
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +25,8 @@ import { runAsync } from './helpers/run-async.js';
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
 const JOBS = pathToFileURL(resolve('src/jobs/index.ts')).href;
+// FAKE: upmd is a TEST DOUBLE of upmd 0.2.7's --ci behaviour (tests/fixtures/fake-upmd.mjs); each block runs for real through sh
+const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
 const CAPTURES = join(tmpdir(), 'timmy-workbench-captures');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,6 +41,32 @@ const argsOf = (pid: number): string | null => {
   try { return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' }).trim() || null; } catch { return null; }
 };
 const activeRoot = (): string => JSON.parse(readFileSync(join(timmyHome, 'state', 'active-project.json'), 'utf8')).root;
+const widest = (s: string) => Math.max(...s.split('\n').map((l) => [...l].length));
+
+/** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, and a kept capture. */
+function terminal(label: string) {
+  const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
+  const screen = () => tmux('capture-pane', '-p', '-t', 't');
+  const waitFor = async (re: RegExp, ms = 30_000): Promise<string> => {
+    let s = '';
+    for (const end = Date.now() + ms; Date.now() < end;) {
+      s = screen();
+      if (re.test(s)) return s;
+      await sleep(100);
+    }
+    throw new Error(`timed out waiting for ${re}:\n${s}`);
+  };
+  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
+  const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  const capture = (name: string): string => {
+    const txt = screen();
+    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
+    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
+    return txt;
+  };
+  const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
+  return { tmux, screen, waitFor, keys, typed, capture, close };
+}
 
 beforeAll(async () => {
   box = mkdtempSync(join(tmpdir(), 'wb-pty-'));
@@ -54,7 +86,7 @@ beforeAll(async () => {
     ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'), XDG_STATE_HOME: join(home, '.local', 'state'),
     XDG_CACHE_HOME: join(home, '.cache'), TIMMY_HOME: timmyHome, TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
     TIMMY_SETTINGS_DIR: join(box, 'settings'), TMPDIR: join(box, 'tmp'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor',
-    TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', PATH: `${bin}:${process.env.PATH ?? ''}`,
+    TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', PATH: `${bin}:${process.env.PATH ?? ''}`, UPMD_BIN: FAKE_UPMD,
   };
   const init = await cli(['init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo']);
   expect(init.status, init.stderr).toBe(0);
@@ -64,7 +96,7 @@ beforeAll(async () => {
 }, 150_000);
 
 afterAll(async () => {
-  try { execFileSync('tmux', ['-L', 'wb', 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ }
+  for (const label of ['wb', 'wbB']) { try { execFileSync('tmux', ['-L', label, 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ } }
   for (let i = 0; ; i++) {
     try { rmSync(box, { recursive: true, force: true }); return; } catch (e) {
       if (i >= 50) throw e;
@@ -99,26 +131,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(recordOf(id).state).toBe('running');
     expect(argsOf(pid)).toBe('sleep 300');
 
-    const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'wb', ...args], { env, encoding: 'utf8', timeout: 10_000 });
-    const screen = () => tmux('capture-pane', '-p', '-t', 't');
-    const waitFor = async (re: RegExp, ms = 30_000): Promise<string> => {
-      let s = '';
-      for (const end = Date.now() + ms; Date.now() < end;) {
-        s = screen();
-        if (re.test(s)) return s;
-        await sleep(100);
-      }
-      throw new Error(`timed out waiting for ${re}:\n${s}`);
-    };
-    const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-    const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
-    const capture = (name: string): string => {
-      const txt = screen();
-      writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-      writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-      return txt;
-    };
-    const widest = (s: string) => Math.max(...s.split('\n').map((l) => [...l].length));
+    const { tmux, screen, waitFor, keys, typed, capture } = terminal('wb');
 
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `stty -a > '${box}/stty-before.txt'; ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
@@ -200,6 +213,98 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
 
     console.log(`Workbench captures (160x45 Workflows, 100x30 Control Room, 80x24 Files): ${CAPTURES}`);
+  }, 180_000);
+
+  it('slice B: runs APPROVAL.md › tidy from Workflows in the terminal: the NEEDS YOU box drawn in the Workbench (y), the run\'s progress in Activity, one job, one operation and one workflow receipt, the same operation for the REPL\'s /op and Studio\'s cards', async () => {
+    // the project the run is in, by the REPL's own /project (the shared record)
+    const chosen = await cli(['act', '/project tray1']);
+    expect(chosen.status, chosen.stderr).toBe(0);
+    const trayRoot = join(timmyHome, 'projects', 'tray1');
+    expect(activeRoot()).toBe(trayRoot);
+    const jobsDir = join(timmyHome, 'jobs');
+    const runsOf = () => (existsSync(jobsDir) ? readdirSync(jobsDir) : []).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(jobsDir, n), 'utf8')) as { id: string; label: string; root: string; state: string; operation?: string }).filter((j) => j.root === trayRoot && j.label === 'APPROVAL.md › tidy');
+    const store = join(box, 'store', 'runs.jsonl');
+    const chain = (): Array<{ kind: string; operation_id?: string; decisions?: Array<{ decision: string }> }> => (existsSync(store) ? readFileSync(store, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string' && typeof r.hash === 'string') : []);
+    expect(runsOf()).toEqual([]);
+    const sealedBefore = chain().length;
+
+    const { tmux, waitFor, keys, typed, capture, close } = terminal('wbB');
+    let runId = '';
+    let op = '';
+    try {
+      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
+        `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+      await waitFor(/tray1 \/ [\s\S]*Activity/);
+      await keys('/');
+      await typed('Workflows');
+      await keys('Enter');
+      const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here, through the REPL's own \/run/);
+      expect(wf).toContain('upmd found');
+      // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here
+      await keys('Enter');
+      await waitFor(/Run APPROVAL\.md › tidy\?/);
+      await keys('Enter');
+      const box = await waitFor(/⚠ NEEDS YOU[\s\S]*deny \(the default\)/);
+      expect(box).toContain('/run APPROVAL.md tidy');
+      expect(box).toContain('runs a destructive shell command on this machine: tidy');
+      expect(box).toContain('mkdir -p scratch && touch scratch/x && rm scratch/x');
+      expect(box).toMatch(/Control Room ⚠ 1/);
+      capture('wb-160x45-needs-you');
+      // nothing of the run has started while the box waits
+      expect(runsOf()).toEqual([]);
+      expect(chain().length).toBe(sealedBefore);
+      await sleep(500); // past the box's type-ahead guard
+      await keys('y');
+      for (const end = Date.now() + 30_000; !(runsOf()[0]?.state === 'completed') && Date.now() < end;) await sleep(100);
+      const [run] = runsOf();
+      expect(run).toMatchObject({ state: 'completed' });
+      runId = run.id;
+      op = run.operation!;
+      expect(op).toMatch(/^o[0-9a-f]{8}$/);
+      await waitFor(new RegExp(`${run.id} completed\\s+operation ${op}`));
+      await waitFor(/Activity\s+0 running/);
+      await keys('a');
+      await waitFor(/▾ Activity[\s\S]*All operations/);
+      const activity = capture('wb-160x45-activity-after-run');
+      expect(activity).toMatch(new RegExp(`${run.id} tidy completed`));
+      await keys('a');
+
+      // one job, one operation, one prediction, one block receipt and one workflow receipt: no second execution
+      expect(runsOf()).toHaveLength(1);
+      const sealed = chain().slice(sealedBefore);
+      expect(sealed.map((r) => r.kind)).toEqual(['predict', 'workflow-block', 'workflow']);
+      expect(sealed.every((r) => r.operation_id === op)).toBe(true);
+      expect(sealed[0].decisions?.[0]?.decision).toBe('allow once');
+      for (let i = 0; i < 50 && !JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8')).ended; i++) await sleep(100);
+      expect(JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8'))).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'repl', state: 'succeeded', runs: [{ kind: 'job', id: run.id }] });
+
+      // Control Room: the same job and operation; the Inspector says the run detail's producer is not in this revision
+      await keys('/');
+      await typed('Control');
+      await keys('Enter');
+      const room = await waitFor(new RegExp(`${run.id}\\s+completed\\s+APPROVAL\\.md › tidy`));
+      expect(room).toContain(op);
+      // (the dock is narrow: its words wrap after the module's name)
+      await waitFor(/Run detail: src\/ops\/run-detail\.ts/);
+      capture('wb-160x45-control-run');
+
+      await keys('C-c');
+      expect((await waitFor(/EXIT=(\d+)/, 20_000)).match(/EXIT=(\d+)/)![1]).toBe('130');
+    } finally {
+      close();
+    }
+
+    // the same operation, read by the REPL's own /op (a separate process) and by Studio's cards (this process)
+    const card = await cli(['act', `/op ${op}`, '--project', trayRoot]);
+    expect(card.status, card.stderr).toBe(0);
+    expect(card.stdout).toContain(op);
+    expect(card.stdout).toContain('/run APPROVAL.md tidy');
+    expect(card.stdout).toContain(runId);
+    const { projectCards } = await import('../src/studio/project-cards.js');
+    const cards = projectCards({ root: trayRoot, name: 'tray1', jobs: jobsDir, receipts: join(box, 'store') });
+    expect(cards.operations?.find((o) => o.id === op)).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'repl' });
+    // still one run of it
+    expect(runsOf()).toHaveLength(1);
   }, 180_000);
 
   it('without a terminal: --json prints the state model and exits 0; plain exits 78 with its cause and fix; --help 0; an unknown argument 2', async () => {

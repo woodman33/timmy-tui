@@ -5,15 +5,20 @@
  * Reading: the active project, its jobs and Activity every second; its files, workflows, decisions and records every few
  * seconds and on [r]; the overview, Studio's cards and the tools check when their workspace is first opened. Acting: through
  * the REPL's own code on this Workbench's Workspace (src/repl/workspace.ts): /project to switch or make a project (which
- * writes the shared active-project record), /stop for its own jobs, recovery's stop for a job an ended session left
- * (src/workbench/stop.ts), and the Companion and Studio controls (src/workbench/servers.ts).
+ * writes the shared active-project record), /run for a workflow block (one operation, its NEEDS YOU box drawn here), /stop
+ * for its own jobs, recovery's stop for a job an ended session left (src/workbench/stop.ts), and the Companion and Studio
+ * controls (src/workbench/servers.ts). The run detail and the chat session come from their producers when this Timmy has
+ * them (src/workbench/producers.ts); until then the Inspector and the composer say so.
  */
 import { statSync } from 'node:fs';
 import type { Key } from 'ink';
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
 import type { JobRecord } from '../jobs/index.js';
 import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
+import { currentOperation } from '../ops/context.js';
+import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { projectCards } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
@@ -25,6 +30,7 @@ import { modeOf } from './layout.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
+import { checkDetail, realProducers, type Loaded, type Producers, type RunDetailOf } from './producers.js';
 import type { CompanionControl, StudioControl } from './servers.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
@@ -37,7 +43,10 @@ import { clock, type Line, type Role } from './text.js';
 import { actionsOf, centerView, cursorOf, selectedItem, stopWords, topButtons, type ViewCtx } from './views.js';
 
 /** What this Workbench uses of the REPL's Workspace. */
-export type WorkspaceLike = Pick<Workspace, 'project' | 'root' | 'jobs' | 'project_' | 'stop' | 'overview' | 'close'>;
+export type WorkspaceLike = Pick<Workspace, 'project' | 'root' | 'jobs' | 'project_' | 'stop' | 'overview' | 'close' | 'run' | 'ops'>;
+
+/** Keys this soon after a NEEDS YOU box appears are not answers (the REPL's type-ahead guard, src/repl/approvals.ts). */
+export const GUARD_MS = 300;
 
 export interface ControllerDeps {
   env: NodeJS.ProcessEnv;
@@ -57,6 +66,10 @@ export interface ControllerDeps {
   /** the app ends with this exit code (after the terminal is restored) */
   onExit?: (code: number, after: string[]) => void;
   stopLeft?: StopDeps['stopLeft'];
+  /** the run detail's and the chat session's producers (absent: the real modules, when this Timmy has them) */
+  producers?: Producers;
+  /** the NEEDS YOU box's type-ahead guard (ms) */
+  guardMs?: number;
   now?: () => number;
   /** how often the jobs and Activity are read (ms) */
   tickMs?: number;
@@ -79,6 +92,14 @@ export class Controller {
   private records: JobRecord[] = [];
   private disposed = false;
   private signature = '';
+  /** the producers, once asked: null while they load */
+  private detailOf: Loaded<RunDetailOf> | null = null;
+  private chatOf: Loaded<OpenChatSession> | null = null;
+  /** the chat session for the project shown (opened when Chat is first opened) */
+  private chat: { root: string; state: 'opening' } | { root: string; state: 'open'; session: ChatSession } | { root: string; state: 'failed'; why: string } | null = null;
+  /** the runs being started here (one press runs once) */
+  private readonly starting = new Set<string>();
+  private turnAbort: AbortController | null = null;
 
   constructor(private readonly d: ControllerDeps) {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
@@ -110,11 +131,15 @@ export class Controller {
   subscribe(fn: () => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
   private emit(): void { if (!this.disposed) for (const fn of this.listeners) fn(); }
 
-  /** What the person sees now: say it in Activity and on the controls row. */
-  say(text: string, role: Role = 'text'): void {
+  /** What the person sees now: say it in Activity and on the controls row. A notice that names a job (or is given an
+   *  operation) belongs to that job's operation, so Activity's filter for that operation keeps it. */
+  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string } = {}): void {
     const at = new Date(this.now()).toISOString();
     this.ui.flash = { text, role, at: this.now() };
-    this.notices.unshift({ at, words: text, ...(role === 'failure' ? { failed: true } : {}), ...(role === 'attention' ? { attention: true } : {}) });
+    const named = meta.job ?? /\b(j[0-9a-f]{6,})\b/.exec(text)?.[1];
+    const job = named ? this.records.find((j) => j.id === named) : undefined;
+    const operation = meta.operation ?? job?.operation;
+    this.notices.unshift({ at, words: text, ...(job ? { job: job.id } : {}), ...(operation ? { operation } : {}), ...(role === 'failure' ? { failed: true } : {}), ...(role === 'attention' ? { attention: true } : {}) });
     this.notices.splice(40);
     this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
     this.emit();
@@ -195,6 +220,7 @@ export class Controller {
   // ── timers ────────────────────────────────────────────────────────────────────
 
   start(): void {
+    void this.loadProducers();
     const tick = this.d.tickMs ?? 1000;
     const slow = this.d.slowMs ?? 5000;
     this.timers.push(setInterval(() => this.onTick(), tick));
@@ -226,6 +252,9 @@ export class Controller {
 
   dispose(): void {
     if (this.rememberTimer) { clearTimeout(this.rememberTimer); this.rememberTimer = null; this.rememberNow(); }
+    // a box nobody can answer any more is denied (deny is the default); a message being sent is stopped
+    if (this.ui.overlay?.kind === 'needs-you') this.ui.overlay.answer('deny');
+    this.turnAbort?.abort();
     this.disposed = true;
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
@@ -235,11 +264,67 @@ export class Controller {
   // ── the frame ─────────────────────────────────────────────────────────────────
 
   can(): ViewCtx['can'] {
+    const chat = this.chat?.root === this.data.project.root ? this.chat : null;
+    const chatWhy = !this.chatOf ? 'the chat session is being looked for'
+      : !this.chatOf.ok ? `sending from the Workbench needs the shared chat session: ${this.chatOf.why}. Type in the REPL (timmy) or the monitor (timmy watch) instead. Nothing is sent from here.`
+        : !chat ? 'its chat session opens when Chat is opened'
+          : chat.state === 'opening' ? 'its chat session is opening'
+            : chat.state === 'failed' ? `its chat session did not open: ${chat.why}. Nothing is sent from here.` : undefined;
+    const detailWhy = !this.detailOf ? 'the run detail\'s producer is being looked for'
+      : !this.detailOf.ok ? `${this.detailOf.why}; the job's own fields are above` : undefined;
     return {
-      run: false, runWhy: 'not in this revision yet (its next slice); the two commands above run it now',
-      chat: false, chatWhy: 'sending from the Workbench needs the shared chat session (src/agent/chat-session.ts, being built); today type in the REPL (timmy) or the monitor (timmy watch). Nothing is sent from here.',
-      detail: false, detailWhy: 'the run detail is made by src/ops/run-detail.ts, which this revision does not have yet; the job\'s own fields are above',
+      run: true,
+      chat: !chatWhy, ...(chatWhy ? { chatWhy } : {}),
+      detail: !detailWhy, ...(detailWhy ? { detailWhy } : {}),
     };
+  }
+
+  // ── the producers (src/workbench/producers.ts) ────────────────────────────────
+
+  private async loadProducers(): Promise<void> {
+    const p = this.d.producers ?? realProducers;
+    const [detail, chat] = await Promise.all([p.runDetail(), p.openChat()]);
+    this.detailOf = detail;
+    this.chatOf = chat;
+    if (this.ui.workspace === 'chat') void this.openChat();
+    this.emit();
+  }
+
+  /** The chat session for the project shown: opened once per project, through the producer (one path for every surface). */
+  private async openChat(): Promise<void> {
+    if (!this.chatOf?.ok) return;
+    const p = this.data.project;
+    if (this.chat?.root === p.root) return;
+    this.chat = { root: p.root, state: 'opening' };
+    try {
+      const session = await this.chatOf.value({ project: { name: p.name, root: p.root }, surface: 'workbench' });
+      if (this.chat?.root !== p.root) return;
+      this.chat = { root: p.root, state: 'open', session };
+      this.data.chatRoute = session.route();
+    } catch (e) {
+      if (this.chat?.root === p.root) this.chat = { root: p.root, state: 'failed', why: e instanceof Error ? e.message : String(e) };
+    }
+    this.emit();
+  }
+
+  /** The run detail of an operation the Inspector shows: read once, and again while its run goes on. */
+  private wantDetail(op: string, live: boolean): void {
+    if (!this.detailOf?.ok) return;
+    const cur = this.data.details[op];
+    if (cur?.state === 'loading') return;
+    if (cur && (cur.state === 'ready' || cur.state === 'failed') && (!live || this.now() - cur.at < 1000)) return;
+    const of = this.detailOf.value;
+    const root = this.data.project.root;
+    this.data.details[op] = cur?.state === 'ready' ? cur : { state: 'loading', since: this.now() };
+    void (async () => {
+      try {
+        const got = checkDetail(await of(op, { root }), op);
+        this.data.details[op] = got.ok ? { state: 'ready', value: got.detail, at: this.now() } : { state: 'failed', why: got.why, at: this.now() };
+      } catch (e) {
+        this.data.details[op] = { state: 'failed', why: `the producer failed: ${e instanceof Error ? e.message : String(e)}`, at: this.now() };
+      }
+      this.emit();
+    })();
   }
 
   frame(columns: number, rows: number): Frame {
@@ -253,6 +338,11 @@ export class Controller {
     this.ui.mine = [...this.mine];
     const f = frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
     for (const d of Object.values(f.regions)) if (d) this.ui.scroll[d.list] = d.scroll;
+    // the Inspector, when it shows a job of an operation, draws that operation's run detail
+    if (f.regions.right && this.ui.tab === 'inspector') {
+      const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
+      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live);
+    }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
     if (this.ui.focus === 'center' && !f.regions.center) this.ui.focus = f.regions.right ? 'right' : 'top';
@@ -270,8 +360,10 @@ export class Controller {
   // ── keys ──────────────────────────────────────────────────────────────────────
 
   key(input: string, k: Partial<Key>): void {
-    if (k.ctrl && input === 'c') { void this.quit(); return; }
     const o = this.ui.overlay;
+    // a NEEDS YOU box takes every key until it is answered; Ctrl+C denies it (a second Ctrl+C then quits)
+    if (o?.kind === 'needs-you') { this.needsYouKey(o, input, k); return; }
+    if (k.ctrl && input === 'c') { void this.quit(); return; }
     if (o?.kind === 'quit') { if (k.escape) { this.ui.overlay = null; this.emit(); } return; }
     if (this.ui.input.field) { this.typing(input, k); return; }
     if (o && this.overlayKey(o, input, k)) return;
@@ -354,6 +446,7 @@ export class Controller {
 
   move(delta: number): void {
     const region = this.ui.focus;
+    this.ui.follow = null;
     if (region === 'nav') {
       const at = NAV_ORDER.indexOf(this.ui.workspace);
       this.selectWorkspace(NAV_ORDER[Math.max(0, Math.min(NAV_ORDER.length - 1, at + delta))]);
@@ -385,6 +478,7 @@ export class Controller {
       this.remember();
     }
     this.loadFor(ws);
+    if (ws === 'chat') void this.openChat();
     this.emit();
   }
 
@@ -427,6 +521,7 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
+      if (f === 'composer' && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent (Esc)…', 'secondary'); }
       this.ui.input = { field: null, text: f === 'tools' ? '' : '' };
       if (f === 'picker' || f === 'new') this.ui.overlay = null;
       this.emit();
@@ -477,7 +572,49 @@ export class Controller {
       this.makeProject(text.trim(), from);
       return;
     }
-    if (field === 'composer') { this.ui.input = { field: null, text: '' }; this.say(`Not sent: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary'); }
+    if (field === 'composer') {
+      const why = this.can().chatWhy;
+      if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
+      if (this.data.turn?.state === 'sending') { this.say('A message is still being sent: Esc stops it, or wait for its answer.', 'secondary'); return; }
+      this.ui.input = { field: 'composer', text: '' };
+      await this.send(text.trim());
+    }
+  }
+
+  /** The composer's message, through the chat session (one path for every surface), as one operation, as the REPL does. */
+  private async send(text: string): Promise<void> {
+    const chat = this.chat;
+    if (!chat || chat.root !== this.data.project.root || chat.state !== 'open') return;
+    const session = chat.session;
+    const ws = this.d.workspace;
+    const h = ws.ops.begin({ request: text, via: 'repl', root: ws.root, project: ws.project.name });
+    const turn: NonNullable<Data['turn']> = { text, answer: '', state: 'sending', lines: [], sent: null, tools: [], at: this.now(), operation: h.id };
+    this.data.turn = turn;
+    const abort = new AbortController();
+    this.turnAbort = abort;
+    this.emit();
+    try {
+      const r = await ws.ops.run(h, () => session.send(text, {
+        onText: (full) => { turn.answer = full; this.emit(); },
+        onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
+        askPerson: (req) => this.askPerson(req),
+        signal: abort.signal,
+      }));
+      Object.assign(turn, {
+        state: r.status, answer: r.text || turn.answer, lines: r.lines ?? [], sent: r.sent, costWords: r.costWords,
+        ...(r.receipt ? { receipt: r.receipt } : {}), ...(r.model ? { model: r.model } : {}),
+      });
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${r.receipt}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+        r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary');
+    } catch (e) {
+      Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
+      this.say(turn.lines[0], 'failure');
+    } finally {
+      if (this.turnAbort === abort) this.turnAbort = null;
+      try { this.data.chatRoute = session.route(); } catch { /* as before */ }
+      this.data.chat = readChatTail(this.data.project.root);
+      this.emit();
+    }
   }
 
   private labelOf(id: WorkspaceId): string { return id === 'overview' ? 'God\'s Eye View' : id === 'create3d' ? '3D Create' : id === 'tools' ? 'All tools' : id === 'control' ? 'Control Room' : id === 'rea' ? 'REA' : id === 'voxvision' ? 'VoxVision' : id.charAt(0).toUpperCase() + id.slice(1); }
@@ -492,8 +629,81 @@ export class Controller {
       if (input === ' ' || k.return) { this.toggleSetting(cursorOf(this.ui, 'overlay', n)); return true; }
       return false;
     }
+    if (o.kind === 'confirm-run') {
+      if (k.return) { void this.runBlock(o); return true; }
+      return false;
+    }
     if (o.kind === 'help' || o.kind === 'message') return false;
     return false;
+  }
+
+  // ── NEEDS YOU, drawn here (src/repl/approvals.ts's box, its keys and its guard) ─
+
+  /** The Workspace's askPerson: the box in the center until it is answered; deny is the default. */
+  askPerson(req: ApprovalRequest): Promise<Decision> {
+    // the operation the asking request runs in (its answer is part of it)
+    const operation = currentOperation();
+    return new Promise((resolve) => {
+      let done = false;
+      const answer = (d: Decision): void => {
+        if (done) return;
+        done = true;
+        if (this.ui.overlay?.kind === 'needs-you' && this.ui.overlay.req === req) this.ui.overlay = null;
+        resolve(d);
+        this.say(d === 'deny' ? `NEEDS YOU: denied ${req.tool}` : d === 'once' ? `NEEDS YOU: allowed ${req.tool} once` : `NEEDS YOU: allowed ${req.tool} for this session`, d === 'deny' ? 'secondary' : 'text', operation ? { operation } : {});
+        // the wait leaves the Control Room once the gate has its answer
+        setTimeout(() => this.refreshDecisions(), 50).unref?.();
+      };
+      if (this.disposed) { answer('deny'); return; }
+      this.ui.input = { field: null, text: '' };
+      this.open({ kind: 'needs-you', req, since: this.now(), answer });
+      this.refreshDecisions();
+    });
+  }
+
+  private needsYouKey(o: Extract<NonNullable<Overlay>, { kind: 'needs-you' }>, input: string, k: Partial<Key>): void {
+    // Ctrl+C denies; so does a paste, whatever it holds (a pasted y never approves)
+    if ((k.ctrl && input === 'c') || (!k.ctrl && !k.meta && input.length > 1)) { o.answer('deny'); return; }
+    if (this.now() - o.since < (this.d.guardMs ?? GUARD_MS)) return;
+    if (input === 'y') o.answer('once');
+    else if (input === 'a' && o.req.session !== false) o.answer('session');
+    else if (input === 'n' || k.escape || k.return) o.answer('deny');
+  }
+
+  private refreshDecisions(): void {
+    const root = this.data.project.root;
+    this.data.decisions = readDecisions(root, this.records, this.chain(), this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
+    this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
+    this.emit();
+  }
+
+  // ── a workflow block, run here ────────────────────────────────────────────────
+
+  /** The REPL's own /run of one block, as one operation (its prediction, its NEEDS YOU, its job and receipts are /run's). */
+  private async runBlock(o: Extract<NonNullable<Overlay>, { kind: 'confirm-run' }>): Promise<void> {
+    this.ui.overlay = null;
+    const ws = this.d.workspace;
+    const args = `${o.doc} ${o.block}`;
+    const request = `/run ${args}`;
+    if (this.starting.has(args)) { this.say(`${request} is already starting here: one press runs it once.`, 'secondary'); return; }
+    this.starting.add(args);
+    const h = ws.ops.begin({ request, via: 'repl', root: ws.root, project: ws.project.name });
+    this.say(`${request}: operation ${h.id}, through the REPL's own /run${o.risky.length ? '; its NEEDS YOU box asks first' : ''}…`, 'secondary', { operation: h.id });
+    try {
+      const lines = await ws.ops.run(h, () => ws.run(args));
+      const job = h.runs.find((r) => r.kind === 'job')?.id;
+      if (job) {
+        this.mine.add(job);
+        if (this.ui.settings.settings.followSelectedArtifact) { this.ui.follow = job; this.ui.tab = 'inspector'; this.ui.activityAll = false; }
+      }
+      this.readJobs();
+      for (const l of lines) { const w = plain(l).trim(); if (w) this.say(w, roleOf(l.find((x) => x.role && x.role !== 'secondary')?.role ?? l[0]?.role), { operation: h.id }); }
+    } catch (e) {
+      this.say(`${request} could not start: ${e instanceof Error ? e.message : String(e)}`, 'failure');
+    } finally {
+      this.starting.delete(args);
+      this.emit();
+    }
   }
 
   private toggleSetting(i: number): void {
@@ -574,6 +784,8 @@ export class Controller {
   private use(p: { name: string; root: string; chosen: boolean }, why: string): void {
     this.data = { ...this.emptyData(projectView(p, this.d.env)), caps: this.data.caps, starters: this.data.starters, boards: this.data.boards };
     this.chainCache = null;
+    this.ui.follow = null;
+    if (this.ui.workspace === 'chat') void this.openChat();
     this.ui.cursor = {};
     this.ui.scroll = {};
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
@@ -638,7 +850,8 @@ export class Controller {
       case 'block': {
         const acts = actionsOf(this.ctx(), item);
         const run = acts.find((a) => a.key === 'Enter');
-        if (run && !run.enabled) this.say(`${run.label}: ${run.why ?? 'not available'}`, 'secondary');
+        if (run?.enabled) this.open({ kind: 'confirm-run', doc: item.doc.rel, block: item.block.name, order: item.block.order, risky: item.block.risky });
+        else if (run) this.say(`${run.label}: ${run.why ?? 'not available'}`, 'secondary');
         return;
       }
       case 'starter': this.openNew(item.name); return;
@@ -670,6 +883,8 @@ export class Controller {
     if (!m.press || m.button !== 0) return;
     // a [key] hint presses its key, wherever it is drawn
     const hint = keyAt(f.screen.map((l) => l.map((s) => s.text).join('')), m.x, m.y);
+    // a NEEDS YOU box is answered only by its keys (a click on [y] is y); a click elsewhere does nothing
+    if (this.ui.overlay?.kind === 'needs-you') { if (hint && hint.length === 1) this.key(hint, {}); return; }
     if (hint) {
       if (hint === 'Enter') { void this.enter(); return; }
       if (hint === 'Esc') { this.escape(); return; }
@@ -689,6 +904,7 @@ export class Controller {
       if (region === 'nav' && it.kind === 'action') { this.selectWorkspace(it.action as WorkspaceId); return; }
       const already = (this.ui.cursor[d.list] ?? 0) === at;
       this.ui.cursor[d.list] = at;
+      if (region === 'center') this.ui.follow = null;
       this.emit();
       // a second click on the selected row does what Enter does
       if (already && region === 'center') void this.enter();

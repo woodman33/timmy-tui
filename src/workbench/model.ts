@@ -3,6 +3,7 @@
  * (src/workbench/views.ts) draw from these; the controller (src/workbench/controller.ts) changes them.
  */
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { ChatRouteState } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { ApprovalRequest } from '../repl/approvals.js';
 import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.js';
@@ -33,6 +34,25 @@ export interface ServerState {
   starting?: boolean;
 }
 
+/** The composer's message and what came of it (src/contracts/chat-session.ts ChatTurnResult, as it arrives). */
+export interface TurnView {
+  text: string;
+  /** the answer so far */
+  answer: string;
+  state: 'sending' | 'answered' | 'refused' | 'failed' | 'cancelled';
+  /** refusal or failure words: cause and fix */
+  lines: string[];
+  /** whether a request left this process for a model; null while that is not known yet */
+  sent: boolean | null;
+  receipt?: string;
+  costWords?: string;
+  model?: string;
+  /** the operation the message ran as */
+  operation?: string;
+  tools: Array<{ name: string; phase: 'start' | 'end'; outcome?: string }>;
+  at: number;
+}
+
 export interface Data {
   project: ProjectView;
   projects: ProjectChoice[];
@@ -52,6 +72,10 @@ export interface Data {
   caps: Lazy<CapabilityRow[]>;
   /** each job's run detail (src/contracts/run-detail.ts), by operation id, once asked */
   details: Record<string, Lazy<RunDetail>>;
+  /** the chat session's own route (src/contracts/chat-session.ts), once a session is open */
+  chatRoute?: ChatRouteState;
+  /** the composer's last message */
+  turn?: TurnView;
   /** when the records were last read */
   readAt: number;
   /** the active-project record names another project than the one shown (Follow active project is off) */
@@ -118,4 +142,6 @@ export interface Ui {
   studio: ServerState;
   /** the job ids this Workbench started */
   mine: string[];
+  /** Follow selected artifact: the job a run started here, shown by the Inspector and Activity until the cursor moves */
+  follow?: string | null;
 }

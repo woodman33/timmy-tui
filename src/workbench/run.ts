@@ -2,13 +2,15 @@
  * R4 (H110): `timmy workbench` at a terminal. The Workbench takes the terminal's alternate screen and gives it back as it was
  * on every way out (Ctrl+C, SIGTERM, SIGHUP, an error: src/term/session.ts), mouse reporting included. It opens the project
  * the shared record names (else this folder), moves into its folder as the REPL does, and makes one Workspace, the REPL's own
- * (src/repl/workspace.ts), for what it does: /project, /stop and the overview. It recovers nothing at start (the REPL does).
+ * (src/repl/workspace.ts), for what it does: /project, /run (its NEEDS YOU box drawn in the Workbench), /stop and the
+ * overview. It recovers nothing at start (the REPL does).
  */
 import React from 'react';
 import { join } from 'node:path';
 import { render } from 'ink';
 import { projectId, readActiveProject } from '../project/index.js';
 import { realOnPath } from '../repl/center.js';
+import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
 import { currentCapabilities } from '../term/capabilities.js';
@@ -40,6 +42,8 @@ export async function runWorkbench(): Promise<number> {
   const start = readActiveProject(process.cwd());
   try { process.chdir(start.root); } catch { /* the folder is gone: the views say so */ }
   let say: (text: string) => void = () => undefined;
+  // the Workbench's own NEEDS YOU box, once the app is up; until then (and after it ends) deny, the default
+  let ask: (req: ApprovalRequest) => Promise<Decision> = async () => 'deny';
   const ws = new Workspace({
     glyphs: glyphSet(caps.unicode), env, onPath,
     notify: (line) => say(line.map((s) => s.text).join('').trim()),
@@ -47,6 +51,7 @@ export async function runWorkbench(): Promise<number> {
     link: (text) => text,
     seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
     jobsDir, recoverAtStart: false, tildify: (p) => tildePath(p, env),
+    askPerson: (req) => ask(req),
   }, start);
 
   const opener = systemOpener(env, onPath);
@@ -74,6 +79,7 @@ export async function runWorkbench(): Promise<number> {
     onExit: (code, words) => { after = words; finish(code); },
   });
   say = (text) => { if (text) controller.say(text); };
+  ask = (req) => controller.askPerson(req);
   if (mouseWanted) { controller.ui.mouse = true; setMouse(true); }
 
   // a narrower terminal reflows the old frame: start the new one on a clear screen (as the monitor does)
