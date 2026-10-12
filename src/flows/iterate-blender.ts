@@ -24,6 +24,7 @@ import { listNativeRuns, readNativeRecord, sha256File } from '../native/index.js
 import { resolveInside } from '../project/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
 import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type LastBuildCheck, type OtherChange } from './iterate.js';
+import { nativeLastRun } from './iterate-native.js';
 
 export { DOCTRINE_15 };
 
@@ -47,6 +48,19 @@ export const CORE_CHECKS: readonly BlendCheckName[] = ['objects', 'materials', '
 export const DIMENSIONS_TOLERANCE = 1e-6;
 /** What the object sizes are and are not, said with them on the record, the card and the notices. */
 export const DIMENSIONS_SCOPE = 'Object sizes are world-space axis-aligned bounding boxes in Blender units, as Blender\'s run reported them; the comparison with the saved .blend is a second pass by the same application, not an independent implementation.';
+
+/**
+ * R4 (H99, the review of the H99 work): the last /blender run of a script, checked when a flow made no change
+ * (src/flows/iterate-native.ts nativeLastRun): the script hashes as its submission recorded, it was given no arguments of its
+ * own (Blender's command line after `--`, as the run's job.json keeps it; the flow runs the script with none), and the files
+ * it wrote are the bytes its verdict names. A `/blender scene.py --width 200` run is another build than the flow's.
+ */
+export function blenderLastRun(root: string, scriptRel: string, o: { now?: () => Date } = {}): LastBuildCheck {
+  return nativeLastRun(root, {
+    app: 'blender', appName: 'Blender', input: scriptRel, again: `/blender ${scriptRel}`, ...(o.now ? { now: o.now } : {}),
+    scriptArgs: (job) => { const at = Array.isArray(job.args) ? job.args.indexOf('--') : -1; return at < 0 ? null : job.args.slice(at + 1).map(String); },
+  });
+}
 
 const objOf = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0;

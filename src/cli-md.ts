@@ -63,7 +63,8 @@ export function mdHelp(): string {
     '  refused before anything runs, with the command to type in the REPL instead.',
     '',
     'EXIT',
-    '  0 succeeded (or --plan)   1 failed   2 refused, needs a person, or usage   3 stopped or interrupted',
+    '  0 succeeded (or --plan), or no change while the last build still matches its recorded inputs   1 failed',
+    '  2 refused, needs a person, or usage   3 stopped or interrupted',
     '  4 no change: the run stopped at a block whose request made no change while the last build does not match its inputs',
     '',
     'EXAMPLES',
@@ -282,14 +283,15 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   const ended = h.ended!;
   const state = stopping ? 'stopped' : failedToRun ? 'failed' : ended.state;
   // R4 (H99): a run that stopped at a block that made no change exits as `timmy act` does for no change (NO_CHANGE_EXIT)
-  const code = state === 'succeeded' || state === 'answered' ? 0 : state === 'failed' || state === 'differs' ? 1 : state === 'refused' ? 2 : state === 'no change' ? NO_CHANGE_EXIT : 3;
+  // R4 (H99, the review): a run that completed with a block whose last build still matched is no change, current: exit 0
+  const code = state === 'succeeded' || state === 'answered' ? 0 : state === 'failed' || state === 'differs' ? 1 : state === 'refused' ? 2 : state === 'no change' ? (ended.current === true ? 0 : NO_CHANGE_EXIT) : 3;
   // What the run sealed: its prediction, each block's receipt and its own, from the chain.
   const jobId = h.runs.find((r) => r.kind === 'job')?.id;
   const job = jobId ? ws.jobs.get(jobId) : undefined;
   let chain: ReturnType<typeof readChain> = [];
   try { chain = readChain('runs'); } catch { chain = []; }
   const own = jobId ? blockReceiptsOf(chain, jobId) : new Map();
-  const blocks = (job?.steps ?? []).map((s) => ({ name: s.name, state: s.state, exit_code: s.code ?? null, receipt: own.get(s.name)?.receipt ?? null }));
+  const blocks = (job?.steps ?? []).map((s) => ({ name: s.name, state: s.state, exit_code: s.code ?? null, ...(s.outcome ? { outcome: s.outcome } : {}), receipt: own.get(s.name)?.receipt ?? null }));
   const receipts = chain.filter((r) => r.operation_id === h.id).map((r) => ({ id: r.hash.slice(7, 15), kind: r.kind, ...(r.status ? { status: r.status } : {}) }));
   if (a.json) {
     end({

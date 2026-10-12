@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agents/index.js';
-import { listNativeRuns, readNativeRecord, type NativeApp } from '../native/index.js';
+import { listNativeRuns, readNativeRecord, type NativeApp, type NativeRunJob } from '../native/index.js';
 import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type LastBuildCheck, type OtherChange } from './iterate.js';
 
 export { DOCTRINE_15 };
@@ -30,17 +30,30 @@ function hashInProject(root: string, rel: string): string | null {
   } catch { return null; }
 }
 
+/** How a run's own arguments are shown in words: each quoted where it has a space, the whole cut to a line's part. */
+export const argsWords = (args: readonly string[]): string => {
+  const said = args.map((a) => (/[\s'"]/.test(a) || !a ? JSON.stringify(a) : a)).join(' ');
+  return Array.from(said).length > 80 ? `${Array.from(said).slice(0, 79).join('')}…` : said;
+};
+
 /**
  * R4 (H99, r24): whether the last run of a native app on a file still matches its recorded inputs, for a flow that made no
  * change. The last run is the project's newest run of `app` whose submission names `input` and whose newest verdict is ok
  * (src/native: job.json, verdicts.jsonl). It is current only when the file it was given hashes now as its submission
- * recorded, each of `extra` (its other recorded inputs, such as OpenSCAD's parameter file) hashes as recorded, and every
- * file its verdict says it wrote is there with the sha256 the verdict names. A newer run of the file with no verdict leaves it
- * unknown (whether that run still goes is not read here). What the app itself is (its program) is not hashed, and the words
- * say so. Nothing runs, and nothing is written.
+ * recorded, it was given the arguments the flow itself gives the script (none; `scriptArgs`, the review of the H99 work: a
+ * `/blender scene.py --width 200` run was said current for a flow that runs scene.py with none), each of `extra` (its other
+ * recorded inputs, such as OpenSCAD's parameter file) hashes as recorded, and every file its verdict says it wrote is there
+ * with the sha256 the verdict names. A newer run of the file with no verdict, or a record that does not say which arguments
+ * its script was given, leaves it unknown (whether that run still goes is not read here). What the app itself is (its
+ * program) is not hashed, and the words say so. Nothing runs, and nothing is written.
  */
 export function nativeLastRun(root: string, o: {
   app: NativeApp; appName: string; input: string; again: string;
+  /**
+   * the arguments the run's script was given, as its record keeps them (null: its record does not say); the flows run the
+   * script with none, so a run given any is stale. Absent: the app takes no arguments of the script's own.
+   */
+  scriptArgs?: (job: NativeRunJob, dir: string) => string[] | null;
   /**
    * the run's other recorded inputs, read from its folder: what, the project file, its sha256 as recorded (null: none
    * recorded); `why`, when the run's record itself shows it did not take its values from that file alone (said as stale)
@@ -69,6 +82,18 @@ export function nativeLastRun(root: string, o: {
     const build: LastBuildCheck['build'] = { kind: 'native', id: last.run, app: o.app, at: stamp, ...(last.rec.started?.job ? { job: last.rec.started.job } : {}) };
     const name = `the last ${o.appName} run (${last.run.slice(0, 8)}, ${stamp})`;
     if (unjudged) return { state: 'unknown', checked_at, build, checks: [], words: `whether ${name} still matches its inputs is not known: a newer run of ${o.input} (${unjudged.run.slice(0, 8)}) has no verdict yet` };
+    // R4 (H99, the review): the flow gives the script no arguments of its own; a run given any made another build
+    if (o.scriptArgs) {
+      let args: string[] | null;
+      try { args = o.scriptArgs(last.rec.job, last.rec.dir); } catch { args = null; }
+      if (args === null) return { state: 'unknown', checked_at, build, checks: [], words: `whether ${name} still matches its inputs is not known: its record does not say which arguments its script was given; ${o.again} runs it again` };
+      if (args.length) {
+        return {
+          state: 'stale', checked_at, build, checks: [{ what: 'the arguments its script was given', recorded: argsWords(args), now: '', same: false }],
+          words: `${name} is stale: it was run with the argument${args.length === 1 ? '' : 's'} ${argsWords(args)}, and the flow runs ${o.input} with none; ${o.again} runs it again`,
+        };
+      }
+    }
     const checks: LastBuildCheck['checks'] = [];
     const given = last.rec.job.input!;
     const inputNow = hashInProject(root, given.path);

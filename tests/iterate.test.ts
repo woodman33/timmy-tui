@@ -460,6 +460,10 @@ describe('/iterate end to end (FAKE agent, FAKE recipe executor, FAKE readback)'
     expect(checks[0]).toMatchObject({ what: 'the request (the parameter values it was built from)', same: true });
     expect(checks.filter((c) => c.what.startsWith('source ')).length).toBeGreaterThanOrEqual(4);
     expect(checks.every((c) => c.same)).toBe(true);
+    // R4 (H99, the review): each export as read now, beside the sha256 its signed result names (never that one copied)
+    const exports = checks.filter((c) => c.what.startsWith('its export '));
+    expect(exports.length).toBeGreaterThanOrEqual(1);
+    for (const c of exports) expect(c.now).toBe(sha(fs.readFileSync(path.join(root, c.what.slice('its export '.length)))));
     expect(JSON.stringify(rec.last_build)).not.toContain(fixtures);
     noAbsolute(JSON.stringify(rec));
     // nothing was built again, and the requested change is never reported as made

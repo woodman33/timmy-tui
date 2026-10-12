@@ -45,6 +45,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'n
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { CapabilityRow } from '../capabilities/index.js';
+import { scrubShown } from '../connect/scrub.js';
 import {
   answerLines, boundedAnnotations, cleanText, fitLines, hintWords, parseRouteJson, readRouteAnswer, routeAnswerOf, serverSaid, writeMcpCall,
   type McpCallFacts, type McpOutcome, type McpRecordContext, type McpRecordWritten, type RouteAnswer,
@@ -437,7 +438,8 @@ const stderrLine = (tail: string): string => {
 function failure(run: RunOutcome, timeoutMs: number, fallback: string): { error: string; timedOut?: boolean } {
   if (run.timedOut) return { error: `no answer within ${Math.round(timeoutMs / 1000)} s; stopped the route and its server`, timedOut: true };
   if (run.spawnError) return { error: `could not start: ${run.spawnError}` };
-  const said = scrubUrls(stderrLine(run.stderrTail));
+  // R4 (H99, the review): escape sequences out before addresses are cut (an address cut first leaves an escape's tail)
+  const said = scrubUrls(scrubShown(stderrLine(run.stderrTail)));
   return { error: said ? `${fallback} (${said})` : fallback };
 }
 
@@ -582,6 +584,10 @@ async function listToolsWith(route: McpRouteId, server: McpServerRef, o: McpRunO
   // R4 (H34): a configured server's own address, echoed in an error, keeps no private part of it.
   const parts = entry ? PRIVATE_PARTS.get(entry) ?? [] : [];
   if (parts.length && answer.error) answer.error = redactParts(answer.error, parts).text;
+  // R4 (H99, the review): the route's or the server's own words (an error with a line of its stderr), as they are shown, put
+  // in `timmy act`'s answer and kept in the request's operation: as Timmy keeps any text from outside (escape sequences and
+  // control characters out first, key and token shapes redacted, home folders from "~"), then addresses in their safe form
+  if (answer.error) answer.error = scrubUrls(scrubShown(answer.error));
   return { answer, ...(entry ? { entry } : {}) };
 }
 
@@ -606,7 +612,7 @@ async function listedTools(route: McpRouteId, server: McpServerRef, label: strin
     return { ok: false, route, server: label, ms, tools: [], ...ran, needsAuth: true, authCommand, error: needsAuthorization(authCommand) };
   }
   const failed = route === 'mcporter' ? v.status !== 'ok' : v.ok !== true;
-  if (failed) return { ok: false, route, server: label, ms, tools: [], ...ran, error: scrubUrls(String(v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed'))) };
+  if (failed) return { ok: false, route, server: label, ms, tools: [], ...ran, error: scrubUrls(scrubShown(String(v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed')))) };
   // The list must be the named server's own: MCPorter answers with the name it resolved.
   if ('name' in server && typeof v.name === 'string' && v.name !== server.name) return { ok: false, route, server: label, ms, tools: [], ...ran, error: `MCPorter answered for "${v.name}", not "${server.name}"` };
   let tools = toolEntries(v.tools ?? []);

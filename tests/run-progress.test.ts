@@ -62,12 +62,18 @@ describe('the words of a progress line', () => {
   });
   it('the block, the time, the flow and its step, the agent\'s own count; over a pipe only the blocks that ended', () => {
     const p: RunFacts = { block: 'change', ended: 0, of: 3, elapsedMs: 90_000, flow: { id: 'f1a2b3c4d', kind: 'scad', step: 'agent' }, agent: { run: 'a1a2b3c4d', tools: 4, messages: 1, latest: 'tool edit box.params.json' } };
-    expect(progressWords(p, ' · ')).toBe('change, 1 min 30 s · flow f1a2b3c4d (/iterate scad) in its agent step · agent a1a2b3c4d: 4 tool calls, 1 message so far; latest: tool edit box.params.json');
-    expect(progressWords({ ended: 1, of: 3, elapsedMs: 15_000 }, ' · ')).toBe('1 of 3 blocks ended, 15 s');
-    expect(progressWords({ ended: 0, of: 1, elapsedMs: 15_000, agent: { run: 'a1a2b3c4d', tools: 0, messages: 0 } }, ' · ')).toBe('0 of 1 block ended, 15 s · agent a1a2b3c4d: no tool call or message in its progress log yet');
+    // R4 (H99, the review): what changes first (the agent's counts and latest action), then the flow, then the block and the
+    // run's own time
+    expect(progressWords(p, ' · ')).toBe('agent a1a2b3c4d: 4 tool calls, 1 message so far; latest: tool edit box.params.json · flow f1a2b3c4d (/iterate scad) in its agent step · change · run 1 min 30 s');
+    expect(progressWords({ ended: 1, of: 3, elapsedMs: 15_000 }, ' · ')).toBe('1 of 3 blocks ended · run 15 s');
+    expect(progressWords({ ended: 0, of: 1, elapsedMs: 15_000, agent: { run: 'a1a2b3c4d', tools: 0, messages: 0 } }, ' · ')).toBe('agent a1a2b3c4d: no tool call or message in its progress log yet · 0 of 1 block ended · run 15 s');
+    // a line cut at 80 or 100 columns keeps what moved: the agent's counts and its latest action come first
+    const line = `  ● j0a0b0c  still running: ${progressWords(p, ' · ')}`;
+    expect(line.slice(0, 80)).toContain('agent a1a2b3c4d: 4 tool calls, 1 message so far');
+    expect(line.slice(0, 100)).toContain('latest: tool edit');
     // the latest line is cut, never the counts
     const long = progressWords({ ended: 0, of: 1, elapsedMs: 0, agent: { run: 'a1a2b3c4d', tools: 1, messages: 0, latest: `says ${'x'.repeat(300)}` } }, ' · ');
-    expect(long).toMatch(/1 tool call, 0 messages so far; latest: says x+…$/);
+    expect(long).toMatch(new RegExp(`^agent a1a2b3c4d: 1 tool call, 0 messages so far; latest: says x+… · 0 of 1 block ended · run 0 s$`));
   });
 });
 
@@ -95,10 +101,10 @@ describe('when a line is printed (FAKE clock, records written by hand in Timmy\'
     j = job([{ name: 'a', state: 'completed', code: 0 }, { name: 'b', state: 'completed', code: 0 }], 'completed');
     at(50);
     expect(lines).toEqual([
-      `  ${g.bullet} j0a0b0c  running: a, 1 s`,
-      `  ${g.bullet} j0a0b0c  still running: a, 16 s`,
-      `  ${g.bullet} j0a0b0c  running: b, 16 s`,
-      `  ${g.bullet} j0a0b0c  still running: b, 31 s`,
+      `  ${g.bullet} j0a0b0c  running: a ${g.sep} run 1 s`,
+      `  ${g.bullet} j0a0b0c  still running: a ${g.sep} run 16 s`,
+      `  ${g.bullet} j0a0b0c  running: b ${g.sep} run 16 s`,
+      `  ${g.bullet} j0a0b0c  still running: b ${g.sep} run 31 s`,
     ]);
     expect(rp.following()).toEqual([]);
     rp.stopAll();
@@ -134,11 +140,11 @@ describe('when a line is printed (FAKE clock, records written by hand in Timmy\'
     put('results/flows/f1a2b3c4d.json', JSON.stringify({ schema: 'timmy.flow/1', id: 'f1a2b3c4d', outcome: 'no change' }));
     at(23.5);
     expect(lines).toEqual([
-      `  ${g.bullet} j0a0b0c  running: 0 of 1 block ended, 1 s ${g.sep} flow f1a2b3c4d (/iterate scad) in its agent step ${g.sep} agent a1a2b3c4d: 0 tool calls, 1 message so far; latest: says I will make it wider.`,
-      `  ${g.bullet} j0a0b0c  running: 0 of 1 block ended, 3 s ${g.sep} flow f1a2b3c4d (/iterate scad) in its agent step ${g.sep} agent a1a2b3c4d: 1 tool call, 1 message so far; latest: tool edit box.params.json`,
-      `  ${g.bullet} j0a0b0c  running: 0 of 1 block ended, 5 s ${g.sep} flow f1a2b3c4d (/iterate scad) in its readback step`,
-      `  ${g.bullet} j0a0b0c  still running: 0 of 1 block ended, 21 s ${g.sep} flow f1a2b3c4d (/iterate scad) in its readback step`,
-      `  ${g.bullet} j0a0b0c  running: 0 of 1 block ended, 23 s ${g.sep} flow f1a2b3c4d (/iterate scad) ended: no change`,
+      `  ${g.bullet} j0a0b0c  running: agent a1a2b3c4d: 0 tool calls, 1 message so far; latest: says I will make it wider. ${g.sep} flow f1a2b3c4d (/iterate scad) in its agent step ${g.sep} 0 of 1 block ended ${g.sep} run 1 s`,
+      `  ${g.bullet} j0a0b0c  running: agent a1a2b3c4d: 1 tool call, 1 message so far; latest: tool edit box.params.json ${g.sep} flow f1a2b3c4d (/iterate scad) in its agent step ${g.sep} 0 of 1 block ended ${g.sep} run 3 s`,
+      `  ${g.bullet} j0a0b0c  running: flow f1a2b3c4d (/iterate scad) in its readback step ${g.sep} 0 of 1 block ended ${g.sep} run 5 s`,
+      `  ${g.bullet} j0a0b0c  still running: flow f1a2b3c4d (/iterate scad) in its readback step ${g.sep} 0 of 1 block ended ${g.sep} run 21 s`,
+      `  ${g.bullet} j0a0b0c  running: flow f1a2b3c4d (/iterate scad) ended: no change ${g.sep} 0 of 1 block ended ${g.sep} run 23 s`,
     ]);
     rp.stopAll();
   });
@@ -165,11 +171,60 @@ describe('when a line is printed (FAKE clock, records written by hand in Timmy\'
     at(12);
     at(28);
     expect(lines).toEqual([
-      `  ${g.bullet} j0a0b0c  running: change, 11 s ${g.sep} flow f1a2b3c4d (/iterate scad) ended: succeeded`,
-      `  ${g.bullet} j0a0b0c  running: inspect, 12 s`,
-      `  ${g.bullet} j0a0b0c  still running: inspect, 28 s`,
+      `  ${g.bullet} j0a0b0c  running: flow f1a2b3c4d (/iterate scad) ended: succeeded ${g.sep} change ${g.sep} run 11 s`,
+      `  ${g.bullet} j0a0b0c  running: inspect ${g.sep} run 12 s`,
+      `  ${g.bullet} j0a0b0c  still running: inspect ${g.sep} run 28 s`,
     ]);
     rp.stopAll();
+  });
+});
+
+describe('what a look reads (R4 H99, the review: every flow\'s state file and every agent\'s record, each second)', () => {
+  it('only this run\'s records, each again only when its time or size changed; records of before the run are not read', () => {
+    const start = Date.now();
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'run-progress-reads-')));
+    kit.dirs.push(root);
+    const op = 'o1a2b3c4d';
+    const put = (rel: string, body: string, at?: number): string => {
+      const abs = path.join(root, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, body);
+      if (at !== undefined) fs.utimesSync(abs, new Date(at), new Date(at));
+      return abs;
+    };
+    const flowState = (id: string, operation: string, step: string, at?: number): string => put(`.timmy/flows/${id}/state.json`, JSON.stringify({ schema: 'timmy.flow/1', id, kind: 'iterate', target: 'scad', operation, outcome: 'running', step }), at);
+    // FAKE records in Timmy's shapes: two of before the run, one of another operation during it, and this run's own
+    const old = flowState('f00000001', 'o99999999', 'agent', start - 60_000);
+    const oldAgent = put('.timmy/agents/a00000001/run.json', JSON.stringify({ agent_run: 1, run: 'a00000001', operation: 'o99999999', state: 'submitted' }), start - 60_000);
+    const other = flowState('f00000002', 'o99999999', 'agent');
+    const mine = flowState('f00000003', op, 'agent');
+    const agent = put('.timmy/agents/a00000003/run.json', JSON.stringify({ agent_run: 1, run: 'a00000003', operation: op, state: 'submitted' }));
+    put('.timmy/agents/a00000003/progress.log', 'says  working on it\n');
+    const j = { id: 'j0a0b0c', kind: 'workflow', label: 'W.md › b', project: 'p', root: '/', command: 'upmd', args: [], state: 'running', startedAt: new Date(start).toISOString(), steps: [], logPath: '/dev/null' } as unknown as JobRecord;
+    const lines: string[] = [];
+    const rp = new RunProgress({ jobs: { get: () => j }, notify: (l) => lines.push(l.map((x) => x.text).join('')), glyphs: g, scrub: (t) => t, tickMs: 1e9, quietMs: 1e9, minGapMs: 0 });
+    rp.follow('j0a0b0c', { root, operation: op, order: ['b'], live: false });
+    const reads = vi.spyOn(fs, 'readFileSync');
+    const readsOf = (abs: string): number => reads.mock.calls.filter((c) => c[0] === abs).length;
+    try {
+      rp.tick(); rp.tick(); rp.tick();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('flow f00000003 (/iterate scad) in its agent step');
+      expect(readsOf(old)).toBe(0);
+      expect(readsOf(oldAgent)).toBe(0);
+      expect(readsOf(other)).toBe(1);
+      expect(readsOf(mine)).toBe(1);
+      expect(readsOf(agent)).toBe(1);
+      // this run's flow moves on: its state file is read again, once
+      flowState('f00000003', op, 'readback');
+      rp.tick(); rp.tick();
+      expect(readsOf(mine)).toBe(2);
+      expect(readsOf(other)).toBe(1);
+      expect(lines.at(-1)).toContain('flow f00000003 (/iterate scad) in its readback step');
+    } finally {
+      reads.mockRestore();
+      rp.stopAll();
+    }
   });
 });
 
@@ -188,11 +243,11 @@ describe('/run says how it goes while it runs (FAKE upmd, agent and OpenSCAD; re
     expect(notes.length).toBe(ended);
     const lines = progressOf(notes, job);
     // the first block as it started, then while it ran (at most one line a second here), then the second as it started
-    expect(lines[0]).toMatch(new RegExp(`^  ${g.bullet} ${job}  running: first, [01] s$`));
-    const still = lines.filter((l) => l.includes('still running: first, '));
+    expect(lines[0]).toMatch(new RegExp(`^  ${g.bullet} ${job}  running: first ${g.sep} run [01] s$`));
+    const still = lines.filter((l) => l.includes(`still running: first ${g.sep} run `));
     expect(still.length, lines.join('\n')).toBeGreaterThanOrEqual(1);
     expect(still.length, lines.join('\n')).toBeLessThanOrEqual(3);
-    expect(lines.some((l) => new RegExp(`^  ${g.bullet} ${job}  running: second, [2-4] s$`).test(l)), lines.join('\n')).toBe(true);
+    expect(lines.some((l) => new RegExp(`^  ${g.bullet} ${job}  running: second ${g.sep} run [2-4] s$`).test(l)), lines.join('\n')).toBe(true);
     // in order with the job's own notices: first's end is the job's notice, between first's lines and second's start
     const firstEnd = notes.findIndex((n) => n.startsWith(`  ${g.bullet} ${job}  first completed`));
     const secondStart = notes.findIndex((n) => n.includes(`${job}  running: second`));
@@ -222,17 +277,17 @@ describe('/run says how it goes while it runs (FAKE upmd, agent and OpenSCAD; re
 
     // 1. The agent in its agent step (SLEEP): the flow and the agent, read from their records, then a quiet line.
     const a = await run('AGENT.md', 'timmy act \'/iterate scad box.scad "make it wider SLEEP"\' --wait');
-    const agentLine = new RegExp(`^  ${g.bullet} ${a.job}  still running: 0 of 1 block ended, \\d+ s ${g.sep} flow (f[0-9a-f]{8}) \\(/iterate scad\\) in its agent step ${g.sep} agent (a[0-9a-f]{8}): 0 tool calls, 1 message so far; latest: says Thinking for a long time \\(a FAKE\\)\\.$`);
+    const agentLine = new RegExp(`^  ${g.bullet} ${a.job}  still running: agent (a[0-9a-f]{8}): 0 tool calls, 1 message so far; latest: says Thinking for a long time \\(a FAKE\\)\\. ${g.sep} flow (f[0-9a-f]{8}) \\(/iterate scad\\) in its agent step ${g.sep} 0 of 1 block ended ${g.sep} run \\d+ s$`);
     await until(() => progressOf(notes, a.job).some((l) => agentLine.test(l)), 60_000, 'a still running line naming the flow and the agent');
     const lines = progressOf(notes, a.job);
-    const [, flow, agent] = agentLine.exec(lines.find((l) => agentLine.test(l))!)!;
+    const [, agent, flow] = agentLine.exec(lines.find((l) => agentLine.test(l))!)!;
     // the flow and the agent are the run's own: its operation is in their records
     expect(JSON.parse(fs.readFileSync(path.join(root, '.timmy', 'flows', flow, 'state.json'), 'utf8'))).toMatchObject({ operation: a.op, target: 'scad' });
     expect(JSON.parse(fs.readFileSync(path.join(root, '.timmy', 'agents', agent, 'run.json'), 'utf8'))).toMatchObject({ operation: a.op });
     // a line came as the agent's step began, before the quiet one
-    expect(lines.findIndex((l) => l.includes(`${a.job}  running: 0 of 1 block ended`) && l.includes(`flow ${flow} (/iterate scad) in its agent step`))).toBeGreaterThanOrEqual(0);
+    expect(lines.findIndex((l) => l.includes(`${a.job}  running: `) && l.includes(`flow ${flow} (/iterate scad) in its agent step`))).toBeGreaterThanOrEqual(0);
     // the time it has run, as the lines go on, never goes back
-    const secs = lines.map((l) => Number(/ended, (\d+) s/.exec(l)?.[1]));
+    const secs = lines.map((l) => Number(/run (\d+) s$/.exec(l)?.[1]));
     expect(secs).toEqual([...secs].sort((x, y) => x - y));
     // over a pipe, the block that runs is never named
     expect(lines.filter((l) => /running: change/.test(l))).toEqual([]);
@@ -240,7 +295,7 @@ describe('/run says how it goes while it runs (FAKE upmd, agent and OpenSCAD; re
 
     // 2. The agent edits and OpenSCAD runs (FAKE, `hang`): the flow's step as its state file says it, the agent no more.
     const b = await run('BUILD.md', 'FAKE_OPENSCAD_MODE=hang timmy act \'/iterate scad box.scad "make it 100 wide PYFILE:box.params.json PYREPLACE:60,=>100,"\' --wait');
-    const buildLine = new RegExp(`^  ${g.bullet} ${b.job}  (still )?running: 0 of 1 block ended, \\d+ s ${g.sep} flow f[0-9a-f]{8} \\(/iterate scad\\) in its openscad step$`);
+    const buildLine = new RegExp(`^  ${g.bullet} ${b.job}  (still )?running: flow f[0-9a-f]{8} \\(/iterate scad\\) in its openscad step ${g.sep} 0 of 1 block ended ${g.sep} run \\d+ s$`);
     await until(() => progressOf(notes, b.job).some((l) => buildLine.test(l)), 60_000, 'a line naming the flow in its OpenSCAD step');
     await stopAndSettle(b.job);
   }, 180_000);

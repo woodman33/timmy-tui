@@ -17,6 +17,7 @@ import { blockOutcome, NO_CHANGE_EXIT, noChangeWords } from '../src/workflows/bl
 import { runBlocks } from '../src/workflows/run-blocks.js';
 import { blockCount, blockCountLine } from '../src/workflows/block-count.js';
 import { jobJudgement, markGlyph } from '../src/room/judge.js';
+import { jobBlockLines } from '../src/repl/board-workflows.js';
 import type { JobRecord, JobStep } from '../src/jobs/index.js';
 
 const NOW = () => new Date('2026-10-11T12:00:00Z');
@@ -33,7 +34,11 @@ function fakeDeps(o: { built?: Record<string, number>; jobs?: TrayLastBuildDeps[
     load: () => ({ request: { parameters: built }, requestHash: hashOf(built), sources: [{ file: '/somewhere/outside/build.py', hash: 'a'.repeat(64) }, { file: '/somewhere/outside/tray.ts', hash: 'b'.repeat(64) }] }),
     request: (v) => ({ sha256: hashOf(v), parameters: v }),
     hashFile: (abs) => (abs.endsWith('build.py') ? (o.sourceNow === undefined ? 'a'.repeat(64) : o.sourceNow) : 'b'.repeat(64)),
-    copy: () => (o.copy === false ? { ok: false, error: 'out/recipes/11111111/console-tray.step differs from the verified result' } : { ok: true }),
+    // each export as the signed result names it, and as read now (FAKE hashes)
+    copy: () => {
+      const files = [{ path: 'out/recipes/11111111/console-tray.step', recorded: 's'.repeat(64), now: o.copy === false ? 'd'.repeat(64) : 's'.repeat(64) }, { path: 'out/recipes/11111111/console-tray.stl', recorded: 't'.repeat(64), now: 't'.repeat(64) }];
+      return o.copy === false ? { ok: false, error: 'out/recipes/11111111/console-tray.step differs from the verified result', files } : { ok: true, files };
+    },
   };
 }
 
@@ -42,7 +47,7 @@ describe('the tray\'s last build, checked when a flow made no change (FAKE reade
     const lb = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps() });
     expect(lb.state).toBe('current');
     expect(lb.words).toBe('the last build (recipe job 11111111, 2026-10-11 10:00 UTC) still matches its recorded inputs: its request is the parameter file\'s values (width 150, wall 3, supportOffset 10, bore 3), its 2 source files hash as recorded, and its exports in out/recipes/11111111/ are the bytes its signed result names');
-    expect(lb.checks.map((c) => c.what)).toEqual(['the request (the parameter values it was built from)', 'source build.py', 'source tray.ts', 'its exports in out/recipes/11111111/']);
+    expect(lb.checks.map((c) => c.what)).toEqual(['the request (the parameter values it was built from)', 'source build.py', 'source tray.ts', 'its export out/recipes/11111111/console-tray.step', 'its export out/recipes/11111111/console-tray.stl']);
     // a source outside the project is named by its file name only
     expect(JSON.stringify(lb)).not.toContain('/somewhere');
     expect(lb.checked_at).toBe('2026-10-11T12:00:00.000Z');
@@ -60,6 +65,15 @@ describe('the tray\'s last build, checked when a flow made no change (FAKE reade
     const lb = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps({ copy: false }) });
     expect(lb.state).toBe('stale');
     expect(lb.words).toContain('its exports in the project are not the bytes its signed result names (out/recipes/11111111/console-tray.step differs from the verified result)');
+    // R4 (H99, the review): what was read now is kept as read, never the recorded hash copied
+    expect(lb.checks.filter((c) => c.what.startsWith('its export '))).toEqual([
+      { what: 'its export out/recipes/11111111/console-tray.step', recorded: 's'.repeat(64), now: 'd'.repeat(64), same: false },
+      { what: 'its export out/recipes/11111111/console-tray.stl', recorded: 't'.repeat(64), now: 't'.repeat(64), same: true },
+    ]);
+    // a signed result that cannot be read: its exports were not read, and are not current
+    const unread = trayLastBuild('/p', VALUES, { now: NOW, deps: { ...fakeDeps(), copy: () => ({ ok: false, error: 'the job could not be read: FAKE', files: [] }) } });
+    expect(unread.state).toBe('stale');
+    expect(unread.checks.at(-1)).toEqual({ what: 'its exports in out/recipes/11111111/', recorded: 'r'.repeat(64), now: null, same: false });
   });
   it('unknown while a newer build has not ended; none when nothing succeeded; unknown when the jobs cannot be read', () => {
     const running = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps({ jobs: [{ id: NEWER, created: 3, state: 'running' }, { id: UUID, created: 2, state: 'succeeded' }] }) });
@@ -120,14 +134,23 @@ describe('a /run block whose own flows made no change, and a run that stopped th
     expect(j).toMatchObject({ kind: 'workflow', by: 'exit', mark: 'unchanged', word: 'no change' });
     expect(markGlyph(j.mark, { ok: '✓', fail: '✖', bullet: '●' })).toBe('=');
     expect(jobOutcome(job)).toMatchObject({ state: 'no change', current: false });
-    expect(jobOutcome(job).words).toBe('stopped at change, which made no change: flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    // R4 (H99, the review): upmd's word for the block is failed (its exit was not 0); Timmy's is no change, never that the request failed
+    expect(jobOutcome(job).words).toBe('stopped at change, which made no change (upmd counted it as failed: exit 4, and its record shows no block run after it): flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    // /jobs <id>: the block is = no change, and says upmd counted it as failed; never ✖
+    const shown = jobBlockLines(job, ['change', 'inspect', 'result'], { glyphs: { ok: '✓', fail: '✖', bullet: '●' } }).map((l) => l.map((x) => x.text).join(''));
+    expect(shown).toEqual(['      = change  no change (upmd counted it as failed) · exit 4', '      ● inspect  not run', '      ● result  not run']);
+    expect(jobOutcome(job).words).not.toMatch(/request failed|run failed/);
     // a block that failed for another reason beside it: failed, as before
     const both = { ...job, steps: [...steps, { name: 'other', state: 'failed', code: 1 }] } as JobRecord;
     expect(jobJudgement(both).mark).toBe('failed');
-    // a run that completed with a block that made no change: completed (each block exited 0), the block named
-    const done = { ...job, state: 'completed', exitCode: 0, steps: [{ ...steps[0], state: 'completed', code: 0 }, { name: 'inspect', state: 'completed', code: 0 }, { name: 'result', state: 'completed', code: 0 }] } as JobRecord;
-    expect(jobJudgement(done)).toMatchObject({ mark: 'ok', word: 'completed' });
-    expect(jobOutcome(done)).toEqual({ state: 'succeeded', words: 'completed; change: no change' });
+    expect(jobOutcome(both).state).toBe('failed');
+    // R4 (H99, the review; the lead's decision): a run that completed with a block that made no change is no change (=), never
+    // ✓ completed or succeeded; current only when each such block found the last build current (its blocks after it ran on it)
+    const done = { ...job, state: 'completed', exitCode: 0, steps: [{ ...steps[0], state: 'completed', code: 0, current: true, last_build: 'current' }, { name: 'inspect', state: 'completed', code: 0 }, { name: 'result', state: 'completed', code: 0 }] } as JobRecord;
+    expect(jobJudgement(done)).toMatchObject({ mark: 'unchanged', word: 'no change' });
+    expect(jobOutcome(done)).toEqual({ state: 'no change', words: 'every block exited 0; change made no change: flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale', current: true });
+    const unknown = { ...done, steps: [{ ...done.steps[0], current: undefined, last_build: undefined }, ...done.steps.slice(1)] } as JobRecord;
+    expect(jobOutcome(unknown)).toMatchObject({ state: 'no change', current: false });
     expect(blockCountLine(blockCount(done))).toBe('3 of 3 steps; change no change');
   });
 });

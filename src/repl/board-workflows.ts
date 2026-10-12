@@ -56,7 +56,8 @@ import { blockDetail, NOT_SEEN_WHY, runBlocks, secondsText, type RunBlockWord } 
 import { starterIn, wrapperDid } from '../workflows/pty-stop.js';
 // R4 (H74): each block's own receipt, from the chain
 import { blockReceiptsOf, blockReceiptWords, type BlockReceipt } from '../workflows/block-receipts.js';
-import { RISKY_REASON, riskyCode } from './workflow-risk.js'; // R4 (H74): the blocks that need a person before they run
+import { RISKY_REASON, riskyCode } from './workflow-risk.js';
+import { lastBuildWords } from './end-lines.js'; // R4 (H99, the review) // R4 (H74): the blocks that need a person before they run
 import { renderParamsCard, type ParamsCard } from './board-cards.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 import type { NodeInput, WorkflowDocInput } from './board-nodes.js';
@@ -112,7 +113,8 @@ export interface WorkflowRun {
   predicted?: string;
   /** each block of the run, in order, with its state, exit code and (for a run with live states) its own time; R4 (H67):
    *  `seen` when its end is what the run's pty wrapper saw once its REPL no longer followed it */
-  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string }>;
+  /** R4 (H99): with 'no change', the flow's words, the last build's state and whether it was current (runBlocks) */
+  blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string; why?: string; last_build?: string; current?: boolean }>;
   /** the block that was running when an interrupted run's session ended */
   interruptedAt?: string;
   /** R4 (H58): upmd ran on a pty, so each block's start and end were seen as they happened (else over a pipe) */
@@ -347,7 +349,9 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   // R4 (H99, r24): a run that stopped at a block whose own flows made no change reads "no change", never "failed"
   const failedSteps = j.steps.filter((s) => s.state === 'failed');
   const stillStop = j.state === 'failed' && failedSteps.length > 0 && failedSteps.every((s) => s.outcome === 'no change');
-  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop ? 'no change' : j.state;
+  // R4 (H99, the review; the lead's decision): one that completed with a block that made no change reads "no change" too
+  const stillDone = j.state === 'completed' && j.steps.some((s) => s.outcome === 'no change');
+  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop || stillDone ? 'no change' : j.state;
   // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
   const pty = isLiveRun(j.args);
   // R4 (H67): each block's state, as /jobs reads it too (src/workflows/run-blocks.ts): 'not run' only where it is known
@@ -510,6 +514,12 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     const at = r.blocks.find((b) => b.word === 'stopped');
     // r19 F2: its job does not say who stopped it, so no one cause is claimed.
     lines.push(`Stopped before it ended${at ? `, while ${at.name} was running` : ''}: /stop, the board's Stop, or the Timmy that started it stopped its job.`);
+  } else if (r.word === 'no change') {
+    // R4 (H99, the review): why no change, in a few words; upmd's own word for a non-zero exit is said as upmd's
+    const still = r.blocks.filter((b) => b.word === 'no change');
+    const b = still[0];
+    const stop = b && b.code !== undefined && b.code !== 0;
+    if (b) lines.push(`${still.map((x) => x.name).join(', ')} made no change and ${lastBuildWords(b)}${stop ? `; upmd counted the block as failed (exit ${b.code}) and ran nothing after it` : `; every block exited 0${still.every((x) => x.current === true) ? ', so the blocks after it ran on that build' : ''}`}.`);
   }
   // R4 (H67): its REPL ended before it did, and its pty wrapper saw the end: what it saw, Timmy did not see itself
   if (r.word !== 'interrupted' && r.blocks.some((b) => b.seen === 'wrapper')) { const said = r.note ?? 'its REPL did not see it end'; lines.push(`${said[0].toUpperCase()}${said.slice(1)}.`); }
@@ -520,21 +530,26 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     r.met === undefined ? '' : r.met ? 'its sealed prediction was met' : 'its sealed prediction was missed',
     r.foreign && (r.word === 'running' || r.word === 'starting') ? 'started by another session: this REPL cannot stop it' : '',
   ].filter(Boolean).join(' · ');
+  const again = k.live && r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length ? rerun : undefined;
   const acts = k.live
     ? [
       ...(r.stoppable ? [`<button type="button" class="act act-stop" data-wf-stop="${esc(r.job)}">Stop</button>`] : []),
-      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length
+      ...(again
         // R4 (H99, gap 11): a run that reaches a block needing a person: disabled, with why (the command is the chip below)
-        ? [rerun.risky.length
-          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(rerun.key)}" title="${esc(`Needs you: ${rerun.risky.map((x) => x.name).join(', ')} ${rerun.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
-          : `<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`]
+        ? [again.risky.length
+          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(again.key)}" title="${esc(`Needs you: ${again.risky.map((x) => x.name).join(', ')} ${again.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
+          : `<button type="button" class="act" data-wf-rerun="${esc(again.key)}">Run ${esc(r.target)} again</button>`]
         : []),
     ].join('')
+    : '';
+  // R4 (H99, the review): why that Run is disabled, as text beside it (a title alone is never shown on a touch screen)
+  const held = again?.risky.length
+    ? `<p class="wf-needs-you" data-wf-held-why="${esc(again.key)}"><strong>${esc('needs you')}</strong> ${esc(`Run ${r.target} again is disabled here: ${again.risky.map((x) => x.name).join(', ')} ${again.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}, which needs a person, and the board cannot ask you. Type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}</p>`
     : '';
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' && !c.repeated?.length ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
   return `<div class="wfx-run${cls}" role="status"><div class="wfx-run-head"><span class="wfx-run-label">${esc(head)}</span> <strong class="wfx-run-job">${esc(r.job)}</strong> <span class="wfx-run-what">${esc(what)}</span> ${wordHtml(r.word)}</div>`
     + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${sealedBlocks ? `<p class="meta wfx-run-blocks">${esc(sealedBlocks)}</p>` : ''}${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
-    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${twice}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
+    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${twice}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${held}${k.cmds(cmds)}${upmd}${noLive}</div>`;
 }
 
 /** R4 (H58): what was running when an interrupted run's session ended: the block its output showed running, if any. */
@@ -859,8 +874,10 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
  */
 export function jobBlockLines(j: JobRecord, order: readonly string[], o: { glyphs: { ok: string; fail: string; bullet: string }; clock?: (i: number) => number | undefined; receipts?: ReadonlyMap<string, BlockReceipt> }): Line[] {
   return runBlocks(j, order, o.clock, o.receipts).map((b): Line => {
-    const mark = b.word === 'completed' ? o.glyphs.ok : b.word === 'failed' ? o.glyphs.fail : o.glyphs.bullet;
-    const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}` : b.word;
+    // R4 (H99, the review): a block that made no change is =, and when upmd counted it as failed (its exit was not 0) it says so
+    const mark = b.word === 'completed' ? o.glyphs.ok : b.word === 'failed' ? o.glyphs.fail : b.word === 'no change' ? NODE_GLYPH['no change'] : o.glyphs.bullet;
+    const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}`
+      : b.word === 'no change' && b.code !== undefined && b.code !== 0 ? 'no change (upmd counted it as failed)' : b.word;
     // R4 (H74): its own receipt, once sealed
     const said = [word, blockDetail(b, { seen: 'long' }), b.receipt ? `receipt ${b.receipt}` : ''].filter(Boolean).join(' · ');
     const role: Segment['role'] = b.word === 'failed' ? 'failure' : b.word === 'interrupted' || b.word === 'stopped' || b.word === 'not seen' ? 'estimate' : 'secondary';
@@ -1020,12 +1037,13 @@ export const WORKFLOW_SCRIPT = `
     var body = { action: 'save-workflow', doc: card.getAttribute('data-wf-doc'), sha256: card.getAttribute('data-wf-sha'), blocks: data.map(function (n) {
       return { from: n.index, name: n.name, lang: n.lang, needs: n.deps, command: String(n.index) === key ? ta.value : n.code };
     }) };
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     wfCmdMsg(card, key, 'Saving…', false);
     api.send(body).then(function (x) {
+      b.removeAttribute('aria-busy');
       if (x.ok) { ta.defaultValue = ta.value; wfCmdInput(ta, true); wfCmdMsg(card, key, x.t, false); out(x.t, false); api.refresh(); }
       else { b.disabled = false; wfCmdMsg(card, key, x.t, true); }
-    }, function () { b.disabled = false; wfCmdMsg(card, key, unreachable, true); });
+    }, function () { b.disabled = false; b.removeAttribute('aria-busy'); wfCmdMsg(card, key, unreachable, true); });
   };
 
   /* an OpenSCAD parameter form */
@@ -1059,12 +1077,13 @@ export const WORKFLOW_SCRIPT = `
       var f = fields[i], kind = f.getAttribute('data-kind'), v = String(f.value);
       values[f.getAttribute('data-scad-param')] = kind === 'number' ? (WF_NUMBER.test(v.trim()) ? Number(v) : v) : kind === 'boolean' ? (v === 'true' ? true : v === 'false' ? false : v) : v;
     }
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     wfScadMsg(p, 'Saving…', false);
     api.send({ action: 'set-scad-params', model: p.getAttribute('data-scad-params'), base: p.getAttribute('data-scad-base'), parameters: values }).then(function (x) {
+      b.removeAttribute('aria-busy');
       if (x.ok) { for (var j = 0; j < fields.length; j++) fields[j].setAttribute('data-saved', String(fields[j].value)); wfScadMark(p); wfScadMsg(p, x.t, false); out(x.t, false); api.refresh(); }
       else { wfScadMark(p); wfScadMsg(p, x.t, true); }
-    }, function () { wfScadMark(p); wfScadMsg(p, unreachable, true); });
+    }, function () { b.removeAttribute('aria-busy'); wfScadMark(p); wfScadMsg(p, unreachable, true); });
   };
 
   /* the run bar: Stop and Run again press the board's own buttons */
@@ -1150,7 +1169,7 @@ export const WORKFLOWS_CSS = `
 .wf-needs-you { color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; margin: 0; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; overflow-wrap: anywhere; }
 .wf-needs-you strong { color: ${HOMEBREW.attention}; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-right: 4px; }
 .wf-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.wf-acts .act[disabled] { opacity: .5; cursor: not-allowed; }
+.wf-acts .act[disabled] { opacity: .5; } /* its pointer: board-live.ts (not-allowed; busy while it saves) */
 .act.act-stop { color: ${HOMEBREW.text}; background: ${HOMEBREW.raised}; border-color: ${HOMEBREW.failure}; }
 .wf-word { font-size: ${TYPE.size.small}px; white-space: nowrap; }
 .wf-word strong { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }

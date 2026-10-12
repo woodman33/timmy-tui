@@ -26,6 +26,7 @@ import { listAgentRuns, taskWords, AGENTS_DIR, type AgentRunRecord } from '../co
 import { answerLines, hintWords, readMcpCalls, readRouteAnswer, serverSaid } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
 import { jobJudgement } from '../room/judge.js';
+import { lastBuildWords } from './end-lines.js';
 import { blockCount, blockCountLine } from '../workflows/block-count.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
@@ -418,11 +419,18 @@ export function jobResults(jobs: readonly JobRecord[], chain: readonly Receipt[]
     const steps = j.kind === 'workflow' ? blockCountLine(blockCount(j)) : j.steps.length ? `${j.steps.filter((s) => s.state === 'completed').length} of ${j.steps.length} steps completed` : '';
     const met = rec?.prediction?.met;
     // R4 (H99, r24): a run that stopped at a block which made no change says so, as every view does (never "failed")
-    const still = j.kind === 'workflow' && jobJudgement(j).mark === 'unchanged' ? j.steps.find((s) => s.state === 'failed' && s.outcome === 'no change') : undefined;
+    // R4 (H99, the review; the lead's decision): and one that completed with such a block, never completed (✓)
+    const unchanged = j.kind === 'workflow' && jobJudgement(j).mark === 'unchanged';
+    const stop = unchanged ? j.steps.find((s) => s.state === 'failed' && s.outcome === 'no change') : undefined;
+    const still = stop ?? (unchanged ? j.steps.find((s) => s.outcome === 'no change') : undefined);
     if (still) {
+      const named = j.steps.filter((s) => s.outcome === 'no change').map((s) => s.name).join(', ');
+      const reason = stop
+        ? `stopped at ${still.name}: it made no change and ${lastBuildWords(still)} (upmd counted the block as failed: exit ${still.code ?? '?'})`
+        : `${named} made no change and ${lastBuildWords(still)}; every block exited 0${j.steps.filter((s) => s.outcome === 'no change').every((s) => s.current === true) ? ', so the blocks after it ran on that build' : ''}`;
       return {
         kind: 'job', title: `${j.id} · ${scrub(j.label, j.root)}`, at: j.endedAt ?? j.startedAt,
-        status: { word: 'no change', tone: 'neutral', detail: scrub(`stopped at ${still.name}, which made no change${still.why ? `: ${still.why}` : ''}`, j.root) },
+        status: { word: 'no change', tone: 'neutral', detail: scrub(`${reason}${still.why ? `; ${still.why}` : ''}`, j.root) },
         lines: [[j.kind, steps, met === undefined ? '' : met ? 'its sealed prediction was met' : 'its sealed prediction was missed'].filter(Boolean).join(' · ')],
         ...(j.receipt ? { receipts: [{ id: j.receipt, what: rec?.kind ?? 'job' }] } : {}),
         commands: [`/jobs ${j.id}`],
@@ -542,7 +550,7 @@ export const CARDS_CSS = `
 .param-table .param-change { color: ${HOMEBREW.text}; font-weight: ${TYPE.weight.strong}; }
 .param-table tr[data-edited] .param-saved { text-decoration: line-through; }
 .param-table tr[data-edited] th { color: ${HOMEBREW.attention}; }
-.param-actions .act[disabled] { opacity: .45; cursor: not-allowed; }
+.param-actions .act[disabled] { opacity: .45; } /* its pointer: board-live.ts (not-allowed; busy while it saves) */
 .param-actions, .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .params-msg, .wf-msg { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: ${TYPE.size.small}px; }
 .params-msg.bad, .wf-msg.bad { color: ${HOMEBREW.failure}; }

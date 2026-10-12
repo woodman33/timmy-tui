@@ -16,7 +16,7 @@
  */
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import type { JobRecord, JobStep } from '../jobs/index.js';
+import { noteOn, type JobRecord, type JobStep, type StepNote } from '../jobs/index.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { provenFiles, type BlockWindow } from '../workflows/block-files.js';
 import {
@@ -26,6 +26,12 @@ import {
 import { stepMs } from '../workflows/run-blocks.js';
 import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
 import { runOf } from './board-workflows.js';
+
+/** R4 (H99): the note a no-change block's step gets: its words, and whether every flow it ran found the last build current. */
+export const stepNote = (still: { words: string }, flows: ReadonlyArray<{ last_build?: string }>): StepNote => {
+  const current = flows.length > 0 && flows.every((f) => f.last_build === 'current');
+  return { outcome: 'no change', why: still.words, current, last_build: current ? 'current' : flows.find((f) => f.last_build !== 'current')?.last_build ?? 'unknown' };
+};
 
 /** A run the sealer follows: what /run read before upmd started. */
 export interface BlockRun {
@@ -53,7 +59,7 @@ export interface BlockSealerDeps {
   scrub: (text: string, root: string) => string;
   now?: () => number;
   /** R4 (H99, r24): a block whose own flows made no change is noted on its job's step (JobManager.noteStep) */
-  noteStep?: (job: string, index: number, name: string, note: { outcome: 'no change'; why?: string }) => void;
+  noteStep?: (job: string, index: number, name: string, note: StepNote) => void;
 }
 
 interface Followed { run: BlockRun; sealed: Map<number, string | null>; ends: Map<number, number> }
@@ -148,7 +154,7 @@ export class BlockSealer {
     let id: string | undefined;
     try { id = this.d.seal(blockReceiptInput(facts, { label: this.d.scrub(job.label, run.root), project: run.project, projectId: run.projectId })); } catch { id = undefined; }
     if (id) f.sealed.set(i, id);
-    if (still) { try { this.d.noteStep?.(job.id, i, s.name, { outcome: 'no change', why: still.words }); } catch { /* the receipt says it */ } }
+    if (still) { try { this.d.noteStep?.(job.id, i, s.name, stepNote(still, found.flows)); } catch { /* the receipt says it */ } }
   }
 }
 
@@ -184,6 +190,49 @@ function docThen(job: JobRecord, chain: readonly Receipt[]): { doc?: string; doc
 }
 
 /**
+ * What recovery reads of a left run's step: the records of Timmy's own runs that joined its operation in the step's window
+ * (after the step before it ended, or the run started; before it ended, or what cut it), as provenFiles reads them.
+ */
+function leftFound(job: JobRecord, i: number, chain: readonly Receipt[], now: number, cut?: LeftCut): ReturnType<typeof provenFiles> {
+  const s = job.steps[i];
+  const before = i > 0 ? job.steps[i - 1] : undefined;
+  const fromAt = before?.endedAt ? Date.parse(before.endedAt) : Date.parse(job.startedAt);
+  const toAt = s.endedAt ? Date.parse(s.endedAt) : job.interrupted?.wrapper?.at ? Date.parse(job.interrupted.wrapper.at) : cut?.at ? Date.parse(cut.at) : now;
+  try { return provenFiles(job.root, job.operation, { from: fromAt, to: Number.isFinite(toAt) ? toAt : now }, chain); } catch { return { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read', flows: [] }; }
+}
+
+export interface LeftNoteDeps {
+  chain: () => readonly Receipt[];
+  /** the project's folder written as "." and the home folder as "~" */
+  scrub: (text: string) => string;
+  now?: () => number;
+}
+
+/**
+ * R4 (H99, the review: recovery sealed a block's receipt as "no change" while the record it wrote said only that the block
+ * failed): the steps of a left run as recovery is about to write its record, each block whose own flows made no change
+ * noted on its step as the REPL's sealer notes it (outcome, why, current, last_build), read as sealLeftBlocks reads it for
+ * the block's receipt. A run its own Timmy ended at once is read as cut then. The same array when nothing is noted.
+ */
+export function noteLeftSteps(d: LeftNoteDeps, job: JobRecord): JobStep[] {
+  let chain: readonly Receipt[] = [];
+  try { chain = d.chain(); } catch { chain = []; }
+  const now = (d.now ?? Date.now)();
+  const cut: LeftCut | undefined = job.exitedAtOnce ? { by: 'stop', at: job.exitedAtOnce.at } : undefined;
+  let noted = false;
+  const steps = job.steps.map((s, i) => {
+    if (s.outcome === 'no change' || (s.state !== 'completed' && s.state !== 'failed')) return s;
+    const found = leftFound(job, i, chain, now, cut);
+    if (blockOutcome(s, found.flows) !== 'no change') return s;
+    const step: JobStep = { ...s };
+    noteOn(step, stepNote({ words: d.scrub(noChangeWords(found.flows)).slice(0, 600) }, found.flows));
+    noted = true;
+    return step;
+  });
+  return noted ? steps : job.steps;
+}
+
+/**
  * The block receipts a run whose REPL ended still needs, sealed by recovery from its job record as recovery wrote it: each
  * step that ended (seen by its pty wrapper) or was interrupted, that no block receipt of the run names yet (the REPL may
  * have sealed some before it ended). Each names the run's operation. A step still running in the record (recovery could
@@ -201,11 +250,7 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord, cut?: LeftCut)
   job.steps.forEach((s, i) => {
     if (s.state === 'running' || have.has(s.name)) return;
     const block = then.blocks ? blockOf(then.blocks, s) : undefined;
-    const before = i > 0 ? job.steps[i - 1] : undefined;
-    const fromAt = before?.endedAt ? Date.parse(before.endedAt) : Date.parse(job.startedAt);
-    const toAt = s.endedAt ? Date.parse(s.endedAt) : job.interrupted?.wrapper?.at ? Date.parse(job.interrupted.wrapper.at) : cut?.at ? Date.parse(cut.at) : now;
-    let found: ReturnType<typeof provenFiles>;
-    try { found = provenFiles(job.root, job.operation, { from: fromAt, to: Number.isFinite(toAt) ? toAt : now }, chain); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read', flows: [] }; }
+    const found = leftFound(job, i, chain, now, cut);
     const outcome = blockOutcome(s, found.flows); // R4 (H99)
     const still = outcome === 'no change' ? { flows: found.flows.map((x) => x.id), last_build: found.flows[0]?.last_build ?? null, words: d.scrub(noChangeWords(found.flows)).slice(0, 600) } : undefined;
     const facts: BlockFacts = {

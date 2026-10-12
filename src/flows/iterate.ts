@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChangeSet, ComparedScope, FileChange } from '../code-agents/index.js';
-import { checkCopy, DOCTRINE_15, listRecipeJobs, PARAMETER_HELP, PARAMETER_NAMES, RECIPE_ID, requestFrom } from '../recipes/index.js';
+import { checkCopyOf, DOCTRINE_15, listRecipeJobs, outDir, PARAMETER_HELP, PARAMETER_NAMES, RECIPE_ID, requestFrom, verifiedResult } from '../recipes/index.js';
 import { loadJob } from '../../lanes/recipes/jobs.js';
 import { validate } from '../../lanes/recipes/tray.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
@@ -390,7 +390,8 @@ const valueWords = (o: Record<string, unknown>): string => Object.entries(o).map
  * is current only when (1) the request the parameter file's values make now hashes as the job's recorded request did (its
  * requestHash: the values it was built from), (2) every source file the job recorded (the recipe's code, its card, its
  * worker, the Python it ran with) hashes as recorded, and (3) its exports in the project (out/recipes/<job>/) are the bytes
- * its signed result names (checkCopy). A newer recipe job that has not ended leaves it unknown. Nothing is built, written or
+ * its signed result names (src/recipes checkCopyOf; each file's sha256 as read now is kept beside the one the result names).
+ * A newer recipe job that has not ended leaves it unknown. Nothing is built, written or
  * run here; files outside the project are named by their file name only.
  */
 export function trayLastBuild(root: string, values: Record<string, number>, o: { now?: () => Date; deps?: TrayLastBuildDeps } = {}): LastBuildCheck {
@@ -418,9 +419,11 @@ export function trayLastBuild(root: string, values: Record<string, number>, o: {
       const now = d.hashFile(s.file);
       checks.push({ what: `source ${path.basename(s.file)}`, recorded: s.hash, now, same: now === s.hash });
     }
-    // (3) its exports in the project, against its signed result
+    // (3) its exports in the project, against its signed result: R4 (H99, the review) each file as Timmy reads it now against
+    // the sha256 the result names (the recorded hash is never copied as what was seen); a result that cannot be read, as such
     const copy = d.copy(root, last.id);
-    checks.push({ what: `its exports in ${build.outputs}`, recorded: last.resultHash ?? null, now: copy.ok ? last.resultHash ?? null : null, same: copy.ok });
+    for (const f of copy.files) checks.push({ what: `its export ${f.path}`, recorded: f.recorded, now: f.now, same: f.now === f.recorded });
+    if (!copy.files.length && !copy.ok) checks.push({ what: `its exports in ${build.outputs}`, recorded: last.resultHash ?? null, now: null, same: false });
     const name = `the last build (recipe job ${short8(last.id)}${build.at ? `, ${build.at}` : ''})`;
     if (wanted.sha256 !== job.requestHash) {
       const diff = Object.keys({ ...recorded, ...wanted.parameters }).filter((k) => recorded[k] !== wanted.parameters[k]);
@@ -446,7 +449,8 @@ export interface TrayLastBuildDeps {
   load: (root: string, id: string) => { request: unknown; requestHash: string; sources: Array<{ file: string; hash: string }> };
   request: (values: Record<string, number>) => { sha256: string; parameters: Record<string, number> };
   hashFile: (abs: string) => string | null;
-  copy: (root: string, id: string) => { ok: true } | { ok: false; error: string };
+  /** the copy's check (src/recipes checkCopyOf), and each file the signed result names: its sha256 there, and as read now */
+  copy: (root: string, id: string) => ({ ok: true } | { ok: false; error: string }) & { files: Array<{ path: string; recorded: string; now: string | null }> };
 }
 
 const trayDeps: TrayLastBuildDeps = {
@@ -460,7 +464,14 @@ const trayDeps: TrayLastBuildDeps = {
     return { sha256: sha(JSON.stringify(request)), parameters: request.parameters as unknown as Record<string, number> };
   },
   hashFile: (abs) => { try { const st = fs.lstatSync(abs); return st.isFile() ? sha(fs.readFileSync(abs)) : null; } catch { return null; } },
-  copy: (root, id) => { const c = checkCopy(root, id); return c.ok ? { ok: true } : { ok: false, error: c.error }; },
+  copy: (root, id) => {
+    const got = verifiedResult(root, id);
+    if (!got.ok) return { ok: false, error: got.error, files: [] };
+    const dir = outDir(got.v.id);
+    const files = got.v.files.map((f) => ({ path: `${dir}/${f.name}`, recorded: f.sha256, now: trayDeps.hashFile(path.join(root, dir, f.name)) }));
+    const c = checkCopyOf(root, got.v);
+    return c.ok ? { ok: true, files } : { ok: false, error: c.error, files };
+  },
 };
 
 /** The project-relative folder checked: inside the project, through no link that leads out of it. */

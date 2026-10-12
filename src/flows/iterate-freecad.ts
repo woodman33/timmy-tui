@@ -29,11 +29,11 @@ export { DOCTRINE_15 };
 export function freecadLastRun(root: string, scriptRel: string, o: { now?: () => Date } = {}): LastBuildCheck {
   return nativeLastRun(root, {
     app: 'freecad', appName: 'FreeCAD', input: scriptRel, again: `/freecad ${scriptRel}`, ...(o.now ? { now: o.now } : {}),
-    extra: (dir) => {
+    // the arguments its script was given, as its own record keeps them (FREECAD_RECORD's script_args); the flow gives none
+    scriptArgs: (_job, dir) => {
       let args: unknown;
       try { args = (JSON.parse(fs.readFileSync(path.join(dir, FREECAD_RECORD), 'utf8')) as { script_args?: unknown }).script_args; } catch { args = undefined; }
-      if (Array.isArray(args) && args.length === 0) return [];
-      return [{ what: `its arguments (${FREECAD_RECORD})`, path: scriptRel, recorded: null, why: Array.isArray(args) ? `it was given ${args.length} argument${args.length === 1 ? '' : 's'} of its own, and the flow runs ${scriptRel} with none` : `its record does not say which arguments it was given (${FREECAD_RECORD})` }];
+      return Array.isArray(args) ? args.map(String) : null;
     },
   });
 }
