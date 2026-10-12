@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { absolutePathProblems, areaOf, byString, gitFacts, listFiles, purlConda, purlDocker, purlGeneric, purlNpm, purlPypi, readJson, readText, scrubText, sortStrings, uniq } from './lib/common.mjs';
+import { absolutePathProblems, areaOf, byString, gitFacts, listFiles, OUTPUTS, purlConda, purlDocker, purlGeneric, purlNpm, purlPypi, readJson, readText, scrubText, sortStrings, uniq } from './lib/common.mjs';
 import { PY_MODULES, readRegistries, scanEnvNames, scanJsImports, scanPrograms, scanPythonImports, scriptPrograms } from './lib/code.mjs';
 import { buildLedger, generatedGap, generatedNext } from './lib/features.mjs';
 import { readNpmProject } from './lib/npm.mjs';
@@ -829,7 +829,7 @@ function main() {
   }
   const targets = o.out
     ? { 'INVENTORY.md': join(o.out, 'INVENTORY.md'), 'sbom.json': join(o.out, 'sbom.json'), 'features.json': join(o.out, 'features.json') }
-    : { 'INVENTORY.md': join(o.root, 'docs/ui-cockpit/INVENTORY.md'), 'sbom.json': join(o.root, 'docs/ui-cockpit/inventory/sbom.json'), 'features.json': join(o.root, 'docs/ui-cockpit/inventory/features.json') };
+    : { 'INVENTORY.md': join(o.root, OUTPUTS[0]), 'sbom.json': join(o.root, OUTPUTS[1]), 'features.json': join(o.root, OUTPUTS[2]) };
   for (const [name, path] of Object.entries(targets)) {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp-${process.pid}`;

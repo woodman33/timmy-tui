@@ -39,6 +39,9 @@ export function git(root, args, { maxBuffer = 64 * 1024 * 1024 } = {}) {
   }
 }
 
+/** The generator's own outputs: a change to them is not a change to what it reads. */
+export const OUTPUTS = ['docs/ui-cockpit/INVENTORY.md', 'docs/ui-cockpit/inventory/sbom.json', 'docs/ui-cockpit/inventory/features.json'];
+
 /** The work tree's own facts, or null when the root is not the top of a git work tree. */
 export function gitFacts(root) {
   const top = git(root, ['rev-parse', '--show-toplevel']);
@@ -50,7 +53,7 @@ export function gitFacts(root) {
   const headDate = git(root, ['show', '-s', '--format=%cs', 'HEAD'])?.trim() ?? null;
   const shallow = git(root, ['rev-parse', '--is-shallow-repository'])?.trim() === 'true';
   const status = git(root, ['status', '--porcelain', '--untracked-files=no']);
-  const changed = status === null ? null : status.split('\n').filter(Boolean).length;
+  const changed = status === null ? null : status.split('\n').filter(Boolean).map((l) => l.slice(3).trim()).filter((p) => !OUTPUTS.includes(p)).length;
   return { head, headDate, shallow, changed };
 }
 
