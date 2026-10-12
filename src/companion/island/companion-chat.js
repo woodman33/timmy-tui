@@ -45,6 +45,60 @@ export const VERIFY_COMMAND = 'timmy verify';
 /** Mermaid draws in its strict mode (no script in a diagram, no click handlers, labels as text), whatever a diagram asks. */
 const mermaid = createMermaidPlugin({ config: { securityLevel: 'strict' } });
 
+/*
+ * R4 (H104): a drawn diagram keeps readable labels. r24: the ✨ sample's diagram labels were about 6 px. Mermaid gives its
+ * drawing width="100%" (and a max-width of its own size); Streamdown puts it in a shrink-to-fit box, where 100% has nothing
+ * to resolve against, so the browser drew it 300 px wide at every window size (measured in Chromium: 955 px of drawing at
+ * 31%, its 16 px labels at 5 px), and its fullscreen view fitted it to the screen (6 px on a phone).
+ *
+ * Each drawing (in the chat and in its fullscreen view) is given its own size: as wide as it was drawn, narrower to fit its
+ * panel, but never so narrow that its smallest text is under LABEL_MIN_PX on screen (its text's own size, at least 12 px).
+ * What does not fit is cut at the panel's edge, its start shown first (companion.css), and Streamdown's own controls show
+ * the rest: drag to pan, the zoom buttons and the mouse wheel, Reset, and fullscreen. The drawing's markup is Mermaid's
+ * (set as it drew it); only the element's own style properties are set here, through the DOM, which the page's
+ * Content-Security-Policy does not govern. The diagram downloads (SVG, PNG) are Mermaid's drawings as they were.
+ */
+export const LABEL_MIN_PX = 12;
+const fitted = new WeakSet();
+
+/** The smallest font size, in the drawing's own units (px at its own size), of text it draws; Infinity when it has none. */
+function smallestText(svg) {
+  let least = Infinity;
+  const walker = document.createTreeWalker(svg, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const el = n.parentElement;
+    // the drawing's own style sheet, title and description are text that is not drawn
+    if (!el || !n.nodeValue || !n.nodeValue.trim() || el.closest('style, title, desc')) continue;
+    const px = parseFloat(getComputedStyle(el).fontSize);
+    if (px > 0 && px < least) least = px;
+  }
+  return least;
+}
+
+/** Gives one drawn diagram its size (once): its own width, fitted to its panel down to the scale that keeps its text readable. */
+export function fitDiagram(svg) {
+  if (fitted.has(svg)) return;
+  const box = svg.viewBox && svg.viewBox.baseVal;
+  if (!box || !(box.width > 0) || !(box.height > 0)) return;
+  fitted.add(svg);
+  const least = smallestText(svg);
+  // the scale at which its smallest text is LABEL_MIN_PX on screen (above 1 for a drawing whose text is smaller than that);
+  // its least width rounded up to a whole pixel, so layout's rounding cannot take its text under LABEL_MIN_PX (measured:
+  // 716.32 px was laid out at 716.31, its 16 px text at 11.9999 px)
+  const floor = Number.isFinite(least) ? LABEL_MIN_PX / least : 1;
+  const narrowest = Math.ceil(box.width * floor);
+  svg.style.width = `${floor > 1 ? narrowest : box.width}px`;
+  svg.style.maxWidth = '100%';
+  svg.style.minWidth = `${narrowest}px`;
+  svg.style.height = 'auto';
+  svg.dataset.fit = String(Math.round(floor * 1000) / 1000);
+}
+
+/** Every drawn diagram on the page not given its size yet: Streamdown draws them in the chat and in a fullscreen view. */
+function fitDiagrams() {
+  for (const svg of document.querySelectorAll('[aria-label="Mermaid chart"] > svg')) fitDiagram(svg);
+}
+
 /**
  * Copies `text` for a person to paste; says what happened in `say` for a moment. Where the browser will not copy (a page
  * opened over plain http from another device is not a secure context), it says so and shows the text instead.
@@ -332,4 +386,7 @@ const rootEl = document.getElementById('streamdown-root');
 if (rootEl) {
   rootEl.dataset.island = 'ready';
   createRoot(rootEl).render(h(App));
+  // R4 (H104): each diagram drawn, in the chat or in its fullscreen view (Streamdown's portal into the page's body), is
+  // given its size as it appears
+  new MutationObserver(fitDiagrams).observe(document.body, { childList: true, subtree: true });
 }

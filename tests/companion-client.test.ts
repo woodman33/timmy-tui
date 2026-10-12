@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
@@ -31,6 +32,8 @@ function client(protocol = 'http:', token = TOKEN) {
     },
     companion: { token, refused: false, protocols: () => ['timmy-companion', `timmy-token.${token}`], check: vi.fn(() => Promise.resolve(true)) },
     wsConnection: null, activeChatHistory: [], isViewingSaved: false,
+    // R4 (H104): declared beside activeChatHistory, outside the mirror's part (the page's restore at load sets it)
+    mirrorRestored: false,
     updateMirrorStatus: vi.fn(),
     exitSavedChatViewer: vi.fn(), setTimeout: vi.fn(), console: { error: vi.fn() },
     pHash: { textContent: '' }, pRunId: { textContent: '' }, pPath: { textContent: '' },
@@ -172,5 +175,91 @@ describe('companion connection and chat mirror', () => {
       expect(out).not.toMatch(/<[^>]*\s(?:on[a-z]+|style)=|<script/);
     }
     expect(c.context.logsList.innerHTML).toContain('class="log-level error"');
+  });
+
+  // ---------- R4 (H104): r24 found the mirror empty, with nothing saying why ----------
+
+  /** SYNTHETIC: the bus event Timmy publishes when the REPL seals a turn (src/utils/receipts.ts, src/repl/seal.ts). */
+  const turn = (at: number, subject: string, payload: Record<string, unknown> = {}) => ({
+    v: 1, ts: new Date(at).toISOString(), kind: 'receipt.sealed',
+    payload: { stream: 'runs', id: 'SYNTHETIC-turn', hash: `sha256_${randomBytes(32).toString('hex')}`, kind: 'turn', subject, epoch: 1, ...payload },
+  });
+  const rows = (html: string): number => (html.match(/data-mirror="repl-turn"/g) ?? []).length;
+
+  it('says where chat happens when none of this session has come; before the companion answers, or without the token, that it cannot know yet', () => {
+    const c = client();
+    c.context.renderConsoleLogs([]);
+    expect(c.consoleLogs.innerHTML).toContain('Not connected to the companion yet, so whether chat happened in this session is not known yet.');
+    c.receive({ type: 'welcome', state: 'idle', since: new Date().toISOString() });
+    const words = c.consoleLogs.innerHTML.replace(/\s+/g, ' ');
+    expect(words).toMatch(/No chat in this session yet: none has reached this page since this companion started at \S/);
+    expect(words).toContain('Chat happens in Timmy\'s terminal, not on this page:');
+    expect(words).toContain('In this monitor (<span class="mirror-code">timmy watch</span>), type in its chat line');
+    expect(words).toContain('In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it.');
+    expect(words).toContain('its ✨ sample is labelled SAMPLE there and is never shown here.');
+    expect(words).not.toContain('Waiting for session chat streams');
+    expect(words).toContain('data-mirror="empty"');
+    const none = client('http:', '');
+    none.context.renderConsoleLogs([]);
+    expect(none.consoleLogs.innerHTML).toContain('Nothing reaches this page without the companion\'s token (see the note above), so whether chat happened in this session is not known here.');
+  });
+
+  it('shows this session\'s REPL turns from the bus by their receipt and steps, never words: only those sealed since the companion started, each once; no other sealed receipt or event is one', () => {
+    const c = client();
+    const since = Date.now();
+    c.receive({ type: 'welcome', state: 'idle', since: new Date(since).toISOString() });
+    const first = turn(since + 1_000, 'repl · 2 steps');
+    c.receive({ type: 'bus.tail', events: [
+      turn(since - 60_000, 'repl · 1 step'), // sealed before this companion started: not of this session
+      first,
+      turn(since + 1_500, 'chat.turn · SYNTHETIC-model', { kind: 'chat' }), // a monitor's chat receipt: its words came with sync
+      turn(since + 1_600, 'repl · 3 steps', { hash: 'sha256_not-a-hash' }),
+      turn(since + 1_700, 'repl · 3 steps', { stream: 'other' }),
+      { v: 1, ts: new Date(since + 1_800).toISOString(), kind: 'approval.required', payload: { command: 'SYNTHETIC' } },
+    ] });
+    expect(rows(c.consoleLogs.innerHTML)).toBe(1);
+    expect(c.consoleLogs.innerHTML.replace(/\s+/g, ' ')).toContain(`A chat turn in the REPL (<span class="mirror-code">timmy</span>) ended (2 steps); Timmy sealed it as receipt <span class="mirror-code">${first.payload.hash.slice(7, 15)}</span>. Its words are in the REPL`);
+    expect(c.context.updateMirrorStatus).toHaveBeenLastCalledWith('LIVE');
+    // live: a cancelled turn; then the first again (a reconnect's tail): still one row each
+    c.receive({ type: 'bus', event: turn(since + 2_000, 'repl · cancelled · 1 step') });
+    c.receive({ type: 'bus.tail', events: [first] });
+    expect(rows(c.consoleLogs.innerHTML)).toBe(2);
+    expect(c.consoleLogs.innerHTML).toContain('⌨ REPL turn · cancelled');
+    expect(c.consoleLogs.innerHTML).toContain('cancelled (1 step);');
+    // a subject that is not the REPL's: the row says only that a turn ended, and nothing of it is markup
+    c.receive({ type: 'bus', event: turn(since + 3_000, '<img src=x onerror=alert(1)>') });
+    expect(rows(c.consoleLogs.innerHTML)).toBe(3);
+    expect(c.consoleLogs.innerHTML).not.toMatch(/<img|onerror/);
+    expect(c.consoleLogs.innerHTML).toContain('(<span class="mirror-code">timmy</span>) ended; Timmy sealed it');
+    // none in a saved chat's view
+    c.context.isViewingSaved = true;
+    c.context.renderConsoleLogs([{ role: 'user', content: 'SYNTHETIC saved', timestamp: 1 }]);
+    expect(rows(c.consoleLogs.innerHTML)).toBe(0);
+  });
+
+  it('puts this monitor\'s chat and the REPL\'s turns in time order; marks a copy restored from before; this session\'s own history or a live answer ends that copy', () => {
+    const c = client();
+    c.context.mirrorRestored = true;
+    c.context.activeChatHistory = [{ role: 'user', content: 'SYNTHETIC restored copy', timestamp: 1 }];
+    c.context.renderConsoleLogs(c.context.activeChatHistory);
+    expect(c.consoleLogs.innerHTML).toContain('data-mirror="restored"');
+    expect(c.consoleLogs.innerHTML).toContain('RESTORED · shown below: this browser\'s own copy of chat it mirrored before this page was opened');
+    const t0 = Date.now();
+    c.receive({ type: 'welcome', state: 'idle', since: new Date(t0).toISOString() });
+    c.receive({ type: 'sync', data: [{ role: 'user', content: 'SYNTHETIC asked', timestamp: t0 + 1_000 }, { role: 'assistant', content: 'SYNTHETIC answered', timestamp: t0 + 3_000 }] });
+    expect(c.consoleLogs.innerHTML).not.toContain('data-mirror="restored"');
+    expect(c.context.mirrorRestored).toBe(false);
+    c.receive({ type: 'bus', event: turn(t0 + 2_000, 'repl · 1 step') });
+    const html = c.consoleLogs.innerHTML;
+    expect(html.indexOf('SYNTHETIC asked')).toBeLessThan(html.indexOf('REPL turn · ended'));
+    expect(html.indexOf('REPL turn · ended')).toBeLessThan(html.indexOf('SYNTHETIC answered'));
+    // a live answer over a restored copy starts this session's chat: the copy is not continued
+    const d = client();
+    d.context.mirrorRestored = true;
+    d.context.activeChatHistory = [{ role: 'user', content: 'SYNTHETIC restored copy', timestamp: 1 }];
+    d.receive({ type: 'agent:delta', data: { delta: 'SYNTHETIC live', fullText: 'SYNTHETIC live' } });
+    expect(d.context.activeChatHistory.map((m: { content: string }) => m.content)).toEqual(['SYNTHETIC live']);
+    expect(d.consoleLogs.innerHTML).not.toContain('SYNTHETIC restored copy');
+    expect(d.consoleLogs.innerHTML).not.toContain('data-mirror="restored"');
   });
 });

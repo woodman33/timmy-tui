@@ -43,6 +43,11 @@
  * H92's page that H95's replaced, its chat and markdown scripts, Timmy's theme, Monaspace's files and marked, are gone),
  * and every answer carries the page's Content-Security-Policy: scripts and style sheets only from here, no inline script,
  * handler or style, requests only to here and its own WebSocket, no plugins, no <base>, never framed by another page.
+ *
+ * R4 (H104): the page's CHAT MIRROR (r24: empty, with nothing saying why) shows this session's chat as this socket carries
+ * it: this monitor's own (`sync`, `agent:delta`, from src/tui/hooks/useCompanionSync.ts) with its words, and each REPL turn
+ * as the bus carries it (`receipt.sealed` of kind `turn`: its receipt and step count only; the REPL seals a turn's prompt
+ * and answer as hashes, so its words are never on the bus). The welcome says when this companion started (`since`).
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -167,6 +172,9 @@ export interface CompanionServer {
 }
 
 export async function startCompanionServer(port = 3001, options: CompanionOptions = {}): Promise<CompanionServer> {
+  // R4 (H104): when this companion started: its session. The page's chat mirror shows only this session's chat (the bus
+  // tail it is sent on connecting reaches back six hours), and its empty state says since when none has come.
+  const startedAt = new Date().toISOString();
   const app = express();
   app.disable('x-powered-by');
   const httpServer = createServer(app);
@@ -624,7 +632,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         const globalServer = (global as any).companionServer;
 
         if (msg.type === 'hello') {
-          ws.send(JSON.stringify({ type: 'welcome', state: currentState }));
+          // R4 (H104): `since`, this companion's start, before the bus tail (the page cuts the tail to this session with it)
+          ws.send(JSON.stringify({ type: 'welcome', state: currentState, since: startedAt }));
           ws.send(JSON.stringify({ type: 'bus.tail', events: busTail(200) }));
           
           // Send integration status

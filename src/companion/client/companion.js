@@ -106,6 +106,9 @@ let wsConnection = null;
 let activeChatHistory = [];
 let isViewingSaved = false;
 let loadedChatId = null;
+// R4 (H104): the history shown is this browser's own copy from before this page was opened (localStorage), not chat of
+// this session; this session's own (a sync, a live answer, Delete Local) ends it.
+let mirrorRestored = false;
 
 const mirrorStatusEl = document.getElementById('mirror-status');
 
@@ -122,7 +125,10 @@ try {
   const activeCache = localStorage.getItem('timmy.chat.active');
   if (activeCache) {
     activeChatHistory = JSON.parse(activeCache);
-    updateMirrorStatus('RESTORED');
+    if (!Array.isArray(activeChatHistory)) activeChatHistory = [];
+    mirrorRestored = activeChatHistory.length > 0;
+    // R4 (H104): an empty copy restores nothing
+    updateMirrorStatus(mirrorRestored ? 'RESTORED' : 'WAITING');
   } else {
     updateMirrorStatus('WAITING');
   }
@@ -132,6 +138,90 @@ try {
 }
 
 // ── The chat mirror (tests/companion-client.test.ts runs this part of the file) ──
+
+// R4 (H104): r24 found the mirror empty with nothing saying why. It shows this session's chat as the companion's socket
+// carries it, and says where chat happens when none has come:
+//  - this monitor's chat (`timmy watch`): its words, as its terminal sends them (sync, agent:delta);
+//  - the REPL's (`timmy`, a process of its own): each turn when it ends, as the event bus carries it: the receipt Timmy
+//    sealed (receipt.sealed of kind `turn`, src/repl/seal.ts). The REPL seals a turn's prompt and answer as SHA-256 hashes
+//    only, so their words are never on the bus: the row names the receipt and says the words are in the REPL.
+// Only this session's: the bus's live events (appended after this companion started) and, of the tail it sends on
+// connecting (six hours), what was sealed at or after the start its welcome gives (`since`).
+let mirrorSince = null;
+const mirrorTurns = new Map(); // this session's REPL turns, by their receipt's hash
+const REPL_TURN = /^repl · (cancelled · )?(\d+) steps?$/; // src/repl/seal.ts: the subject of a turn's receipt
+
+/** A REPL turn from a bus event, or null: a sealed turn receipt of the runs chain, this session's. */
+function replTurnOf(event, live) {
+  if (!event || event.kind !== 'receipt.sealed' || !event.payload || typeof event.payload !== 'object') return null;
+  const p = event.payload;
+  if (p.kind !== 'turn' || p.stream !== 'runs') return null;
+  const hash = String(p.hash || '');
+  if (!/^sha256_[0-9a-f]{64}$/.test(hash)) return null;
+  const at = Date.parse(event.ts);
+  if (!Number.isFinite(at)) return null;
+  if (!live) {
+    const since = Date.parse(mirrorSince);
+    if (!Number.isFinite(since) || at < since) return null;
+  }
+  const m = REPL_TURN.exec(String(p.subject || ''));
+  return { hash, at, receipt: hash.slice(7, 15), cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null };
+}
+
+/** Takes the REPL turns among bus events; true when one is new. */
+function takeReplTurns(events, live) {
+  let added = false;
+  for (const e of events) {
+    const turn = replTurnOf(e, live);
+    if (turn && !mirrorTurns.has(turn.hash)) { mirrorTurns.set(turn.hash, turn); added = true; }
+  }
+  return added;
+}
+
+/** Whether chat of this session has reached the mirror: this monitor's (not a restored copy) or a REPL turn. */
+function mirrorHasSession() {
+  return mirrorTurns.size > 0 || (!mirrorRestored && activeChatHistory.length > 0);
+}
+
+function replTurnHtml(turn) {
+  const time = new Date(turn.at).toLocaleTimeString();
+  const state = turn.cancelled ? 'cancelled' : 'ended';
+  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  return `
+      <div class="log-msg repl" data-mirror="repl-turn">
+        <div class="log-header repl">
+          <span>⌨ REPL turn · ${state}</span>
+          <span class="log-time">${escapeMirrorText(time)}</span>
+        </div>
+        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${state}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+      </div>
+    `;
+}
+
+/** What the mirror says when no chat of this session has reached it: where chat happens, and why none is shown. */
+function mirrorEmptyHtml() {
+  let head;
+  if (!companion.token || companion.refused) {
+    head = 'Nothing reaches this page without the companion\'s token (see the note above), so whether chat happened in this session is not known here.';
+  } else if (!mirrorSince) {
+    head = 'Not connected to the companion yet, so whether chat happened in this session is not known yet.';
+  } else {
+    const since = new Date(mirrorSince);
+    head = `No chat in this session yet: none has reached this page since this companion started${Number.isNaN(since.getTime()) ? '' : ` at ${since.toLocaleTimeString()}`}.`;
+  }
+  return `
+      <div class="mirror-empty explain" data-mirror="empty">
+        <div class="mirror-empty-head">${escapeMirrorText(head)}</div>
+        <div>Chat happens in Timmy's terminal, not on this page:</div>
+        <ul>
+          <li>In this monitor (<span class="mirror-code">timmy watch</span>), type in its chat line: each message and its answer appear here as they are sent.</li>
+          <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). A REPL turn is seen here when the REPL works in the folder this monitor was started in (or the one <span class="mirror-code">TIMMY_REPO</span> names): Timmy's event bus is kept in each folder.</li>
+        </ul>
+        <div>STREAMDOWN CHAT is this page's own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.</div>
+      </div>
+    `;
+}
+
 function saveActiveChat() {
   try {
     localStorage.setItem('timmy.chat.active', JSON.stringify(activeChatHistory));
@@ -225,9 +315,11 @@ function downloadCurrentChat() {
 function deleteCurrentChat() {
   if (confirm("Delete local browser copy? Terminal session and receipts are not deleted.")) {
     activeChatHistory = [];
+    mirrorRestored = false;
     saveActiveChat();
     renderConsoleLogs([]);
-    updateMirrorStatus('WAITING');
+    // R4 (H104): this session's REPL turns are not the browser's copy: they stay
+    updateMirrorStatus(mirrorHasSession() ? 'LIVE' : 'WAITING');
     appendToLocalLogs('WARN', 'Cleared browser-local mirror memory cache.');
   }
 }
@@ -389,11 +481,19 @@ function connect() {
 
       if (msg.type === 'state' || msg.type === 'welcome') {
         appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
+        // R4 (H104): when this companion started (its session); the empty mirror says since when
+        if (msg.type === 'welcome' && typeof msg.since === 'string' && Number.isFinite(Date.parse(msg.since))) {
+          mirrorSince = msg.since;
+          if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
+        }
       } else if (msg.type === 'bus.tail' && Array.isArray(msg.events)) {
         // R4 (H84): the event bus, as it reached this page: the tail on connecting, then each event
         appendToLocalLogs('INFO', `Event bus: ${msg.events.length} recent event${msg.events.length === 1 ? '' : 's'}${msg.events.length ? `, latest ${String(msg.events[msg.events.length - 1].kind)}` : ''}`);
+        // R4 (H104): this session's REPL turns among them, in the mirror
+        if (takeReplTurns(msg.events, false)) mirrorChanged();
       } else if (msg.type === 'bus' && msg.event) {
         appendToLocalLogs('INFO', `Event bus: ${String(msg.event.kind)}`);
+        if (takeReplTurns([msg.event], true)) mirrorChanged();
       } else if (msg.type === 'sync') {
         // Live broadcasts use data; the hello/reconnect snapshot uses history.
         const history = msg.data ?? msg.history;
@@ -401,11 +501,13 @@ function connect() {
           throw new Error('Invalid chat sync: expected messages with role and text content');
         }
         activeChatHistory = history;
+        // R4 (H104): this monitor's own history replaces a restored copy
+        mirrorRestored = false;
         saveActiveChat();
         if (!isViewingSaved) {
           renderConsoleLogs(activeChatHistory);
         }
-        updateMirrorStatus(activeChatHistory.length > 0 ? 'LIVE' : 'WAITING');
+        updateMirrorStatus(mirrorHasSession() ? 'LIVE' : 'WAITING');
       } else if (msg.type === 'tmux') {
         appendToLocalLogs('INFO', `Tmux cluster sync updated. Panels active: ${msg.data?.length || 0}`);
       } else if (msg.type === 'tmux:line') {
@@ -420,6 +522,8 @@ function connect() {
           exitSavedChatViewer();
         }
         updateMirrorStatus('LIVE');
+        // R4 (H104): a live answer is this session's: a restored copy from before is not continued
+        if (mirrorRestored) { activeChatHistory = []; mirrorRestored = false; }
 
         let lastMsg = activeChatHistory[activeChatHistory.length - 1];
         if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
@@ -469,13 +573,41 @@ function connect() {
   };
 }
 
+/** R4 (H104): a REPL turn came: the mirror shows it (not over a saved chat being viewed) and says LIVE. */
+function mirrorChanged() {
+  if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
+  updateMirrorStatus('LIVE');
+}
+
 function renderConsoleLogs(history) {
-  if (history.length === 0) {
-    consoleLogs.innerHTML = '<div class="mirror-empty">Waiting for session chat streams...</div>';
+  // R4 (H104): this session's REPL turns beside this monitor's chat, in time order (none in a saved chat's view); when
+  // neither has come, words that say where chat happens (r24: an empty panel that said nothing)
+  const turns = isViewingSaved ? [] : [...mirrorTurns.values()];
+  if (history.length === 0 && turns.length === 0) {
+    consoleLogs.innerHTML = mirrorEmptyHtml();
     return;
   }
 
-  consoleLogs.innerHTML = history.map(msg => {
+  // the monitor's messages keep their own order (each at the latest time seen so far); a turn goes where its time puts it
+  let at = 0;
+  const rows = history.map((msg, i) => {
+    const t = Number(msg.timestamp);
+    if (Number.isFinite(t) && t > at) at = t;
+    return { at, order: i, html: messageHtml(msg) };
+  });
+  turns.forEach((turn, j) => rows.push({ at: turn.at, order: history.length + j, html: replTurnHtml(turn) }));
+  rows.sort((a, b) => (a.at - b.at) || (a.order - b.order));
+  const restored = mirrorRestored && !isViewingSaved && history.length > 0
+    ? '<div class="mirror-note" data-mirror="restored">RESTORED · shown below: this browser\'s own copy of chat it mirrored before this page was opened (Delete Local removes it). Chat of this session is added here as it arrives.</div>'
+    : '';
+  consoleLogs.innerHTML = restored + rows.map((r) => r.html).join('');
+
+  consoleLogs.scrollTop = consoleLogs.scrollHeight;
+  proofFromHistory(history);
+}
+
+/** One message of the monitor's chat (or of a saved chat), as the mirror draws it: text, escaped. */
+function messageHtml(msg) {
     const timeStr = new Date(msg.timestamp || Date.now()).toLocaleTimeString();
 
     if (msg.role === 'system' && msg.isTool) {
@@ -526,10 +658,10 @@ function renderConsoleLogs(history) {
         <div class="log-content">${formatted}</div>
       </div>
     `;
-  }).join('');
+}
 
-  consoleLogs.scrollTop = consoleLogs.scrollHeight;
-
+/** The Proof tab's run id and sha256, as the newest message of the history that names one gave them (checked nowhere here). */
+function proofFromHistory(history) {
   const receiptMsg = history.slice().reverse().find(m => m.content && (m.content.includes('run_proof') || m.content.includes('sha256_')));
   if (receiptMsg) {
     const text = receiptMsg.content;
