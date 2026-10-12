@@ -94,7 +94,7 @@ describe('bridgeAgent', () => {
     agent.emit('error', new Error('OpenRouter request failed for m.\nReason: Missing Authentication header.\nNext: choose another model or run /model fallback.'));
     agent.emit('error', new Error('OpenRouter request failed for m.\nReason: model not found.\nNext: choose another model or run /model fallback.'));
     expect(events.map((e) => (e as { fix?: string }).fix)).toEqual([
-      'timmy init, or export OPENROUTER_API_KEY=<your key>',
+      '/setup key (it asks for the key, hidden), or timmy init --chat openrouter',
       'choose another model: /model <id>',
     ]);
   });

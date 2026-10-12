@@ -92,7 +92,11 @@ describe.skipIf(!PYTHON3)('a /run whose block made no change, left by a REPL tha
     // The next REPL's /recover records the run from its wrapper's stop file.
     const { ws } = replOf(kit, s);
     const said = text(await ws.recover(''));
-    // (recovery's own line for the run is src/repl/workflow-recover.ts's words, not checked here)
+    // recovery's own line for the run: no change, never ✖ or "now says failed" (R4 lead)
+    expect(said).toMatch(new RegExp(`${ready.job}[^\\n]*`));
+    expect(said).toContain('its job record now says no change');
+    expect(said).toContain('change made no change (upmd counted it as failed)');
+    expect(said).not.toMatch(/now says failed/);
     const job = new JobManager({ dir: jobsDir }).get(ready.job)!;
     // its record, as recovery wrote it: change made no change, noted on its step (its state and code stay as upmd gave them)
     expect(job.state, said).toBe('failed');

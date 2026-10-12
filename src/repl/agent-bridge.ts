@@ -88,7 +88,7 @@ function errorEvent(err: unknown): TurnEvent {
   const said = lines.find((l) => /^(Next|Try):/i.test(l))?.replace(/^(Next|Try):\s*/i, '');
   // A key problem needs a key fix; and the REPL has no `/model fallback`, so never suggest it.
   const fix = cause && /\b401\b|unauthori[sz]ed|authentication|api key/i.test(cause)
-    ? 'timmy init, or export OPENROUTER_API_KEY=<your key>'
+    ? '/setup key (it asks for the key, hidden), or timmy init --chat openrouter'
     : said?.replace(/ or run \/model fallback\.?$/i, ': /model <id>');
   return { type: 'error', message: lines[0] ?? 'The turn failed.', ...(cause ? { cause } : {}), ...(fix ? { fix } : {}) };
 }

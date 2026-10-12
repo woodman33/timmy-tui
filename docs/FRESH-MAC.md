@@ -119,14 +119,15 @@ The REPL talks to models through OpenRouter. It takes the first key it finds, in
 4. `openrouter_api_key` in `$TIMMY_HOME/providers.json` (mode 0600), which `timmy init` writes when you
    give it a key.
 
-The simplest is the environment, for this shell **(to be checked on a Mac)**:
+For this shell only, without the key landing in your shell history **(to be checked on a Mac)**:
 
 ```sh
-export OPENROUTER_API_KEY=<your key>
+read -rs OPENROUTER_API_KEY && export OPENROUTER_API_KEY
 ```
 
-or let the first-run wizard store it (next step). `npm run timmy -- init --yes --openrouter <key>` stores
-it too, but leaves the key in your shell history. `OPENROUTER_MODEL` picks the model. A turn with a
+(type or paste the key, then Enter; nothing is shown), or let the guided setup store it (next step: choose OpenRouter, and the key is read hidden). In a script,
+`printf %s "$KEY" | npm run timmy -- init --yes --chat openrouter --openrouter -` reads it from stdin; never put
+the key itself in a command's arguments, which other processes can see and your shell history keeps. `OPENROUTER_MODEL` picks the model. A turn with a
 model costs what OpenRouter charges for it; slash commands make no model call.
 
 ## 5. First run

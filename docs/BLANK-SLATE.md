@@ -37,14 +37,21 @@ URLs: it is the repository's address, and only an organization transfer changes 
 
 ## `timmy init` — the first run is blank
 
-Four questions; answers can also be flags (`--yes` makes it non-interactive):
+The same guided setup runs in `timmy init`, in `timmy watch` on a home without it (in a terminal), in the monitor's
+FIRST RUN and in the REPL's `/setup` (src/setup): each question is asked once, and only when the home holds no answer
+yet. Answers can also be flags (`--yes` takes the preselected answers):
 
 | Question | Flag | Written to |
 |---|---|---|
-| operator name | `--operator` | `~/timmy/identity.json`, `.timmy/private/config.json` (`operator_label`) |
-| seed identity: generate an ed25519 seed, or import a PEM / 64-hex seed | `--seed generate\|<pem\|hex>` | `~/timmy/identity.seed` (0600), public key + `operator_id` in `identity.json` |
-| providers: OpenRouter key, Anthropic key, Ollama host | `--openrouter --anthropic --ollama` | `~/timmy/providers.json` (0600); `loadConfig()` reads the OpenRouter key from it when env and local config are silent |
-| first project | `--project` | `~/timmy/projects/<name>/`, `.timmy/private/projects.json` |
+| operator name | `--operator <name>` | `~/timmy/identity.json`, `.timmy/private/config.json` (`operator_label`) |
+| identity: Enter generates an ed25519 key, or a key file (PEM, or a 64-hex seed); read hidden, checked at the question | `--seed generate\|<key file>\|-` | `~/timmy/identity.seed` (0600), public key + `operator_id` in `identity.json`; an existing `identity.seed` is kept, never replaced |
+| Ollama host (the local model) | `--ollama <host>` | `~/timmy/providers.json` (0600) |
+| chat model: the local model (preselected, no key) or OpenRouter (paid, cloud: asks for the key, hidden) | `--chat local\|openrouter`, `--openrouter -` | `~/timmy/providers.json` (0600), the one place for the model key; `loadConfig()` reads it after the environment and a local config |
+| first project | `--project <name>` | `~/timmy/projects/<name>/`, `.timmy/private/projects.json` |
+
+`-` reads a key or seed from stdin (hidden at a terminal): a key in a command's arguments is visible to other processes
+and kept in shell history. The answers, in words and never a key, are kept in `~/timmy/setup.json` (0600). Logs and run
+events stay on this computer: this version sends none to a worker, so `--logs cloud` is refused.
 
 `applyInit` asserts every path it writes sits under `TIMMY_HOME` or `TIMMY_PRIVATE_DIR`
 (both overridable, which is how the release check and the tests keep a container's home blank).

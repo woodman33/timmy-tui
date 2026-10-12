@@ -50,6 +50,7 @@ import { leftBehind, processTable, SETTLE_MS, STOP_GRACE_MS, type LeftJob, type 
 import type { LeftCut } from './workflow-blocks.js';
 import { writerState } from '../ops/process-proof.js';
 import { readOperationRecord } from '../ops/operations.js';
+import { jobOutcome } from '../ops/outcome.js';
 
 export interface WorkflowRecoverDeps {
   /** the project folder looked at */
@@ -270,7 +271,15 @@ function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, r
     const note = `its ${starterOf(d, job)} did not see it end: ${did}${seen} (its wrapper's stop file)${also}`;
     const error = ok ? undefined : `upmd exited ${stop.exit} (seen by its pty wrapper, not by its ${starterOf(d, job)})`;
     try { recorded = d.jobs.endLeft?.(job.id, { state, note, steps: m.steps, ...(error ? { error } : {}) }); } catch { recorded = undefined; }
-    item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };
+    // R4 (lead, after H99's review fix): a block that made no change is noted on its step as recovery writes the record; the
+    // run is then "no change", as every other view reads it, never failed: say so, with upmd's own word beside it
+    const judged = recorded ? jobOutcome(recorded) : undefined;
+    if (recorded && judged?.state === 'no change') {
+      const saw = m.ended.length ? `; it saw ${listed(m.ended.map((name) => { const st = recorded!.steps.find((x) => x.name === name); return st && st.outcome === 'no change' ? `${name} made no change${st.state === 'failed' ? ' (upmd counted it as failed)' : ''}` : `${name} ${st?.state ?? 'end'}`; }))}, which Timmy did not see itself` : '';
+      item = { did: 'judged', outcome: 'no change', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${saw}; its job record now says no change: ${d.scrub(judged.words)}, from its wrapper's stop file${sealBlocks(d, recorded)}; nothing was run again` };
+    } else {
+      item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };
+    }
   } else {
     const at = m.running ? `while ${m.running} was running` : 'while no block was running';
     const after = unrecorded(job, m.steps);
