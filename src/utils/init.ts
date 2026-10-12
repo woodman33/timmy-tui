@@ -50,8 +50,12 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('  in a terminal) asks these and writes only to:');
   log(`    ${relPretty(timmyHome())}/`);
   log(`    ${relPretty(privateDir())}/`);
-  // R4 (H103, D12): the store pin in the same words, path and form as the setup's "Will write only to" (writesFor)
-  log(`    ${storePinWords()}\n`);
+  // R4 (H103, D12): the store pin in the same words, path and form as the setup's "Will write only to" (writesFor).
+  // R4 lead: a workspace deep in the home folder (GitHub's runner: ~/work/<repo>/<repo>) made this line wider than the
+  // banner's 60 columns: then the words after the path go on the next line, the path itself whole
+  const pin = storePinWords();
+  const cut = pin.lastIndexOf(' (');
+  log(4 + pin.length > 60 && cut > 0 ? `    ${pin.slice(0, cut)}\n      ${pin.slice(cut + 1)}\n` : `    ${pin}\n`);
   for (const [k, q] of QUESTIONS) log(`    ${k.padEnd(10)} ${q}`);
   log('\n  Without questions: timmy init --yes, and any of');
   log('    --operator <name>  --seed generate|<key file>|-');
