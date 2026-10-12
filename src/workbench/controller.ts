@@ -39,8 +39,8 @@ import type { CompanionControl, StudioControl } from './servers.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
-  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readRoute, readVoxRecords, readWorkflows,
-  type ActivityEvent,
+  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readRoute, readTurns, readVoxRecords,
+  readWorkflows, type ActivityEvent,
 } from './state.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
@@ -222,6 +222,8 @@ export class Controller {
     const own = this.records.filter((j) => sameFolder(j.root, root));
     this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
     this.data.decisions = readDecisions(root, this.records, chain, this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
+    // R4 (H117): the project's chat turns, every surface's, from their sealed receipts in the same chain (the Control Room's)
+    this.data.turns = readTurns(chain, root);
     this.data.activity = this.activity();
     // R4 lead: the one route (chatRouteNow), read as the chat session reads it (this process's folder), and the open session's
     // own route read again with it, so the top line, Chat and Settings follow a /setup made elsewhere
@@ -410,10 +412,12 @@ export class Controller {
       }
       rememberList(this.ui, d.list, d.items, d.scroll);
     }
-    // the Inspector, when it shows a job of an operation, draws that operation's run detail
+    // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
+    // sealed turn has ended: its receipt is what the detail is read again for)
     if (f.regions.right && this.ui.tab === 'inspector') {
       const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
       if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
+      if (sel?.kind === 'turn' && sel.turn.operation) this.wantDetail(sel.turn.operation, false, sel.turn.receipt);
     }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
@@ -806,6 +810,8 @@ export class Controller {
       if (this.turnAbort === abort) this.turnAbort = null;
       try { this.data.chatRoute = session.route(); } catch { /* as before */ }
       this.data.chat = readChatTail(this.data.project.root);
+      // R4 (H117): the turn's receipt is sealed by now: the Control Room lists it at once, not at the next reading
+      this.data.turns = readTurns(this.chain(), this.data.project.root);
       this.emit();
     }
   }

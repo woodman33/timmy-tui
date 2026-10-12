@@ -3,7 +3,7 @@
  * (src/workbench/views.ts) draw from these; the controller (src/workbench/controller.ts) changes them.
  */
 import type { CapabilityRow } from '../capabilities/index.js';
-import type { ChatRouteState } from '../contracts/chat-session.js';
+import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { ApprovalRequest } from '../repl/approvals.js';
 import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.js';
@@ -53,6 +53,30 @@ export interface TurnView {
   at: number;
 }
 
+/**
+ * R4 (H117): a chat turn of the project as its sealed receipt says it (src/workbench/state.ts readTurns), whichever surface
+ * sent it. A receipt holds the message and the answer as hashes only, and so does this: never a word of either.
+ */
+export interface TurnRow {
+  /** the receipt's short id (8 hex) */
+  receipt: string;
+  /** the surface that sent it, as the receipt names it (src/repl/seal.ts chatTurnOf) */
+  surface: ChatSurface;
+  /** how it ended, as its receipt's status says: ok answered, cancelled stopped, any other failed */
+  state: 'answered' | 'stopped' | 'failed';
+  /** the model that answered (model_resolved), else the one asked for (model_requested); null: neither is recorded */
+  model: string | null;
+  /** when it was sealed (the receipt's ts) */
+  at: string;
+  /** how long it took, as sealed */
+  ms?: number;
+  /** the operation it was sealed in (the receipt's operation_id); null: none */
+  operation: string | null;
+  /** its receipt names its Ollama endpoint (src/room/index.ts turnOllama): true on this computer, false off it; absent: the
+   *  receipt names no endpoint (a turn on the OpenRouter route) */
+  local?: boolean;
+}
+
 export interface Data {
   project: ProjectView;
   projects: ProjectChoice[];
@@ -76,6 +100,9 @@ export interface Data {
   chatRoute?: ChatRouteState;
   /** the composer's last message */
   turn?: TurnView;
+  /** R4 (H117): the project's chat turns from their sealed receipts, every surface's, the newest first (optional: a test's
+   *  Data made by hand may leave it out) */
+  turns?: TurnRow[];
   /** when the records were last read */
   readAt: number;
   /** the active-project record names another project than the one shown (Follow active project is off) */
@@ -90,6 +117,7 @@ export type Item =
   | { kind: 'doc'; key: string; doc: WorkflowDoc }
   | { kind: 'block'; key: string; doc: WorkflowDoc; block: BlockRow }
   | { kind: 'job'; key: string; job: JobRow }
+  | { kind: 'turn'; key: string; turn: TurnRow }
   | { kind: 'decision'; key: string; decision: WaitDecision }
   | { kind: 'card'; key: string; card: ProjectCard }
   | { kind: 'operation'; key: string; op: ProjectOperation }

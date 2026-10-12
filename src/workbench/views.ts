@@ -12,10 +12,10 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { Glyphs } from './frame.js';
-import type { Data, Item, Lazy, Overlay, Ui, View } from './model.js';
+import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
-import { KIND_ORDER, KIND_TITLE, KIND_WORD, type BlockRow, type FileRow, type JobRow, type WorkflowDoc } from './state.js';
+import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type BlockRow, type FileRow, type JobRow, type WorkflowDoc } from './state.js';
 import { clock, count, cut, lineCells, pick, spread, took, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -364,6 +364,23 @@ function jobLine(j: JobRow, c: ViewCtx): Line {
   ];
 }
 
+/** R4 (H117): the surface a chat turn was sent from, in the Control Room's words ("from the Workbench"). */
+const TURN_SURFACE: Readonly<Record<TurnRow['surface'], string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'a companion page' };
+
+/** R4 (H117): a chat turn's mark, as a job's is marked (markOf): answered as ok, stopped as stopped, failed as failed. */
+const turnMark = (t: TurnRow, g: Glyphs): { glyph: string; role: Role } => (
+  t.state === 'answered' ? { glyph: g.ok, role: 'text' } : t.state === 'failed' ? { glyph: g.fail, role: 'failure' } : { glyph: g.unicode ? '■' : '#', role: 'text' });
+
+/** R4 (H117): one chat turn on one row, as a job's (jobLine): its receipt, how it ended and where from first. */
+function turnLine(t: TurnRow, c: ViewCtx): Line {
+  const m = turnMark(t, c.g);
+  return [
+    S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state.padEnd(10)} `, m.role), S(`from ${TURN_SURFACE[t.surface]}`, 'text'),
+    S(` ${c.g.sep} ${t.model ?? 'model not recorded'}`, 'secondary'), S(` ${c.g.sep} ${took(t.ms)}`, 'secondary'),
+    S(` ${c.g.sep} ${t.operation ?? 'no operation'}`, 'secondary'), S(` ${c.g.sep} ${ago(t.at, c.now)}`, 'secondary'),
+  ];
+}
+
 function controlView(c: ViewCtx): View {
   const { data, g } = c;
   const lines: Line[] = [];
@@ -373,7 +390,9 @@ function controlView(c: ViewCtx): View {
   const away = (data.away ?? []).filter((j) => j.live);
   const ended = data.jobs.filter((j) => !j.live).slice(0, 30);
   const decisions = data.decisions.items;
-  const total = live.length + away.length + decisions.length + ended.length;
+  // R4 (H117): every surface's chat turns of this project, from their sealed receipts (src/workbench/state.ts readTurns)
+  const turns = data.turns ?? [];
+  const total = live.length + away.length + decisions.length + ended.length + turns.length;
   const cur = cursorOf(c.ui, 'center:control', total);
   let i = 0;
   lines.push(heading(`Running now (${live.length})`));
@@ -397,6 +416,12 @@ function controlView(c: ViewCtx): View {
   lines.push(heading(`Recent (${ended.length})`));
   if (!ended.length) lines.push([S('  No job has run in this project yet.', 'secondary')]);
   for (const j of ended) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
+  lines.push(blank);
+  lines.push(heading(`Chat turns (${turns.length})`));
+  if (!turns.length) lines.push(...para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', c.width, 'secondary', '  '));
+  for (const t of turns) { items.push({ line: lines.length, item: { kind: 'turn', key: `turn:${t.receipt}`, turn: t } }); lines.push(row(turnLine(t, c), i === cur, g)); i += 1; }
+  if (turns.length >= TURNS_SHOWN) lines.push([S(`  The newest ${TURNS_SHOWN} are listed.`, 'secondary')]);
+  lines.push(...para('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.', c.width, 'secondary', '  '));
   for (const n of data.decisions.notes) lines.push(...para(n, c.width, 'failure'));
   return { lines, items };
 }
@@ -850,6 +875,7 @@ function itemName(item: Item | null): string {
     case 'doc': return item.doc.rel;
     case 'block': return `${item.doc.rel} › ${item.block.name}`;
     case 'job': return `${item.job.id} ${item.job.label}`;
+    case 'turn': return `chat turn ${item.turn.receipt}`;
     case 'decision': return item.decision.title;
     case 'card': return item.card.title;
     case 'operation': return item.op.id;
@@ -868,6 +894,7 @@ function itemName(item: Item | null): string {
 const operationOf = (item: Item | null): string | null => {
   if (!item) return null;
   if (item.kind === 'job') return item.job.operation ?? null;
+  if (item.kind === 'turn') return item.turn.operation;
   if (item.kind === 'card') return item.card.operation;
   if (item.kind === 'operation') return item.op.id;
   if (item.kind === 'decision') return item.decision.operation ?? null;
@@ -968,6 +995,20 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       if (j.note) lines.push(...para(j.note, w, 'secondary'));
       for (const s of j.steps.slice(0, 8)) lines.push([S(`  ${s.state === 'completed' ? c.g.ok : s.state === 'failed' ? c.g.fail : c.g.bullet} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`, 'secondary')]);
       lines.push(blank, ...(j.operation ? detailLines(c.data.details[j.operation], c) : para('Run detail: this job names no operation.', w)));
+      break;
+    }
+    case 'turn': {
+      // R4 (H117): a chat turn as its sealed receipt says it, whichever surface sent it
+      const t = item.turn;
+      lines.push(heading('Chat turn'));
+      f('Receipt', t.receipt, 'strong'); f('From', TURN_SURFACE[t.surface]); f('Ended', t.state, t.state === 'failed' ? 'failure' : 'strong');
+      f('Model', t.model ?? 'not recorded on its receipt');
+      f('Route', t.local === true ? 'local endpoint, no charge: Ollama on this computer'
+        : t.local === false ? 'Ollama, which sent it off this computer (another computer, or a cloud-backed model): no cost comes back'
+          : 'not recorded on its receipt (it names the model, not the endpoint that answered)');
+      f('When', `${clock(t.at)} (${ago(t.at, c.now)})`); f('Took', took(t.ms)); f('Operation', t.operation ?? 'none recorded');
+      lines.push(...para('Its receipt keeps the message and the answer as hashes, never their words.', w, 'secondary'));
+      lines.push(blank, ...(t.operation ? detailLines(c.data.details[t.operation], c) : para('Run detail: this turn names no operation.', w)));
       break;
     }
     case 'decision': {
