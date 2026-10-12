@@ -160,7 +160,8 @@ async function* jsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<Reco
     buffered += decoder.decode();
     if (buffered.trim()) yield parse(buffered.trim());
   } finally {
-    reader.releaseLock();
+    // an answer left before its end (an error line, a cancel) is not read further: its connection is closed now
+    await reader.cancel().catch(() => undefined);
   }
 }
 
@@ -305,7 +306,9 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
         notice(`${model} asked for ${asked.length === 1 ? 'a tool' : `${asked.length} tools`} though none were offered; nothing ran.`);
         break;
       }
-      const names = asked.map((c) => said(c.function?.name, 60) || 'unnamed');
+      // the name as the model gave it finds the tool; a cleaned, bounded one is what the words show
+      const given = asked.map((c) => (typeof c.function?.name === 'string' ? c.function.name : ''));
+      const names = given.map((n) => said(n, 60) || 'unnamed');
       if (round > o.maxSteps) {
         notice(`Stopped at the ${o.maxSteps}-step limit: ${model} asked for ${asked.length === 1 ? 'one more tool call' : `${asked.length} more tool calls`} (${names.join(', ')}), which did not run. Send another message to go on.`);
         break;
@@ -323,17 +326,18 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
         if (typeof raw === 'string') { try { parsed = JSON.parse(raw); } catch { parsed = {}; } }
         hooks.emit('tool:call', name, parsed);
         hooks.call(callId, name, argsText);
-        const output = await runCall(o.tools, callId, name, raw, round);
+        const output = await runCall(o.tools, callId, given[i] || name, raw, round);
         const late = aborted();
         hooks.output(callId, name, output, late);
         if (!late) {
           hooks.emit('item:update', { type: 'function_call_output', id: `fco-${callId}`, callId, output });
           hooks.emit('tool:result', name, output);
         }
-        messages.push({ role: 'tool', tool_name: name, content: output });
+        messages.push({ role: 'tool', tool_name: given[i] || name, content: output });
       }
       if (aborted()) throw cancelled();
     }
+    if (!full && calls === 0) notice(`${model} gave no answer text.`);
     return { fullText: full, actualModel, toolsOn, ...(toolsOff ? { toolsOff } : {}), localEndpoint };
   } finally {
     // no charge on a local endpoint, whatever happened (a cancel or a failure costs nothing there); otherwise unknown
