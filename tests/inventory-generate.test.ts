@@ -37,6 +37,11 @@ const put = (root: string, rel: string, text: string): void => {
   writeFileSync(join(root, rel), text);
 };
 const json = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;
+/**
+ * An import line for a FIXTURE file, built here so that this test's own text holds no literal import of a FIXTURE package
+ * (the generator, run on this repository, reads this file too).
+ */
+const importLine = (what: string, from: string): string => `import ${what} from '${from}';`;
 
 /** The FIXTURE tree: an app with an installed tree, a lane, skill material, Python, a container, and its feature documents. */
 function makeFixture(root: string, o: { leak?: boolean } = {}): void {
@@ -82,26 +87,26 @@ function makeFixture(root: string, o: { leak?: boolean } = {}): void {
 
   put(root, 'src/index.ts', [
     '// FIXTURE source',
-    "import leftPad from 'left-pad';",
-    "import { thing } from '@fx/scoped/deep/path.js';",
-    "import real from 'aliased';",
-    "import inner from 'inner-dep';",
-    "import { readFileSync } from 'node:fs';",
-    "import { spawnSync } from 'node:child_process';",
-    "const generated = \"import nope from 'not-a-package-anywhere'\";",
+    importLine('leftPad', 'left-pad'),
+    importLine('{ thing }', '@fx/scoped/deep/path.js'),
+    importLine('real', 'aliased'),
+    importLine('inner', 'inner-dep'),
+    importLine('{ readFileSync }', 'node:fs'),
+    importLine('{ spawnSync }', 'node:child_process'),
+    `const generated = ${JSON.stringify(importLine('nope', 'not-a-package-anywhere'))};`,
     "spawnSync('fixture-tool', ['--version']);",
     'export const key = process.env.FIXTURE_API_KEY;',
     'export default [leftPad, thing, real, inner, readFileSync, generated];',
     '',
   ].join('\n'));
-  put(root, 'tests/a.test.ts', "// FIXTURE test\nimport leftPad from 'left-pad';\nexport const t = leftPad;\n");
+  put(root, 'tests/a.test.ts', `// FIXTURE test\n${importLine('leftPad', 'left-pad')}\nexport const t = leftPad;\n`);
   put(root, 'workers/run.py', '# FIXTURE worker\nimport json\nimport numpy\nimport cv2\nimport run_helper\n');
   put(root, 'workers/run_helper.py', '# FIXTURE helper\n');
   put(root, 'requirements.txt', '# FIXTURE requirements\nnumpy==1.26.4\nopencv-python-headless>=4.9 ; python_version >= "3.10"\n-r other.txt\n');
   put(root, 'workers/Dockerfile', 'FROM python:3.12-slim\nRUN pip install --no-cache-dir rich==13.7.1 \\\n    textual\nRUN apt-get update && apt-get install -y --no-install-recommends git\n');
   put(root, 'lanes/x/package.json', json({ name: 'fixture-lane', private: true, dependencies: { 'lane-dep': '^2.0.0' } }));
   put(root, 'lanes/x/package-lock.json', json({ name: 'fixture-lane', lockfileVersion: 3, packages: { '': { name: 'fixture-lane', dependencies: { 'lane-dep': '^2.0.0' } }, 'node_modules/lane-dep': { version: '2.1.0', license: 'MIT' } } }));
-  put(root, 'lanes/x/index.mjs', "// FIXTURE lane\nimport laneDep from 'lane-dep';\nexport default laneDep;\n");
+  put(root, 'lanes/x/index.mjs', `// FIXTURE lane\n${importLine('laneDep', 'lane-dep')}\nexport default laneDep;\n`);
   put(root, '.agents/skills/demo/package.json', json({ name: 'fixture-skill-example', dependencies: { 'skill-only': '1.0.0' } }));
 
   const leak = o.leak ? ` (kept at ${join(root, 'private', 'notes.txt')})` : '';
