@@ -55,7 +55,7 @@ export async function runWorkbench(): Promise<number> {
   }, start);
 
   const opener = systemOpener(env, onPath);
-  const companion = new CompanionControl({ opener });
+  const companion = new CompanionControl({ opener, env });
   const studio = new StudioControl({
     env, opener, project: () => ws.project, projectId: (root) => projectId(root), jobsDir, receipts: () => receiptsDir(),
     act: (envelope) => ws.canvasAct(envelope),

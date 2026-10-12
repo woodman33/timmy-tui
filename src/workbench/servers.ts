@@ -18,6 +18,7 @@ import { CanvasProject } from '../repl/canvas-project.js';
 import type { StudioServer } from '../studio/server.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
 import { writeLaunchPage } from '../utils/launch-page.js';
+import { askedCompanionPort, companionPortNote } from '../setup/companion-port.js';
 import type { ServerState } from './model.js';
 
 type Env = Record<string, string | undefined>;
@@ -64,14 +65,26 @@ function openPage(url: string, secret: boolean, opener: Opener, what: string, ba
 
 export interface CompanionDeps {
   opener: Opener;
+  /**
+   * R4 lead (the r26 dry run): where the port to ask for is read, as `timmy watch` reads it: TIMMY_COMPANION_PORT, else 3001.
+   * Absent: this process's environment.
+   */
+  env?: Env;
   /** a test's start (FAKE); absent: the real companion server */
   start?: (port: number) => Promise<Pick<CompanionServer, 'port' | 'url' | 'address' | 'shutdown'>>;
+}
+
+/** The ports Companion · Show tries, in order: the one asked for and the next three (as the monitor tries them), then any free one. */
+export function companionPorts(asked: number): number[] {
+  return [asked, asked + 1, asked + 2, asked + 3].filter((p) => p <= 65535).concat(0);
 }
 
 export class CompanionControl {
   private server: Pick<CompanionServer, 'port' | 'url' | 'address' | 'shutdown'> | null = null;
   private starting: Promise<unknown> | null = null;
   private last: string | null = null;
+  /** the port the start asked for first (null before a start) */
+  private asked: number | null = null;
 
   constructor(private readonly d: CompanionDeps) {}
 
@@ -79,12 +92,27 @@ export class CompanionControl {
     return { serving: !!this.server, address: this.server ? this.server.address : null, last: this.last, ...(this.starting ? { starting: true } : {}) };
   }
 
-  /** Starts it once (on 127.0.0.1, a free port), then opens it; a second press opens the same one. */
+  /**
+   * Starts it once, on 127.0.0.1, then opens it; a second press opens the same one. R4 lead (the r26 dry run found the
+   * Workbench's companion on a free port while the preview asked for TIMMY_COMPANION_PORT): it asks for the port `timmy watch`
+   * asks for (TIMMY_COMPANION_PORT, else 3001), then the next three, then any free port, and says so when it took another.
+   */
   async show(): Promise<string> {
     if (this.starting) { await this.starting; }
     if (!this.server) {
       const start = this.d.start ?? (async (port: number) => (await import('../companion/server.js')).startCompanionServer(port));
-      const p = start(0);
+      const asked = askedCompanionPort([], this.d.env ?? process.env);
+      this.asked = asked;
+      const p = (async () => {
+        let last: unknown = null;
+        for (const port of companionPorts(asked)) {
+          try { return await start(port); } catch (e) {
+            last = e;
+            if ((e as NodeJS.ErrnoException | null)?.code !== 'EADDRINUSE') throw e;
+          }
+        }
+        throw last;
+      })();
       this.starting = p;
       try { this.server = await p; } catch (e) {
         this.starting = null;
@@ -94,7 +122,8 @@ export class CompanionControl {
       this.starting = null;
     }
     const s = this.server;
-    this.last = openPage(s.url, true, this.d.opener, 'The Companion', s.address);
+    const note = this.asked === null ? null : companionPortNote(this.asked, s.port);
+    this.last = `${openPage(s.url, true, this.d.opener, 'The Companion', s.address)}${note ? `. ${note}` : ''}`;
     return this.last;
   }
 

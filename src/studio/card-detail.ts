@@ -395,7 +395,8 @@ export function voxResult(v: VoxCard, receipt: string | null, root: string, t: T
 /** A Control Room run: its state, owner, route, cost as recorded, receipt as its record names it, and its outputs now. */
 export function runResult(r: RoomRun, root: string, t: Text): ResultDetail {
   const facts: ResultDetail['facts'] = [
-    { label: 'owner', value: t(r.owner, 120), how: r.role ? t(`role ${r.role}`, 80) : 'role not recorded' },
+    // R4 lead (the r26 dry run): a role the record does not name is "role not recorded" once, never "role role not recorded"
+    { label: 'owner', value: t(r.owner, 120), how: r.role && r.role !== 'role not recorded' ? t(`role ${r.role}`, 80) : 'role not recorded' },
     ...(r.harness ? [{ label: 'harness', value: t(r.harness, 120), how: 'as recorded' }] : []),
     ...(r.model ? [{ label: 'model', value: t(r.model, 120), how: r.endpoint ? `${r.endpoint} endpoint` : 'endpoint not recorded' }] : []),
     { label: 'route', value: t(r.route, 200), how: 'the route rule, in words' },
