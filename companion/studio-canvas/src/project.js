@@ -10,7 +10,14 @@
 // record and, where Timmy allows, acts through the REPL). With `detail` the panel reads the project with each card's drawn
 // detail and hands every reading to the drawn cards (`onAnswer`); it reads again sooner while `fast()` says a card's job runs.
 //
-// Nothing here imports anything: canvas.js hands in tldraw's helpers, so this file's pure part runs in Node's tests too.
+// R4 (H100): every card names the operation its record names (read from the record at each reading: src/studio/project-
+// cards.ts), on its row and on a placed note; the panel groups the cards by kind or by operation (By kind / By operation, kept
+// for this browser), and an operation's group has "Place this operation" (./cards.js placeOperation), which places its
+// workflow, flow and result cards at once, left to right in the order they ran, linked.
+//
+// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in tldraw's helpers, so this file's pure
+// part runs in Node's tests too.
+import { groupByOperation, OPERATION_ID, operationLine } from './operations.js';
 
 /** The kinds of card, in the order the panel shows them (the editable artifacts first), with the heading of each. */
 export const GROUPS = [
@@ -25,10 +32,15 @@ export const GROUPS = [
 const BOARD = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/$/;
 const SECTIONS = new Set(['room', 'workflows', 'parameters', 'flows', 'voxvision']);
 const META_KEY = 'timmyProjectCard';
+/** R4 (H100): where this browser keeps the panel's grouping (By kind or By operation). */
+const MODE_KEY = 'timmy-canvas-group-by';
 
-/** The text a placed card holds: its title, its state and its command, one line each. */
+/** R4 (H100): a card's operation, as the reading names it (null: its record names none). */
+const opOf = (card) => (typeof card.operation === 'string' && OPERATION_ID.test(card.operation) ? card.operation : null);
+
+/** The text a placed card holds: its title, its state and its command, one line each; R4 (H100): then its operation. */
 export function cardText(card) {
-  return [card.title, card.state, card.command].map((s) => String(s ?? '').replace(/\s+/g, ' ').trim()).join('\n');
+  return [card.title, card.state, card.command, operationLine(opOf(card), card.operationFrom)].map((s) => String(s ?? '').replace(/\s+/g, ' ').trim()).join('\n');
 }
 
 /** What a placed card keeps in its meta: the card, the project it is from, the record and receipt behind it. Never a board address or token. */
@@ -46,6 +58,9 @@ export function cardMeta(card, project, now = new Date()) {
     receipt: card.receipt == null ? null : String(card.receipt),
     section: SECTIONS.has(card.section) ? card.section : null,
     ...(Array.isArray(card.highlights) && card.highlights.length ? { highlights: card.highlights.map(String).slice(0, 12) } : {}),
+    // R4 (H100): the operation its record named at this reading, and where that was read (or why none)
+    operation: opOf(card),
+    operationFrom: String(card.operationFrom ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
     placedAt: now.toISOString(),
   };
 }
@@ -77,11 +92,14 @@ export function refreshPlan(meta, api, now = new Date()) {
   if (!card) {
     if (meta.gone) return { action: 'same' };
     const what = meta.record ? `its record ${meta.record}` : `card ${meta.card}`;
-    const text = [meta.title, `record gone: ${what} is not in ${api.project.name} now (checked ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC)`, meta.command].join('\n');
+    // R4 (H100): the operation it named when last read, said as such
+    const op = typeof meta.operation === 'string' && OPERATION_ID.test(meta.operation) ? `operation ${meta.operation}, as last read` : null;
+    const text = [meta.title, `record gone: ${what} is not in ${api.project.name} now (checked ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC)`, meta.command, ...(op ? [op] : [])].join('\n');
     return { action: 'gone', text, meta: { ...meta, gone: true, goneAt: now.toISOString() } };
   }
   const fresh = cardMeta(card, api.project, now);
-  const same = !meta.gone && ['title', 'state', 'command', 'record', 'receipt'].every((k) => fresh[k] === meta[k]);
+  // R4 (H100): a note placed before its operation was shown (no `operation` kept) is written again once, with it
+  const same = !meta.gone && ['title', 'state', 'command', 'record', 'receipt', 'operation'].every((k) => fresh[k] === meta[k]);
   if (same) return { action: 'same' };
   const { gone: _gone, goneAt: _goneAt, ...kept } = meta;
   return { action: 'update', text: cardText(card), meta: { ...kept, ...fresh, placedAt: meta.placedAt, refreshedAt: now.toISOString() } };
@@ -112,7 +130,7 @@ const short = (text, max = 90) => { const chars = Array.from(String(text)); retu
  * place(editor) → where a new card goes ({ x, y }, page coordinates), reveal(editor, ids). R4 (H75), each optional: detail
  * (read the drawn cards' detail too), onAnswer(now) (every reading), fast() (read again in 1.5 s, not 5 s), drawable(kind)
  * and placeCard(id, now) (Place card). R4 (H81): read() (the reading to use instead of this panel's own: the drawn cards'
- * reader, which reads the detail only with this page's session).
+ * reader, which reads the detail only with this page's session). R4 (H100): placeOperation(opId, now) (Place this operation).
  */
 export function createProjectPanel(deps) {
   const root = document.getElementById('project');
@@ -121,6 +139,9 @@ export function createProjectPanel(deps) {
   const said = document.getElementById('project-said');
   const groups = document.getElementById('project-groups');
   const refresh = document.getElementById('project-refresh');
+  // R4 (H100): By kind / By operation, kept for this browser (a viewer's convenience: nothing else depends on it)
+  const by = document.getElementById('project-by');
+  let mode = readMode();
   let api = null;
   let shown = '';
 
@@ -148,7 +169,7 @@ export function createProjectPanel(deps) {
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
     show(now);
-    return { placed: true, shape: shapeId, card: { id: card.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt }, project: now.project.name };
+    return { placed: true, shape: shapeId, card: { id: card.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt, operation: opOf(card) }, project: now.project.name };
   }
 
   /** Reads every placed card again from the project's records (all pages); counts what happened. */
@@ -169,17 +190,21 @@ export function createProjectPanel(deps) {
     return { ...counts, words: refreshWords(counts) };
   }
 
+  // R4 (H100; r24): what a press said has its own band between the list and New board (index.html #project-said): it never
+  // sits on a row or its buttons, and an empty one takes no room
   function say(text, bad = false) {
     said.textContent = text;
     said.dataset.kind = bad ? 'error' : 'ok';
   }
 
-  function row(card, board) {
+  /** R4 (H100): a row; `withOp`: with its operation line (an operation's own group names the operation once, above its rows). */
+  function row(card, board, withOp = true) {
     const li = el('li', undefined, { className: 'pcard' });
     li.dataset.card = card.id;
     li.append(el('div', card.title, { className: 'pcard-title' }), el('div', card.state, { className: 'pcard-state' }));
     const behind = [card.record ? `record ${card.record}` : '', card.receipt ? `receipt ${card.receipt}` : ''].filter(Boolean).join(' · ');
     if (behind) li.append(el('div', behind, { className: 'pcard-behind' }));
+    if (withOp) li.append(el('div', operationLine(opOf(card), card.operationFrom), { className: opOf(card) ? 'pcard-op' : 'pcard-op pcard-op-none' }));
     const cmd = el('button', undefined, { type: 'button', className: 'pcard-cmd', title: 'Copy this command, then paste it into Timmy' });
     cmd.append(el('code', card.command));
     cmd.addEventListener('click', () => {
@@ -216,22 +241,54 @@ export function createProjectPanel(deps) {
     return deps.placeCard(id, now);
   }
 
-  /** Draws the panel from an API answer; only when it changed, keeping the focus on the button it was on. */
-  function show(now) {
-    api = now;
-    // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
-    try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
-    const sig = JSON.stringify([now.project, now.board, now.cards, now.notes, now.message]);
-    if (sig === shown) return;
-    shown = sig;
-    const focused = document.activeElement && groups.contains(document.activeElement) ? { card: document.activeElement.closest('li')?.dataset.card, cls: document.activeElement.className } : null;
-    // R4 (H83): a reading refused to this page (its session does not count now) names no project: it says why below
-    name.textContent = now.project ? now.project.name : now.refused ? 'not shown' : 'none named';
-    const notes = [now.message, ...(now.notes || [])].filter(Boolean);
-    note.textContent = notes.join(' ');
-    note.hidden = notes.length === 0;
-    refresh.hidden = !now.project;
-    const parts = GROUPS.map(([kind, heading]) => {
+  /** R4 (H100): places operation `id`'s cards from the project as it is now (./cards.js placeOperation); what it did, in words. */
+  async function placeOperation(id) {
+    if (!deps.placeOperation) throw new Error('This page cannot place an operation\'s cards.');
+    const now = await read();
+    show(now);
+    return deps.placeOperation(String(id), now);
+  }
+
+  /** R4 (H100): an operation's group: its id and state, its request, Place this operation, and its cards in the order they ran. */
+  function opSection(group, board) {
+    const { op, cards } = group;
+    const section = el('section', undefined, { className: 'pgroup pop' });
+    section.dataset.op = op.id;
+    const head = el('h3', undefined, { className: 'pop-head' });
+    head.append(el('span', `Operation ${op.id}`, { className: 'pop-id' }), ' · ', el('span', String(op.state ?? ''), { className: 'pop-state' }));
+    section.append(head, el('p', op.request ? op.request : 'No record of its request in this project.', { className: op.request ? 'pop-request' : 'pop-request pop-none', title: op.request ? `Its request, as its record says: ${op.request}` : '' }));
+    if (op.note) section.append(el('p', String(op.note), { className: 'pop-note' }));
+    const acts = el('div', undefined, { className: 'pop-acts' });
+    const draws = cards.filter((c) => deps.drawable && deps.drawable(c.kind)).length;
+    if (deps.placeOperation && draws > 0) {
+      const put = el('button', 'Place this operation', { type: 'button', className: 'pop-place', title: 'Places its workflow, flow and result cards on this page, left to right in the order they ran, linked by arrows. Pressed again, it adds only what ran since: cards you moved, resized or deleted stay as you left them.' });
+      put.addEventListener('click', () => {
+        put.disabled = true;
+        placeOperation(op.id).then((r) => say(r.words), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
+      });
+      acts.append(put);
+    }
+    acts.append(el('span', `${cards.length} ${cards.length === 1 ? 'card' : 'cards'}, in the order they ran`, { className: 'pop-count' }));
+    section.append(acts, Object.assign(el('ol'), { className: 'plist' }));
+    section.lastChild.append(...cards.map((c) => row(c, board, false)));
+    return section;
+  }
+
+  /** The groups by kind (as before), or (R4 H100) by operation, then the cards whose records name none. */
+  function sections(now) {
+    if (mode === 'operation') {
+      const { groups: ops, rest } = groupByOperation(now, GROUPS.map(([kind]) => kind));
+      const parts = ops.map((g) => opSection(g, now.board));
+      if (rest.length) {
+        const section = el('section', undefined, { className: 'pgroup pop-rest' });
+        section.dataset.op = '';
+        section.append(el('h3', `No operation named (${rest.length})`), el('p', 'Their records name no operation: each says why.', { className: 'pop-request pop-none' }), Object.assign(el('ol'), { className: 'plist' }));
+        section.lastChild.append(...rest.map((c) => row(c, now.board)));
+        parts.push(section);
+      }
+      return parts;
+    }
+    return GROUPS.map(([kind, heading]) => {
       const cards = (now.cards || []).filter((c) => c.kind === kind);
       if (!cards.length) return null;
       const section = el('section', undefined, { className: 'pgroup' });
@@ -240,11 +297,54 @@ export function createProjectPanel(deps) {
       section.lastChild.append(...cards.map((c) => row(c, now.board)));
       return section;
     }).filter(Boolean);
+  }
+
+  /** Draws the panel from an API answer; only when it changed, keeping the focus on the button it was on. */
+  function show(now) {
+    api = now;
+    // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
+    try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
+    const sig = JSON.stringify([mode, now.project, now.board, now.cards, now.operations, now.notes, now.message]);
+    if (sig === shown) return;
+    shown = sig;
+    const active = document.activeElement && groups.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? { card: active.closest('li')?.dataset.card, op: active.closest('section.pop')?.dataset.op, cls: active.className } : null;
+    // R4 (H83): a reading refused to this page (its session does not count now) names no project: it says why below
+    name.textContent = now.project ? now.project.name : now.refused ? 'not shown' : 'none named';
+    const notes = [now.message, ...(now.notes || [])].filter(Boolean);
+    note.textContent = notes.join(' ');
+    note.hidden = notes.length === 0;
+    refresh.hidden = !now.project;
+    if (by) by.hidden = !now.project;
+    const parts = sections(now);
     groups.replaceChildren(...(parts.length ? parts : now.project ? [el('p', 'No cards yet: workflows, parameter files, flows, VoxVision records and runs show here.', { className: 'pcard-empty' })] : []));
+    const first = focused ? `.${String(focused.cls).split(' ')[0]}` : '';
     if (focused && focused.card) {
-      const back = [...groups.querySelectorAll('li.pcard')].find((li) => li.dataset.card === focused.card)?.querySelector(`.${String(focused.cls).split(' ')[0]}`);
+      const back = [...groups.querySelectorAll('li.pcard')].find((li) => li.dataset.card === focused.card)?.querySelector(first);
+      if (back) back.focus();
+    } else if (focused && focused.op) {
+      const back = [...groups.querySelectorAll('section.pop')].find((s) => s.dataset.op === focused.op)?.querySelector(first);
       if (back) back.focus();
     }
+  }
+
+  /** R4 (H100): the grouping this browser keeps (By kind unless By operation was chosen here). */
+  function readMode() {
+    try { return globalThis.localStorage?.getItem(MODE_KEY) === 'operation' ? 'operation' : 'kind'; } catch { return 'kind'; }
+  }
+  function setMode(next) {
+    mode = next === 'operation' ? 'operation' : 'kind';
+    try { globalThis.localStorage?.setItem(MODE_KEY, mode); } catch { /* kept for this page only */ }
+    for (const b of by ? by.querySelectorAll('button[data-by]') : []) b.setAttribute('aria-pressed', String(b.dataset.by === mode));
+    shown = '';
+    if (api) show(api);
+  }
+  if (by) {
+    for (const b of by.querySelectorAll('button[data-by]')) b.setAttribute('aria-pressed', String(b.dataset.by === mode));
+    by.addEventListener('click', (e) => {
+      const b = e.target instanceof Element ? e.target.closest('button[data-by]') : null;
+      if (b && by.contains(b)) setMode(b.dataset.by);
+    });
   }
 
   async function poll() {
@@ -268,5 +368,5 @@ export function createProjectPanel(deps) {
     go.finally(next);
   }, deps.fast && deps.fast() ? 1500 : 5000);
   void poll().finally(next);
-  return { place, placeCard, refreshAll, poll, get api() { return api; } };
+  return { place, placeCard, placeOperation, refreshAll, poll, setMode, get mode() { return mode; }, get api() { return api; } };
 }

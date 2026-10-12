@@ -444,6 +444,8 @@ function connectPanel() {
     editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
     read: () => cards.read(), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
+    // R4 (H100): Place this operation (its cards at once, left to right in the order they ran, linked)
+    placeOperation: (id, now) => cards.placeOperation(id, now),
   });
   cards.setPoll(() => projectPanel.poll());
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
@@ -517,6 +519,8 @@ function mount(snapshot) {
             placeProjectCard, refreshProjectCards: () => (projectPanel ? projectPanel.refreshAll() : Promise.reject(new Error('The project panel is not ready yet.'))),
             // R4 (H75): a drawn card of the project (it places a shape; its buttons act only for a person's click on them, R4 H81)
             placeDrawnCard: (id) => (projectPanel ? projectPanel.placeCard(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
+            // R4 (H100): an operation's cards at once, as the panel's Place this operation does (shapes only: nothing runs)
+            placeOperation: (id) => (projectPanel ? projectPanel.placeOperation(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
           };
           attachEditor(editor);
           followEditor(editor);

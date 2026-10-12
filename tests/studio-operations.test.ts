@@ -15,60 +15,34 @@ import type { AddressInfo } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { JobManager, type JobRecord } from '../src/jobs/index.js';
-import { inOperation } from '../src/ops/context.js';
-import { OPERATION_SCHEMA, writeOperationRecord, type OperationRecord } from '../src/ops/operations.js';
-import { THIS_PROCESS } from '../src/ops/process-proof.js';
+import type { JobRecord } from '../src/jobs/index.js';
 import { projectCards, type ProjectCard, type ProjectCards } from '../src/studio/project-cards.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
-import { flowRecord, makeCanvasProject, sha, type CanvasProject } from './helpers/canvas-project.js';
+import { flowRecord, makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
+import { addOperation, writeOperation } from './helpers/canvas-operation.js';
 
 const OP = 'oa1b2c3d4';
 const LEFT = 'ob2c3d4e5';
 const UNRECORDED = 'oc3d4e5f6';
 const SAVED = 'od4e5f6a7';
-const F = '```';
 
 describe("Timmy Canvas's cards name their operations, read from the records", () => {
   let p: CanvasProject;
   let job: JobRecord;
   let read: ProjectCards;
-  const flowId = 'fa1b2c3d4';
+  let flowId = '';
+  let voxId = '';
   const leftFlow = 'fb2c3d4e5';
-  const voxId = 'va1b2c3d4';
 
-  const record = (o: Partial<OperationRecord> & { id: string }): void => {
-    const w = writeOperationRecord(p.root, {
-      schema: OPERATION_SCHEMA, request: '/run RUN.md build', via: 'repl', project: 'demo', started: '2026-10-11T10:00:00.000Z', ended: '2026-10-11T10:05:00.000Z',
-      state: 'succeeded', why: 'job ran: completed', parent: null, runs: [], owner: { pid: THIS_PROCESS.pid, started: THIS_PROCESS.started }, ...o,
-    });
-    if (!w.ok) throw new Error(w.error);
-  };
+  const record = (o: Parameters<typeof writeOperation>[1]): void => writeOperation(p, o);
   const byId = (cards: readonly ProjectCard[]): Record<string, ProjectCard> => Object.fromEntries(cards.map((c) => [c.id, c]));
   const source = () => ({ root: p.root, name: 'demo', jobs: p.jobs, receipts: p.store });
 
   beforeAll(async () => {
     p = await makeCanvasProject('studio-operations-');
-    p.write('RUN.md', ['# Run it', '', `${F}bash [name:build]`, 'echo built', F, ''].join('\n'));
-    // The operation's own record, as Timmy's writer writes it (its request names the project's folder: scrubbed when read).
-    record({ id: OP, request: `/run RUN.md build # in ${p.root}` });
-    // A job started inside the operation, by the real JobManager: its record names the operation (src/ops/context.ts).
-    const manager = new JobManager({ dir: p.jobs });
-    job = inOperation({ id: OP }, () => manager.start({ kind: 'workflow', label: 'RUN.md › build', project: 'demo', root: p.root, command: process.execPath, args: ['-e', 'setTimeout(() => {}, 20)'] }));
-    await manager.done(job.id);
-    job = manager.get(job.id)!;
-    // A flow of the operation, started after the job, sealed by its flow receipt (with the operation, as Timmy stamps it).
-    const flowText = flowRecord(flowId, 'succeeded', 'make it wider').replace('"project": "demo"', `"project": "demo",\n  "operation": "${OP}"`).replace('2026-10-10T05:00:00.000Z', '2099-01-01T00:00:01.000Z');
-    p.write(`results/flows/${flowId}.json`, flowText);
-    p.seal({ kind: 'flow', subject: `flow · iterate · tray · ${flowId} · succeeded`, operation_id: OP, outputs: [{ path: `results/flows/${flowId}.json`, sha256: sha(flowText), bytes: Buffer.byteLength(flowText) }] });
-    // A VoxVision record of the operation, made after the flow.
-    const stl = Buffer.from('solid empty\nendsolid empty\n');
-    const voxText = `${JSON.stringify({
-      schema: 'timmy.vox/1', id: voxId, operation: OP, action: 'inspect', command: '/inspect part.stl', made_at: '2099-01-01T00:00:02.000Z', status: 'ok',
-      inputs: [{ path: 'part.stl', sha256: sha(stl), bytes: stl.length, kind: 'mesh' }], tools: [], metrics: [], claims: [], failures: [], notes: [], highlights: [],
-    }, null, 2)}\n`;
-    p.write(`results/vox/${voxId}.json`, voxText);
-    p.seal({ kind: 'vox', subject: 'vox · inspect · part.stl · ok', operation_id: OP, outputs: [{ path: `results/vox/${voxId}.json`, sha256: sha(voxText), bytes: Buffer.byteLength(voxText) }] });
+    // The operation: its own record (its request names the project's folder: scrubbed when read), a workflow job started
+    // inside it by the real JobManager, then a flow and a VoxVision record naming it (tests/helpers/canvas-operation.ts).
+    ({ job, flowId, voxId } = await addOperation(p, OP));
     // An operation whose Timmy ended while its record says it runs (a pid that runs no process): read as interrupted.
     record({ id: LEFT, request: '/iterate tray "deeper"', state: 'running', ended: null, why: undefined, owner: { pid: 2 ** 22 + 12345, started: '2026-10-11T09:00:00.000Z' }, started: '2026-10-11T09:00:00.000Z' });
     p.write(`results/flows/${leftFlow}.json`, flowRecord(leftFlow, 'failed', 'deeper').replace('"project": "demo"', `"project": "demo",\n  "operation": "${LEFT}"`));

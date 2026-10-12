@@ -34,9 +34,12 @@ describe('Timmy Canvas loads nothing from another host', () => {
     // R4 (H55): and the page's own Project panel, a file beside it that imports nothing.
     // R4 (H75): and the drawn cards, a file beside it that imports nothing either (canvas.js hands it React and tldraw).
     expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js']);
-    for (const file of ['project.js', 'cards.js']) {
+    // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing
+    for (const file of ['project.js', 'cards.js', 'operations.js']) {
       const own = readFileSync(join(page, 'src', file), 'utf8');
-      expect([...own.matchAll(/^import\b/gm)], file).toEqual([]);
+      const sources = [...own.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);
+      expect(sources, file).toEqual(file === 'operations.js' ? [] : ['./operations.js']);
+      expect([...own.matchAll(/^import\b/gm)].length, `${file}: every import is one of those`).toBe(sources.length);
       expect(own, file).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
     }
   });
