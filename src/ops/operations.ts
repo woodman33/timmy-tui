@@ -18,7 +18,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { inOperation, newOperationId, OPERATION_ID, openScope, type OperationRunKind, type OperationScope } from './context.js';
+import { inOperation, newOperationId, OPERATION_ID, openScope, type OperationRunKind, type OperationScope, type StartedProcess } from './context.js';
 import { THIS_PROCESS, writerState } from './process-proof.js';
 
 export const OPERATIONS_DIR = '.timmy/operations';
@@ -28,6 +28,8 @@ export const operationRel = (id: string): string => `${OPERATIONS_DIR}/${id}.jso
 const MAX_RECORD_BYTES = 256 * 1024;
 /** How many runs a record lists (the rest are counted). */
 const MAX_RUNS = 200;
+/** R4 (H99): how many processes a request started that a record lists (the rest are not kept). */
+const MAX_PROCESSES = 20;
 
 /** R4 (H74): 'md', a `timmy md` run (src/cli-md.ts). */
 export type OperationVia = 'repl' | 'board' | 'act' | 'md';
@@ -59,6 +61,9 @@ export interface OperationRecord {
   runs: OperationRun[];
   /** how many runs were left off `runs` */
   more_runs?: number;
+  /** R4 (H99, r24): the processes the request itself started that ended within it and have no record of their own (a server
+   *  command `/mcp tools` started for a listing), each with how it ended; absent when there were none */
+  processes?: StartedProcess[];
   /** the process that began it and writes this record */
   owner: { pid: number; started: string };
 }
@@ -117,12 +122,16 @@ export function parseOperationRecord(raw: unknown, id?: string): { ok: true; rec
   if (!(r.parent === null || (str(r.parent) && OPERATION_ID.test(r.parent)))) return { ok: false, error: 'its parent is not an operation id' };
   const runs = Array.isArray(r.runs) ? r.runs.filter((x): x is OperationRun => !!x && typeof x === 'object' && str((x as OperationRun).kind) && str((x as OperationRun).id)) : [];
   const owner = r.owner && typeof r.owner === 'object' ? r.owner as Record<string, unknown> : {};
+  const processes = Array.isArray(r.processes)
+    ? r.processes.filter((x): x is StartedProcess => !!x && typeof x === 'object' && str((x as StartedProcess).what) && str((x as StartedProcess).ended) && typeof (x as StartedProcess).failed === 'boolean').slice(0, MAX_PROCESSES)
+    : [];
   return {
     ok: true,
     record: {
       schema: OPERATION_SCHEMA, id: r.id, request: r.request, via: r.via, project: r.project, started: r.started, ended: r.ended as string | null,
       state: r.state as OperationState, ...(str(r.why) ? { why: r.why } : {}), parent: r.parent as string | null, runs: runs.map((x) => ({ kind: x.kind, id: x.id, at: str(x.at) ? x.at : '' })),
       ...(typeof r.more_runs === 'number' ? { more_runs: r.more_runs } : {}),
+      ...(processes.length ? { processes: processes.map((x) => ({ what: x.what, ended: x.ended, failed: x.failed })) } : {}),
       owner: { pid: typeof owner.pid === 'number' ? owner.pid : 0, started: str(owner.started) ? owner.started : '' },
     },
   };
@@ -205,6 +214,8 @@ export interface OperationHandle {
   readonly started: string;
   /** the runs this process started under it, oldest first */
   readonly runs: OperationRun[];
+  /** R4 (H99, r24): the processes its request started that ended within it and have no record of their own, oldest first */
+  readonly processes: StartedProcess[];
   /** set once this process's part of it has ended; R4 (H99): `current`, with 'no change', when every run that made no change
    *  found the last build current (`timmy act` then exits 0, so the blocks that need it run on that build) */
   ended?: { at: string; state: OperationState; why: string; current?: boolean };
@@ -232,17 +243,26 @@ interface Entry {
  *  change ranks before a success, so a request whose change was not made never reads as succeeded. */
 const PRECEDENCE: ReadonlyArray<RunOutcome['state']> = ['stopped', 'failed', 'unknown', 'differs', 'refused', 'no change', 'succeeded'];
 
-/** An operation's state from how its runs ended (the runs another run's record names are counted with that run). */
-export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered'): { state: OperationState; why: string; current?: boolean } {
+/**
+ * An operation's state from how its runs ended (the runs another run's record names are counted with that run). R4 (H99,
+ * r24): `processes`, what its request started that has no record of its own (a server command /mcp tools started for a
+ * listing): said in its words, never "it started nothing"; one that failed makes the request failed.
+ */
+export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered', processes: readonly StartedProcess[] = []): { state: OperationState; why: string; current?: boolean } {
   const claimed = new Set(outcomes.flatMap((o) => o.out.claims ?? []));
   const decisive = outcomes.filter((o) => !claimed.has(`${o.run.kind}:${o.run.id}`));
-  if (!decisive.length) return { state: answer, why: answer === 'refused' ? 'it started nothing: the request was refused' : 'it started nothing: the request was answered' };
+  const started = processes.map((p) => `${p.what}: ${p.ended}`).join('; ');
+  if (!decisive.length) {
+    if (processes.length) return { state: processes.some((p) => p.failed) ? 'failed' : answer, why: started };
+    return { state: answer, why: answer === 'refused' ? 'it started nothing: the request was refused' : 'it started nothing: the request was answered' };
+  }
   const states = new Set(decisive.map((o) => o.out.state));
+  if (processes.some((p) => p.failed)) states.add('failed');
   // A run that says it still runs once nothing of it runs here did not finish its record: counted as not succeeded.
   const first = PRECEDENCE.find((s) => states.has(s)) ?? 'unknown';
   const state: OperationState = first === 'unknown' ? 'failed' : first;
   const words = decisive.map((o) => `${o.run.kind} ${o.run.id} ${o.out.words}`);
-  const why = words.length > 6 ? `${words.slice(0, 6).join('; ')}; and ${words.length - 6} more` : words.join('; ');
+  const why = `${words.length > 6 ? `${words.slice(0, 6).join('; ')}; and ${words.length - 6} more` : words.join('; ')}${started ? `; ${started}` : ''}`;
   // R4 (H99): no change is current only when every run that made no change found the last build current
   if (state === 'no change') return { state, why, current: decisive.filter((o) => o.out.state === 'no change').every((o) => o.out.current === true) };
   return { state, why };
@@ -273,9 +293,9 @@ export class OperationLog {
     }
     const h: OperationHandle = {
       id: joined ?? newOperationId(), root, project: o.project, request: this.d.scrub(o.request.trim(), root).slice(0, 2000), via: o.via, parent,
-      joined: !!joined, started: new Date().toISOString(), runs: [], recorded: false, seals: 0,
+      joined: !!joined, started: new Date().toISOString(), runs: [], processes: [], recorded: false, seals: 0,
     };
-    const e: Entry = { h, scope: { id: h.id, noteRun: (kind, id) => this.noteRun(e, kind, id), noteSeal: () => this.noteSeal(e) }, commandDone: false, close: () => {}, waiters: [] };
+    const e: Entry = { h, scope: { id: h.id, noteRun: (kind, id) => this.noteRun(e, kind, id), noteSeal: () => this.noteSeal(e), noteStarted: (p) => this.noteStarted(e, p) }, commandDone: false, close: () => {}, waiters: [] };
     e.close = openScope(e.scope);
     this.entries.set(h.id + (joined ? `@${randomBytes(3).toString('hex')}` : ''), e);
     this.newest = h;
@@ -335,7 +355,7 @@ export class OperationLog {
       if (e.h.ended || !e.commandDone) continue;
       if (e.h.runs.some((r) => this.runLive(r, e.h.root))) continue;
       const outcomes = e.h.runs.map((run) => ({ run, out: this.runOutcome(run, e.h.root) }));
-      const decided = decideState(outcomes, e.answer);
+      const decided = decideState(outcomes, e.answer, e.h.processes);
       this.finish(e, e.stop ? { state: 'stopped', why: outcomes.length ? `${e.stop}; ${decided.why}` : e.stop } : decided);
     }
     this.arm();
@@ -371,6 +391,15 @@ export class OperationLog {
     this.later();
   }
 
+  /** R4 (H99): a process the request started and that has ended, with no record of its own: kept in the operation's record. */
+  private noteStarted(e: Entry, p: StartedProcess): void {
+    const list = e.h.processes as StartedProcess[];
+    if (list.length >= MAX_PROCESSES) return;
+    list.push({ what: this.d.scrub(p.what, e.h.root).slice(0, 500), ended: this.d.scrub(p.ended, e.h.root).slice(0, 1000), failed: p.failed });
+    this.persist(e);
+    this.later();
+  }
+
   private noteSeal(e: Entry): void {
     e.h.seals += 1;
     if (!e.h.recorded) this.persist(e);
@@ -394,6 +423,7 @@ export class OperationLog {
       schema: OPERATION_SCHEMA, id: h.id, request: h.request, via: h.via, project: h.project, started: h.started,
       ended: h.ended?.at ?? null, state: h.ended?.state ?? 'running', ...(h.ended ? { why: this.d.scrub(h.ended.why, h.root).slice(0, 2000) } : {}),
       parent: h.parent, runs: shown, ...(h.runs.length > shown.length ? { more_runs: h.runs.length - shown.length } : {}),
+      ...(h.processes.length ? { processes: [...h.processes] } : {}),
       owner: { pid: THIS_PROCESS.pid, started: THIS_PROCESS.started },
     };
     const w = writeOperationRecord(h.root, rec);

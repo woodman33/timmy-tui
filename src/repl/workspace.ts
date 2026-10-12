@@ -108,7 +108,8 @@ import { agentTask, lessonsStartLine, type LessonQuery, type LessonUse, type Ret
 import { readBoardMemory, type BoardMemory } from '../memory/board.js';
 import { LESSONS_DIR } from '../memory/lessons.js';
 // Round R4 (H51): operations (one request each), their records, their card, and the hold a flow keeps across processes.
-import { currentOperation, operationField } from '../ops/context.js';
+import { currentOperation, noteStartedProcess, operationField } from '../ops/context.js';
+import { listingProcess } from '../ops/listing.js';
 import { OPERATIONS_DIR, OperationLog, type OperationHandle, type OperationVia } from '../ops/operations.js';
 import { runOutcome } from '../ops/outcome.js';
 import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperations, type OpIndex } from '../ops/card.js';
@@ -1760,7 +1761,11 @@ export class Workspace {
    */
   async mcp(args: string): Promise<Line[]> {
     const columns = process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
-    const lines = await mcpView(args.trim(), { cwd: this.root, columns: columns - 2, record: { root: this.root, project: this.project.name, seal: this.d.seal } });
+    const lines = await mcpView(args.trim(), {
+      cwd: this.root, columns: columns - 2, record: { root: this.root, project: this.project.name, seal: this.d.seal },
+      // R4 (H99, r24): a listing that started its server is said in the request's operation, never "it started nothing"
+      onTools: (listed) => { const p = listingProcess(listed); if (p) noteStartedProcess(p); },
+    });
     return lines.map((l) => [{ text: `  ${l}` }]);
   }
 

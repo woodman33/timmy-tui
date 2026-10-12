@@ -136,6 +136,9 @@ interface NeedsAuth { needsAuth?: true; authCommand?: string }
 export interface McpServersAnswer { ok: boolean; route: McpRouteId; servers: McpServerEntry[]; ms?: number; error?: string }
 export interface McpToolsAnswer extends NeedsAuth {
   ok: boolean; route: McpRouteId; server: string; ms: number; tools: McpToolEntry[]; truncated?: boolean; error?: string; timedOut?: boolean;
+  /** R4 (H99): the route's own process was started for the listing, with the server's command line or name (the route starts
+   *  a stdio server and reaches an HTTP one; its process group is signalled to stop as it ends); absent when nothing started */
+  routeRan?: true;
   /** Every tool's name, when the list itself was cut to the bound. */
   allNames?: string[];
 }
@@ -594,16 +597,18 @@ async function listedTools(route: McpRouteId, server: McpServerRef, label: strin
   const run = await runProcess(argv, { cwd, env: childEnv(o.env ?? process.env, o.passEnv), timeoutMs });
   const ms = Math.max(1, Math.round(performance.now() - started));
   const parsed = parseJson(run.stdout);
-  if (run.timedOut || !parsed.ok) return { ok: false, route, server: label, ms, tools: [], ...failure(run, timeoutMs, `no tool list came back (exit ${run.code})`) };
+  // R4 (H99): whether the route's process was started for it (a spawn that failed started nothing)
+  const ran = run.spawnError ? {} : { routeRan: true as const };
+  if (run.timedOut || !parsed.ok) return { ok: false, route, server: label, ms, tools: [], ...ran, ...failure(run, timeoutMs, `no tool list came back (exit ${run.code})`) };
   const v = parsed.value as { ok?: boolean; name?: string; status?: string; tools?: unknown[]; error?: string; authCommand?: string; issue?: { kind?: string; rawMessage?: string } };
   if (route === 'mcporter' && (v.status === 'auth' || v.issue?.kind === 'auth')) {
     const authCommand = typeof v.authCommand === 'string' && v.authCommand ? v.authCommand : `mcporter auth ${label}`;
-    return { ok: false, route, server: label, ms, tools: [], needsAuth: true, authCommand, error: needsAuthorization(authCommand) };
+    return { ok: false, route, server: label, ms, tools: [], ...ran, needsAuth: true, authCommand, error: needsAuthorization(authCommand) };
   }
   const failed = route === 'mcporter' ? v.status !== 'ok' : v.ok !== true;
-  if (failed) return { ok: false, route, server: label, ms, tools: [], error: scrubUrls(String(v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed'))) };
+  if (failed) return { ok: false, route, server: label, ms, tools: [], ...ran, error: scrubUrls(String(v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed'))) };
   // The list must be the named server's own: MCPorter answers with the name it resolved.
-  if ('name' in server && typeof v.name === 'string' && v.name !== server.name) return { ok: false, route, server: label, ms, tools: [], error: `MCPorter answered for "${v.name}", not "${server.name}"` };
+  if ('name' in server && typeof v.name === 'string' && v.name !== server.name) return { ok: false, route, server: label, ms, tools: [], ...ran, error: `MCPorter answered for "${v.name}", not "${server.name}"` };
   let tools = toolEntries(v.tools ?? []);
   const allNames = tools.map((t) => t.name);
   let truncated = false;
@@ -614,7 +619,7 @@ async function listedTools(route: McpRouteId, server: McpServerRef, label: strin
     if (JSON.stringify(tools).length > MCP_OUTPUT_LIMIT) tools = tools.map((t) => (t.description && t.description.length > 120 ? { ...t, description: `${t.description.slice(0, 119)}…` } : t));
     while (tools.length && JSON.stringify(tools).length > MCP_OUTPUT_LIMIT) tools.pop();
   }
-  return { ok: true, route, server: label, ms, tools, ...(truncated ? { truncated, ...(tools.length < allNames.length ? { allNames } : {}) } : {}) };
+  return { ok: true, route, server: label, ms, tools, ...ran, ...(truncated ? { truncated, ...(tools.length < allNames.length ? { allNames } : {}) } : {}) };
 }
 
 const textOf = (result: unknown): string => {
@@ -1032,6 +1037,8 @@ export interface McpViewOptions extends McpRunOptions {
   columns?: number;
   /** Where /mcp call keeps its record and how it seals its receipt; without it no record is written. */
   record?: McpRecordContext;
+  /** R4 (H99): told each tool listing /mcp tools made (its route, the server as given and the answer), e.g. for its operation */
+  onTools?: (listed: { route: McpRouteId; ref: McpServerRef; answer: McpToolsAnswer }) => void;
 }
 
 /** How many display lines of an answer /mcp call shows, and of an error answer's own words. */
@@ -1118,6 +1125,7 @@ export async function mcpView(args: string[] | string, o: McpViewOptions = {}): 
     if (!ref) return ['which server? /mcp tools <server>, or /mcp tools -- <command>'];
     const id = pick('name' in ref);
     const r = await listTools(id, ref, o);
+    try { o.onTools?.({ route: id, ref, answer: r }); } catch { /* the listing stands */ }
     if (!r.ok) return [`${serverLabel(ref)} via ${id}: ${r.error}`];
     // R4 (H34): the server's own hints, labelled as its claim; before the description, which is what a narrow terminal cuts.
     return [`${r.server} via ${id} · ${r.tools.length} tools · ${r.ms} ms${r.truncated ? ' · list cut' : ''}`,
