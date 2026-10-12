@@ -88,6 +88,23 @@ describe('the model key: found where the REPL finds it, read only', () => {
     } finally { rmSync(b.dir, { recursive: true, force: true }); }
   });
 
+  // R4 (H98, journey-2): the setup keeps the key in providers.json; a key an older version left in the settings file is used
+  // only when providers.json holds none (before, it won, and a new key given to timmy init was ignored)
+  it('providers.json comes before the settings file, as in loadConfig', () => {
+    const b = box();
+    try {
+      const file = settingsFile({ ...b.env }, b.home, 'linux');
+      mkdirSync(join(file, '..'), { recursive: true });
+      writeFileSync(file, JSON.stringify({ apiKey: 'sk-or-v1-old' }));
+      expect(modelKeySource({ ...b.env }, b.work, b.home, 'linux')).toBe('settings');
+      mkdirSync(join(b.home, 'timmy'));
+      writeFileSync(join(b.home, 'timmy', 'providers.json'), JSON.stringify({ openrouter_api_key: 'sk-or-v1-new' }));
+      expect(modelKeySource({ ...b.env }, b.work, b.home, 'linux')).toBe('providers.json');
+      // a settings folder moved by TIMMY_SETTINGS_DIR is the one read
+      expect(settingsFile({ ...b.env, TIMMY_SETTINGS_DIR: join(b.dir, 'moved') }, b.home, 'linux')).toBe(join(b.dir, 'moved', 'config.json'));
+    } finally { rmSync(b.dir, { recursive: true, force: true }); }
+  });
+
   it('ignores a timmy-tui.config.json that holds no object, as loadConfig does, instead of throwing (the review, row 99)', () => {
     const b = box();
     try {

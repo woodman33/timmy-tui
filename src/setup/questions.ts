@@ -8,9 +8,12 @@
  * - the answers are saved once, in the Timmy home (setup.json, 0600, never a key; a key goes to providers.json, 0600, as
  *   `timmy init` always kept it), and each question is asked only while it has no answer: what an older `timmy init` wrote
  *   (identity.json, providers.json, the project folder) counts as an answer;
- * - the local model (Ollama at the home's host) and local-only logs are preselected; anything cloud or paid is opt-in and
- *   says so where it is offered;
- * - an identity is never replaced (an existing identity.json and identity.seed stay as they are).
+ * - the local model (Ollama at the home's host) is preselected; anything cloud or paid is opt-in and says so where it is
+ *   offered. Logs and run events stay on this computer: this version sends none to a worker from the monitor or the REPL
+ *   (the only sender, the legacy v1 shell's telemetry bridge, runs only with an explicit TIMMY_TELEMETRY_URL), so the setup
+ *   offers no "send them to your worker" (journey-2 review: it promised a send that never happened);
+ * - an identity is never replaced (an existing identity.json and identity.seed stay as they are), and the identity answer
+ *   is read hidden (it may be a key or a seed) and checked with the writer's own parser as soon as it is given.
  *
  * This module only reads and words; src/utils/init.ts writes the answers (applySetup), src/setup/terminal.ts asks in a
  * terminal, src/tui/Onboarding.tsx asks inside the monitor. It needs nothing but node (see ./home.ts).
@@ -18,26 +21,28 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { identityPath, privateDir, setupPath, settingsFile, timmyHome, workspaceRoot, type Env } from './home.js';
+import { identityProblem, isNewKey } from './identity.js';
 
 export const OLLAMA_DEFAULT = 'http://127.0.0.1:11434';
 export const OPERATOR_DEFAULT = 'operator';
 export const PROJECT_DEFAULT = 'first-light';
 
-export type QuestionId = 'operator' | 'identity' | 'ollama' | 'chat' | 'key' | 'logs' | 'edge' | 'project';
+export type QuestionId = 'operator' | 'identity' | 'ollama' | 'chat' | 'key' | 'project';
 export type Chat = 'local' | 'openrouter';
-export type Logs = 'local' | 'cloud';
+
+/** Where logs and run events go: this computer only (this version sends none to a worker; see the head of this module). */
+export const LOGS_WORDS = 'this computer only';
 
 /** Answers as given now (a key and a seed are never recorded in setup.json). */
 export interface Answers {
   operator?: string;
-  /** 'generate', a 64-hex ed25519 seed, or a path to a PEM private key */
+  /** 'generate', a 64-hex ed25519 seed, or the path of a key file (a PEM ed25519 key or a 64-hex seed): ./identity.ts */
   identity?: string;
   ollama?: string;
   chat?: Chat;
   /** the OpenRouter key; '' is "no key" */
   key?: string;
-  logs?: Logs;
-  /** the Cloudflare worker's host for log sync; '' is "none yet" */
+  /** `--edge-host <host>` only: the worker's host other features use (the private overlay's edge_host); never asked */
   edge?: string;
   project?: string;
   /** `--anthropic <key>` only: kept in providers.json as before (nothing in Timmy reads it yet); never asked */
@@ -49,15 +54,18 @@ export interface Recorded {
   version: 1;
   by?: string;
   at?: string;
-  /** `edge`: the worker's host as answered ('' is "none yet": answered, so not asked again) */
-  answers: { operator?: string; identity?: string; ollama?: string; chat?: Chat; logs?: Logs; edge?: string; project?: string };
+  answers: { operator?: string; identity?: string; ollama?: string; chat?: Chat; project?: string };
 }
 
 /** What the home holds now, read without writing anything. */
 export interface SetupState {
   home: string;
   privateDir: string;
-  identity: { exists: boolean; operator?: string; operatorId?: string; source?: string };
+  /**
+   * `seed`: no identity.json, and an identity.seed is there (a run stopped between the two writes, or a file moved): it is
+   * this home's key, kept and never replaced, and counts as the identity answer; 'unreadable' when Timmy cannot read it
+   */
+  identity: { exists: boolean; operator?: string; operatorId?: string; source?: string; seed?: 'readable' | 'unreadable' };
   providers: { exists: boolean; ollama?: string; key: boolean };
   /** the monitor's settings hold a key (its old FIRST RUN saved one there) */
   settingsKey: boolean;
@@ -88,6 +96,8 @@ export function readSetupState(env: Env = process.env, workspace: string = works
   const home = timmyHome(env);
   const priv = privateDir(workspace, env);
   const id = readJson(identityPath(env));
+  const seedFile = join(home, 'identity.seed');
+  const seedLeft = !existsSync(identityPath(env)) && existsSync(seedFile);
   const providers = readJson(join(home, 'providers.json'));
   const settings = readJson(settingsFile(env));
   const overlay = readJson(join(priv, 'config.json'));
@@ -109,8 +119,6 @@ export function readSetupState(env: Env = process.env, workspace: string = works
       ...(text(answers.identity) ? { identity: text(answers.identity) } : {}),
       ...(text(answers.ollama) ? { ollama: text(answers.ollama) } : {}),
       ...(answers.chat === 'local' || answers.chat === 'openrouter' ? { chat: answers.chat } : {}),
-      ...(answers.logs === 'local' || answers.logs === 'cloud' ? { logs: answers.logs } : {}),
-      ...(typeof answers.edge === 'string' && !CONTROL.test(answers.edge) ? { edge: answers.edge.trim() } : {}),
       ...(text(answers.project) ? { project: text(answers.project) } : {}),
     },
   } : null;
@@ -119,7 +127,7 @@ export function readSetupState(env: Env = process.env, workspace: string = works
     privateDir: priv,
     identity: isObject(id)
       ? { exists: true, ...(text(id.operator) ? { operator: text(id.operator) } : {}), ...(text(id.operator_id) ? { operatorId: text(id.operator_id) } : {}), ...(text(id.seed_source) ? { source: text(id.seed_source) } : {}) }
-      : { exists: existsSync(identityPath(env)) },
+      : { exists: existsSync(identityPath(env)), ...(seedLeft ? { seed: identityProblem(seedFile) === null ? 'readable' as const : 'unreadable' as const } : {}) },
     providers: isObject(providers)
       ? { exists: true, ...(text(providers.ollama_host) ? { ollama: text(providers.ollama_host) } : {}), key: Boolean(text(providers.openrouter_api_key)) }
       : { exists: false, key: false },
@@ -141,16 +149,14 @@ export function knownAnswers(s: SetupState): Partial<Record<QuestionId, string>>
   const operator = r.operator ?? s.identity.operator;
   if (operator) out.operator = operator;
   if (s.identity.exists) out.identity = r.identity ?? s.identity.source ?? 'existing';
+  // an identity.seed without its identity.json is this home's key: kept, so the identity is answered (not asked)
+  else if (s.identity.seed) out.identity = 'kept';
   const ollama = r.ollama ?? s.providers.ollama;
   if (ollama) out.ollama = ollama;
   // a stored key is an answer given before (an older `timmy init`, or the monitor's old FIRST RUN): OpenRouter
   const chat = r.chat ?? (stored ? 'openrouter' : undefined);
   if (chat) out.chat = chat;
   if (stored) out.key = 'set';
-  if (r.logs) out.logs = r.logs;
-  // a blank host answered before is an answer ("none yet"); a host set anywhere is the one used
-  if (s.edgeHost) out.edge = s.edgeHost;
-  else if (r.edge !== undefined) out.edge = r.edge;
   const project = r.project ?? s.firstProject ?? s.projects[0];
   if (project) out.project = project;
   return out;
@@ -163,6 +169,12 @@ export interface Question {
   /** the question, one line (within 60 columns) */
   title: string;
   kind: 'text' | 'choice' | 'secret';
+  /** what is accepted, in a sentence or two under the title (wrapped where it is drawn) */
+  help?: string;
+  /** read without showing it (a `secret` is always): the answer may be a key or a seed */
+  hidden?: boolean;
+  /** how the preselected answer is shown in brackets (default: as it is) */
+  shown?(value: string): string;
   choices?: Choice[];
   /** the preselected answer: a choice's value, or a text ('' for none) */
   preselect(a: Answers, s: SetupState): string;
@@ -196,13 +208,17 @@ export const QUESTIONS: readonly Question[] = [
     read: (t) => (t.trim() === '' ? { ok: true, value: OPERATOR_DEFAULT } : plainText(80, 'The name')(t)),
   },
   {
-    id: 'identity', kind: 'text', title: 'Identity: g makes a new key; or a PEM or 64-hex seed path',
+    // R4 (H98, journey-2): read hidden (a pasted seed was echoed and stayed in the scrollback), and checked here with the
+    // writer's own parser (./identity.ts): a file it cannot read is refused at the question, never after "Proceed?"
+    id: 'identity', kind: 'text', hidden: true, title: 'Identity: Enter makes a new key',
+    help: 'Or use a key you have: the path of a PEM ed25519 private key or of a file holding a 64-hex seed, or the seed itself. Hidden as you type.',
     preselect: () => 'generate',
+    shown: (v) => (isNewKey(v) ? 'new key' : v),
     read: (t) => {
       const v = t.trim();
-      if (v === '' || v === 'g' || v === 'generate') return { ok: true, value: 'generate' };
-      if (/^[0-9a-fA-F]{64}$/.test(v) || existsSync(v)) return { ok: true, value: v };
-      return { ok: false, why: 'Not a 64-hex seed and no such file: g makes a new key.' };
+      if (isNewKey(v)) return { ok: true, value: 'generate' };
+      const why = identityProblem(v);
+      return why ? { ok: false, why } : { ok: true, value: v };
     },
   },
   {
@@ -238,26 +254,6 @@ export const QUESTIONS: readonly Question[] = [
     },
   },
   {
-    id: 'logs', kind: 'choice', title: 'Logs and run events',
-    choices: [
-      { key: 'l', value: 'local', label: 'this computer only', note: 'Kept in .timmy/ here; nothing is sent anywhere.' },
-      { key: 'c', value: 'cloud', label: 'also your Cloudflare worker (cloud)', note: 'Run events are sent to your worker: they leave this computer.' },
-    ],
-    preselect: () => 'local',
-    read: pick(() => QUESTIONS.find((q) => q.id === 'logs')!),
-  },
-  {
-    id: 'edge', kind: 'text', title: 'Your worker\'s host (blank: none yet, nothing is sent)',
-    preselect: () => '',
-    when: (a, s) => a.logs === 'cloud' && !s.edgeHost,
-    read: (t) => {
-      const v = t.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-      if (!v) return { ok: true, value: '' };
-      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?$/i.test(v)) return { ok: false, why: 'A host name, like worker.example.com.' };
-      return { ok: true, value: v };
-    },
-  },
-  {
     id: 'project', kind: 'text', title: 'First project name (under ~/timmy/projects/)',
     preselect: () => PROJECT_DEFAULT,
     read: (t) => {
@@ -277,34 +273,34 @@ export function effectiveAnswers(s: SetupState, given: Answers = {}): Answers {
     ...(k.operator ? { operator: k.operator } : {}),
     ...(k.ollama ? { ollama: k.ollama } : {}),
     ...(k.chat ? { chat: k.chat as Chat } : {}),
-    ...(k.logs ? { logs: k.logs as Logs } : {}),
     ...(k.project ? { project: k.project } : {}),
     ...given,
   };
 }
 
-/** Whether `q` still needs asking: it has no answer (known or given) and its condition holds for the answers so far. */
-export function needsAsking(q: Question, s: SetupState, a: Answers, given: Answers = {}): boolean {
+/**
+ * Whether `q` still needs asking: it has no answer (known or given) and its condition holds for the answers so far. `force`:
+ * questions asked even with an answer (the REPL's /setup key replacing a stored key), while their condition holds.
+ */
+export function needsAsking(q: Question, s: SetupState, a: Answers, given: Answers = {}, force: readonly QuestionId[] = []): boolean {
   if (q.id in given && given[q.id as keyof Answers] !== undefined) return false;
-  const k = knownAnswers(s);
-  if (k[q.id] !== undefined) return false;
+  if (!force.includes(q.id) && knownAnswers(s)[q.id] !== undefined) return false;
   return q.when ? q.when(a, s) : true;
 }
 
 /**
  * The questions the home has no answer for, in order, as they would be asked if every one took its preselected answer
- * (a conditional one, the key or the worker's host, appears only when what it follows asks for it).
+ * (a conditional one, the key, appears only when the chat asks for it). `force`: as needsAsking's.
  */
-export function pendingQuestions(s: SetupState, given: Answers = {}): Question[] {
+export function pendingQuestions(s: SetupState, given: Answers = {}, force: readonly QuestionId[] = []): Question[] {
   const a = effectiveAnswers(s, given);
   const out: Question[] = [];
   for (const q of QUESTIONS) {
-    if (!needsAsking(q, s, a, given)) continue;
+    if (!needsAsking(q, s, a, given, force)) continue;
     out.push(q);
     const pre = q.preselect(a, s);
     if (q.id === 'chat') a.chat = pre as Chat;
-    else if (q.id === 'logs') a.logs = pre as Logs;
-    else if (q.id !== 'key' && q.id !== 'identity' && q.id !== 'edge') (a as Record<string, string>)[q.id] = pre;
+    else if (q.id !== 'key' && q.id !== 'identity') (a as Record<string, string>)[q.id] = pre;
   }
   return out;
 }
@@ -320,20 +316,13 @@ export function chatWords(chat: string | undefined, s: SetupState, ollama?: stri
   return 'not answered yet';
 }
 
-/** A logs answer in words. */
-export function logsWords(logs: string | undefined, s: SetupState): string {
-  if (logs === 'cloud') return s.edgeHost ? `also your worker ${s.edgeHost} (cloud)` : 'also your worker (no host set yet, so nothing is sent)';
-  if (logs === 'local') return 'this computer only';
-  return 'not answered yet';
-}
-
 /** One line: what the setup chose (a key only as set or not set). */
 export function setupSummary(s: SetupState): string {
   const k = knownAnswers(s);
   return [
     `operator ${k.operator ?? 'not answered yet'}`,
     `chat: ${chatWords(k.chat, s)}`,
-    `logs: ${logsWords(k.logs, s)}`,
+    `logs: ${LOGS_WORDS}`,
     `project ${k.project ?? 'not answered yet'}`,
   ].join(' · ');
 }
@@ -346,8 +335,7 @@ export function setupLine(s: SetupState): string {
   const k = knownAnswers(s);
   const key = s.providers.key || s.settingsKey;
   const chat = k.chat === 'openrouter' ? `OpenRouter, paid (key ${key ? 'set' : 'not set'})` : k.chat === 'local' ? 'local model (no key)' : 'not answered yet';
-  const logs = k.logs === 'cloud' ? (s.edgeHost ? `also your worker ${s.edgeHost} (cloud)` : 'also your worker (no host yet)') : k.logs === 'local' ? 'this computer only' : 'not answered yet';
-  return `chat ${chat} · logs ${logs} · project ${k.project ?? 'not answered yet'} · operator ${k.operator ?? 'not answered yet'}`;
+  return `chat ${chat} · logs ${LOGS_WORDS} · project ${k.project ?? 'not answered yet'} · operator ${k.operator ?? 'not answered yet'}`;
 }
 
 /** Who answered last, in words ("timmy init"), from setup.json; null when no answer was recorded there. */

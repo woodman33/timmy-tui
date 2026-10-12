@@ -90,7 +90,7 @@ describe('timmy watch on a home without setup', () => {
       await p.waitFor(/TIMMY · first run — guided setup \(timmy watch\)/);
       await p.waitFor(/> \[operator\]/);
       p.type('Sample');
-      for (const q of [/> \[generate\]/, /Ollama host[\s\S]*> \[http:\/\/127\.0\.0\.1:11434\]/, /Chat model[\s\S]*> \[l\]/, /Logs and run events[\s\S]*> \[l\]/]) {
+      for (const q of [/> \[new key\]/, /Ollama host[\s\S]*> \[http:\/\/127\.0\.0\.1:11434\]/, /Chat model[\s\S]*> \[l\]/]) {
         await p.waitFor(q);
         p.type('');
       }
@@ -109,7 +109,7 @@ describe('timmy watch on a home without setup', () => {
       const [, code] = await p.waitFor(/EXIT=(\d+)/, 15_000);
       expect(code).toBe('130');
       const rec = JSON.parse(readFileSync(join(dir, 'timmy', 'setup.json'), 'utf8'));
-      expect({ by: rec.by, chat: rec.answers.chat, logs: rec.answers.logs }).toEqual({ by: 'timmy watch', chat: 'local', logs: 'local' });
+      expect({ by: rec.by, chat: rec.answers.chat, logs: rec.answers.logs }).toEqual({ by: 'timmy watch', chat: 'local', logs: undefined });
     } finally {
       p.kill();
       rmSync(dir, { recursive: true, force: true });

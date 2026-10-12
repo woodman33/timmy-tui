@@ -86,15 +86,25 @@ describe('the environment model key stays transient', () => {
     expect(mode(h.settings)).toBe('600');
   });
 
-  it('saves a key on purpose only through saveApiKey, 0600, over a file that was 0644', () => {
+  // R4 (H98, journey-2): one place holds the key: saveApiKey keeps it in providers.json (the Timmy home's, 0600) and takes
+  // a key an older version left in the settings file out of it; loadConfig then uses the new one.
+  it('saves a key on purpose only through saveApiKey: in providers.json 0600 (over a file that was 0644), never the settings', () => {
     const h = home();
     const typed = synthetic();
+    const old = synthetic();
     mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
-    writeFileSync(h.settings, JSON.stringify({ model: 'x/y' }), { mode: 0o644 });
+    writeFileSync(h.settings, JSON.stringify({ model: 'x/y', apiKey: old }), { mode: 0o644 });
     chmodSync(h.settings, 0o644);
-    const seen = probe(h, typed, ['save-api-key']);
-    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', exists: true, holds: true, mode: '600' });
-    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ model: 'x/y', apiKey: typed });
+    const providers = join(h.root, 'home', 'timmy', 'providers.json');
+    mkdirSync(join(h.root, 'home', 'timmy'), { recursive: true });
+    writeFileSync(providers, JSON.stringify({ ollama_host: 'http://127.0.0.1:11434' }), { mode: 0o644 });
+    chmodSync(providers, 0o644);
+    const seen = probe(h, typed, ['save-api-key', 'load']);
+    expect(seen.find((s) => s.step === 'save-api-key')).toMatchObject({ exists: true, holds: false, mode: '600' });
+    expect(seen.find((s) => s.step === 'load')?.used).toBe(true);
+    expect(JSON.parse(readFileSync(providers, 'utf8'))).toEqual({ ollama_host: 'http://127.0.0.1:11434', openrouter_api_key: typed });
+    expect(mode(providers)).toBe('600');
+    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ model: 'x/y', apiKey: '' });
   });
 
   // The review (row 104, finding 4): conf rewrites the file only when its contents change, and under SNAP or
@@ -112,14 +122,19 @@ describe('the environment model key stays transient', () => {
     expect(readFileSync(h.settings, 'utf8')).toBe(bytes);
   });
 
-  it('keeps a deliberate save 0600 when conf falls back to a plain write (SNAP)', () => {
+  it('keeps the files of a deliberate save 0600 when conf falls back to a plain write (SNAP)', () => {
     const h = home();
     const typed = synthetic();
+    const old = synthetic();
     mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
-    writeFileSync(h.settings, JSON.stringify({ apiKey: '', ...FULL }, null, '\t'), { mode: 0o644 });
+    writeFileSync(h.settings, JSON.stringify({ apiKey: old, ...FULL }, null, '\t'), { mode: 0o644 });
     chmodSync(h.settings, 0o644);
     const seen = probe(h, typed, ['save-api-key'], { SNAP: '/snap/node/1' });
-    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', holds: true, mode: '600' });
+    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', holds: false, mode: '600' });
+    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ apiKey: '' });
+    const providers = join(h.root, 'home', 'timmy', 'providers.json');
+    expect(JSON.parse(readFileSync(providers, 'utf8'))).toEqual({ openrouter_api_key: typed });
+    expect(mode(providers)).toBe('600');
   });
 
   it('writes a fresh settings file 0600 even with no key anywhere', () => {

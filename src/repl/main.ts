@@ -13,7 +13,8 @@ import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
 import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
-import { chatRoute, pendingQuestions, readSetupState, setupSummary, type Answers } from '../setup/questions.js';
+import { chatRoute, pendingQuestions, readSetupState, setupSummary, type Answers, type QuestionId } from '../setup/questions.js';
+import { prettyPath, settingsFile } from '../setup/home.js';
 import { surfacesSegments } from '../setup/surfaces.js';
 import { terminalIO, wrap } from '../setup/terminal.js';
 import { setupCheck } from './setup.js';
@@ -231,7 +232,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   if (!config.apiKey && !interactive) {
     const fail = serialize([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }], theme);
     // R4 (H98): the setup's default chat is the local model, which this chat cannot use yet: the key is OpenRouter's (paid)
-    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter, or export OPENROUTER_API_KEY=<your key>\n    Help: timmy repl --help\n`);
+    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter (it asks for the key, hidden)\n    Help: timmy repl --help\n`);
     session.restore();
     return EXIT.config;
   }
@@ -545,36 +546,50 @@ export interface ReplSetupDeps {
 /**
  * R4 (H98): the REPL's /setup. `/setup` asks every setup question that has no answer yet, here, through the same guided setup
  * as `timmy init` (`timmy init`'s words, files and setup.json, recorded as set up by "the REPL (/setup)"); `/setup key` asks
- * for an OpenRouter key for the chat (paid, opt-in). Then the setup check, sealed. Stopped or declined: nothing was written,
- * and no check is sealed. Without a terminal, the exact command to run instead, then the check.
+ * for an OpenRouter key for the chat (paid, opt-in), and replaces a stored one after a yes (journey-2: it said a key was
+ * "already stored in the Timmy home", naming the wrong place, and could not replace it). Then the setup check, sealed.
+ * Stopped or declined: nothing was written, and no check is sealed. Without a terminal, the exact command to run instead
+ * (never one with a key in its arguments), then the check.
  */
 export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment[][]> {
   const words = args.trim();
   const quiet = (text: string): Segment[] => [{ text, role: 'secondary' }];
   if (words && words !== 'key') return [quiet('  Usage: /setup      the guided setup, then the check'), quiet('         /setup key  an OpenRouter key for the chat (paid)')];
-  const given: Answers = words === 'key' ? { chat: 'openrouter' } : {};
+  const keyMode = words === 'key';
+  const given: Answers = keyMode ? { chat: 'openrouter' } : {};
   const state = readSetupState();
-  const pending = pendingQuestions(state, given);
+  // the key's one place is providers.json; a key the monitor's old FIRST RUN kept in its settings moves there at the setup
+  const stored = state.providers.key ? `${prettyPath(join(state.home, 'providers.json'))}` : state.settingsKey ? `the monitor's settings (${prettyPath(settingsFile())})` : null;
+  const force: QuestionId[] = keyMode && stored ? ['key'] : [];
+  const pending = pendingQuestions(state, given, force);
   const out: Segment[][] = [];
   let asked = false;
   // every line within 60 columns (C-14)
   const say = (text: string): void => { for (const l of wrap(text, 60, '  ')) out.push(quiet(l)); };
-  if (words === 'key' && (state.providers.key || state.settingsKey) && !pending.length) {
-    say('A model key is already stored in the Timmy home; /setup key asks only while there is none.');
-  } else if (pending.length || words === 'key') {
-    const command = words === 'key' ? 'timmy init --chat openrouter' : 'timmy init';
+  if (keyMode && state.envKey) say('OPENROUTER_API_KEY is set in this environment: the chat uses it while it is set, whatever is stored.');
+  if (pending.length || keyMode) {
     if (!d.tty) {
-      out.push(quiet(`  ${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet.`));
-      out.push(quiet(`  In a terminal, run ${command}: it asks only ${pending.length === 1 ? 'that' : 'those'}.`));
-      if (words === 'key') out.push(quiet('  (OpenRouter is paid; the key is hidden as you type.)'));
+      if (keyMode) say('In a terminal: /setup key here, or timmy init --chat openrouter (it asks for the key, hidden; OpenRouter is paid).');
+      else {
+        out.push(quiet(`  ${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet.`));
+        out.push(quiet(`  In a terminal, run timmy init: it asks only ${pending.length === 1 ? 'that' : 'those'}.`));
+      }
     } else {
       d.beforeAsk?.();
+      const io = d.io ?? terminalIO();
+      if (keyMode && stored) {
+        // a yes before a stored key is replaced
+        io.log('');
+        for (const l of wrap(`A model key is stored in ${stored}.`, 60, '  ')) io.log(l);
+        const yes = await (io.question ?? terminalIO().question!)('  Replace it? [y/N] ');
+        if (yes === null || !/^y(es)?$/i.test(yes.trim())) return [quiet('  Nothing was changed: the stored key stays.')];
+      }
       const title = `TIMMY · ${state.identity.exists ? '' : 'first run — '}guided setup (/setup in the REPL)`;
-      const code = await guidedSetup('the REPL (/setup)', given, d.io ?? terminalIO(), { title, next: [] });
+      const code = await guidedSetup('the REPL (/setup)', given, io, { title, next: [], force });
       if (code !== 0) return [quiet('  Back in the REPL; /setup asks again.')];
       asked = true;
       out.push(quiet('  Back in the REPL.'));
-      if (d.keyChanged?.() === true) say('The chat uses the stored key from your next message.');
+      if (d.keyChanged?.() === true) say(state.envKey ? 'The key is stored; the chat uses OPENROUTER_API_KEY while it is set.' : 'The chat uses the stored key from your next message.');
     }
   }
   out.push(...d.check());
@@ -714,8 +729,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (d.noKey) {
       say([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }, { text: ' no model key, so Timmy cannot answer.' }]);
       say([{ text: '  Cause: no OPENROUTER_API_KEY, and the setup stored none.', role: 'secondary' }]);
-      // R4 (H98): the REPL's chat goes through OpenRouter (paid); the local model is for code agents, not this chat yet
-      say([{ text: '  Try: /setup key, or export OPENROUTER_API_KEY', role: 'secondary' }]);
+      // R4 (H98): the REPL's chat goes through OpenRouter (paid); the local model is for code agents, not this chat yet.
+      // journey-2: /setup key asks for the key hidden (never a command with the key in its arguments)
+      say([{ text: '  Try: /setup key (it asks for the key, hidden)', role: 'secondary' }]);
       say([{ text: '  Help: /help, or timmy repl --help', role: 'secondary' }]);
       region.commit(['']);
       continue;

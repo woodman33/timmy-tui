@@ -31,7 +31,7 @@ describe('slash commands', () => {
     const { c, printed } = ctx();
     expect(runSlash('/help', c)).toBe('handled');
     // R4 (H98): the three surfaces first, in one line wrapped within 60 columns (never cut)
-    const top = ['  Studio /studio · Control Room /room', '  God\'s Eye View /overview', '  all three in your browser: /board live'];
+    const top = ['  Studio /studio · Control Room /room', '  God\'s Eye View /overview', '  the board in your browser: /board live'];
     expect(top.map((l) => l.trim()).join(' · ')).toBe(SURFACES_LINE);
     expect(printed).toEqual([...top, ...GROUPS.flatMap((g) => [`  ${GROUP_LABEL[g]}`, ...COMMANDS.filter((cmd) => cmd.group === g).map((cmd) => `  /${cmd.name.padEnd(11)} ${cmd.description}`)])]);
     expect(COMMANDS.every((cmd) => GROUPS.includes(cmd.group))).toBe(true);

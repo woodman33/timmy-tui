@@ -1,7 +1,8 @@
 /**
  * One way to open Timmy's three surfaces (round R4, H98), said the same everywhere: the REPL's first screen and the top of
  * /help, the board's top, the monitor. TIMMY STUDIO is Timmy Canvas (the tldraw workspace: `/studio`, the same code path as
- * `/canvas open`); the Control Room is `/room`; God's Eye View is `/overview`; `/board live` puts all three in the browser.
+ * `/canvas open`); the Control Room is `/room`; God's Eye View is `/overview`; `/board live` is the board in the browser
+ * (the Control Room and God's Eye View as its sections, Studio as its /studio to copy: journey-2, it said "all three").
  *
  * The board's top (src/repl/board.ts) shows three links: Control Room and God's Eye View jump to their sections; Studio
  * is `/studio` as a copy chip with a short reason: the live board's act bridge runs only its allowlisted actions (stop,
@@ -13,7 +14,7 @@ import type { Segment } from '../term/theme.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 
 /** The one line (the brief's words). */
-export const SURFACES_LINE = 'Studio /studio · Control Room /room · God\'s Eye View /overview · all three in your browser: /board live';
+export const SURFACES_LINE = 'Studio /studio · Control Room /room · God\'s Eye View /overview · the board in your browser: /board live';
 
 /** The line as lines no wider than `width`, broken only between its parts (never cut). */
 export function surfacesLines(width: number, indent = ''): string[] {
