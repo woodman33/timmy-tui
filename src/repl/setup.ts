@@ -39,7 +39,7 @@ export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify:
   const dot = ` ${g.sep} `; // the middle dot, or its ASCII stand-in
   const lines: Segment[][] = [[{ text: '  SETUP CHECK', role: 'strong' }]];
   lines.push(facts.operator ? ok('identity', facts.operator) : lack('identity', `none yet${dot}run timmy init`));
-  lines.push(facts.key ? ok('model key', 'set') : lack('model key', `none${dot}/setup key, timmy init or OPENROUTER_API_KEY`));
+  lines.push(facts.key ? ok('model key', 'set') : lack('model key', `none${dot}/setup key or OPENROUTER_API_KEY`));
   const before = verify('runs', dir);
   lines.push(
     !before.ok ? lack('receipts', `chain broken${dot}/receipts says where`)

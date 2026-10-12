@@ -29,7 +29,7 @@ function sandbox() {
 function terminal(dir: string, env: NodeJS.ProcessEnv, label: string) {
   const tenv = { ...env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env: tenv, encoding: 'utf8', timeout: TMUX_MS });
-  tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '40', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
+  tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '40', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same || echo TTY=changed; sleep 60`);
   const screen = () => tmux('capture-pane', '-p', '-J', '-S', '-400', '-t', 't');
   const waitFor = async (re: RegExp, count = 1): Promise<string> => {
     for (let i = 0; i < 900; i++) {
@@ -84,7 +84,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(done).toMatch(/✓ Set up: operator Sample · chat: local model only/);
       expect(done).toContain('Back in the REPL.');
       expect(done).toMatch(/identity\s+Sample/);
-      expect(done).toMatch(/model key\s+none · \/setup key, timmy init or OPENROUTER_API_KEY/);
+      expect(done).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
       // written once, in the Timmy home, as timmy init writes it
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup.by).toBe('the REPL (/setup)');
@@ -107,7 +107,8 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(help).toMatch(/^ {2}Studio \/studio · Control Room \/room\n {2}God's Eye View \/overview\n {2}all three in your browser: \/board live\n {2}WORK$/m);
       expect(help).toMatch(/\/studio {6}Timmy Studio: opens it, as \/canvas open/);
       t.type('/exit');
-      const end = await t.waitFor(/EXIT=\d+/);
+      // the terminal check prints after EXIT=: wait for its own line, not for EXIT= (a race under load)
+      const end = await t.waitFor(/TTY=(?:same|changed)/);
       expect(end).toMatch(/EXIT=0/);
       expect(end).toContain('TTY=same');
     } finally {
@@ -132,7 +133,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(existsSync(join(home, 'setup.json'))).toBe(false);
       expect(receipts(join(dir, 'store'))).toEqual([]);
       t.type('/exit');
-      expect(await t.waitFor(/EXIT=\d+/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
+      expect(await t.waitFor(/TTY=(?:same|changed)/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
     } finally {
       t.close();
       rmSync(dir, { recursive: true, force: true });
@@ -174,7 +175,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       t.type('/setup key');
       expect(await t.waitFor(/setup check sealed and verified/, 2)).toContain('A model key is already stored in the Timmy home');
       t.type('/exit');
-      expect(await t.waitFor(/EXIT=\d+/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
+      expect(await t.waitFor(/TTY=(?:same|changed)/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
       expect(t.screen()).not.toContain(key);
     } finally {
       t.close();

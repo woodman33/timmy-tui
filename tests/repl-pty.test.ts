@@ -49,7 +49,7 @@ describe('timmy repl', () => {
     const tenv = { ...env, OPENROUTER_API_KEY: 'sk-or-test-placeholder', TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'repl', ...args], { env: tenv, encoding: 'utf8', timeout: TMUX_MS });
     try {
-      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
+      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same || echo TTY=changed; sleep 60`);
       const screen = () => tmux('capture-pane', '-p', '-t', 't');
       const waitFor = async (re: RegExp) => {
         for (let i = 0; i < 600; i++) { if (re.test(screen())) return; await sleep(50); }
@@ -70,7 +70,7 @@ describe('timmy repl', () => {
       await waitFor(/Unknown command: \/nope\.[\s\S]*Enter to send/);
       tmux('send-keys', '-t', 't', '-l', '/exit');
       tmux('send-keys', '-t', 't', 'Enter');
-      await waitFor(/EXIT=\d+/);
+      await waitFor(/TTY=(?:same|changed)/); // printed after EXIT=: waiting for EXIT= alone raced it
       expect(screen()).toMatch(/EXIT=0/);
       expect(screen()).toContain('TTY=same');
       expect(tmux('display', '-p', '-t', 't', '#{cursor_flag}').trim()).toBe('1');
@@ -108,7 +108,7 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
-      expect(shown).toMatch(/model key\s+none · \/setup key, timmy init or OPENROUTER_API_KEY/);
+      expect(shown).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
       expect(shown).toContain('setup check sealed and verified');
       // runs.jsonl also carries the bus's events; receipts are the lines with a prev_hash.
       const chain = readFileSync(`${dir}/store/runs.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string');
@@ -133,7 +133,7 @@ describe('timmy repl', () => {
     const tenv = { ...env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'firstexit', ...args], { env: tenv, encoding: 'utf8', timeout: TMUX_MS });
     try {
-      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
+      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same || echo TTY=changed; sleep 60`);
       const screen = () => tmux('capture-pane', '-p', '-t', 't');
       const waitFor = async (re: RegExp) => {
         for (let i = 0; i < 600; i++) { if (re.test(screen())) return; await sleep(50); }
@@ -143,7 +143,7 @@ describe('timmy repl', () => {
       await waitFor(/Enter to send/);
       tmux('send-keys', '-t', 't', '-l', '/exit');
       tmux('send-keys', '-t', 't', 'Enter');
-      await waitFor(/EXIT=\d+/);
+      await waitFor(/TTY=(?:same|changed)/); // printed after EXIT=: waiting for EXIT= alone raced it
       const shown = screen();
       expect(shown).toMatch(/EXIT=0/);
       expect(shown).toContain('TTY=same');
