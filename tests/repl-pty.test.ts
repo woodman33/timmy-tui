@@ -119,8 +119,8 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       // R4 (H103): the setup chose the local model (it needs no key), and no model is chosen yet (timmy init --yes lists none):
       // the message says so and how to choose one, and nothing is sent (before, "no model key, so Timmy cannot answer")
-      await waitFor(/the chat is set to the local model, and no model is chosen\./);
-      expect(screen()).toContain('Nothing was sent to any model.');
+      // its last line too: under load the first line can be on screen before the rest (a combined run caught that)
+      await waitFor(/the chat is set to the local model, and no model is chosen\.[\s\S]*Nothing was sent to any model\./);
       expect(screen()).not.toContain('no model key, so Timmy cannot answer');
       tmux('send-keys', '-t', 't', '-l', '/exit');
       tmux('send-keys', '-t', 't', 'Enter');
