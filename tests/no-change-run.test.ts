@@ -143,6 +143,11 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     expect(html).toMatch(new RegExp(`${third.job}[\\s\\S]{0,400}wfs-nochange`));
     expect(html).toContain('<span class="wf-glyph" aria-hidden="true">=</span> <strong>no change</strong>');
     expect(html).toMatch(/<span class="state state-nochange">no change<\/span>/);
+    // its result card counts its blocks as /jobs does and says no change, never failed (r24: "0 of 1 steps completed")
+    const at3 = html.indexOf(`<strong class="label">${third.job} · `);
+    const result3 = html.slice(html.lastIndexOf('<article', at3), html.indexOf('</article>', at3));
+    expect(result3).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change, which made no change: flow f');
+    expect(result3).toContain('workflow · 1 of 3 steps; change no change, exit 4; inspect, result not run');
     const overview = text(await ws.overview('--all'));
     expect(overview).toContain('no change');
     expect(overview).not.toMatch(new RegExp(`${third.job}[^\\n]*failed`));
