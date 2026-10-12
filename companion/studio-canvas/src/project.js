@@ -122,6 +122,28 @@ export function refreshWords(counts) {
 // ── the panel (the browser only) ─────────────────────────────────────────────
 
 const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
+
+/**
+ * R4 (H109): the band between the list and New board (index.html #project-said, R4 H100): what a press did, or what Timmy did
+ * on its own (the arrows it removed with a deleted card). `acts`: buttons under the words that act on what they say ({ label,
+ * title, run }), such as selecting the cards a press placed. Each call replaces the words and the buttons before it.
+ */
+export function band(text, bad = false, acts = []) {
+  if (typeof document === 'undefined') return;
+  const said = document.getElementById('project-said');
+  const row = document.getElementById('project-said-acts');
+  if (said) {
+    said.textContent = String(text ?? '');
+    said.dataset.kind = bad ? 'error' : 'ok';
+  }
+  if (!row) return;
+  row.replaceChildren(...(Array.isArray(acts) ? acts : []).map((a) => {
+    const b = el('button', String(a.label), { type: 'button', className: 'band-act', title: String(a.title ?? '') });
+    b.addEventListener('click', () => { try { a.run(); } catch { /* the band's buttons are a courtesy */ } });
+    return b;
+  }));
+  row.hidden = row.childElementCount === 0;
+}
 /** A message's text, cut at `max` characters (an ellipsis says so): the panel stays short. */
 const short = (text, max = 90) => { const chars = Array.from(String(text)); return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join(''); };
 
@@ -136,7 +158,6 @@ export function createProjectPanel(deps) {
   const root = document.getElementById('project');
   const name = document.getElementById('project-name');
   const note = document.getElementById('project-note');
-  const said = document.getElementById('project-said');
   const groups = document.getElementById('project-groups');
   const refresh = document.getElementById('project-refresh');
   // R4 (H100): By kind / By operation, kept for this browser (a viewer's convenience: nothing else depends on it)
@@ -191,10 +212,15 @@ export function createProjectPanel(deps) {
   }
 
   // R4 (H100; r24): what a press said has its own band between the list and New board (index.html #project-said): it never
-  // sits on a row or its buttons, and an empty one takes no room
-  function say(text, bad = false) {
-    said.textContent = text;
-    said.dataset.kind = bad ? 'error' : 'ok';
+  // sits on a row or its buttons, and an empty one takes no room. R4 (H109): written through band(), which cards.js uses too.
+  function say(text, bad = false, acts = []) {
+    band(text, bad, acts);
+  }
+  /** R4 (H109): selects the shapes a press placed that are still on the canvas (the band's Select button). */
+  function selectPlaced(ids) {
+    const editor = deps.editor();
+    const there = editor ? ids.filter((id) => editor.getShape(id)) : [];
+    if (there.length) editor.select(...there);
   }
 
   /** R4 (H100): a row; `withOp`: with its operation line (an operation's own group names the operation once, above its rows). */
@@ -264,7 +290,11 @@ export function createProjectPanel(deps) {
       const put = el('button', 'Place this operation', { type: 'button', className: 'pop-place', title: 'Places its workflow, flow and result cards on this page, left to right in the order they ran, linked by arrows. Pressed again, it adds only what ran since: cards you moved, resized or deleted stay as you left them.' });
       put.addEventListener('click', () => {
         put.disabled = true;
-        placeOperation(op.id).then((r) => say(r.words), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
+        // R4 (H109): nothing it placed is selected; the band offers to select it
+        const offer = (r) => (Array.isArray(r.select) && r.select.length
+          ? [{ label: `Select the ${r.select.length === 1 ? 'card' : `${r.select.length} cards`} placed`, title: 'Selects only what this press placed, so one drag moves them together', run: () => selectPlaced(r.select) }]
+          : []);
+        placeOperation(op.id).then((r) => say(r.words, false, offer(r)), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
       });
       acts.append(put);
     }

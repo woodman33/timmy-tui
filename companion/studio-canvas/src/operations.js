@@ -55,6 +55,12 @@ export function groupByOperation(api, kinds = []) {
   return { groups, rest };
 }
 
+/**
+ * R4 (H109): an arrow "Place this operation" drew: its meta names the operation (`timmyOperation`). Any other arrow (one a
+ * person drew, or one an agent's canvas code drew) is not one, and Timmy never removes it.
+ */
+export const isTimmyArrow = (shape) => !!shape && shape.type === 'arrow' && !!shape.meta && typeof shape.meta === 'object' && isOp(shape.meta.timmyOperation);
+
 /** The key a page's meta keeps one operation's placement under: the project's id and the operation's. */
 export const placementKey = (projectId, opId) => `${String(projectId)}:${String(opId)}`;
 
@@ -87,7 +93,9 @@ export function readPlacement(value) {
  *   links     [{ from, to }] the arrows to draw now: between cards next to each other in the order they ran, both on the
  *             page after this press, with no arrow drawn between them before
  *   linked    [{ from, to, arrow }] arrows drawn before and still there
- *   cut       [{ from, to, arrow }] arrows drawn before and deleted since: not drawn again
+ *   cut       [{ from, to, arrow }] arrows drawn before and deleted since, both their cards still there: not drawn again
+ *   gone      [{ from, to, arrow }] R4 (H109): arrows drawn before that went with a card deleted since (a drawn card takes the
+ *             arrows Timmy drew to or from it when a person deletes it: ./cards.js attach): not drawn again
  */
 export function placementPlan(op, cards, drawable, kept, exists) {
   const k = kept ? readPlacement(kept) : { placed: [], links: [] };
@@ -109,17 +117,25 @@ export function placementPlan(op, cards, drawable, kept, exists) {
     if (exists(shape)) already.push({ card: id, shape }); else deleted.push(id);
   }
   const onPage = new Set([...place, ...already.map((a) => a.card)]);
+  // R4 (H109): a card placed before whose shape is gone took the arrows Timmy drew to or from it (./cards.js attach)
+  const goneCards = new Set(deleted);
   const links = [];
   const linked = [];
   const cut = [];
+  const gone = [];
   for (let i = 0; i + 1 < order.length; i++) {
     const from = order[i];
     const to = order[i + 1];
     const was = k.links.find((l) => l.from === from && l.to === to);
-    if (was) { if (exists(was.arrow)) linked.push(was); else cut.push(was); continue; }
+    if (was) {
+      if (exists(was.arrow)) linked.push(was);
+      else if (goneCards.has(was.from) || goneCards.has(was.to)) gone.push(was);
+      else cut.push(was);
+      continue;
+    }
     if (onPage.has(from) && onPage.has(to)) links.push({ from, to });
   }
-  return { order, place, already, deleted, skipped, links, linked, cut };
+  return { order, place, already, deleted, skipped, links, linked, cut, gone };
 }
 
 /** Where each card placed now goes: one row from `start`, left to right in the order given, `gap` between them. */
@@ -135,9 +151,14 @@ export function rowLayout(ids, start, widthOf, gap = ROW_GAP) {
 
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** What a press did, in words: the operation, what was placed and linked, and what was left as the person left it. */
+/**
+ * What a press did, in words: the operation, what was placed and linked, and what was left as the person left it. R4 (H109;
+ * r25 D9): a press that added anything says the person's selection is as it was (nothing it placed is selected, so the next
+ * drag moves only what the person picks) and that one undo takes it back (one press is one step of tldraw's undo).
+ */
 export function placementWords(id, r) {
-  const first = r.already.length === 0 && r.deleted.length === 0 && r.linked.length === 0 && r.cut.length === 0;
+  const gone = Array.isArray(r.gone) ? r.gone : [];
+  const first = r.already.length === 0 && r.deleted.length === 0 && r.linked.length === 0 && r.cut.length === 0 && gone.length === 0;
   const parts = [];
   const arrows = r.drawn ?? r.links.length;
   if (first) {
@@ -145,9 +166,27 @@ export function placementWords(id, r) {
   } else {
     parts.push(r.place.length ? `${count(r.place.length, 'card')} added${arrows ? ` and linked by ${count(arrows, 'arrow')}` : ''}` : arrows ? `${count(arrows, 'arrow')} drawn` : 'nothing added');
     if (r.already.length) parts.push(`${count(r.already.length, 'card')} already placed for it, left as ${r.already.length === 1 ? 'it is' : 'they are'}`);
-    if (r.deleted.length) parts.push(`${count(r.deleted.length, 'card')} you deleted not placed again (Place card in the list places one)`);
+    // R4 (H109): the arrows that went with a deleted card are said with it, never as arrows the person deleted
+    if (r.deleted.length) parts.push(`${count(r.deleted.length, 'card')} you deleted not placed again${gone.length ? `, nor the ${count(gone.length, 'arrow')} that went with ${r.deleted.length === 1 ? 'it' : 'them'}` : ''} (Place card in the list places one)`);
+    else if (gone.length) parts.push(`${count(gone.length, 'arrow')} that went with a card you deleted not drawn again`);
     if (r.cut.length) parts.push(`${count(r.cut.length, 'arrow')} you deleted not drawn again`);
   }
   if (r.skipped.length) parts.push(`${count(r.skipped.length, 'record')} with no drawn card left out`);
-  return `Operation ${id}: ${parts.join('; ')}.`;
+  const added = r.place.length + arrows > 0;
+  return `Operation ${id}: ${parts.join('; ')}.${added ? ' Your selection is as it was; one undo takes this placement back.' : ''}`;
+}
+
+/**
+ * R4 (H109; r25 D9): what the band says when a person deletes drawn cards and Timmy removes, with them, the arrows it drew to or
+ * from them (`timmy`), and the arrows the person drew to them that stay (`theirs`); null when Timmy removed nothing (a delete
+ * that took no arrow of Timmy's needs no words). `titles`: the deleted cards' titles.
+ */
+export function removalWords(titles, timmy, theirs) {
+  if (!(timmy > 0)) return null;
+  const list = (Array.isArray(titles) ? titles : []).map((t) => one(t)).filter(Boolean);
+  const cut = (t) => { const c = Array.from(t); return c.length > 60 ? `${c.slice(0, 59).join('')}…` : t; };
+  const what = list.length === 1 ? `the card "${cut(list[0])}"` : `${count(Math.max(list.length, 1), 'card')}`;
+  const them = list.length === 1 ? 'it' : 'them';
+  const stays = theirs > 0 ? ` ${count(theirs, 'arrow')} you drew ${theirs === 1 ? 'stays where it ends' : 'stay where they end'}.` : '';
+  return `Deleted ${what}; Timmy removed with ${them} the ${count(timmy, 'arrow')} it had drawn to or from ${them}.${stays} One undo brings back all that went.`;
 }

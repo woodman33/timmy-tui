@@ -38,7 +38,7 @@
 //
 // Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
 // below run in Node's tests too.
-import { operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, ROW_GAP, rowLayout } from './operations.js';
+import { isTimmyArrow, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -302,7 +302,8 @@ function clock(iso) {
 /**
  * The three shape utils and the runtime that feeds and acts for them. `deps`: React, BaseBoxShapeUtil, HTMLContainer, T,
  * atom, useValue, resizeBox (from tldraw); createShapeId; editor() (the live editor); place(editor, size) → where a new card goes;
- * reveal(editor, ids); grant (the one-time code this page was opened with, or null).
+ * reveal(editor, ids); grant (the one-time code this page was opened with, or null). R4 (H109): say(text) writes the panel's
+ * band (what Timmy did on its own, such as the arrows it removed with a deleted card).
  */
 export function createCards(deps) {
   const { React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox } = deps;
@@ -653,12 +654,17 @@ export function createCards(deps) {
       const width = plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP);
       start = all.length ? { x: Math.min(...all.map((b) => b.minX)), y: Math.max(...all.map((b) => b.maxY)) + 96 } : deps.place(editor, { w: Math.max(1, width), h: 160 });
     }
-    editor.markHistoryStoppingPoint(`timmy place operation ${op.id}`);
+    // R4 (H109; r25 D9): one press is one step of tldraw's undo: the mark below, then the cards, their arrows and the page's
+    // record, and nothing else (a drawn card's height and the cards' readings are written outside the history; the camera is
+    // not in it). A press that adds nothing writes nothing, so it leaves no empty step behind.
+    const adding = plan.place.length > 0 || plan.links.length > 0;
+    if (adding) editor.markHistoryStoppingPoint(`timmy place operation ${op.id}`);
     const made = rowLayout(plan.place, start, widthOf).map((at) => {
       const card = cards.get(at.card);
       const type = drawnType(card.kind);
       const shape = deps.createShapeId();
-      editor.createShape({ id: shape, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type), meta: { timmyOperation: op.id } });
+      // R4 (H109): placed for this operation, so a parameter card shows the values the operation used (boundDetail)
+      editor.createShape({ id: shape, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type, op.id), meta: { timmyOperation: op.id } });
       return { card: at.card, shape };
     });
     const shapeOf = new Map([...plan.already.map((a) => [a.card, a.shape]), ...made.map((m) => [m.card, m.shape])]);
@@ -670,15 +676,53 @@ export function createCards(deps) {
       const arrow = link(editor, from, to, op.id);
       if (arrow) drawn.push({ from: l.from, to: l.to, arrow });
     }
-    const now = editor.getPage(page.id) ?? page;
-    const record = { v: 1, project: answer.project.name, placed: [...kept.placed, ...made], links: [...kept.links, ...drawn], at: new Date().toISOString() };
-    editor.updatePage({ id: page.id, meta: { ...(now.meta || {}), [PLACEMENTS]: { ...held, [key]: record } } });
+    if (adding) {
+      const now = editor.getPage(page.id) ?? page;
+      const record = { v: 1, project: answer.project.name, placed: [...kept.placed, ...made], links: [...kept.links, ...drawn], at: new Date().toISOString() };
+      editor.updatePage({ id: page.id, meta: { ...(now.meta || {}), [PLACEMENTS]: { ...held, [key]: record } } });
+    }
     const shown = [...shapeOf.values()].filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page.id);
-    if (made.length) editor.select(...made.map((m) => m.shape));
+    // R4 (H109; r25 D9): the person's selection stays as it was (it had been the placed cards, all together, so the next drag
+    // on one of them moved them all); the band offers to select what was placed (`select`)
     try { deps.reveal(editor, shown); } catch { /* showing them is a courtesy */ }
     await revealSized(editor, shown);
     const words = placementWords(op.id, { ...plan, drawn: drawn.length });
-    return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, linked: plan.linked, words };
+    return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, gone: plan.gone, linked: plan.linked, words, select: made.map((m) => m.shape) };
+  }
+
+  /**
+   * R4 (H109; r25 D9): a drawn card a person deletes takes with it the arrows "Place this operation" drew to or from it
+   * (isTimmyArrow), in the same step of tldraw's undo. tldraw tells its listeners which shapes a delete removes before it removes
+   * any of them ('deleted-shapes', from Editor.deleteShapes: the Delete key, the menu's Delete, Cut, the eraser), while the arrows
+   * are still bound to the cards; the arrows are deleted right there, inside that delete, so one undo brings the cards and the
+   * arrows back together. An arrow the person drew is never touched (tldraw leaves it where it ended, as it always does). The
+   * band says what Timmy removed. Returns a function that detaches it.
+   */
+  function attach(editor) {
+    let inner = false;
+    const onDeleted = (ids) => {
+      if (inner || !Array.isArray(ids) || ids.length === 0) return;
+      const going = new Set(ids);
+      const deleted = ids.map((id) => editor.getShape(id)).filter((s) => s && isDrawnCard(s));
+      if (deleted.length === 0) return;
+      const timmy = new Set();
+      const theirs = new Set();
+      for (const c of deleted) {
+        for (const b of editor.getBindingsToShape(c.id, 'arrow')) {
+          const arrow = editor.getShape(b.fromId);
+          if (!arrow || going.has(arrow.id)) continue;
+          (isTimmyArrow(arrow) ? timmy : theirs).add(arrow.id);
+        }
+      }
+      if (timmy.size) {
+        inner = true;
+        try { editor.deleteShapes([...timmy]); } finally { inner = false; }
+      }
+      const words = removalWords(deleted.map((c) => c.props.title || c.props.card), timmy.size, theirs.size);
+      if (words) { try { deps.say?.(words); } catch { /* the band is a courtesy */ } }
+    };
+    editor.on('deleted-shapes', onDeleted);
+    return () => editor.off('deleted-shapes', onDeleted);
   }
 
   // ── drawing ──
@@ -932,6 +976,8 @@ export function createCards(deps) {
     utils, startSession, onAnswer, wantsFast, place,
     // R4 (H100): an operation's cards at once, left to right in the order they ran, linked
     placeOperation,
+    // R4 (H109): a deleted drawn card takes Timmy's arrows to or from it (each editor, as it mounts: canvas.js attachEditor)
+    attach,
     // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
     read,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)

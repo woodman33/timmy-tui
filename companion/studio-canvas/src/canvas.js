@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { BaseBoxShapeUtil, Box, HTMLContainer, T, Tldraw, Vec, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
-import { createProjectPanel } from './project.js';
+import { band, createProjectPanel } from './project.js';
 import { createCards, drawnType } from './cards.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
@@ -60,6 +60,8 @@ let current = null;
 const cards = createCards({
   React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
   editor: () => current, place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  // R4 (H109): what Timmy did on its own (the arrows it removed with a deleted card), in the panel's band
+  say: (text) => band(text),
 });
 
 function showStatus(editor) {
@@ -200,6 +202,8 @@ function attachEditor(editor) {
     editor.sideEffects.registerAfterChangeHandler(type, bump);
     editor.sideEffects.registerAfterDeleteHandler(type, bump);
   }
+  // R4 (H109; r25 D9): a drawn card a person deletes takes the arrows Timmy drew to or from it, in the same undo step
+  cards.attach(editor);
 }
 
 const describe = (error) => (error instanceof Error ? `${error.name}: ${error.message}` : String(error));

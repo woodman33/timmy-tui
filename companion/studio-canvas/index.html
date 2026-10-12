@@ -71,6 +71,9 @@
   #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
   #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
   #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  /* R4 (H109): buttons under the band's words that act on what they say (Select the cards a press placed) */
+  #project-said-acts { flex: none; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  #project-said-acts[hidden] { display: none; }
   #project-groups { margin-top: 4px; }
   /* R4 (H100): Refresh placed cards, and the grouping: By kind or By operation */
   #project-tools { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 4px; }
@@ -184,6 +187,7 @@
       </details>
     </div>
     <p id="project-said" role="status"></p>
+    <div id="project-said-acts" hidden></div>
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>

@@ -31,7 +31,7 @@ type Drawn = { id: string; card: string; x: number; y: number; w: number; h: num
 type Arrow = { id: string; op: unknown; start: string | null; end: string | null };
 type Editor = {
   store: { allRecords: () => Array<{ typeName: string; type?: string; id: string; x?: number; y?: number; props: Record<string, unknown>; meta: Record<string, unknown> }> };
-  getShape: (id: string) => { id: string; type: string; x: number; y: number; props: Record<string, unknown> } | undefined;
+  getShape: (id: string) => { id: string; type: string; x: number; y: number; props: Record<string, unknown>; meta: Record<string, unknown> } | undefined;
   getBindingsFromShape: (id: string, type: string) => Array<{ toId: string; props: { terminal: string } }>;
   getCurrentPage: () => { id: string; meta: Record<string, unknown> };
   updateShape: (s: unknown) => void;
@@ -39,6 +39,10 @@ type Editor = {
   getShapePageBounds: (id: string) => { minX: number; minY: number; maxX: number; maxY: number; center: { x: number; y: number } } | undefined;
   centerOnPoint: (p: { x: number; y: number }, o?: unknown) => void;
   getCamera: () => { z: number };
+  // R4 (H109)
+  getSelectedShapeIds: () => string[];
+  getCurrentPageShapes: () => Array<{ id: string; type: string; meta: Record<string, unknown> }>;
+  pageToScreen: (p: { x: number; y: number }) => { x: number; y: number };
 };
 type Win = { timmyCanvas: { editor: Editor; placeOperation: (id: string) => Promise<{ words: string }> } };
 
@@ -112,6 +116,17 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
     await page.waitForFunction((src) => new RegExp(src).test(document.getElementById('project-said')?.textContent ?? ''), words.source, { timeout: 15_000 });
     return text(page, '#project-said');
   };
+  /** R4 (H109): the shapes selected now. */
+  const selected = (page: Page): Promise<string[]> => page.evaluate(() => (window as never as Win).timmyCanvas.editor.getSelectedShapeIds());
+  /** R4 (H109): a person's drag of a drawn card by its title, with Chromium's own mouse; how far, in screen pixels. */
+  const drag = async (page: Page, shape: string, dy: number): Promise<void> => {
+    const title = (await page.locator(`[data-timmy-card="${shape}"] .tc-title`).boundingBox())!;
+    await page.mouse.move(title.x + 20, title.y + title.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(title.x + 20, title.y + title.height / 2 + (dy / 8) * i);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  };
   /** Brings a drawn card to the middle of the view at its zoom (a canvas is not scrolled, its camera is moved). */
   const centre = async (page: Page, shape: string): Promise<void> => {
     await page.evaluate((id) => { const e = (window as never as Win).timmyCanvas.editor; const b = e.getShapePageBounds(id); if (b) e.centerOnPoint(b.center, { animation: { duration: 0 } }); }, shape);
@@ -158,8 +173,21 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       const { page, origins, errors } = await open(context);
       await page.click('#project-by button[data-by="operation"]');
       await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-place`);
-      // 1. The first press
-      expect(await place(page, /^Operation /)).toBe(`Operation ${o.op}: 4 cards placed left to right in the order they ran, linked by 3 arrows.`);
+      // R4 (H109; r25 D9): a person's own selection before the press: a rectangle of theirs (made with the editor's own call,
+      // as tldraw's rectangle tool makes one), selected
+      const mine = await page.evaluate(() => {
+        const e = (window as never as Win).timmyCanvas.editor as unknown as Editor & { createShape: (s: unknown) => void; select: (...ids: string[]) => void };
+        e.createShape({ type: 'geo', x: -2000, y: -2000, props: { w: 80, h: 60 } });
+        const id = e.getCurrentPageShapes().find((s) => s.type === 'geo')!.id;
+        e.select(id);
+        return id;
+      });
+      // 1. The first press. R4 (H109): nothing the press placed is selected (the person's selection is as it was); the words say
+      // so, and the band offers to select them
+      const pressed = await place(page, /^Operation /);
+      expect(await selected(page)).toEqual([mine]);
+      expect(pressed).toBe(`Operation ${o.op}: 4 cards placed left to right in the order they ran, linked by 3 arrows. Your selection is as it was; one undo takes this placement back.`);
+      expect(await text(page, '#project-said-acts')).toBe('Select the 4 cards placed');
       await page.waitForTimeout(400);
       // a screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder: otherwise a run leaves nothing behind
       const shots = process.env.TIMMY_CANVAS_SHOTS;
@@ -203,47 +231,57 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       //    and the Delete key), the VoxVision card made wider (the editor's resize, as tldraw's handle makes it)
       await centre(page, first[0].id);
       const z = await page.evaluate(() => (window as never as Win).timmyCanvas.editor.getCamera().z);
-      const title = (await page.locator(`[data-timmy-card="${first[0].id}"] .tc-title`).boundingBox())!;
-      await page.mouse.move(title.x + 20, title.y + title.height / 2);
-      await page.mouse.down();
-      for (let i = 1; i <= 8; i++) await page.mouse.move(title.x + 20, title.y + title.height / 2 + 15 * i);
-      await page.mouse.up();
-      await page.waitForTimeout(200);
-      const moved = (await drawn(page, o.op)).find((d) => d.id === first[0].id)!;
+      await drag(page, first[0].id, 120);
+      const afterDrag = await drawn(page, o.op);
+      const moved = afterDrag.find((d) => d.id === first[0].id)!;
       expect(Math.abs(moved.y - (first[0].y + 120 / z)), `dragged ${moved.y - first[0].y} at zoom ${z}`).toBeLessThan(8);
+      // R4 (H109; r25 D9 a): only the card dragged moved: the operation's other cards (and the person's rectangle) are where they were
+      for (const d of first.slice(1)) expect(afterDrag.find((x) => x.id === d.id), `${d.card} stays`).toMatchObject({ x: d.x, y: d.y });
+      expect(await page.evaluate((id) => { const s = (window as never as Win).timmyCanvas.editor.getShape(id)!; return [s.x, s.y]; }, mine)).toEqual([-2000, -2000]);
       await centre(page, first[1].id);
+      const jobTitle = await page.evaluate((id) => String((window as never as Win).timmyCanvas.editor.getShape(id)!.props.title), first[1].id);
       const job = (await page.locator(`[data-timmy-card="${first[1].id}"] .tc-title`).boundingBox())!;
       await page.mouse.click(job.x + 10, job.y + job.height / 2);
       await page.keyboard.press('Delete');
       await page.waitForFunction((id) => !(window as never as Win).timmyCanvas.editor.getShape(id), first[1].id);
+      // R4 (H109; r25 D9 b): the arrows Timmy drew to and from it went with it (none points at nothing), and the band says so
+      expect(pairs(await arrows(page, o.op))).toEqual([`${first[2].id} → ${first[3].id}`]);
+      expect(await text(page, '#project-said')).toBe(`Deleted the card "${jobTitle}"; Timmy removed with it the 2 arrows it had drawn to or from it. One undo brings back all that went.`);
       await page.evaluate((id) => { const e = (window as never as Win).timmyCanvas.editor; const s = e.getShape(id)!; e.updateShape({ id, type: s.type, props: { w: 520 } }); }, first[3].id);
 
       // 3. Pressed again: nothing added, nothing written over, and it says so
-      expect(await place(page, /^Operation /)).toBe(`Operation ${o.op}: nothing added; 3 cards already placed for it, left as they are; 1 card you deleted not placed again (Place card in the list places one).`);
+      expect(await place(page, /^Operation /)).toBe(`Operation ${o.op}: nothing added; 3 cards already placed for it, left as they are; 1 card you deleted not placed again, nor the 2 arrows that went with it (Place card in the list places one).`);
       const again = await drawn(page, o.op);
       expect(again.map((d) => d.card)).toEqual(['workflow:RUN.md', `flow:${o.flowId}`, `vox:${o.voxId}`]);
       expect(again.find((d) => d.id === first[0].id)).toMatchObject({ x: moved.x, y: moved.y });
       expect(again.find((d) => d.id === first[3].id)!.w).toBe(520);
-      expect((await arrows(page, o.op)).length).toBe(3);
+      expect((await arrows(page, o.op)).length).toBe(1);
+      // a press that added nothing offers nothing to select
+      expect(await page.isHidden('#project-said-acts')).toBe(true);
 
       // 4. A record of the operation made since (a second VoxVision record): pressed again, it is added after the rightmost
       //    card of the operation and linked to the card before it
       writeVox(p, 'vc3d4e5f6', o.op, '2099-01-01T00:00:03.000Z');
-      expect(await place(page, /added/)).toBe(`Operation ${o.op}: 1 card added and linked by 1 arrow; 3 cards already placed for it, left as they are; 1 card you deleted not placed again (Place card in the list places one).`);
+      expect(await place(page, /added/)).toBe(`Operation ${o.op}: 1 card added and linked by 1 arrow; 3 cards already placed for it, left as they are; 1 card you deleted not placed again, nor the 2 arrows that went with it (Place card in the list places one). Your selection is as it was; one undo takes this placement back.`);
       const third = await drawn(page, o.op);
       const vox = third.find((d) => d.id === first[3].id)!;
       const added = third.find((d) => d.card === 'vox:vc3d4e5f6')!;
       expect(added).toMatchObject({ x: Math.round(vox.x + vox.w + 72), y: Math.round(vox.y) });
       expect((await arrows(page, o.op)).filter((a) => a.end === added.id).map((a) => a.start)).toEqual([first[3].id]);
       expect(third.filter((d) => d.card === `vox:${o.voxId}`).length).toBe(1);
+      // R4 (H109): the band's Select selects exactly what that press placed
+      expect(await text(page, '#project-said-acts')).toBe('Select the card placed');
+      await page.click('#project-said-acts button');
+      expect(await selected(page)).toEqual([added.id]);
 
       // 5. The press is one step of tldraw's undo: undone, the card and arrow it added are gone, and the page's record with them
+      //    (R4 H109: the selection Select made since goes back with it: tldraw records a selection inside the step it is in)
       const record = (): Promise<unknown> => page.evaluate(() => (window as never as Win).timmyCanvas.editor.getCurrentPage().meta.timmyOperations);
       const withAdded = JSON.stringify(await record());
       await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.undo(); });
       await page.waitForTimeout(100);
       expect((await drawn(page, o.op)).map((d) => d.card)).toEqual(['workflow:RUN.md', `flow:${o.flowId}`, `vox:${o.voxId}`]);
-      expect((await arrows(page, o.op)).length).toBe(3);
+      expect((await arrows(page, o.op)).length).toBe(1);
       expect(JSON.stringify(await record())).not.toBe(withAdded);
       expect(JSON.stringify(await record())).not.toContain('vox:vc3d4e5f6');
 
@@ -257,6 +295,86 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       expect(saved).toContain(`"timmyOperation":"${o.op}"`);
       expect(saved).not.toContain(server.projectToken);
       for (const f of [p.root, p.real, p.base]) expect(saved).not.toContain(f);
+      expect([...origins].every((x) => x === base)).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 180_000);
+
+  it("R4 (H109; r25 D9 b): deleting a placed card takes the arrows Timmy drew to or from it, in the same undo step; an arrow a person drew to it stays; one undo brings all of them back", async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    try {
+      const { page, origins, errors } = await open(context);
+      await page.click('#project-by button[data-by="operation"]');
+      await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-place`);
+      // a new blank board (New board → Open, as a person opens one): the operation is placed on it for the first time
+      await page.click('#board-open');
+      await page.waitForFunction(() => (window as never as Win).timmyCanvas.editor.getCurrentPageShapes().length === 0);
+      // (the earlier test added a record of the operation: its cards are counted here, not assumed)
+      expect(await place(page, /^Operation /)).toMatch(/^Operation \S+: \d+ cards placed left to right/);
+      await page.waitForTimeout(400);
+      /** The current board's drawn cards of the operation (left to right), Timmy's arrows and the other arrows, with their ends. */
+      const board = (): Promise<{ cards: Array<{ id: string; card: string; title: string }>; timmy: string[]; theirs: Array<{ id: string; ends: string[] }> }> => page.evaluate((op) => {
+        const e = (window as never as Win).timmyCanvas.editor;
+        const here = e.getCurrentPageShapes();
+        const ends = (id: string): string[] => e.getBindingsFromShape(id, 'arrow').map((b) => `${b.props.terminal}:${b.toId}`).sort();
+        const cards = here.filter((s) => s.type.startsWith('timmy-') && s.meta?.timmyOperation === op).map((s) => e.getShape(s.id)!).sort((a, b) => a.x - b.x)
+          .map((s) => ({ id: s.id, card: String(s.props.card), title: String(s.props.title) }));
+        const pair = (id: string): string => { const b = e.getBindingsFromShape(id, 'arrow'); return `${b.find((x) => x.props.terminal === 'start')?.toId ?? '-'} → ${b.find((x) => x.props.terminal === 'end')?.toId ?? '-'}`; };
+        return {
+          cards,
+          timmy: here.filter((s) => s.type === 'arrow' && s.meta?.timmyOperation === op).map((s) => pair(s.id)).sort(),
+          theirs: here.filter((s) => s.type === 'arrow' && !s.meta?.timmyOperation).map((s) => ({ id: s.id, ends: ends(s.id) })),
+        };
+      }, o.op);
+      const before = await board();
+      const ids = before.cards.map((c) => c.id);
+      const at = before.cards.findIndex((c) => c.card === `flow:${o.flowId}`);
+      expect(at, 'the flow card is between two others').toBeGreaterThan(0);
+      expect(at).toBeLessThan(ids.length - 1);
+      const [j, f, v] = [ids[at - 1], ids[at], ids[at + 1]];
+      expect(before.timmy).toEqual(ids.slice(1).map((id, i) => `${ids[i]} → ${id}`).sort());
+
+      // A person's arrow to the flow card, drawn with tldraw's own arrow tool and Chromium's own mouse: from empty canvas above
+      // the card to the middle of it (tldraw binds its end to the card)
+      await centre(page, f);
+      const card = (await page.locator(`[data-timmy-card="${f}"]`).boundingBox())!;
+      await page.click('[data-testid="tools.arrow"]');
+      await page.mouse.move(card.x + card.width / 2, card.y - 140);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) await page.mouse.move(card.x + card.width / 2, card.y - 140 + ((card.height / 2 + 140) / 10) * i);
+      await page.mouse.up();
+      await page.waitForTimeout(250);
+      const drawnByPerson = await board();
+      expect(drawnByPerson.theirs.length, 'the person drew one arrow').toBe(1);
+      const theirs = drawnByPerson.theirs[0];
+      expect(theirs.ends, 'its end is bound to the flow card').toContain(`end:${f}`);
+
+      // The person deletes the flow card: a click on its title, then the Delete key
+      await page.keyboard.press('Escape');
+      const title = (await page.locator(`[data-timmy-card="${f}"] .tc-title`).boundingBox())!;
+      await page.mouse.click(title.x + 10, title.y + title.height / 2);
+      expect(await selected(page)).toEqual([f]);
+      await page.keyboard.press('Delete');
+      await page.waitForFunction((id) => !(window as never as Win).timmyCanvas.editor.getShape(id), f);
+      const after = await board();
+      // Timmy's arrows to and from it went with it; its other arrows stay; the person's arrow stays, where it ended (tldraw
+      // unbinds it from the card that went, as it always does)
+      expect(after.timmy).toEqual(before.timmy.filter((x) => x !== `${j} → ${f}` && x !== `${f} → ${v}`));
+      expect(after.timmy.length).toBe(before.timmy.length - 2);
+      expect(after.theirs.map((a) => a.id)).toEqual([theirs.id]);
+      expect(after.theirs[0].ends).not.toContain(`end:${f}`);
+      expect(await text(page, '#project-said')).toBe(`Deleted the card "${before.cards[at].title}"; Timmy removed with it the 2 arrows it had drawn to or from it. 1 arrow you drew stays where it ends. One undo brings back all that went.`);
+
+      // One undo (the keyboard's, as a person presses it) brings back the card, both of Timmy's arrows bound as they were, and
+      // the person's arrow bound to the card again
+      await page.keyboard.press('Control+z');
+      await page.waitForFunction((id) => !!(window as never as Win).timmyCanvas.editor.getShape(id), f);
+      const back = await board();
+      expect(back.cards.map((c) => c.id)).toEqual(ids);
+      expect(back.timmy).toEqual(before.timmy);
+      expect(back.theirs).toEqual([{ id: theirs.id, ends: theirs.ends }]);
       expect([...origins].every((x) => x === base)).toBe(true);
       expect(errors).toEqual([]);
     } finally {
