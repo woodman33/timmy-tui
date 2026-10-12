@@ -12,9 +12,18 @@
  *   bytes, and otherwise writes `started` to the effect ledger, then the file (temp file and rename), then waits
  *   `delay_ms`, then writes `ended` with a readback of the file's sha256. Its key (tool + path + run) is checked again
  *   here, as the dispatcher's own enforcement behind the guard hook (plan e.3.3).
+ * - `trial_shell { argv }` (FIXTURE for plan i.3's case; offered only when the worker is started with
+ *   --allow-trial-shell): runs one program, as argv with no shell, in the run's trial folder <project>/.timmy/pi/<run>/trial/
+ *   (S6 makes that folder a disposable copy of the project; S1 leaves it empty), with a small environment (its HOME is
+ *   the trial folder; no keys). `replay: "unsafe"`: an unreconcilable effect, never retried by itself. Its key is the run's
+ *   trial copy, so after one interrupted command every later command of that run waits for a person. It writes `started`
+ *   before the process starts and `ended` with the exit status and the output's sha256 after it ends; its output goes
+ *   straight to a file (.timmy/pi/<run>/trial-<call>.out), so a kill keeps what it printed, and its pid beside it.
  */
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolveInside } from '../project/index.js';
 import type { PiApi, PiContext, ToolResult, ToolSpec } from './adapter/pi-api.js';
@@ -26,8 +35,22 @@ export interface ToolHost {
   readonly root: string;
   readonly ledger: EffectLedger;
   readonly readsLog: string;
+  /** whether trial_shell is offered (the worker's --allow-trial-shell) */
+  readonly trialShell?: boolean;
   /** the Timmy run of a Pi conversation */
   runOf(conversationId: number): string | undefined;
+}
+
+/** A run's trial copy (project-relative), the target of every trial_shell of that run. */
+export const trialTarget = (run: string): string => `.timmy/pi/${run}/trial`;
+export const MAX_TRIAL_OUTPUT = 4096;
+
+/** The last `n` bytes of a file as text ('' when it cannot be read). */
+export function fileTail(path: string, n: number): { text: string; bytes: number } {
+  try {
+    const buf = readFileSync(path);
+    return { text: buf.subarray(Math.max(0, buf.length - n)).toString('utf8'), bytes: buf.length };
+  } catch { return { text: '', bytes: 0 }; }
 }
 
 /** The file's sha256, or 'absent'. */
@@ -119,5 +142,59 @@ export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {
       return text(`wrote ${t.target} (sha256 ${next})`);
     },
   };
-  return [slowRead, slowWrite];
+  const trialShell: ToolSpec = {
+    name: 'trial_shell',
+    description: 'FIXTURE: run one program (argv, no shell) in this run\'s trial folder. Never retried by itself; an interrupted command waits for a person.',
+    parameters: S.object({ argv: S.array(S.string(), { minItems: 1, maxItems: 64 }) }),
+    replay: 'unsafe',
+    async execute(args, api, context) {
+      const run = host.runOf(api.conversationId);
+      if (!run) return text('refused: no Timmy run for this conversation', true);
+      const argv = Array.isArray(args.argv) ? args.argv.map(String) : [];
+      if (!argv.length || !argv[0]) return text('refused: argv names no program', true);
+      const target = trialTarget(run);
+      const key = effectKey('trial_shell', target, run);
+      const open = host.ledger.unreconciled(key);
+      if (open) return text(`refused by Timmy's dispatcher: NEEDS YOU: an earlier trial_shell in this run's trial copy is ${open.state === 'unknown' ? 'of unknown outcome' : 'started and never ended'}; a person decides before any other command runs there`, true);
+      const dir = join(host.root, target);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const safeCall = api.callId.replace(/[^A-Za-z0-9_-]/g, '_').slice(-48);
+      const outRel = `.timmy/pi/${run}/trial-${safeCall}.out`;
+      const outAbs = join(host.root, outRel);
+      const base = { key, run, tool: 'trial_shell', target, call_id: api.callId, task: api.taskId, args_sha256: argsSha256(args), argv, output: outRel, by: 'tool' as const };
+      host.ledger.append({ ...base, state: 'started' }); // before the process exists
+      const fd = openSync(outAbs, 'a', 0o600);
+      let exit: { code: number | null; signal: string | null; error?: string };
+      let aborted = false;
+      try {
+        const child = spawn(argv[0], argv.slice(1), {
+          cwd: dir,
+          env: { PATH: process.env.PATH ?? '/usr/bin:/bin', LANG: 'C.UTF-8', HOME: dir, TMPDIR: process.env.TMPDIR ?? tmpdir() },
+          stdio: ['ignore', fd, fd],
+        });
+        if (child.pid !== undefined) writeFileSync(`${outAbs}.pid`, `${child.pid}\n`, { mode: 0o600 });
+        const signal = context.abortSignal;
+        const onAbort = (): void => {
+          aborted = true;
+          child.kill('SIGTERM');
+          setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, 2000).unref();
+        };
+        if (signal?.aborted) onAbort(); else signal?.addEventListener('abort', onAbort, { once: true });
+        exit = await new Promise((resolveExit) => {
+          child.once('error', (e) => resolveExit({ code: null, signal: null, error: e.message }));
+          child.once('exit', (code, sig) => resolveExit({ code, signal: sig }));
+        });
+        signal?.removeEventListener('abort', onAbort);
+      } finally { closeSync(fd); }
+      const readback = { sha256: fileSha256(outAbs) };
+      const how = exit.error ? `could not start: ${exit.error}` : exit.code !== null ? `exited ${exit.code}` : `ended by ${exit.signal}`;
+      host.ledger.append({ ...base, state: 'ended', exit: exit.code, outcome: aborted ? `stopped by its abort signal (${how})` : how, readback });
+      if (aborted) throw new Error(`trial_shell stopped by its abort signal (${how})`);
+      const tail = fileTail(outAbs, MAX_TRIAL_OUTPUT);
+      return text(`${how}; output ${statSize(outAbs)} bytes${tail.bytes > MAX_TRIAL_OUTPUT ? ' (its end)' : ''}:\n${tail.text}`, exit.code !== 0);
+    },
+  };
+  return host.trialShell ? [slowRead, slowWrite, trialShell] : [slowRead, slowWrite];
 }
+
+const statSize = (p: string): number => { try { return statSync(p).size; } catch { return 0; } };

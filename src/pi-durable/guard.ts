@@ -14,11 +14,12 @@
  */
 import type { HookSpec, PiContext } from './adapter/pi-api.js';
 import { effectKey, type EffectLedger, type EffectRecord } from './effects.js';
-import { writeTarget } from './slow-tools.js';
+import { trialTarget, writeTarget } from './slow-tools.js';
 
-/** The tools whose calls are effects, each with its target (a canonical project path). */
-export const EFFECT_TOOLS: Readonly<Record<string, (root: string, args: Record<string, unknown>) => string | undefined>> = Object.freeze({
+/** The tools whose calls are effects, each with its target: a canonical project path, or the run's trial copy. */
+export const EFFECT_TOOLS: Readonly<Record<string, (root: string, args: Record<string, unknown>, run: string) => string | undefined>> = Object.freeze({
   slow_write: (root: string, args: Record<string, unknown>) => { const t = writeTarget(root, args); return 'error' in t ? undefined : t.target; },
+  trial_shell: (_root: string, _args: Record<string, unknown>, run: string) => trialTarget(run),
 });
 
 export const HOLD_MS = 30_000;
@@ -52,10 +53,10 @@ export function guardHooks(g: GuardHost): HookSpec {
     beforeTool(call, api) {
       const targetOf = EFFECT_TOOLS[call.name];
       if (!targetOf) return undefined; // not an effect tool (slow_read): nothing to guard
-      const target = targetOf(g.root, call.arguments);
-      if (target === undefined) return undefined; // the tool refuses the path itself
       const run = g.runOf(api.conversationId);
       if (!run) return { block: 'NEEDS YOU: this conversation belongs to no Timmy run' };
+      const target = targetOf(g.root, call.arguments, run);
+      if (target === undefined) return undefined; // the tool refuses the path itself
       const key = effectKey(call.name, target, run);
       const open = g.ledger.unreconciled(key);
       if (!open) return undefined;

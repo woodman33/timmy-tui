@@ -12,7 +12,12 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sha256Hex } from './owner.js';
 
-export type EffectState = 'started' | 'ended' | 'unknown';
+/**
+ * `started` before the effect; `ended` after it (or when a reconciler or the operator settles it); `unknown` when a
+ * reconciler could not tell (NEEDS YOU); `approved` when the operator allows a retry of an unknown effect (its earlier
+ * outcome stays unknown, and the retry writes its own `started` and `ended`).
+ */
+export type EffectState = 'started' | 'ended' | 'unknown' | 'approved';
 
 export interface EffectRecord {
   readonly key: string;
@@ -28,7 +33,11 @@ export interface EffectRecord {
   readonly new_sha256?: string;
   readonly outcome?: string;
   readonly readback?: { readonly sha256: string };
-  readonly by: 'tool' | 'reconcile';
+  /** a command (trial_shell): its argv, its output file (project-relative) and its process */
+  readonly argv?: readonly string[];
+  readonly output?: string;
+  readonly exit?: number | null;
+  readonly by: 'tool' | 'reconcile' | 'operator';
   readonly pid: number;
   readonly at: string;
 }
