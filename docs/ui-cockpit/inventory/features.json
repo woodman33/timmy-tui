@@ -1,7 +1,7 @@
 {
   "schema": "timmy.inventory-features/1",
   "date": "2026-10-11",
-  "sourceRevision": "5e5cbb3",
+  "sourceRevision": "87ae7e9",
   "checklist": {
     "file": "docs/ui-cockpit/FEATURE-CHECKLIST.md",
     "found": true,

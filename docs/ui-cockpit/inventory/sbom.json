@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:9050fad9-c900-5659-8326-37b994cc5d68",
+  "serialNumber": "urn:uuid:83a96ffb-4c54-590b-af09-0152453323b2",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-11T00:00:00Z",
@@ -18,8 +18,8 @@
     },
     "properties": [
       {"name":"timmy:pass","value":"first pass: partial; see INVENTORY.md for what it did not reconcile"},
-      {"name":"timmy:source-revision","value":"5e5cbb3 (2026-10-11); a shallow clone"},
-      {"name":"timmy:files-read","value":"2898 files, tracked by git"},
+      {"name":"timmy:source-revision","value":"87ae7e9 (2026-10-11); a shallow clone"},
+      {"name":"timmy:files-read","value":"2910 files, tracked by git"},
       {"name":"timmy:installed-tree","value":"node_modules (a link to another folder; its target is not recorded)"},
       {
         "name": "timmy:defaults",
@@ -1497,7 +1497,12 @@
       "purl": "pkg:npm/%40mcpc-tech/ripgrep-napi-linux-x64-gnu@0.0.4",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"52d3cef796f34f887548422d5fed68e19c170541d959fb9b328608c761a0a007f67e3d42305fd0e93fc954eafaac99f1c9a5e6b89088619517498a28d98dca93"}],
-      "properties": [{"name":"timmy:introduced-by","value":"@mcpc/core"},{"name":"timmy:lock-flags","value":"optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"@mcpc/core"},
+        {"name":"timmy:lock-flags","value":"optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"ripgrep-napi.linux-x64-gnu.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -1508,7 +1513,12 @@
       "purl": "pkg:npm/%40mcpc-tech/ripgrep-napi-linux-x64-musl@0.0.4",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"204a11fc81eff56ac65896ab959ac123ec4b0abb84d870ccde7411ab29dad9a4c81f8e299fc379bbde11d6bee99bdc84f656335e5232c3f9dc31c431ddb7c0a5"}],
-      "properties": [{"name":"timmy:introduced-by","value":"@mcpc/core"},{"name":"timmy:lock-flags","value":"optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"@mcpc/core"},
+        {"name":"timmy:lock-flags","value":"optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"ripgrep-napi.linux-x64-musl.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -2042,7 +2052,16 @@
       "purl": "pkg:npm/%40opentui/core@0.5.10",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"0b76b651b99e7de0232310209b806a8ee4b1293e28aaeb5fbd817056f52033198644790d6c173fb3bb2e915d0983073115c577b8c16b5f1a3e13e050b6fb8e8b"}],
-      "properties": [{"name":"timmy:relation","value":"direct dependency (^0.5.10)"},{"name":"timmy:usage","value":"imported"},{"name":"timmy:feature","value":"OpenTUI shell (src/tui-opentui)"},{"name":"timmy:packaging","value":"installed with the package"}]
+      "properties": [
+        {"name":"timmy:relation","value":"direct dependency (^0.5.10)"},
+        {
+          "name": "timmy:binaries",
+          "value": "assets/javascript/tree-sitter-javascript.wasm, assets/markdown/tree-sitter-markdown.wasm, assets/markdown_inline/tree-sitter-markdown_inline.wasm, assets/typescript/tree-sitter-typescript.wasm, assets/zig/tree-sitter-zig.wasm (in the installed tree read)"
+        },
+        {"name":"timmy:usage","value":"imported"},
+        {"name":"timmy:feature","value":"OpenTUI shell (src/tui-opentui)"},
+        {"name":"timmy:packaging","value":"installed with the package"}
+      ]
     },
     {
       "type": "library",
@@ -2840,7 +2859,13 @@
       "purl": "pkg:npm/%40rive-app/canvas@2.37.8",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"9df7eb3c6f9590128703165d72a6253f933e9ff98e0286a08fbef81c7dfded43d3b1f0b6ee0c1051183ae22e9d5fb5acc0c739a88557d2bcc2ad9f3a59bd8738"}],
-      "properties": [{"name":"timmy:relation","value":"direct dependency (^2.36.0)"},{"name":"timmy:usage","value":"imported"},{"name":"timmy:feature","value":"Graphics (Rive)"},{"name":"timmy:packaging","value":"installed with the package"}]
+      "properties": [
+        {"name":"timmy:relation","value":"direct dependency (^2.36.0)"},
+        {"name":"timmy:binaries","value":"rive.wasm, rive_fallback.wasm (in the installed tree read)"},
+        {"name":"timmy:usage","value":"imported"},
+        {"name":"timmy:feature","value":"Graphics (Rive)"},
+        {"name":"timmy:packaging","value":"installed with the package"}
+      ]
     },
     {
       "type": "library",
@@ -3004,7 +3029,12 @@
       "purl": "pkg:npm/%40rolldown/binding-linux-x64-gnu@1.2.0",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"30aecbd34d7c8e38758d1de6876d46da3d73015729b1c24194fa36cf5f69463bf65ce606461695e0bca20fc1ceea7083759967f4816008c215e72b7813792519"}],
-      "properties": [{"name":"timmy:introduced-by","value":"mcporter"},{"name":"timmy:lock-flags","value":"optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"mcporter"},
+        {"name":"timmy:lock-flags","value":"optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"rolldown-binding.linux-x64-gnu.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -3015,7 +3045,12 @@
       "purl": "pkg:npm/%40rolldown/binding-linux-x64-musl@1.2.0",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"832af12d0f4d7c66fff4ba159c2e246fd9a2520870d668219e47d8bcd1d29d5217ae269b9df8063d43f844b7099bceeadca818cf8158506f080e25944fe0a94b"}],
-      "properties": [{"name":"timmy:introduced-by","value":"mcporter"},{"name":"timmy:lock-flags","value":"optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"mcporter"},
+        {"name":"timmy:lock-flags","value":"optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"rolldown-binding.linux-x64-musl.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -3393,7 +3428,12 @@
       "purl": "pkg:npm/%40rollup/rollup-linux-x64-gnu@4.60.4",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"0688b3e7e32c6913845837fe18613017c54c1c686552840cb483e33a00397efe28b2ea6a4d59c9b5e40d289c147275288361b9e636171fb2991458897b44c4cd"}],
-      "properties": [{"name":"timmy:introduced-by","value":"vite, vitest"},{"name":"timmy:lock-flags","value":"dev; optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"vite, vitest"},
+        {"name":"timmy:lock-flags","value":"dev; optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"rollup.linux-x64-gnu.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -3404,7 +3444,12 @@
       "purl": "pkg:npm/%40rollup/rollup-linux-x64-musl@4.60.4",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"faa7d2636eea22b15f23f1e89b4e0a605c3718a652194e255eeb39d70b1be44bb249f165591c2390a5a813d7a6811c3fba4a13e1476c8f85bffb1c46f156cf2a"}],
-      "properties": [{"name":"timmy:introduced-by","value":"vite, vitest"},{"name":"timmy:lock-flags","value":"dev; optional"},{"name":"timmy:platform","value":"os=linux cpu=x64"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"vite, vitest"},
+        {"name":"timmy:lock-flags","value":"dev; optional"},
+        {"name":"timmy:platform","value":"os=linux cpu=x64"},
+        {"name":"timmy:binaries","value":"rollup.linux-x64-musl.node (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -10462,7 +10507,7 @@
       "purl": "pkg:npm/shiki@3.23.0",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"e790e3ef7baaf595cbe73c9e44fcc742c2bb35bcade98d74939b3b3a3b85646321a69e2bfebb0b047d28ff47ecb48cd7d4b7a9f55c5e7d69632bf48a0b3ca020"}],
-      "properties": [{"name":"timmy:introduced-by","value":"@streamdown/code"},{"name":"timmy:lock-flags","value":"dev"}]
+      "properties": [{"name":"timmy:introduced-by","value":"@streamdown/code"},{"name":"timmy:lock-flags","value":"dev"},{"name":"timmy:binaries","value":"dist/onig.wasm (in the installed tree read)"}]
     },
     {
       "type": "library",
@@ -11168,7 +11213,11 @@
       "purl": "pkg:npm/undici@5.29.0",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"adaa9e043e8d40ae12916850cde60a7752a6206e9d96504e4ede7946692de07b48f66c1d5ad2658e7ad78c015404b4d237aec75ab38867710f178923530f3406"}],
-      "properties": [{"name":"timmy:introduced-by","value":"@mcpc/core"},{"name":"timmy:lock-paths","value":"node_modules/@ai-sdk/gateway/node_modules/undici; node_modules/ai/node_modules/undici"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"@mcpc/core"},
+        {"name":"timmy:lock-paths","value":"node_modules/@ai-sdk/gateway/node_modules/undici; node_modules/ai/node_modules/undici"},
+        {"name":"timmy:binaries","value":"lib/llhttp/llhttp.wasm, lib/llhttp/llhttp_simd.wasm (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -11439,7 +11488,11 @@
       "purl": "pkg:npm/web-tree-sitter@0.25.10",
       "licenses": [{"license":{"id":"MIT"}}],
       "hashes": [{"alg":"SHA-512","content":"634f6c178e3fd775ef8152a03b670d0f0e6b1a4eacdba320a193d72c44af31779e7c17fb8baffbdde16eaeb7b422c4d6e84d7863402b2338543268e873bc72cc"}],
-      "properties": [{"name":"timmy:introduced-by","value":"@opentui/core, @opentui/react"},{"name":"timmy:lock-flags","value":"peer"}]
+      "properties": [
+        {"name":"timmy:introduced-by","value":"@opentui/core, @opentui/react"},
+        {"name":"timmy:lock-flags","value":"peer"},
+        {"name":"timmy:binaries","value":"debug/tree-sitter.wasm, lib/tree-sitter.wasm, tree-sitter.wasm (in the installed tree read)"}
+      ]
     },
     {
       "type": "library",
@@ -17940,6 +17993,23 @@
       ]
     },
     {
+      "type": "framework",
+      "bom-ref": "python-module:FreeCAD",
+      "name": "FreeCAD (FreeCAD's own Python)",
+      "purl": "pkg:generic/python-module-FreeCAD",
+      "scope": "optional",
+      "properties": [
+        {"name":"timmy:python-module","value":"FreeCAD"},
+        {"name":"timmy:source","value":"inside an application's own Python"},
+        {"name":"timmy:version","value":"unknown: whatever the Python that runs it has (not pinned by a manifest here)"},
+        {"name":"timmy:declared-in","value":"no manifest in this repository"},
+        {"name":"timmy:feature","value":"Starter templates (content); Workers (Python and Node helpers)"},
+        {"name":"timmy:note","value":"FreeCAD (TIMMY_FREECADCMD)"},
+        {"name":"timmy:test-stand-in","value":"tests/fixtures/freecad-stub/FreeCAD.py (a FAKE used by the tests)"},
+        {"name":"timmy:imported-by","value":"templates/freecad-starter/plate.py; workers/freecad/timmy_freecad.py"}
+      ]
+    },
+    {
       "type": "library",
       "bom-ref": "python-module:OCP",
       "name": "cadquery-ocp",
@@ -17953,6 +18023,23 @@
         {"name":"timmy:feature","value":"CadQuery recipe; Workers (Python and Node helpers)"},
         {"name":"timmy:note","value":"OpenCascade bindings, installed with CadQuery (TIMMY_CADQUERY_PYTHON)"},
         {"name":"timmy:imported-by","value":"lanes/recipes/enclosure-tray/build.py; lanes/recipes/spatial03/observe.py; workers/readback/step_readback.py; workers/readback/step_tessellate.py"}
+      ]
+    },
+    {
+      "type": "framework",
+      "bom-ref": "python-module:Part",
+      "name": "Part (FreeCAD's own Python)",
+      "purl": "pkg:generic/python-module-Part",
+      "scope": "optional",
+      "properties": [
+        {"name":"timmy:python-module","value":"Part"},
+        {"name":"timmy:source","value":"inside an application's own Python"},
+        {"name":"timmy:version","value":"unknown: whatever the Python that runs it has (not pinned by a manifest here)"},
+        {"name":"timmy:declared-in","value":"no manifest in this repository"},
+        {"name":"timmy:feature","value":"Starter templates (content); Tests only; Workers (Python and Node helpers)"},
+        {"name":"timmy:note","value":"FreeCAD (TIMMY_FREECADCMD)"},
+        {"name":"timmy:test-stand-in","value":"tests/fixtures/freecad-stub/Part.py (a FAKE used by the tests)"},
+        {"name":"timmy:imported-by","value":"templates/freecad-starter/plate.py; tests/fixtures/freecad-stub/FreeCAD.py; workers/freecad/timmy_freecad.py"}
       ]
     },
     {
@@ -17972,6 +18059,43 @@
           "name": "timmy:imported-by",
           "value": "lanes/engines/reallusion/templates/cc5-avatar-export/apply_settings.py; lanes/engines/reallusion/templates/cc5-avatar-export/export_avatar.py; lanes/engines/reallusion/templates/cc5-avatar-export/load_avatar.py; lanes/engines/reallusion/templates/iclone-render-still/load_scene.py; lanes/engines/reallusion/templates/iclone-render-still/render_still.py; lanes/engines/reallusion/templates/iclone-render-still/setup_render.py"
         }
+      ]
+    },
+    {
+      "type": "framework",
+      "bom-ref": "python-module:bpy",
+      "name": "bpy (Blender's own Python)",
+      "purl": "pkg:generic/python-module-bpy",
+      "scope": "optional",
+      "properties": [
+        {"name":"timmy:python-module","value":"bpy"},
+        {"name":"timmy:source","value":"inside an application's own Python"},
+        {"name":"timmy:version","value":"unknown: whatever the Python that runs it has (not pinned by a manifest here)"},
+        {"name":"timmy:declared-in","value":"no manifest in this repository"},
+        {"name":"timmy:feature","value":"Lane: engines; Starter templates (content); Workers (Python and Node helpers)"},
+        {"name":"timmy:note","value":"Blender (TIMMY_BLENDER)"},
+        {"name":"timmy:test-stand-in","value":"tests/fixtures/blender-stub/bpy/__init__.py (a FAKE used by the tests)"},
+        {
+          "name": "timmy:imported-by",
+          "value": "lanes/engines/blender/templates/glb-export/script.py; lanes/engines/blender/templates/render-still/script.py; lanes/engines/blender/templates/usd-export/script.py; templates/blender-starter/scene.py; workers/blender/timmy_blender.py; workers/readback/blend_readback.py"
+        }
+      ]
+    },
+    {
+      "type": "framework",
+      "bom-ref": "python-module:c4d",
+      "name": "c4d (Cinema 4D's c4dpy)",
+      "purl": "pkg:generic/python-module-c4d",
+      "scope": "optional",
+      "properties": [
+        {"name":"timmy:python-module","value":"c4d"},
+        {"name":"timmy:source","value":"inside an application's own Python"},
+        {"name":"timmy:version","value":"unknown: whatever the Python that runs it has (not pinned by a manifest here)"},
+        {"name":"timmy:declared-in","value":"no manifest in this repository"},
+        {"name":"timmy:feature","value":"Starter templates (content); Tests only; Workers (Python and Node helpers)"},
+        {"name":"timmy:note","value":"Cinema 4D (TIMMY_C4DPY)"},
+        {"name":"timmy:test-stand-in","value":"tests/fixtures/c4d-stub/c4d/__init__.py (a FAKE used by the tests)"},
+        {"name":"timmy:imported-by","value":"templates/c4d-starter/scene.py; tests/fixtures/c4d-stub/c4d/bitmaps.py; tests/fixtures/c4d-stub/c4d/documents.py; workers/c4d/timmy_c4d.py"}
       ]
     },
     {
@@ -18371,6 +18495,23 @@
       ]
     },
     {
+      "type": "framework",
+      "bom-ref": "python-module:unreal",
+      "name": "unreal (Unreal Editor's own Python)",
+      "purl": "pkg:generic/python-module-unreal",
+      "scope": "optional",
+      "properties": [
+        {"name":"timmy:python-module","value":"unreal"},
+        {"name":"timmy:source","value":"inside an application's own Python"},
+        {"name":"timmy:version","value":"unknown: whatever the Python that runs it has (not pinned by a manifest here)"},
+        {"name":"timmy:declared-in","value":"no manifest in this repository"},
+        {"name":"timmy:feature","value":"Workers (Python and Node helpers)"},
+        {"name":"timmy:note","value":"Unreal Engine 5 (TIMMY_UNREAL)"},
+        {"name":"timmy:test-stand-in","value":"tests/fixtures/unreal-stub/unreal.py (a FAKE used by the tests)"},
+        {"name":"timmy:imported-by","value":"workers/unreal/timmy_unreal.py; workers/unreal/unreal_readback.py"}
+      ]
+    },
+    {
       "type": "library",
       "bom-ref": "python-module:viser",
       "name": "viser",
@@ -18761,7 +18902,7 @@
       "purl": "pkg:generic/git",
       "scope": "optional",
       "properties": [
-        {"name":"timmy:declared-in","value":"started by name in lanes/milestone/fanatics-pitch.mjs, lanes/privacy/journal.mjs, lanes/privacy/sanitize.mjs, lanes/privacy/scan.mjs and 6 more"},
+        {"name":"timmy:declared-in","value":"started by name in lanes/milestone/fanatics-pitch.mjs, lanes/privacy/journal.mjs, lanes/privacy/sanitize.mjs, lanes/privacy/scan.mjs and 7 more"},
         {"name":"timmy:feature","value":"Build and maintenance scripts, Core (other src/), Lane: milestone, Lane: privacy, REPL (timmy), Shared utilities"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
         {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
@@ -19428,7 +19569,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/spatial-fit-20260915/adapter.py (in this repository)"}
       ]
     },
     {
@@ -19442,7 +19584,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/cosmos/adapter.py (NOT in this repository)"}
       ]
     },
     {
@@ -19456,7 +19599,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/analytics/adapter.py (NOT in this repository)"}
       ]
     },
     {
@@ -19470,7 +19614,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/telemetry/adapter.py (in this repository)"}
       ]
     },
     {
@@ -19484,7 +19629,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/openhands/adapter.py (NOT in this repository)"}
       ]
     },
     {
@@ -19498,7 +19644,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/analytics/adapter.py (NOT in this repository)"}
       ]
     },
     {
@@ -19512,7 +19659,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/telemetry/adapter.py (in this repository)"}
       ]
     },
     {
@@ -19526,7 +19674,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/analytics/adapter.py (NOT in this repository)"}
       ]
     },
     {
@@ -19540,7 +19689,8 @@
         {"name":"timmy:feature","value":"Vision (/observe, Look, adapters)"},
         {"name":"timmy:setup","value":"timmy vision integrations list"},
         {"name":"timmy:version","value":"unknown: not run or probed by this pass"},
-        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"}
+        {"name":"timmy:status","value":"named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)"},
+        {"name":"timmy:script","value":"tools/platform-vision-20260910/analytics/adapter.py (NOT in this repository)"}
       ]
     },
     {
