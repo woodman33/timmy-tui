@@ -58,6 +58,16 @@ function terminal(label: string) {
   };
   const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
   const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  // the workspace search: '/', then its prompt on screen, the text, the text on screen, then Enter (under a loaded machine
+  // the full suite once sent the text before the search was drawn)
+  const find = async (name: string) => {
+    tmux('send-keys', '-t', 't', '/');
+    await waitFor(/^\S?\s*\/ /m, 10_000);
+    tmux('send-keys', '-t', 't', '-l', name);
+    await waitFor(new RegExp(`/ ${name}`), 10_000);
+    tmux('send-keys', '-t', 't', 'Enter');
+    await sleep(250);
+  };
   const capture = (name: string): string => {
     const txt = screen();
     writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
@@ -65,7 +75,7 @@ function terminal(label: string) {
     return txt;
   };
   const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
-  return { tmux, screen, waitFor, keys, typed, capture, close };
+  return { tmux, screen, waitFor, keys, typed, find, capture, close };
 }
 
 beforeAll(async () => {
@@ -131,7 +141,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(recordOf(id).state).toBe('running');
     expect(argsOf(pid)).toBe('sleep 300');
 
-    const { tmux, screen, waitFor, keys, typed, capture } = terminal('wb');
+    const { tmux, screen, waitFor, keys, typed, find, capture } = terminal('wb');
 
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `stty -a > '${box}/stty-before.txt'; ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
@@ -150,9 +160,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(widest(workflows)).toBeLessThanOrEqual(160);
 
     // Control Room, by the workspace search
-    await keys('/');
-    await typed('Control');
-    await keys('Enter');
+    await find('Control');
     const control = await waitFor(/tray1 \/ Control Room[\s\S]*RUNNING NOW \(1\)/);
     expect(control).toMatch(new RegExp(`${id}\\s+running\\s+FAKE job \\(test\\): sleep 300`));
 
@@ -181,9 +189,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // 80x24: the navigation is a drawer too; Files shows the project's tree
     tmux('resize-window', '-t', 't', '-x', '80', '-y', '24');
     await waitFor(/tray1 \/ Control Room/);
-    await keys('/');
-    await typed('Files');
-    await keys('Enter');
+    await find('Files');
     const files = await waitFor(/tray1 \/ Files[\s\S]*WORKFLOW\.md/);
     for (const f of ['APPROVAL.md', 'WORKFLOW.md', 'README.md']) expect(files).toContain(f);
     expect(files).toMatch(/recipes/);
@@ -228,16 +234,14 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, waitFor, keys, typed, capture, close } = terminal('wbB');
+    const { tmux, waitFor, keys, typed, find, capture, close } = terminal('wbB');
     let runId = '';
     let op = '';
     try {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
         `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
       await waitFor(/tray1 \/ [\s\S]*Activity/);
-      await keys('/');
-      await typed('Workflows');
-      await keys('Enter');
+      await find('Workflows');
       const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here, through the REPL's own \/run/);
       expect(wf).toContain('upmd found');
       // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here
@@ -279,9 +283,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       expect(JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8'))).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'workbench', state: 'succeeded', runs: [{ kind: 'job', id: run.id }] });
 
       // Control Room: the same job and operation; the Inspector shows its run detail
-      await keys('/');
-      await typed('Control');
-      await keys('Enter');
+      await find('Control');
       const room = await waitFor(new RegExp(`${run.id}\\s+completed\\s+APPROVAL\\.md › tidy`));
       expect(room).toContain(op);
       // R4 lead (merged with H102's producer, src/ops/run-detail.ts): the Inspector draws that operation's real run detail

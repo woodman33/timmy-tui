@@ -381,6 +381,10 @@ export class Controller {
     if (k.leftArrow) { this.side(-1); return; }
     if (k.rightArrow) { this.side(1); return; }
     if (k.return) { void this.enter(); return; }
+    // R4 lead: keys typed quickly can arrive as one chunk ("/Control" over a busy terminal or SSH): a chunk that starts with
+    // the search key opens the search with the rest as its text. Any other chunk of several characters is not taken as
+    // keys (a paste never presses x, Stop, or any other key here).
+    if (input.length > 1 && input.startsWith('/') && !k.ctrl && !k.meta) { this.search(); this.typing(input.slice(1), {}); return; }
     switch (input) {
       case '?': this.open({ kind: 'help' }); return;
       case 'p': this.openPicker(); return;

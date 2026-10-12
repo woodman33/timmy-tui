@@ -98,7 +98,7 @@ describe('timmy md: its arguments and its help', () => {
     expect(help.stdout).toContain(`  ${UPMD_GATE}.`);
     expect(help.stdout).not.toMatch(/doctor/i);
     const all = await timmy(b, ['--help']).done;
-    expect(all.stdout).toContain('md <workflow.md> [<block>]  Run a upmd workflow\'s block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json)');
+    expect(all.stdout).toContain('md <workflow.md> [<block>]  Run a upmd workflow\'s block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json, --project)');
   }, 60_000);
 });
 

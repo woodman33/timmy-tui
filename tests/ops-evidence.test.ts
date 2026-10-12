@@ -359,7 +359,7 @@ describe('timmy evidence, the command (a real child process)', () => {
     expect(help.status).toBe(0);
     expect(help.stdout).toContain('timmy evidence: the one record or file of an operation a workflow block needs, found by the operation\'s id, never by a file\'s time.');
     const all = await runAsync(TSX, [CLI, '--help'], { cwd: root, env: { ...process.env, NO_COLOR: '1' }, timeout: 90_000 });
-    expect(all.stdout).toContain('evidence flow|step|vox  In a workflow block: this run\'s flow record, its STEP or its VoxVision record, by the operation\'s id, never by time');
+    expect(all.stdout).toContain('evidence flow|step|vox|stl  In a workflow block: this run\'s flow record, its STEP, its VoxVision record or its STL, by the operation\'s id, never by time');
   }, 120_000);
 
   it('R4 (H102, part 2): stl prints the STL path; flow --outcome prints how the flow ended (succeeded, no change); --outcome with step is a usage error', async () => {

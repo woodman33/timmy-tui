@@ -33,6 +33,10 @@ beforeEach(() => {
   process.env.TIMMY_HOME = join(box, 'home', 'timmy');
   process.env.TIMMY_SETTINGS_DIR = join(box, 'settings');
   for (const v of ['TIMMY_PRIVATE_DIR', 'TIMMY_REPO_ROOT', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL'] as const) delete process.env[v];
+  // R4 lead: the workspace is this test's own folder (a case sets its own): an in-process `timmy init` otherwise wrote
+  // .timmy/private/ and .timmy/store-pin into the checkout it ran from (the full suite at 1a11057 caught it through
+  // tests/edge-host.test.ts, which reads that private overlay)
+  process.env.TIMMY_REPO_ROOT = join(box, 'repo');
 });
 afterEach(async () => {
   for (const f of fakes.splice(0)) await f.close();
