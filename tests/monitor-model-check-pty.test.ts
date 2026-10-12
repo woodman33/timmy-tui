@@ -5,7 +5,9 @@
 // The model's upstream is a FAKE: an HTTP server of this test on 127.0.0.1 that records each request and answers as
 // OpenRouter would; the monitor is pointed at it with TIMMY_MODEL_CHECK_URL (honoured only for 127.0.0.1). The key is a
 // FAKE string. Nothing leaves this machine.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { LOADER, MONITOR, monitorHome, type HomeKind } from './fixtures/ui-monitor-home.js';
@@ -30,6 +32,13 @@ async function fakeUpstream(): Promise<{ server: Server; url: string; seen: Arra
 async function monitor(kind: HomeKind, key: string) {
   const up = await fakeUpstream();
   const h = monitorHome(kind, { git: true });
+  // R4 (H103): the monitor's chat follows the setup's chat answer (`timmy init --yes` preselects the local model, which has
+  // no model chosen here): these tests are of the OpenRouter route, so the setup says OpenRouter
+  const setup = join(h.env.TIMMY_HOME!, 'setup.json');
+  if (existsSync(setup)) {
+    const s = JSON.parse(readFileSync(setup, 'utf8'));
+    writeFileSync(setup, JSON.stringify({ ...s, answers: { ...s.answers, chat: 'openrouter' } }));
+  }
   const env = `OPENROUTER_API_KEY='${key}' TIMMY_MODEL_CHECK_URL='${up.url}'`;
   h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '140', '-y', '40', '-c', h.repo, 'bash', '--norc', '-c',
     `${env} ${process.execPath} --import ${LOADER} ${MONITOR} --no-companion; echo EXIT=$?; sleep 60`);

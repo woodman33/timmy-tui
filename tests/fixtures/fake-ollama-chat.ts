@@ -51,9 +51,16 @@ export function toolCallChunks(model: string, calls: Array<{ name: string; argum
   ];
 }
 
-export async function startFakeOllama(o: { models: FakeModel[]; chat?: ChatScript[] }): Promise<FakeOllama> {
+/**
+ * R4 (H103, D1c): one answer of Ollama's OpenAI-compatible POST /v1/chat/completions (not streamed), which the agent's
+ * last-resort fallback uses (src/agent/providers.ts ollamaChatCompletion): its text, or an HTTP error.
+ */
+export type CompletionScript = (request: Record<string, any>) => { status?: number; content?: string };
+
+export async function startFakeOllama(o: { models: FakeModel[]; chat?: ChatScript[]; completions?: CompletionScript[] }): Promise<FakeOllama> {
   const requests: FakeOllama['requests'] = [];
   const scripts = [...(o.chat ?? [])];
+  const completions = [...(o.completions ?? [])];
   const server: Server = createServer((req, res) => {
     let raw = '';
     req.setEncoding('utf8').on('data', (c: string) => { raw += c; });
@@ -89,6 +96,13 @@ export async function startFakeOllama(o: { models: FakeModel[]; chat?: ChatScrip
         };
         next();
         return;
+      }
+      if (req.method === 'POST' && path === '/v1/chat/completions') {
+        const script = completions.shift();
+        if (!script) return json(500, { error: { message: 'FAKE Ollama: no completion was scripted for this request' } });
+        const reply = script(body ?? {});
+        if (reply.status && reply.status !== 200) return json(reply.status, { error: { message: 'FAKE error' } });
+        return json(200, { id: 'chatcmpl-fake', object: 'chat.completion', model: body?.model, choices: [{ index: 0, message: { role: 'assistant', content: reply.content ?? '' }, finish_reason: 'stop' }] });
       }
       json(404, { error: 'FAKE Ollama: not here' });
     });

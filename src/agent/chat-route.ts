@@ -7,9 +7,12 @@
  *
  * Without a model the local route is off and says so; it never falls back to OpenRouter or to a cloud-backed model.
  */
-import { knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
+import { chatRoute, knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
-import { showModel, LocalChatError, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
+// R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
+import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
+import type { LastResortAnswer } from './core.js';
+import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { Segment } from '../term/theme.js';
 import type { TurnFacts } from '../repl/seal.js';
 
@@ -78,6 +81,61 @@ export function prepareLocal(r: Local, glyphs: { fail: string }): { route: Local
   return { route: { host: r.host, model: r.model, ...(r.numCtx ? { numCtx: r.numCtx } : {}) } };
 }
 
+/**
+ * R4 (H103, D1): a message with no route: no model key, and the setup did not choose the local model. Nothing is sent; these
+ * words say why and the fix, from any terminal (the REPL's own words name /setup; every surface can run these).
+ */
+export const NO_ROUTE_REFUSAL: readonly string[] = [
+  'Error: no model key, and the chat is not set to the local model, so this message was not sent.',
+  'Cause: no OPENROUTER_API_KEY, and the setup stored no key; its chat answer is OpenRouter, or none yet.',
+  'Try: timmy init --chat openrouter (it asks for the key, hidden), or the local model: timmy init --chat local --model <name>',
+  'Nothing was sent to any model.',
+];
+
+/** Segments as plain lines (a refusal's words without its colours or glyph). */
+const plainLines = (rows: Segment[][]): string[] => rows.map((row) => row.map((s) => s.text).join('').trim()).filter(Boolean);
+
+/** The route now, as every surface shows it (ChatRouteState), and the agent's local route when that one is ready. */
+export interface RouteNow {
+  route: ChatRoute;
+  state: ChatRouteState;
+  /** the local route as the agent takes it (Agent.useLocalChat), when the chat is local and ready */
+  local?: LocalChatRoute & { numCtx?: number };
+}
+
+/**
+ * R4 (H103): the chat's route from the setup now, in the words of the contract (src/contracts/chat-session.ts): local (the
+ * Ollama and model the setup chose: ready, or why not), OpenRouter (a model key is found), or none (no key, and the setup
+ * did not choose the local model: refused, nothing sent). `key`: whether a model key is found; `openRouterModel`: the
+ * OpenRouter route's model, named in its words; `short`: the model's last part only (the monitor's narrow top line).
+ * Reads the setup's files only: no request to anything.
+ */
+export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: string | null; key: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
+  const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
+  if (route.kind === 'local') {
+    const words = localRouteWords(route);
+    const ready = prepareLocal(route, { fail: '' });
+    if ('route' in ready) return { route, state: { kind: 'local', words, ready: true }, local: ready.route };
+    // the fix in the words of the surface: the REPL's own commands there, a command any terminal runs elsewhere
+    const away = (o.surface ?? 'repl') !== 'repl';
+    const refusal = plainLines(ready.refusal).map((l) => (!away || !/^Try:/.test(l) ? l
+      : 'error' in route.at ? 'Try: timmy init --chat local --ollama <host> (in a terminal), or /setup chat in the REPL'
+        : 'Try: timmy init --chat local --model <name> (in a terminal: Timmy checks that Ollama lists it), or /model in the REPL'));
+    return { route, state: { kind: 'local', words, ready: false, refusal } };
+  }
+  if (o.key) return { route, state: { kind: 'openrouter', words: chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }), ready: true } };
+  return { route, state: { kind: 'none', words: chatRoute({ key: false }), ready: false, refusal: [...NO_ROUTE_REFUSAL] } };
+}
+
+/**
+ * R4 (H103, D1c): what a turn answered by the last-resort fallback is sealed with (src/repl/seal.ts route): this computer's
+ * Ollama, no tools (the fallback offers none), the model that answered and no charge on that local endpoint. A receipt that
+ * uses it also names OpenRouter's failure (`cause`).
+ */
+export function fallbackRoute(fb: LastResortAnswer): NonNullable<TurnFacts['route']> {
+  return { host: fb.host, endpoint: 'local', tools: 'off', modelResolved: `ollama/${fb.model}`, costBasis: 'local endpoint' };
+}
+
 /** What a local turn is sealed with (src/repl/seal.ts route): `last` is the turn's own report, null when it did not finish. */
 export function sealedRoute(route: LocalChatRoute, last: LocalTurnResult | null): NonNullable<TurnFacts['route']> {
   const at = ollamaAt(route.host);
@@ -139,6 +197,7 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
   }
   // what the model can do, asked of Ollama now (a turn asks again)
   let tools = 'tool calls: checked at the next message';
+  const { showModel, LocalChatError } = await import('./local-chat.js');
   try {
     const shown = await showModel(r.at, chosen.name, undefined, 5000);
     tools = shown.capabilities === null ? 'tool calls: Ollama does not say' : shown.capabilities.includes('tools') ? 'takes tool calls' : 'does not take tool calls: turns run without tools';

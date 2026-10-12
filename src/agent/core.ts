@@ -20,7 +20,7 @@ import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.
 import { laneServerArgs, laneWatchdog, lanesWords, type LaneMultiplexer } from './lane-server.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
 import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
-import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
+import { probeOllama, pickOllamaModel, ollamaChatCompletion, getLocalOllamaBaseUrl } from './providers.js';
 import { modelCheckUrl } from './model-check.js';
 import { runLocalTurn, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
 
@@ -30,6 +30,39 @@ export interface SendOptions {
   /** Retry 429, 5xx and connection errors with exponential backoff from 1s (1s, 2s, 4s), giving up after 7.5s (playbook §17.8). */
   retry?: boolean;
 }
+
+/**
+ * R4 (H103, D1): a message with no route to a model: off the chat's local route with no model key, Agent.send refuses it
+ * before anything else (before the conversation takes it, before any request): never a request to OpenRouter with an empty
+ * key, and never the last-resort fallback (a local model nobody chose). `sent` is false: nothing left this process.
+ */
+export class NoModelKeyError extends Error {
+  readonly sent = false as const;
+  constructor() {
+    super([
+      'No model key, so nothing was sent to any model.',
+      'Reason: the chat is set to OpenRouter (the setup did not choose the local model), and no OPENROUTER_API_KEY is set or stored.',
+      'Next: timmy init --chat openrouter (it asks for the key, hidden), or the local model: timmy init --chat local --model <name>.',
+    ].join('\n'));
+    this.name = 'NoModelKeyError';
+  }
+}
+
+/** R4 (H103, D1c): a turn the last-resort fallback answered: this computer's Ollama, its model, and why OpenRouter did not. */
+export interface LastResortAnswer {
+  /** the Ollama model that answered (local weights: pickOllamaModel never picks a cloud-backed one) */
+  model: string;
+  /** the Ollama it asked: this computer's (getLocalOllamaBaseUrl takes a loopback address only) */
+  host: string;
+  /** OpenRouter's failure, in a line */
+  cause: string;
+}
+
+/** A cause in one bounded line (the notice and the receipt quote it). */
+const oneLine = (s: unknown, max = 160): string => {
+  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+};
 
 export interface AgentOptions {
   /**
@@ -690,9 +723,22 @@ export class Agent extends EventEmitter<AgentEvents> {
     return Boolean(this.config.apiKey);
   }
 
+  /** R4 (H103, D1c): what the last turn's last-resort fallback was, when it answered (null: it did not answer that turn). */
+  private lastResort: LastResortAnswer | null = null;
+
+  /** R4 (H103, D1c): the last turn was answered by the last-resort fallback: which local model, where, and why (else null). */
+  lastFallback(): LastResortAnswer | null {
+    return this.lastResort ? { ...this.lastResort } : null;
+  }
+
   /**
-   * tryOllamaLastResort — when every OpenRouter candidate fails, answer via
-   * local Ollama instead of throwing. Returns null if Ollama is unreachable.
+   * tryOllamaLastResort — when every OpenRouter candidate fails (with a key: without one, send refuses before any request),
+   * answer via this computer's Ollama instead of throwing. Returns null if Ollama is unreachable or lists no local model.
+   * R4 (H103, D1c): only a model with local weights on a loopback Ollama (pickOllamaModel and assertLocalOllamaModel refuse
+   * cloud-backed ones); its answer is said where the person reads it, before the answer, in the words "OpenRouter failed:
+   * <cause>; answered by local <model> on this computer's Ollama, the last-resort fallback" (the REPL's transcript and the
+   * monitor show that notice), its text as a message item (the REPL shows text from those), no charge on that local endpoint,
+   * and lastFallback() says it for the turn's receipt.
    */
   private async tryOllamaLastResort(
     history: { role: string; content: string }[],
@@ -707,7 +753,18 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('stream:start');
       const text = await ollamaChatCompletion(model, history);
       if (!text) return null;
+      const cause = oneLine(redactString(String(reason)), 240);
+      let host = probe.base ?? '';
+      try { host = new URL(getLocalOllamaBaseUrl(probe.base)).host; } catch { /* the probe's own words */ }
+      this.lastResort = { model, host, cause };
+      this.emit('message:user', {
+        role: 'assistant',
+        content: `⚙️ **[SYSTEM]** OpenRouter failed: ${cause}; answered by local ${model} on this computer's Ollama, the last-resort fallback.`,
+        timestamp: Date.now(),
+      });
+      this.emit('item:update', { type: 'message', id: `last-resort-${Date.now().toString(36)}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text }] });
       this.emit('stream:delta', text, text);
+      this.emit('cost:update', 0, 0, { complete: true, basis: 'local endpoint' });
       this.modelHealthStatus = 'FALLBACK READY';
       this.activeProvider = 'ollama';
       this.emit('model:health', 'FALLBACK READY');
@@ -751,7 +808,16 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   async send(content: string, opts: SendOptions = {}): Promise<string> {
     if (this.running) throw new Error('Agent is already processing a message');
+    // R4 (H103, D1): off the local route with no model key, nothing is sent: refused before the conversation takes the
+    // message and before any request (never OpenRouter with an empty key, never the last-resort fallback). Every surface's
+    // own check comes first (the REPL's, the chat session's); this one holds for any caller that has none.
+    if (!this.localChat && !this.config.apiKey) {
+      const refused = new NoModelKeyError();
+      this.emit('error', refused);
+      throw refused;
+    }
     this.running = true;
+    this.lastResort = null;
     // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
     const requestOptions = opts.signal || opts.retry
       ? {
@@ -1019,14 +1085,10 @@ export class Agent extends EventEmitter<AgentEvents> {
             this.emit('model:switch', fallbackModel);
           } catch (fallbackErr: any) {
             if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
-            const ollamaResult = await this.tryOllamaLastResort(history, `${sanitizedErr} / ${fallbackErr.message}`);
+            // R4 (H103, D1c): the notice is the fallback's own, said before its answer (tryOllamaLastResort)
+            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`);
             if (ollamaResult) {
               executionResult = ollamaResult;
-              this.emit('message:user', {
-                role: 'assistant',
-                content: `⚙️ **[SYSTEM]** OpenRouter unreachable. Answered via local Ollama (\`${ollamaResult.actualModel}\`).`,
-                timestamp: Date.now()
-              });
             } else {
               const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.\n\nFallback failed for ${fallbackModel} too: ${fallbackErr.message}`;
               const error = new Error(finalErr);
@@ -1035,14 +1097,9 @@ export class Agent extends EventEmitter<AgentEvents> {
             }
           }
         } else {
-          const ollamaResult = await this.tryOllamaLastResort(history, sanitizedErr);
+          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`);
           if (ollamaResult) {
             executionResult = ollamaResult;
-            this.emit('message:user', {
-              role: 'assistant',
-              content: `⚙️ **[SYSTEM]** OpenRouter unreachable. Answered via local Ollama (\`${ollamaResult.actualModel}\`).`,
-              timestamp: Date.now()
-            });
           } else {
             const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.`;
             const error = new Error(finalErr);
