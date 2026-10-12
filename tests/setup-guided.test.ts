@@ -89,6 +89,9 @@ describe('the questions, and what counts as an answer', () => {
     expect(chatRoute({ key: false, model: 'anthropic/claude-opus-4.7' })).toBe('chat: no model key · /setup');
     expect(chatRoute({ key: true, model: 'anthropic/claude-opus-4.7' })).toBe('chat: anthropic/claude-opus-4.7 · OpenRouter');
     expect(chatRoute({ key: true, model: 'anthropic/claude-opus-4.7', short: true })).toBe('chat: claude-opus-4.7 · OpenRouter');
+    // journey-2: the monitor's chat goes to the commander when it is connected with a token, key or no key
+    expect(chatRoute({ key: false, model: 'anthropic/claude-opus-4.7', short: true, commander: 'openrouter/auto' })).toBe('chat: auto · commander');
+    expect(chatRoute({ key: true, model: 'anthropic/claude-opus-4.7', commander: null })).toBe('chat: anthropic/claude-opus-4.7 · OpenRouter');
   });
 });
 

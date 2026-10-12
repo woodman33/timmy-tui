@@ -343,11 +343,15 @@ export const answeredBy = (s: SetupState): string | null => s.recorded?.by ?? nu
 
 /**
  * The chat route in effect, for the REPL's header and the monitor's top line: the model's name only when a key will be
- * used. `short` keeps only the last part of the model's id (the monitor's narrow top line).
+ * used. `short` keeps only the last part of the model's id (the monitor's narrow top line). `commander`: the durable
+ * commander's model when the chat goes there (the monitor sends a turn over the commander's socket when it is connected
+ * and an operator token is present; journey-2: its top line named the local route meanwhile), whatever the key.
  */
-export function chatRoute(o: { key: boolean; model?: string | null; short?: boolean }): string {
+export function chatRoute(o: { key: boolean; model?: string | null; short?: boolean; commander?: string | null }): string {
+  const short = (id: string): string => (o.short ? id.split('/').pop() || id : id);
+  const commander = String(o.commander ?? '').trim();
+  if (commander) return `chat: ${short(commander)} · commander`;
   if (!o.key) return 'chat: no model key · /setup';
-  const model = String(o.model ?? '').trim();
-  const name = o.short ? model.split('/').pop() || model : model;
+  const name = short(String(o.model ?? '').trim());
   return name ? `chat: ${name} · OpenRouter` : 'chat: OpenRouter';
 }
