@@ -730,7 +730,7 @@ export interface ReplDeps {
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
-function watchCtrlC(stdin: NodeJS.ReadStream, session: TerminalSession, onCtrlC: () => void): () => void {
+export function watchCtrlC(stdin: NodeJS.ReadStream, session: Pick<TerminalSession, 'setRaw'>, onCtrlC: () => void): (o?: { keepRaw?: boolean }) => void {
   emitKeypressEvents(stdin);
   session.setRaw(true);
   const onKey = (_s: string | undefined, key: Key = {}): void => {
@@ -738,9 +738,11 @@ function watchCtrlC(stdin: NodeJS.ReadStream, session: TerminalSession, onCtrlC:
   };
   stdin.on('keypress', onKey);
   stdin.resume();
-  return () => {
+  // R4 lead: `keepRaw` when the next prompt follows at once (the REPL's loop): what is typed between the turn's end and the
+  // prompt waits raw (src/repl/input.ts PromptDeps.keepRaw: in a cooked terminal its Enter became a new line in the prompt)
+  return (o = {}) => {
     stdin.off('keypress', onKey);
-    session.setRaw(false);
+    if (!o.keepRaw) session.setRaw(false);
     stdin.pause();
   };
 }
@@ -782,7 +784,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   const editor = new LineEditor();
   let status: number = EXIT.ok;
   for (;;) {
-    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text) });
+    // R4 lead: the terminal stays raw from the prompt into a chat turn and back (keepRaw: keys typed in between keep their
+    // Enter); a slash command gets it cooked, as before
+    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text), keepRaw: interactive });
     if (r.kind === 'cancel') {
       session.restore();
       return EXIT.cancelled;
@@ -792,6 +796,8 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
+      // a slash command may hand the terminal to another program (an editor, the monitor, a web view): cooked, as before
+      if (interactive) session.setRaw(false);
       const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace, columns: () => size.columns, chatModel: d.chatModel };
       // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
       const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
@@ -853,7 +859,8 @@ export async function replLoop(d: ReplDeps): Promise<number> {
       return 'refused';
     };
     const result = await (d.workspace?.operate ? d.workspace.operate(text, 'repl', turn) : turn());
-    stopWatching();
+    // the next prompt follows at once: the terminal stays raw until it reads the keys typed meanwhile
+    stopWatching({ keepRaw: interactive });
     if (!interactive && (result === 'failed' || result === 'refused')) status = EXIT.failure;
     if (interactive) region.commit(['']);
   }

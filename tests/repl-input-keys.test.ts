@@ -77,3 +77,50 @@ describe('keys in the block input', () => {
     expect(calls.slice(at, at + 3)).toEqual(['editor', 'raw true', 'paste on']);
   });
 });
+
+// R4 lead (2026-10-12; established from tests/chat-one-conversation-pty.test.ts failing under load at the integrated head):
+// between a chat turn and the next prompt the REPL left the terminal cooked for a moment. Keys typed then were echoed by the
+// terminal, and their Enter became a line feed (ICRNL), which this editor takes for Ctrl+J, a new line: a "/exit" typed as a
+// turn ended stayed in the next prompt, unsent. The REPL's loop now keeps the terminal raw from the prompt into the turn and
+// back (PromptDeps.keepRaw, watchCtrlC's keepRaw), and gives a slash command a cooked terminal itself, as before.
+describe('the terminal between a prompt, a turn and the next prompt (R4 lead)', () => {
+  it('a line feed (Enter through a cooked terminal) is a new line in the editor; a carriage return (Enter, raw) sends', async () => {
+    const a = prompt();
+    let settled = false;
+    void a.result.then(() => { settled = true; });
+    a.stdin.write('/exit\n');
+    await tick();
+    await tick();
+    expect(settled).toBe(false);
+    a.stdin.write('\r');
+    await expect(a.result).resolves.toMatchObject({ kind: 'submit' });
+    const b = prompt();
+    b.stdin.write('/exit\r');
+    await expect(b.result).resolves.toEqual({ kind: 'submit', text: '/exit' });
+  });
+  it('keepRaw: the prompt ends with the terminal still raw; without it, raw is turned off as before', async () => {
+    const kept = prompt({ keepRaw: true } as Partial<PromptDeps>);
+    kept.stdin.write('hi\r');
+    await expect(kept.result).resolves.toEqual({ kind: 'submit', text: 'hi' });
+    expect(kept.raw).toEqual([true]);
+    const before = prompt();
+    before.stdin.write('hi\r');
+    await before.result;
+    expect(before.raw).toEqual([true, false]);
+  });
+  it('the turn\'s Ctrl+C watcher keeps the terminal raw when the next prompt follows, and still hears Ctrl+C until then', async () => {
+    const { watchCtrlC } = await import('../src/repl/main.js');
+    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => stdin }) as unknown as NodeJS.ReadStream;
+    const raw: boolean[] = [];
+    let ctrlC = 0;
+    const stop = watchCtrlC(stdin, { setRaw: (on: boolean) => void raw.push(on) }, () => { ctrlC++; });
+    (stdin as unknown as PassThrough).write('\x03');
+    await tick();
+    expect(ctrlC).toBe(1);
+    stop({ keepRaw: true });
+    expect(raw).toEqual([true]);
+    const stop2 = watchCtrlC(stdin, { setRaw: (on: boolean) => void raw.push(on) }, () => { ctrlC++; });
+    stop2();
+    expect(raw).toEqual([true, true, false]);
+  });
+});
