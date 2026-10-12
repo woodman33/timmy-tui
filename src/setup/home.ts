@@ -28,9 +28,10 @@ export const isBlankSlate = (env: Env = process.env): boolean => !existsSync(ide
 /**
  * The monitor's settings file (conf's `timmy-tui` project, with the `nodejs` suffix env-paths gives it), read here without
  * building conf's store (building it writes the file). The same rule as src/utils/model-key.ts settingsFile, kept here so
- * this module needs nothing but node.
+ * this module needs nothing but node. R4 (H98): TIMMY_SETTINGS_DIR moves the folder, as it moves the store's.
  */
 export function settingsFile(env: Env = process.env, home: string = homedir(), platform: string = process.platform): string {
+  if (env.TIMMY_SETTINGS_DIR?.trim()) return join(resolve(env.TIMMY_SETTINGS_DIR.trim()), 'config.json');
   const dir = platform === 'darwin' ? join(home, 'Library', 'Preferences', 'timmy-tui-nodejs')
     : platform === 'win32' ? join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'timmy-tui-nodejs', 'Config')
       : join(env.XDG_CONFIG_HOME || join(home, '.config'), 'timmy-tui-nodejs');

@@ -904,7 +904,10 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
           // orange slot stays empty and says so, in dim mono.
           // R4 (H98): the chat route in effect, never a paid model's name that will not be used (no key: says so)
           const keyNow = effectiveAgent ? effectiveAgent.hasModelKey?.() !== false : Boolean((config as { apiKey?: string } | undefined)?.apiKey);
-          const chatSeg = `  ${chatRoute({ key: keyNow, model: headModel, short: true })}`;
+          // R4 (H98, journey-2): with the commander connected and an operator token present, chat-send sends the turn there:
+          // the top line names that route (the token is looked up only while the commander is connected)
+          const viaCommander = commanderOnline && edgeToken() ? String(profile.commander.model) : null;
+          const chatSeg = `  ${chatRoute({ key: keyNow, model: headModel, short: true, commander: viaCommander })}`;
           const clearSeg = allClear ? ['  nothing needs you'] : [];
           const tabFull = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1} ${t}`));
           const tabColl = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1}`));

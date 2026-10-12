@@ -6,7 +6,7 @@
 // run time, and no message is sent: nothing here calls a model). Without a terminal, /setup says the exact command.
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -60,21 +60,19 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       const first = await t.waitFor(/Enter to send/);
       expect(first).toMatch(/^TIMMY {2}chat: no model key · \/setup$/m);
       expect(first).toMatch(/^Studio \/studio · Control Room \/room · God's Eye View \/overview$/m);
-      expect(first).toMatch(/^all three in your browser: \/board live$/m);
+      expect(first).toMatch(/^the board in your browser: \/board live$/m);
       expect(first).toMatch(/^First run: type \/setup for the guided setup \(as timmy init\)\.$/m);
       t.type('/setup');
       // timmy init's questions, asked here; each with its preselected answer in brackets
       expect(await t.waitFor(/Operator name \(your receipts show it\)\n {2}> \[operator\]/)).toContain('TIMMY · first run — guided setup (/setup in the REPL)');
       t.type('Sample');
-      await t.waitFor(/Identity: g makes a new key/);
+      await t.waitFor(/Identity: Enter makes a new key[\s\S]*> \[new key\]/);
       t.type('');
       await t.waitFor(/Ollama host \(the local model\)/);
       t.type('');
       const chat = await t.waitFor(/Chat model/);
       expect(chat).toMatch(/l {2}local model only/);
       expect(chat).toMatch(/o {2}OpenRouter: a paid cloud service/);
-      t.type('');
-      await t.waitFor(/Logs and run events/);
       t.type('');
       await t.waitFor(/First project name/);
       t.type('demo');
@@ -88,14 +86,14 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       // written once, in the Timmy home, as timmy init writes it
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup.by).toBe('the REPL (/setup)');
-      expect(setup.answers).toMatchObject({ operator: 'Sample', chat: 'local', logs: 'local', project: 'demo' });
+      expect(setup.answers).toEqual({ operator: 'Sample', identity: 'generated', ollama: 'http://127.0.0.1:11434', chat: 'local', project: 'demo' });
       expect(JSON.parse(readFileSync(join(home, 'identity.json'), 'utf8')).operator).toBe('Sample');
       expect(statSync(join(home, 'identity.seed')).mode & 0o777).toBe(0o600);
       expect(statSync(join(home, 'setup.json')).mode & 0o777).toBe(0o600);
       expect(receipts(join(dir, 'store')).map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
       // a message without a key says how to add one
       t.type('hello');
-      expect(await t.waitFor(/no model key, so Timmy cannot answer[\s\S]*Enter to send/)).toContain('Try: /setup key, or export OPENROUTER_API_KEY');
+      expect(await t.waitFor(/no model key, so Timmy cannot answer[\s\S]*Enter to send/)).toContain('Try: /setup key (it asks for the key, hidden)');
       // nothing left to ask: /setup is the check again; /help starts with the three surfaces
       t.type('/setup');
       const again = await t.waitFor(/setup check sealed and verified/, 2);
@@ -104,7 +102,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(receipts(join(dir, 'store'))).toHaveLength(2);
       t.type('/help');
       const help = await t.waitFor(/\/exit {8}Quit Timmy/);
-      expect(help).toMatch(/^ {2}Studio \/studio · Control Room \/room\n {2}God's Eye View \/overview\n {2}all three in your browser: \/board live\n {2}WORK$/m);
+      expect(help).toMatch(/^ {2}Studio \/studio · Control Room \/room\n {2}God's Eye View \/overview\n {2}the board in your browser: \/board live\n {2}WORK$/m);
       expect(help).toMatch(/\/studio {6}Timmy Studio: opens it, as \/canvas open/);
       t.type('/exit');
       // the terminal check prints after EXIT=: wait for its own line, not for EXIT= (a race under load)
@@ -125,7 +123,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       t.type('/setup');
       await t.waitFor(/Operator name/);
       t.type('Sample');
-      await t.waitFor(/Identity: g makes a new key/);
+      await t.waitFor(/Identity: Enter makes a new key/);
       t.key('C-c');
       const back = await t.waitFor(/Back in the REPL; \/setup asks again\.[\s\S]*Enter to send/);
       expect(back).toContain('Stopped: nothing was written.');
@@ -171,9 +169,57 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup).toMatchObject({ by: 'the REPL (/setup)', answers: { chat: 'openrouter' } });
       expect(JSON.stringify(setup)).not.toContain(key);
-      // a second /setup key asks nothing: a key is stored
+      t.type('/exit');
+      expect(await t.waitFor(/TTY=(?:same|changed)/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
+      expect(t.screen()).not.toContain(key);
+    } finally {
+      t.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  // journey-2 (items 4, 5): the key in one place. A key the monitor's old FIRST RUN kept in its settings is named where it is,
+  // replaced only after a yes, typed hidden, and then kept in providers.json alone (the settings lose it); the chat uses it
+  it('/setup key names where a stored key is, replaces it only after a yes, and keeps the new one in providers.json alone', async () => {
+    const { dir, env, home } = sandbox();
+    const init = await runAsync(TSX, [CLI, 'init', '--yes', '--operator', 'Sample', '--project', 'demo'], { cwd: dir, env, timeout: CLI_MS });
+    expect(init.status, init.stderr).toBe(0);
+    // the old FIRST RUN's key, in the monitor's settings of this terminal's HOME
+    const settings = join(dir, '.config', 'timmy-tui-nodejs', 'config.json');
+    mkdirSync(join(dir, '.config', 'timmy-tui-nodejs'), { recursive: true });
+    const old = `sk-or-test-${randomBytes(12).toString('hex')}`;
+    writeFileSync(settings, JSON.stringify({ apiKey: old, onboarded: true }), { mode: 0o600 });
+    const t = terminal(dir, env, 'replace');
+    const key = `sk-or-test-${randomBytes(12).toString('hex')}`;
+    try {
+      // the settings' key is the one in use: the header says so
+      expect(await t.waitFor(/Enter to send/)).toMatch(/^TIMMY {2}chat: \S+ · OpenRouter$/m);
       t.type('/setup key');
-      expect(await t.waitFor(/setup check sealed and verified/, 2)).toContain('A model key is already stored in the Timmy home');
+      const where = await t.waitFor(/Replace it\? \[y\/N\]/);
+      expect(where.replace(/\s+/g, ' ')).toContain('A model key is stored in the monitor\'s settings (~/.config/timmy-tui-nodejs/config.json).');
+      t.type('');
+      await t.waitFor(/Nothing was changed: the stored key stays\.[\s\S]*Enter to send/);
+      expect(JSON.parse(readFileSync(settings, 'utf8')).apiKey).toBe(old);
+      t.type('/setup key');
+      await t.waitFor(/Replace it\? \[y\/N\]/, 2);
+      t.type('y');
+      const asked = await t.waitFor(/Blank keeps the key stored now\.\n {2}> ?$/m);
+      expect(asked).toContain('OpenRouter key (hidden as you type; blank: no key)');
+      t.type(key);
+      const shown = await t.waitFor(/Proceed\? \[Y\/n\]/);
+      expect(shown).toMatch(/chat: OpenRouter \(paid, cloud; key\s+replaced\)/);
+      expect(shown).toMatch(/config\.json[\s\S]*\(its\s+model\s+key\s+leaves\s+it\s+for\s+providers\.json\)/);
+      t.type('');
+      const done = await t.waitFor(/setup check sealed and verified[\s\S]*Enter to send/);
+      expect(done).toContain('The chat uses the stored key from your next message.');
+      expect(done).not.toContain(key);
+      expect(done).not.toContain(old);
+      expect(JSON.parse(readFileSync(join(home, 'providers.json'), 'utf8')).openrouter_api_key).toBe(key);
+      expect(statSync(join(home, 'providers.json')).mode & 0o777).toBe(0o600);
+      const after = JSON.parse(readFileSync(settings, 'utf8'));
+      expect(after).not.toHaveProperty('apiKey');
+      expect(after.onboarded).toBe(true);
+      expect(statSync(settings).mode & 0o777).toBe(0o600);
       t.type('/exit');
       expect(await t.waitFor(/TTY=(?:same|changed)/)).toMatch(/EXIT=0[\s\S]*TTY=same/);
       expect(t.screen()).not.toContain(key);
@@ -190,7 +236,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       const r = await runAsync(TSX, [CLI, 'repl'], { cwd: dir, env: { ...env, OPENROUTER_API_KEY: `sk-or-test-${randomBytes(12).toString('hex')}` }, input: '/setup\n', timeout: CLI_MS });
       expect(r.status, `${r.error?.message ?? ''}\n${r.stderr}`).toBe(0);
       const out = r.stdout + r.stderr;
-      expect(out).toContain('  6 setup questions have no answer yet.\n  In a terminal, run timmy init: it asks only those.\n');
+      expect(out).toContain('  5 setup questions have no answer yet.\n  In a terminal, run timmy init: it asks only those.\n');
       expect(out).toContain('setup check sealed and verified');
       expect(existsSync(join(home, 'setup.json'))).toBe(false);
       expect(existsSync(join(home, 'identity.json'))).toBe(false);

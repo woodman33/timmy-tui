@@ -13,7 +13,8 @@ import { withoutCI } from './repl-pty-env.js';
 export const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 export const MONITOR = resolve('cli.tsx');
 export const CLI = resolve('src/cli.ts');
-const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'];
+// R4 (H98): with the test file's own settings folder (TIMMY_SETTINGS_DIR): the monitor here keeps its settings in XDG_CONFIG_HOME
+const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'TIMMY_SETTINGS_DIR'];
 
 export type HomeKind = 'initialized' | 'first-run';
 

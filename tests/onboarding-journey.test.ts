@@ -1,9 +1,9 @@
 // v1.0.5-fix onboarding journey: splash → setup steps → teach-by-doing
 // gates (wrong keys swallowed) → populated View [1] empty state.
 // R4 (H98): the setup steps are Timmy's one guided setup (src/setup), the questions `timmy init` asks, only those without
-// an answer: here a home an older `timmy init` set up (identity, providers, project; no setup.json), so the chat model and
-// the logs, the local model and local-only logs preselected. The answers go to the Timmy home (this file's own temporary
-// one, tests/isolation-setup.ts); the legacy v1 shell then teaches its keys.
+// an answer: here a home an older `timmy init` set up (identity, providers, project; no setup.json), so the chat model, the
+// local model preselected (logs stay on this computer: nothing to ask). The answers go to the Timmy home (this file's own
+// temporary one, tests/isolation-setup.ts); the legacy v1 shell then teaches its keys.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
@@ -52,7 +52,12 @@ describe('onboarding journey', { timeout: 60000 }, () => {
     let f = view.lastFrame() ?? '';
     expect(f).toContain('Flight Recorder for AI Agent Runs'); // splash
     expect(f).toContain('[Enter] Begin setup');
-    expect(f).toContain('2 setup questions have no answer yet: Chat model, Logs and run events.');
+    expect(f).toContain('One setup question has no answer yet: Chat model.');
+    expect(f).toContain('[Enter] Begin setup · [Esc] Quit · Ctrl+C quits');
+
+    view.stdin.write('q');                    // q never quits the monitor: the splash stays
+    await sleep(200);
+    expect(view.lastFrame() ?? '').toContain('[Enter] Begin setup');
 
     view.stdin.write('x');                    // splash ignores stray keys
     await sleep(200);
@@ -74,18 +79,14 @@ describe('onboarding journey', { timeout: 60000 }, () => {
     view.stdin.write('\r');
     await sleep(250);
     f = view.lastFrame() ?? '';
-    expect(f).toContain('Logs and run events');
-    expect(f).toContain('▸ [l] this computer only');
-    view.stdin.write('\r');
-    await sleep(250);
-    f = view.lastFrame() ?? '';
+    expect(f).not.toContain('Logs and run events');
     expect(f).toContain('Save these answers?');
     view.stdin.write('\r');                   // save → teachMission
     await sleep(300);
     f = view.lastFrame() ?? '';
     expect(f).toContain('TEACH 1/3');
     const rec = JSON.parse(readFileSync(join(process.env.TIMMY_HOME!, 'setup.json'), 'utf8'));
-    expect({ by: rec.by, chat: rec.answers.chat, logs: rec.answers.logs }).toEqual({ by: 'the monitor', chat: 'local', logs: 'local' });
+    expect({ by: rec.by, chat: rec.answers.chat, logs: rec.answers.logs }).toEqual({ by: 'the monitor', chat: 'local', logs: undefined });
 
     view.stdin.write('x');                    // wrong key swallowed
     await sleep(200);

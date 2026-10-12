@@ -10,8 +10,12 @@ import { readDotEnv } from './dotenv.js';
 export type KeySource = 'environment' | 'timmy-tui.config.json' | 'settings' | 'providers.json';
 type Env = Record<string, string | undefined>;
 
-/** The settings file the store keeps (conf's `timmy-tui` project with its `nodejs` suffix, as env-paths places it). */
+/**
+ * The settings file the store keeps (conf's `timmy-tui` project with its `nodejs` suffix, as env-paths places it). R4 (H98):
+ * TIMMY_SETTINGS_DIR moves its folder, as it moves the store's (src/utils/config.ts).
+ */
 export function settingsFile(env: Env = process.env, home: string = homedir(), platform: string = process.platform): string {
+  if (env.TIMMY_SETTINGS_DIR?.trim()) return join(resolve(env.TIMMY_SETTINGS_DIR.trim()), 'config.json');
   const dir = platform === 'darwin' ? join(home, 'Library', 'Preferences', 'timmy-tui-nodejs')
     : platform === 'win32' ? join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'timmy-tui-nodejs', 'Config')
       : join(env.XDG_CONFIG_HOME || join(home, '.config'), 'timmy-tui-nodejs');
@@ -30,15 +34,15 @@ export function modelKeySource(env: Env = process.env, cwd: string = process.cwd
   // its TIMMY_HOME and settings folders steer the lookup below as they steer the REPL's.
   const e: Env = { ...env };
   for (const [key, value] of Object.entries(readDotEnv(cwd))) if (e[key] === undefined) e[key] = value;
-  // loadConfig: the settings store, then a local timmy-tui.config.json over it, then the environment over both;
-  // the providers file `timmy init` writes only when all of those are empty.
-  let source: KeySource | null = null;
-  const settings = readJson(settingsFile(e, home, platform));
-  if (isObject(settings) && typeof settings.apiKey === 'string' && settings.apiKey) source = 'settings';
+  // loadConfig: the environment; else a local timmy-tui.config.json's key; else the providers file `timmy init` writes;
+  // else the settings store's (R4 H98, journey-2: providers.json before the settings: the setup keeps the key there).
+  if (e.OPENROUTER_API_KEY) return 'environment';
   const local = readJson(resolve(cwd, 'timmy-tui.config.json'));
-  if (isObject(local) && 'apiKey' in local) source = typeof local.apiKey === 'string' && local.apiKey ? 'timmy-tui.config.json' : null;
-  if (e.OPENROUTER_API_KEY) source = 'environment';
-  if (source) return source;
+  if (isObject(local) && typeof local.apiKey === 'string' && local.apiKey) return 'timmy-tui.config.json';
   const providers = readJson(join(e.TIMMY_HOME || join(home, 'timmy'), 'providers.json'));
-  return isObject(providers) && typeof providers.openrouter_api_key === 'string' && providers.openrouter_api_key ? 'providers.json' : null;
+  if (isObject(providers) && typeof providers.openrouter_api_key === 'string' && providers.openrouter_api_key) return 'providers.json';
+  // a local file that sets the key to nothing hides the settings' key, as its spread does in loadConfig
+  if (isObject(local) && 'apiKey' in local) return null;
+  const settings = readJson(settingsFile(e, home, platform));
+  return isObject(settings) && typeof settings.apiKey === 'string' && settings.apiKey ? 'settings' : null;
 }

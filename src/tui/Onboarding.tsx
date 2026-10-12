@@ -8,9 +8,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
 import { saveConfig } from '../utils/config.js';
-import { applySetup } from '../utils/init.js';
+import { applySetup, mergeFresh, SEED_UNREADABLE } from '../utils/init.js';
 import { prettyPath, setupPath } from '../setup/home.js';
-import { effectiveAnswers, needsAsking, pendingQuestions, QUESTIONS, readSetupState, setupSummary, type Answers, type Chat, type Logs, type Question, type QuestionId, type SetupState } from '../setup/questions.js';
+import { effectiveAnswers, needsAsking, pendingQuestions, QUESTIONS, readSetupState, setupSummary, type Answers, type Chat, type Question, type QuestionId, type SetupState } from '../setup/questions.js';
 import { answersWords } from '../setup/terminal.js';
 import { theme } from './theme.js';
 
@@ -20,8 +20,9 @@ interface OnboardingProps {
   /** the setup is done: one line of what it chose */
   onDone: (summary: string) => void;
   /**
-   * R4 (H87): leave the monitor from this screen (q or Esc on the first page: 0; Ctrl+C anywhere: 130). The caller ends the
+   * R4 (H87): leave the monitor from this screen (Esc on the first page: 0; Ctrl+C anywhere: 130). The caller ends the
    * process; Ink's exit alone ended only the screen and left the monitor running in a canonical, echoing terminal (r23b).
+   * R4 (H98, journey-2): q never quits the monitor: on HOME it is the companion's address, so here it is nothing.
    */
   onQuit?: (code: number) => void;
   /** R4 (H98): the legacy v1 shell's three teach steps after the questions (its keys); the monitor (v2) has none */
@@ -75,11 +76,12 @@ function nextQuestion(s: SetupState, given: Answers, after: QuestionId | null): 
 
 /**
  * The monitor's FIRST RUN (R4 H98): Timmy's one guided setup (src/setup), the same questions `timmy init` asks, in the
- * same words, asked only while they have no answer; the local model and local-only logs are preselected, and the paid and
- * cloud choices say so. The answers are written to the Timmy home by the same writer (applySetup). Before, this screen had
+ * same words, asked only while they have no answer; the local model is preselected, and the paid choice says so (logs
+ * stay on this computer: nothing to ask). The answers are written to the Timmy home by the same writer (applySetup). Before, this screen had
  * questions of its own (a brain, a key, Cloudflare log sync, the archive) with cloud defaults, after `timmy init` had
- * asked its own (r24). Keys: on the first page Enter begins, q or Esc leaves; on a question a choice's key selects it, the
- * arrows move, Enter goes on, Esc goes back; q is a letter there. Ctrl+C ends the monitor anywhere (130).
+ * asked its own (r24). Keys: on the first page Enter begins, Esc leaves (q does nothing: it never quits the monitor); on a
+ * question a choice's key selects it, the arrows move, Enter goes on, Esc goes back; q is a letter there. Ctrl+C ends the
+ * monitor anywhere (130). An answer that may be a key or a seed (the identity) is drawn as *, as a key is.
  */
 export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the monitor' }: OnboardingProps) {
   const { exit } = useApp();
@@ -133,15 +135,19 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
     if (!r.ok) { setNote(r.why); return; }
     const given: Answers = { ...answers };
     if (q.id === 'chat') given.chat = r.value as Chat;
-    else if (q.id === 'logs') given.logs = r.value as Logs;
     else (given as Record<string, string>)[q.id] = r.value;
+    // OpenRouter chosen and no key typed (none stored): the chat stays on the local model, which is what is written
+    if (q.id === 'key' && r.value === '' && !state.providers.key && !state.settingsKey) { given.chat = 'local'; delete given.key; }
     setAnswers(given);
     setAsked([...asked, q.id]);
     open(nextQuestion(state, given, q.id), given);
   };
   const save = (): void => {
     try {
-      applySetup(answers, { by, state });
+      // R4 (H98, journey-2): what the home holds now, read again just before writing (another setup may have answered while
+      // this screen was open): its answers are the base, these go over them, and an identity made meanwhile is kept
+      const fresh = readSetupState();
+      applySetup(mergeFresh(answers, fresh), { by, state: fresh });
     } catch (e) {
       setNote(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
       return;
@@ -160,9 +166,12 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
     if (key.ctrl && char === 'c') { quit(130); return; }
     const enter = key.return || char === '\n';
     if (step === 'splash') {
+      // a seed Timmy cannot read is never replaced: nothing can be saved here until it is moved (the splash says how)
+      if (enter && state.identity.seed === 'unreadable') return;
       // Enter begins; a '\n' (Ctrl+J, or Enter typed while the terminal was still line by line) too
       if (enter) { if (pending.length) open(nextQuestion(state, {}, null), {}); else if (teach) setStep('teachMission'); else onDone(setupSummary(state)); return; }
-      if (char === 'q' || key.escape) quit(0);
+      // R4 (H98, journey-2): Esc leaves; q does nothing (on HOME it opens the companion's address, and quits nowhere)
+      if (key.escape) quit(0);
       return;
     }
     if (step === 'teachMission') {
@@ -226,7 +235,8 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
               <Text color={theme.textPrimary} wrap="wrap">{`Every setup question has an answer: ${setupSummary(state)}.`}</Text>
             )}
             {envNote && <Text color={theme.warn}>{envNote}</Text>}
-            <Text color={theme.textMuted}>[Enter] Begin setup · [q] or [Esc] Quit</Text>
+            {state.identity.seed === 'unreadable' && <Text color={theme.warn} wrap="wrap">{SEED_UNREADABLE}</Text>}
+            <Text color={theme.textMuted}>{state.identity.seed === 'unreadable' ? '[Esc] Quit · Ctrl+C quits' : '[Enter] Begin setup · [Esc] Quit · Ctrl+C quits'}</Text>
           </Box>
         )}
         {step === 'ask' && current && (
@@ -234,6 +244,7 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
             <Text color={theme.textSecondary}>{`question ${index} of ${Math.max(index, total)} · nothing is saved until the end`}</Text>
             <Box height={1} />
             <Text bold color={theme.textPrimary}>{current.title}</Text>
+            {current.help && <Box paddingLeft={2}><Text color={theme.textSecondary} wrap="wrap">{current.help}</Text></Box>}
             {current.kind === 'choice' ? (current.choices ?? []).map((c) => (
               <Box key={c.key} flexDirection="column">
                 <Text color={c.value === selected ? theme.accent : theme.textPrimary}>{`${c.value === selected ? '  ▸' : '  ◇'} [${c.key}] ${c.label}`}</Text>
@@ -243,8 +254,9 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
               <Box paddingX={1}>
                 <Text color={theme.accent}>▸ </Text>
                 {typed
-                  ? <Text color={theme.textPrimary}>{current.kind === 'secret' ? '*'.repeat(typed.length) : typed}</Text>
-                  : <Text color={theme.textMuted}>{current.preselect(given, state) ? `Enter keeps ${current.preselect(given, state)}` : current.kind === 'secret' ? 'hidden as you type' : 'Enter: none'}</Text>}
+                  // a key, or an answer that may be one (the identity), is never drawn: one * per character
+                  ? <Text color={theme.textPrimary}>{current.kind === 'secret' || current.hidden ? '*'.repeat([...typed].length) : typed}</Text>
+                  : <Text color={theme.textMuted}>{(() => { const pre = current.preselect(given, state); const shown = pre && current.shown ? current.shown(pre) : pre; return shown ? `Enter keeps ${shown}${current.hidden ? ' · hidden as you type' : ''}` : current.kind === 'secret' || current.hidden ? 'hidden as you type' : 'Enter: none'; })()}</Text>}
               </Box>
             )}
             <Box height={1} />

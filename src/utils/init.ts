@@ -4,19 +4,24 @@
 // and writes ONLY to two places (and the receipts store pin):
 //   ~/timmy/            (TIMMY_HOME)         identity.json, identity.seed (0600), providers.json (0600), setup.json (0600), projects/<name>/
 //   <repo>/.timmy/private/ (TIMMY_PRIVATE_DIR) config.json (merged), projects.json (merged)
-// Nothing in the public tree changes. `isBlankSlate()` is what the CLI and the TUI ask before showing anything else;
-// without a TTY (or --yes) the wizard prints what it would ask and writes nothing, so a first launch in a container still
-// shows the wizard.
+// and, R4 (H98, journey-2), when the monitor's settings file holds a model key (the old FIRST RUN kept one there), that
+// file: the key moves to providers.json, the one place the key is kept, and leaves the settings. Nothing in the public
+// tree changes. `isBlankSlate()` is what the CLI and the TUI ask before showing anything else; without a TTY (or --yes)
+// the wizard prints what it would ask and writes nothing, so a first launch in a container still shows the wizard.
 //
 // R4 (H98): the questions are src/setup/questions.ts's, the same the monitor (`timmy watch`) and the REPL's /setup ask;
-// each is asked only while it has no answer (what an older `timmy init` wrote counts), the local model and local-only
-// logs are preselected, and an existing identity is never replaced (applySetup keeps identity.json and identity.seed).
+// each is asked only while it has no answer (what an older `timmy init` wrote counts), the local model is preselected,
+// logs stay on this computer (journey-2: nothing to ask), and an existing identity is never replaced (applySetup keeps
+// identity.json and identity.seed).
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
-import { identityPath as identityPathOf, isBlankSlate as blankSlate, privateDir as privateDirOf, prettyPath, setupPath, timmyHome as homeOf, workspaceRoot as workspaceOf } from '../setup/home.js';
-import { OLLAMA_DEFAULT, PROJECT_DEFAULT, OPERATOR_DEFAULT, pendingQuestions, readSetupState, setupSummary, type Answers, type Chat, type Logs, type SetupState } from '../setup/questions.js';
+import { identityPath as identityPathOf, isBlankSlate as blankSlate, privateDir as privateDirOf, prettyPath, settingsFile, setupPath, timmyHome as homeOf, workspaceRoot as workspaceOf } from '../setup/home.js';
+import { OLLAMA_DEFAULT, PROJECT_DEFAULT, OPERATOR_DEFAULT, pendingQuestions, readSetupState, setupSummary, type Answers, type Chat, type QuestionId, type SetupState } from '../setup/questions.js';
 import { askSetup, terminalIO, wrap, type SetupIO } from '../setup/terminal.js';
+import { identityProblem, isNewKey, seedIdentity, type Identity } from '../setup/identity.js';
+
+// the identity parser lives with the setup's questions (one parser for the question and the writer)
+export { seedIdentity };
 
 // Match the cockpit's workspace override. Installed modules are application
 // code, never the default destination for operator state.
@@ -30,10 +35,9 @@ export const BANNER = 'TIMMY · first run — blank slate';
 // C-14: the first run fits 60 columns, the questions included (they ran to 120).
 export const QUESTIONS: ReadonlyArray<readonly [string, string]> = [
   ['operator', 'Operator name (your receipts show it)'],
-  ['identity', 'A new key, or a PEM or hex seed path'],
+  ['identity', 'A new key, or a key of yours (asked hidden)'],
   ['ollama', 'Ollama host (the local model)'],
   ['chat', 'Chat: local model (default) or OpenRouter'],
-  ['logs', 'Logs: this computer (default) or a worker'],
   ['project', 'First project name (under ~/timmy/projects/)'],
 ];
 
@@ -48,30 +52,45 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('    <repo>/.timmy/store-pin (the receipts store)\n');
   for (const [k, q] of QUESTIONS) log(`    ${k.padEnd(10)} ${q}`);
   log('\n  Without questions: timmy init --yes, and any of');
-  log('    --operator <name>  --seed generate|<pem|hex>');
+  log('    --operator <name>  --seed generate|<key file>|-');
   log('    --ollama <host>  --chat local|openrouter');
-  log('    --openrouter <key>  --logs local|cloud');
-  log('    --project <name>  --edge-host <host>  --json\n');
+  log('    --openrouter -  --project <name>  --edge-host <host>');
+  log('    --json');
+  log('  - reads the key from stdin: a key in a command\'s');
+  log('  arguments is visible to other processes and kept in');
+  log('  your shell history. With questions, a key is hidden.');
+  log('  Logs and run events stay on this computer.\n');
 }
 const relPretty = (p: string): string => prettyPath(p);
 
 export interface InitOptions {
   yes: boolean; json: boolean;
+  /** `--seed`, `--openrouter`, `--anthropic`: `-` reads the value from stdin (hidden at a terminal), never from the arguments */
   operator?: string; seed?: string; openrouter?: string; anthropic?: string; ollama?: string; project?: string; edgeHost?: string;
-  /** R4 (H98): `--chat local|openrouter`, `--logs local|cloud` */
-  chat?: Chat; logs?: Logs;
+  /** R4 (H98): `--chat local|openrouter` */
+  chat?: Chat;
   /** a flag with a value it cannot take, in words */
   error?: string;
 }
+/** R4 (H98, journey-2): `--logs cloud`: this version sends no logs or run events to a worker, so it is not offered. */
+export const LOGS_CLOUD_REFUSED = '--logs cloud is not offered: this version sends no logs or run events to a worker (the monitor and the REPL keep them on this computer). --logs local is what happens.';
+/** A worker's host as `--edge-host` takes it: a host name (localhost too) and a port, no scheme or path. */
+export const isEdgeHost = (v: string): boolean => /^(localhost|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+)(:\d{1,5})?$/i.test(v);
 export function parseInitArgs(args: string[]): InitOptions {
   const o: InitOptions = { yes: args.includes('--yes') || args.includes('-y'), json: args.includes('--json') };
   const v = (k: string): string | undefined => { const i = args.indexOf(k); return i >= 0 && args[i + 1] !== undefined && !args[i + 1].startsWith('--') ? args[i + 1] : undefined; };
   o.operator = v('--operator'); o.seed = v('--seed'); o.openrouter = v('--openrouter'); o.anthropic = v('--anthropic');
-  o.ollama = v('--ollama'); o.project = v('--project'); o.edgeHost = v('--edge-host');
+  o.ollama = v('--ollama'); o.project = v('--project');
   const chat = v('--chat');
   if (chat !== undefined) { if (chat === 'local' || chat === 'openrouter') o.chat = chat; else o.error = `--chat takes local or openrouter, not ${chat}.`; }
   const logs = v('--logs');
-  if (logs !== undefined) { if (logs === 'local' || logs === 'cloud') o.logs = logs; else o.error = `--logs takes local or cloud, not ${logs}.`; }
+  if (logs !== undefined && logs !== 'local') o.error = logs === 'cloud' ? LOGS_CLOUD_REFUSED : `--logs takes local, not ${logs}.`;
+  const edge = v('--edge-host');
+  if (edge !== undefined) {
+    const host = edge.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    if (isEdgeHost(host)) o.edgeHost = host; else o.error = '--edge-host takes a host name and a port, like worker.example.com or localhost:8787.';
+  }
+  if ([o.seed, o.openrouter, o.anthropic].filter((x) => x === '-').length > 1) o.error = 'Only one of --seed, --openrouter and --anthropic can read stdin (-).';
   return o;
 }
 
@@ -84,26 +103,9 @@ export function answersFromFlags(o: InitOptions): Answers {
     ...(o.chat ? { chat: o.chat } : o.openrouter ? { chat: 'openrouter' as Chat } : {}),
     ...(o.openrouter !== undefined ? { key: o.openrouter } : {}),
     ...(o.anthropic !== undefined ? { anthropic: o.anthropic } : {}),
-    ...(o.logs ? { logs: o.logs } : {}),
     ...(o.edgeHost !== undefined ? { edge: o.edgeHost } : {}),
     ...(o.project !== undefined ? { project: o.project } : {}),
   };
-}
-
-interface Identity { operatorId: string; publicKeyHex: string; privatePem: string; source: 'generated' | 'imported' }
-const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
-export function seedIdentity(seed: string | undefined): Identity {
-  let priv;
-  let source: Identity['source'] = 'generated';
-  if (!seed || seed === 'generate' || seed === 'g') {
-    priv = generateKeyPairSync('ed25519').privateKey;
-  } else if (/^[0-9a-fA-F]{64}$/.test(seed)) {
-    priv = createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(seed, 'hex')]), format: 'der', type: 'pkcs8' }); source = 'imported';
-  } else if (existsSync(seed)) {
-    priv = createPrivateKey(readFileSync(seed, 'utf8')); source = 'imported';
-  } else throw new Error('seed must be "generate", a 64-hex ed25519 seed, or a path to a PEM private key');
-  const pubDer = createPublicKey(priv).export({ format: 'der', type: 'spki' }) as Buffer;
-  return { operatorId: 'op_' + createHash('sha256').update(pubDer).digest('hex').slice(0, 16), publicKeyHex: pubDer.toString('hex'), privatePem: priv.export({ format: 'pem', type: 'pkcs8' }) as string, source };
 }
 
 /** Every path this command writes must sit under TIMMY_HOME or TIMMY_PRIVATE_DIR — asserted, not assumed.
@@ -132,18 +134,46 @@ function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, work
   return writeJson(abs, { ...readObject(abs), ...patch }, mode, workspace);
 }
 
-export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string }
+export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string; /** what a person should know about the model key's move (never the key) */ notes?: string[] }
+
+const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+/** The monitor's settings file, and the model key in it (never shown), read without conf (building conf's store writes it). */
+function settingsKeyAt(): { file: string; body: Record<string, unknown>; key?: string } {
+  const file = settingsFile();
+  const body = readObject(file);
+  const key = text(body.apiKey);
+  return { file, body, ...(key ? { key } : {}) };
+}
+/**
+ * R4 (H98, journey-2): what the setup does with a model key the monitor's settings hold (its old FIRST RUN kept one there,
+ * and loadConfig read it before providers.json): `move` it into providers.json (which has none), `drop` it from the
+ * settings (providers.json holds it, or a newer key given now), or `keep` it (providers.json holds another, which is the
+ * one used; the settings' key is left as it is, unused, and the setup says so). null: the settings hold none.
+ */
+function settingsKeyPlan(home: string, newKey: string | undefined): { plan: 'move' | 'drop' | 'keep'; at: ReturnType<typeof settingsKeyAt> } | null {
+  const at = settingsKeyAt();
+  if (!at.key) return null;
+  const held = text(readObject(join(home, 'providers.json')).openrouter_api_key);
+  if (newKey || held === at.key) return { plan: 'drop', at };
+  return { plan: held ? 'keep' : 'move', at };
+}
 
 /** R4 (H98): an identity exists and a seed was given: it is never replaced (refused, nothing written). */
 export const IDENTITY_KEPT = 'An identity already exists in the Timmy home (identity.json, identity.seed); Timmy never replaces it, so --seed was not used and nothing was written. To make a new one, move those two files away first.';
+/** R4 (H98, journey-2): an identity.seed with no identity.json, and a seed was given: the seed there is kept (refused). */
+export const SEED_KEPT = 'The Timmy home has an identity.seed (its identity.json is missing): it is this home\'s key, and Timmy never replaces it, so --seed was not used and nothing was written. To use another key, move identity.seed away first.';
 /** R4 (H98): an identity.seed with no identity.json, that is not a key Timmy can read: kept as it is, nothing written. */
 export const SEED_UNREADABLE = 'The Timmy home has an identity.seed but no identity.json, and that seed is not a key Timmy can read. Timmy never replaces it, so nothing was written: move identity.seed away (or put its identity.json back), then run timmy init again.';
+
+/** Words as lines within 60 columns (C-14): a refusal is never one line of 200 characters. */
+const say = (log: (s: string) => void, words: string): void => { for (const l of wrap(words)) log(l); };
 
 /**
  * R4 (H98): writes the setup's answers: only what was answered now, merged into what the home holds. An existing
  * identity is kept (identity.json and identity.seed are never replaced; a new operator name only renames it there), a
- * provider key is added and never removed, a project is added to the private list, never over it. setup.json records the
- * answers in words (never a key) and who gave them (`by`).
+ * provider key is added (a new one replaces the one stored; none is ever removed), a project is added to the private list,
+ * never over it. setup.json records the answers in words (never a key) and who gave them (`by`). R4 (H98, journey-2): the
+ * model key is kept in one place, providers.json: a key the monitor's settings hold moves there (see settingsKeyPlan).
  */
 export function applySetup(answers: Answers, o: { by: string; repoRoot?: string; state?: SetupState } = { by: 'timmy init' }): InitResult {
   const repoRoot = resolve(o.repoRoot ?? workspaceRoot());
@@ -154,6 +184,8 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
   const idFile = join(home, 'identity.json');
   const seedFile = join(home, 'identity.seed');
   const kept = !s.identity.exists && existsSync(seedFile);
+  // a seed left there is this home's key, and the answer: one given as well would be dropped, so it is refused instead
+  if (kept && answers.identity !== undefined && !isNewKey(answers.identity)) throw new Error(SEED_KEPT);
   let id: Identity | null = null;
   if (!s.identity.exists) {
     // a seed file left without its identity.json is this home's key: it is read (and narrowed to 0600), never replaced
@@ -179,12 +211,27 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
   } else if (answers.operator !== undefined && answers.operator !== s.identity.operator) {
     written.push(writeJson(idFile, { ...readObject(idFile), operator: answers.operator }, 0o644, repoRoot));
   } else operator = s.identity.operator ?? operator;
-  // providers: the Ollama host; a key only when one was given (never removed)
+  // providers: the Ollama host; a key only when one was given (never removed), or the one the monitor's settings held
   const providersPatch: Record<string, string> = {};
   if (answers.ollama !== undefined || !s.providers.exists) providersPatch.ollama_host = answers.ollama || s.providers.ollama || OLLAMA_DEFAULT;
+  const fromSettings = settingsKeyPlan(home, answers.key || undefined);
   if (answers.key) providersPatch.openrouter_api_key = answers.key;
+  else if (fromSettings?.plan === 'move' && fromSettings.at.key) providersPatch.openrouter_api_key = fromSettings.at.key;
   if (answers.anthropic) providersPatch.anthropic_api_key = answers.anthropic;
   if (Object.keys(providersPatch).length) written.push(mergeJson(join(home, 'providers.json'), providersPatch, 0o600, repoRoot));
+  // then (providers.json written first: never a moment with the key in neither place) the settings without it
+  const notes: string[] = [];
+  if (fromSettings && fromSettings.plan !== 'keep') {
+    const { apiKey: _gone, ...rest } = fromSettings.at.body;
+    void _gone;
+    writeAt(guardPath(fromSettings.at.file, [fromSettings.at.file], repoRoot), `${JSON.stringify(rest, undefined, '\t')}\n`, 0o600);
+    written.push(fromSettings.at.file);
+    notes.push(fromSettings.plan === 'move'
+      ? `The model key the monitor's settings held is now in ${relPretty(join(home, 'providers.json'))}, the one place Timmy keeps it.`
+      : `The monitor's settings no longer hold a model key: ${relPretty(join(home, 'providers.json'))} does.`);
+  } else if (fromSettings?.plan === 'keep') {
+    notes.push(`The monitor's settings (${relPretty(fromSettings.at.file)}) hold another model key, not used: the one in ${relPretty(join(home, 'providers.json'))} is.`);
+  }
   // the project: its folder and README once; added to the private list
   const project = answers.project ?? s.recorded?.answers.project ?? s.firstProject ?? s.projects[0] ?? PROJECT_DEFAULT;
   const projDir = guardPath(join(home, 'projects', project), [], repoRoot); mkdirSync(projDir, { recursive: true });
@@ -205,11 +252,10 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
     answers: {
       ...prev, operator, identity: s.identity.exists ? (prev.identity ?? source) : source,
       ollama: answers.ollama || prev.ollama || s.providers.ollama || OLLAMA_DEFAULT,
-      ...(chat ? { chat } : {}), ...(answers.logs ?? prev.logs ? { logs: answers.logs ?? prev.logs } : {}),
-      ...(answers.edge !== undefined ? { edge: answers.edge } : prev.edge !== undefined ? { edge: prev.edge } : {}), project,
+      ...(chat ? { chat } : {}), project,
     },
   }, 0o600, repoRoot));
-  return { ok: true, written: [...new Set(written)], operator, operator_id: operatorId, project, identity_source: source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined };
+  return { ok: true, written: [...new Set(written)], operator, operator_id: operatorId, project, identity_source: source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined, ...(notes.length ? { notes } : {}) };
 }
 
 /** The first run with every answer at once (tests, `--yes`): the answers given, the preselected ones for the rest. */
@@ -224,19 +270,24 @@ export function applyInit(a: Pick<InitOptions, 'operator' | 'project'> & Partial
 function withDefaults(state: SetupState, given: Answers): Answers {
   const out: Answers = { ...given };
   for (const q of pendingQuestions(state, given)) {
-    if (q.id === 'key' || q.id === 'edge') continue; // no key and no host unless given
+    if (q.id === 'key') continue; // no key unless given
     const pre = q.preselect({ ...out }, state);
     if (q.id === 'chat') out.chat = pre as Chat;
-    else if (q.id === 'logs') out.logs = pre as Logs;
     else (out as Record<string, string>)[q.id] = pre;
   }
   return out;
 }
 
-/** Where a run of the guided setup may write, as a person reads it. */
-function writesFor(state: SetupState, repoRoot: string): string[] {
+/** Where a run of the guided setup may write, as a person reads it (`newKey`: a key is given now). */
+function writesFor(state: SetupState, repoRoot: string, newKey = false): string[] {
+  void state;
   const pin = join(repoRoot, '.timmy', 'store-pin');
-  return [`${relPretty(timmyHome())}/`, `${relPretty(privateDir(repoRoot))}/`, ...(existsSync(pin) ? [] : [`${relPretty(pin)} (the receipts store)`])];
+  const settings = settingsKeyPlan(timmyHome(), newKey ? 'given' : undefined);
+  return [
+    `${relPretty(timmyHome())}/`, `${relPretty(privateDir(repoRoot))}/`,
+    ...(existsSync(pin) ? [] : [`${relPretty(pin)} (the receipts store)`]),
+    ...(settings && settings.plan !== 'keep' ? [`${relPretty(settings.at.file)} (its model key ${settings.plan === 'move' ? 'moves to' : 'leaves it for'} providers.json)`] : []),
+  ];
 }
 
 /**
@@ -244,21 +295,47 @@ function writesFor(state: SetupState, repoRoot: string): string[] {
  * answer (flags answer too), writes after a yes, prints one line of what the setup chose, then `next` (where to go from
  * here; the REPL prints its own). 0 set up (or nothing to ask), 1 declined, 130 stopped (Ctrl+C), 2 a refused flag.
  */
-export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string; next?: readonly string[] } = {}): Promise<number> {
+export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string; next?: readonly string[]; force?: readonly QuestionId[] } = {}): Promise<number> {
   const repoRoot = workspaceRoot();
   const state = readSetupState(process.env, repoRoot);
-  if (state.identity.exists && given.identity !== undefined) { io.log(`  ${IDENTITY_KEPT}`); return 2; }
-  const pending = pendingQuestions(state, given);
+  const force = o.force ?? [];
+  // refused before anything is asked, in words within 60 columns: what cannot be written is never found after "Proceed?"
+  const refused = identityRefusal(state, given);
+  if (refused) { say(io.log, refused.words); return refused.code; }
+  const pending = pendingQuestions(state, given, force);
   if (!pending.length && !Object.keys(given).length) {
     io.log('');
-    for (const l of wrap(`Every setup question has an answer: ${setupSummary(state)}.`)) io.log(l);
-    for (const l of wrap('To change one: timmy init --chat local|openrouter, --openrouter <key>, --logs local|cloud, --ollama <host> or --operator <name> (an identity is never replaced).')) io.log(l);
+    say(io.log, `Every setup question has an answer: ${setupSummary(state)}.`);
+    say(io.log, 'To change one: timmy init --chat local|openrouter, --ollama <host> or --operator <name>; a model key: /setup key in the REPL, or timmy init --openrouter - (the key from stdin). An identity is never replaced.');
     io.log('');
     return 0;
   }
-  const asked = await askSetup({ state, given, io, title: o.title ?? (state.identity.exists ? 'TIMMY · guided setup' : 'TIMMY · first run — guided setup'), writes: writesFor(state, repoRoot) });
+  const asked = await askSetup({ state, given, io, force, title: o.title ?? (state.identity.exists ? 'TIMMY · guided setup' : 'TIMMY · first run — guided setup'), writes: writesFor(state, repoRoot, Boolean(given.key) || force.includes('key')) });
   if ('stopped' in asked) return asked.stopped === 'interrupted' ? 130 : 1;
-  return applyAndReport(asked.answers, { by, repoRoot, state }, io, o.json === true, o.next);
+  // R4 (H98, journey-2): what the home holds now, read again just before writing: another setup (timmy init in another
+  // terminal, the monitor's FIRST RUN) may have answered meanwhile; its answers are the base, these go over them, and an
+  // identity made meanwhile is kept (never replaced)
+  const fresh = readSetupState(process.env, repoRoot);
+  return applyAndReport(mergeFresh(asked.answers, fresh), { by, repoRoot, state: fresh }, io, o.json === true, o.next);
+}
+
+/** The answers to write over what the home holds now: an identity that appeared meanwhile (or a seed left there) is kept. */
+export function mergeFresh(answers: Answers, fresh: SetupState): Answers {
+  const out: Answers = { ...answers };
+  if (fresh.identity.exists || fresh.identity.seed) delete out.identity;
+  return out;
+}
+
+/** Why the identity given (a flag) or held cannot be written, before anything is asked; null when nothing stops it. */
+function identityRefusal(state: SetupState, given: Answers): { words: string; code: number } | null {
+  if (state.identity.exists && given.identity !== undefined) return { words: IDENTITY_KEPT, code: 2 };
+  if (state.identity.seed && given.identity !== undefined) return { words: SEED_KEPT, code: 2 };
+  if (state.identity.seed === 'unreadable') return { words: SEED_UNREADABLE, code: 1 };
+  if (given.identity !== undefined && !isNewKey(given.identity)) {
+    const why = identityProblem(given.identity);
+    if (why) return { words: `--seed: ${why}`, code: 2 };
+  }
+  return null;
 }
 
 /**
@@ -282,11 +359,11 @@ export async function setupBeforeMonitor(args: readonly string[], o: { env?: Nod
   return code;
 }
 
-/** Writes and reports; a refusal (an unreadable seed, a seed that is not one) in words, exit 1. */
+/** Writes and reports; a refusal (an unreadable seed, a seed that is not one) in words within 60 columns, exit 1. */
 function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean, next?: readonly string[]): number {
   let r: InitResult;
   try { r = applySetup(answers, w); } catch (e) {
-    io.log(`  ${e instanceof Error ? e.message : String(e)}`);
+    say(io.log, e instanceof Error ? e.message : String(e));
     return 1;
   }
   return report(r, io, json, next);
@@ -296,7 +373,7 @@ function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; st
 const NEXT = [
   '\n  Next: `timmy doctor`, then `timmy` to open the REPL.',
   '  In the REPL: Studio /studio · Control Room /room ·',
-  '  God\'s Eye View /overview · all three in your browser:',
+  '  God\'s Eye View /overview · the board in your browser:',
   '  /board live. The monitor: timmy watch.\n',
 ];
 
@@ -305,22 +382,46 @@ function report(r: InitResult, io: Pick<SetupIO, 'log'>, json: boolean, next: re
   if (json) { io.log(JSON.stringify(r)); return 0; }
   const after = readSetupState();
   io.log('');
-  for (const l of wrap(`✓ Set up: ${setupSummary(after)}.`)) io.log(l);
+  say(io.log, `✓ Set up: ${setupSummary(after)}.`);
   io.log(`    identity ${r.operator_id} (${r.identity_source})`);
-  for (const w of r.written) io.log(`    wrote ${relPretty(w)}`);
+  for (const w of r.written) for (const l of wrap(`wrote ${relPretty(w)}`, 60, '    ')) io.log(l);
+  for (const n of r.notes ?? []) say(io.log, n);
   for (const l of next) io.log(l);
   return 0;
 }
 
+/** R4 (H98, journey-2): a value given as `-`: read hidden at a terminal, else all of stdin (a key piped in); never echoed. */
+async function readDash(what: string, log: (s: string) => void): Promise<string | null> {
+  if (process.stdin.isTTY) return terminalIO(log).hidden!(`  ${what} (hidden as you type): `);
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(Buffer.from(c as Buffer));
+  return Buffer.concat(chunks).toString('utf8').trim();
+}
+
+/** A key (or a seed) written in a command's arguments: other processes see it and the shell's history keeps it. */
+export const KEY_IN_ARGUMENTS = 'A key given in a command\'s arguments is visible to other processes (ps) and kept in your shell history: next time, give - and pipe it in (timmy init --yes --openrouter - < a file), or answer the questions, which hide it.';
+
 /** The wizard. Returns the process exit code. */
 export async function runInit(args: string[], io: { isTTY: boolean; log: (s: string) => void; question?: (q: string) => Promise<string> } = { isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY), log: console.log }): Promise<number> {
   const o = parseInitArgs(args);
-  if (o.error) { io.log(`  ${o.error}`); return 2; }
+  if (o.error) { say(io.log, o.error); return 2; }
+  // R4 (H98, journey-2): `-` reads a key or a seed from stdin (hidden at a terminal); one written in the arguments still
+  // works, and is said to be visible
+  for (const [flag, field, what] of [['--openrouter', 'openrouter', 'OpenRouter key'], ['--anthropic', 'anthropic', 'Anthropic key'], ['--seed', 'seed', 'Seed or key file']] as const) {
+    const v = o[field];
+    if (v === '-') {
+      const read = await readDash(what, io.log);
+      if (read === null) { io.log('  Stopped: nothing was written.'); return 130; }
+      if (!read) { say(io.log, `${flag} -: nothing came on stdin, so nothing was written.`); return 2; }
+      o[field] = read;
+    } else if (v !== undefined && (field !== 'seed' || /^[0-9a-fA-F]{64}$/.test(v))) say(io.log, KEY_IN_ARGUMENTS);
+  }
   if (!o.yes && !io.isTTY) { printBlankSlateBanner(io.log); io.log('  (no TTY: nothing written — answer with flags and --yes)'); return 0; }
   const given = answersFromFlags(o);
   if (o.yes) {
     const state = readSetupState();
-    if (state.identity.exists && given.identity !== undefined) { io.log(`  ${IDENTITY_KEPT}`); return 2; }
+    const refused = identityRefusal(state, given);
+    if (refused) { say(io.log, refused.words); return refused.code; }
     return applyAndReport(withDefaults(state, given), { by: 'timmy init', state }, { log: io.log }, o.json);
   }
   const term = terminalIO(io.log);
