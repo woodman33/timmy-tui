@@ -10,7 +10,8 @@
  * - run as a command through tsx, as the FAKE `timmy act '/iterate tray …'` of a workflow block: it reads TIMMY_OPERATION
  *   (the block's run), writes in the current folder (the project) and seals on the store `timmy act` would use there
  *   (TIMMY_STORE). FAKE_TRAY_OUTCOME picks the outcome (succeeded, default; no change; failed), FAKE_TRAY_JOB the export
- *   folder's 8 hex digits, FAKE_TRAY_LOG a file each call is noted in.
+ *   folder's 8 hex digits, FAKE_TRAY_LOG a file each call is noted in. R4 (H102, part 2): FAKE_TRAY_LAST_BUILD=stale makes a
+ *   no change's last build stale, and the command then exits 4 (NO_CHANGE_EXIT), as `timmy act` exits for that request.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -30,12 +31,13 @@ export interface FakeTrayFlow { id: string; rel: string; step: string; stepSha25
  * flow receipt, sealed with `dir` as the store's folder (appendReceipt's own default: the current folder's store).
  * - `outcome` succeeded: the record names the STEP as its rebuild's export and as what its readback read (verdict matches);
  * - `no change`: the record names no rebuild; its last_build check names the STEP (in `job`'s folder, which must already
- *   hold it) with the check's words, as the tray's own check writes them (src/flows/iterate.ts trayLastBuild);
+ *   hold it) with the check's words, as the tray's own check writes them (src/flows/iterate.ts trayLastBuild); with `stale`,
+ *   the check found the request changed since that build (the last build stale);
  * - `failed`: the flow ended in its build step and names no STEP.
  */
 export function fakeTrayFlow(root: string, o: {
   operation?: string; job?: string; outcome?: 'succeeded' | 'no change' | 'failed'; stepText?: string; seal?: boolean; dir?: string;
-  lastBuild?: Partial<LastBuildCheck>; project?: string; id?: string;
+  lastBuild?: Partial<LastBuildCheck>; project?: string; id?: string; stale?: boolean;
 } = {}): FakeTrayFlow {
   const id = o.id ?? newFlowId();
   const job = o.job ?? randomBytes(4).toString('hex');
@@ -61,17 +63,19 @@ export function fakeTrayFlow(root: string, o: {
     record.rebuild = { state: 'succeeded', outputs: [{ path: step, sha256: stepSha256, bytes: fs.statSync(path.join(root, step)).size }] };
     record.readback = { state: 'completed', step: { path: step, sha256: stepSha256 }, verdict: 'matches', tolerance: { bounds_mm: 1e-6, volume_relative: 1e-8 }, scope: 'FAKE' };
   } else if (outcome === 'no change') {
-    record.why = 'no change: FAKE: the agent changed nothing, so nothing was rebuilt';
+    record.why = `no change: FAKE: the agent changed nothing, so nothing was rebuilt${o.stale ? '; the last build is stale' : ''}`;
     record.last_build = {
-      state: 'current', checked_at: now,
+      state: o.stale ? 'stale' : 'current', checked_at: now,
       build: { kind: 'recipe', id: `${job}-0000-4000-8000-000000000000`, outputs: `out/recipes/${job}/` },
       checks: [
-        { what: 'the request (the parameter values it was built from)', recorded: sha('FAKE request'), now: sha('FAKE request'), same: true },
+        { what: 'the request (the parameter values it was built from)', recorded: sha('FAKE request'), now: sha(o.stale ? 'FAKE request, changed since' : 'FAKE request'), same: !o.stale },
         { what: 'source build.py', recorded: sha('FAKE source'), now: sha('FAKE source'), same: true },
         { what: `its export out/recipes/${job}/console-tray.stl`, recorded: sha('FAKE stl'), now: sha('FAKE stl'), same: true },
         ...(stepSha256 ? [{ what: `its export ${step}`, recorded: stepSha256, now: stepSha256, same: true }] : []),
       ],
-      words: `FAKE: the last build (recipe job ${job}) still matches its recorded inputs`,
+      words: o.stale
+        ? `FAKE: the last build (recipe job ${job}) is stale: the request has changed since it was built; /recipe tray runs it again`
+        : `FAKE: the last build (recipe job ${job}) still matches its recorded inputs`,
       ...o.lastBuild,
     };
   } else {
@@ -132,8 +136,10 @@ if (main) {
   const op = process.env.TIMMY_OPERATION?.trim();
   const outcome = (process.env.FAKE_TRAY_OUTCOME ?? 'succeeded') as 'succeeded' | 'no change' | 'failed';
   const root = fs.realpathSync(process.cwd());
-  const f = fakeTrayFlow(root, { ...(op ? { operation: op } : {}), outcome, ...(process.env.FAKE_TRAY_JOB ? { job: process.env.FAKE_TRAY_JOB } : {}) });
+  const stale = outcome === 'no change' && process.env.FAKE_TRAY_LAST_BUILD === 'stale';
+  const f = fakeTrayFlow(root, { ...(op ? { operation: op } : {}), outcome, ...(process.env.FAKE_TRAY_JOB ? { job: process.env.FAKE_TRAY_JOB } : {}), ...(stale ? { stale } : {}) });
   if (process.env.FAKE_TRAY_LOG) fs.appendFileSync(process.env.FAKE_TRAY_LOG, `${op ?? ''}|${process.argv.slice(2).join(' ')}|${f.id}\n`);
-  process.stdout.write(`  FAKE /iterate tray (a test double: no agent ran, nothing was built): flow ${f.id} ${outcome} · record ${f.rel}${f.receipt ? ` · receipt ${f.receipt}` : ''}\n`);
-  process.exit(outcome === 'failed' ? 1 : 0);
+  process.stdout.write(`  FAKE /iterate tray (a test double: no agent ran, nothing was built): flow ${f.id} ${outcome}${stale ? ' (the last build stale)' : ''} · record ${f.rel}${f.receipt ? ` · receipt ${f.receipt}` : ''}\n`);
+  // as `timmy act` exits: 1 failed; for no change, 0 with the last build current, 4 (NO_CHANGE_EXIT) with it stale
+  process.exit(outcome === 'failed' ? 1 : stale ? 4 : 0);
 }

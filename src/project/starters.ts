@@ -23,7 +23,7 @@ export const STARTERS: Readonly<Record<string, string>> = {
   // Round R4 (helper H64)
   'illustrator-starter': 'an Adobe Illustrator script (/illustrator author badge.jsx): a labelled badge saved as .ai with SVG, PDF and PNG; edit.jsx relabels it',
   // Round R4 (helper H51)
-  'tray-workflow': 'one request as one operation: WORKFLOW.md changes the tray, inspects its STEP, shows the result and keeps a draft lesson (/run WORKFLOW.md lesson)',
+  'tray-workflow': 'one request as one operation: WORKFLOW.md changes the tray, inspects its STEP, shows the result and keeps a draft lesson (/run WORKFLOW.md lesson); APPROVAL.md shows the NEEDS YOU box a risky block asks in (/run APPROVAL.md tidy)',
   // Round R4 (helper H63)
   'unreal-starter': 'a Blueprint-only Unreal project and a script that builds a level of cubes from scene.params.json (/unreal TimmyStarter.uproject scene.py)',
 };

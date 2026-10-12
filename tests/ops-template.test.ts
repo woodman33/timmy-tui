@@ -34,6 +34,7 @@ import { parseWorkflow, runOrder } from '../src/workflows/upmd.js';
 import { OPERATION_ID } from '../src/ops/context.js';
 import { readChain, receiptsPath, verifyChain } from '../src/utils/receipts.js';
 import { riskyBlocks } from '../src/repl/workflow-gate.js';
+import { runDetail } from '../src/ops/run-detail.js';
 import { CLI, FIXTURES, opsKit, replOf, REPO, sandbox, text, TSX, json } from './helpers/ops-sandbox.js';
 import { fakeTools } from './helpers/vox-fakes.js';
 import { runAsync } from './helpers/run-async.js';
@@ -47,6 +48,8 @@ const temp = (prefix: string): string => { const d = fs.realpathSync(fs.mkdtempS
 const doc = (): string => fs.readFileSync(path.join(TEMPLATE, 'WORKFLOW.md'), 'utf8');
 const block = (name: string): string => parseWorkflow(doc()).find((b) => b.name === name)!.code;
 const SENTENCE = 'A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP.';
+/** R4 (H102, part 2): the lesson's sentence when the request made no change: no readback is claimed; the flow and its check are named. */
+const NO_CHANGE_SENTENCE = (flow: string): string => `This tray request made no change: nothing was rebuilt or read back. The check of flow ${flow} found the last build current, and VoxVision inspected the STEP of that build.`;
 /** A file's time set back by `ago` seconds (what `ls -t` sorts by). */
 const age = (abs: string, ago: number): void => { const t = new Date(Date.now() - ago * 1000); fs.utimesSync(abs, t, t); };
 
@@ -117,9 +120,15 @@ describe('the tray-workflow starter', () => {
     expect(blocks[2].code).toBe('timmy act \'/op\' --wait');
     expect(blocks[3].code).toBe([
       'flow=$(timmy evidence flow) || exit 1',
+      'outcome=$(timmy evidence flow --outcome) || exit 1',
       'step=$(timmy evidence step) || exit 1',
       'vox=$(timmy evidence vox --of "$step") || exit 1',
-      `timmy act "/lesson add \\"${SENTENCE}\\" --from $flow --from $vox --applies tray" --wait`,
+      'case "$outcome" in',
+      `  succeeded) lesson="${SENTENCE}" ;;`,
+      `  "no change") lesson="${NO_CHANGE_SENTENCE('$(basename "$flow" .json)')}" ;;`,
+      '  *) echo "No lesson kept: flow $flow ended $outcome, and neither sentence here says what that run showed." >&2; exit 1 ;;',
+      'esac',
+      'timmy act "/lesson add \\"$lesson\\" --from $flow --from $vox --applies tray" --wait',
     ].join('\n'));
     // No block asks a person (/run WORKFLOW.md lesson needs no NEEDS YOU box), and none sorts files by their time.
     expect(riskyBlocks(blocks, ['change', 'inspect', 'result', 'lesson'])).toEqual([]);
@@ -128,7 +137,9 @@ describe('the tray-workflow starter', () => {
     const d = doc().replace(/\s+/g, ' ');
     expect(d).toContain('The instruction in the `change` block is the request');
     expect(d).toContain('finds this run\'s flow by the run\'s operation id, never by a file\'s time');
-    expect(d).toContain('Edit the sentence to say what you learned.');
+    expect(d).toContain('Edit the sentences to say what you learned.');
+    // R4 (H102, part 2): the sentence says only what ran, by how the flow ended
+    expect(d).toContain('Its sentence says only what ran, by how the flow ended (`timmy evidence flow --outcome`)');
     expect(d).toContain('No model is trained.');
     // Nothing personal, no absolute path.
     for (const f of ['README.md', 'WORKFLOW.md', 'APPROVAL.md', 'recipes/tray.params.json']) expect(fs.readFileSync(path.join(TEMPLATE, f), 'utf8'), f).not.toMatch(/\/Users\/|\/home\/|@[a-z0-9-]+\.[a-z]/i);
@@ -196,6 +207,21 @@ describe('the blocks find this run\'s evidence by its operation id (timmy eviden
     expect(none.stderr).toContain(`flow ${flow.rel}: flow ${flow.id} of operation ${OP}`);
     expect(callsOf(c)).toEqual([]);
   }, 180_000);
+
+  it('lesson in a run that made no change (R4 H102, part 2): its sentence names no readback, and names the flow whose check found the last build current', async () => {
+    const b = box('tray-lesson-nochange-');
+    // the last build: another operation's flow made its STEP (FAKE bytes); this operation's flow made no change and its
+    // check (FAKE, in the check's shape) found that build current
+    fakeTrayFlow(b.root, { operation: OTHER, job: 'aaaaaaaa', dir: b.root });
+    const mine = fakeTrayFlow(b.root, { operation: OP, job: 'aaaaaaaa', outcome: 'no change', dir: b.root });
+    const myVox = fakeVoxRecord(b.root, mine.step, { operation: OP, dir: b.root });
+    const r = await runBlock(b, 'lesson', OP);
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(callsOf(b)).toEqual([[OP, 'act', `/lesson add "${NO_CHANGE_SENTENCE(mine.id)}" --from ${mine.rel} --from ${myVox.rel} --applies tray`, '--wait']]);
+    expect(r.stderr).toContain(`flow ${mine.rel}: flow ${mine.id} of operation ${OP} (no change); receipt ${mine.receipt} on the runs chain sealed this record`);
+    expect(r.stderr).toContain(`step ${mine.step}: the last build's STEP (recipe job aaaaaaaa), which flow ${mine.id}'s check found current (the flow made no change)`);
+    expect(JSON.stringify(callsOf(b))).not.toContain('readback');
+  }, 120_000);
 });
 
 describe('a /run of the starter through the test-double upmd', () => {
@@ -293,5 +319,55 @@ describe('a /run of the starter through the test-double upmd', () => {
     const chain = readChain('runs', s.root).filter((r) => r.operation_id === op);
     for (const k of ['predict', 'flow', 'vox', 'lesson', 'workflow']) expect(chain.map((r) => r.kind), k).toContain(k);
     expect(verifyChain('runs', s.root).ok).toBe(true);
+  }, 240_000);
+
+  it('R4 (H102, part 2): /run WORKFLOW.md lesson when the request made no change: inspect takes the last build\'s STEP, and the lesson names the flow and its check, never a readback that did not run', async () => {
+    const s = sandbox(kit, 'tray-workflow-nochange-');
+    fs.rmSync(s.root, { recursive: true, force: true });
+    expect(copyStarter('tray-workflow', s.root)).toHaveProperty('files');
+    // FAKE: the STEP worker VoxVision runs (tests/helpers/vox-fakes.ts: not OCP; it answers in the worker's shape)
+    const tools = fakeTools(temp('tray-vox-tools-'));
+    // The last build: an earlier run (another operation) made its STEP (FAKE bytes) and its record.
+    const last = fakeTrayFlow(s.root, { operation: 'o0f0f0f0f', job: '1a2b3c4d', dir: s.root });
+    // `timmy` on PATH: the real CLI, but for the change block's act, the FAKE tray flow, which makes no change and finds that
+    // last build current (its check in the check's shape; exit 0, as `timmy act` exits then).
+    fs.writeFileSync(path.join(s.bin, 'timmy'), [
+      '#!/bin/sh',
+      `if [ "$1" = "act" ]; then case "$2" in /iterate*) FAKE_TRAY_OUTCOME="no change" FAKE_TRAY_JOB=1a2b3c4d exec "${TSX}" "${FAKE_TRAY}" "$@" ;; esac; fi`,
+      `exec "${TSX}" "${CLI}" "$@"`, '',
+    ].join('\n'), { mode: 0o755 });
+    vi.stubEnv('TIMMY_CADQUERY_PYTHON', tools.step);
+    vi.stubEnv('FAKE_STEP_SIZE', '150,80,30');
+    const { ws } = replOf(kit, s);
+    const started = text(await ws.operate('/run WORKFLOW.md lesson', 'repl', () => ws.run('WORKFLOW.md lesson')));
+    const job = /Running\s+(j[0-9a-f]{6})/.exec(started)?.[1];
+    expect(job, started).toBeDefined();
+    const done = await ws.jobs.done(job!);
+    const log = ws.jobs.tail(job!, 400).join('\n');
+    expect(done.state, log).toBe('completed');
+    const h = ws.ops.latest!;
+    await ws.ops.done(h);
+    const op = h.id;
+    expect(done.steps.map((x) => [x.name, x.state, x.outcome ?? ''])).toEqual([['change', 'completed', 'no change'], ['inspect', 'completed', ''], ['result', 'completed', ''], ['lesson', 'completed', '']]);
+    const flowName = fs.readdirSync(path.join(s.root, 'results', 'flows')).find((n) => n !== `${last.id}.json`)!;
+    const flowRel = `results/flows/${flowName}`;
+    expect(json(path.join(s.root, flowRel))).toMatchObject({ operation: op, outcome: 'no change', last_build: { state: 'current' } });
+    expect(log).toContain(`step ${last.step}: the last build's STEP (recipe job 1a2b3c4d), which flow ${flowName.slice(0, -5)}'s check found current (the flow made no change)`);
+    const voxName = fs.readdirSync(path.join(s.root, 'results', 'vox')).find((n) => n.endsWith('.json'))!;
+    const voxRel = `results/vox/${voxName}`;
+    expect(json(path.join(s.root, voxRel))).toMatchObject({ action: 'inspect', operation: op, inputs: [{ path: last.step }] });
+
+    // The lesson the real /lesson add made: the no-change sentence, with this run's flow and VoxVision records as evidence.
+    const lessons = fs.readdirSync(path.join(s.root, '.timmy', 'memory', 'lessons')).filter((n) => n.endsWith('.json'));
+    expect(lessons).toHaveLength(1);
+    const lesson = json(path.join(s.root, '.timmy', 'memory', 'lessons', lessons[0]));
+    expect(lesson).toMatchObject({ text: NO_CHANGE_SENTENCE(flowName.slice(0, -5)), status: 'draft', operation: op });
+    expect(String(lesson.text)).not.toContain('readback');
+    expect((lesson.evidence as Array<{ path: string }>).map((e) => e.path)).toEqual([flowRel, voxRel]);
+
+    // The run detail of the operation (src/ops/run-detail.ts) says no change, and names the lesson it made among its records.
+    const d = runDetail(op, { project: s.root });
+    expect(d.verdict.state).toBe('no change');
+    expect(d.files).toContainEqual({ path: `.timmy/memory/lessons/${lessons[0]}`, role: 'record', from: `.timmy/memory/lessons/${lessons[0]}` });
   }, 240_000);
 });
