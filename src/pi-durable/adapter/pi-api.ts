@@ -58,7 +58,7 @@ export interface Conversation {
   readonly id: number;
   submit(draft: { type: 'input'; content: string; requestId?: string; whenBusy?: 'steer' | 'followUp' | 'reject' }, c: PiContext): Promise<Submission>;
   abort(c: PiContext): Promise<void>;
-  entries(query: { order?: 'ascending' | 'descending' }, limit: number, cursor: unknown, c: PiContext): Promise<{ items: EntryRecord[] }>;
+  entries(query: { order?: 'ascending' | 'descending'; minEntryId?: number; maxEntryId?: number }, limit: number, cursor: unknown, c: PiContext): Promise<{ items: EntryRecord[]; next?: unknown }>;
 }
 export interface Tx {
   doc(token: unknown): Promise<Record<string, unknown>>;
@@ -118,7 +118,19 @@ export const PI_FILES = {
   sqliteCore: 'node_modules/@earendil-works/pi-durable/dist/storage/sqlite/index.js',
   ai: 'node_modules/@earendil-works/pi-ai/dist/index.js',
   context: 'node_modules/@earendil-works/chord/dist/context/index.js',
+  /** loaded only for a catalog estimate: pi-ai's built-in OpenRouter catalog (no request is made) */
+  openrouter: 'node_modules/@earendil-works/pi-ai/dist/providers/openrouter.js',
 } as const;
+
+/** pi-durable's agent events of one conversation (experimental upstream): a snapshot, then batches per commit. */
+export interface PiEventStream {
+  readonly snapshot: { readonly entries?: readonly unknown[] } & Record<string, unknown>;
+  start(listener: (events: readonly Record<string, unknown>[]) => Promise<void>): void;
+  stop(): Promise<unknown>;
+}
+
+/** pi-ai's catalog arithmetic for one OpenRouter model: its rates and the USD figure for the given tokens. */
+export interface CatalogEstimate { readonly usd: number; readonly rates: { readonly input: number; readonly output: number } }
 
 type Loose = any; // eslint-disable-line @typescript-eslint/no-explicit-any -- the pinned modules carry no types here, by design
 
@@ -131,8 +143,13 @@ export interface PiApi {
     string(opts?: { description?: string }): unknown;
     integer(opts?: { minimum?: number; maximum?: number; description?: string }): unknown;
     boolean(opts?: { description?: string }): unknown;
+    array(items: unknown, opts?: { minItems?: number; maxItems?: number }): unknown;
     optional(s: unknown): unknown;
   };
+  /** Attaches to one conversation's agent events (a read-only viewer: it never starts the scheduler). */
+  events(harness: Harness, conversationId: number): Promise<PiEventStream>;
+  /** pi-ai's catalog price for `input` + `output` tokens of an OpenRouter model, computed here (no request), or undefined when the catalog lacks it. */
+  catalogEstimate(modelId: string, tokens: { input: number; output: number }): Promise<CatalogEstimate | undefined>;
   lockedStorage(raw: DatabaseSync): LockedStorage;
   /**
    * A pi-ai model collection holding the FAKE providers. `addFaux` registers one faux provider (FAKE: an in-memory script,
@@ -169,7 +186,19 @@ export async function loadPi(workerDir: string): Promise<PiApi> {
       string: (opts) => T.String(opts ?? {}),
       integer: (opts) => T.Integer(opts ?? {}),
       boolean: (opts) => T.Boolean(opts ?? {}),
+      array: (items, opts) => T.Array(items, opts ?? {}),
       optional: (s) => T.Optional(s),
+    },
+    events: (harness, conversationId) => durable.watchEvents(harness, conversationId, C),
+    async catalogEstimate(modelId, tokens) {
+      const or: Loose = await load(PI_FILES.openrouter);
+      const models: Loose = ai.createModels();
+      models.setProvider(or.openrouterProvider());
+      const model: Loose = models.getModel('openrouter', modelId);
+      if (!model) return undefined;
+      const usage = { input: tokens.input, output: tokens.output, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: tokens.input + tokens.output, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+      ai.calculateCost(model, usage);
+      return { usd: usage.cost.total, rates: { input: model.cost?.input, output: model.cost?.output } };
     },
     lockedStorage(raw) {
       const db: Loose = new sqliteNode.NodeSqliteDatabase(raw);
