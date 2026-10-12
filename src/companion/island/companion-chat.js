@@ -20,6 +20,9 @@
  * verifies nothing: its button copies the command that checks the chain (`timmy verify`). An <approval> card shows its
  * command and says nothing is run or decided from this page (the decision is the REPL's NEEDS YOU): its button copies the
  * command. Neither turns green, granted or denied.
+ *
+ * R4 (H98): the ✨ sample says it is one where it is seen: its message, its answer and each card it draws carry a visible
+ * SAMPLE label (the page's own chip). A card in a model's answer carries none.
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -28,7 +31,12 @@ import { code } from '@streamdown/code';
 import { createMermaidPlugin } from '@streamdown/mermaid';
 
 const h = React.createElement;
-const { useState, useRef, useEffect } = React;
+const { useState, useRef, useEffect, createContext, useContext } = React;
+
+/** R4 (H98): true inside the ✨ sample's answer, so each card drawn there says SAMPLE too. */
+const SampleContext = createContext(false);
+/** The visible SAMPLE label: the page's own chip. */
+const sampleLabel = (words) => h('span', { className: 'sd-chip', 'data-sample-label': '' }, words || 'SAMPLE');
 
 const MODEL = 'qwen/qwen3.8-max';
 /** The command that checks Timmy's receipt chain where Timmy runs (src/cli.ts `timmy verify`: the runs chain). */
@@ -64,6 +72,7 @@ function CopyButton(props) {
 
 // <receipt id="..." sha="..."> — the id and sha as the answer gave them; this page verifies nothing.
 function ReceiptCard(props) {
+  const sample = useContext(SampleContext);
   // Streamdown's sanitizer prefixes every id with 'user-content-' (so markup cannot clobber the page's own ids); the card
   // shows the id the answer gave
   const given = typeof props.id === 'string' && props.id.startsWith('user-content-') ? props.id.slice('user-content-'.length) : props.id;
@@ -72,6 +81,7 @@ function ReceiptCard(props) {
   return h('div', { className: 'sd-receipt', 'data-card': 'receipt' },
     h('div', { className: 'sd-card-head' },
       h('strong', { className: 'sd-receipt-title' }, '🧾 RECEIPT · AS RECEIVED'),
+      sample ? sampleLabel() : null,
       h('span', { className: 'sd-card-state' }, 'NOT VERIFIED HERE')
     ),
     h('div', { className: 'sd-card-row' }, 'Run ID: ', h('span', { className: 'sd-receipt-id' }, id)),
@@ -86,10 +96,12 @@ function ReceiptCard(props) {
 
 // <approval command="..."> — the command, shown; nothing is run or decided here (the REPL's NEEDS YOU decides).
 function ApprovalCard(props) {
+  const sample = useContext(SampleContext);
   const command = props.command || '(no command given)';
   return h('div', { className: 'sd-approval', 'data-card': 'approval' },
     h('div', { className: 'sd-card-head' },
       h('strong', { className: 'sd-approval-title' }, '🔐 APPROVAL GATE'),
+      sample ? sampleLabel() : null,
       h('span', { className: 'sd-card-state' }, 'DECIDED IN THE REPL, NOT HERE')
     ),
     h('pre', { className: 'sd-approval-cmd' }, '$ ', command),
@@ -276,12 +288,15 @@ function App() {
           h('br'),
           'or press ✨ Try it to stream this page’s own sample (no model is asked).')
         : messages.map((m, i) => m.role === 'user'
-          ? h('div', { key: i, className: 'sd-user' + (m.sample ? ' sample' : '') }, m.content)
+          ? h('div', { key: i, className: 'sd-user' + (m.sample ? ' sample' : '') }, m.sample ? sampleLabel() : null, m.sample ? ' ' : null, m.content)
           : h('div', { key: i, className: 'sd-answer' + (m.sample ? ' sample' : ''), 'data-sample': m.sample ? 'yes' : 'no' },
-            h(Markdown, {
-              text: m.content,
-              animating: streaming && i === messages.length - 1
-            })
+            m.sample ? h('div', { className: 'sd-chips' }, sampleLabel('SAMPLE · THE PAGE’S OWN TEXT · NO MODEL WAS ASKED')) : null,
+            h(SampleContext.Provider, { value: !!m.sample },
+              h(Markdown, {
+                text: m.content,
+                animating: streaming && i === messages.length - 1
+              })
+            )
           )
         ),
       error ? h('div', { className: 'sd-error', role: 'alert' }, '⚠ ', error) : null

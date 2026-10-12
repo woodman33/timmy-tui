@@ -188,10 +188,13 @@ describe("the REPL names its project to Timmy Canvas, and says what the canvas s
     }
   });
 
+  // R4 (H98): after the board's top line (Timmy Studio, the Control Room, God's Eye View: tests/board-live-browser.test.ts)
   it('renderBoardBody draws the line first, escaped, with its command; without one, no line', () => {
     const input: BoardInput = { project: 'p', madeAt: 'now', base: '../../', references: [], workflows: [], jobs: [], outputs: [], observations: [] };
     expect(renderBoardBody(input).main).not.toContain('canvas-line');
     const main = renderBoardBody({ ...input, canvas: { tone: 'none', words: 'Timmy Canvas runs; no project is named to it yet.', command: '/canvas open' } }).main;
-    expect(main.startsWith('<p class="canvas-line canvas-none" id="canvas">Timmy Canvas runs; no project is named to it yet. <button type="button" class="cmd" data-cmd="/canvas open"')).toBe(true);
+    const [top, line] = main.split('\n');
+    expect(top).toMatch(/^<nav class="surfaces" [^>]*>.*<\/nav>$/);
+    expect(line.startsWith('<p class="canvas-line canvas-none" id="canvas">Timmy Canvas runs; no project is named to it yet. <button type="button" class="cmd" data-cmd="/canvas open"')).toBe(true);
   });
 });

@@ -128,6 +128,55 @@ describe.skipIf(!browserPath)('the live board in a real browser (headless Chromi
     }
   }, 30_000);
 
+  // R4 (H98): the board's top shows Timmy's three surfaces in one line. The Control Room and God's Eye View jump to their
+  // sections; Studio is /studio to copy, with why (the act bridge runs only its allowlisted actions, and Timmy Studio's page
+  // needs the one-time grant only the REPL's /canvas open mints). Clicking it copies and sends nothing to Timmy.
+  it('R4 (H98): its top: Studio as /studio to copy, with why; Control Room and God\'s Eye View jump to their sections', async () => {
+    const { ws, notes } = make();
+    await ws.boardLive('live');
+    const context = await browser.newContext({ viewport: { width: 900, height: 420 }, permissions: ['clipboard-read', 'clipboard-write'] });
+    const page = await context.newPage();
+    const problems: string[] = [];
+    const posts: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(m.text()); });
+    page.on('pageerror', (e) => problems.push(String(e)));
+    page.on('request', (r) => { if (r.method() === 'POST') posts.push(new URL(r.url()).pathname); });
+    await page.goto(ws.liveBoard!.url);
+    await page.waitForSelector('#main > nav.surfaces');
+    const top = await page.evaluate(() => {
+      const nav = document.querySelector('#main > nav.surfaces')!;
+      const parts = [...nav.querySelectorAll('[data-surface]')].map((e) => ({ id: e.getAttribute('data-surface'), tag: e.tagName, href: e.getAttribute('href'), text: (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim() }));
+      const css = getComputedStyle(nav);
+      return { first: document.getElementById('main')!.firstElementChild === nav, parts, styled: nav.querySelectorAll('[style]').length, ground: css.backgroundColor, link: getComputedStyle(nav.querySelector('a.surface')!).color };
+    });
+    expect(top.first).toBe(true);
+    expect(top.parts).toEqual([
+      { id: 'studio', tag: 'SPAN', href: null, text: 'Studio /studio type it in the REPL: the board cannot give Timmy Studio\'s page its one-time grant' },
+      { id: 'room', tag: 'A', href: '#room', text: 'Control Room' },
+      { id: 'overview', tag: 'A', href: '#overview', text: 'God\'s Eye View' },
+    ]);
+    // Timmy Homebrew's tokens (src/theme/tokens.ts: surface #121212, link #6CA8FF), and no style attribute (the page's policy allows none)
+    expect([top.ground, top.link, top.styled]).toEqual(['rgb(18, 18, 18)', 'rgb(108, 168, 255)', 0]);
+    // Control Room, then God's Eye View: each jumps to its section, and the board stays live (its token is in the page, not the address)
+    for (const id of ['room', 'overview'] as const) {
+      await page.click(`nav.surfaces a[data-surface="${id}"]`);
+      await page.waitForFunction((x) => location.hash === `#${x}`, id);
+      const at = await page.evaluate((x) => Math.round(document.getElementById(x)!.getBoundingClientRect().top), id);
+      expect(Math.abs(at), id).toBeLessThanOrEqual(2);
+    }
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    // Studio: copied, not acted on
+    await page.click('nav.surfaces [data-surface="studio"] button[data-cmd="/studio"]');
+    await page.waitForSelector('nav.surfaces button[data-cmd="/studio"][data-copied]');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/studio');
+    await page.waitForTimeout(300);
+    expect(posts).toEqual([]);
+    expect(notes.filter((n) => n.includes('board  /'))).toEqual([]);
+    expect(await page.textContent('#live')).toBe('live');
+    expect(problems).toEqual([]);
+    await context.close();
+  }, 30_000);
+
   it('a reload, with the token gone from the address, asks nothing and says to open the printed address', async () => {
     const { ws } = make();
     await ws.boardLive('live');
