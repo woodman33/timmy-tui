@@ -38,7 +38,7 @@
 //
 // Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
 // below run in Node's tests too.
-import { isTimmyArrow, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
+import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -281,6 +281,44 @@ export const shownValue = (v) => (typeof v === 'number' ? String(Math.round(v * 
 export function keptDetail(detail) {
   if (!detail || detail.type !== 'result') return detail ?? null;
   return { ...detail, facts: (detail.facts || []).filter((f) => f.how !== 'so far') };
+}
+
+/** R4 (H109): the operation a drawn card was placed for ("Place this operation" names it in the shape's meta), or null. */
+export const boundOperation = (shape) => {
+  const op = shape && shape.meta && typeof shape.meta === 'object' ? shape.meta.timmyOperation : undefined;
+  return typeof op === 'string' && OPERATION_ID.test(op) ? op : null;
+};
+
+/**
+ * R4 (H109; r25 D9 c): a parameter card placed for operation `op` keeps, beside the file as it is now (`detail`), what that
+ * operation used of the file (`used`), as the reading lists it for the operation (src/studio/used-values.ts: from its flow
+ * record, or the bytes a receipt of it names); when the reading lists the operation and none of its records names the file, that
+ * is unknown, and why; when the reading does not list the operation, what this card last read (`prev`), said as last read; with
+ * neither, unknown, and why. Never today's values in their place. Any other card's detail is returned as it is.
+ */
+export function boundDetail(detail, op, answer, prev) {
+  if (!detail || detail.type !== 'params' || typeof op !== 'string' || !OPERATION_ID.test(op)) return detail ?? null;
+  const listed = (answer && Array.isArray(answer.operations) ? answer.operations : []).find((o) => o && o.id === op);
+  const read = listed && Array.isArray(listed.used) ? listed.used.find((u) => u && u.operation === op && u.file === detail.file) : undefined;
+  const last = prev && prev.used && prev.used.operation === op && prev.used.file === detail.file ? prev.used : null;
+  const none = (from) => ({ operation: op, file: detail.file, state: 'unknown', values: [], sha256: null, from, verified: false, build: null });
+  let used;
+  if (read) used = read;
+  else if (listed) used = none(`no record of operation ${op} names ${detail.file}: no flow of it changed the file, and no receipt of it names the file's bytes`);
+  else if (last) used = last.asLastRead ? last : { ...last, asLastRead: true };
+  else used = none(`operation ${op} is not among the operations this reading lists, and this card holds no earlier reading of what it used`);
+  return { ...detail, used };
+}
+
+/**
+ * R4 (H109): one value as used beside the file now: what to say after it (null when the file holds the same value now). `now`
+ * the parameter card's detail as read now (its values are the file's only when its state is 'ok').
+ */
+export function nowBeside(name, used, now) {
+  if (!now || now.state !== 'ok') return null;
+  const v = (now.values || []).find((x) => x.name === name);
+  if (!v) return `not in ${now.file} now`;
+  return shownValue(v.value) === shownValue(used) ? null : `now ${shownValue(v.value)}${v.unit ? ` ${v.unit}` : ''} in ${now.file}`;
 }
 
 /** Whether a card's detail says a job of it still runs (the page then reads the project more often). */
@@ -530,7 +568,8 @@ export function createCards(deps) {
         if (r.props.gone || r.props.title !== card.title || r.props.command !== card.command) updates.push({ id: r.id, type: r.type, props: { gone: false, title: card.title, command: card.command } });
         continue;
       }
-      const kept = keptDetail(card.detail);
+      // R4 (H109; r25 D9 c): a parameter card placed for an operation keeps what that operation used beside the file now
+      const kept = boundDetail(keptDetail(card.detail), boundOperation(r), answer, r.props.data);
       if (r.props.gone || JSON.stringify(kept) !== JSON.stringify(r.props.data) || r.props.title !== card.title || r.props.command !== card.command) {
         updates.push({ id: r.id, type: r.type, props: { data: kept, readAt: answer.madeAt, gone: false, title: card.title, command: card.command } });
       }
@@ -549,11 +588,11 @@ export function createCards(deps) {
 
   /**
    * A drawn card's props, from the reading it is placed from. R4 (H81): a reading without the detail places the card with
-   * none (it says why, and "never read").
+   * none (it says why, and "never read"). R4 (H109): placed for operation `op`, a parameter card holds what it used (boundDetail).
    */
-  const propsFor = (card, answer, type) => ({
+  const propsFor = (card, answer, type, op = null) => ({
     w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command,
-    data: answer.detail === false ? null : keptDetail(card.detail), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false,
+    data: answer.detail === false ? null : boundDetail(keptDetail(card.detail), op, answer, null), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false,
   });
 
   /** One frame, or 50 ms where frames do not come (a hidden tab draws none): never a wait that does not end. */
@@ -927,6 +966,66 @@ export function createCards(deps) {
     d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null);
   }
 
+  /**
+   * R4 (H109; r25 D9 c): a parameter card placed for an operation ("Place this operation"): what that operation used of the
+   * file, from its own records (boundDetail; src/studio/used-values.ts), labelled "as used by operation o…", each value beside
+   * the file as it is now ("now 160 in recipes/tray.params.json") and never replaced by it; "unknown", with why, when its
+   * records do not say. It is a record: nothing on it changes the file (the file's own card, Place card in the panel, does).
+   */
+  function BoundParamsCard({ shape }) {
+    const { own, mode, detail, readAt, now } = useCard(shape, 'params');
+    const p = shape.props;
+    const op = boundOperation(shape);
+    const d = detail && detail.type === 'params' ? detail : null;
+    // what it used, as this card keeps it (onAnswer writes it from each reading: boundDetail)
+    const used = p.data && p.data.type === 'params' && p.data.used && p.data.used.operation === op ? p.data.used : null;
+    const record = (now && Array.isArray(now.operations) ? now.operations : []).find((o) => o && o.id === op);
+    const file = d ? d.file : 'its parameter file';
+    const shownMode = {
+      ...mode, executable: false, badge: 'record',
+      words: mode.withheld || !mode.follows ? mode.words : `A record of operation ${op}: what it used of ${file}, beside the file as it is now. Nothing on this card changes the file; the file's own card does (Place card in the panel).`,
+    };
+    const known = !!used && used.state === 'recorded';
+    const fileNow = !!d && d.state === 'ok';
+    const names = [...new Set([...(known ? used.values.map((v) => v.name) : []), ...(fileNow ? (d.values || []).map((v) => v.name) : [])])];
+    const todayOf = (name) => { const v = fileNow ? (d.values || []).find((x) => x.name === name) : null; return v ? `now ${shownValue(v.value)}${v.unit ? ` ${v.unit}` : ''} in ${d.file}` : null; };
+    // each value as used, and under it (as the file's own card puts a value's help) what the file holds now where it differs
+    const rows = names.flatMap((name) => {
+      const u = known ? used.values.find((v) => v.name === name) : null;
+      const beside = u ? nowBeside(name, u.value, d) : todayOf(name);
+      return [
+        h('tr', { key: `u${name}`, 'data-tc-used': name },
+          h('th', { scope: 'row' }, name),
+          h('td', { className: 'tc-as-used' }, u ? span('tc-value', `${shownValue(u.value)}${u.unit ? ` ${u.unit}` : ''}`) : span('tc-note tc-warn', known ? 'not recorded' : 'unknown'))),
+        ...(beside ? [h('tr', { key: `n${name}`, className: 'tc-help-row', 'data-tc-now': name }, h('td', null), h('td', { className: 'tc-now' }, span('tc-note', beside)))] : []),
+      ];
+    });
+    const same = known && used.sha256 && d && d.base === used.sha256;
+    const head = !used ? ': not read yet' : known ? (used.verified ? '' : ' (not verified)') : ': unknown';
+    const opNow = { id: op, from: 'the operation it was placed for (Place this operation)', request: record ? record.request ?? null : null, state: record ? record.state ?? null : null };
+    const build = d && d.build;
+    return h(Frame, {
+      shape, type: 'params', mode: shownMode, follows: mode.follows, answer: own, readAt, op: opNow,
+      details: d ? [dl([['file', d.file], ['as used, sha256', used && used.sha256 ? used.sha256 : 'not named by its records'], ['now, sha256', d.base || 'no file'],
+        ['read from', used ? used.from : 'not read yet'], ['card', p.card], ['project', `${p.project} (${p.projectId})`]]),
+      ...(build ? [dl([['today\'s newest build', `${build.title} · ${build.word}`], ...build.facts.map((f) => [f.label, `${f.value} (${f.how})`])])] : []),
+      ] : words('tc-note', mode.withheld ? 'Its values are withheld here.' : 'No reading of this file yet.'),
+    },
+    mode.withheld ? withheldBody(p) : h('p', { className: 'tc-used' }, 'As used by operation ', h('code', { className: 'tc-op-id' }, op), span(known && used.verified ? '' : 'tc-warn', head), used && used.asLastRead ? span('tc-note', ' (as last read)') : null),
+    used && !mode.withheld ? words('tc-note tc-used-from', used.from) : null,
+    rows.length ? h('table', { className: 'tc-table tc-used-table' }, h('tbody', null, ...rows)) : null,
+    d && !fileNow ? words('tc-note', d.state === 'none' ? `${d.file} is not there now.` : `${d.file} is not usable now: ${d.error}`) : null,
+    same ? words('tc-note', `${d.file} holds the same bytes now.`) : null,
+    used && used.build ? h('p', { className: 'tc-build' }, 'Its build: ', used.build) : null,
+    h('div', { className: 'tc-acts' }, cmd(`/op ${op}`), d ? cmd(`/open ${d.file}`) : null),
+    d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null);
+  }
+
+  /** R4 (H109): a parameter card draws as the file's own card, or as a record of the operation it was placed for. */
+  function ParamsAnyCard({ shape }) {
+    return boundOperation(shape) ? h(BoundParamsCard, { shape }) : h(ParamsCard, { shape });
+  }
+
   function ResultCard({ shape }) {
     const { own, mode, detail, readAt } = useCard(shape, 'result');
     const p = shape.props;
@@ -971,7 +1070,8 @@ export function createCards(deps) {
     }
     return CardUtil;
   };
-  const utils = [make('workflow', WorkflowCard), make('params', ParamsCard), make('result', ResultCard)];
+  // R4 (H109): a parameter card placed for an operation draws as the record of what it used (ParamsAnyCard)
+  const utils = [make('workflow', WorkflowCard), make('params', ParamsAnyCard), make('result', ResultCard)];
   return {
     utils, startSession, onAnswer, wantsFast, place,
     // R4 (H100): an operation's cards at once, left to right in the order they ran, linked

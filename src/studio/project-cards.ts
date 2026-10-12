@@ -50,7 +50,9 @@ import { judgeIndex, type JudgeIndex } from '../room/judge.js';
 import type { Receipt } from '../utils/receipts.js';
 import { findWorkflowDocs } from '../workflows/upmd.js';
 // R4 (H75): what Timmy Canvas's own drawn cards show, built from the same readers (GET /api/project?detail=1).
-import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail, type DetailOperation } from './card-detail.js';
+import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail, type DetailOperation, type ParamsDetail } from './card-detail.js';
+// R4 (H109): what each operation used of a parameter file, from its own records
+import { usedReader, type UsedValues } from './used-values.js';
 
 export type ProjectCardKind = 'workflow' | 'params' | 'flow' | 'vox' | 'run' | 'unreadable';
 
@@ -102,6 +104,11 @@ export interface ProjectOperation {
   note: string | null;
   /** its cards' ids, in the order they ran (by when each record says it began; one that does not say comes last) */
   cards: string[];
+  /**
+   * R4 (H109; r25 D9 c): with the detail, what it used of each parameter file its records name (src/studio/used-values.ts),
+   * so a parameter card placed for it shows those values beside the file as it is now; absent when its records name none
+   */
+  used?: UsedValues[];
 }
 
 export interface ProjectCards {
@@ -547,6 +554,17 @@ function projectCardsNow(src: CardSource, given: { chain?: Receipt[]; jobs?: Job
     const op = x.operation ? byId.get(x.operation) : undefined;
     const said: DetailOperation = { id: x.operation, from: x.operationFrom, request: op?.request ?? null, state: op?.state ?? null };
     x.detail = { ...x.detail, operation: said } as CardDetail;
+  }
+  // R4 (H109; r25 D9 c): with the detail, what each operation used of each parameter file listed here, from its own records
+  if (c.detail && operations.length) {
+    try {
+      const reader = usedReader({ root, pid: c.pid, chain: c.chain, t: c.text });
+      const files = sent.flatMap((x) => (x.kind === 'params' && x.detail && x.detail.type === 'params' ? [x.detail as ParamsDetail] : []));
+      for (const op of operations) {
+        const used = files.flatMap((d) => { const u = reader.of(op.id, d); return u ? [u] : []; });
+        if (used.length) op.used = used;
+      }
+    } catch (e) { notes.push(`What the operations used of their parameter files could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`); }
   }
   return { cards: sent, notes: notes.map((n) => cardText(n, root)), operations };
 }
