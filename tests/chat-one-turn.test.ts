@@ -32,6 +32,9 @@ beforeEach(() => {
   project = join(box, 'project');
   mkdirSync(project, { recursive: true });
   writeFileSync(join(project, 'README.md'), '# demo\n');
+  // the project's own store, pinned in its folder (src/utils/receipts.ts rootStoreDir): its seals land there, whatever is above it
+  mkdirSync(join(project, '.timmy'), { recursive: true });
+  writeFileSync(join(project, '.timmy', 'store-pin'), join(project, '.timmy', 'receipts'));
   process.env.TIMMY_HOME = join(box, 'home', 'timmy');
   process.env.TIMMY_SETTINGS_DIR = join(box, 'settings');
   for (const v of ['OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'OLLAMA_HOST'] as const) delete process.env[v];
