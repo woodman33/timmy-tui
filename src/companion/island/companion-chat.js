@@ -23,6 +23,13 @@
  *
  * R4 (H98): the ✨ sample says it is one where it is seen: its message, its answer and each card it draws carry a visible
  * SAMPLE label (the page's own chip). A card in a model's answer carries none.
+ *
+ * R4 (H104, second part): Send takes the chat's route, as the companion says it (companion.js: GET /api/chat/route, the
+ * setup's choice; src/companion/chat-route.ts): with the local model, its answer streams from this computer's Ollama with no
+ * tools, and the chip beside Send says so ("local <model> · Ollama · no tools here"); with OpenRouter and a key, as before;
+ * with neither, Send stays off and the words above it say why and where chat happens. ✨ Try it asks no model either way.
+ * What the local turn says beside its answer (a cloud-backed model, a cut answer) is shown under it, and its cost as the
+ * route reports it (none on this computer's Ollama, otherwise unknown): never an invented number.
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -224,8 +231,23 @@ function App() {
   const [tokens, setTokens] = useState(0);
   const [usage, setUsage] = useState(null);
   const [last, setLast] = useState(null); // what the counter is about: 'sample' | 'answer' | null
+  // R4 (H104, second part): the chat's route (null until the companion answers), what the last answer's turn said beside it,
+  // and its cost as the route reported it
+  const [route, setRoute] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [cost, setCost] = useState(null);
   const scrollRef = useRef(null);
   const demoTimer = useRef(null);
+
+  useEffect(() => {
+    const page = window.timmyCompanion;
+    if (!page || typeof page.onRoute !== 'function') return undefined;
+    const off = page.onRoute(setRoute);
+    // asked again when the person comes back to this window (a /setup in a terminal changes it)
+    const again = () => { void page.refreshRoute(); };
+    window.addEventListener('focus', again);
+    return () => { off(); window.removeEventListener('focus', again); };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -257,7 +279,12 @@ function App() {
       setError('This page has no token from Timmy, so it asks nothing: open the companion from `timmy watch` (q on HOME).');
       return;
     }
-    setError(null); setUsage(null); setTokens(0); setLast('answer');
+    // R4 (H104, second part): only on a route the companion named; with none, its words, and nothing is sent
+    if (!route || !route.ready) {
+      setError(route ? route.words : 'The companion has not said which route the chat takes yet, so nothing was sent.');
+      return;
+    }
+    setError(null); setUsage(null); setTokens(0); setLast('answer'); setNotes([]); setCost(null);
 
     // the conversation as sent: the person's messages and the model's answers, never a sample of the page's own
     const convo = messages.filter((m) => !m.sample).concat([{ role: 'user', content: text }]);
@@ -278,18 +305,25 @@ function App() {
           setUsage(data);
         } else if (event === 'error') {
           setError((data && data.error) || String(data));
+        } else if (event === 'notice') {
+          // R4 (H104, second part): what the local turn said beside its answer
+          if (data && typeof data.text === 'string' && data.text) setNotes((prev) => prev.concat([data.text]));
+        } else if (event === 'cost') {
+          setCost(data && typeof data.words === 'string' ? data.words : null);
         }
       }, controller.signal);
     } catch (err) {
       if (!err || err.name !== 'AbortError') setError((err && err.message) || String(err));
     } finally {
       setStreaming(false);
+      // the route as it is now (the setup may have changed it in a terminal)
+      if (typeof page.refreshRoute === 'function') void page.refreshRoute();
     }
   }
 
   function tryIt() {
     if (streaming) return;
-    setError(null); setUsage(null); setTokens(0); setLast('sample');
+    setError(null); setUsage(null); setTokens(0); setLast('sample'); setNotes([]); setCost(null);
     setMessages((prev) => prev.concat([
       { role: 'user', content: '✨ Try it: this page’s own sample (receipt + approval + code fence + mermaid; no model is asked)', sample: true },
       { role: 'assistant', content: '', sample: true }
@@ -323,13 +357,29 @@ function App() {
           ? '◉ ~' + tokens + ' tokens (estimated; the sample asked no model)'
           : '◉ ~' + tokens + ' tokens (estimated: no count was reported)';
 
+  // R4 (H104, second part): the route's words: what Send does and where, or why it is off
+  const ready = Boolean(route && route.ready);
+  const routeLabel = route ? route.label : 'asking the companion which route the chat takes…';
+  const empty = !route
+    ? ['Asking the companion which route the chat takes…', h('br', { key: 'b' }), 'Meanwhile ✨ Try it streams this page’s own sample (no model is asked).']
+    : route.kind === 'local'
+      ? ['Send a message to stream ', route.model, '’s answer from Ollama through Streamdown (no tools here; nothing goes to OpenRouter),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
+      : route.kind === 'openrouter'
+        ? ['Send a message to stream ', MODEL, ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
+        : ['Send is off here (why: under the messages).', h('br', { key: 'b' }), '✨ Try it streams this page’s own sample (no model is asked).'];
+  const placeholder = !route ? 'Asking the companion which route the chat takes…'
+    : route.kind === 'local' ? 'Message ' + route.model + ' … (Ollama, no tools here)'
+      : route.kind === 'openrouter' ? 'Message ' + MODEL + ' … (streams back as SSE; spends credits)'
+        : 'Send is off: see why above';
+
   return h('div', { className: 'sd-app' },
-    // Meta bar: model, status, token counter
+    // Meta bar: the route, status, token counter
     h('div', { className: 'sd-meta' },
       h('div', { className: 'sd-chips' },
-        h('span', { className: 'sd-chip' }, MODEL),
+        h('span', { className: 'sd-chip route', id: 'sd-route-chip', 'data-route': route ? route.kind : 'unknown' }, routeLabel),
         h('span', { className: 'sd-chip' + (streaming ? ' on' : ''), id: 'sd-status', role: 'status', 'aria-live': 'polite' },
-          streaming ? (sampling ? 'STREAMING THE SAMPLE…' : 'STREAMING…') : 'IDLE')
+          streaming ? (sampling ? 'STREAMING THE SAMPLE…' : 'STREAMING…') : 'IDLE'),
+        cost ? h('span', { className: 'sd-chip', id: 'sd-cost' }, cost) : null
       ),
       h('span', { className: 'sd-tokens' + (streaming ? ' on' : ''), id: 'sd-tokens' }, tokenLabel)
     ),
@@ -337,10 +387,7 @@ function App() {
     // Message scroll area
     h('div', { ref: scrollRef, className: 'sd-messages', id: 'sd-messages' },
       messages.length === 0
-        ? h('div', { className: 'sd-empty' },
-          'Send a message to stream ', MODEL, ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),',
-          h('br'),
-          'or press ✨ Try it to stream this page’s own sample (no model is asked).')
+        ? h('div', { className: 'sd-empty' }, ...empty)
         : messages.map((m, i) => m.role === 'user'
           ? h('div', { key: i, className: 'sd-user' + (m.sample ? ' sample' : '') }, m.sample ? sampleLabel() : null, m.sample ? ' ' : null, m.content)
           : h('div', { key: i, className: 'sd-answer' + (m.sample ? ' sample' : ''), 'data-sample': m.sample ? 'yes' : 'no' },
@@ -353,8 +400,12 @@ function App() {
             )
           )
         ),
+      notes.length ? h('div', { className: 'sd-notes', id: 'sd-notes' }, notes.map((n, i) => h('div', { key: i, className: 'sd-note' }, 'ⓘ ', n))) : null,
       error ? h('div', { className: 'sd-error', role: 'alert' }, '⚠ ', error) : null
     ),
+
+    // R4 (H104, second part): why Send is off, and where chat happens, when the chat has no route here
+    route && !route.ready ? h('div', { className: 'sd-route-off', id: 'sd-route-off', role: 'status' }, route.words) : null,
 
     // Input bar
     h('div', { className: 'sd-input-bar' },
@@ -362,9 +413,9 @@ function App() {
         id: 'sd-input',
         className: 'sd-input',
         value: input,
-        placeholder: 'Message ' + MODEL + ' … (streams back as SSE; spends credits)',
+        placeholder,
         'aria-label': 'Message to the model',
-        disabled: streaming,
+        disabled: streaming || Boolean(route && !route.ready),
         onChange: (e) => setInput(e.target.value),
         onKeyDown: (e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); }
@@ -375,9 +426,10 @@ function App() {
         type: 'button',
         id: 'sd-send',
         onClick: () => { void send(); },
-        disabled: streaming || !input.trim(),
+        disabled: streaming || !input.trim() || !ready,
+        title: ready ? route.label : route ? route.words : 'Asking the companion which route the chat takes',
         className: 'sd-btn-primary'
-      }, streaming ? 'Streaming…' : 'Send ⚡')
+      }, streaming ? 'Streaming…' : route && !route.ready ? 'Send: off' : 'Send ⚡')
     )
   );
 }

@@ -57,8 +57,9 @@ describe('the browser companion\'s failures are words (R4 H87)', () => {
       return;
     }
     // R4 (H92): the words as a page of Timmy's look (in the companion's dark frame they were plain text, drawn black), with
-    // no script, framed by this origin only
-    expect({ status: slate.status, html: /^text\/html/.test(slate.type) }).toEqual({ status: 404, html: true });
+    // no script, framed by this origin only. R4 (H104, r25's D11): status 200 (the words are the page; a 404 put "Failed to
+    // load resource" in the companion page's console each time its SLATE 3D tab was opened)
+    expect({ status: slate.status, html: /^text\/html/.test(slate.type) }).toEqual({ status: 200, html: true });
     expect(slate.body).toContain(`<p>${SLATE3D_ABSENT}</p>`);
     expect(slate.body).not.toMatch(/<script|\sstyle=|\son[a-z]+=/);
     expect(wordsOnly(slate.body)).toBe(true);
