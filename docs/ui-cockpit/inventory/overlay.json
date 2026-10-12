@@ -1,0 +1,493 @@
+{
+  "schema": "timmy.inventory-overlay/1",
+  "pass": 1,
+  "updated": "2026-10-11",
+  "about": "Hand-kept judgement that no document records, joined by scripts/inventory/inventory.mjs with what it reads from the repository. A feature id is the generator's (section number and a slug of the checklist row); an id that matches no feature is reported in INVENTORY.md. Every statement names where it comes from: the feature checklist, the ledger (CHECKPOINTS.md), a doc, a commit, or the round R4 brief of 2026-10-11 (the operator's hands-on preview of a300851 and the usability gaps a guide listed). Ranges are estimates, never measurements.",
+
+  "stages": [
+    {
+      "id": "batch",
+      "title": "The current batch (round R4: this round's helpers, H101 to H106, and Codex's REA part A)",
+      "what": "The hands-on preview's gaps still open after the H97 to H100 fixes, the tray template's evidence selection, and this inventory's first pass. H101 rehearses on the Mac without code; H102 to H104 own the fixes (the lead's assignment says which); H106 is this inventory.",
+      "remaining": [
+        "Open gap (2): a chat message does nothing without a paid key; no local chat route is offered.",
+        "Open gap (6): seeing an approval needs a hand-written document.",
+        "Open gap (13): the companion's Chat Mirror is empty and Mermaid labels are tiny.",
+        "The tray-workflow starter's inspect and lesson blocks pick the newest STEP, flow and VoxVision files by timestamp (`ls -t`), which the operator's rules forbid as a way to choose a run's evidence.",
+        "The lead's merge of the round's branches, the full suite, then one scripted Mac run (r24) of the merged head."
+      ],
+      "range": "about one helper round and one Mac run: roughly 2 to 5 hours of wall time",
+      "assumptions": [
+        "A helper round here (about four helpers in parallel, then the lead's merges and the full suite) took about 1.5 to 3 hours in round R4 (batches 5 to 9 merged at 04:23, 06:20, 07:59, 09:51 and 11:03 PT on 2026-10-10; ledger rows 155 to 164).",
+        "A scripted Mac run took 0.5 to 2 hours (r23c: 07:52 to 08:32 PT, ledger row 173).",
+        "No failed gate in r24; a failure stops and is reported, then needs its own round."
+      ]
+    },
+    {
+      "id": "preview",
+      "title": "The hands-on preview (what the operator can try by hand on the local install)",
+      "what": "Everything the checklist marks implemented in sections 1 to 12, as the operator tries the preview of a300851 and its successors. Fixed since a300851 (the brief): two first-run setups, the header naming a paid model, a satisfied rerun read as FAILED, operation ids hard to find, no progress during /run, q meaning two things, cloud-leaning defaults, the companion port, the risky Run, Studio cards placed one by one, long lines cut.",
+      "remaining": [
+        "Whatever r24 and the operator's next try find.",
+        "The features below whose code changed after their newest demonstration (\"Code since\"): each needs its demonstration again on the current revision before it is called demonstrated there.",
+        "The features never demonstrated for real (the ledger's \"no\" rows), each a scripted Mac run."
+      ],
+      "range": "one to three helper rounds after the current batch (about half a day to a day and a half), plus a Mac run per round",
+      "assumptions": [
+        "The next try finds fewer than about ten gaps, each a bounded helper task.",
+        "The preview stays local: no publish, tag or deployment (HOLD)."
+      ]
+    },
+    {
+      "id": "rea",
+      "title": "The REA first slice (Inspect app through rea-agents 6.4.0)",
+      "what": "Part A (Codex, on its own branch): qualify the pinned `rea-agents` 6.4.0 CLI and its MCP server on the Mac against an owned fixture, and build a standalone adapter core in `src/rea/` with fixture tests, an opt-in live test and `docs/ui-cockpit/REA.md`. Part B (the lead): wire \"Inspect app\" as a Timmy job with a board result card.",
+      "remaining": [
+        "Part A: in flight; nothing of it is in this tree (src/rea/** is absent here).",
+        "Part B: not started.",
+        "A scripted Mac run of Inspect app through the installed package."
+      ],
+      "range": "one to two helper rounds after part A lands (about half a day to a day), plus one Mac run",
+      "assumptions": [
+        "rea-agents 6.4.0 qualifies on the Mac as pinned, and its first action needs no installed provider (Ghidra or others) and no model key.",
+        "No paid model call; the brief's out-of-scope list holds."
+      ]
+    },
+    {
+      "id": "beta",
+      "title": "A connected beta (outside testers on their own computers)",
+      "what": "What a tester outside this workspace would need, from the checklist's open blockers and the Connect and Cloud documents.",
+      "remaining": [
+        "npm publish: HOLD until the operator lifts it.",
+        "The @opentui/core engines decision (pin it, or change the engines field): a registry install takes a newer 0.5.x than the lockfile's 0.5.10, and 0.5.17 declares node >= 26.4.",
+        "A commercial tldraw licence before anything with the canvas is published (TLDRAW.md decision 1); four locked tldraw packages declare \"SEE LICENSE IN LICENSE.md\".",
+        "A chat route a tester can use without the operator's paid key (open gap (2)), or a guided key of their own.",
+        "Timmy Connect qualified on real computers: slice 1 is tested against FAKE OpenSSH programs only; its real-OpenSSH test is to run on the Mac (r24); no Windows computer has been available.",
+        "Timmy Cloud with a real provider: slice 1 runs against a SIMULATED provider only; any live account access, purchase, DNS change or machine service change needs the operator's authorization, with a plan, its cost and its rollback first.",
+        "Packages imported but not declared (INVENTORY.md: Findings): `@modelcontextprotocol/sdk` carries Timmy's own MCP route 2 yet resolves only through a transitive copy."
+      ],
+      "range": "several days to a few weeks: roughly 3 to 10 helper rounds, gated on the operator's decisions",
+      "assumptions": [
+        "The operator's decisions arrive (the publish HOLD, the tldraw licence, the Hostinger authorization, the engines field).",
+        "Each live step is planned and approved first, as CONNECT-AND-CLOUD.md requires.",
+        "No new integration is added to the beta's scope."
+      ]
+    },
+    {
+      "id": "platform",
+      "title": "Platform qualification",
+      "what": "Qualification, not development: frozen inputs, one run per gate (AGENTS.md sections 5 and 10). UI and agent-flow readiness needs isolated Vercel and/or Cloudflare sandboxes (REPLAY-02's GitHub Actions exception covers its replay only).",
+      "remaining": [
+        "UI and agent flows in isolated Vercel or Cloudflare sandboxes (REPLAY-02 was blocked when the Vercel connector refused sandbox creation; ledger notes of 2026-10-07).",
+        "Native apps on each operating system they are claimed for: every native demonstration so far is on the operator's Mac; Windows routes (After Effects' -r, the Windows OpenSSH shapes) never ran on Windows; CadQuery on the operator's Windows computers waits for those computers to be awake.",
+        "A packed install of this revision on each platform (the check passed on the Mac: ledger row 173).",
+        "The CadQuery recipe's native qualification (`qualify.ts`, both widths and the negative controls), kept as a separate gate and not run in R3 or R4.",
+        "Fonts and themes per terminal (Monaspace Argon's rendering is unknown: no ledger row shows it)."
+      ],
+      "range": "unknown until the platforms are chosen; each platform needs at least one preparation round and one frozen qualification run",
+      "assumptions": [
+        "The sandboxes and the Windows computers are available, and their cost stays within a recorded cap.",
+        "A failed gate stops with FAILED / HOLD and is not repaired in place."
+      ]
+    },
+    {
+      "id": "research",
+      "title": "The long-term research backlog",
+      "what": "The checklist's sections 13 and 14 (integrations not built, and the operator's tool list), plus the planned rows without code.",
+      "remaining": [
+        "Houdini (a licence first), Spline driven parametrically (its bridge must be enabled), Plasticity, Unity, Godot and USD stages, build123d, NVIDIA Cosmos and Tripo, Remotion, HyperFrames and Rive video, writing tools, images in the REPL.",
+        "Vision adapters (Viser, FiftyOne, Depth Anything, SAM): presence is counted; no probe run qualifies one yet.",
+        "Filesystem observation for the native apps other than Unreal; the rest of God's Eye View; AgentPass and TaskForge as REPL tools; Roboflow from /observe.",
+        "The spatial-vision roadmap (AGENTS.md section 1) beyond the bounded verifier, whose HOLDs (I1, I2) stand."
+      ],
+      "range": "no range: each item needs a decision and a first bounded slice; slices in round R4 took about one helper round each",
+      "assumptions": [
+        "None claimed: scope, order and authorization are the operator's."
+      ]
+    }
+  ],
+
+  "features": {
+    "3-one-receipt-per-block-needs-you-before": {
+      "stage": "batch",
+      "benefit": "A risky workflow block waits for the person's yes in the REPL, and every block leaves a receipt of its own.",
+      "gap": "Open gap (6) of the hands-on preview: seeing an approval needs a hand-written document.",
+      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
+      "next": "A way to see an approval without writing a document (this round), then r24."
+    },
+    "4-the-browser-companion": {
+      "stage": "batch",
+      "benefit": "A browser view of the monitor and logs on this computer only, or on a trusted local network when asked.",
+      "gap": "Open gap (13): the Chat Mirror is empty and Mermaid labels are tiny. The checklist's open item (code from public CDNs) is answered in code since H92 (dec6d4e, a page that loads nothing from the internet under a strict policy) and H95 (08ac65e, its chat with Streamdown bundled locally); neither has run on the Mac.",
+      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
+      "next": "Fix (13) this round; r24 opens the page from the installed package and checks that nothing loads from another host."
+    },
+    "3-the-tray-workflow-starter-workflow-md": {
+      "stage": "batch",
+      "benefit": "One request carried end to end: a local agent's change, a rebuild and readback, a VoxVision inspection, the operation's card and a draft lesson.",
+      "gap": "Its inspect and lesson blocks choose files with `ls -t` (templates/tray-workflow/WORKFLOW.md lines 31, 54 and 55): the newest STEP, flow and VoxVision files by timestamp, which the operator's rules forbid as a way to choose a run's evidence.",
+      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
+      "next": "Blocks that name this operation's own records instead (this round), then r24 runs the starter from the installed package."
+    },
+    "5-iterate-tray-instruction-the-agent-may": {
+      "benefit": "Change a CAD part in words: a local, free agent edits only the parameter file, and the rebuilt STEP is measured again outside the agent.",
+      "next": "Run it again on the current revision (its own files changed after the newest demonstration), as part of the tray workflow in r24."
+    },
+    "3-run-file-block-through-upmd": {
+      "benefit": "Run a named block of a Markdown workflow as a job, with its prediction sealed before and its outcome after."
+    },
+    "3-timmy-workflows-one-connected-card-per": {
+      "benefit": "Each workflow document is one card: its prose, its blocks as a graph with their states, its runs and receipts, editable on the live board."
+    },
+    "7-timmy-control-room": {
+      "benefit": "Every run in the project in one place, by owner, with its model, route, state, outputs and cost as recorded (unknown stays unknown)."
+    },
+    "7-god-s-eye-view-one-overview-of-the": {
+      "benefit": "One overview of the project: what needs the person, agents, workflows, apps, spatial records, history, costs and receipts, each with the command that opens it.",
+      "gap": "Partly built: slice 2 (devices, hosting, provider costs) is the added row gods-eye-view-slice-2; its view on Timmy Canvas, a ranking of spatial records and the rest of GODS-EYE-VIEW.md are not built."
+    },
+    "6-timmy-voxvision-inspect-file-and": {
+      "benefit": "Inspect or measure a file with the tool its bytes call for, each number labelled with its method and who measured it."
+    },
+    "4-timmy-canvas": {
+      "benefit": "Timmy Studio: a tldraw canvas the agent can draw on and a person can edit, served from this computer only."
+    },
+    "7-canvas-workflow-parameter-and-result": {
+      "owner": "the operator (a commercial tldraw licence before anything with the canvas is published)"
+    },
+    "9-openhands-agent-openhands-local-task": {
+      "benefit": "An autonomous coding agent in a container of its own, on a copy of the project, with a local model only; its changes come back only onto an unchanged project."
+    },
+    "9-codex-with-a-local-model": {
+      "benefit": "Codex on a local Ollama model, sandboxed to the project with no network, as a free route for /agent and /iterate."
+    },
+    "5-unreal-engine-unreal-project-uproject": {
+      "benefit": "Run a script inside Unreal Engine headless and have a second Unreal process read the saved level back."
+    },
+    "5-cinema-4d-c4d-script-py-through-c4dpy": {
+      "owner": "the operator: answer c4dpy's licence question once in Terminal (the checklist gives the exact steps)",
+      "next": "After the licence answer, a scripted Mac run of the c4d starter through /c4d."
+    },
+    "5-adobe-illustrator-illustrator-author": {
+      "gap": "The timmy act route stays partial: macOS's Automation prompt for the app the run was started from was left unanswered (ledger row 168), and rows 171 and 173 left Illustrator untouched.",
+      "owner": "the operator (the macOS Automation permission is the operator's to give)",
+      "next": "The operator's decision on Automation, then the timmy act route run once on the Mac."
+    },
+    "8-agent-mcp-tools": {
+      "gap": "Needs a model turn: no agent MCP call has run on the Mac (a paid key, or the local chat route of open gap (2) first).",
+      "next": "One agent turn that calls an MCP tool, within the lead's recorded cap or on a local model."
+    },
+    "5-run-native-agent-tool": {
+      "gap": "Needs a model turn: no run_native call by the agent has run on the Mac (a paid key, or the local chat route of open gap (2) first).",
+      "next": "One agent turn that calls run_native, within the lead's recorded cap or on a local model."
+    },
+    "8-two-mcp-to-cli-routes-mcporter-s-cli": {
+      "benefit": "Two independent ways to reach any MCP server from the command line (AGENTS.md section 8 asks for at least two).",
+      "gap": "Route 2 (Timmy's own CLI on the MCP SDK) imports @modelcontextprotocol/sdk, which package.json does not declare: it resolves to 1.30.0 only through another package's dependency. Both routes share that library (the checklist says so).",
+      "next": "Declare @modelcontextprotocol/sdk at the version the routes were tested with (the lead's decision; package.json is the lead's)."
+    },
+    "11-npm-publish": {
+      "stage": "beta",
+      "owner": "the operator (HOLD)",
+      "next": "None until the operator lifts the HOLD."
+    },
+    "11-a-clean-packed-install-on-node-24": {
+      "stage": "beta",
+      "owner": "the lead (a decision: pin @opentui/core or change the engines field), then the operator",
+      "next": "Decide the engines question, then run the packed-install check again."
+    },
+    "11-runtime-asset-lookup": { "stage": "platform" },
+    "12-monaspace-argon": { "stage": "platform" },
+    "13-cadquery-on-the-operator-s-windows-pcs": {
+      "stage": "platform",
+      "owner": "the operator: wake the Windows computers and say which is which",
+      "next": "Then the private plan's step 1 (route, hardware, Python), read only."
+    },
+    "13-unreal": {
+      "stage": "preview",
+      "gap": "The engine-shelf lane stays partial; the native route /unreal is the demonstrated one (section 5, row 166)."
+    },
+    "13-rerun-viewer": { "stage": "preview" },
+    "13-houdini": {
+      "stage": "research",
+      "owner": "the operator: a Houdini licence from the Houdini Launcher"
+    },
+    "13-spline-driven-parametrically": {
+      "stage": "research",
+      "owner": "the operator: open a document in the Spline editor and enable its AI bridge",
+      "next": "One successful Spline MCP call, recorded with its receipt."
+    },
+    "13-roboflow": { "stage": "research", "owner": "the operator: ROBOFLOW_API_KEY" },
+    "13-taskforge-api": { "stage": "research", "owner": "the operator: TASKFORGE_API_URL to its API" },
+    "13-agentpass": { "stage": "research", "owner": "the operator: AGENTPASS_REPO_PATH to its checkout" },
+    "13-timmy-connect-the-operator-s-computers": {
+      "stage": "beta",
+      "gap": "The checklist row predates slice 1: see the added row connect-slice-1, built by H90 and tested against FAKE OpenSSH programs.",
+      "next": "The lead updates this row (and CONNECT-AND-CLOUD.md's matrix) from TIMMY-CONNECT.md."
+    },
+    "13-timmy-cloud-hosting-for-timmy-pro": {
+      "stage": "beta",
+      "gap": "The checklist row predates slice 1: see the added rows cloud-backend-slice-1 and cloud-client, run against a SIMULATED provider only.",
+      "next": "The lead updates this row (and CONNECT-AND-CLOUD.md's matrix) from TIMMY-CLOUD.md."
+    },
+    "13-openrig": {
+      "stage": "research",
+      "gap": "Excluded by the owner (2026-10-11 00:01 PT); kept as a record, never installed or launched.",
+      "owner": "none (excluded)",
+      "next": "None."
+    },
+    "12-the-monitor-s-focus-in-green": {
+      "owner": "the operator (a change to the visual law, DESIGN.md)"
+    },
+    "5-filesystem-observation-for-the-other": { "stage": "research" }
+  },
+
+  "added": [
+    {
+      "id": "chat-repl",
+      "entry": "a message typed in the REPL (timmy)",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "batch",
+      "feature": "Chat in the REPL: a message to Timmy's agent, which answers and calls its tools (asking first for the risky ones), each turn sealed with its cost as reported",
+      "planned": "✓ (the R1 plan's REPL)",
+      "implemented": "✓ (OpenRouter through `@openrouter/sdk` 0.12.35's callModel loop, AGENTS.md section 8): `src/repl/turn.ts`, `src/agent/core.ts`, `src/agent/providers.ts`, `src/utils/model-key.ts`",
+      "tested": "✓ (`tests/repl-turn.test.ts`, `tests/turn-cost-unknown.test.ts`, `tests/turn-tool-receipts.test.ts`, `tests/providers.test.ts`; with stand-in model clients, not traced in detail by this pass)",
+      "demonstrated": "✓ rows 65 and 71 (LIVE-01 on the Mac: a real model and tool turn, a cancel and another turn, through OpenRouter, paid within its cap; the recheck at `f785be8`)",
+      "blocker": "a paid model key: no local chat route is offered (open gap (2))",
+      "evidence": "`src/repl/turn.ts`; `tests/repl-turn.test.ts`",
+      "benefit": "Ask Timmy for anything in words and watch it use its tools, with every turn's receipt and cost kept.",
+      "gap": "Open gap (2) of the hands-on preview: a chat message does nothing without a paid key; no local chat route is offered.",
+      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
+      "next": "Offer a local chat route (this round), then r24 tries it with the Mac's local model."
+    },
+    {
+      "id": "setup-guided",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "preview",
+      "feature": "One guided setup: `timmy init`, `timmy watch`'s FIRST RUN and the REPL's `/setup` ask one set of questions, each once; providers.json is the one place for the model key; the identity read hidden and checked",
+      "planned": "✓ (the hands-on preview's gap: two first-run setups)",
+      "implemented": "✓ (`cbffa88`, `c6402b7`, `377bf41`, `91c5221`, R4 H98): `src/setup/questions.ts`, `src/setup/terminal.ts`, `src/setup/surfaces.ts`, `src/setup/home.ts`, `src/setup/identity.ts`, `src/setup/companion-port.ts`",
+      "tested": "✓ (`tests/setup-guided.test.ts`, `tests/repl-setup.test.ts`, `tests/repl-setup-pty.test.ts`, `tests/setup-watch-pty.test.ts`, `tests/monitor-first-run-keys-pty.test.ts`; terminals in a PTY)",
+      "demonstrated": "– (built after the operator's try of `a300851`; r24 is its first Mac run)",
+      "blocker": "–",
+      "evidence": "`src/setup/questions.ts`",
+      "benefit": "A first run asks each setup question once, whichever way the person starts Timmy.",
+      "gap": "Not yet run on the Mac.",
+      "next": "r24: a fresh sandbox user through timmy init, timmy watch and /setup."
+    },
+    {
+      "id": "run-clarity",
+      "entry": "/run <file> <block>",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "preview",
+      "feature": "Run clarity: \"no change\" as its own outcome end to end (never succeeded, never failed), operation ids kept whole and easy to find, `/run` progress lines read from its own records, a risky Run shown disabled with why",
+      "planned": "✓ (the hands-on preview's gaps: a satisfied rerun read as FAILED, operation ids hard to find, no progress during /run, the risky Run)",
+      "implemented": "✓ (`701f8c3`, `2d8e637`, `b2f6100`, `c9b9fc5`, `e13e51d`, `084be42`, `2faa621`, R4 H99): `src/repl/run-progress.ts`, `src/ops/outcome.ts`, `src/room/judge.ts`, `src/repl/end-lines.ts`, `src/workflows/run-blocks.ts`",
+      "tested": "✓ (`tests/no-change.test.ts`, `tests/no-change-run.test.ts`, `tests/no-change-recover.test.ts`, `tests/no-change-args.test.ts`, `tests/run-progress.test.ts`)",
+      "demonstrated": "– (r24 is its first Mac run)",
+      "blocker": "–",
+      "evidence": "`src/repl/run-progress.ts`",
+      "benefit": "A rerun that changes nothing says so, a long /run says how it goes, and an operation can be found by its id everywhere.",
+      "gap": "Not yet run on the Mac.",
+      "next": "r24: the tray workflow run twice (the second a \"no change\"), with its progress lines and operation id."
+    },
+    {
+      "id": "studio-operations",
+      "entry": "/canvas open, then Place this operation",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "preview",
+      "feature": "Timmy Studio's cards by operation: each card names its operation, the Project panel groups cards by operation, and Place this operation places one operation's cards together",
+      "planned": "✓ (the hands-on preview's gap: Studio cards placed one by one)",
+      "implemented": "✓ (`1234b3a`, `b1e6786`, R4 H100): `companion/studio-canvas/src/operations.js`, `src/studio/project-cards.ts`",
+      "tested": "✓ (`tests/studio-operations.test.ts`, `tests/studio-operation-browser.test.ts`, `tests/canvas-operations-model.test.ts`; a real headless Chromium; FIXTURE records)",
+      "demonstrated": "– (r24 is its first Mac run)",
+      "blocker": "a commercial tldraw licence before anything with the canvas is published (TLDRAW.md decision 1)",
+      "evidence": "`companion/studio-canvas/src/operations.js`",
+      "benefit": "One request's cards land on the canvas together instead of one at a time.",
+      "gap": "Not yet run on the Mac.",
+      "next": "r24: /canvas open on the tray workflow's project, then Place this operation."
+    },
+    {
+      "id": "gods-eye-view-slice-2",
+      "entry": "/overview",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "beta",
+      "feature": "God's Eye View slice 2 (`timmy.overview/2`): Devices, Hosting and provider Costs sections, new kinds of Needs you, and dependency edges, from Timmy Connect's and Timmy Cloud's records",
+      "planned": "✓ (CONNECT-AND-CLOUD.md's God's Eye View rows)",
+      "implemented": "✓ (`ff243a3`, R4 H93): `src/overview/remote.ts`, `src/overview/sources.ts`, `src/overview/sections.ts`",
+      "tested": "✓ (`tests/overview-remote.test.ts`: devices written by Timmy Connect's own functions with FAKE OpenSSH programs; orders through the real backend process with its SIMULATED provider; a real headless Chromium)",
+      "demonstrated": "– (no Mac run; no real device or provider record exists yet)",
+      "blocker": "real Connect and Cloud records (both slices are offline or simulated)",
+      "evidence": "`src/overview/remote.ts`",
+      "benefit": "Devices, hosting and provider costs beside the project's own work, each in steps rather than one word.",
+      "gap": "Shown only from simulated or test records.",
+      "next": "After Connect's first real device (r24's real-OpenSSH test), check the Devices section against it."
+    },
+    {
+      "id": "connect-slice-1",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "beta",
+      "feature": "Timmy Connect, slice 1: the operator's own computers over SSH (`timmy connect`, `/connect`): device records without secrets, host keys pinned only when a person confirms the fingerprint, probes, remote jobs reconciled before any retry, cancellation said exactly, results fetched with sha256 checked, Windows command shapes",
+      "planned": "✓ (the owner's order of 2026-10-10 19:38 PT; CONNECT-AND-CLOUD.md)",
+      "implemented": "✓ (`24cf7c4`, `05105d8`, `e18a6a8`, R4 H90): `src/connect/commands.ts`, `src/connect/ssh.ts`, `src/connect/jobs.ts`, `src/connect/hostkeys.ts`, `src/connect/remote-windows.ts`, `docs/ui-cockpit/TIMMY-CONNECT.md`",
+      "tested": "✓ fakes (FAKE ssh, ssh-keygen, ssh-keyscan and tailscale programs: `tests/connect-ssh.test.ts`, `tests/connect-records.test.ts`, `tests/connect-windows.test.ts`, `tests/connect-ids.test.ts`); the real-OpenSSH test (`tests/connect-real-ssh.test.ts`) skips where ssh and sshd are absent and was skipped where it was built",
+      "demonstrated": "– (no real computer contacted; TIMMY-CONNECT.md: the real-OpenSSH test is to run on the Mac in r24; no Windows computer was available)",
+      "blocker": "the operator's approval before any live step; a Windows computer awake with OpenSSH Server for the Windows shapes",
+      "evidence": "`src/connect/commands.ts`; `tests/connect-ssh.test.ts`",
+      "benefit": "Run and follow jobs on the operator's other computers, with every host key and remote state said exactly.",
+      "gap": "Tested against FAKE programs only; never run against a real computer; the Windows shapes never ran on Windows.",
+      "next": "r24: the real-OpenSSH test on the Mac; then one approved device, probed and used for one remote job."
+    },
+    {
+      "id": "cloud-backend-slice-1",
+      "entry": "the backend's HTTP API (services/cloud/main.ts)",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "beta",
+      "feature": "Timmy Cloud's backend, slice 1 (`services/cloud`, outside the npm package): customers, the Pro entitlement and ownership, spending limits and approvals, orders as durable steps with write-ahead provider calls and reconcile, cancellation said exactly, retention when Pro is cancelled, a local HTTP API",
+      "planned": "✓ (the owner's order of 2026-10-10 19:38 PT; CONNECT-AND-CLOUD.md)",
+      "implemented": "✓ (`9c1749e`, `9baa270`, `c02c42e`, R4 H91): `services/cloud/engine.ts`, `services/cloud/reducer.ts`, `services/cloud/http.ts`, `services/cloud/simulated-provider.ts`, `docs/ui-cockpit/TIMMY-CLOUD.md`",
+      "tested": "✓ against a SIMULATED provider only (`tests/cloud-model.test.ts`, `tests/cloud-api.test.ts`, `tests/cloud-reconcile.test.ts`, `tests/cloud-crash.test.ts`, `tests/cloud-process.test.ts`, `tests/cloud-redaction.test.ts`, `tests/cloud-review-fixes.test.ts`)",
+      "demonstrated": "– (no real provider called; nothing bought, registered, deployed or deleted anywhere real)",
+      "blocker": "the operator's authorization before any live account access, purchase, DNS change or machine service change; a host for the backend and a secret store",
+      "evidence": "`services/cloud/engine.ts`; `tests/cloud-model.test.ts`",
+      "benefit": "Hosting for Timmy Pro customers whose agency credentials never leave a backend the operator runs.",
+      "gap": "Simulated only; the private provider adapter is outside this repository and was not read.",
+      "owner": "the operator (authorization), then the lead",
+      "next": "The live plan's first step (a read of the provider account), once approved."
+    },
+    {
+      "id": "cloud-client",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "beta",
+      "feature": "Timmy Cloud's client: `timmy cloud use|status` and `/cloud` read the backend's answers for the active customer",
+      "planned": "✓ (CONNECT-AND-CLOUD.md)",
+      "implemented": "✓ (`496a833`, `7936a4b`, R4 H93): `src/cloud/cli.ts`, `src/cloud/commands.ts`, `src/cloud/read.ts`, `src/cloud/token.ts`",
+      "tested": "✓ (`tests/cloud-client-backend.test.ts`; against the backend with its SIMULATED provider)",
+      "demonstrated": "– (no backend is deployed)",
+      "blocker": "a running backend (the row above)",
+      "evidence": "`src/cloud/cli.ts`",
+      "benefit": "The person sees their hosting orders and their states from the terminal.",
+      "gap": "Exercised only against the simulated backend.",
+      "owner": "the lead, after the backend's live plan",
+      "next": "With the backend's first approved live step."
+    },
+    {
+      "id": "rea-first-slice",
+      "entry": "Inspect app (part B, not built)",
+      "section": "Built or open since the checklist was last updated (added by the overlay)",
+      "sectionNumber": 15,
+      "stage": "rea",
+      "feature": "REA, first slice: \"Inspect app\" on rea-agents 6.4.0 (part A: qualify the pinned CLI and its MCP server and build an adapter core; part B: the Timmy job and its board result card)",
+      "planned": "✓ (the Codex brief of 2026-10-11)",
+      "implemented": "– in this tree: part A is built on Codex's own branch (`src/rea/**`, `tests/rea-*.test.ts`, `docs/ui-cockpit/REA.md`); part B not started",
+      "tested": "unknown (part A's tests are on Codex's branch)",
+      "demonstrated": "–",
+      "blocker": "part A to land, with rea-agents 6.4.0 qualified on the Mac; no provider installed; no paid calls",
+      "evidence": "",
+      "benefit": "Ask Timmy what an application does, with the evidence kept raw and re-checkable.",
+      "gap": "Nothing of it is in this tree (the cited paths are missing here by design: they are on Codex's branch).",
+      "owner": "Codex (part A); the lead (part B)",
+      "next": "Review and merge part A; then part B as one helper round and a Mac run."
+    }
+  ],
+
+  "conflicts": [
+    {
+      "what": "The feature checklist is older than the code",
+      "says": "FEATURE-CHECKLIST.md was last updated at 39295fc; 80 commits since (to 5e5cbb3) built Timmy Connect slice 1, Timmy Cloud's backend and client, God's Eye View slice 2, the local companion page, the guided setup, run clarity and Studio cards by operation. Its Timmy Connect and Timmy Cloud rows still say \"– (researched only, read only)\".",
+      "code": ["src/connect", "services/cloud", "src/cloud", "src/setup"],
+      "resolution": "This inventory adds those rows from the overlay; updating the checklist is the lead's."
+    },
+    {
+      "what": "The Connect and Cloud capability matrix",
+      "says": "CONNECT-AND-CLOUD.md (status 2026-10-11, written before the slices merged) marks every Connect and Cloud capability \"–\" under Implemented; TIMMY-CONNECT.md and TIMMY-CLOUD.md (H90, H91) say implemented and tested against FAKE OpenSSH programs and a SIMULATED provider.",
+      "code": ["src/connect/ssh.ts", "services/cloud/engine.ts"],
+      "resolution": "Both are true of their dates; the matrix is the lead's to update (TIMMY-CONNECT.md says so)."
+    },
+    {
+      "what": "The companion's open item",
+      "says": "The checklist's companion row says the page loads code from public CDNs (row 173); H92 (dec6d4e) made it load nothing from the internet under a strict policy and H95 (08ac65e) bundled its chat locally; no Mac run has checked the new page.",
+      "code": ["scripts/companion-web-build.mjs", "src/companion/island"],
+      "resolution": "Open until r24 runs the page from the installed package."
+    },
+    {
+      "what": "Engine lanes' recorded \"installed\" flags",
+      "says": "lanes/engines/*/env-lock.json record what one machine had when each was captured (most on 2026-09-07, Blender 5.1.1 among them); the ledger's newest Blender runs name Blender 5.2.2 LTS (rows 148 and 151).",
+      "code": ["lanes/engines/blender/env-lock.json"],
+      "resolution": "Kept as history (the Programs table shows them as recorded observations); a current state comes from timmy tools on each machine."
+    },
+    {
+      "what": "Unreal in two sections",
+      "says": "The checklist's section 13 calls Unreal \"partial: an engine-shelf lane\", while section 5 records /unreal demonstrated (row 166).",
+      "code": ["lanes/engines/unreal", "src/native/unreal.ts"],
+      "resolution": "Both hold for different surfaces (the engine lane and the native route); listed as they are."
+    },
+    {
+      "what": "Timmy's second MCP route and its library",
+      "says": "The checklist counts Timmy's own CLI on the MCP SDK as the second MCP-to-CLI route (AGENTS.md section 8 asks for two); package.json does not declare @modelcontextprotocol/sdk, which resolves only through a transitive copy (1.30.0 in the lockfile).",
+      "code": ["src/connectors/mcp-sdk-cli.ts"],
+      "resolution": "A decision for the lead (package.json is the lead's): declare it at the tested version."
+    }
+  ],
+
+  "notReconciled": [
+    {
+      "what": "The operator's private tool register",
+      "why": "It is kept on the operator's Mac, outside the repository; the checklist's section 14 names what it held then.",
+      "next": "The operator exports its tool names and states (no paths, no keys) into a private overlay, or a helper on the Mac reads it with the operator's permission and writes names only."
+    },
+    {
+      "what": "Installed programs on the operator's computers and in CI",
+      "why": "This pass runs nothing: every program and app is named in code only, its version unknown. The engine lanes' env-lock files are one machine's history.",
+      "next": "timmy tools --json on each machine (the Mac through a sandbox user, CI in a workflow step), kept as dated evidence and joined by row id."
+    },
+    {
+      "what": "Model checkpoints",
+      "why": "No model is in the repository: Ollama's local models, OpenRouter's models, OpenHands' and Codex's local models and the vision adapters' models are served elsewhere.",
+      "next": "ollama list on the Mac (names, digests, sizes) and the model of each sealed turn and agent run from the receipt chain."
+    },
+    {
+      "what": "Native binaries and WebAssembly inside npm packages, and bundled code",
+      "why": "Each installed package's package.json is read, not its files; Timmy Canvas's page and the companion's web code bundle packages at build time, and the exact set is in each build's notices, which are not tracked.",
+      "next": "List .node and .wasm files per installed package, and read the notices of npm run build:canvas and the companion web build into the SBOM."
+    },
+    {
+      "what": "A fresh install of this revision",
+      "why": "The installed tree read here is a link to another checkout's node_modules; it matches this lockfile, but it is that tree.",
+      "next": "The packed-install check's temporary prefix (an npm install of the tarball), read the same way."
+    },
+    {
+      "what": "Licence texts",
+      "why": "Only the declared licence string is read: four tldraw packages say \"SEE LICENSE IN LICENSE.md\" and four packages declare none.",
+      "next": "Read each package's licence file; tldraw's terms are TLDRAW.md's."
+    },
+    {
+      "what": "Python versions",
+      "why": "No lock covers the Python workers: Timmy is told which Python to use (TIMMY_CADQUERY_PYTHON, TIMMY_VISION_PYTHON, the OpenHands image) and the only manifests are ranges.",
+      "next": "pip freeze of each configured Python on the Mac, kept as dated evidence."
+    },
+    {
+      "what": "Feature judgement for most rows",
+      "why": "User benefit, owner and next task were written for the features this round touches and the headline ones; the rest say \"not assessed in this pass\", with a generated gap and next step labelled generated.",
+      "next": "Extend overlay.json section by section, starting with the preview stage."
+    },
+    {
+      "what": "Work after this tree",
+      "why": "REA part A (Codex's branch), this round's other branches and any ledger row after 173 are not in the tree read.",
+      "next": "Run the generator again after the lead's merges (node scripts/inventory/inventory.mjs --date <day>)."
+    },
+    {
+      "what": "This pass's own platform",
+      "why": "The generator and its tests ran in a Linux development container on Node 22.22.0; the package asks Node >= 24.",
+      "next": "Run it on the Mac's Node 24 in r24 and compare the output."
+    }
+  ]
+}
