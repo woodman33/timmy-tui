@@ -575,6 +575,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['Tab / Shift+Tab', 'the next or previous region (the one with the keyboard has a heavy green border and ◆)'],
   ['↑ ↓ or k j', 'move within the region; PgUp PgDn a page'],
   ['← →', 'the right dock\'s tabs (Tools, Inspector, Files); the top\'s buttons'],
+  ['Home End', 'the first or last tab of the right dock; elsewhere the first or last row'],
   ['Enter', 'open or do what the selection offers (its words say what and to what); a workflow block: run it, after a confirm'],
   ['y  a  n', 'a NEEDS YOU box: allow once, for this session (when offered), or deny; Esc and Enter deny too (the default)'],
   ['Esc', 'close a drawer, a box or a search'],
@@ -584,7 +585,8 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['C  S', 'stop serving the Companion  ·  Studio (only what this Workbench started)'],
   [',', 'Quick settings (saved in Timmy\'s settings folder)'],
   ['x', 'Stop current: the job it names'],
-  ['i  g', 'the right dock and the navigation as drawers, on a narrower terminal'],
+  ['i  g', 'the right dock and the navigation as drawers, on a narrower terminal (or in focus mode)'],
+  ['z', 'focus mode: the center alone, with the top and the bottom; z or Esc leaves it'],
   ['a  A', 'Activity: expand or collapse  ·  all operations or the selected one'],
   ['f', 'Files tab: related files only, or all of them'],
   ['r', 'read the records again (and check the tools again)'],
@@ -677,14 +679,15 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       return { lines, items };
     case 'needs-you': {
       const req = o.req;
+      // the keys first: on a short terminal the box's rows scroll, and its answer must never be below them
       lines.push([S(`${g.warn} NEEDS YOU`, 'attention', { bold: true }), S(`  ${req.tool}`, 'strong')]);
+      lines.push([key('y'), S(' allow once   ', 'text'), ...(req.session === false ? [] : [key('a'), S(' allow for this session   ', 'text')]), key('n'), S(' / Esc / Enter deny (the default)', 'text')]);
       lines.push(blank);
       if (req.summary) lines.push(...para(req.summary, c.width, 'text'));
       lines.push(...para(req.reason, c.width, 'secondary'));
-      if (req.detail) { lines.push(blank); for (const l of req.detail.split('\n').slice(0, 12)) lines.push([S(`  ${l}`, 'text')]); }
+      if (req.detail) { lines.push(blank); for (const l of req.detail.split('\n').slice(0, 12)) lines.push(...para(l, c.width, 'text', '  ')); }
       lines.push(blank);
-      lines.push([key('y'), S(' allow once   ', 'text'), ...(req.session === false ? [] : [key('a'), S(' allow for this session   ', 'text')]), key('n'), S(' / Esc / Enter deny (the default)', 'text')]);
-      lines.push([S('Nothing runs until you answer. The Control Room lists it as waiting on you.', 'secondary')]);
+      lines.push(...para('Nothing runs until you answer. The Control Room lists it as waiting on you.', c.width, 'secondary'));
       return { lines, items };
     }
     case 'quit': {

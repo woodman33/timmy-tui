@@ -329,10 +329,10 @@ export class Controller {
 
   frame(columns: number, rows: number): Frame {
     this.size = { columns, rows };
-    // a drawer belongs to a size: one that is not a drawer there is closed
+    // a drawer belongs to a size: one that is not a drawer there is closed (in focus mode both are drawers)
     const mode = modeOf(columns);
-    if (mode === 'wide') { this.ui.rightOpen = false; this.ui.navOpen = false; }
-    if (mode === 'medium') this.ui.navOpen = false;
+    if (mode === 'wide' && !this.ui.focusMode) { this.ui.rightOpen = false; this.ui.navOpen = false; }
+    if (mode === 'medium' && !this.ui.focusMode) this.ui.navOpen = false;
     this.ui.companion = this.d.companion.state();
     this.ui.studio = this.d.studio.state();
     this.ui.mine = [...this.mine];
@@ -373,6 +373,11 @@ export class Controller {
     if (k.downArrow || (!k.ctrl && input === 'j')) { this.move(1); return; }
     if (k.pageUp) { this.move(-this.page()); return; }
     if (k.pageDown) { this.move(this.page()); return; }
+    // Home and End: the first or last tab of the right dock (as the reference's tabs), else the first or last row
+    if (k.home || k.end) {
+      if (this.ui.focus === 'right') { this.ui.tab = RIGHT_TABS[k.home ? 0 : RIGHT_TABS.length - 1]; this.remember(); this.emit(); } else this.move(k.home ? -1e6 : 1e6);
+      return;
+    }
     if (k.leftArrow) { this.side(-1); return; }
     if (k.rightArrow) { this.side(1); return; }
     if (k.return) { void this.enter(); return; }
@@ -389,6 +394,7 @@ export class Controller {
       case 'x': void this.stop(); return;
       case 'i': this.toggleRight(); return;
       case 'g': this.toggleNav(); return;
+      case 'z': this.ui.focusMode = !this.ui.focusMode; this.ui.navOpen = false; this.ui.rightOpen = false; this.ui.focus = 'center'; this.emit(); return;
       case 'a': this.ui.activityOpen = !this.ui.activityOpen; this.remember(); this.emit(); return;
       case 'A': this.ui.activityAll = !this.ui.activityAll; this.emit(); return;
       case 'f': this.ui.related = !this.ui.related; this.emit(); return;
@@ -407,7 +413,7 @@ export class Controller {
     this.ui.overlay = o;
     this.ui.cursor.overlay = 0;
     this.ui.scroll.overlay = 0;
-    if (modeOf(this.size.columns) !== 'wide') { this.ui.rightOpen = false; this.ui.navOpen = false; }
+    if (modeOf(this.size.columns) !== 'wide' || this.ui.focusMode) { this.ui.rightOpen = false; this.ui.navOpen = false; }
     this.ui.focus = 'center';
     this.emit();
   }
@@ -416,6 +422,7 @@ export class Controller {
     if (this.ui.overlay) this.ui.overlay = null;
     else if (this.ui.rightOpen) { this.ui.rightOpen = false; this.ui.focus = 'center'; }
     else if (this.ui.navOpen) { this.ui.navOpen = false; this.ui.focus = 'center'; }
+    else if (this.ui.focusMode) { this.ui.focusMode = false; }
     this.emit();
   }
 
@@ -484,21 +491,21 @@ export class Controller {
 
   private search(): void {
     if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.input.text }; this.loadFor('tools'); this.emit(); return; }
-    if (modeOf(this.size.columns) === 'narrow') this.ui.navOpen = true;
+    if (modeOf(this.size.columns) === 'narrow' || this.ui.focusMode) this.ui.navOpen = true;
     this.ui.focus = 'nav';
     this.ui.input = { field: 'search', text: '' };
     this.emit();
   }
 
   private toggleRight(): void {
-    if (modeOf(this.size.columns) === 'wide') { this.ui.tab = 'inspector'; this.ui.focus = 'right'; this.emit(); return; }
+    if (modeOf(this.size.columns) === 'wide' && !this.ui.focusMode) { this.ui.tab = 'inspector'; this.ui.focus = 'right'; this.emit(); return; }
     this.ui.rightOpen = !this.ui.rightOpen;
     if (this.ui.rightOpen) { this.ui.navOpen = false; this.ui.focus = 'right'; } else this.ui.focus = 'center';
     this.emit();
   }
 
   private toggleNav(): void {
-    if (modeOf(this.size.columns) !== 'narrow') { this.ui.focus = 'nav'; this.emit(); return; }
+    if (modeOf(this.size.columns) !== 'narrow' && !this.ui.focusMode) { this.ui.focus = 'nav'; this.emit(); return; }
     this.ui.navOpen = !this.ui.navOpen;
     if (this.ui.navOpen) { this.ui.rightOpen = false; this.ui.focus = 'nav'; } else this.ui.focus = 'center';
     this.emit();
@@ -862,7 +869,7 @@ export class Controller {
       default:
         // the Inspector shows it
         this.ui.tab = 'inspector';
-        if (modeOf(this.size.columns) !== 'wide') this.ui.rightOpen = true;
+        if (modeOf(this.size.columns) !== 'wide' || this.ui.focusMode) this.ui.rightOpen = true;
         this.emit();
     }
   }

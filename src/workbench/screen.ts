@@ -47,7 +47,7 @@ const rangeNote = (scroll: number, height: number, total: number): string | unde
 
 export function frameOf(a: FrameAsk): Frame {
   const { ui, data, g } = a;
-  const layout = layoutFor({ columns: a.columns, rows: a.rows, navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityRows: ui.activityOpen ? 8 : 0 });
+  const layout = layoutFor({ columns: a.columns, rows: a.rows, navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityRows: ui.activityOpen ? 8 : 0, focusMode: ui.focusMode === true });
   const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can });
   const placed: Placed[] = [];
   const regions: Frame['regions'] = {};
@@ -90,7 +90,7 @@ export function frameOf(a: FrameAsk): Frame {
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const cur = v.items.length ? v.items[cursorOf(ui, list, v.items.length)].line : undefined;
     const scroll = scrollTo(cur, ui.scroll[list] ?? 0, c.height, v.lines.length);
-    const title = ui.overlay ? overlayTitle(ui) : navItem(ui.workspace).title;
+    const title = ui.overlay ? overlayTitle(ui) : `${navItem(ui.workspace).title}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
     placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
     regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0 };
   }

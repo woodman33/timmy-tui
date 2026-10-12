@@ -144,4 +144,6 @@ export interface Ui {
   mine: string[];
   /** Follow selected artifact: the job a run started here, shown by the Inspector and Activity until the cursor moves */
   follow?: string | null;
+  /** focus mode ([z]): the center alone, with the top and the bottom */
+  focusMode?: boolean;
 }

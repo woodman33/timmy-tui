@@ -130,6 +130,24 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     expect(f.text()).not.toMatch(/◆ TIMMY/);
     await press(f.r, TAB);
     expect(f.text()).toMatch(/◆ Context/);
+    // the right dock's tabs: End the last, Home the first, ← → between them (wrapping), as the reference's tabs
+    await press(f.r, '\u001b[F');
+    expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
+    await press(f.r, '\u001b[H');
+    expect(f.text()).toMatch(/▸ Tools │ {3}Inspector │ {3}Files/);
+    await press(f.r, '\u001b[D');
+    expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
+    // focus mode (z): the center alone, with the top and the bottom; i opens the right dock as a drawer; z leaves it
+    await press(f.r, 'z');
+    expect(f.text()).toMatch(/┏━ ◆ Workflows · plan and run · focus mode \(z leaves it\)/);
+    expect(f.text()).not.toMatch(/CREATE|Context/);
+    expect(f.text()).toContain('tray-wide / Workflows');
+    expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
+    await press(f.r, 'i');
+    expect(f.text()).toMatch(/◆ Context \(drawer\)/);
+    await press(f.r, ESC, 'z');
+    expect(f.text()).toContain('CREATE');
+    expect(f.text()).toMatch(/╭─ Context ─/);
   });
 
   it('120x36: the right dock is a drawer ([i]), the navigation stays; project, task, state and Stop are on top', async () => {

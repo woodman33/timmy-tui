@@ -50,6 +50,8 @@ export interface LayoutAsk {
   rightOpen?: boolean;
   /** Activity is expanded, with this many rows of events to show (at most a quarter of the screen) */
   activityRows?: number;
+  /** focus mode: the center alone, with the top and the bottom; the navigation and the right dock open only as drawers */
+  focusMode?: boolean;
 }
 
 export function layoutFor(a: LayoutAsk): Layout {
@@ -61,9 +63,9 @@ export function layoutFor(a: LayoutAsk): Layout {
   if (tooSmall) {
     return { columns, rows, mode, tooSmall, nav: null, navAs: 'hidden', top: { x: 0, y: 0, w: columns, h: Math.min(rows, topH) }, center: null, right: null, rightAs: 'hidden', bottom: { x: 0, y: Math.min(rows, topH), w: columns, h: Math.max(0, rows - topH) } };
   }
-  const navAs: Layout['navAs'] = mode === 'narrow' ? (a.navOpen ? 'drawer' : 'hidden') : 'column';
+  const navAs: Layout['navAs'] = mode === 'narrow' || a.focusMode ? (a.navOpen ? 'drawer' : 'hidden') : 'column';
   // one drawer at a time when narrow: the navigation's wins
-  const rightAs: Layout['rightAs'] = mode === 'wide' ? 'column' : a.rightOpen && navAs !== 'drawer' ? 'drawer' : 'hidden';
+  const rightAs: Layout['rightAs'] = mode === 'wide' && !a.focusMode ? 'column' : a.rightOpen && navAs !== 'drawer' ? 'drawer' : 'hidden';
   const navW = navAs === 'hidden' ? 0 : NAV_W[mode];
   const nav = navAs === 'hidden' ? null : { x: 0, y: 0, w: navW, h: rows };
   const mainX = navW;
