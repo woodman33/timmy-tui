@@ -39,6 +39,9 @@ beforeEach(() => {
   project = join(box, 'project');
   mkdirSync(project, { recursive: true });
   writeFileSync(join(project, 'README.md'), '# demo\n');
+  // the project's own store, pinned in its folder (src/utils/receipts.ts rootStoreDir): its seals land there, whatever is above it
+  mkdirSync(join(project, '.timmy'), { recursive: true });
+  writeFileSync(join(project, '.timmy', 'store-pin'), join(project, '.timmy', 'receipts'));
   process.env.TIMMY_HOME = join(box, 'home', 'timmy');
   process.env.TIMMY_SETTINGS_DIR = join(box, 'settings');
   for (const v of ['OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'TIMMY_CHAT_NUM_CTX', 'OLLAMA_HOST'] as const) delete process.env[v];
@@ -72,7 +75,9 @@ function surface(answers: Decision[] = []) {
   };
   return { hooks, texts, tools, asked };
 }
-const chats = () => readChain('runs').filter((r) => r.kind === 'chat');
+// R4 (H113): every surface's turn is sealed by the REPL's own seal (src/repl/seal.ts; this surface's subject names it), into the
+// project's store
+const chats = () => readChain('runs', project).filter((r) => r.kind === 'chat');
 
 describe('the route, and a message with none (R4 H103, D1)', () => {
   it('no key and no local route: the route says so, the message is refused, nothing is sent, nothing is sealed', async () => {
@@ -138,7 +143,7 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     expect(net.requests.some((q) => q.url.includes('openrouter'))).toBe(false);
     const sealed = chats().at(-1)!;
     expect(sealed).toMatchObject({
-      kind: 'chat', subject: 'chat.turn · workbench · qwen3:8b', status: 'ok', project: 'demo',
+      kind: 'chat', subject: 'chat.turn · workbench · 0 steps · qwen3:8b', status: 'ok', project: 'demo',
       prompt_hash: sha('hello'), response_hash: sha('Hello there.'), model_requested: 'qwen3:8b', model_resolved: 'qwen3:8b',
       via: 'ollama', sources: [{ kind: 'ollama', host: ollama.host, endpoint: 'local', tools: 'on', cost_basis: 'local endpoint' }],
       cost_usd: 0, cost_measured: true,
@@ -210,7 +215,7 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     expect(readFileSync(join(project, 'notes.md'), 'utf8')).toBe('hello\n');
     expect(r).toMatchObject({ status: 'answered', text: 'Written.' });
     expect(ollama.chats()[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('the Workbench') });
-    expect(chats().at(-1)).toMatchObject({ subject: 'chat.turn · workbench · qwen3:8b', tool_outcomes: [{ name: 'write_project_file', outcome: 'completed' }], files: [{ path: 'notes.md', created: true }] });
+    expect(chats().at(-1)).toMatchObject({ subject: 'chat.turn · workbench · 1 step · qwen3:8b', tool_outcomes: [{ name: 'write_project_file', outcome: 'completed' }], files: [{ path: 'notes.md', created: true }] });
   });
 
   it('tools set on a surface\'s agent after the session opened (ungated) are gated again before the turn: the write still asks', async () => {

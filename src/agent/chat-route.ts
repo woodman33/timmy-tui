@@ -8,6 +8,7 @@
  * Without a model the local route is off and says so; it never falls back to OpenRouter or to a cloud-backed model.
  */
 import { chatRoute, knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
+import { modelKeySource } from '../utils/model-key.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
@@ -103,28 +104,54 @@ export interface RouteNow {
   local?: LocalChatRoute & { numCtx?: number };
 }
 
+/** R4 (H113): the REPL's own way to a key or the local model (its /setup key and /setup chat), in place of NO_ROUTE_REFUSAL's Try. */
+export const REPL_NO_ROUTE_TRY = 'Try: /setup key (it asks for the key, hidden), or the local model: /setup chat';
+
 /**
  * R4 (H103): the chat's route from the setup now, in the words of the contract (src/contracts/chat-session.ts): local (the
  * Ollama and model the setup chose: ready, or why not), OpenRouter (a model key is found), or none (no key, and the setup
  * did not choose the local model: refused, nothing sent). `key`: whether a model key is found; `openRouterModel`: the
  * OpenRouter route's model, named in its words; `short`: the model's last part only (the monitor's narrow top line).
  * Reads the setup's files only: no request to anything.
+ *
+ * R4 (H113): the one route of every surface: the REPL's header and its refusals (src/repl/main.ts), the chat session's route
+ * (the monitor's and the terminal Workbench's, src/agent/chat-session.ts), the monitor's top line (ShellV2) and the companion
+ * page's Send, on or off and why (src/companion/chat-route.ts pageRoute) all read it, so they agree for every setup. A surface
+ * that does not know whether a key is found gives no `key`: it is looked for where the REPL looks (src/utils/model-key.ts,
+ * from `cwd`). Each surface's own way to the fix: the REPL's commands in the REPL; the monitor's /setup on its top line; a
+ * command any terminal runs elsewhere.
  */
-export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: string | null; key: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
+export function chatRouteNow(o: { env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
+  const surface = o.surface ?? 'repl';
   const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
+  // the monitor's top line names its own /setup (it answers where the setup happens): never the REPL's /model or /setup chat
+  const said = (words: string): string => (surface === 'monitor' ? words.replace(/ · \/(model|setup chat)$/, ' · /setup') : words);
   if (route.kind === 'local') {
-    const words = localRouteWords(route);
+    const words = said(localRouteWords(route));
     const ready = prepareLocal(route, { fail: '' });
     if ('route' in ready) return { route, state: { kind: 'local', words, ready: true }, local: ready.route };
     // the fix in the words of the surface: the REPL's own commands there, a command any terminal runs elsewhere
-    const away = (o.surface ?? 'repl') !== 'repl';
+    const away = surface !== 'repl';
     const refusal = plainLines(ready.refusal).map((l) => (!away || !/^Try:/.test(l) ? l
       : 'error' in route.at ? 'Try: timmy init --chat local --ollama <host> (in a terminal), or /setup chat in the REPL'
         : 'Try: timmy init --chat local --model <name> (in a terminal: Timmy checks that Ollama lists it), or /model in the REPL'));
     return { route, state: { kind: 'local', words, ready: false, refusal } };
   }
-  if (o.key) return { route, state: { kind: 'openrouter', words: chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }), ready: true } };
-  return { route, state: { kind: 'none', words: chatRoute({ key: false }), ready: false, refusal: [...NO_ROUTE_REFUSAL] } };
+  const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
+  if (key) return { route, state: { kind: 'openrouter', words: said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short })), ready: true } };
+  const refusal = surface === 'repl' ? NO_ROUTE_REFUSAL.map((l) => (/^Try:/.test(l) ? REPL_NO_ROUTE_TRY : l)) : [...NO_ROUTE_REFUSAL];
+  return { route, state: { kind: 'none', words: said(chatRoute({ key: false })), ready: false, refusal } };
+}
+
+/**
+ * R4 (H113): a refusal's lines (chatRouteNow's) as the REPL prints them: the first, an error, with the failure glyph; the rest
+ * quiet and indented (as prepareLocal's segments always were).
+ */
+export function refusalSegments(lines: readonly string[], glyphs: { fail: string }): Segment[][] {
+  return lines.map((l): Segment[] => {
+    const m = /^Error:\s*(.*)$/.exec(l);
+    return m ? [{ text: `${glyphs.fail} Error:`, role: 'failure' }, { text: ` ${m[1]}` }] : [{ text: `  ${l}`, role: 'secondary' }];
+  });
 }
 
 /**
@@ -133,7 +160,8 @@ export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: strin
  * uses it also names OpenRouter's failure (`cause`).
  */
 export function fallbackRoute(fb: LastResortAnswer): NonNullable<TurnFacts['route']> {
-  return { host: fb.host, endpoint: 'local', tools: 'off', modelResolved: `ollama/${fb.model}`, costBasis: 'local endpoint' };
+  // R4 (H113): its role and OpenRouter's failure on every surface's receipt (the chat session sealed them; the REPL's did not)
+  return { host: fb.host, endpoint: 'local', tools: 'off', modelResolved: `ollama/${fb.model}`, costBasis: 'local endpoint', role: 'last-resort fallback', openrouterFailed: fb.cause };
 }
 
 /** What a local turn is sealed with (src/repl/seal.ts route): `last` is the turn's own report, null when it did not finish. */

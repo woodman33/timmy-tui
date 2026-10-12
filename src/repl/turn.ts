@@ -32,7 +32,58 @@ export interface TurnAbandon {
 /** Round R1: after the receipt, where to inspect what the turn did (its canvas job, the receipt's page). */
 export interface TurnInspect {
   inspect?: (sealed: SealedTurn | null, result: TurnResult) => Promise<InspectRow[]>;
+  /**
+   * R4 (H113): told once, as the turn ends (after its receipt, before the inspector), what it did: a surface that draws the
+   * turn itself (the chat session, src/agent/chat-session.ts) builds its answer from this; the REPL's transcript is unchanged.
+   */
+  summary?: (s: TurnSummary) => void;
+  /** R4 (H113): retry 429, 5xx and connection errors (src/agent/core.ts SendOptions.retry); the REPL's default, true */
+  retry?: boolean;
+  /** R4 (H113): the surface's own test that a failure never left this process (the chat session's: src/agent/tools.ts neverSent) */
+  notSent?: (err: unknown) => boolean;
 }
+
+/**
+ * R4 (H113): what one turn did, from the agent's own events, for the surfaces that are not the REPL's transcript: one turn
+ * implementation (this file) for every surface, each drawing it in its own words.
+ */
+export interface TurnSummary {
+  result: TurnResult;
+  /** the answer as the agent returned it ('' when it returned none) */
+  answer: string;
+  /** the answer as it streamed (the agent's stream:delta, the whole text so far): what a cancelled or failed turn had written */
+  streamed: string;
+  steps: number;
+  /** what the agent's own requests reported spending (cost:update), in dollars; describe_image's own charge is not in it */
+  spend: number;
+  /** the turn's own measure, as its receipt seals it (cost_measured) */
+  costMeasured: boolean;
+  /** how many cost reports came back, how many of them from a local endpoint, and whether every one said it was the whole charge */
+  costReports: number;
+  localReports: number;
+  allComplete: boolean;
+  /** the spend in the REPL's words ("$0.004", "at least $0.012", "no charge (local endpoint)", "cost unknown") */
+  spendWords: string;
+  /** whether the agent's stream started (a request was on its way) */
+  streamStarted: boolean;
+  /** whether a request left this process for a model (an answer, a stream or a cost, and no failure that says nothing was sent) */
+  sent: boolean;
+  tools: ToolOutcome[];
+  /** what the agent said beside the answer (the last-resort fallback that answered, tools off for a model that takes none) */
+  notices: string[];
+  /** the failure, as thrown (a failed turn) */
+  error?: unknown;
+  /** the model the agent names after the turn (a fallback switches it) */
+  model?: string;
+  /** the receipt runTurn's own sealer made (none when it was given none) */
+  sealed: SealedTurn | null;
+  /** the facts runTurn sealed, or would have sealed with a sealer: a surface that seals after the turn seals these (src/repl/seal.ts) */
+  facts: TurnFacts;
+  ms: number;
+}
+
+/** The fallback's and the local route's notices arrive as assistant messages on `message:user` (src/agent/core.ts, local-chat.ts). */
+const NOTICE_PREFIX = /^\s*⚙️?\s*\*\*\[SYSTEM\]\*\*\s*/u;
 
 /** R4 (H30): the tool that asks a model in a request of its own, outside the agent's: cost:update never reports it. */
 const PAID_TOOL = 'describe_image';
@@ -127,14 +178,33 @@ export async function runTurn(
   let costReports = 0;
   // R4 (H103): how many of them came from a local endpoint (the chat's Ollama route on this computer, src/agent/local-chat.ts)
   let localReports = 0;
+  // R4 (H113): whether every report said it was the whole charge (the chat session's measure is this strict one)
+  let allComplete = true;
   const onCost = (cost: number, _total?: number, info?: { complete?: boolean; basis?: string }): void => {
     costReports++;
     if (info?.basis === 'local endpoint') localReports++;
     if (Number.isFinite(cost)) spend += cost;
     if (info?.complete === false) costMeasured = false;
+    if (info?.complete !== true) allComplete = false;
   };
+  // R4 (H113): for the summary: the stream's start, the text as it streamed, and the notices said beside the answer
+  let streamStarted = false;
+  let streamed = '';
+  const notices: string[] = [];
+  const onStreamStart = (): void => { streamStarted = true; };
+  const onDelta = (_delta: string, full: string): void => { if (typeof full === 'string') streamed = full; };
+  const onNotice = (m: { role?: string; content?: unknown }): void => {
+    if (m?.role === 'assistant' && typeof m.content === 'string') notices.push(m.content.replace(NOTICE_PREFIX, '').trim());
+  };
+  // the error as the agent reported it (a turn that failed by its event alone keeps its words for the summary)
+  let reported: unknown;
+  const onError = (err: unknown): void => { reported = err; };
+  // R4 (H113): the last-resort fallback answered (src/agent/core.ts lastFallback): OpenRouter was asked first and failed, and
+  // whether its requests were charged did not come back, so the turn's cost is unknown, never a local endpoint's no charge
+  // (the chat session's rule, now the one turn's)
+  let fellBack = false;
   /** R4 (H103): every cost report of the turn came from a local endpoint, none charged: no charge, a cancel's included. */
-  const localOnly = (): boolean => costReports > 0 && localReports === costReports && spend === 0;
+  const localOnly = (): boolean => !fellBack && costReports > 0 && localReports === costReports && spend === 0;
   // R4 (H40): each call's first answer is read once for the tool's own receipt (TOOL_RECEIPT_FIELD).
   const answered = new Set<string>();
   // R4 (H30): a describe_image call's result, read once per call (a repeated item is not counted again).
@@ -171,11 +241,18 @@ export async function runTurn(
   };
   agent.on('cost:update', onCost);
   agent.on('item:update', onItem);
+  agent.on('stream:start', onStreamStart);
+  agent.on('stream:delta', onDelta);
+  agent.on('message:user', onNotice);
+  agent.on('error', onError);
   let answer = '';
   let ended = false;
+  let thrown: unknown;
   const outcomesNow = (): ToolOutcome[] => [...tools.values()].map((t) => ({ ...t }));
   const stageOf = (o: ToolOutcome[]): CancelStage => (o.length === 0 ? 'before-tools' : o.some((t) => t.outcome === 'unknown') ? 'during-tool' : 'after-tools');
   let sealed: SealedTurn | null = null;
+  // R4 (H113): the facts the turn seals (or would seal, with no sealer), built in one place for the seal and the summary
+  let facts: TurnFacts | null = null;
   const receipt = (r: SealedTurn, ms: number, isCancelled: boolean): void => {
     sealed = r;
     const model = modelNow();
@@ -188,7 +265,8 @@ export async function runTurn(
     if (!localOnly()) costMeasured = false;
     // A cancelled turn is sealed too, with what its tools actually did; nothing is rolled back.
     transcript.handle({ type: 'cancelled', at, tools: o });
-    if (seal) receipt(seal({ prompt: text, answer: '', steps, spend, costMeasured, ms, status: 'cancelled', tools: o, cancelledAt: at }), ms, true);
+    facts = { prompt: text, answer: '', steps, spend, costMeasured, ms, status: 'cancelled', tools: o, cancelledAt: at };
+    if (seal) receipt(seal(facts), ms, true);
   };
   if (abandon) abandon.now = () => {
     if (ended) return;
@@ -197,11 +275,14 @@ export async function runTurn(
     transcript.endTurn();
   };
   try {
-    answer = await agent.send(text, { signal, retry: true });
+    // the options only when there are some (a surface that cancels nothing and retries nothing sends the text alone, as before)
+    const opts = { ...(signal ? { signal } : {}), ...((more.retry ?? true) ? { retry: true } : {}) };
+    answer = Object.keys(opts).length ? await agent.send(text, opts) : await agent.send(text);
   } catch (err) {
     if ((err as Error)?.name === 'AbortError' || signal?.aborted) cancelled = true;
     else {
       failed = true;
+      thrown = err;
       // A request that threw without an error event of its own still says why (R1 workspace demo: a
       // conversation log that could not be written ended a turn in 0 ms with nothing on screen).
       if (!sawError) transcript.handle(thrownError(err));
@@ -210,10 +291,16 @@ export async function runTurn(
     stop();
     agent.off('cost:update', onCost);
     agent.off('item:update', onItem);
+    agent.off('stream:start', onStreamStart);
+    agent.off('stream:delta', onDelta);
+    agent.off('message:user', onNotice);
+    agent.off('error', onError);
   }
   if (ended) return 'cancelled'; // sealed already, by the caller's abandon.now()
   ended = true;
   const ms = clock() - started;
+  try { fellBack = Boolean((agent as { lastFallback?: () => unknown }).lastFallback?.()); } catch { fellBack = false; }
+  if (fellBack) costMeasured = false;
   // Round R1 (the Mac run): a turn that ended at its limit with calls still open says so, instead of a
   // step that looks done; the receipt keeps their outcome unknown.
   const open = cancelled ? 0 : outcomesNow().filter((t) => t.outcome === 'unknown').length;
@@ -224,13 +311,31 @@ export async function runTurn(
   // no cost could come back (before its request, or at the local fallback), and whether a request went out is not known here.
   if (!cancelled && failed && costReports === 0) costMeasured = false;
   if (cancelled) sealCancelled(ms);
-  else if (seal) {
-    receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);
-  } else if (!failed) {
-    const model = modelNow();
-    transcript.handle({ type: 'footer', steps, spend: spendText(), seconds: ms / 1000, ...(model ? { model } : {}) });
+  else {
+    facts = { prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() };
+    if (seal) receipt(seal(facts), ms, false);
+    else if (!failed) {
+      const model = modelNow();
+      transcript.handle({ type: 'footer', steps, spend: spendText(), seconds: ms / 1000, ...(model ? { model } : {}) });
+    }
   }
   const result: TurnResult = cancelled ? 'cancelled' : failed ? 'failed' : 'ok';
+  // R4 (H113): what the turn did, for a surface that draws it itself (never throws into the turn). Whether a request left this
+  // process: an answer came, the stream started or a cost came back, and no failure says nothing was sent (its own `sent:
+  // false`, its words, or the surface's own test: the chat session's knows the connection errors that happen before a send).
+  if (more.summary) {
+    const failure = failed ? thrown ?? reported : undefined;
+    const said = String((failure as Error | undefined)?.message ?? '');
+    const notSent = failure !== undefined && ((failure as { sent?: unknown }).sent === false || /nothing was sent/i.test(said) || more.notSent?.(failure) === true);
+    try {
+      more.summary({
+        result, answer: typeof answer === 'string' ? answer : '', streamed, steps, spend, costMeasured, costReports, localReports, allComplete,
+        spendWords: spendText(), streamStarted, sent: !notSent && (result === 'ok' || streamStarted || costReports > 0),
+        tools: outcomesNow(), notices: [...notices], ...(failure !== undefined ? { error: failure } : {}),
+        ...(modelNow() ? { model: modelNow() } : {}), sealed, facts: facts!, ms,
+      });
+    } catch { /* a surface's drawing never fails the turn */ }
+  }
   if (more.inspect) {
     try {
       transcript.handle({ type: 'inspect', rows: await more.inspect(sealed, result) });

@@ -50,7 +50,18 @@ export interface TurnFacts {
    * tools were offered, the model that answered and the cost's basis. Sealed as via "ollama", model_resolved and a source of
    * kind "ollama"; absent on the OpenRouter route, whose receipts stay as they were.
    */
-  route?: { host: string; endpoint: 'local' | 'remote'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown' };
+  route?: {
+    host: string; endpoint: 'local' | 'remote'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown';
+    /** R4 (H113): the last-resort fallback answered after OpenRouter failed: its role, and OpenRouter's failure in a line */
+    role?: 'last-resort fallback'; openrouterFailed?: string;
+  };
+  /**
+   * R4 (H113): which surface sent the turn (src/contracts/chat-session.ts ChatSurface): the REPL, the monitor, the terminal
+   * Workbench or the companion, named in the subject (sealTurn); absent: the REPL, as every turn before.
+   */
+  surface?: 'repl' | 'monitor' | 'workbench' | 'companion';
+  /** R4 (H113): the model that answered, when the surface knows it apart from a route (the chat session's OpenRouter turns) */
+  modelResolved?: string;
 }
 
 export interface SealedTurn {
@@ -77,19 +88,32 @@ export function sealTurn(
   verify: (stream: string, dir?: string) => Pick<VerifyResult, 'ok'> = verifyChain,
 ): SealedTurn {
   const cancelled = facts.status === 'cancelled';
+  const steps = `${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`;
+  // R4 (H113): one seal for every surface's turn. The REPL's keep kind `turn` ("repl · 2 steps"), as the Control Room, the run
+  // detail and the tools ladder read them; another surface's keep kind `chat` (the monitor's CHAT tab reads those), its subject
+  // naming the surface, how it ended when not answered, its steps and the model: "chat.turn · workbench · 2 steps · qwen3:8b".
+  // src/companion/client/companion.js reads both back for its mirror.
+  const surface = facts.surface ?? 'repl';
+  const answeredBy = facts.route?.modelResolved ?? facts.modelResolved ?? facts.model;
   const rec = appendReceipt('runs', {
-    kind: 'turn',
-    subject: `repl · ${cancelled ? 'cancelled · ' : ''}${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`,
+    kind: surface === 'repl' ? 'turn' : 'chat',
+    subject: surface === 'repl'
+      ? `repl · ${cancelled ? 'cancelled · ' : ''}${steps}`
+      : `chat.turn · ${surface} · ${facts.status === 'ok' ? '' : `${facts.status} · `}${steps} · ${answeredBy}`,
     policy: 'human-gated',
     status: facts.status,
     ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome, ...(t.receipt ? { receipt: t.receipt } : {}) })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
     ...(facts.canvas?.length || facts.route ? { sources: [
-      ...(facts.route ? [{ kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis }] : []),
+      ...(facts.route ? [{
+        kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis,
+        ...(facts.route.role ? { role: facts.route.role } : {}), ...(facts.route.openrouterFailed ? { openrouter_failed: facts.route.openrouterFailed } : {}),
+      }] : []),
       ...(facts.canvas ?? []).map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })),
     ] } : {}),
     ...(facts.route ? { via: 'ollama', ...(facts.route.modelResolved ? { model_resolved: facts.route.modelResolved } : {}) } : {}),
+    ...(!facts.route?.modelResolved && facts.modelResolved ? { model_resolved: facts.modelResolved } : {}),
     ...(facts.project ? { project: facts.project } : {}),
     ...(facts.projectId ? { project_id: facts.projectId } : {}),
     ...(facts.files?.length ? { files: facts.files } : {}),

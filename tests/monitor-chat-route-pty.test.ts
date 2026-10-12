@@ -128,7 +128,8 @@ describe('the monitor\'s chat and its route, in a real terminal (R4 H103)', () =
     expect(asked.tools.map((t: { function: { name: string } }) => t.function.name)).toContain('write_project_file');
     const sealed = r.receipts().filter((x) => x.kind === 'chat');
     expect(sealed).toHaveLength(1);
-    expect(sealed[0]).toMatchObject({ subject: 'chat.turn · monitor · qwen3:8b', status: 'ok', via: 'ollama', model_resolved: 'qwen3:8b', cost_usd: 0, cost_measured: true });
+    // R4 (H113): the REPL's own seal, the surface and the turn's steps in its subject
+    expect(sealed[0]).toMatchObject({ subject: 'chat.turn · monitor · 0 steps · qwen3:8b', status: 'ok', via: 'ollama', model_resolved: 'qwen3:8b', cost_usd: 0, cost_measured: true });
   }, 120_000);
 
   it('the local route with no model chosen (as `timmy init --yes` leaves it): the top line says so, a message is refused, nothing is sent', async () => {
