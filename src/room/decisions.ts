@@ -358,8 +358,9 @@ export function toolUses(c: Pick<DecisionContext, 'root' | 'chain' | 'projectId'
     const by = `${r.kind === 'turn' ? 'a chat turn' : 'an observation'} (receipt ${String(r.hash ?? '').slice(7, 15)})`;
     const op = str(r.operation_id) ? { operation: String(r.operation_id) } : {};
     if (r.kind === 'observe') add({ row: 'look', by, at: time(r.ts), ...op });
-    // A chat turn asked the model through the REPL's key.
-    if (r.kind === 'turn') { add({ row: 'openrouter', by, at: time(r.ts), ...op }); add({ row: 'repl', by, at: time(r.ts), ...op }); }
+    // A chat turn asked the model through the REPL's key. R4 (H103): one sealed via ollama asked the chat's local route
+    // (Ollama), never OpenRouter.
+    if (r.kind === 'turn') { add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), ...op }); add({ row: 'repl', by, at: time(r.ts), ...op }); }
   }
   return uses;
 }

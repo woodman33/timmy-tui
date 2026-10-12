@@ -305,6 +305,16 @@ const none = (words: string): RoomCost => ({ kind: 'none', words });
 const localBasis = (basis: string | undefined): boolean => !!basis && /^(?:a )?local endpoint\b/i.test(basis);
 
 /**
+ * R4 (H103): the Ollama a chat turn on the local route asked, as its receipt names it (src/repl/seal.ts: via "ollama" and a
+ * source of kind "ollama"); undefined for a turn of the OpenRouter route.
+ */
+export function turnOllama(r: Receipt): { host?: string; endpoint?: string; tools?: string; costBasis?: string } | undefined {
+  if (r.via !== 'ollama' || !Array.isArray(r.sources)) return undefined;
+  const s = r.sources.map(obj).find((x) => x?.kind === 'ollama');
+  return s ? { host: str(s.host), endpoint: str(s.endpoint), tools: str(s.tools), costBasis: str(s.cost_basis) } : undefined;
+}
+
+/**
  * An agent run's cost from its record (result.json or run.json): the reported amount, free on a local endpoint, unknown
  * when it reported none; while it runs, free when its recorded route is a local endpoint, otherwise not known yet.
  */
@@ -358,7 +368,9 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
       // its request went out and its cost was not recorded, so it is unknown, counted as such, never left out (H78's note).
       // R4 (H82): a failed turn with no cost reported is sealed unknown too (src/repl/turn.ts), never a measured $0
       const c = receiptCost(r, { known: 'as its receipt sealed it', unknown: 'its receipt marks the cost incomplete (a cancel, a failed turn no cost came back for, or a response that reported no charge)', none: '' });
-      put(`turn:${String(r.hash)}`, r, c.kind === 'none' ? { kind: 'unknown', words: TURN_NO_COST } : c);
+      // R4 (H103): a turn on the local route, on this computer's Ollama, sealed as no charge: free, as a local agent run is
+      const free = c.kind === 'known' && c.usd === 0 && localBasis(turnOllama(r)?.costBasis);
+      put(`turn:${String(r.hash)}`, r, c.kind === 'none' ? { kind: 'unknown', words: TURN_NO_COST } : free ? { kind: 'free', words: 'free: a local endpoint (Ollama on this computer), sealed as no charge' } : c);
     } else if (r.kind === 'agent' && str(r.agent?.run)) {
       const basis = str(r.agent?.cost_basis);
       const c = receiptCost(r, { known: basis ?? 'as its receipt sealed it', unknown: basis?.replace(/^unknown:\s*/, '') ?? 'no cost was reported', none: 'its receipt records no cost' });
@@ -474,10 +486,17 @@ function chatRuns(c: Ctx): RoomRun[] {
       ...(str(t.receipt) ? { receipt: cleanLine(t.receipt, c.scrub, 20) } : {}),
     }));
     if (tools.length > CHAT_TOOLS_SHOWN) handoff.push({ name: `and ${tools.length - CHAT_TOOLS_SHOWN} more`, owner: 'tools its receipt names', state: 'not shown here' });
+    // R4 (H103): a turn on the local route names the Ollama it asked on its receipt
+    const ollama = turnOllama(r);
+    const at = ollama?.host ? ` at ${cleanLine(ollama.host, c.scrub, 60)}` : '';
+    const toolsWord = ollama?.tools === 'on' || ollama?.tools === 'off' ? `; tools ${ollama.tools}` : '';
     return {
       kind: 'chat', id: shortReceipt(r), owner: 'Timmy chat agent', harness: 'Timmy REPL (version not recorded)',
       ...(str(r.model_requested) ? { model: r.model_requested } : {}),
-      route: 'not recorded on its receipt (it names the model asked for, not the endpoint that answered)',
+      ...(ollama ? { endpoint: ollama.endpoint === 'local' ? 'local' as const : 'remote' as const } : {}),
+      route: ollama
+        ? (ollama.endpoint === 'local' ? `local endpoint, no charge: the chat's local route, Ollama${at}${toolsWord}` : `the chat's local route through Ollama${at}, which sent it off this computer (cloud-backed, or another computer): no cost comes back${toolsWord}`)
+        : 'not recorded on its receipt (it names the model asked for, not the endpoint that answered)',
       state, tone: status === 'ok' ? 'ok' : status === 'cancelled' ? 'stopped' : 'failed', running: false,
       step: `${tools.length} tool call${tools.length === 1 ? '' : 's'}`,
       ...(start ? { startedAt: new Date(start).toISOString() } : {}), ...(end ? { endedAt: r.ts } : {}),
