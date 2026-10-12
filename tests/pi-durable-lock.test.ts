@@ -13,9 +13,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readOwner } from '../src/pi-durable/owner.js';
 import { piPaths } from '../src/pi-durable/paths.js';
-import { workerCommand } from '../src/pi-durable/supervisor.js';
+import { ensureWorker, PiNeedsYou, START_BUDGET, startsInWindow, workerCommand } from '../src/pi-durable/supervisor.js';
 import { PiClient } from '../src/pi-durable/protocol.js';
-import { anyAlive, cleanup, delegate, ended, INSTALLED, killWorker, project, SKIP_WHY, start, status, until } from './helpers/pi-durable.js';
+import { alive, anyAlive, cleanup, delegate, ended, INSTALLED, killWorker, project, SKIP_WHY, start, status, until } from './helpers/pi-durable.js';
 
 vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 afterAll(() => { cleanup(); });
@@ -115,6 +115,29 @@ describe.skipIf(!INSTALLED)(`the Pi worker's store lock (plan i.8, spike I)${INS
     expect(reopenMs).toBeLessThan(45_000);
     await b.client.request('shutdown');
     b.client.close();
+  });
+
+  it('a store held by a live owner that does not answer (stopped): refused with NEEDS YOU words naming it; it is never killed, and answers again when continued', async () => {
+    const root = project('lock-hung');
+    const a = await start(root); // its lease stays open, so the owner keeps working once continued
+    const pid = a.client.hello.pid;
+    process.kill(pid, 'SIGSTOP');
+    let refused: unknown;
+    try {
+      await ensureWorker(root, { waitMs: 4000, helloTimeoutMs: 1500, surface: 'test' });
+    } catch (e) { refused = e; } finally {
+      expect(alive(pid)).toBe(true); // Timmy did not kill it
+      process.kill(pid, 'SIGCONT');
+    }
+    expect(refused).toBeInstanceOf(PiNeedsYou);
+    expect((refused as PiNeedsYou).words).toBe(`NEEDS YOU: the Pi store .timmy/pi/store.sqlite is held by pid ${pid} (alive), which did not answer hello within 1500 ms; a second worker cannot open it ("database is locked"). It may be stopped or hung: Timmy does not kill it by itself.`);
+    // both extra starts lost the race (exit 3), so neither counts against the start budget
+    await until('both lost starts to be recorded', () => readFileSync(piPaths(root).starts, 'utf8').split('"lost_race":true').length - 1 === 2, 15_000);
+    expect(startsInWindow(piPaths(root), START_BUDGET.windowMs).map((x) => x.pid)).toEqual([pid]);
+    const hello = await a.client.request<{ pid: number }>('hello', {});
+    expect(hello.pid).toBe(pid);
+    await a.client.request('shutdown');
+    a.client.close();
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
