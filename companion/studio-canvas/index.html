@@ -17,19 +17,27 @@
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
   #side { position: fixed; left: 8px; top: 52px; z-index: 400; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
-    display: grid; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1);
-    /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold */
-    max-height: calc(100vh - 150px); overflow-y: auto; }
-  #status { overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1);
+    /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold. R4 (H100; the Mac run r24: the New board
+       footer and the "Placed card" message sat on the list's cut rows): the panel itself never scrolls; its lists scroll in one
+       region (#side-scroll) that ends above the message band and New board, which stay in place below it. A full panel ends
+       116 px above the window's bottom (its top is at 52): tldraw's toolbar is up to 104 px tall on a narrow window, with
+       its row of actions over it */
+    max-height: calc(100vh - 168px); overflow: hidden; }
+  #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
   #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
   #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
   /* R4 (H83): Timmy refused this page (no session that counts now): what to do, in words. */
   #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
-  #side-ready { display: grid; gap: 6px; }
+  #side-ready { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
   /* R4 (H83): hidden until the canvas loads (a page Timmy refused shows no jobs, project or boards it cannot use) */
   #side-ready[hidden] { display: none; }
+  /* R4 (H100): the one region that scrolls (the jobs and the project's cards), never under the band and the footer below it */
+  #side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 6px; align-content: start; }
   #side summary { cursor: pointer; font-weight: var(--timmy-weight-heading, 700); }
-  #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; }
+  /* R4 (H100): a list's heading stays in view while its list scrolls under it */
+  #side-scroll summary { position: sticky; top: 0; z-index: 1; background: var(--timmy-surface, #121212); }
+  #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
   #side li { overflow-wrap: anywhere; }
   #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
   /* A job, in the REPL's words: outcome and time, then Canvas (job and revision) and Receipt. */
@@ -47,7 +55,9 @@
   #side .bad { color: var(--timmy-failure, #ff5f56); font-weight: var(--timmy-weight-heading, 700); }
   #side label { font-weight: var(--timmy-weight-heading, 700); }
   #side select, #side button { font: inherit; color: var(--timmy-text, #e8e6e1); background: var(--timmy-raised, #1c1c1c); border: 1px solid var(--timmy-line-strong, #6b6b6b); border-radius: 4px; padding: 2px 6px; }
-  #boards { display: grid; gap: 4px; }
+  /* R4 (H100): New board, the panel's footer: below the scrolling region, never over it; one row (its label, the picker and
+     Open), so the list keeps the room */
+  #boards { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; padding-top: 6px; border-top: 1px solid var(--timmy-line, #333333); }
   #side select { width: 100%; min-width: 0; }
   #side button { justify-self: start; cursor: pointer; }
   /* The primary action is Homebrew green, with black ink on it. */
@@ -55,11 +65,30 @@
   #side :focus-visible { outline: 2px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
   /* R4 (H55): the project the REPL named, as cards: title, state in words, what is behind it, its command, and actions. */
   #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
-  #project-note, #project-said { margin: 4px 0 0; overflow-wrap: anywhere; }
-  #project-note { color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-note { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
+  /* R4 (H100; r24): what a press said ("Placed card: …"), in its own band between the list and New board: it never sits on
+     a row or its buttons. Empty, it takes no room (and stays a live region for screen readers). */
+  #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
+  #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
   #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
-  #project-groups { max-height: 34vh; overflow-y: auto; margin-top: 4px; }
-  #side #project-refresh { margin-top: 4px; }
+  #project-groups { margin-top: 4px; }
+  /* R4 (H100): Refresh placed cards, and the grouping: By kind or By operation */
+  #project-tools { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 4px; }
+  #project-tools[hidden], #project-by[hidden] { display: none; }
+  #project-by { display: inline-flex; }
+  #side #project-by button { border-radius: 0; }
+  #side #project-by button:first-child { border-radius: 4px 0 0 4px; }
+  #side #project-by button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
+  #side #project-by button[aria-pressed="true"] { border-color: var(--timmy-accent, #28fe14); box-shadow: inset 0 -2px 0 var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
+  /* R4 (H100): an operation's group: its id and state, its request, Place this operation, its cards in the order they ran */
+  #side .pop + .pgroup { margin-top: 6px; padding-top: 2px; border-top: 1px solid var(--timmy-line, #333333); }
+  #side .pop-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--timmy-text, #e8e6e1); }
+  #side .pop-state { font-weight: var(--timmy-weight-body, 400); }
+  #side .pop-request { margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #e8e6e1); }
+  #side .pop-none, #side .pop-note, #side .pop-count, #side .pcard-op { color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
+  #side .pop-note { margin: 2px 0 0; }
+  #side .pop-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 4px 0 2px; }
+  #side button.pop-place { font-weight: var(--timmy-weight-strong, 600); border-color: var(--timmy-accent, #28fe14); }
   #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #bdbdb8); }
   #side ol.plist { max-height: none; overflow: visible; margin: 0; gap: 0; }
   #side li.pcard { display: grid; gap: 2px; padding: 5px 0; }
@@ -86,6 +115,9 @@
   .tc-badge.tc-executable { border-color: var(--timmy-accent); color: var(--timmy-accent); }
   .tc-mode { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
   .tc-mode-on { color: var(--timmy-text); }
+  /* R4 (H100): the operation the card's record names; the id in the text colour (a name to type after /op, not a command) */
+  .tc-op { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  .tc-op-id { font: inherit; color: var(--timmy-text); user-select: text; }
   .tc-note, .tc-help, .tc-read, .tc-k { color: var(--timmy-text-secondary); }
   .tc-bad { color: var(--timmy-failure); }
   .tc-warn { color: var(--timmy-attention); }
@@ -139,14 +171,19 @@
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
-    <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
-    <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
-      <p id="project-note" hidden></p>
-      <p id="project-acts" role="note">This page has not opened a session with Timmy yet.</p>
-      <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
-      <p id="project-said" role="status"></p>
-      <div id="project-groups"></div>
-    </details>
+    <div id="side-scroll">
+      <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
+      <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
+        <p id="project-note" hidden></p>
+        <p id="project-acts" role="note">This page has not opened a session with Timmy yet.</p>
+        <div id="project-tools">
+          <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
+          <div id="project-by" role="group" aria-label="Group the project's cards" hidden><button type="button" data-by="kind" aria-pressed="true">By kind</button><button type="button" data-by="operation" aria-pressed="false">By operation</button></div>
+        </div>
+        <div id="project-groups"></div>
+      </details>
+    </div>
+    <p id="project-said" role="status"></p>
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>

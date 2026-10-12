@@ -220,7 +220,11 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       await page.click(`${card(wf)} .tc-toggle`);
       await page.waitForSelector(`${card(wf)} .tc-details`);
       const shownDetails = await page.$$eval(`${card(wf)} .tc-details dt, ${card(wf)} .tc-details dd`, (n) => n.map((x) => x.textContent));
-      expect(shownDetails.slice(0, 6)).toEqual(['document', 'RUN.md', 'sha256', sha(RUN_DOC), 'card', 'workflow:RUN.md']);
+      // R4 (H100): first the operation its record names (RUN.md has not run: none, and why), then the document
+      expect(shownDetails.slice(0, 2)).toEqual(['operation', 'none: not run yet']);
+      expect(shownDetails.slice(2, 8)).toEqual(['document', 'RUN.md', 'sha256', sha(RUN_DOC), 'card', 'workflow:RUN.md']);
+      // ... and on its face, the same in a line
+      expect(await text(page, `${card(wf)} .tc-op`)).toBe('no operation: not run yet');
       expect(await page.$$eval(`${card(wf)} .tc-block-cmd code`, (n) => n.map((x) => x.textContent))).toEqual(['mkdir -p dist', 'sleep 3; echo built > dist/out.txt']);
       await page.click(`${card(wf)} .tc-toggle`);
       await page.waitForSelector(`${card(wf)} .tc-details`, { state: 'detached' });
@@ -286,6 +290,10 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       const pc = await place(page, `params:${TRAY}`);
       const at = card(pc.shape);
       await page.waitForSelector(`${at} [data-tc-param="width"]`);
+      // R4 (H100): placed, the card is in view with its height: Save, at its bottom, is under nothing (revealed while it was
+      // still 160 tall, a tall card's lower part sat under tldraw's toolbar, and this click timed out)
+      // (the camera's move to it takes 220 ms)
+      await page.waitForFunction((s) => { const b = document.querySelector(`${s} button[data-tc-act="save"]`)!.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!hit && !!hit.closest(`${s} button[data-tc-act="save"]`); }, at, { timeout: 5000 });
       const was = readFileSync(join(p.root, TRAY));
       // Typing makes Save available and holds Rebuild until it is saved; the keys reach the field, not tldraw.
       await page.click(`${at} [data-tc-param="width"]`);

@@ -143,8 +143,9 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
       await page.keyboard.press('Enter');
       const note = await placedCard(page, 'workflow:BUILD.md');
       expect((await placed(page)).length).toBe(before + 1);
-      expect(note.lines).toEqual([HOSTILE_TITLE, 'not run yet · 2 blocks: build, render', '/run BUILD.md render']);
-      expect(note.meta).toMatchObject({ v: 1, card: 'workflow:BUILD.md', kind: 'workflow', project: 'demo', projectId: p.pid, record: 'BUILD.md', receipt: null, command: '/run BUILD.md render', section: 'workflows' });
+      // R4 (H100): then its operation, or why none
+      expect(note.lines).toEqual([HOSTILE_TITLE, 'not run yet · 2 blocks: build, render', '/run BUILD.md render', 'no operation: not run yet']);
+      expect(note.meta).toMatchObject({ v: 1, card: 'workflow:BUILD.md', kind: 'workflow', project: 'demo', projectId: p.pid, record: 'BUILD.md', receipt: null, command: '/run BUILD.md render', section: 'workflows', operation: null, operationFrom: 'not run yet' });
       expect(await page.evaluate((id) => (window as never as { timmyCanvas: { editor: { getShape: (i: string) => { type: string } } } }).timmyCanvas.editor.getShape(id).type, note.id)).toBe('note');
       // Drawn by tldraw as text: still no element from the hostile title, nothing ran.
       await page.waitForTimeout(300);
@@ -162,7 +163,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
       await page.click(`#project-groups li.pcard[data-card="flow:${p.flow}"] .pcard-place`);
       const note = await placedCard(page, `flow:${p.flow}`);
       expect(note.meta).toMatchObject({ card: `flow:${p.flow}`, record: p.flowFile, receipt: flowReceipt(), section: 'flows' });
-      expect(Object.keys(note.meta).sort()).toEqual(['card', 'command', 'kind', 'placedAt', 'project', 'projectId', 'receipt', 'record', 'section', 'state', 'title', 'v']);
+      expect(Object.keys(note.meta).sort()).toEqual(['card', 'command', 'kind', 'operation', 'operationFrom', 'placedAt', 'project', 'projectId', 'receipt', 'record', 'section', 'state', 'title', 'v']);
       let saved = '';
       for (let i = 0; i < 40 && !saved.includes(note.id); i++) {
         await new Promise((r) => setTimeout(r, 150));

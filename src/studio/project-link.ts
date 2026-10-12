@@ -255,7 +255,7 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
       return;
     }
     if (!p) {
-      res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], message: NOT_NAMED, ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });
+      res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], operations: [], message: NOT_NAMED, ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });
       return;
     }
     let gone = false;
@@ -263,7 +263,8 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     const read: ProjectCards = gone ? { cards: [], notes: ['The project\'s folder is not there any more: in Timmy, /project names another.'] } : cards(p, detail);
     const holding = o.holding?.(p) === true;
     res.json({
-      ok: true, project: { name: p.name, id: p.id }, madeAt, board: p.board ? { address: p.board } : null, cards: read.cards, notes: read.notes,
+      // R4 (H100): with the operations the cards name, each as its own record says it, its cards in the order they ran
+      ok: true, project: { name: p.name, id: p.id }, madeAt, board: p.board ? { address: p.board } : null, cards: read.cards, notes: read.notes, operations: read.operations ?? [],
       ...(detail ? {
         actions: {
           holder: holding,

@@ -29,7 +29,16 @@
 // script (src/repl/approvals.ts); the REPL then checks each action against the live board's state, asks NEEDS YOU before a
 // risky block, and records it. Every text is set as text (React escapes it); nothing is markup.
 //
-// Nothing here imports anything: canvas.js hands in React and tldraw's classes, so the rules below run in Node's tests too.
+// R4 (H100): each card names the operation its record names (one request: src/ops/context.ts), as Timmy read it from the
+// record at this reading, on its face ("operation o1a2b3c4d", or "no operation:" and why) and in Details (with the request and
+// state the operation's own record gives, and /op to type in Timmy); a card no longer followed shows it as last read. And
+// "Place this operation" (placeOperation) places an operation's workflow, flow and result cards at once, left to right in
+// the order they ran, linked by arrows bound to them; a second press adds only what ran since and leaves alone what the
+// person did (./operations.js has its rules).
+//
+// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
+// below run in Node's tests too.
+import { operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, ROW_GAP, rowLayout } from './operations.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -537,6 +546,37 @@ export function createCards(deps) {
     return editor.store.allRecords().some((r) => isDrawnCard(r) && r.props.projectId === a.project?.id && stillRunning((a.cards || []).find((c) => c.id === r.props.card)?.detail));
   }
 
+  /**
+   * A drawn card's props, from the reading it is placed from. R4 (H81): a reading without the detail places the card with
+   * none (it says why, and "never read").
+   */
+  const propsFor = (card, answer, type) => ({
+    w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command,
+    data: answer.detail === false ? null : keptDetail(card.detail), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false,
+  });
+
+  /** One frame, or 50 ms where frames do not come (a hidden tab draws none): never a wait that does not end. */
+  const frame = () => new Promise((done) => {
+    const t = setTimeout(done, 50);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { clearTimeout(t); done(); });
+  });
+
+  /**
+   * R4 (H100): brings shapes into view once their heights have stopped changing (a drawn card is made 160 tall and then
+   * follows its content, Frame's layout effect): revealed at once, a tall card's lower part, its Save or Run with it, could
+   * sit under tldraw's toolbar. At most 24 frames; then as it is.
+   */
+  async function revealSized(editor, ids) {
+    let last = '';
+    for (let i = 0; i < 24; i++) {
+      await frame();
+      const now = ids.map((id) => { const s = editor.getShape(id); return s ? `${s.props.h}` : '-'; }).join(',');
+      if (now === last) break;
+      last = now;
+    }
+    try { deps.reveal(editor, ids.filter((id) => editor.getShape(id))); } catch { /* showing them is a courtesy */ }
+  }
+
   /** Places card `id` of the project as it is now, as its drawn card. */
   async function place(id, answer, editor = deps.editor()) {
     if (!answer.project) throw new Error(answer.message || 'No project is named to this canvas.');
@@ -550,14 +590,95 @@ export function createCards(deps) {
     const right = others.reduce((a, b) => (!a || b.maxX > a.maxX ? b : a), null);
     const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: WIDTH[type], h: 160 });
     const shapeId = deps.createShapeId();
-    editor.createShape({
-      id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y,
-      // R4 (H81): a reading without the detail places the card with none (it says why, and "never read")
-      props: { w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command, data: answer.detail === false ? null : keptDetail(card.detail), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false },
-    });
+    editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type) });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
+    // R4 (H100): and again once it has its height, so its lower part (its buttons) is not left under tldraw's toolbar
+    await revealSized(editor, [shapeId]);
     return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title } };
+  }
+
+  /**
+   * R4 (H100): an arrow from card `from` to card `to`, bound to both: tldraw moves its ends with the cards. An elbow arrow aimed
+   * at each card's middle, so it runs at right angles between the edges that face each other, however tall each card grows
+   * (a card's height follows its content). Returns the arrow's shape id, or null when a card is gone.
+   */
+  function link(editor, from, to, op) {
+    const a = editor.getShapePageBounds(from);
+    const b = editor.getShapePageBounds(to);
+    if (!a || !b) return null;
+    const start = { x: a.maxX, y: a.center.y };
+    const end = { x: b.minX, y: b.center.y };
+    const id = deps.createShapeId();
+    editor.createShape({
+      id, type: 'arrow', x: start.x, y: start.y, meta: { timmyOperation: op },
+      props: { kind: 'elbow', start: { x: 0, y: 0 }, end: { x: end.x - start.x, y: end.y - start.y }, dash: 'solid', size: 's' },
+    });
+    editor.createBindings([
+      { type: 'arrow', fromId: id, toId: from, props: { terminal: 'start', normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false, isExact: false } },
+      { type: 'arrow', fromId: id, toId: to, props: { terminal: 'end', normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false, isExact: false } },
+    ]);
+    return id;
+  }
+
+  /**
+   * R4 (H100): "Place this operation": operation `opId`'s workflow, flow and result cards, as the reading `answer` lists them
+   * (its cards in the order they ran), as drawn cards on this page: left to right in that order, each linked to the next by an
+   * arrow bound to both. The page keeps what it placed for the operation in its meta (PLACEMENTS), so a second press adds only
+   * the cards that ran since (after the rightmost card of the operation, linked to the one before) and says so; a card the
+   * person moved or resized stays where and as they left it, a card or arrow they deleted is not placed again, and nothing is
+   * written over. One press is one step of tldraw's undo. Returns what it did, with the words the panel says.
+   */
+  async function placeOperation(opId, answer, editor = deps.editor()) {
+    if (!answer || !answer.project) throw new Error((answer && answer.message) || 'No project is named to this canvas.');
+    const op = (answer.operations || []).find((o) => o && o.id === opId);
+    if (!op) throw new Error(`No operation ${JSON.stringify(String(opId)).slice(0, 40)} among ${answer.project.name}'s cards now.`);
+    const cards = new Map((answer.cards || []).map((c) => [c.id, c]));
+    const page = editor.getCurrentPage();
+    const key = placementKey(answer.project.id, op.id);
+    const held = page.meta && page.meta[PLACEMENTS] && typeof page.meta[PLACEMENTS] === 'object' && !Array.isArray(page.meta[PLACEMENTS]) ? page.meta[PLACEMENTS] : {};
+    const kept = readPlacement(Object.prototype.hasOwnProperty.call(held, key) ? held[key] : null);
+    const plan = placementPlan(op, cards, (kind) => drawnType(kind) !== null, kept, (id) => !!editor.getShape(id));
+    if (!plan.order.length) throw new Error(`Operation ${op.id} has no card that draws: ${plan.skipped.length ? 'its records cannot be read as cards' : 'none of its cards is listed now'}.`);
+    const widthOf = (id) => WIDTH[drawnType(cards.get(id).kind)];
+    // Where the new cards go: after the rightmost card of the operation still on the canvas; else below everything on this
+    // page; else where the panel's cards go (beside the panel).
+    const present = plan.already.map((a) => editor.getShapePageBounds(a.shape)).filter(Boolean);
+    let start;
+    if (present.length) {
+      const right = present.reduce((x, y) => (y.maxX > x.maxX ? y : x));
+      start = { x: right.maxX + ROW_GAP, y: right.minY };
+    } else {
+      const all = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
+      const width = plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP);
+      start = all.length ? { x: Math.min(...all.map((b) => b.minX)), y: Math.max(...all.map((b) => b.maxY)) + 96 } : deps.place(editor, { w: Math.max(1, width), h: 160 });
+    }
+    editor.markHistoryStoppingPoint(`timmy place operation ${op.id}`);
+    const made = rowLayout(plan.place, start, widthOf).map((at) => {
+      const card = cards.get(at.card);
+      const type = drawnType(card.kind);
+      const shape = deps.createShapeId();
+      editor.createShape({ id: shape, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type), meta: { timmyOperation: op.id } });
+      return { card: at.card, shape };
+    });
+    const shapeOf = new Map([...plan.already.map((a) => [a.card, a.shape]), ...made.map((m) => [m.card, m.shape])]);
+    const drawn = [];
+    for (const l of plan.links) {
+      const from = shapeOf.get(l.from);
+      const to = shapeOf.get(l.to);
+      if (!from || !to || !editor.getShape(from) || !editor.getShape(to)) continue;
+      const arrow = link(editor, from, to, op.id);
+      if (arrow) drawn.push({ from: l.from, to: l.to, arrow });
+    }
+    const now = editor.getPage(page.id) ?? page;
+    const record = { v: 1, project: answer.project.name, placed: [...kept.placed, ...made], links: [...kept.links, ...drawn], at: new Date().toISOString() };
+    editor.updatePage({ id: page.id, meta: { ...(now.meta || {}), [PLACEMENTS]: { ...held, [key]: record } } });
+    const shown = [...shapeOf.values()].filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page.id);
+    if (made.length) editor.select(...made.map((m) => m.shape));
+    try { deps.reveal(editor, shown); } catch { /* showing them is a courtesy */ }
+    await revealSized(editor, shown);
+    const words = placementWords(op.id, { ...plan, drawn: drawn.length });
+    return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, linked: plan.linked, words };
   }
 
   // ── drawing ──
@@ -567,8 +688,30 @@ export function createCards(deps) {
   const words = (cls, text) => (one(text) ? h('p', { className: cls }, text) : null);
   const toneClass = (tone) => (tone === 'failed' ? 'tc-bad' : tone === 'attention' ? 'tc-warn' : '');
 
+  /**
+   * R4 (H100): the line naming the card's operation (from its detail as read now, or as last read), the id as text a person
+   * can select and type in Timmy (/op <id>); null when the card has no reading of it (never read, or its detail withheld).
+   */
+  function opFace(op) {
+    if (!op || typeof op !== 'object') return null;
+    if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op' }, 'operation ', h('code', { className: 'tc-op-id' }, op.id));
+    return h('p', { className: 'tc-op tc-op-none' }, operationLine(null, op.from));
+  }
+
+  /** R4 (H100): the card's operation in Details: where it was read (or why none), its request and state as its record says, and /op. */
+  function opRows(op) {
+    if (!op || typeof op !== 'object') return null;
+    if (!(typeof op.id === 'string' && op.id)) return dl([['operation', `none: ${one(op.from) || 'its record names none'}`]]);
+    return dl([
+      ['operation', `${op.id}, as ${one(op.from) || 'its record'} names it`],
+      ['its request', op.request ? op.request : 'no record of it in this project'],
+      op.state ? ['its state', `${op.state}, as its record says`] : null,
+      ['in Timmy', cmd(`/op ${op.id}`)],
+    ]);
+  }
+
   /** The card's frame: its head (title, badge), its mode in words, its body, Details, the last answer and its reading. */
-  function Frame({ shape, type, mode, children, details, follows, answer, readAt }) {
+  function Frame({ shape, type, mode, children, details, follows, answer, readAt, op }) {
     const ref = React.useRef(null);
     const p = shape.props;
     // The shape's height follows its content (the width is the person's): written without an undo step.
@@ -599,13 +742,15 @@ export function createCards(deps) {
           h('strong', { className: 'tc-title' }, p.title || p.card),
           span(`tc-badge tc-${mode.badge}`, mode.badge)),
         h('p', { className: `tc-mode${mode.executable ? ' tc-mode-on' : ''}` }, mode.words),
+        // R4 (H100): the operation its record names (none on a withheld card: its words say how to read it)
+        mode.withheld ? null : opFace(op),
         ...React.Children.toArray(children),
         busy ? h('p', { className: 'tc-answer', role: 'status' }, 'Sent to Timmy; waiting for its answer…') : null,
         said ? h('pre', { className: `tc-answer${said.ok ? '' : ' tc-bad'}`, role: 'status' }, shown) : null,
         h('div', { className: 'tc-foot' },
           h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
           span('tc-read', mode.withheld ? 'its detail withheld here' : follows ? `read from Timmy's records at ${clock(readAt)}` : p.readAt ? `as last read at ${clock(p.readAt)}` : 'never read', { title: follows ? readAt : p.readAt })),
-        p.open ? h('div', { className: 'tc-details' }, ...React.Children.toArray([details].flat()), said && lines.length > 8 ? h('pre', { className: 'tc-answer' }, said.text) : null) : null));
+        p.open ? h('div', { className: 'tc-details' }, ...React.Children.toArray([mode.withheld ? null : opRows(op), ...[details].flat()]), said && lines.length > 8 ? h('pre', { className: 'tc-answer' }, said.text) : null) : null));
   }
 
   /** The values of `rows` as a definition list (technical detail). */
@@ -664,7 +809,7 @@ export function createCards(deps) {
       : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : one(d.notRunnable) ? null : span('tc-note', '/run cannot name this block as one word'));
     const last = d && d.last;
     return h(Frame, {
-      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt,
+      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt, op: d ? d.operation : undefined,
       details: d ? [
         dl([['document', d.doc], ['sha256', d.sha256 || 'not hashed'], ['card', p.card], ['project', `${p.project} (${p.projectId})`],
           last ? ['newest run', `job ${last.job}${last.predicted ? ` · prediction receipt ${last.predicted}` : ''}${last.receipt ? ` · outcome receipt ${last.receipt}` : ''}`] : null,
@@ -712,7 +857,7 @@ export function createCards(deps) {
     const build = d && d.build;
     const stateWords = !d ? p.command : d.state === 'ok' ? `saved in ${d.file}` : d.state === 'none' ? `no ${d.file} yet: ${d.engine === 'tray' ? 'the recipe\'s own defaults' : 'the model\'s own values'}` : `not usable: ${d.error}`;
     return h(Frame, {
-      shape, type: 'params', mode, follows: mode.follows, answer: own, readAt,
+      shape, type: 'params', mode, follows: mode.follows, answer: own, readAt, op: d ? d.operation : undefined,
       details: d ? [dl([['file', d.file], ['sha256', d.base || 'no file'], ['card', p.card], ['project', `${p.project} (${p.projectId})`],
         d.fixed ? ['fixed', `${d.fixed}${d.units ? ` (${d.units})` : ''}`] : null, ['run it', d.run], ['saving', d.save.offered ? 'through the live board\'s save path: checked by the recipe\'s rules, refused while a flow runs here, the previous version kept, an edit receipt' : d.save.why],
         over ? ['editing over', `sha256 ${String(over.base).slice(0, 12)}: a save is refused if the file changed since`] : null]),
@@ -743,7 +888,7 @@ export function createCards(deps) {
     const p = shape.props;
     const d = detail && detail.type === 'result' ? detail : null;
     return h(Frame, {
-      shape, type: 'result', mode, follows: mode.follows, answer: own, readAt,
+      shape, type: 'result', mode, follows: mode.follows, answer: own, readAt, op: d ? d.operation : undefined,
       details: d ? [dl([['card', p.card], ['project', `${p.project} (${p.projectId})`], ['check', d.check.words], d.check.receipt ? ['receipt', d.check.receipt] : null,
         d.started ? ['started', d.started] : null, d.ended ? ['ended', d.ended] : null, ['command', p.command]]),
       ...d.outputs.map((o) => h('div', { key: `s${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', `${o.sha256 ? `sha256 ${o.sha256}` : 'no sha256 recorded'}${o.bytes !== null ? ` · ${o.bytes} bytes` : ''}`))),
@@ -785,6 +930,8 @@ export function createCards(deps) {
   const utils = [make('workflow', WorkflowCard), make('params', ParamsCard), make('result', ResultCard)];
   return {
     utils, startSession, onAnswer, wantsFast, place,
+    // R4 (H100): an operation's cards at once, left to right in the order they ran, linked
+    placeOperation,
     // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
     read,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)

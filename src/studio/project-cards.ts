@@ -17,6 +17,15 @@
  * writes, runs or seals. The server reads only the folders the REPL named (the project, its jobs folder and its receipts
  * store); every text goes out with the project's folder as "." and the home folder as "~", and any other absolute path
  * as <path>.
+ *
+ * R4 (H100; gap 4 of the operator's first hands-on review: "Studio never shows the id"): every card also names the operation
+ * (one request: a typed command, a board or canvas action, a `timmy act`) its record names, read from that record at this
+ * reading and never kept here: a workflow card its newest run's job record, a parameter card the newest receipt naming its
+ * file, a flow its flow record (or a running flow's state file), a VoxVision card its record, a Control Room run its record
+ * or receipt (src/ops/card.ts annotateRoom, as the Control Room reads it). A card whose record names none says so, and why.
+ * Each card says when its record says it began (`at`), and the answer lists the operations the cards name, each as its own
+ * record (.timmy/operations/<id>.json) says it, its cards in the order they ran: Timmy Canvas groups by them and places one
+ * operation's cards at once (companion/studio-canvas/src/cards.js placeOperation).
  */
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,6 +33,11 @@ import { scrubPaths } from '../code-agents/index.js';
 import { FLOW_ID, FLOW_SCHEMA } from '../flows/iterate.js';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import { paramsFileFor, readScadParams } from '../native/scad-params.js';
+// R4 (H100): the operation each card's record names, and the operations' own records
+import { annotateRoom, buildIndex, type OpIndex } from '../ops/card.js';
+import { OPERATION_ID } from '../ops/context.js';
+import { readOperationRecord } from '../ops/operations.js';
+import { withProcessTable, writerState } from '../ops/process-proof.js';
 import { listProjectFiles, projectId, readProjectFile, sameFolder, type ProjectFile, type ReadResult } from '../project/index.js';
 import { PARAMETER_NAMES } from '../recipes/index.js';
 import { paramsCard, recipeResults } from '../repl/board-cards.js';
@@ -32,10 +46,11 @@ import { workflowForBoard } from '../repl/board-nodes.js';
 import { readBoardVox } from '../repl/board-vox.js';
 import { connectWorkflow, mentions, TRAY_PARAMS } from '../repl/board-workflows.js';
 import { gatherRoom, type RoomRun } from '../room/index.js';
+import { judgeIndex, type JudgeIndex } from '../room/judge.js';
 import type { Receipt } from '../utils/receipts.js';
 import { findWorkflowDocs } from '../workflows/upmd.js';
 // R4 (H75): what Timmy Canvas's own drawn cards show, built from the same readers (GET /api/project?detail=1).
-import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail } from './card-detail.js';
+import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail, type DetailOperation } from './card-detail.js';
 
 export type ProjectCardKind = 'workflow' | 'params' | 'flow' | 'vox' | 'run' | 'unreadable';
 
@@ -59,12 +74,42 @@ export interface ProjectCard {
   highlights?: string[];
   /** R4 (H75): what the canvas's drawn card shows (src/studio/card-detail.ts); only when asked for (detail: true) */
   detail?: CardDetail;
+  /** R4 (H100): the operation (o and 8 hex digits) its record names, read from that record now; null when it names none */
+  operation: string | null;
+  /** R4 (H100): where the operation was read ("its flow record"), or why there is none ("its flow record names none") */
+  operationFrom: string;
+  /** R4 (H100): when its record says it began (ISO), so an operation's cards are ordered as they ran; null when not recorded */
+  at: string | null;
+}
+
+/** R4 (H100): an operation the cards name, as its own record (.timmy/operations/<id>.json) says it. */
+export interface ProjectOperation {
+  id: string;
+  /** the request, as its record writes it (the project's folder as "."), or null when this project holds no record of it */
+  request: string | null;
+  /** where the request came from (repl, board, act, md), as its record says */
+  via: string | null;
+  /** its state in words, as its record says; "interrupted" when its record says it runs and the Timmy writing it has ended;
+   *  "not recorded here" without a record */
+  state: string;
+  /** why it ended so, as its record says */
+  why: string | null;
+  started: string | null;
+  ended: string | null;
+  /** its record, project-relative, or null */
+  record: string | null;
+  /** why its state reads so, or why there is no record */
+  note: string | null;
+  /** its cards' ids, in the order they ran (by when each record says it began; one that does not say comes last) */
+  cards: string[];
 }
 
 export interface ProjectCards {
   cards: ProjectCard[];
   /** what was left out or could not be read, in words */
   notes: string[];
+  /** R4 (H100): the operations the cards name, running first, then the newest first (a test's own reader may leave it out) */
+  operations?: ProjectOperation[];
 }
 
 /** What the REPL named for its project: the server reads these folders and nothing else. */
@@ -126,14 +171,42 @@ export function readProjectJobs(dir: string | null, root: string): JobRecord[] {
   } catch { return []; }
 }
 
-/** The newest receipt of this project that names `rel` among its files or outputs (its short id). */
-function receiptNaming(chain: readonly Receipt[], rel: string, pid: string): string | null {
+/** The newest receipt of this project that names `rel` among its files or outputs, with its short id. R4 (H100): the receipt
+ *  itself too (the operation it names). */
+function receiptNaming(chain: readonly Receipt[], rel: string, pid: string): { receipt: Receipt; short: string } | null {
   for (let i = chain.length - 1; i >= 0; i--) {
     const r = chain[i];
     if (r.project_id !== pid) continue;
-    if ([...(r.files ?? []), ...(r.outputs ?? [])].some((f) => f && f.path === rel)) return typeof r.hash === 'string' && r.hash.length > 15 ? r.hash.slice(7, 15) : null;
+    if ([...(r.files ?? []), ...(r.outputs ?? [])].some((f) => f && f.path === rel)) return typeof r.hash === 'string' && r.hash.length > 15 ? { receipt: r, short: r.hash.slice(7, 15) } : null;
   }
   return null;
+}
+
+// ── R4 (H100): the operation a card's record names ────────────────────────────
+
+/** An operation id (o and 8 hex digits), or null. */
+const opOf = (v: unknown): string | null => (typeof v === 'string' && OPERATION_ID.test(v) ? v : null);
+/** A record's time, as it writes it, when it is one; else null. */
+const timeOf = (v: unknown): string | null => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? v : null);
+/** A card's operation: the id its record names and where it was read, or none and why. */
+const opNamed = (id: string | null, from: string, none: string): { operation: string | null; operationFrom: string } => (id ? { operation: id, operationFrom: from } : { operation: null, operationFrom: none });
+
+/** The operation a record file names (its `operation`), read in place now: null when it names none, undefined when it cannot be read as a record. */
+function recordOperation(root: string, rel: string): string | null | undefined {
+  try {
+    const abs = join(root, rel);
+    const st = lstatSync(abs);
+    if (st.isSymbolicLink() || !st.isFile() || st.size > RECORD_MAX) return undefined;
+    const o = JSON.parse(readFileSync(abs, 'utf8')) as unknown;
+    return o && typeof o === 'object' && !Array.isArray(o) ? opOf((o as Record<string, unknown>).operation) : undefined;
+  } catch { return undefined; }
+}
+
+/** A parameter card's operation: the one the newest receipt naming its file names. */
+function receiptOperation(by: { receipt: Receipt; short: string } | null, rel: string, exists: boolean): { operation: string | null; operationFrom: string } {
+  if (!exists) return opNamed(null, '', `no ${rel} yet`);
+  if (!by) return opNamed(null, '', `no receipt names ${rel}`);
+  return opNamed(opOf(by.receipt.operation_id), `receipt ${by.short}, the newest naming ${rel}`, `receipt ${by.short}, the newest naming ${rel}, names none`);
 }
 
 // ── the cards ─────────────────────────────────────────────────────────────────
@@ -159,10 +232,15 @@ function workflowCards(c: Ctx): ProjectCard[] {
     const last = names[names.length - 1];
     // R4 (H88): a document that names two blocks alike runs none of them: its command is /workflows, which says so
     const runCmd = word(doc.rel) && last && word(last) && new Set(names).size === names.length ? `/run ${doc.rel} ${last}` : `/workflows ${doc.rel}`;
+    // R4 (H100): the operation of its newest run, as that run's job record names it
+    const job = run ? c.jobs.find((j) => j.id === run.job) : undefined;
+    const op = !run ? opNamed(null, '', 'not run yet')
+      : opNamed(opOf(job?.operation), `its newest run's job record (${run.job})`, job ? `its newest run's job record (${run.job}) names none` : `its newest run's job record (${run.job}) is not in the jobs folder Timmy named`);
     return {
       id: `workflow:${doc.rel}`, kind: 'workflow', title: c.text(title, 160), state: c.text(state), record: doc.rel,
       receipt: run?.receipt ?? null, command: c.text(runCmd, 400), section: 'workflows',
       ...(c.detail ? { detail: workflowDetail(w, c.text) } : {}),
+      ...op, at: run ? timeOf(run.startedAt) : null,
     };
   });
 }
@@ -182,12 +260,15 @@ function paramsCards(c: Ctx): ProjectCard[] {
     const state = tray.file.state === 'ok' ? `saved: ${values} (mm)`
       : tray.file.state === 'none' ? `no file yet: the recipe's defaults, ${values} (mm)`
         : `not usable: ${tray.file.error}; /recipe ${tray.recipe} refuses to start until it is fixed`;
+    const by = tray.file.state === 'none' ? null : receiptNaming(c.chain, tray.path, c.pid);
     out.push({
       id: `params:${tray.path}`, kind: 'params', title: c.text(`Tray recipe parameters (${tray.path})`, 160), state: c.text(state),
-      record: tray.file.state === 'none' ? null : tray.path, receipt: tray.file.state === 'none' ? null : receiptNaming(c.chain, tray.path, c.pid),
+      record: tray.file.state === 'none' ? null : tray.path, receipt: by?.short ?? null,
       command: `/recipe ${tray.recipe}`, section: 'parameters',
       // R4 (H75): with the newest build, as the board's own recipe result card says it.
       ...(c.detail ? { detail: trayDetail(tray, recipeResults(c.root, 1)[0], c.text) } : {}),
+      // R4 (H100): the operation the newest receipt naming the file names (a save from the board or the canvas, say)
+      ...receiptOperation(by, tray.path, tray.file.state !== 'none'), at: by ? timeOf(by.receipt.ts) : null,
     });
   }
   // OpenSCAD: every model in the project with its parameter file beside it, or named by a workflow.
@@ -199,11 +280,14 @@ function paramsCards(c: Ctx): ProjectCard[] {
     const state = !read.ok ? `not usable: ${read.error}`
       : !read.exists ? 'no parameter file yet: the model\'s own values'
         : `saved: ${Object.entries(read.parameters).slice(0, 8).map(([k, v]) => `${k} ${String(v)}`).join(', ') || 'no parameters'}${Object.keys(read.parameters).length > 8 ? ', …' : ''}`;
+    const exists = !(read.ok && !read.exists);
+    const by = exists ? receiptNaming(c.chain, file, c.pid) : null;
     out.push({
       id: `params:${file}`, kind: 'params', title: c.text(`OpenSCAD parameters of ${model} (${file})`, 160), state: c.text(state),
-      record: read.ok && !read.exists ? null : file, receipt: read.ok && !read.exists ? null : receiptNaming(c.chain, file, c.pid),
+      record: exists ? file : null, receipt: by?.short ?? null,
       command: c.text(word(model) ? `/scad ${model}` : `/open ${file}`, 400), section: 'workflows',
       ...(c.detail ? { detail: scadDetail(model, file, read, c.scadShown.has(model), c.text) } : {}),
+      ...receiptOperation(by, c.text(file, 300), exists), at: by ? timeOf(by.receipt.ts) : null,
     });
   }
   return out;
@@ -217,12 +301,15 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
   const id = String(r.id);
   const instruction = typeof r.instruction === 'string' ? r.instruction : '';
   const title = `/iterate ${KIND_OF_FLOW(r)} · ${id}${instruction ? `: ${instruction}` : ''}`;
+  // R4 (H100): the operation its record (or a running flow's state file) names, and when it says the flow started
+  const at = timeOf(r.started_at);
   if (f.live) {
     const step = typeof r.step === 'string' ? `its ${r.step} step` : 'a step its state file does not name';
     return {
       id: `flow:${id}`, kind: 'flow', title: c.text(title, 160), state: c.text(`running: ${step}, as its state file says (written ${f.live.written})`),
       record: f.file, receipt: null, command: `/stop ${id}`, section: 'flows',
       ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
+      ...opNamed(opOf(r.operation), 'its state file', 'its state file names none'), at,
     };
   }
   const readback = r.readback && typeof r.readback === 'object' ? r.readback as Record<string, unknown> : undefined;
@@ -234,6 +321,7 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
     record: f.file, receipt: f.check.status === 'verified' ? f.check.receipt ?? null : null,
     command: FLOW_ID.test(id) ? `/room ${id}` : '/iterate', section: 'flows',
     ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
+    ...opNamed(opOf(r.operation), 'its flow record', 'its flow record names none'), at,
   };
 }
 
@@ -256,12 +344,16 @@ function voxCards(c: Ctx): ProjectCard[] {
     const receipt = v.check.status !== 'unverified' ? sealedBy(v.file) : null;
     const check = v.check.status === 'verified' ? `verified: receipt ${receipt ?? '?'} sealed it` : `${v.check.status}: ${v.check.reasons.join('; ') || 'no reason was given'}`;
     const failures = v.failures.length ? ` · ${v.failures.length} failure${v.failures.length === 1 ? '' : 's'}` : '';
+    // R4 (H100): the operation its record names, read from the record file now
+    const op = recordOperation(c.root, v.file);
     return {
       id: `vox:${v.id}`, kind: 'vox', title: c.text(`${v.action} ${inputs || '(no input named)'}`, 160),
       state: c.text(`${v.status} · ${check} · ${shown.length} highlight${shown.length === 1 ? '' : 's'} shown${failures}`),
       record: v.file, receipt,
       command: c.text(v.command ?? `/inspect ${v.inputs[0]?.path ?? v.file}`, 400), section: 'voxvision', highlights: shown,
       ...(c.detail ? { detail: voxResult(v, receipt, c.root, c.text) } : {}),
+      ...opNamed(op ?? null, 'its VoxVision record', op === undefined ? 'its VoxVision record cannot be read now' : 'its VoxVision record names none'),
+      at: timeOf(v.madeAt),
     };
   });
 }
@@ -272,7 +364,10 @@ function runCards(c: Ctx, flows: BoardFlows): ProjectCard[] {
     root: c.root, project: c.name, projectId: c.pid, jobs: c.jobs, chain: c.chain, flows,
     // The canvas server knows no REPL's own jobs: a run's Stop is the REPL's typed /stop, which the REPL checks.
     mine: () => false, activeFlows: [], scrub: c.scrub,
+    ...(c.judged ? { judged: c.judged } : {}), // R4 (H100): the judgements read once for this reading
   });
+  // R4 (H100): each run's operation, as its record or receipt names it (the Control Room's own reading, src/ops/card.ts)
+  if (c.ix) annotateRoom(room, c.ix, c.jobs);
   const runs: RoomRun[] = [...room.view.running, ...room.view.groups.flatMap((g) => g.recent)].filter((r) => r.kind !== 'flow');
   const seen = new Set<string>();
   return runs.flatMap((r): ProjectCard[] => {
@@ -284,6 +379,8 @@ function runCards(c: Ctx, flows: BoardFlows): ProjectCard[] {
       id, kind: 'run', title: c.text(`${r.owner} · ${r.id}`, 160), state: c.text(`${r.state}${r.step ? ` · ${r.step}` : ''}${r.recordNote ? ` · ${r.recordNote}` : ''}`),
       record: r.record ?? null, receipt: r.receipt ?? null, command: c.text(command, 400), section: 'room',
       ...(c.detail ? { detail: runResult(r, c.root, c.text) } : {}),
+      ...opNamed(opOf(r.operation), 'its record or receipt', c.ix ? 'neither its record nor its receipt names one' : `not read: ${c.opsError ?? 'the operations could not be read'}`),
+      at: timeOf(r.startedAt),
     }];
   });
 }
@@ -311,6 +408,8 @@ function unreadableCard(rel: string, why: string, section: ProjectCard['section'
   return {
     id: `unreadable:${rel}`, kind: 'unreadable', title: c.text(`Unreadable record ${rel}`, 160), state: c.text(`unreadable: ${why}`),
     record: rel, receipt: null, command: c.text(word(rel) ? `/open ${rel}` : `/files ${rel.slice(0, rel.lastIndexOf('/'))}`, 400), section,
+    // R4 (H100): which operation made it cannot be told: its record cannot be read
+    operation: null, operationFrom: 'its record cannot be read', at: null,
   };
 }
 
@@ -332,6 +431,44 @@ interface Ctx {
   detail: boolean;
   /** R4 (H75): the OpenSCAD models a workflow card shows the parameter file of (filled by the workflow cards, read by the parameter cards) */
   scadShown: Set<string>;
+  /** R4 (H100): the project's records by the operation they name (src/ops/card.ts buildIndex), read once; absent when unreadable */
+  ix?: OpIndex;
+  /** R4 (H100): why the index could not be read */
+  opsError?: string;
+  /** R4 (H100): the project's judgements, read once for the index and the Control Room */
+  judged?: JudgeIndex;
+}
+
+const KIND_ORDER: readonly ProjectCardKind[] = ['workflow', 'params', 'flow', 'vox', 'run', 'unreadable'];
+
+/**
+ * R4 (H100): the operations the cards name, each as its own record says it, with its cards in the order they ran (by when
+ * each record says it began; ties, and records that do not say, by kind: workflow, parameters, flow, VoxVision, run). Running
+ * first, then the newest first. A record whose writer has ended while it says it runs is "interrupted", as the operation card
+ * reads it (src/ops/card.ts); an operation this project holds no record of is "not recorded here", with why.
+ */
+function operationsOf(cards: readonly ProjectCard[], c: Ctx): ProjectOperation[] {
+  const time = (x: ProjectCard): number => { const t = x.at ? Date.parse(x.at) : Number.NaN; return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY; };
+  const ids = [...new Set(cards.map((x) => x.operation).filter((x): x is string => typeof x === 'string'))];
+  const ops = ids.map((id): ProjectOperation & { sort: number; live: boolean } => {
+    const mine = cards.filter((x) => x.operation === id)
+      .sort((a, b) => time(a) - time(b) || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.id.localeCompare(b.id));
+    const first = mine.length && Number.isFinite(time(mine[0])) ? time(mine[0]) : 0;
+    const held = c.ix?.records.get(id);
+    const read = held ? { ok: true as const, record: held.record, rel: held.rel } : readOperationRecord(c.root, id);
+    if (!read.ok) {
+      return { id, request: null, via: null, state: 'not recorded here', why: null, started: null, ended: null, record: null, note: c.text(read.error, 300), cards: mine.map((x) => x.id), sort: first, live: false };
+    }
+    const rec = read.record;
+    const gone = rec.ended === null && writerState(rec.owner) === 'gone';
+    return {
+      id, request: c.text(rec.request, 300), via: rec.via, state: gone ? 'interrupted' : rec.state, why: rec.why ? c.text(rec.why, 400) : null,
+      started: timeOf(rec.started), ended: rec.ended ? timeOf(rec.ended) : null, record: read.rel,
+      note: gone ? 'its record says it runs, and the Timmy that wrote it has ended: it was left as it was' : null,
+      cards: mine.map((x) => x.id), sort: Date.parse(rec.started) || first, live: rec.ended === null && !gone,
+    };
+  });
+  return ops.sort((a, b) => Number(b.live) - Number(a.live) || b.sort - a.sort || b.id.localeCompare(a.id)).map(({ sort: _s, live: _l, ...o }) => o);
 }
 
 /**
@@ -340,6 +477,11 @@ interface Ctx {
  * becomes a note, never a failed answer.
  */
 export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?: JobRecord[] } = {}, o: { detail?: boolean } = {}): ProjectCards {
+  // R4 (H100): one reading of the process table for the whole answer (the Control Room's runs and the operations' writers)
+  return withProcessTable(() => projectCardsNow(src, given, o));
+}
+
+function projectCardsNow(src: CardSource, given: { chain?: Receipt[]; jobs?: JobRecord[] }, o: { detail?: boolean }): ProjectCards {
   const root = src.root;
   const notes: string[] = [];
   let listed: { files: ProjectFile[]; truncated: boolean };
@@ -370,6 +512,14 @@ export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?:
     notes.push(`The flow records could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`);
   }
   if (flows.more) notes.push(`${flows.more} older flow records are not listed (the board reads the newest ${flows.list.length}).`);
+  // R4 (H100): the project's judgements and its records by operation, each read once (as a board build reads them)
+  try { c.judged = judgeIndex({ root, chain: c.chain, projectId: c.pid, scrub: c.scrub, ...(flows.more ? {} : { flows: [...(flows.running ?? []), ...flows.list] }) }); } catch { c.judged = undefined; }
+  try {
+    c.ix = buildIndex({ root, projectId: c.pid, chain: c.chain, jobs: c.jobs, scrub: c.scrub, ...(c.judged ? { judged: c.judged } : {}) });
+  } catch (e) {
+    c.opsError = `the operations could not be read (${cardText(e instanceof Error ? e.message : String(e), root, 200)})`;
+    notes.push(`The operations could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`);
+  }
   const shownFlows = new Set([...flows.list, ...(flows.running ?? [])].map((f) => f.file));
   const shownVox = new Set<string>();
   const cards: ProjectCard[] = [
@@ -386,5 +536,17 @@ export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?:
   ];
   const all = [...odd, ...cards];
   if (all.length > CARDS_MAX) notes.push(`${all.length - CARDS_MAX} more cards are not listed.`);
-  return { cards: all.slice(0, CARDS_MAX), notes: notes.map((n) => cardText(n, root)) };
+  // R4 (H100): each listed card's words of where its operation was read, scrubbed as every text is; the operations they name;
+  // and each drawn card's detail with its operation (the request and state its record gives), so the card shows it as read now
+  const sent = all.slice(0, CARDS_MAX).map((x) => ({ ...x, operationFrom: cardText(x.operationFrom, root, 300) }));
+  let operations: ProjectOperation[] = [];
+  try { operations = operationsOf(sent, c); } catch (e) { notes.push(`The operations could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`); }
+  const byId = new Map(operations.map((x) => [x.id, x]));
+  for (const x of sent) {
+    if (!x.detail) continue;
+    const op = x.operation ? byId.get(x.operation) : undefined;
+    const said: DetailOperation = { id: x.operation, from: x.operationFrom, request: op?.request ?? null, state: op?.state ?? null };
+    x.detail = { ...x.detail, operation: said } as CardDetail;
+  }
+  return { cards: sent, notes: notes.map((n) => cardText(n, root)), operations };
 }

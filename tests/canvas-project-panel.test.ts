@@ -8,14 +8,17 @@ import { describe, expect, it } from 'vitest';
 import { boardHref, cardMeta, cardText, GROUPS, placedMeta, refreshPlan, refreshWords } from '../companion/studio-canvas/src/project.js';
 
 const project = { name: 'demo', id: 'abcdef0123456789' };
-const card = { id: 'flow:f1a2b3c4d', kind: 'flow', title: '/iterate tray · f1a2b3c4d: wider', state: 'succeeded · verified', record: 'results/flows/f1a2b3c4d.json', receipt: '1a2b3c4d', command: '/room f1a2b3c4d', section: 'flows' };
+const card = { id: 'flow:f1a2b3c4d', kind: 'flow', title: '/iterate tray · f1a2b3c4d: wider', state: 'succeeded · verified', record: 'results/flows/f1a2b3c4d.json', receipt: '1a2b3c4d', command: '/room f1a2b3c4d', section: 'flows', operation: 'oa1b2c3d4', operationFrom: 'its flow record' };
 const at = new Date('2026-10-10T05:40:00.000Z');
 
 describe('the Project panel', () => {
-  it('a placed card holds its title, state and command, one line each, and keeps its record and receipt in its meta (no board, no token)', () => {
-    expect(cardText({ ...card, title: 'two\nlines' })).toBe('two lines\nsucceeded · verified\n/room f1a2b3c4d');
+  it('a placed card holds its title, state and command, one line each, then (R4 H100) its operation, and keeps its record, receipt and operation in its meta (no board, no token)', () => {
+    expect(cardText({ ...card, title: 'two\nlines' })).toBe('two lines\nsucceeded · verified\n/room f1a2b3c4d\noperation oa1b2c3d4');
+    // R4 (H100): a card whose record names no operation says so, and why
+    expect(cardText({ ...card, operation: null, operationFrom: 'its flow record names none' }).split('\n')[3]).toBe('no operation: its flow record names none');
     const meta = cardMeta(card, project, at);
-    expect(meta).toEqual({ v: 1, card: card.id, kind: 'flow', project: 'demo', projectId: project.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt, section: 'flows', placedAt: at.toISOString() });
+    expect(meta).toEqual({ v: 1, card: card.id, kind: 'flow', project: 'demo', projectId: project.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt, section: 'flows', operation: 'oa1b2c3d4', operationFrom: 'its flow record', placedAt: at.toISOString() });
+    expect(cardMeta({ ...card, operation: 'not-an-operation' }, project, at).operation).toBeNull();
     expect(placedMeta({ meta: { timmyProjectCard: meta } })).toBe(meta);
     expect(placedMeta({ meta: {} })).toBeNull();
     expect(cardMeta({ ...card, section: 'javascript:alert(1)', record: null, receipt: undefined }, project, at)).toMatchObject({ section: null, record: null, receipt: null });
@@ -33,9 +36,14 @@ describe('the Project panel', () => {
     const api = (cards: unknown[], p: unknown = project) => ({ project: p, cards });
     expect(refreshPlan(meta, api([card]), at)).toEqual({ action: 'same' });
     const failed = refreshPlan(meta, api([{ ...card, state: 'failed · not verified', receipt: null }]), at);
-    expect(failed).toMatchObject({ action: 'update', text: `${card.title}\nfailed · not verified\n${card.command}`, meta: { state: 'failed · not verified', receipt: null, placedAt: at.toISOString(), refreshedAt: at.toISOString() } });
+    expect(failed).toMatchObject({ action: 'update', text: `${card.title}\nfailed · not verified\n${card.command}\noperation oa1b2c3d4`, meta: { state: 'failed · not verified', receipt: null, placedAt: at.toISOString(), refreshedAt: at.toISOString() } });
+    // R4 (H100): a record now naming another operation (or none) is a change too
+    expect(refreshPlan(meta, api([{ ...card, operation: null, operationFrom: 'its flow record names none' }]), at)).toMatchObject({ action: 'update', meta: { operation: null } });
+    // R4 (H100): a note placed before operations were shown (no operation kept) is written again once, with its operation
+    const { operation: _o, operationFrom: _f, ...older } = meta as Record<string, unknown>;
+    expect(refreshPlan(older, api([card]), at)).toMatchObject({ action: 'update', text: `${card.title}\n${card.state}\n${card.command}\noperation oa1b2c3d4` });
     const gone = refreshPlan(meta, api([]), at);
-    expect(gone).toEqual({ action: 'gone', text: `${card.title}\nrecord gone: its record ${card.record} is not in demo now (checked 2026-10-10 05:40 UTC)\n${card.command}`, meta: { ...meta, gone: true, goneAt: at.toISOString() } });
+    expect(gone).toEqual({ action: 'gone', text: `${card.title}\nrecord gone: its record ${card.record} is not in demo now (checked 2026-10-10 05:40 UTC)\n${card.command}\noperation oa1b2c3d4, as last read`, meta: { ...meta, gone: true, goneAt: at.toISOString() } });
     expect(refreshPlan((gone as { meta: Record<string, unknown> }).meta, api([]), at)).toEqual({ action: 'same' });
     // Back again: the note follows its record, and is no longer said to be gone.
     const back = refreshPlan((gone as { meta: Record<string, unknown> }).meta, api([card]), at) as { action: string; meta: Record<string, unknown> };
