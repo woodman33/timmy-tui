@@ -10,7 +10,10 @@
  * Workspace in a temporary project (tests/helpers/ops-sandbox.ts).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { cut, cutKeepingIds } from '../src/repl/overview.js';
+import path from 'node:path';
+import { buildOverview } from '../src/overview/index.js';
+import { cut, cutKeepingIds, fitHeadAndItem, overviewFirstLines } from '../src/repl/overview.js';
+import { glyphSet } from '../src/term/glyphs.js';
 import { opsKit, replOf, sandbox as opsSandbox, text } from './helpers/ops-sandbox.js';
 
 const kit = opsKit();
@@ -33,6 +36,56 @@ describe('an operation id is never cut off', () => {
     expect(Array.from(two).length).toBeLessThanOrEqual(40);
     expect(cutKeepingIds('a o11111111 b o22222222 c', 10)).toBe('o11111111 o22222222');
     expect(cutKeepingIds('words without an id that go on and on', 12)).toBe('words witho…');
+  });
+});
+
+// R4 (H99, the review of the H99 work, finding 2): a head that fits but does not fit with its urgent item cut the item inside
+// its id ("…14 changes to reviewa2b3c4d", heads of 57 to 66 columns at width 80)
+describe('a section\'s head and its urgent item keep every operation id whole at every width', () => {
+  const ITEM = 'operation o1a2b3c4d changed 3 files: /iterate scad box.scad "make it a good deal wider than it is now"';
+  const heads = Array.from({ length: 12 }, (_, i) => `112 app runs, 131 files (18 editable), 14 changes to review${'.'.repeat(i)}`.slice(0, 55 + i));
+  const ID = /\bo1a2b3c4d\b/;
+
+  it('the review\'s line (width 80): the head gives way, the item keeps its id whole after the separator', () => {
+    const head = '112 app runs, 131 files (18 editable), 14 changes to review';
+    const fit = fitHeadAndItem(head, ITEM, ' · ', 66);
+    expect(fit.item).toMatch(/^ · /);
+    expect(`${fit.head}${fit.item}`).toMatch(ID);
+    expect(`${fit.head}${fit.item}`).not.toContain('reviewa2b3c4d');
+    expect(Array.from(`${fit.head}${fit.item}`).length).toBeLessThanOrEqual(66);
+    expect(head.startsWith(fit.head.replace(/…$/, ''))).toBe(true);
+  });
+
+  it('every head of 55 to 66 columns at every width from 60 to 120: within the width, the id whole, the head a cut of itself', () => {
+    for (const head of heads) {
+      for (let w = 60; w <= 120; w++) {
+        const room = w - 14;
+        const fit = fitHeadAndItem(head, ITEM, ' · ', room);
+        const line = `${fit.head}${fit.item}`;
+        expect(Array.from(line).length, `${w}: ${line}`).toBeLessThanOrEqual(room);
+        expect(line, `${w}: ${line}`).toMatch(ID);
+        expect(line, `${w}: ${line}`).not.toMatch(/[^\s]o?[0-9a-f]{0,7}o1a2b3c4d|o1a2b3c4d[0-9a-f]/);
+        expect(head.startsWith(fit.head.replace(/…$/, '')), `${w}: ${fit.head}`).toBe(true);
+        expect(fit.item.startsWith(' · '), `${w}: ${fit.item}`).toBe(true);
+      }
+    }
+  });
+
+  it('on the first screen itself (overviewFirstLines), the Apps line at widths 60 to 120', () => {
+    const s = opsSandbox(kit, 'find-op-fit-');
+    const o = buildOverview(s.root, { name: 'project', jobsDir: path.join(s.home, 'timmy', 'jobs'), store: path.join(s.root, '.timmy', 'receipts'), env: { TIMMY_HOME: path.join(s.home, 'timmy') } });
+    for (const head of heads) {
+      const shown = structuredClone(o);
+      shown.apps.summary = head;
+      shown.apps.urgent = { text: ITEM, tone: 'attention', source: { record: null, command: '/review o1a2b3c4d', board: 'review' } };
+      for (let w = 60; w <= 120; w++) {
+        const lines = text(overviewFirstLines(shown, { glyphs: glyphSet(true), width: w })).split('\n');
+        const apps = lines.find((l) => /^ {2}Apps /.test(l))!;
+        expect(Array.from(apps).length, `${w}: ${apps}`).toBeLessThanOrEqual(w);
+        expect(apps, `${w}: ${apps}`).toMatch(ID);
+        expect(apps, `${w}: ${apps}`).not.toMatch(/\bo[0-9a-f]{1,7}…|[a-z]a2b3c4d/);
+      }
+    }
   });
 });
 

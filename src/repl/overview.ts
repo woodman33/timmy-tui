@@ -55,14 +55,33 @@ export function cutKeepingIds(text: string, n: number): string {
   parts.push({ id: false, text: text.slice(at) });
   let room = n - ids.reduce((k, m) => k + m[0].length, 0);
   if (room <= 0) return ids.map((m) => m[0]).join(' ');
-  return parts.map((p) => {
+  return parts.map((p, i) => {
     if (p.id) return p.text;
     const len = Array.from(p.text).length;
     if (len <= room) { room -= len; return p.text; }
-    const kept = room > 1 ? cut(p.text, room) : room === 1 ? '…' : '';
+    // R4 (H99, the review): words cut before an id end with the ellipsis and a space ("ope… o1a2b3c4d"), never glued to it
+    const beforeId = i < parts.length - 1;
+    const kept = beforeId ? (room >= 3 ? `${cut(p.text, room - 1)} ` : '') : room > 1 ? cut(p.text, room) : room === 1 ? '…' : '';
     room = Math.max(0, room - Array.from(kept).length);
     return kept;
   }).join('');
+}
+
+/**
+ * R4 (H99, the review of the H99 work): a section's head and its most urgent item on one line of `n` columns, every operation
+ * id in either whole. The item needs at least its separator and its ids; the head gives way for them (its own ids kept), and
+ * the item has what is left. Each comes back alone, so neither starts inside the other (the review: a head of 57 to 66
+ * columns made "…14 changes to reviewa2b3c4d", the item cut inside its id). Ids alone that do not fit are kept whole.
+ */
+export function fitHeadAndItem(head: string, item: string, sep: string, n: number): { head: string; item: string } {
+  const width = (t: string): number => Array.from(t).length;
+  if (width(head) + width(sep) + width(item) <= n) return { head, item: `${sep}${item}` };
+  const ids = [...item.matchAll(OPERATION_IN_TEXT)].map((m) => m[0]);
+  const least = ids.length ? width(sep) + width(ids.join(' ')) : 0;
+  const headCut = cutKeepingIds(head, Math.max(1, n - least));
+  const left = n - width(headCut) - width(sep);
+  const itemCut = left > 0 ? cutKeepingIds(item, left) : ids.join(' ');
+  return { head: headCut, item: itemCut && itemCut !== '…' ? `${sep}${itemCut}` : '' };
 }
 
 export const OVERVIEW_USAGE = '/overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]';
@@ -122,13 +141,13 @@ export function overviewFirstLines(o: Overview, t: OverviewTextOptions): Line[] 
   const lines: Line[] = [[{ text: cut(`  God's Eye View  ${o.project.name}${sep}as of ${stamp(o.as_of)}`, width), role: 'strong' }]];
   const sectionLine = (sec: SectionBase): Line => {
     const head = sec.state === 'unknown' ? `unknown: ${sec.why ?? 'not read'}` : `${sec.state === 'partial' ? 'partly read; ' : ''}${sec.summary}`;
+    const headRole = sec.state === 'unknown' ? { role: 'estimate' as Role } : {};
+    if (!sec.urgent) return [label(sec.title), { text: cutKeepingIds(head, room), ...headRole }];
     // R4 (H93): how long ago, when the urgent item has a time (a probe, the backend's answer)
-    const urgent = sec.urgent ? `${sep}${sec.urgent.text}${sec.urgent.ago ? ` (${sec.urgent.ago})` : ''}` : '';
-    // R4 (H99, gap 4): an operation id is never cut off; the words around it are shortened instead
-    const whole = cutKeepingIds(`${head}${urgent}`, room);
-    const headPart = cutKeepingIds(head, room);
-    if (!sec.urgent || whole.length <= headPart.length) return [label(sec.title), { text: whole, ...(sec.state === 'unknown' ? { role: 'estimate' as Role } : {}) }];
-    return [label(sec.title), { text: headPart, ...(sec.state === 'unknown' ? { role: 'estimate' as Role } : {}) }, { text: whole.slice(headPart.length), ...(ROLE[sec.urgent.tone] ? { role: ROLE[sec.urgent.tone] } : {}) }];
+    const item = `${sec.urgent.text}${sec.urgent.ago ? ` (${sec.urgent.ago})` : ''}`;
+    // R4 (H99, gap 4 and the review): an operation id is never cut off, in the head or the item; the words around it give way
+    const fit = fitHeadAndItem(head, item, sep, room);
+    return [label(sec.title), { text: fit.head, ...headRole }, ...(fit.item ? [{ text: fit.item, ...(ROLE[sec.urgent.tone] ? { role: ROLE[sec.urgent.tone] } : {}) }] : [])];
   };
   const command = (src: OverviewSource | undefined): Line | undefined => (src ? [{ text: '              ' }, { text: cut(src.command, room), role: 'accent' }] : undefined);
   for (const id of OVERVIEW_SECTIONS) {
