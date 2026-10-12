@@ -12,8 +12,9 @@
  *   - the code agent of that operation (its own record, .timmy/agents/<run>/): the tool calls and messages its progress log
  *     holds (each a line the agent's own stream gave) and the latest line.
  * A line is printed when one of these changes (a block's start at once, another change at most one every `minGapMs`), and,
- * while nothing changes, one every `quietMs` with the time it has run: "still running: change, 1 min 30 s · flow f… (/iterate
- * scad) in its agent step · agent a…: 4 tool calls, 1 message so far; latest: tool edit box.params.json". A block's end is
+ * while nothing changes, one every `quietMs` with the time it has run. What changes comes first (R4, H99, the review: a line
+ * cut at 80 columns keeps it): "still running: agent a…: 4 tool calls, 1 message so far; latest: tool edit box.params.json ·
+ * flow f… (/iterate scad) in its agent step · change · run 1 min 30 s" (the run's time, never the block's). A block's end is
  * said by the job's own notice (src/repl/workspace.ts changed()); the quiet is counted from it. Nothing is invented: what no
  * record says is not said (the agent's turns are not counted: its stream says them only at its end), and over a pipe the
  * block that runs is not named. The lines go through the REPL's notices (the same path a job's end line takes), so the
@@ -73,6 +74,8 @@ interface Followed {
   last?: string; lastBlock?: string; ended?: number; blockEndedAt?: number;
   /** when something was last said of the run (a line here, or the job's own notice of a block's end); when a line here was */
   at: number; lineAt: number;
+  /** R4 (H99, the review): the records read between looks (src/repl/run-progress.ts RecordCache) */
+  cache: RecordCache;
 }
 
 /** A duration as the progress lines say it: 45 s, 1 min 30 s, 1 h 5 min. */
@@ -91,31 +94,61 @@ const cutTo = (t: string, n: number): string => (Array.from(t).length > n ? `${A
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 const RECORD_MAX = 1024 * 1024;
-/** A JSON object file of at most RECORD_MAX bytes, and when it was written; undefined when it is not one (yet). */
-function readObject(abs: string): { value: Record<string, unknown>; at: number } | undefined {
-  try {
-    const st = fs.lstatSync(abs);
-    if (!st.isFile() || st.size > RECORD_MAX) return undefined;
-    const v: unknown = JSON.parse(fs.readFileSync(abs, 'utf8'));
-    return v && typeof v === 'object' && !Array.isArray(v) ? { value: v as Record<string, unknown>, at: st.mtimeMs } : undefined;
-  } catch { return undefined; }
+
+/**
+ * R4 (H99, the review: a look read every flow's state file and every agent's run record each second): what a follower keeps
+ * between looks. A file is read again only when its time or size changed; a record of another operation (a flow's or an
+ * agent's operation is fixed when it starts), or one written before the run began, is never read again.
+ */
+export interface RecordCache {
+  files: Map<string, { mtimeMs: number; size: number; value: Record<string, unknown> | undefined }>;
+  others: Set<string>;
+  logs: Map<string, { mtimeMs: number; size: number; tools: number; messages: number; latest?: string }>;
+}
+export const newRecordCache = (): RecordCache => ({ files: new Map(), others: new Set(), logs: new Map() });
+
+/** A file's time and size, or undefined when it is not a regular file of a record's size. */
+function statOf(abs: string): fs.Stats | undefined {
+  try { const st = fs.lstatSync(abs); return st.isFile() && st.size <= RECORD_MAX ? st : undefined; } catch { return undefined; }
+}
+
+/** A JSON object file of at most RECORD_MAX bytes, and when it was written (read again only when it changed). */
+function readObject(abs: string, cache?: RecordCache): { value: Record<string, unknown>; at: number } | undefined {
+  const st = statOf(abs);
+  if (!st) return undefined;
+  const hit = cache?.files.get(abs);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value ? { value: hit.value, at: st.mtimeMs } : undefined;
+  let value: Record<string, unknown> | undefined;
+  try { const v: unknown = JSON.parse(fs.readFileSync(abs, 'utf8')); value = v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined; } catch { value = undefined; }
+  // a file being written reads as nothing, and is read again once its time or size changes
+  cache?.files.set(abs, { mtimeMs: st.mtimeMs, size: st.size, value });
+  return value ? { value, at: st.mtimeMs } : undefined;
 }
 
 /**
  * The flow of an operation, from its state file (.timmy/flows/<id>/state.json): the one that runs now (the newest written,
  * should one operation run two), its id, kind and step; else the newest that has ended, with the outcome its record says
- * (results/flows/<id>.json; a flow with a record has ended). Undefined when the operation has no flow (yet).
+ * (results/flows/<id>.json; a flow with a record has ended). Undefined when the operation has no flow (yet). `since`: state
+ * files written before it are not this run's, and are not read.
  */
-export function flowOf(root: string, operation: string): RunFacts['flow'] {
+export function flowOf(root: string, operation: string, o: { since?: number; cache?: RecordCache } = {}): RunFacts['flow'] {
   let ids: string[] = [];
   try { ids = fs.readdirSync(path.join(root, FLOW_WORK_DIR)).filter((n) => FLOW_ID.test(n)); } catch { return undefined; }
   let running: { flow: NonNullable<RunFacts['flow']>; at: number } | undefined;
   let ended: { flow: NonNullable<RunFacts['flow']>; at: number } | undefined;
   for (const id of ids) {
-    const s = readObject(path.join(root, FLOW_WORK_DIR, id, 'state.json'));
-    if (!s || s.value.schema !== FLOW_SCHEMA || s.value.id !== id || s.value.operation !== operation) continue; // a state file being written is read at the next look
+    const key = `flow:${id}`;
+    if (o.cache?.others.has(key)) continue;
+    const abs = path.join(root, FLOW_WORK_DIR, id, 'state.json');
+    const st = statOf(abs);
+    if (!st) continue;
+    if (o.since !== undefined && st.mtimeMs < o.since) { o.cache?.others.add(key); continue; }
+    const s = readObject(abs, o.cache);
+    if (!s) continue; // a state file being written is read at the next look
+    if (s.value.schema !== FLOW_SCHEMA || s.value.id !== id || s.value.operation !== operation) { o.cache?.others.add(key); continue; }
     const kind = typeof s.value.target === 'string' ? s.value.target : 'tray';
-    const rec = fs.existsSync(path.join(root, flowRecordPath(id))) ? readObject(path.join(root, flowRecordPath(id))) ?? { value: {}, at: s.at } : undefined;
+    const recAbs = path.join(root, flowRecordPath(id));
+    const rec = statOf(recAbs) ? readObject(recAbs, o.cache) ?? { value: {}, at: s.at } : undefined;
     if (rec) {
       if (!ended || rec.at > ended.at) ended = { flow: { id, kind, step: 'ended', ...(typeof rec.value.outcome === 'string' ? { outcome: rec.value.outcome } : {}), endedAt: rec.at }, at: rec.at };
     } else if (s.value.outcome === 'running' && (!running || s.at > running.at)) {
@@ -125,41 +158,57 @@ export function flowOf(root: string, operation: string): RunFacts['flow'] {
   return (running ?? ended)?.flow;
 }
 
+/** An agent's progress log counted: its tool calls and messages and its latest line (counted again only when it changed). */
+function progressOf(root: string, run: string, cache?: RecordCache): { tools: number; messages: number; latest?: string } {
+  const abs = path.join(root, AGENTS_DIR, run, 'progress.log');
+  let st: fs.Stats | undefined;
+  try { st = fs.lstatSync(abs); } catch { st = undefined; }
+  const hit = st ? cache?.logs.get(abs) : undefined;
+  if (st && hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return { tools: hit.tools, messages: hit.messages, ...(hit.latest ? { latest: hit.latest } : {}) };
+  let lines: string[] = [];
+  try { lines = readProgressTail(root, run, Number.MAX_SAFE_INTEGER).flatMap((l) => l.split('\n')).filter((l) => l.trim()); } catch { lines = []; }
+  const latest = lines.at(-1)?.replace(/\s+/g, ' ').trim();
+  const counted = { tools: lines.filter((l) => TOOL_LINE.test(l)).length, messages: lines.filter((l) => SAYS_LINE.test(l)).length, ...(latest ? { latest } : {}) };
+  if (st && st.isFile()) cache?.logs.set(abs, { mtimeMs: st.mtimeMs, size: st.size, ...counted });
+  return counted;
+}
+
 /**
  * The code agent of an operation that runs now, from its own record (.timmy/agents/<run>/run.json, written as it starts; a
  * run with a result or an end has ended): its progress log's tool calls and messages, its latest line. Only the runs whose
- * record was written since `since` (the /run's start) are read.
+ * record was written since `since` (the /run's start) are read, each again only when it changed.
  */
-export function runningAgentOf(root: string, operation: string, since = 0): RunFacts['agent'] {
+export function runningAgentOf(root: string, operation: string, since = 0, cache?: RecordCache): RunFacts['agent'] {
   let names: string[] = [];
   try { names = fs.readdirSync(path.join(root, AGENTS_DIR)).filter((n) => /^a[0-9a-f]{8}$/.test(n)); } catch { return undefined; }
   let found: { run: string; at: number } | undefined;
   for (const n of names) {
-    const rec = readObject(path.join(root, AGENTS_DIR, n, RUN_RECORD));
-    if (!rec || rec.at < since || rec.value.run !== n || rec.value.operation !== operation) continue;
-    if (rec.value.outcome !== undefined || rec.value.state === 'ended' || rec.value.state === 'interrupted') continue;
-    if (fs.existsSync(path.join(root, AGENTS_DIR, n, 'result.json'))) continue; // its result is written: it has ended
+    const key = `agent:${n}`;
+    if (cache?.others.has(key)) continue;
+    const abs = path.join(root, AGENTS_DIR, n, RUN_RECORD);
+    const st = statOf(abs);
+    if (!st) continue;
+    if (st.mtimeMs < since) { cache?.others.add(key); continue; }
+    const rec = readObject(abs, cache);
+    if (!rec) continue;
+    if (rec.value.run !== n || rec.value.operation !== operation) { cache?.others.add(key); continue; }
+    // one that has ended (its record says so, or its result is written) does not run again
+    if (rec.value.outcome !== undefined || rec.value.state === 'ended' || rec.value.state === 'interrupted' || fs.existsSync(path.join(root, AGENTS_DIR, n, 'result.json'))) { cache?.others.add(key); continue; }
     if (!found || rec.at > found.at) found = { run: n, at: rec.at };
   }
   if (!found) return undefined;
-  const r = found;
-  let lines: string[] = [];
-  try { lines = readProgressTail(root, r.run, Number.MAX_SAFE_INTEGER).flatMap((l) => l.split('\n')).filter((l) => l.trim()); } catch { lines = []; }
-  const latest = lines.at(-1);
-  return {
-    run: r.run, tools: lines.filter((l) => TOOL_LINE.test(l)).length, messages: lines.filter((l) => SAYS_LINE.test(l)).length,
-    ...(latest ? { latest: latest.replace(/\s+/g, ' ').trim() } : {}),
-  };
+  return { run: found.run, ...progressOf(root, found.run, cache) };
 }
 
 /** What the records of a /run say now (never more than they say). `live`: whether its blocks come as they start (a pty). */
-export function runFacts(j: JobRecord, f: { root: string; operation?: string; order: readonly string[]; live: boolean }, now: number): RunFacts {
+export function runFacts(j: JobRecord, f: { root: string; operation?: string; order: readonly string[]; live: boolean }, now: number, cache?: RecordCache): RunFacts {
   const count = blockCount(j, { order: f.order });
   const running = j.steps.find((s) => s.state === 'running');
   const started = Date.parse(j.startedAt);
-  const flow = f.operation ? flowOf(f.root, f.operation) : undefined;
   // a record's time is its file's: a second's slack for a clock that writes it a little before the job's start is read
-  const agent = f.operation ? runningAgentOf(f.root, f.operation, Number.isFinite(started) ? started - 1000 : 0) : undefined;
+  const since = Number.isFinite(started) ? started - 1000 : 0;
+  const flow = f.operation ? flowOf(f.root, f.operation, { since, ...(cache ? { cache } : {}) }) : undefined;
+  const agent = f.operation ? runningAgentOf(f.root, f.operation, since, cache) : undefined;
   return {
     ended: count.ended, ...(count.of !== undefined ? { of: count.of } : {}),
     ...(f.live && running ? { block: running.name } : {}),
@@ -174,10 +223,13 @@ export function progressWords(p: RunFacts, sep: string, scrub: (t: string) => st
   const agent = p.agent
     ? `agent ${p.agent.run}: ${p.agent.tools || p.agent.messages ? `${plural(p.agent.tools, 'tool call')}, ${plural(p.agent.messages, 'message')} so far` : 'no tool call or message in its progress log yet'}${p.agent.latest ? `; latest: ${cutTo(scrub(p.agent.latest), 100)}` : ''}`
     : undefined;
+  // R4 (H99, the review): what changes first (the agent's counts and latest action), then the flow, then the block and the
+  // time the run has taken (the run's, never the block's): a line cut at 80 columns keeps what moved
   return [
-    `${block}, ${elapsedWords(p.elapsedMs)}`,
-    ...(p.flow ? [`flow ${p.flow.id} (/iterate ${p.flow.kind}) ${p.flow.step === 'ended' ? `ended: ${p.flow.outcome ?? 'its record holds no outcome'}` : `in its ${p.flow.step} step`}`] : []),
     ...(agent ? [agent] : []),
+    ...(p.flow ? [`flow ${p.flow.id} (/iterate ${p.flow.kind}) ${p.flow.step === 'ended' ? `ended: ${p.flow.outcome ?? 'its record holds no outcome'}` : `in its ${p.flow.step} step`}`] : []),
+    block,
+    `run ${elapsedWords(p.elapsedMs)}`,
   ].join(sep);
 }
 
@@ -195,7 +247,7 @@ export class RunProgress {
 
   /** Follows a /run job of this REPL from its start until it ends. */
   follow(job: string, o: { root: string; operation?: string; order: string[]; live: boolean }): void {
-    this.runs.set(job, { job, root: o.root, order: o.order, live: o.live, ...(o.operation ? { operation: o.operation } : {}), at: this.now(), lineAt: 0 });
+    this.runs.set(job, { job, root: o.root, order: o.order, live: o.live, ...(o.operation ? { operation: o.operation } : {}), at: this.now(), lineAt: 0, cache: newRecordCache() });
     if (!this.timer) {
       this.timer = setInterval(() => this.tick(), this.d.tickMs ?? PROGRESS_TICK_MS);
       this.timer.unref();
@@ -218,7 +270,7 @@ export class RunProgress {
       const j = this.d.jobs.get(f.job);
       if (!j || j.stale || (j.state !== 'queued' && j.state !== 'running')) { this.runs.delete(f.job); continue; }
       let p: RunFacts;
-      try { p = runFacts(j, f, now); } catch { continue; }
+      try { p = runFacts(j, f, now, f.cache); } catch { continue; }
       // a block that ended was said by the job's own notice as it ended: the quiet is counted from there
       if (f.ended !== undefined && p.ended !== f.ended) { f.at = now; f.blockEndedAt = now; }
       f.ended = p.ended;
