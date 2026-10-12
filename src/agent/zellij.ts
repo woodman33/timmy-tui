@@ -266,9 +266,10 @@ export class ZellijManager implements MultiplexerManager {
         timestamp: startedAt
       });
 
-      // Send input keys into Zellij session
-      const escaped = wrappedCommand.replace(/"/g, '\\"');
-      execSync(`zellij -s ${sName} action write-chars "${escaped}\n"`, { stdio: 'ignore', timeout: 3000, env: this.env });
+      // Send input keys into Zellij session. R4 lead (2026-10-12, the dispatch audit): as one argument, never through a shell of
+      // Timmy's own. Before, execSync with only " escaped ran $(...), `...` and $VAR of the approved command in Timmy's
+      // process, outside the pane, and a \" in it ended the quoting (tests/dispatch-shell-paths.test.ts).
+      execFileSync('zellij', ['-s', sName, 'action', 'write-chars', `${wrappedCommand}\n`], { stdio: 'ignore', timeout: 3000, env: this.env });
     } catch {}
   }
 

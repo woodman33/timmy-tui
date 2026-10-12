@@ -3,7 +3,8 @@ import { Box, Text, useInput, useWindowSize } from 'ink';
 import { useFocus, panelMayAct } from '../hooks/useKeyDispatcher.js';
 import { theme } from '../theme.js';
 import { Card, SectionRule, Pill, type PillKind } from '../ui/index.js';
-import { execSync, exec } from 'child_process';
+import { execSync } from 'child_process';
+import { openExternal } from '../../utils/external-open.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -202,7 +203,7 @@ export function CodeReviewPanel({ agent, setInspector, focusArea = 'stage' }: Co
           setBrowserRunning(healthy);
           if (healthy) {
             setOutputLog('✓ Port active. Launching companion interface in browser...');
-            exec(`open ${companionUrl}`, {});
+            openExternal(companionUrl); // R4 lead: as an argument, never a shell string
           } else {
             setOutputLog('× Browser companion is not running. Start it first, then retry.');
           }

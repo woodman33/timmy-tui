@@ -15,8 +15,9 @@ import { harnessFields } from '../harness/policy.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
 
-/** R4 lead (2026-10-12): a shell word that holds `text` as it is: single-quoted, each ' inside written '\''. */
-export const shellWord = (text: string): string => `'${text.replace(/'/g, `'\\''`)}'`;
+// R4 lead (2026-10-12): shellWord lives in its own module (src/agent/lanes.ts uses it too); still exported from here.
+import { shellWord } from './shell-word.js';
+export { shellWord };
 
 /**
  * R4 lead (2026-10-12; found by H115 reading the Pi lane): a lane's one-shot command with its task in it, as the pane's shell

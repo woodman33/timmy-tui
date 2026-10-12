@@ -7,6 +7,7 @@
  */
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { shellWord } from '../utils/shell-word.js';
 
 export interface LaneRunner {
   /** Binary invoked inside the pane */
@@ -249,7 +250,9 @@ export function laneStartupScript(runnerKey: string | undefined): string {
     mkdirSync(dir, { recursive: true });
     const path = join(dir, `lane-${runnerKey || 'shell'}.sh`);
     writeFileSync(path, script.join('\n') + '\n', { mode: 0o755 });
-    return `bash '${path}'`;
+    // R4 lead (2026-10-12, the dispatch audit): the path as one shell word, so a project folder named "Bob's project" (or
+    // with $(...) in it) starts its lanes: plain '...' ended at the apostrophe, and the pane's shell refused the line.
+    return `bash ${shellWord(path)}`;
   } catch {
     // filesystem unavailable — fall back to the old one-liner shape
     return script.slice(1).join('; ');
