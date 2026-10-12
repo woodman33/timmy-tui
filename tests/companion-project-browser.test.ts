@@ -159,19 +159,20 @@ describe('the companion\'s project follower (src/companion/project.ts), without 
     process.env.TIMMY_HOME = h;
     const seen: Array<{ name: string; at: number }> = [];
     // asked for a faster poll: it keeps once a second
+    const started = Date.now();
     const f = new ProjectFollower({ cwd: temp('h104b-poll-work-'), pollMs: 10, onChange: (p) => seen.push({ name: p.name, at: Date.now() }) });
     try {
       expect(f.current().chosen).toBe(false);
       const delta = project('delta');
-      const t0 = Date.now();
+      const written = Date.now();
       choose(delta);
       const deadline = Date.now() + 5_000;
       while (!seen.length && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
       expect(seen.map((s) => s.name)).toEqual(['delta']);
-      // no state folder to watch at the start: only the poll could find it, a second at most after it was written (and
-      // not before the first second: the asked-for 10 ms poll was not used)
-      expect(seen[0].at - t0).toBeGreaterThanOrEqual(PROJECT_POLL_MS - 100);
-      expect(seen[0].at - t0).toBeLessThan(PROJECT_POLL_MS * 2 + 500);
+      // no state folder to watch at the start: only the poll could find it: not before its first second (the asked-for
+      // 10 ms poll was not used; a timer never fires early), and within about two seconds of the record's writing
+      expect(seen[0].at - started).toBeGreaterThanOrEqual(PROJECT_POLL_MS - 20);
+      expect(seen[0].at - written).toBeLessThan(PROJECT_POLL_MS * 2 + 500);
       expect(f.current()).toEqual({ name: 'delta', root: delta.root, chosen: true });
       expect(f.find(projectId(delta.root))?.root).toBe(delta.root);
       expect(f.find('0'.repeat(16))).toBeNull();
