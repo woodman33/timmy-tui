@@ -523,7 +523,12 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const acts = k.live
     ? [
       ...(r.stoppable ? [`<button type="button" class="act act-stop" data-wf-stop="${esc(r.job)}">Stop</button>`] : []),
-      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length ? [`<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`] : []),
+      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length
+        // R4 (H99, gap 11): a run that reaches a block needing a person: disabled, with why (the command is the chip below)
+        ? [rerun.risky.length
+          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(rerun.key)}" title="${esc(`Needs you: ${rerun.risky.map((x) => x.name).join(', ')} ${rerun.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
+          : `<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`]
+        : []),
     ].join('')
     : '';
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' && !c.repeated?.length ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
@@ -694,10 +699,16 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
       ? `${n.name} needs nothing, so upmd runs it alone: Run this block is ${cmd}. The prediction is sealed first, the outcome after.`
       : `Run up to here is ${cmd}: upmd runs ${arrow(n.order)}, ${n.name} after the blocks it needs. The prediction is sealed first, the outcome after.`;
   const notAlone = alone ? '' : `Run this block alone is not offered: upmd runs a block after the blocks it needs, and Timmy does not run a block without them.`;
+  // R4 (H99, r24 gap 11): a run that reaches a block needing a person shows its Run disabled before anyone presses it, with
+  // the reason (its title and the note below) and the command to type in the REPL (the copy chip below). It is no action
+  // button (no data-act), so nothing on the page enables or presses it; a Run sent anyway is still refused by the REPL.
+  const heldWhy = n.risky.length ? `Needs you: ${n.risky.map((x) => x.name).join(', ')} ${n.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type ${cmd} in the REPL, which asks first in its NEEDS YOU box.` : '';
   const buttons = k.live
-    ? alone
-      ? k.act('Run this block', { act: 'run', doc: w.rel, block: n.name })
-      : `${k.act('Run up to here', { act: 'run', doc: w.rel, block: n.name })}<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`
+    ? heldWhy
+      ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(n.key)}" title="${esc(heldWhy)}">${esc(alone ? 'Run this block' : 'Run up to here')}</button>${alone ? '' : `<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`}`
+      : alone
+        ? k.act('Run this block', { act: 'run', doc: w.rel, block: n.name })
+        : `${k.act('Run up to here', { act: 'run', doc: w.rel, block: n.name })}<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`
     : '';
   const live = c.runs.find((r) => r.job === c.latest && (r.word === 'running' || r.word === 'starting'));
   const busy = live && k.live ? `<p class="meta">${esc(`${live.job} is running now (${live.target}); another run starts beside it.`)}</p>` : '';
@@ -705,7 +716,7 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
   // (wf-needs-you: the block editor's .wf-needs is its row of dependencies, src/repl/board-edits.ts)
   const first = (code: string): string => code.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   const needs = n.risky.length
-    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.' : ''}`)}</p>`
+    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box, so its Run is disabled here: copy the command below and type it in the REPL. A Run sent from the board anyway is refused and listed in Waiting on you.' : ''}`)}</p>`
     : '';
   return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${needs}${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
 }

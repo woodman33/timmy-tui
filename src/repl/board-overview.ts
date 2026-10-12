@@ -263,7 +263,9 @@ export function overviewSection(o: Overview, k: Kit, base = '', opts: { canvasLi
   const canvasLine = opts.canvasLine === true; // the board's line about Timmy Canvas (#canvas), drawn only when the REPL checked it
   // R4 (H93): the details this board draws (each computer, remote job and order the cards list), for the links to them
   drawnDetails = new Set([...o.devices.items, ...o.devices.jobs, ...o.hosting.items].flatMap((i) => (i.source.detail ? [i.source.detail] : [])));
-  const cards = OVERVIEW_SECTIONS.map((id) => sectionCard(o[id], itemsOf(o, id, k, canvasLine), k, k.live, canvasLine)).join('');
+  // R4 (H99, r24 gap 11): the Needs card's list starts with its most urgent item, so its "first" line would say it twice
+  const needsOnce = (): SectionBase => { const { urgent: _first, ...rest } = o.needs; return rest; };
+  const cards = OVERVIEW_SECTIONS.map((id) => sectionCard(id === 'needs' && o.needs.items.length && o.needs.urgent?.text === o.needs.items[0].title ? needsOnce() : o[id], itemsOf(o, id, k, canvasLine), k, k.live, canvasLine)).join('');
   const map = `<figure class="ov-map"><figcaption><strong>${esc(MAP_LABEL)}</strong> ${esc(o.map.words)}</figcaption>${o.map.columns.length ? mapSvg(o) : `<p class="ov-unknown">${esc(o.map.words)}</p>`}</figure>`;
   const when = k.live ? 'read with this board\'s state (the line above says when)' : `as of ${stamp(o.as_of)}`;
   return {

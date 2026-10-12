@@ -191,6 +191,26 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
     expect(lines).toContain('upmd is not installed: brew install rezigned/tap/upmd');
   });
 
+  // R4 (H99, r24 gap 11): before anyone presses it, a Run that reaches a block needing a person shows disabled
+  it('a run that reaches a block needing a person: its Run and its run bar\'s Run again show disabled, with why and the command to copy', () => {
+    const root = project();
+    const RISKY = DOC.replace('mkdir -p out && echo FAKE > out/tray.stl', 'rm -rf out && mkdir -p out && echo FAKE > out/tray.stl');
+    writeFileSync(join(root, 'BUILD.md'), RISKY);
+    const stale = job(root, { id: 'j00a00b', target: 'inspect', state: 'running', endedAt: undefined, stale: true, steps: [{ name: 'check', index: 1, state: 'completed', code: 0 }, { name: 'build', index: 2, state: 'running' }] });
+    const w = connectWorkflow(workflowForBoard('BUILD.md', { text: RISKY, sha256: sha(RISKY) }), { root, jobs: [stale], chain: [], files, upmd: true });
+    const live = renderWorkflowCard(w, kit({ live: true, base: '../../' }));
+    // the run bar's Run again: disabled with why, and no button that presses the block's Run for it
+    expect(live).not.toContain('data-wf-rerun=');
+    expect(live).toContain('<button type="button" class="act" disabled data-wf-needs-person="3" title="Needs you: build runs a destructive shell command on this machine. The board cannot ask you: type /run BUILD.md inspect in the REPL, which asks first in its NEEDS YOU box.">Run inspect again</button>');
+    expect(live).toContain('data-cmd="/run BUILD.md inspect"');
+    // the nodes whose run reaches build have no Run action; check (it needs nothing) keeps its own
+    expect(live).not.toMatch(/data-act="run" data-doc="BUILD.md" data-block="(build|inspect)"/);
+    expect(live).toContain('data-act="run" data-doc="BUILD.md" data-block="check"');
+    expect(live).toContain('<button type="button" class="act" disabled data-wf-needs-person="2" title="Needs you: build runs a destructive shell command on this machine. The board cannot ask you: type /run BUILD.md build in the REPL, which asks first in its NEEDS YOU box.">Run up to here</button>');
+    // the snapshot has no buttons: the command is what runs it
+    expect(renderWorkflowCard(w, kit({ live: false, base: '../../' }))).not.toContain('data-wf-needs-person');
+  });
+
   it("a block's state comes from the newest run that included it", () => {
     const root = project();
     const older = job(root, { id: 'j00a006', target: 'check', startedAt: '2026-10-10T09:00:00.000Z', steps: [{ name: 'check', index: 1, state: 'failed', code: 1 }] });

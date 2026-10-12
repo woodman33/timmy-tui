@@ -564,10 +564,12 @@ describe.skipIf(!browserPath)('the live board in a real headless Chromium: selec
     expect(await waits.locator('.ov-steps li.ov-step-waiting b').textContent()).toBe('approval');
     expect(await waits.locator('summary .ov-tag').textContent()).toBe('simulated');
     expect(await waits.locator('button.cmd').evaluateAll((els) => els.map((e) => e.getAttribute('data-cmd')))).toEqual([`POST /v1/operator/orders/${order.waits}/approve`, 'timmy cloud status']);
-    // the first thing waiting (moved's changed host key) links to that computer's detail, which opens when followed
+    // the first thing waiting (moved's changed host key) links to that computer's detail, which opens when followed; R4 (H99,
+    // r24 gap 11): it is said once, as the list's first item (no "first" line repeats it above the list)
     const moved = page.locator('details[data-keep="overview:dev:moved"]');
     expect(await moved.evaluate((e) => (e as HTMLDetailsElement).open)).toBe(false);
-    await page.locator('.ov-needs .ov-urgent a.ov-go[href="#ov-dev-moved"]').click();
+    expect(await page.locator('.ov-needs .ov-urgent').count()).toBe(0);
+    await page.locator('.ov-needs .ov-items > li:first-child a.ov-go[href="#ov-dev-moved"]').click();
     await page.waitForFunction(() => location.hash === '#ov-dev-moved');
     await page.waitForFunction(() => (document.querySelector('details[data-keep="overview:dev:moved"]') as HTMLDetailsElement | null)?.open === true, undefined, { timeout: 5000 });
     expect(await moved.locator('.ov-body').innerText()).toMatch(/host key\s+changed: Timmy refuses the key it offered/);
