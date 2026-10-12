@@ -446,7 +446,8 @@ function connectPanel() {
   const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
     editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
-    read: () => cards.read(), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
+    // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows
+    read: (pinned) => cards.read(pinned), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
     // R4 (H100): Place this operation (its cards at once, left to right in the order they ran, linked)
     placeOperation: (id, now) => cards.placeOperation(id, now),
@@ -495,6 +496,8 @@ function followEditor(editor) {
       if (current !== editor) return;
       showGuide(editor);
       showJobs(editor);
+      // R4 (H109): another board shown (or a board's pin changed): the panel reads for it at once
+      try { projectPanel?.boardChanged(); } catch { /* the next reading follows */ }
     });
   });
   showGuide(editor);

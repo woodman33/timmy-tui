@@ -49,7 +49,15 @@ export interface NamedProject extends CardSource {
   since: string;
   /** R4 (H75): the REPL that takes this project's card actions (its own random id), or null: none does */
   holder: string | null;
+  /**
+   * R4 (H109): how it came to be shown: named by a Timmy REPL (`repl`), or followed by this server from the active-project file
+   * of its Timmy home (`active`, src/studio/active-follow.ts; never with a holder)
+   */
+  via?: 'repl' | 'active';
 }
+
+/** R4 (H109): how many projects named in this server's life it keeps, so a board pinned to one keeps reading it. */
+export const KNOWN_MAX = 8;
 
 // ── the token file ───────────────────────────────────────────────────────────
 
@@ -101,6 +109,10 @@ const pathOk = (v: unknown): v is string => typeof v === 'string' && v.length > 
 export class ProjectLink {
   readonly token: string;
   private named: NamedProject | null = null;
+  /** R4 (H109): the projects named in this server's life (the newest last), by id: what a pinned board may keep reading */
+  private readonly known = new Map<string, NamedProject>();
+  /** R4 (H109): the last project a REPL named (its jobs folder and receipts store are this Timmy home's) */
+  private lastRepl: NamedProject | null = null;
 
   constructor(token?: string) {
     this.token = token && PROJECT_TOKEN.test(token) ? token : randomBytes(32).toString('hex');
@@ -108,6 +120,31 @@ export class ProjectLink {
 
   /** The project the REPL named last, or null. */
   get project(): NamedProject | null { return this.named; }
+
+  /** R4 (H109): a project named in this server's life, by its id (null when it was never named here, or many were since). */
+  knownProject(id: string): NamedProject | null { return this.known.get(id) ?? null; }
+
+  private keep(p: NamedProject): void {
+    this.known.delete(p.id);
+    this.known.set(p.id, p);
+    while (this.known.size > KNOWN_MAX) this.known.delete(this.known.keys().next().value!);
+  }
+
+  /**
+   * R4 (H109): names the active project of this Timmy home, followed from its file (src/studio/active-follow.ts): the folder the
+   * file names, read with the jobs folder and receipts store a REPL named last (else `fallback`'s), no live board, and no holder.
+   */
+  follow(a: { name: string; root: string }, fallback: { jobs: string | null; receipts: (root: string) => string | null }, now = new Date()): NamedProject {
+    const root = resolve(a.root);
+    const from = this.lastRepl;
+    this.named = {
+      root, name: a.name.trim().slice(0, NAME_MAX) || root, id: projectId(root),
+      jobs: from ? from.jobs : fallback.jobs, receipts: from ? from.receipts : fallback.receipts(root),
+      board: null, since: now.toISOString(), holder: null, via: 'active',
+    };
+    this.keep(this.named);
+    return this.named;
+  }
 
   /** Whether an Authorization header carries this server's token (constant time; a malformed header compares nothing). */
   authorized(header: unknown): boolean {
@@ -137,7 +174,11 @@ export class ProjectLink {
       jobs: typeof o.jobs === 'string' ? resolve(o.jobs) : null, receipts: typeof o.receipts === 'string' ? resolve(o.receipts) : null,
       board: typeof o.board === 'string' ? o.board : null, since: now.toISOString(),
       holder: typeof o.holder === 'string' ? o.holder : null,
+      via: 'repl',
     };
+    // R4 (H109): kept, so a board pinned to it keeps reading it; and this Timmy home's jobs folder and store, for a follow
+    this.keep(this.named);
+    this.lastRepl = this.named;
     return { ok: true, project: this.named };
   }
 }
@@ -181,7 +222,17 @@ export interface ProjectRoutes {
    * the server's token only.
    */
   pageSession?: (authorization: unknown, p: NamedProject | null) => { ok: true } | { ok: false; why: string; words: string };
+  /**
+   * R4 (H109): whether a page's session reaches project `id` (it was given for it, or followed it since: src/studio/card-relay.ts
+   * reaches), for a board pinned to it while the canvas shows another. Absent: no page reads a project not shown.
+   */
+  reach?: (authorization: unknown, id: string) => { ok: true } | { ok: false; why: string; words: string };
+  /** R4 (H109): the active project of this Timmy home, as its file names it now (src/studio/active-follow.ts); absent: not said */
+  active?: () => { name: string; id: string; at: string | null } | null;
 }
+
+/** R4 (H109): what a page is told of a project this server never named (or named too long ago to keep). */
+export const PIN_UNKNOWN = 'This canvas server does not know that project now (it restarted since, or it has named many others since), so this board, pinned to it, is shown as last read. In Timmy: /canvas open, from that project, names it here again.';
 
 /** R4 (H81): what a reading of the cards' detail without the server's token or a page session is told. */
 export const DETAIL_REFUSED = 'Refused: the cards\' detail (their commands and values) is read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
@@ -227,6 +278,12 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     if (o.link.authorized(req.headers.authorization)) return { ok: true };
     return o.pageSession?.(req.headers.authorization, p) ?? { ok: false, why: 'none', words: CARDS_REFUSED };
   };
+  // R4 (H109): the active project of this Timmy home (its name, id and when it was chosen), said with the project shown; null when
+  // its file names none; absent (undefined, so left out of the answer) from a server that does not follow it
+  const activeNow = (): { name: string; id: string; at: string | null } | null | undefined => {
+    if (!o.active) return undefined;
+    try { const a = o.active(); return a ? { name: a.name, id: a.id, at: a.at } : null; } catch { return null; }
+  };
   app.get('/api/project/active', (req, res) => {
     const p = o.link.project;
     res.set('Cache-Control', 'no-store');
@@ -237,40 +294,68 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     }
     res.json({
       ok: true, app: 'timmy-canvas', project: p ? { name: p.name, id: p.id } : null, named: Boolean(p), since: p?.since ?? null, board: Boolean(p?.board), pageConnected: o.pageOpen(),
+      // R4 (H109): how it came to be shown, and the active project of this Timmy home
+      via: p ? p.via ?? 'repl' : null, active: activeNow(),
     });
   });
   app.get('/api/project', (req, res) => {
     res.set('Cache-Control', 'no-store');
-    const p = o.link.project;
+    const named = o.link.project;
     const madeAt = new Date().toISOString();
     // R4 (H75): ?detail=1 adds each card's drawn-card detail and whether a REPL takes the project's card actions now.
     const detail = req.query.detail === '1';
+    // R4 (H109): ?project=<id>: a board pinned to a project reads that project while the canvas shows another (a page's session
+    // reads it only when it reaches it: given for it, or followed to it); the project shown otherwise
+    const asked = typeof req.query.project === 'string' ? req.query.project : null;
+    if (asked !== null && !/^[0-9a-f]{16}$/.test(asked)) { res.status(400).json({ ok: false, error: 'project is a project\'s id: 16 hex characters.' }); return; }
+    const pinned = asked !== null && asked !== (named?.id ?? null);
+    if (pinned) {
+      const r = o.link.authorized(req.headers.authorization) ? { ok: true as const } : o.reach?.(req.headers.authorization, asked) ?? { ok: false as const, why: 'none', words: CARDS_REFUSED };
+      if (!r.ok) {
+        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: r.why === 'none' ? (detail ? DETAIL_REFUSED : CARDS_REFUSED) : r.words, session: r.why, pinned: true });
+        return;
+      }
+    }
+    const p = pinned ? o.link.knownProject(asked!) : named;
+    if (pinned && !p) { res.status(404).json({ ok: false, error: PIN_UNKNOWN, pinned: true }); return; }
     // R4 (H81): the detail holds each block's whole command and each parameter file's values: never to any local process
     // without a credential. The REPL reads it with this server's token, a canvas page with a session that counts now. R4 (H83):
     // the plain list too (titles, states, typed commands, records): it is the project's content.
-    const s = credited(req, p);
-    if (!s.ok) {
-      const refused = detail ? DETAIL_REFUSED : CARDS_REFUSED;
-      res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
-      return;
+    if (!pinned) {
+      const s = credited(req, p);
+      if (!s.ok) {
+        const refused = detail ? DETAIL_REFUSED : CARDS_REFUSED;
+        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
+        return;
+      }
     }
     if (!p) {
-      res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], operations: [], message: NOT_NAMED, ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });
+      res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], operations: [], message: NOT_NAMED, active: activeNow(), ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });
       return;
     }
     let gone = false;
     try { gone = !statSync(p.root).isDirectory(); } catch { gone = true; }
     const read: ProjectCards = gone ? { cards: [], notes: ['The project\'s folder is not there any more: in Timmy, /project names another.'] } : cards(p, detail);
-    const holding = o.holding?.(p) === true;
+    // R4 (H109): a pinned board's project acts through no REPL here (the canvas shows another); the project shown, as before
+    const holding = !pinned && o.holding?.(p) === true;
+    // R4 (H109): the project the canvas shows, beside a pinned board's own (named only to a caller it counts for)
+    const shownToo = pinned && named && (o.link.authorized(req.headers.authorization) || o.pageSession?.(req.headers.authorization, named).ok === true) ? { name: named.name, id: named.id } : null;
+    const followed = (p.via ?? 'repl') === 'active'
+      ? [`Timmy Canvas follows the active project of this Timmy home (state/active-project.json): ${p.name}. No Timmy REPL took its cards' actions when it was followed: /canvas open in Timmy, in ${p.name}, gives them to that REPL.`]
+      : [];
     res.json({
       // R4 (H100): with the operations the cards name, each as its own record says it, its cards in the order they ran
-      ok: true, project: { name: p.name, id: p.id }, madeAt, board: p.board ? { address: p.board } : null, cards: read.cards, notes: read.notes, operations: read.operations ?? [],
+      ok: true, project: { name: p.name, id: p.id }, madeAt, board: p.board && !pinned ? { address: p.board } : null, cards: read.cards, notes: [...followed, ...read.notes], operations: read.operations ?? [],
+      // R4 (H109): how it came to be shown; the active project of this Timmy home; a pinned board's reading says so, and what is shown
+      via: p.via ?? 'repl', active: activeNow(), ...(pinned ? { pinned: true, shown: shownToo } : {}),
       ...(detail ? {
         actions: {
           holder: holding,
-          words: holding ? `The Timmy REPL that named ${p.name} takes its cards' actions from this canvas.`
-            : p.holder ? `No Timmy REPL takes ${p.name}'s card actions now: the one that named it is not asking (it ended, or another named its project since). Type a card's command in Timmy, or /canvas open there.`
-              : `The Timmy REPL that named ${p.name} does not take card actions from this canvas (an older Timmy, or one started without them). Type a card's command in Timmy.`,
+          words: pinned ? `This board is pinned to ${p.name}, and the canvas shows ${shownToo ? shownToo.name : 'another project'} now: ${p.name}'s cards are read here and act through no Timmy REPL. To act on them: /canvas open in Timmy, in ${p.name}.`
+            : holding ? `The Timmy REPL that named ${p.name} takes its cards' actions from this canvas.`
+              : (p.via ?? 'repl') === 'active' ? `No Timmy REPL takes ${p.name}'s card actions: the canvas followed it as the active project of this Timmy home. Type a card's command in Timmy, or /canvas open there.`
+                : p.holder ? `No Timmy REPL takes ${p.name}'s card actions now: the one that named it is not asking (it ended, or another named its project since). Type a card's command in Timmy, or /canvas open there.`
+                  : `The Timmy REPL that named ${p.name} does not take card actions from this canvas (an older Timmy, or one started without them). Type a card's command in Timmy.`,
         },
       } : {}),
     });

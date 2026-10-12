@@ -71,6 +71,10 @@ import { CardRelay, mountCardRoutes, type RelayOptions } from './card-relay.js';
 import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, replOnly, withholdOthers } from './canvas-auth.js';
 // R4 (H84): the local-request rule, shared with the browser companion and `timmy logs`.
 import { isLocalRequest as isLocal } from '../utils/local-request.js';
+// R4 (H109): the canvas follows the active project of its Timmy home (state/active-project.json)
+import { ActiveFollower, activeProjectFile } from './active-follow.js';
+import { timmyHome } from '../setup/home.js';
+import { receiptsDir } from '../utils/receipts.js';
 
 export { STUDIO_PORT };
 
@@ -92,6 +96,15 @@ export interface StudioOptions {
   projectTokenFile?: boolean;
   /** R4 (H83): the card relay's clock and times (a test's: a session's 12 hours, a grant's 2 minutes). */
   relay?: RelayOptions;
+  /**
+   * R4 (H109): follow a change of the active project of this Timmy home (<TIMMY_HOME>/state/active-project.json, from `env`) made
+   * after the server starts (src/studio/active-follow.ts); how often it is looked at and how long a REPL has to name the project
+   * itself first (ms). By default a server follows when it serves a Timmy home for its REPLs (`projectTokenFile`: the REPL's own
+   * canvas server and `timmy studio`); one made without (a test's, given no Timmy home) reads no Timmy home's file.
+   */
+  followActive?: boolean;
+  followEveryMs?: number;
+  followGraceMs?: number;
 }
 
 /** R4 (H55): the server, with the token its REPL names the active project with. */
@@ -140,7 +153,7 @@ const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><t
 <p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
 <p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
 
-export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken), cardWiring: CardWiring = { relay: new CardRelay(options.relay), port: () => STUDIO_PORT }): express.Express {
+export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken), cardWiring: CardWiring = { relay: new CardRelay(options.relay), port: () => STUDIO_PORT }, follower?: ActiveFollower): express.Express {
   const env = options.env ?? process.env;
   const { relay } = cardWiring;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
@@ -208,12 +221,13 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.locals.by = c.by;
     next();
   };
-  app.get('/api/canvas/document', credited(DOCUMENT_REFUSED), (_req, res) => {
+  app.get('/api/canvas/document', credited(DOCUMENT_REFUSED), (req, res) => {
     const state = documents.load();
     res.set('Cache-Control', 'no-store');
     if (res.locals.by === 'token') { res.json(state); return; }
     // A page's session counts for the project named now: every drawn card of another project comes with its kept detail withheld.
-    const shown = withholdOthers(state.snapshot, link.project?.id ?? null);
+    // R4 (H109): another project the session reaches (it was given for it, or followed it since) is not withheld from it.
+    const shown = withholdOthers(state.snapshot, relay.reachOf(req.headers.authorization));
     res.json({ ...state, snapshot: shown.snapshot, withheld: shown.withheld });
   });
   app.put('/api/canvas/document', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N}.'), credited(DOCUMENT_REFUSED),
@@ -225,7 +239,8 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
         const still = callerOf(req.headers.authorization, link, relay, DOCUMENT_REFUSED);
         if (!still.ok) { refuse(res, still); return; }
       }
-      const toSave = res.locals.by === 'session' ? { ...body, snapshot: keepOthers(body.snapshot, documents.storedSnapshot(), link.project?.id ?? null).snapshot } : body;
+      // R4 (H109): the projects the session reaches count as its own
+      const toSave = res.locals.by === 'session' ? { ...body, snapshot: keepOthers(body.snapshot, documents.storedSnapshot(), relay.reachOf(req.headers.authorization)).snapshot } : body;
       const saved = documents.save(toSave);
       const status = saved.ok ? 200 : 'conflict' in saved ? 409 : 'tooLarge' in saved ? 413 : 400;
       res.status(status).set('Cache-Control', 'no-store').json(saved);
@@ -304,6 +319,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder),
     // R4 (H81): the cards' detail is read with this server's token or a page session that counts for the project now
     pageSession: (authorization, p) => relay.sessionFor(authorization, p),
+    // R4 (H109): a board pinned to a project the session reaches reads it; the active project of this Timmy home is said by a
+    // server that follows it (one that does not reads no Timmy home's file)
+    reach: (authorization, id) => relay.reaches(authorization, id),
+    ...(follower ? { active: () => follower.active() } : {}),
   });
   mountCardRoutes(app, { link, relay, port: cardWiring.port });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
@@ -328,8 +347,17 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   const relay = new CardRelay(options.relay);
   // R4 (H83): a page joins the bridge, and is sent code, only with a session that counts now.
   const bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs, bridgeGate(link, relay));
+  // R4 (H109): a change of this Timmy home's active project, made after the server starts, is followed (src/studio/active-follow.ts)
+  const env = options.env ?? process.env;
+  const follower = !(options.followActive ?? options.projectTokenFile === true) ? undefined : new ActiveFollower({
+    file: activeProjectFile(env),
+    shown: () => link.project,
+    follow: (a) => { const p = link.follow(a, { jobs: join(timmyHome(env), 'jobs'), receipts: (root) => receiptsDir(root) }); relay.heldBy(p.holder); },
+    ...(options.followEveryMs ? { everyMs: options.followEveryMs } : {}),
+    ...(options.followGraceMs !== undefined ? { graceMs: options.followGraceMs } : {}),
+  });
   let bound = 0;
-  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound })), { projectToken: link.token });
+  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound }, follower)), { projectToken: link.token });
   bridge.attach(server);
   // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
   const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
@@ -338,6 +366,7 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   // server.close() would wait for the page forever.
   const closeServer = server.close.bind(server);
   server.close = ((done?: (err?: Error) => void) => {
+    follower?.stop();
     bridge.close();
     relay.close();
     if (tokenPort) dropProjectToken(tokenDir, tokenPort, link.token);
@@ -352,6 +381,8 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
       resolve();
     });
   });
+  // R4 (H109): only a server that listens looks at its Timmy home's active project (a port held by another program: nothing read)
+  follower?.start();
   if (options.projectTokenFile) {
     const at = server.address();
     const bound = typeof at === 'object' && at ? at.port : 0;

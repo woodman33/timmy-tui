@@ -211,7 +211,10 @@ export function cardMode(type, props, answer, session) {
   // R4 (H83): the project was not read: this page's session does not count now (it ended, or the canvas shows another project)
   if (answer.refused) return diagram(`Not followed now: ${one(answer.refused)} Shown as last read.`);
   if (!answer.project) return diagram(`Not followed now: no project is named to this canvas (in Timmy: /canvas open). Shown as last read.`);
-  if (answer.project.id !== props.projectId) return diagram(`Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
+  // R4 (H109): a board pinned to a project reads that project: a card of another project on it is not followed there
+  if (answer.project.id !== props.projectId) {
+    return diagram(answer.pinned ? `Not followed on this board: it is pinned to ${answer.project.name}, not ${name}. Shown as last read.` : `Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
+  }
   const card = (answer.cards || []).find((c) => c.id === props.card);
   if (!card) return diagram(`Its record is not in ${name} now: shown as last read.`);
   // R4 (H81): the detail (each block's command, each value) is read only with a session that counts: without one the card
@@ -429,8 +432,10 @@ export function createCards(deps) {
    * page's session. R4 (H83): the card list is read with a session too, so without one that counts now there is no reading:
    * the answer says why (`refused`). A session given for another project, or by another REPL, is asked again in 30 s.
    */
-  async function read() {
+  async function read(pinned = null) {
     if (!token) return refusedReading(session.get().words);
+    // R4 (H109): a board pinned to a project reads that project (GET /api/project?project=<id>), whatever the canvas shows
+    if (typeof pinned === 'string' && /^[0-9a-f]{16}$/.test(pinned)) return readPinned(pinned);
     if (Date.now() < notFor.until) return refusedReading(notFor.why);
     const r = await request('/api/project?detail=1', 'GET', token);
     if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; countsAgain(); return { ...r.body, detail: true }; }
@@ -442,6 +447,26 @@ export function createCards(deps) {
       notFor.why = why;
     }
     return refusedReading(why);
+  }
+
+  /**
+   * R4 (H109): the reading of a board pinned to project `id`: the server serves it read only while this page's session reaches
+   * it (given for it, or followed to it since). A refusal for that project says why, and never pauses the session for the project
+   * the canvas shows; a session that ended is let go, as everywhere.
+   */
+  async function readPinned(id) {
+    const r = await request(`/api/project?detail=1&project=${id}`, 'GET', token);
+    const said = r.body || {};
+    if (r.ok && said.ok === true) {
+      // the project the canvas shows is the board's: read as the canvas's own, so the session counts again
+      if (said.pinned !== true) { notFor.until = 0; countsAgain(); }
+      return { ...said, detail: true, pinned: true };
+    }
+    if (r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
+      return { ...refusedReading(noted(r, 'Timmy did not let this page read the project.')), pinned: true, pinnedId: id };
+    }
+    if (r.status === 401 || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
+    throw new Error(`Timmy answered ${r.status} for this board's project`);
   }
 
   // ── R4 (H83): the canvas itself, its settings, its jobs, a highlight and the bridge: each with this page's session ──
@@ -472,10 +497,14 @@ export function createCards(deps) {
     }
     return r.ok && SAFE.isArray(r.body) ? r.body : null;
   }
-  /** A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. */
-  async function image(path) {
+  /**
+   * A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. R4 (H109):
+   * of the card's own project (a board pinned to it reads it while the canvas shows another).
+   */
+  async function image(path, projectId = null) {
     if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL) return null;
-    const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}`, requestInit('GET', token));
+    const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}${of}`, requestInit('GET', token));
     if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
     const b = await SAFE.apply(SAFE.blob, r, []);
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
@@ -862,19 +891,20 @@ export function createCards(deps) {
    * R4 (H83): a highlight of the project, fetched with this page's session and shown from memory; the object URL is let go when
    * the card stops showing it.
    */
-  function Highlight({ path }) {
+  function Highlight({ path, projectId }) {
     const [src, setSrc] = React.useState(null);
     const [failed, setFailed] = React.useState(false);
     React.useEffect(() => {
       let made = null;
       let gone = false;
-      image(path).then((url) => {
+      // R4 (H109): of the card's own project
+      image(path, projectId).then((url) => {
         if (gone) { forget(url); return; }
         made = url;
         if (url) setSrc(url); else setFailed(true);
       }, () => { if (!gone) setFailed(true); });
       return () => { gone = true; forget(made); };
-    }, [path]);
+    }, [path, projectId]);
     if (src) return h('img', { src, alt: `highlight ${path}`, title: path, draggable: false, 'data-tc-image': path });
     return span('tc-note', failed ? `highlight ${path}: not read now` : `highlight ${path}: reading…`);
   }
@@ -1043,7 +1073,7 @@ export function createCards(deps) {
     d && d.facts.length ? h('dl', { className: 'tc-dl' }, ...d.facts.flatMap((f, i) => [h('dt', { key: `k${i}` }, f.label), h('dd', { key: `v${i}` }, f.value, ' ', span('tc-note', f.how))])) : null,
     // R4 (H83): a highlight is read with this page's session and shown from memory (Highlight), only while the card is followed
     d && d.images.length ? h('div', { className: 'tc-images' }, ...d.images.map((im) => (mode.follows
-      ? h(Highlight, { key: im.path, path: im.path })
+      ? h(Highlight, { key: im.path, path: im.path, projectId: p.projectId })
       : span('tc-note', `highlight ${im.path}: shown while the canvas follows ${p.project}`, { key: im.path })))) : null,
     d && d.outputs.length ? h('ul', { className: 'tc-outs' }, ...d.outputs.map((o) => h('li', { key: o.path }, span('tc-path', o.path), ' ', span('tc-note', `${o.sha256 ? `sha256 ${o.sha256.slice(0, 12)} · ` : ''}${o.now}`)))) : null,
     d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null,

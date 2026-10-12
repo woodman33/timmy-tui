@@ -71,6 +71,11 @@
   #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
   #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
   #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  /* R4 (H109): whether this board follows the active project or is pinned to one; the pin, visible beside the project's name */
+  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #e8e6e1); }
+  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #e8e6e1); color: var(--timmy-text, #e8e6e1); }
+  .pin-badge[hidden] { display: none; }
   /* R4 (H109): buttons under the band's words that act on what they say (Select the cards a press placed) */
   #project-said-acts { flex: none; display: flex; flex-wrap: wrap; gap: 4px 8px; }
   #project-said-acts[hidden] { display: none; }
@@ -179,11 +184,13 @@
   <div id="side-ready" hidden>
     <div id="side-scroll">
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
-      <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
+      <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
+        <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>
         <p id="project-acts" role="note">This page has not opened a session with Timmy yet.</p>
         <div id="project-tools">
           <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
+          <button id="project-pin" type="button" hidden>Pin this board</button>
           <div id="project-by" role="group" aria-label="Group the project's cards" hidden><button type="button" data-by="kind" aria-pressed="true">By kind</button><button type="button" data-by="operation" aria-pressed="false">By operation</button></div>
         </div>
         <div id="project-groups"></div>
