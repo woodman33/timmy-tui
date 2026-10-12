@@ -86,7 +86,9 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(done).toMatch(/✓ Set up: operator Sample · chat: local model only/);
       expect(done).toContain('Back in the REPL.');
       expect(done).toMatch(/identity\s+Sample/);
-      expect(done).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
+      // R4 (H103): the chat is the local model, which needs no key: the check names it, with no model chosen yet the gap
+      expect(done).toMatch(/✖ chat\s+local · no model chosen · \/model/);
+      expect(done).not.toMatch(/model key\s+none/);
       // written once, in the Timmy home, as timmy init writes it
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup.by).toBe('the REPL (/setup)');
@@ -94,7 +96,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(JSON.parse(readFileSync(join(home, 'identity.json'), 'utf8')).operator).toBe('Sample');
       expect(statSync(join(home, 'identity.seed')).mode & 0o777).toBe(0o600);
       expect(statSync(join(home, 'setup.json')).mode & 0o777).toBe(0o600);
-      expect(receipts(join(dir, 'store')).map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
+      expect(receipts(join(dir, 'store')).map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['chat']]]);
       // R4 (H103): the chat is the local model now, with none chosen (Ollama did not answer): a message says so, and nothing is sent
       t.type('hello');
       const off = await t.waitFor(/no model is chosen\.[\s\S]*Enter to send/);

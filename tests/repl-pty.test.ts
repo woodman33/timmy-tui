@@ -109,11 +109,12 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
-      expect(shown).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
+      // R4 (H103): timmy init --yes chose the local model (no key needed) and no model: the check says the chat is the gap
+      expect(shown).toMatch(/chat\s+local · no model chosen · \/model/);
       expect(shown).toContain('setup check sealed and verified');
       // runs.jsonl also carries the bus's events; receipts are the lines with a prev_hash.
       const chain = readFileSync(`${dir}/store/runs.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string');
-      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
+      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['chat']]]);
       tmux('send-keys', '-t', 't', '-l', 'hello');
       tmux('send-keys', '-t', 't', 'Enter');
       // R4 (H103): the setup chose the local model (it needs no key), and no model is chosen yet (timmy init --yes lists none):

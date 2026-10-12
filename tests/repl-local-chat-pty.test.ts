@@ -67,6 +67,9 @@ describe('the REPL\'s chat on a local model, in a terminal (FAKE Ollama)', () =>
       t.type('');
       const back = await t.waitFor(/The chat from your next message: local qwen3:8b · Ollama\.[\s\S]*Enter to send/);
       expect(back).toContain('Back in the REPL.');
+      // the setup check names the route, which needs no key (never "model key none")
+      expect(back).toMatch(/● chat\s+local qwen3:8b · Ollama \(no key needed\)/);
+      expect(back).not.toMatch(/model key\s+none/);
       expect(JSON.parse(readFileSync(join(dir, 'timmy', 'setup.json'), 'utf8')).answers).toMatchObject({ chat: 'local', model: 'qwen3:8b', ollama: ollama.url });
       // one message: the text grows on the screen while the answer streams, then the receipt
       let partial = false;

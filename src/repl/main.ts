@@ -483,6 +483,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   const check = (): Segment[][] => setupCheck({
     operator: readOperator(),
     key: Boolean(config.apiKey),
+    // R4 (H103): a chat on the local model needs no key: the check names that route (and a model not chosen yet) instead
+    ...((r) => (r.kind === 'local' ? { local: { words: localRouteWords(r).replace(/^chat: /, ''), ready: Boolean(r.model) && !('error' in r.at) } } : {}))(route()),
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
