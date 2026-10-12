@@ -41,6 +41,8 @@ import { REVIEW_CSS, reviewSection, type BoardReview } from '../review/html.js';
 // Round R4 (H78): God's Eye View, the Overview at the top of the board (src/repl/board-overview.ts, drawn from src/overview).
 import { OVERVIEW_CSS, overviewSection } from './board-overview.js';
 import type { Overview } from '../overview/model.js';
+// R4 (H98): the board's top: Timmy Studio, the Control Room and God's Eye View, one line (src/setup/surfaces.ts).
+import { SURFACES_CSS, surfacesHtml } from '../setup/surfaces.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 /** A workflow document: its named blocks (R4: with language and command), its sha256 and whether the live board edits it. */
@@ -678,6 +680,7 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
   return {
     toc: `<nav class="toc">${overview?.toc ?? ''}${room?.toc ?? ''}${review?.toc ?? ''}${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}${vox?.toc ?? ''}${memory?.toc ?? ''}</nav>`,
     main: [
+      surfacesHtml(k, { room: !!room, overview: !!overview }),
       ...(input.canvas ? [canvasLineHtml(input.canvas, k)] : []),
       ...(overview ? [overview.html] : []),
       ...(room ? [room.html] : []),
@@ -712,7 +715,7 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
 }
 
 /** The board's stylesheet, shared by the snapshot and the live board's page (R4: with the new cards' rules). */
-export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + ROOM_CSS + VOX_CSS + MEMORY_CSS + CANVAS_LINE_CSS + REVIEW_CSS + OVERVIEW_CSS;
+export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + ROOM_CSS + VOX_CSS + MEMORY_CSS + CANVAS_LINE_CSS + REVIEW_CSS + OVERVIEW_CSS + SURFACES_CSS;
 
 /** The board as one self-contained HTML page. */
 export function renderBoard(input: BoardInput): string {

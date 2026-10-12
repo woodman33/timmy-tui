@@ -12,7 +12,10 @@ import { createAgent } from '../agent/core.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
-import { identityPath, timmyHome } from '../utils/init.js';
+import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
+import { chatRoute, pendingQuestions, readSetupState, setupSummary, type Answers } from '../setup/questions.js';
+import { surfacesSegments } from '../setup/surfaces.js';
+import { terminalIO, wrap } from '../setup/terminal.js';
 import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
 import { editExternally } from './external-editor.js';
@@ -227,7 +230,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   // which says what is missing. A pipe or a script still gets the config error (exit 78).
   if (!config.apiKey && !interactive) {
     const fail = serialize([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }], theme);
-    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init, or export OPENROUTER_API_KEY=<your key>\n    Help: timmy repl --help\n`);
+    // R4 (H98): the setup's default chat is the local model, which this chat cannot use yet: the key is OpenRouter's (paid)
+    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter, or export OPENROUTER_API_KEY=<your key>\n    Help: timmy repl --help\n`);
     session.restore();
     return EXIT.config;
   }
@@ -456,15 +460,34 @@ export async function runRepl(argv: string[]): Promise<number> {
       : h.state === 'other' ? `canvas port in use by another program (/canvas)` : 'canvas not running (/canvas)';
     return [{ text: `  project ${workspace.project.name}${sep}${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
   };
-  const setup = (): Segment[][] => setupCheck({
+  const check = (): Segment[][] => setupCheck({
     operator: readOperator(),
     key: Boolean(config.apiKey),
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
+  // R4 (H98): /setup is the one guided setup (`timmy init`'s questions and files), asked here in this terminal while a question
+  // has no answer; then the setup check (C-14), sealed. Without a terminal it says the exact command.
+  const setup = (args: string): Promise<Segment[][]> => replSetup(args, {
+    tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    check,
+    // a key the setup stored is the chat's from now on (the header said "no model key · /setup")
+    keyChanged: () => {
+      const key = loadConfig().apiKey;
+      if (!key || key === config.apiKey) return false;
+      config.apiKey = key;
+      agent.updateApiKey(key);
+      return true;
+    },
+    // the REPL's own prompt turns bracketed paste back on; the setup's prompts read a key typed or pasted without it
+    beforeAsk: () => void (process.stdout.isTTY && process.stdout.write('\x1b[?2004l')),
+  });
   const code = await replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
+    setup, get noKey() { return !config.apiKey; }, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
+    // R4 (H98): the header names the chat route in effect, and the first screen says what the setup still asks
+    chat: () => chatRoute({ key: Boolean(config.apiKey), model: agent.getModel() }),
+    setupState: () => { const s = readSetupState(); return { pending: pendingQuestions(s).length, blank: !s.identity.exists }; },
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
@@ -506,6 +529,61 @@ function readOperator(): string | null {
   }
 }
 
+export interface ReplSetupDeps {
+  /** A terminal both ways: the setup's questions can be asked here. */
+  tty: boolean;
+  /** The setup check (C-14), sealed as a receipt; its lines. */
+  check: () => Segment[][];
+  /** Takes up a key the setup stored; true when the chat has a new one. */
+  keyChanged?: () => boolean;
+  /** Just before the questions (the REPL turns bracketed paste off). */
+  beforeAsk?: () => void;
+  /** Where the questions are asked and answered (tests give their own); the terminal's by default. */
+  io?: Parameters<typeof guidedSetup>[2];
+}
+
+/**
+ * R4 (H98): the REPL's /setup. `/setup` asks every setup question that has no answer yet, here, through the same guided setup
+ * as `timmy init` (`timmy init`'s words, files and setup.json, recorded as set up by "the REPL (/setup)"); `/setup key` asks
+ * for an OpenRouter key for the chat (paid, opt-in). Then the setup check, sealed. Stopped or declined: nothing was written,
+ * and no check is sealed. Without a terminal, the exact command to run instead, then the check.
+ */
+export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment[][]> {
+  const words = args.trim();
+  const quiet = (text: string): Segment[] => [{ text, role: 'secondary' }];
+  if (words && words !== 'key') return [quiet('  Usage: /setup      the guided setup, then the check'), quiet('         /setup key  an OpenRouter key for the chat (paid)')];
+  const given: Answers = words === 'key' ? { chat: 'openrouter' } : {};
+  const state = readSetupState();
+  const pending = pendingQuestions(state, given);
+  const out: Segment[][] = [];
+  let asked = false;
+  // every line within 60 columns (C-14)
+  const say = (text: string): void => { for (const l of wrap(text, 60, '  ')) out.push(quiet(l)); };
+  if (words === 'key' && (state.providers.key || state.settingsKey) && !pending.length) {
+    say('A model key is already stored in the Timmy home; /setup key asks only while there is none.');
+  } else if (pending.length || words === 'key') {
+    const command = words === 'key' ? 'timmy init --chat openrouter' : 'timmy init';
+    if (!d.tty) {
+      out.push(quiet(`  ${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet.`));
+      out.push(quiet(`  In a terminal, run ${command}: it asks only ${pending.length === 1 ? 'that' : 'those'}.`));
+      if (words === 'key') out.push(quiet('  (OpenRouter is paid; the key is hidden as you type.)'));
+    } else {
+      d.beforeAsk?.();
+      const title = `TIMMY · ${state.identity.exists ? '' : 'first run — '}guided setup (/setup in the REPL)`;
+      const code = await guidedSetup('the REPL (/setup)', given, d.io ?? terminalIO(), { title, next: [] });
+      if (code !== 0) return [quiet('  Back in the REPL; /setup asks again.')];
+      asked = true;
+      out.push(quiet('  Back in the REPL.'));
+      if (d.keyChanged?.() === true) say('The chat uses the stored key from your next message.');
+    }
+  }
+  out.push(...d.check());
+  // what the setup chose (the guided setup has just said it)
+  const now = readSetupState();
+  if (!asked && !pendingQuestions(now).length) say(`Set up: ${setupSummary(now)}.`);
+  return out;
+}
+
 /** Timmy Homebrew, Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
 export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'homebrew' | 'night' | 'day' | null {
   const named = (env.TIMMY_PALETTE ?? '').toLowerCase();
@@ -539,10 +617,14 @@ export interface ReplDeps {
   receipts?: () => ReceiptsView;
   openWatch?: () => string;
   openWeb?: (target: string, allowRemote: boolean) => string;
-  /** The setup check (C-14). */
-  setup?: () => Segment[][];
-  /** No model key: messages get the cause and the fix instead of a turn (C-14). */
+  /** The setup check (C-14); R4 (H98): after the guided setup while a question has no answer (/setup key: a model key). */
+  setup?: (args: string) => Segment[][] | Promise<Segment[][]>;
+  /** No model key: messages get the cause and the fix instead of a turn (C-14). Read at each message (/setup can add one). */
   noKey?: boolean;
+  /** R4 (H98): the chat route in effect, for the header ("chat: no model key · /setup"); absent: the model's name. */
+  chat?: () => string;
+  /** R4 (H98): how many setup questions have no answer yet, and whether there is no identity (a first run). */
+  setupState?: () => { pending: number; blank: boolean };
   /** No receipts yet: the first prompt holds the setup check, ready for Enter (C-14). */
   firstRun?: boolean;
   /** Seals each finished turn as a receipt (C-8); without it a turn closes with its footer. */
@@ -587,16 +669,22 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   const size = liveSize(process.stdout, caps);
   const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
   if (interactive) {
-    say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
+    say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${d.chat ? d.chat() : agent.getModel()}`, role: 'secondary' }]);
     // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
     if (d.where) {
       const line = await Promise.race([d.where(), sleep(1500).then(() => null)]).catch(() => null);
       if (line) say(line);
     }
     say([{ text: `Type a message to start. ${d.tools ? '/tools shows what works here, ' : ''}/help for commands, /exit to quit.`, role: 'secondary' }]);
-    // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
-    // /exit into /setup/exit (the 20:14 order).
-    if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs.', role: 'secondary' }]);
+    // R4 (H98): Timmy's three surfaces, in one line (wrapped within the terminal; never cut)
+    for (const line of surfacesSegments(size.columns)) say(line);
+    // A first run offers the setup and leaves the prompt empty: a prefilled /setup turned a typed /exit into /setup/exit
+    // (the 20:14 order). R4 (H98): while a setup question has no answer, /setup asks it here (the guided setup, as timmy init).
+    const left = d.setup ? d.setupState?.() : undefined;
+    const typeSetup = (before: string, after: string): void => say([{ text: before, role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: after, role: 'secondary' }]);
+    if (left?.blank) typeSetup('First run: type ', ' for the guided setup (as timmy init).');
+    else if (left?.pending) typeSetup(`Setup: ${left.pending === 1 ? 'one question has' : `${left.pending} questions have`} no answer; `, ' asks.');
+    else if (d.firstRun && d.setup) typeSetup('First run: type ', ' to check what Timmy needs.');
     region.commit(['']);
   }
   const marks = d.stdout.isTTY === true;
@@ -616,7 +704,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace };
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace, columns: () => size.columns };
       // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
       const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
       if ((await (d.workspace?.operate ? d.workspace.operate(text, 'repl', slash) : slash())) === 'exit') break;
@@ -625,8 +713,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     }
     if (d.noKey) {
       say([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }, { text: ' no model key, so Timmy cannot answer.' }]);
-      say([{ text: '  Cause: no OPENROUTER_API_KEY, and init stored none.', role: 'secondary' }]);
-      say([{ text: '  Try: timmy init, or export OPENROUTER_API_KEY', role: 'secondary' }]);
+      say([{ text: '  Cause: no OPENROUTER_API_KEY, and the setup stored none.', role: 'secondary' }]);
+      // R4 (H98): the REPL's chat goes through OpenRouter (paid); the local model is for code agents, not this chat yet
+      say([{ text: '  Try: /setup key, or export OPENROUTER_API_KEY', role: 'secondary' }]);
       say([{ text: '  Help: /help, or timmy repl --help', role: 'secondary' }]);
       region.commit(['']);
       continue;

@@ -159,15 +159,22 @@ describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
     view.unmount();
   });
 
-  it('the header names the model the REPL last ran, not the model policy', async () => {
+  // R4 (H98): the top line names the chat route in effect: with a model key, the model the REPL last ran (not the model
+  // policy); with none, that there is no key, never a paid model's name that will not be used. The key is a FAKE string.
+  it('the header names the model the REPL last ran, not the model policy, when a key will be used; without a key it says so', async () => {
     setModel('fixture/policy-model', null);
     appendReceipt('runs', { kind: 'turn', subject: 'repl · 1 step', policy: 'human-gated', status: 'ok', model_requested: 'anthropic/claude-haiku-4.5' });
     try {
-      const view = render(React.createElement(ShellV2, { width: 160 }));
+      const view = render(React.createElement(ShellV2, { width: 160, config: { apiKey: 'FAKE-key-for-the-header-test' } }));
       const f = await until(view, x => x.includes('YOUR JOURNEY'));
-      expect(f).toContain('model claude-haiku-4.5');
-      expect(f).not.toContain('model policy-model');
+      expect(f.split('\n')[0]).toContain('chat: claude-haiku-4.5 · OpenRouter');
+      expect(f.split('\n')[0]).not.toContain('policy-model');
       view.unmount();
+      const none = render(React.createElement(ShellV2, { width: 160, config: { apiKey: '' } }));
+      const g = await until(none, x => x.includes('YOUR JOURNEY'));
+      expect(g.split('\n')[0]).toContain('chat: no model key · /setup');
+      expect(g.split('\n')[0]).not.toContain('claude-haiku-4.5');
+      none.unmount();
     } finally {
       rmSync(policyPath(), { force: true });
     }

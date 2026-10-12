@@ -441,6 +441,34 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
+  // R4 (H98): the sample says it is one wherever it is seen; a model's answer (the FAKE upstream's) and its cards do not
+  it('the ✨ sample carries a visible SAMPLE label on its message, its answer and each card; a model\'s answer and its cards carry none', async () => {
+    const { page, context, seen } = await open();
+    try {
+      await connected(page);
+      await tab(page, 'streamdown');
+      await page.click('#sd-try');
+      await page.waitForSelector('[data-card="approval"]', { timeout: 30_000 });
+      await idle(page);
+      const label = async (scope: string): Promise<Array<{ text: string; shown: boolean }>> => page.$$eval(`${scope} [data-sample-label]`, (els) => els.map((e) => {
+        const r = e.getBoundingClientRect();
+        const css = getComputedStyle(e);
+        return { text: (e.textContent ?? '').trim(), shown: r.width > 0 && r.height > 0 && css.visibility === 'visible' && css.display !== 'none' && Number(css.opacity) > 0 };
+      }));
+      expect(await label('.sd-user.sample')).toEqual([{ text: 'SAMPLE', shown: true }]);
+      expect(await label('.sd-answer.sample > .sd-chips')).toEqual([{ text: 'SAMPLE · THE PAGE’S OWN TEXT · NO MODEL WAS ASKED', shown: true }]);
+      expect(await label('.sd-answer.sample [data-card="receipt"] .sd-card-head')).toEqual([{ text: 'SAMPLE', shown: true }]);
+      expect(await label('.sd-answer.sample [data-card="approval"] .sd-card-head')).toEqual([{ text: 'SAMPLE', shown: true }]);
+      // a model's answer (FAKE upstream: it holds a <receipt> card) says no SAMPLE anywhere
+      await ask(page, 'a hostile answer please');
+      const answer = '.sd-answer[data-sample="no"]';
+      await page.waitForSelector(`${answer} [data-card="receipt"]`, { timeout: 30_000 });
+      expect(await label(answer)).toEqual([]);
+      expect(await page.$$eval('.sd-user:not(.sample) [data-sample-label]', (els) => els.length)).toBe(0);
+      expect(seen.errors).toEqual([]);
+    } finally { await context.close(); }
+  });
+
   it('a hostile answer is inert through Streamdown: an image with onerror, javascript: and data: links, raw script, frame and style, a card\'s handler, a Mermaid block with an init directive, click directives and HTML in its labels', async () => {
     const { page, context, seen } = await open();
     try {

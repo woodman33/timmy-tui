@@ -7,6 +7,7 @@ import type { Segment } from '../term/theme.js';
 import type { ApprovalRequest, Decision } from './approvals.js';
 import { plural } from './steps.js';
 import { nearest } from './suggest.js';
+import { surfacesSegments } from '../setup/surfaces.js';
 
 /** The four meanings with a color of their own (DESIGN.md §10 B2, B4). */
 export type MeaningRole = 'verified' | 'estimate' | 'failure' | 'ai';
@@ -63,8 +64,13 @@ export interface ReplContext {
   openWatch?: () => string;
   /** Opens a web view (C-13); returns one line saying where, or why not. */
   openWeb?: (target: string, allowRemote: boolean) => string;
-  /** Runs the setup check and seals it (C-14); returns the lines to print. */
-  setup?: () => Segment[][];
+  /**
+   * Runs the setup check and seals it (C-14); returns the lines to print. R4 (H98): first the guided setup, in this terminal,
+   * while a setup question has no answer (`key`: an OpenRouter key for the chat).
+   */
+  setup?: (args: string) => Segment[][] | Promise<Segment[][]>;
+  /** R4 (H98): the terminal's width now (/help's top line wraps within it, and within 60 columns). */
+  columns?: () => number;
   /** The lanes Timmy can run, and whether each is installed (C-10). */
   lanes?: () => Array<{ id: string; label: string; available: boolean; install?: string }>;
   /** Opens the cockpit (`timmy center`); returns one sentence: where, or why not. */
@@ -269,6 +275,17 @@ export const COMMANDS: SlashCommand[] = [
     run: (args, ctx) => COMMANDS.find((c) => c.name === 'web')!.run(args, ctx),
   },
   {
+    // R4 (H98): Timmy Studio is Timmy Canvas; /studio opens it by /canvas open's own path (its one-time grant included).
+    name: 'studio',
+    group: 'look',
+    description: 'Timmy Studio: opens it, as /canvas open',
+    run: (args, ctx) => {
+      if (args && args !== 'open') return void ctx.print([{ text: '  Usage: /studio (opens Timmy Studio, as /canvas open; /canvas: its state)', role: 'secondary' }]);
+      if (ctx.canvas) ctx.print([{ text: '  Timmy Studio (Timmy Canvas), as /canvas open:', role: 'secondary' }]);
+      return printView(ctx.canvas, 'open', ctx, 'Timmy Studio (Timmy Canvas) is not available here.');
+    },
+  },
+  {
     name: 'canvas',
     group: 'look',
     description: 'Timmy Canvas: where, its state; /canvas open',
@@ -321,7 +338,8 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'lanes',
     group: 'setup',
-    description: 'The lanes, ready or not',
+    // R4 (H98): a lane's program on PATH is found, not checked: nothing here runs it
+    description: 'The lanes: found on PATH or not (none run)',
     run: (_args, ctx) => {
       const lanes = ctx.lanes?.();
       if (!lanes) return void ctx.print([{ text: '  Lanes are not available here.', role: 'secondary' }]);
@@ -329,7 +347,7 @@ export const COMMANDS: SlashCommand[] = [
       const blank = ' '.repeat(g.bullet.length);
       for (const l of lanes) {
         ctx.print(l.available
-          ? [{ text: `  ${g.bullet} ` }, { text: l.id.padEnd(10), role: 'strong' }, { text: ` ${l.label} ${g.sep} ready`, role: 'secondary' }]
+          ? [{ text: `  ${g.bullet} ` }, { text: l.id.padEnd(10), role: 'strong' }, { text: ` ${l.label} ${g.sep} found (not checked)`, role: 'secondary' }]
           : [{ text: `  ${blank} ${l.id.padEnd(10)}` }, { text: ` ${l.label} ${g.sep} not installed${l.install ? `: ${l.install}` : ''}`, role: 'secondary' }]);
       }
     },
@@ -337,11 +355,14 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'setup',
     group: 'setup',
-    description: 'Check what Timmy needs, and seal it',
-    run: (_args, ctx) => {
-      const lines = ctx.setup?.();
+    description: 'Guided setup, as timmy init; then the check',
+    run: (args, ctx) => {
+      const lines = ctx.setup?.(args);
       if (!lines) return void ctx.print([{ text: '  The setup check is not available here.', role: 'secondary' }]);
-      for (const line of lines) ctx.print(line);
+      const print = (all: Segment[][]): void => { for (const line of all) ctx.print(line); };
+      // the check alone answers at once; the guided setup waits for the person
+      if (lines instanceof Promise) return lines.then(print);
+      print(lines);
     },
   },
   {
@@ -383,6 +404,8 @@ export const COMMANDS: SlashCommand[] = [
     group: 'session',
     description: 'List these commands',
     run: (_args, ctx) => {
+      // R4 (H98): the three surfaces first, in one line (wrapped within the terminal, and within 60 columns as /help is)
+      for (const line of surfacesSegments(Math.min(60, ctx.columns?.() ?? 60), '  ')) ctx.print(line);
       for (const group of GROUPS) {
         ctx.print([{ text: `  ${GROUP_LABEL[group]}`, role: 'secondary' }]);
         for (const c of COMMANDS.filter((x) => x.group === group)) ctx.print([{ text: `  /${c.name.padEnd(11)}`, role: 'strong' }, { text: ` ${c.description}`, role: 'secondary' }]);
