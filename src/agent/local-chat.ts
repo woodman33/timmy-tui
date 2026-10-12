@@ -24,6 +24,7 @@ import { convertZodToJsonSchema, executeTool } from '@openrouter/sdk/lib/tool-ex
 import type { ParsedToolCall, Tool } from '@openrouter/sdk/lib/tool-types.js';
 import type { AgentEvents } from './events.js';
 import { atWords, boundedText, cloudModelTag, failure, ollamaAt, type OllamaAt } from '../setup/ollama-models.js';
+import { neverSent } from './never-sent.js';
 
 /** The chat's local route: the Ollama address the setup recorded, and the model chosen. */
 export interface LocalChatRoute {
@@ -247,7 +248,12 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       } catch (err) {
         if (aborted()) throw cancelled();
         const f = failure(err, false, 0);
-        throw new LocalChatError(`${atWords(at)} stopped answering.`, f.why, `start Ollama and send again; ${NOWHERE_ELSE}`);
+        const stopped = new LocalChatError(`${atWords(at)} stopped answering.`, f.why, `start Ollama and send again; ${NOWHERE_ELSE}`);
+        // R4 lead (2026-10-12): the turn's first request never left this computer (no connection, no address): it sent nothing,
+        // and says so (src/repl/turn.ts reads `sent: false`), so the turn is not counted as asked and a keyed retry is a retry
+        // (src/contracts/chat-session.ts sendOnce). A later round's failure follows requests that went out: not said.
+        if (round === 1 && neverSent(err)) Object.assign(stopped, { sent: false });
+        throw stopped;
       }
       if (!res.ok || !res.body) {
         let words = '';

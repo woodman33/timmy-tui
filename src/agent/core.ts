@@ -787,6 +787,14 @@ export class Agent extends EventEmitter<AgentEvents> {
   }
 
   /**
+   * R4 lead: the conversation this agent keeps (its folder, the one it holds, the ones on disk, and loading one), for the
+   * project's one conversation across surfaces (src/agent/chat-turn.ts continueConversation). Reading and loading only.
+   */
+  keptConversation(): Pick<ConversationManager, 'directory' | 'current' | 'listSessions' | 'load' | 'getHistory'> {
+    return this.conversation;
+  }
+
+  /**
    * R1 workspace direction: keep the conversation in another folder (the active project's .sessions), so
    * each project carries its own context. Its latest conversation is resumed, else a new one starts.
    */

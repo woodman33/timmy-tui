@@ -41,10 +41,32 @@ export interface ChatTurnResult {
   model?: string;
 }
 
+/**
+ * R4 lead (H113's keyed send, made the contract's): what a message's key is: 8 to 80 letters, digits, - or _. A surface gives
+ * the same key to every attempt at sending one message (a click, its repeat, a page's request sent again after it reconnected,
+ * a resend after a timeout) and a new key to a new message.
+ */
+export const CHAT_KEY = /^[A-Za-z0-9_-]{8,80}$/;
+
 export interface ChatSession {
   /** read at every message: a /setup elsewhere takes effect at the next one */
   route(): ChatRouteState;
   send(text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
+  /**
+   * R4 lead (2026-10-12; the operator's direction of 2026-10-11: "Reconcile retries so refresh, duplicate clicks or
+   * reconnection cannot repeat completed side effects"): `send` with the message's key (CHAT_KEY), so that no attempt at
+   * sending it again repeats a turn that went out. Kept per project, across surfaces and processes (the project's
+   * .timmy/chat-turns/keys.jsonl), the newest record of a key deciding:
+   *   no turn had the key                      sent, as `send` sends
+   *   its turn runs now (any surface, process) refused: nothing is sent (the turn under way stands)
+   *   its turn sent a request                  refused, naming that turn's receipt: its answer and its cost stand
+   *   its turn ended having sent nothing       sent: a retry, not a repeat (a refusal, or a failure before any request left)
+   *   its turn's end was never recorded        refused: the process that ran it ended during the turn, so whether a request
+   *     (its process ended during it)           went out is not known, and it is not sent again; a new message is sent anew
+   *   not a key (CHAT_KEY)                     refused: sending once could not be kept
+   * A refusal's `lines` say which, and that nothing was sent; it is `sent: false` with no receipt.
+   */
+  sendOnce(key: string, text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
 }
 
 export type ChatSurface = 'repl' | 'monitor' | 'workbench' | 'companion';

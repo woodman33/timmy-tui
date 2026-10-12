@@ -32,6 +32,13 @@ export type OperationRunKind = 'job' | 'flow' | 'vox' | 'agent' | 'native' | 'mc
  */
 export interface StartedProcess { what: string; ended: string; failed: boolean }
 
+/**
+ * R4 lead (2026-10-12): a chat turn sealed under an operation (src/repl/seal.ts sealTurn): how it ended (TurnFacts status),
+ * its receipt's short id and the surface that sent it. A request that started nothing else ends as its chat turn did: answered,
+ * failed, or stopped, never "answered" for a turn that failed.
+ */
+export interface SealedChatTurn { status: 'ok' | 'failed' | 'cancelled'; receipt: string; surface: string }
+
 /** An operation as this process carries it: its id, and where the runs it starts and the receipts it seals are noted. */
 export interface OperationScope {
   readonly id: string;
@@ -41,6 +48,8 @@ export interface OperationScope {
   noteSeal?(): void;
   /** R4 (H99): a process the request started and that has ended (it has no record of its own) */
   noteStarted?(p: StartedProcess): void;
+  /** R4 lead: a chat turn was sealed under this operation (it decides how a request that started nothing else ended) */
+  noteTurn?(t: SealedChatTurn): void;
 }
 
 const storage = new AsyncLocalStorage<OperationScope | null>();
@@ -50,6 +59,11 @@ const open = new Map<string, OperationScope>();
 /** The operation this code runs in, or undefined outside one. */
 export function currentOperation(): string | undefined {
   return storage.getStore()?.id ?? undefined;
+}
+
+/** R4 lead: tells the operation this code runs in (if any) that a chat turn was sealed in it (src/repl/seal.ts sealTurn). */
+export function noteChatTurn(t: SealedChatTurn): void {
+  try { storage.getStore()?.noteTurn?.(t); } catch { /* a note never fails the seal */ }
 }
 
 /** Runs `fn` inside `scope` (null or undefined: outside any operation); what it starts inherits the scope. */

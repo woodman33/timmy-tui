@@ -46,6 +46,7 @@ import { runOf } from '../repl/board-workflows.js';
 import { ENDS_JOB, FLOW_QUIET_MS } from '../repl/recover.js';
 import type { Receipt } from '../utils/receipts.js';
 import type { ToolStatus } from '../vox/tools.js';
+import { chatTurnOf } from '../repl/seal.js';
 import { cleanLine, type RoomTools } from './index.js';
 import { leftRuns, starterGone, type LeftRun } from './left-runs.js'; // R4 (H68)
 import type { StaleSave } from './stale-saves.js';
@@ -355,12 +356,14 @@ export function toolUses(c: Pick<DecisionContext, 'root' | 'chain' | 'projectId'
   } catch { /* no MCP calls */ }
   for (const r of c.chain) {
     if (!r || r.project_id !== c.projectId) continue;
-    const by = `${r.kind === 'turn' ? 'a chat turn' : 'an observation'} (receipt ${String(r.hash ?? '').slice(7, 15)})`;
+    // R4 lead: every surface's chat turn (src/repl/seal.ts chatTurnOf), named with the surface it was sent from
+    const turn = chatTurnOf(r);
+    const by = `${turn ? (turn.surface === 'repl' ? 'a chat turn' : `a chat turn from the ${turn.surface === 'companion' ? 'companion' : turn.surface === 'workbench' ? 'Workbench' : 'monitor'}`) : 'an observation'} (receipt ${String(r.hash ?? '').slice(7, 15)})`;
     const op = str(r.operation_id) ? { operation: String(r.operation_id) } : {};
     if (r.kind === 'observe') add({ row: 'look', by, at: time(r.ts), ...op });
     // A chat turn asked the model through the REPL's key. R4 (H103): one sealed via ollama asked the chat's local route
-    // (Ollama), never OpenRouter.
-    if (r.kind === 'turn') { add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), ...op }); add({ row: 'repl', by, at: time(r.ts), ...op }); }
+    // (Ollama), never OpenRouter. R4 lead: the surface's own row too (the REPL's, the monitor's; one a surface has)
+    if (turn) { add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), ...op }); add({ row: turn.surface, by, at: time(r.ts), ...op }); }
   }
   return uses;
 }

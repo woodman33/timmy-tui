@@ -48,7 +48,7 @@ import { projectId } from '../project/index.js';
 import { loadConfig } from '../utils/config.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { chatRouteNow, fallbackRoute, sealedRoute, type RouteNow } from './chat-route.js';
-import { noteTurnKey, projectTurn, surfaceWords, type Continued } from './chat-turn.js';
+import { keyDecision, noteTurnKey, projectTurn, surfaceWords, type Continued } from './chat-turn.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
 import { defaultTools, neverSent } from './tools.js';
@@ -173,16 +173,7 @@ function agentFor(root: string, config: { apiKey?: string; model?: string }, sur
  * Opens the chat for a project on a surface (src/contracts/chat-session.ts OpenChatSession; `deps` is optional and the
  * contract's callers pass none). The agent's tools are gated from here on, and its instructions are the chat's.
  */
-/**
- * R4 (H113): the session with a keyed send beside the contract's: a message the surface gave a key (the companion's page, whose
- * request a reconnect may send again) that this project has already run is refused, naming its receipt, and never sent twice.
- * Not in src/contracts/chat-session.ts yet (a contract change goes through the lead): its own surfaces use this type.
- */
-export interface KeyedChatSession extends ChatSession {
-  sendOnce(key: string, text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
-}
-
-export async function openChatSession(o: { project: { name: string; root: string }; surface: ChatSurface }, deps: ChatSessionDeps = {}): Promise<KeyedChatSession> {
+export async function openChatSession(o: { project: { name: string; root: string }; surface: ChatSurface }, deps: ChatSessionDeps = {}): Promise<ChatSession> {
   const env = deps.env ?? process.env;
   const config = deps.config ?? (() => { try { return loadConfig(); } catch { return {}; } })();
   const agent: SessionAgent = deps.agent ?? agentFor(o.project.root, config, o.surface);
@@ -205,6 +196,10 @@ export async function openChatSession(o: { project: { name: string; root: string
   const send = async (text: string, hooks: ChatTurnHooks, key?: string): Promise<ChatTurnResult> => {
     const typed = text.trim();
     const refused = (lines: string[]): ChatTurnResult => ({ status: 'refused', text: '', lines, sent: false, costWords: NO_REQUEST_COST });
+    // R4 lead: a keyed message (sendOnce, src/contracts/chat-session.ts) is first looked up by its key: one that went out, runs
+    // now, or ended unrecorded is refused before anything else is read (a repeat learns what became of the first); one that
+    // sent nothing goes on, a retry
+    if (key !== undefined) { const d = keyDecision(o.project.root, key); if (!d.send) return refused(d.lines); }
     if (!typed) return refused(['Not sent: the message is empty.']);
     if (typed.startsWith('/')) return refused(slashRefusal(typed, o.surface));
     if (hooks.signal?.aborted) return { status: 'cancelled', text: '', lines: ['Cancelled before anything was sent.'], sent: false, costWords: NO_REQUEST_COST };
@@ -239,7 +234,7 @@ export async function openChatSession(o: { project: { name: string; root: string
     let turn: Awaited<ReturnType<typeof projectTurn>>;
     try {
       turn = await projectTurn({
-        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key ? { key } : {}),
+        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}),
         more: {
           summary: (s) => { summary = s; }, retry: deps.retry ?? false,
           // a failure that never left this computer (no connection, no address) sent nothing
@@ -255,7 +250,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     const s = summary as TurnSummary | null;
     if (!s) return { status: 'failed', text: '', lines: ['The turn ended without saying what it did, so whether anything was sent is not known.'], sent: false, costWords: 'cost unknown' };
     const r = finish(s, { requested, local: Boolean(now.local), files, continued: turn.continued });
-    if (key && r.receipt) noteTurnKey(o.project.root, key, o.surface, r.receipt);
+    // the keyed turn's end with its receipt (projectTurn kept its start, and its end before the receipt was sealed)
+    if (key !== undefined) noteTurnKey(o.project.root, key, o.surface, { sent: r.sent, status: r.status, ...(r.receipt ? { receipt: r.receipt } : {}) });
     return r;
   };
 

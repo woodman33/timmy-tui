@@ -5,6 +5,8 @@
  * and its own signature checks out; anything else is broken, so its line is never green.
  */
 import { createHash } from 'node:crypto';
+import type { ChatSurface } from '../contracts/chat-session.js';
+import { noteChatTurn } from '../ops/context.js';
 import { appendReceipt, verifyChain, verifySignature, type VerifyResult } from '../utils/receipts.js';
 
 /** How a tool in the turn actually ended; `unknown` = still running when the turn ended. */
@@ -124,6 +126,32 @@ export function sealTurn(
     cost_measured: facts.costMeasured === true,
     ms: Math.round(facts.ms),
   }, dir);
+  // R4 lead: the operation the turn was sealed in ends as the turn did (src/ops/operations.ts decideState), when it started
+  // nothing else: a failed turn's request is failed, a stopped one's stopped, never "answered"
+  noteChatTurn({ status: facts.status, receipt: rec.hash.slice(7, 15), surface });
   const verified = verify('runs', dir).ok && verifySignature(rec) ? true : 'broken';
   return { id: rec.hash.slice(7, 15), hash: rec.hash, verified };
 }
+
+/** R4 lead: the surface a chat turn's receipt names in its subject (kind chat): one of ChatSurface, then a separator or the end. */
+const TURN_SURFACE = /^chat\.turn · (repl|monitor|workbench|companion)(?: · |$)/;
+
+/**
+ * R4 lead (2026-10-12): a chat turn's receipt, whichever surface sealed it, with that surface: the REPL's (kind turn, "repl ·
+ * 2 steps"), another surface's (kind chat: "chat.turn · workbench · 2 steps · qwen3:8b" as sealTurn names it since H113, and
+ * "chat.turn · monitor · <model>" as H103's chat session sealed it). Null for any other receipt: the old monitor commander's
+ * "chat.turn · commander" is no surface's turn of a project. The Control Room, the run detail and the tools ladder read every
+ * surface's turns through this, so a Workbench's turn is counted, costed and named as a REPL's is.
+ */
+export function chatTurnOf(r: { kind?: unknown; subject?: unknown } | null | undefined): { surface: ChatSurface } | null {
+  if (!r) return null;
+  if (r.kind === 'turn') return { surface: 'repl' };
+  if (r.kind !== 'chat') return null;
+  const m = TURN_SURFACE.exec(String(r.subject ?? ''));
+  return m ? { surface: m[1] as ChatSurface } : null;
+}
+
+/** R4 lead: where a chat turn was sent from, in words (the Control Room's harness, the run detail's). */
+export const TURN_FROM: Readonly<Record<ChatSurface, string>> = {
+  repl: 'Timmy REPL', monitor: 'Timmy monitor (timmy watch)', workbench: 'Timmy Workbench (timmy workbench)', companion: 'a Timmy companion page',
+};

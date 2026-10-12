@@ -19,6 +19,14 @@ export class ConversationManager {
     return this.dir;
   }
 
+  /**
+   * R4 lead: the conversation this manager holds (its file's name without .jsonl), or null when none is started: read by the
+   * project's one conversation across surfaces (src/agent/chat-turn.ts continueConversation), never written from outside.
+   */
+  get current(): string | null {
+    return this.currentSession;
+  }
+
   startNew(): string {
     const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentSession = id;

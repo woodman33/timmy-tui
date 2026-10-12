@@ -18,7 +18,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { inOperation, newOperationId, OPERATION_ID, openScope, type OperationRunKind, type OperationScope, type StartedProcess } from './context.js';
+import { inOperation, newOperationId, OPERATION_ID, openScope, type OperationRunKind, type OperationScope, type SealedChatTurn, type StartedProcess } from './context.js';
 import { THIS_PROCESS, writerState } from './process-proof.js';
 
 export const OPERATIONS_DIR = '.timmy/operations';
@@ -235,6 +235,8 @@ interface Entry {
   answer?: 'refused' | 'answered';
   /** a stop of the whole request is under way (a signal, a time limit): it ends stopped, with this why */
   stop?: string;
+  /** R4 lead: the chat turns sealed under it (src/repl/seal.ts sealTurn): a request that started nothing else ends as they did */
+  turns: SealedChatTurn[];
   close: () => void;
   waiters: Array<(h: OperationHandle) => void>;
 }
@@ -248,16 +250,22 @@ const PRECEDENCE: ReadonlyArray<RunOutcome['state']> = ['stopped', 'failed', 'un
  * r24): `processes`, what its request started that has no record of its own (a server command /mcp tools started for a
  * listing): said in its words, never "it started nothing"; one that failed makes the request failed.
  */
-export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered', processes: readonly StartedProcess[] = []): { state: OperationState; why: string; current?: boolean } {
+export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome }>, answer: 'refused' | 'answered' = 'answered', processes: readonly StartedProcess[] = [], turns: readonly SealedChatTurn[] = []): { state: OperationState; why: string; current?: boolean } {
   const claimed = new Set(outcomes.flatMap((o) => o.out.claims ?? []));
   const decisive = outcomes.filter((o) => !claimed.has(`${o.run.kind}:${o.run.id}`));
-  const started = processes.map((p) => `${p.what}: ${p.ended}`).join('; ');
+  const started = [...processes.map((p) => `${p.what}: ${p.ended}`), ...turns.map(turnWords)].join('; ');
+  // R4 lead: a chat turn that failed or was stopped is how its request ended, whatever else ran (never "answered")
+  const turnFailed = turns.some((t) => t.status === 'failed');
+  const turnStopped = turns.some((t) => t.status === 'cancelled');
   if (!decisive.length) {
-    if (processes.length) return { state: processes.some((p) => p.failed) ? 'failed' : answer, why: started };
+    if (processes.length || turns.length) {
+      return { state: processes.some((p) => p.failed) || turnFailed ? 'failed' : turnStopped ? 'stopped' : answer, why: started };
+    }
     return { state: answer, why: answer === 'refused' ? 'it started nothing: the request was refused' : 'it started nothing: the request was answered' };
   }
   const states = new Set(decisive.map((o) => o.out.state));
-  if (processes.some((p) => p.failed)) states.add('failed');
+  if (processes.some((p) => p.failed) || turnFailed) states.add('failed');
+  if (turnStopped) states.add('stopped');
   // A run that says it still runs once nothing of it runs here did not finish its record: counted as not succeeded.
   const first = PRECEDENCE.find((s) => states.has(s)) ?? 'unknown';
   const state: OperationState = first === 'unknown' ? 'failed' : first;
@@ -266,6 +274,13 @@ export function decideState(outcomes: Array<{ run: OperationRun; out: RunOutcome
   // R4 (H99): no change is current only when every run that made no change found the last build current
   if (state === 'no change') return { state, why, current: decisive.filter((o) => o.out.state === 'no change').every((o) => o.out.current === true) };
   return { state, why };
+}
+
+/** R4 lead: a chat turn as an operation's why says it: "the Workbench's chat turn answered (receipt 1a2b3c4d)". */
+function turnWords(t: SealedChatTurn): string {
+  const who = t.surface === 'repl' ? 'the REPL\'s' : t.surface === 'monitor' ? 'the monitor\'s' : t.surface === 'workbench' ? 'the Workbench\'s' : t.surface === 'companion' ? 'a companion page\'s' : 'a';
+  const ended = t.status === 'ok' ? 'answered' : t.status === 'cancelled' ? 'was stopped' : 'failed';
+  return `${who} chat turn ${ended} (receipt ${t.receipt})`;
 }
 
 export class OperationLog {
@@ -295,7 +310,7 @@ export class OperationLog {
       id: joined ?? newOperationId(), root, project: o.project, request: this.d.scrub(o.request.trim(), root).slice(0, 2000), via: o.via, parent,
       joined: !!joined, started: new Date().toISOString(), runs: [], processes: [], recorded: false, seals: 0,
     };
-    const e: Entry = { h, scope: { id: h.id, noteRun: (kind, id) => this.noteRun(e, kind, id), noteSeal: () => this.noteSeal(e), noteStarted: (p) => this.noteStarted(e, p) }, commandDone: false, close: () => {}, waiters: [] };
+    const e: Entry = { h, scope: { id: h.id, noteRun: (kind, id) => this.noteRun(e, kind, id), noteSeal: () => this.noteSeal(e), noteStarted: (p) => this.noteStarted(e, p), noteTurn: (t) => { e.turns.push(t); } }, commandDone: false, turns: [], close: () => {}, waiters: [] };
     e.close = openScope(e.scope);
     this.entries.set(h.id + (joined ? `@${randomBytes(3).toString('hex')}` : ''), e);
     this.newest = h;
@@ -355,7 +370,7 @@ export class OperationLog {
       if (e.h.ended || !e.commandDone) continue;
       if (e.h.runs.some((r) => this.runLive(r, e.h.root))) continue;
       const outcomes = e.h.runs.map((run) => ({ run, out: this.runOutcome(run, e.h.root) }));
-      const decided = decideState(outcomes, e.answer, e.h.processes);
+      const decided = decideState(outcomes, e.answer, e.h.processes, e.turns);
       this.finish(e, e.stop ? { state: 'stopped', why: outcomes.length ? `${e.stop}; ${decided.why}` : e.stop } : decided);
     }
     this.arm();

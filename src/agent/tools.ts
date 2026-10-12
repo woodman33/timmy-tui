@@ -49,24 +49,9 @@ const reason = (err: unknown): string => {
   return typeof cause === 'string' && cause && !top.includes(cause) ? `${top}: ${cause}` : top;
 };
 
-/** Error codes that mean the request never left this machine: no connection, no address, no TLS. */
-const BEFORE_SEND = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'EADDRNOTAVAIL', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']);
-
-/**
- * Whether a failed request certainly never reached the service, so nothing can have run there (round
- * R1 review). A reset or a timeout after the request went out leaves the outcome unknown, and the tool
- * says so instead of "not run".
- */
-export function neverSent(err: unknown): boolean {
-  const codes: string[] = [];
-  let e = err as { code?: unknown; errors?: unknown; cause?: unknown } | undefined;
-  for (let depth = 0; e && depth < 4; depth++) {
-    if (typeof e.code === 'string') codes.push(e.code);
-    if (Array.isArray(e.errors)) for (const x of e.errors as Array<{ code?: unknown }>) if (typeof x?.code === 'string') codes.push(x.code);
-    e = e.cause as typeof e;
-  }
-  return codes.length > 0 && codes.every((c) => BEFORE_SEND.has(c) || /CERT|TLS|SSL/.test(c));
-}
+// R4 lead: neverSent moved to ./never-sent.ts (the local chat route reads it too, without this module's tools); exported here as before
+import { neverSent } from './never-sent.js';
+export { neverSent };
 
 export const currentTimeTool = tool({
   name: 'get_current_time',

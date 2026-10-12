@@ -35,6 +35,7 @@ import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { RECIPE_ID } from '../recipes/index.js';
 import { recipeResults } from '../repl/board-cards.js';
+import { chatTurnOf } from '../repl/seal.js';
 import { FLOWS_SHOWN, readBoardFlows, type BoardFlow, type BoardFlows } from '../repl/board-flows.js';
 import { flowKind, flowSteps, projectPath, type StepState } from '../repl/board-steps.js';
 import type { BoardObservation } from '../repl/board.js';
@@ -362,7 +363,9 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
   const put = (key: string, r: Receipt, cost: RoomCost): void => { if (!out.has(key)) out.set(key, { key, cost, receipt: shortReceipt(r) }); };
   for (const r of mine) {
     const hasCost = hasMeasuredCostUsd(r) || declaredUnknownCostUsd(r) === 1;
-    if (r.kind === 'turn') {
+    // R4 lead: every surface's chat turn (the REPL's kind turn, the Workbench's, a monitor's or a companion page's kind chat:
+    // src/repl/seal.ts chatTurnOf), one charge each
+    if (chatTurnOf(r)) {
       // R4 (H73): every chat turn sends its request to the chat model (src/repl/turn.ts), and sealTurn records cost_usd and
       // cost_measured on every turn since LIVE-01 (ledger row 65). A turn receipt with neither field was sealed before that:
       // its request went out and its cost was not recorded, so it is unknown, counted as such, never left out (H78's note).
@@ -466,12 +469,25 @@ const leftHint = (c: Ctx, j: JobRecord | undefined): RoomRun['hint'] | undefined
 const TONE_OF: Readonly<Record<JobMark, Tone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running', unchanged: 'neutral' };
 const span = (c: Ctx, start: number, end: number | undefined, running: boolean): string | undefined => (start ? elapsedWords((end ?? c.nowMs) - start, running) : undefined);
 
-/** The chat agent's turns: the model each asked for and how it ended, from its sealed receipt (a turn being answered has none yet). */
+/** R4 lead: the harness a chat turn's receipt says it was sent from (its surface: src/repl/seal.ts chatTurnOf). */
+const TURN_HARNESS: Readonly<Record<string, string>> = {
+  repl: 'Timmy REPL (version not recorded)',
+  monitor: 'Timmy monitor, timmy watch (version not recorded)',
+  workbench: 'Timmy Workbench, timmy workbench (version not recorded)',
+  companion: 'a Timmy companion page (version not recorded)',
+};
+
+/**
+ * The chat agent's turns: the model each asked for and how it ended, from its sealed receipt (a turn being answered has none
+ * yet). R4 lead: every surface's turns of the project, each with the surface it was sent from (the REPL's, the Workbench's, a
+ * monitor's, a companion page's: one conversation per project since H113).
+ */
 function chatRuns(c: Ctx): RoomRun[] {
   const seen = new Set<string>();
   // The same receipt read twice is one turn.
-  const turns = c.chain.filter((r) => r && r.kind === 'turn' && r.project_id === c.projectId && !seen.has(String(r.hash)) && !!seen.add(String(r.hash)));
+  const turns = c.chain.filter((r) => r && chatTurnOf(r) && r.project_id === c.projectId && !seen.has(String(r.hash)) && !!seen.add(String(r.hash)));
   return turns.map((r): RoomRun => {
+    const from = chatTurnOf(r)!.surface;
     const end = time(r.ts);
     const ms = num(r.ms);
     const start = ms !== undefined && end ? end - ms : 0;
@@ -491,7 +507,7 @@ function chatRuns(c: Ctx): RoomRun[] {
     const at = ollama?.host ? ` at ${cleanLine(ollama.host, c.scrub, 60)}` : '';
     const toolsWord = ollama?.tools === 'on' || ollama?.tools === 'off' ? `; tools ${ollama.tools}` : '';
     return {
-      kind: 'chat', id: shortReceipt(r), owner: 'Timmy chat agent', harness: 'Timmy REPL (version not recorded)',
+      kind: 'chat', id: shortReceipt(r), owner: 'Timmy chat agent', harness: TURN_HARNESS[from] ?? TURN_HARNESS.repl,
       ...(str(r.model_requested) ? { model: r.model_requested } : {}),
       ...(ollama ? { endpoint: ollama.endpoint === 'local' ? 'local' as const : 'remote' as const } : {}),
       route: ollama
@@ -1020,7 +1036,7 @@ function gatherRoomNow(context: RoomContext): Room {
     const max = RECENT_MAX[k];
     return {
       kind: k, title: GROUP_TITLE[k], running, recent: rest.slice(0, max), more: Math.max(0, rest.length - max) + (k === 'flow' ? flows.more : 0),
-      ...(k === 'chat' ? { note: 'A turn is shown once its receipt is sealed; one being answered now is in the REPL, where Ctrl+C cancels it.' } : {}),
+      ...(k === 'chat' ? { note: 'A turn is shown once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor); one being answered now is on that surface, where Ctrl+C (Esc in the Workbench) stops it.' } : {}),
       ...(k === 'mcp' ? { note: 'An MCP call is kept once it ends; one in progress is in the REPL.' } : {}),
     };
   });

@@ -37,6 +37,7 @@ import { timmyHome } from '../utils/init.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { placeNew } from '../utils/place-new.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
+import { chatTurnOf, TURN_FROM } from '../repl/seal.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import { blockCount } from '../workflows/block-count.js';
 import { CHECKED_COPY, parseWorkflow, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
@@ -538,6 +539,15 @@ function workerOf(f: Facts): RunDetail['worker'] {
     harness.push({ value: `${a.agent}${a.agent_version ? ` ${a.agent_version}` : ''} (${a.endpoint} endpoint)`, from: `${AGENTS_DIR}/${a.run}/result.json` });
   }
   for (const n of f.natives) harness.push({ value: n.rec.job.app, from: `.timmy/native/${n.run}/job.json` });
+  // R4 lead: a chat turn of the operation (any surface's: src/repl/seal.ts chatTurnOf): the model that answered (else the one
+  // asked for) and the surface it was sent from, on the chat's route (OpenRouter, or the local route through Ollama)
+  for (const r of f.receipts) {
+    const turn = chatTurnOf(r);
+    if (!turn) continue;
+    const model = str(r.model_resolved) ?? str(r.model_requested);
+    if (model) models.push({ value: model, from: `receipt ${short(r)}` });
+    harness.push({ value: `${TURN_FROM[turn.surface]} chat, ${r.via === 'ollama' ? 'the local route through Ollama' : 'the OpenRouter route'}`, from: `receipt ${short(r)}` });
+  }
   for (const v of f.voxes) for (const t of list(v.value.tools)) if (str(t.name)) harness.push({ value: `${String(t.name)}${str(t.version) ? ` ${String(t.version)}` : ''}`, from: v.rel });
   if (workflowJobs(f).length) harness.unshift({ value: `upmd${workflowJobs(f).some((j) => isLiveRun(j.args)) ? ' on a pty (workers/upmd/pty_run.py)' : ''}`, from: `job ${workflowJobs(f)[0].id}` });
   const uniq = (xs: Array<Sourced<string>>): Array<Sourced<string>> => xs.filter((x, i) => xs.findIndex((y) => y.value === x.value) === i);
@@ -587,7 +597,9 @@ function costOf(f: Facts): RunDetail['cost'] {
   for (const r of f.receipts) {
     const o = obj(obj((r as unknown as Obj).observation)?.interpretation);
     if (o && ('cost_usd' in o)) parts.push({ usd: typeof o.cost_usd === 'number' ? o.cost_usd : null, from: `receipt ${short(r)}`, what: `a model's interpretation (receipt ${short(r)})` });
-    if (r.kind === 'turn') parts.push({ usd: r.cost_measured === false || typeof r.cost_usd !== 'number' ? null : r.cost_usd, from: `receipt ${short(r)}`, what: `a chat turn (receipt ${short(r)})` });
+    // R4 lead: every surface's chat turn (the REPL's, the Workbench's, a monitor's, a companion page's)
+    const turn = chatTurnOf(r);
+    if (turn) parts.push({ usd: r.cost_measured === false || typeof r.cost_usd !== 'number' ? null : r.cost_usd, from: `receipt ${short(r)}`, what: `a chat turn${turn.surface === 'repl' ? '' : ` from ${TURN_FROM[turn.surface]}`} (receipt ${short(r)})` });
   }
   if (!parts.length) return { usd: null, measured: false, why: 'no record of this operation reports a request to a model or another priced service, so no cost is recorded (none is invented)' };
   const missing = parts.find((p) => p.usd === null);

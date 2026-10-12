@@ -8,8 +8,9 @@
  *   uses), and a turn from any surface while another runs is refused with whose it is and since when; nothing is sent then,
  *   so two surfaces open on one project never run a second agent for one turn, and a message sent again while its turn runs
  *   (a duplicate Enter, a page that reconnected) is not sent twice. A hold whose writer is gone is stale: removed, never
- *   trusted. A message given a key (the companion's page sends one) that this project has already run is refused after its
- *   turn too, naming the receipt it got (`.timmy/chat-turns/keys.jsonl`).
+ *   trusted. A message given a key (src/contracts/chat-session.ts sendOnce, CHAT_KEY) is kept in `.timmy/chat-turns/keys.jsonl`
+ *   as its turn starts and as it ends: sent again with that key, a turn that went out is refused naming its receipt, one that
+ *   sent nothing is sent (a retry), and one whose end was never recorded (its process ended during it) is refused (R4 lead).
  * - the project's kept conversation (`.sessions` in the project, as the REPL keeps it since R1): the turn continues the newest
  *   conversation as it is on disk now, so a turn the Workbench or the monitor sent is in what the REPL's next turn reads, and
  *   the other way round. A conversation this surface started (the REPL's /new) and has not written yet is kept: it is the
@@ -19,11 +20,12 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ChatSurface } from '../contracts/chat-session.js';
+import { CHAT_KEY, type ChatSurface } from '../contracts/chat-session.js';
 import { THIS_PROCESS, writerState } from '../ops/process-proof.js';
 import type { SealedTurn, TurnFacts } from '../repl/seal.js';
 import type { Transcript } from '../repl/transcript.js';
-import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect, type TurnMarks, type TurnResult } from '../repl/turn.js';
+import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect, type TurnMarks, type TurnResult, type TurnSummary } from '../repl/turn.js';
+import type { ConversationManager } from './conversation.js';
 
 export const CHAT_TURNS_DIR = '.timmy/chat-turns';
 export const CHAT_HOLD_SCHEMA = 'timmy.chat-turn-hold/1';
@@ -130,44 +132,106 @@ export function takeTurnHold(root: string, surface: ChatSurface): { ok: true; ho
   return { ok: true, hold: { release } };
 }
 
-/** A turn sent with a key, as `.timmy/chat-turns/keys.jsonl` keeps it. */
-export interface KeyedTurn { key: string; surface: ChatSurface; at: string; receipt?: string }
+/**
+ * A record of `.timmy/chat-turns/keys.jsonl`: a keyed message's turn as it started (before anything was sent, by the process
+ * `owner` names) and as it ended (whether a request went out, how it ended, its receipt once sealed). The newest record of a key
+ * decides what a message sent again with it gets (keyDecision). Records H113 wrote before (no `state`) are read too: one with a
+ * receipt as a turn that went out, one without as a turn whose end was not recorded.
+ */
+export interface KeyedTurn {
+  key: string;
+  surface: ChatSurface;
+  at: string;
+  state?: 'started' | 'ended';
+  owner?: { pid: number; started: string };
+  /** an ended turn: whether a request left this computer for a model (absent: not recorded) */
+  sent?: boolean;
+  /** an ended turn: how it ended (src/repl/turn.ts TurnResult: ok, failed, cancelled) */
+  status?: string;
+  receipt?: string;
+}
 
-const KEY_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
+/** How much of the end of keys.jsonl is read: a message is sent again within minutes, never after thousands of others. */
+const KEYS_TAIL = 256 * 1024;
 
-/** The turn this project already ran with `key`, or null. */
+/** The newest record of `key` in the project's keys file, or null (none kept, or not a key). */
 export function keyedTurn(root: string, key: string): KeyedTurn | null {
-  if (!KEY_PATTERN.test(key)) return null;
+  if (!CHAT_KEY.test(key)) return null;
   const dir = turnsDir(root, false);
   if (!dir.ok) return null;
+  let text = '';
   try {
-    const lines = fs.readFileSync(path.join(dir.abs, KEYS_FILE), 'utf8').split('\n').filter(Boolean);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try { const k = JSON.parse(lines[i]) as KeyedTurn; if (k && k.key === key) return k; } catch { /* a line that is not one */ }
-    }
-  } catch { /* none kept */ }
+    const file = path.join(dir.abs, KEYS_FILE);
+    const st = fs.lstatSync(file);
+    if (!st.isFile()) return null;
+    const fd = fs.openSync(file, 'r');
+    try {
+      const from = Math.max(0, st.size - KEYS_TAIL);
+      const buf = Buffer.alloc(st.size - from);
+      const n = fs.readSync(fd, buf, 0, buf.length, from);
+      text = buf.subarray(0, n).toString('utf8');
+      // a read that starts inside a line leaves that line out
+      if (from > 0) text = text.slice(text.indexOf('\n') + 1);
+    } finally { fs.closeSync(fd); }
+  } catch { return null; }
+  const lines = text.split('\n').filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try { const k = JSON.parse(lines[i]) as KeyedTurn; if (k && k.key === key) return k; } catch { /* a line that is not one */ }
+  }
   return null;
 }
 
 function keepKey(root: string, k: KeyedTurn): void {
-  if (!KEY_PATTERN.test(k.key)) return;
+  if (!CHAT_KEY.test(k.key)) return;
   const dir = turnsDir(root, true);
   if (!dir.ok) return;
   try { fs.appendFileSync(path.join(dir.abs, KEYS_FILE), `${JSON.stringify(k)}\n`, 'utf8'); } catch { /* the hold stood for the turn; the key is help */ }
 }
 
-/** The receipt a keyed turn got, for a surface that seals after its turn (the chat session): a later resend names it. */
-export function noteTurnKey(root: string, key: string, surface: ChatSurface, receipt: string): void {
-  keepKey(root, { key, surface, at: new Date().toISOString(), receipt });
+const NOTHING_SENT = 'Nothing was sent to any model.';
+
+/**
+ * What a message sent with `key` gets now, from the key's newest record (src/contracts/chat-session.ts sendOnce's table): sent
+ * (no turn had it, or its turn ended having sent nothing: a retry), or refused with the words that say why.
+ */
+export function keyDecision(root: string, key: string): { send: true; retry: boolean } | { send: false; lines: string[] } {
+  if (!CHAT_KEY.test(key)) {
+    return { send: false, lines: ['Not sent: the message\'s key is not one Timmy keeps (8 to 80 letters, digits, - or _), so sending it only once could not be kept.', NOTHING_SENT] };
+  }
+  const k = keyedTurn(root, key);
+  if (!k) return { send: true, retry: false };
+  const from = surfaceWords(k.surface);
+  const ended = k.state === 'ended' || (k.state === undefined && typeof k.receipt === 'string');
+  if (ended && k.sent === false) return { send: true, retry: true };
+  const receipt = k.receipt ? ` (receipt ${k.receipt.slice(7, 15)})` : '';
+  if (ended) {
+    return { send: false, lines: [k.sent === true || k.state === undefined
+      ? `Not sent again: this message was already sent from ${from} at ${k.at}${receipt}.`
+      : `Not sent again: this message was tried from ${from} at ${k.at}${receipt}, and whether it reached a model was not recorded.`, NOTHING_SENT] };
+  }
+  // started, and not ended: its turn runs now, or its process ended during it
+  const proof = k.owner ? (k.owner.pid === THIS_PROCESS.pid && k.owner.started === THIS_PROCESS.started ? 'alive' : writerState(k.owner)) : 'gone';
+  if (proof !== 'gone') {
+    return { send: false, lines: [`Not sent again: this message is being sent now from ${from} (${proof === 'alive' && k.owner!.pid === THIS_PROCESS.pid ? 'this process' : `pid ${k.owner!.pid}`}, since ${k.at}).`, NOTHING_SENT] };
+  }
+  return { send: false, lines: [
+    `Not sent again: this message was being sent from ${from} at ${k.at} when that process ended, so whether it reached a model is not known.`,
+    `Try: send it as a new message if it should be asked again. ${NOTHING_SENT}`,
+  ] };
 }
 
-/** The agent's kept conversation, as src/agent/conversation.ts ConversationManager has it (read through its shape). */
-interface KeptConversation {
-  readonly directory?: string;
-  listSessions?(): string[];
-  load?(id: string): unknown[];
-  getHistory?(): unknown[];
-  currentSession?: string | null;
+/**
+ * The end of a keyed turn, as a surface that seals after the turn knows it (the chat session): whether it sent, how it ended,
+ * and its receipt. Sent again, the message is refused naming the receipt (or sent, when this turn sent nothing).
+ */
+export function noteTurnKey(root: string, key: string, surface: ChatSurface, end: { sent: boolean; status: string; receipt?: string }): void {
+  keepKey(root, { key, surface, at: new Date().toISOString(), state: 'ended', sent: end.sent, status: end.status, ...(end.receipt ? { receipt: end.receipt } : {}) });
+}
+
+/** What this module reads of an agent's kept conversation (src/agent/core.ts Agent keptConversation, useSessions). */
+interface KeepsConversation {
+  keptConversation?: () => Pick<ConversationManager, 'directory' | 'current' | 'listSessions' | 'load' | 'getHistory'>;
+  useSessions?: (dir: string) => { resumed: boolean; messages: number };
 }
 
 export interface Continued {
@@ -189,18 +253,18 @@ const real = (p: string): string => { try { return fs.realpathSync(p); } catch {
  * newest. An agent with no kept conversation (a test's FAKE) is left as it is.
  */
 export function continueConversation(agent: unknown, root: string): Continued {
-  const a = agent as { conversation?: KeptConversation; useSessions?: (dir: string) => { resumed: boolean; messages: number } };
-  const conv = a.conversation;
+  // R4 lead: through the agent's public accessor (src/agent/core.ts keptConversation), never its private fields
+  const a = agent as KeepsConversation;
   const none: Continued = { session: null, messages: 0, added: 0, moved: false };
-  if (!conv || typeof a.useSessions !== 'function' || typeof conv.listSessions !== 'function' || typeof conv.load !== 'function' || typeof conv.getHistory !== 'function') return none;
+  if (typeof a.keptConversation !== 'function' || typeof a.useSessions !== 'function') return none;
+  const conv = a.keptConversation();
   const dir = path.join(root, '.sessions');
   if (!conv.directory || real(conv.directory) !== real(dir)) {
     const r = a.useSessions(dir);
-    const now = a.conversation;
-    return { session: now?.currentSession ?? null, messages: r.messages, added: 0, moved: true };
+    return { session: a.keptConversation().current, messages: r.messages, added: 0, moved: true };
   }
   const held = conv.getHistory().length;
-  const current = conv.currentSession ?? null;
+  const current = conv.current;
   let newest: string | null = null;
   try { newest = conv.listSessions()[0] ?? null; } catch { newest = null; }
   // nothing kept on disk, or this agent's own new conversation (started, not written yet): it is the newest
@@ -242,28 +306,48 @@ export type ProjectTurnResult =
   | { status: 'refused'; lines: string[] }
   | { status: TurnResult; continued: Continued };
 
-/** One turn of the project's conversation, on any surface: the hold, the conversation, the turn, its receipt naming the surface. */
+/**
+ * One turn of the project's conversation, on any surface: the key (when given), the hold, the conversation, the turn, its
+ * receipt naming the surface. A keyed message's start is kept before anything is sent and its end before the hold is given
+ * back, so a message sent again with its key, from any process, finds how it went (keyDecision).
+ */
 export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResult> {
   const root = i.project.root;
-  if (i.key) {
-    const before = keyedTurn(root, i.key);
-    if (before) return { status: 'refused', lines: [`Not sent again: this message was already sent from ${surfaceWords(before.surface)} at ${before.at}${before.receipt ? ` (receipt ${before.receipt.slice(7, 15)})` : ''}.`, 'Nothing was sent to any model.'] };
+  if (i.key !== undefined) {
+    const d = keyDecision(root, i.key);
+    if (!d.send) return { status: 'refused', lines: d.lines };
   }
   const taken = takeTurnHold(root, i.surface);
   if (!taken.ok) return { status: 'refused', lines: taken.lines };
+  const key = i.key;
+  if (key !== undefined) {
+    // read again under the hold: another process may have started this key between the first reading and the hold
+    const d = keyDecision(root, key);
+    if (!d.send) { taken.hold.release(); return { status: 'refused', lines: d.lines }; }
+    keepKey(root, { key, surface: i.surface, at: new Date().toISOString(), state: 'started', owner: { pid: THIS_PROCESS.pid, started: THIS_PROCESS.started } });
+  }
   let sealed: SealedTurn | null = null;
+  let summary: TurnSummary | null = null;
+  let keyEnded = false;
+  const endKey = (): void => {
+    if (key === undefined || keyEnded) return;
+    keyEnded = true;
+    const s = summary as TurnSummary | null;
+    const r = sealed as SealedTurn | null;
+    keepKey(root, { key, surface: i.surface, at: new Date().toISOString(), state: 'ended', ...(s ? { sent: s.sent, status: s.result } : {}), ...(r ? { receipt: r.hash } : {}) });
+  };
   try {
     const continued = continueConversation(i.agent, root);
     i.onContinue?.(continued);
     const seal = i.seal ? (facts: TurnFacts): SealedTurn => { sealed = i.seal!({ ...facts, surface: i.surface }); return sealed; } : undefined;
-    if (i.key) keepKey(root, { key: i.key, surface: i.surface, at: new Date().toISOString() });
-    // the hold is given back once the turn has ended and is sealed (its summary), before the REPL's inspector looks for where
-    // to inspect it: the conversation is whole by then
-    const more: TurnInspect = { ...i.more, summary: (s) => { taken.hold.release(); i.more?.summary?.(s); } };
+    // the hold is given back once the turn has ended and is sealed (its summary), the key's end kept first, before the REPL's
+    // inspector looks for where to inspect it: the conversation is whole by then
+    const more: TurnInspect = { ...i.more, summary: (s) => { summary = s; endKey(); taken.hold.release(); i.more?.summary?.(s); } };
     const status = await runTurn(i.agent, i.sink as Transcript, i.text, i.clock, i.marks, i.signal, seal, i.abandon, more);
-    if (i.key && sealed) keepKey(root, { key: i.key, surface: i.surface, at: new Date().toISOString(), receipt: (sealed as SealedTurn).hash });
     return { status, continued };
   } finally {
+    // a turn that ended without its summary (abandoned, or thrown): its end kept, whether it sent not recorded
+    endKey();
     taken.hold.release();
   }
 }
