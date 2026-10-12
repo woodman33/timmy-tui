@@ -71,6 +71,55 @@ export function placedMeta(shape) {
   return m && typeof m === 'object' && typeof m.card === 'string' && typeof m.projectId === 'string' ? m : null;
 }
 
+// ── R4 (H109): following the active project, and boards pinned to one ─────────────────────────────────────────────────
+// The operator's direction (2026-10-11): "Following windows change project together; pinned windows keep their visibly identified
+// project." A board (a page of the canvas) follows the project the canvas shows (the active project: src/studio/active-follow.ts)
+// unless a person pins it to a project: the pin is kept in the board's own meta (PIN), so it is part of the document (saved with
+// it, undone with tldraw's undo, seen by every window that shows the board), and the panel reads that project for it
+// (GET /api/project?project=<id>, read only). A project change never re-targets a board: its cards keep their own project.
+
+/** Where a board keeps the project it is pinned to: its page's meta, under this key. */
+export const PIN = 'timmyPin';
+
+/** A board's pin, as its page's meta holds it, checked field by field; null when it is not pinned. */
+export function readPin(meta) {
+  const p = meta && typeof meta === 'object' ? meta[PIN] : undefined;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  if (typeof p.projectId !== 'string' || !/^[0-9a-f]{16}$/.test(p.projectId)) return null;
+  const project = typeof p.project === 'string' && p.project.trim() ? p.project.replace(/\s+/g, ' ').trim().slice(0, 120) : p.projectId;
+  return { projectId: p.projectId, project, at: typeof p.at === 'string' ? p.at : null };
+}
+
+/** A board's pin to the project a reading shows (what Pin keeps in the board's meta). */
+export const pinFor = (project, now = new Date()) => ({ projectId: String(project.id), project: String(project.name), at: now.toISOString() });
+
+/**
+ * The line under the panel's heading: whether this board follows the project the canvas shows (the active project) or is pinned,
+ * and, when they differ, the project the canvas shows and the active project of this Timmy home. `now`: the reading; `pin`: the
+ * board's pin (readPin), or null.
+ */
+export function followWords(now, pin) {
+  const o = now || {};
+  if (pin) {
+    const shown = o.shown && o.shown.id !== pin.projectId ? ` The canvas shows ${o.shown.name} now.` : '';
+    return `Pinned to ${pin.project}: this board keeps it when the active project changes, and its cards are read from it.${shown}`;
+  }
+  const active = o.active && o.project && o.active.id !== o.project.id
+    ? ` The active project of this Timmy home is ${o.active.name}; the canvas shows ${o.project.name}, as Timmy's REPL named it.`
+    : '';
+  return `This board follows the project the canvas shows (the active project).${active}`;
+}
+
+/**
+ * What the band says when the project a following board shows changes (null when it did not): the new project, and that the
+ * board's cards of the one before stay as they were.
+ */
+export function changeWords(before, now) {
+  if (!before || !now || !now.project || now.pinned || before.id === now.project.id) return null;
+  const how = now.via === 'active' ? ', the active project of this Timmy home' : '';
+  return `The canvas now shows ${now.project.name}${how} (it showed ${before.name}). Cards of ${before.name} on this board stay, shown as last read; nothing on the board was changed.`;
+}
+
 /** The live board's section of a card, as a link: only the board's bare address (http://127.0.0.1:<port>/) is linked. */
 export function boardHref(board, card) {
   if (!board || typeof board.address !== 'string' || !BOARD.test(board.address)) return null;
@@ -122,6 +171,28 @@ export function refreshWords(counts) {
 // ── the panel (the browser only) ─────────────────────────────────────────────
 
 const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
+
+/**
+ * R4 (H109): the band between the list and New board (index.html #project-said, R4 H100): what a press did, or what Timmy did
+ * on its own (the arrows it removed with a deleted card). `acts`: buttons under the words that act on what they say ({ label,
+ * title, run }), such as selecting the cards a press placed. Each call replaces the words and the buttons before it.
+ */
+export function band(text, bad = false, acts = []) {
+  if (typeof document === 'undefined') return;
+  const said = document.getElementById('project-said');
+  const row = document.getElementById('project-said-acts');
+  if (said) {
+    said.textContent = String(text ?? '');
+    said.dataset.kind = bad ? 'error' : 'ok';
+  }
+  if (!row) return;
+  row.replaceChildren(...(Array.isArray(acts) ? acts : []).map((a) => {
+    const b = el('button', String(a.label), { type: 'button', className: 'band-act', title: String(a.title ?? '') });
+    b.addEventListener('click', () => { try { a.run(); } catch { /* the band's buttons are a courtesy */ } });
+    return b;
+  }));
+  row.hidden = row.childElementCount === 0;
+}
 /** A message's text, cut at `max` characters (an ellipsis says so): the panel stays short. */
 const short = (text, max = 90) => { const chars = Array.from(String(text)); return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join(''); };
 
@@ -131,26 +202,73 @@ const short = (text, max = 90) => { const chars = Array.from(String(text)); retu
  * (read the drawn cards' detail too), onAnswer(now) (every reading), fast() (read again in 1.5 s, not 5 s), drawable(kind)
  * and placeCard(id, now) (Place card). R4 (H81): read() (the reading to use instead of this panel's own: the drawn cards'
  * reader, which reads the detail only with this page's session). R4 (H100): placeOperation(opId, now) (Place this operation).
+ * R4 (H109): read(pinned) reads the project a board is pinned to (its id) when given one; runDetail(opId, projectId), optional,
+ * shows an operation's run detail in the side panel (an operation's group offers Run detail).
  */
 export function createProjectPanel(deps) {
   const root = document.getElementById('project');
   const name = document.getElementById('project-name');
   const note = document.getElementById('project-note');
-  const said = document.getElementById('project-said');
   const groups = document.getElementById('project-groups');
   const refresh = document.getElementById('project-refresh');
   // R4 (H100): By kind / By operation, kept for this browser (a viewer's convenience: nothing else depends on it)
   const by = document.getElementById('project-by');
+  // R4 (H109): whether this board follows the active project or is pinned, and the button that pins it or lets it follow again
+  const follow = document.getElementById('project-follow');
+  const pinButton = document.getElementById('project-pin');
+  const pinBadge = document.getElementById('project-pinned');
   let mode = readMode();
   let api = null;
   let shown = '';
+  /** R4 (H109): the board and pin the last reading was for, and the project a following board showed last */
+  let readFor = '';
+  let lastShown = null;
+
+  /** R4 (H109): the current board, and the project it is pinned to (null: it follows the project the canvas shows). */
+  function boardNow() {
+    const editor = deps.editor();
+    const page = editor ? editor.getCurrentPage() : null;
+    return { id: page ? page.id : '', pin: page ? readPin(page.meta) : null };
+  }
 
   async function read() {
+    // R4 (H109): what the reading is for: this board, pinned or following
+    const b = boardNow();
+    readFor = `${b.id}|${b.pin ? b.pin.projectId : ''}`;
     // R4 (H81): the drawn cards' own reader when given (./cards.js read: the cards' detail only through this page's session)
-    if (deps.read) return deps.read();
+    if (deps.read) return deps.read(b.pin ? b.pin.projectId : null);
     const response = await fetch(deps.detail ? '/api/project?detail=1' : '/api/project', { cache: 'no-store' });
     if (!response.ok) throw new Error(`Timmy answered ${response.status} for the project`);
     return response.json();
+  }
+
+  /** R4 (H109): pins the current board to the project it shows now, or lets a pinned board follow again; then reads at once. */
+  function togglePin() {
+    const editor = deps.editor();
+    if (!editor) return;
+    const page = editor.getCurrentPage();
+    const pin = readPin(page.meta);
+    const meta = { ...(page.meta || {}) };
+    if (pin) {
+      delete meta[PIN];
+      editor.markHistoryStoppingPoint('timmy follow the active project');
+      editor.updatePage({ id: page.id, meta });
+      band(`This board follows the project the canvas shows again (it was pinned to ${pin.project}).`);
+    } else {
+      if (!api || !api.project) { band('There is no project to pin this board to: none is shown.', true); return; }
+      meta[PIN] = pinFor(api.project);
+      editor.markHistoryStoppingPoint('timmy pin this board');
+      editor.updatePage({ id: page.id, meta });
+      band(`This board is pinned to ${api.project.name}: it keeps it when the active project changes.`);
+    }
+    void poll();
+  }
+  if (pinButton) pinButton.addEventListener('click', togglePin);
+
+  /** R4 (H109): the canvas showed another board (or its pin changed): read again at once, for it. */
+  function boardChanged() {
+    const b = boardNow();
+    if (`${b.id}|${b.pin ? b.pin.projectId : ''}` !== readFor) void poll();
   }
 
   /** Places card `id` from the project as it is now; returns what was placed. */
@@ -191,10 +309,15 @@ export function createProjectPanel(deps) {
   }
 
   // R4 (H100; r24): what a press said has its own band between the list and New board (index.html #project-said): it never
-  // sits on a row or its buttons, and an empty one takes no room
-  function say(text, bad = false) {
-    said.textContent = text;
-    said.dataset.kind = bad ? 'error' : 'ok';
+  // sits on a row or its buttons, and an empty one takes no room. R4 (H109): written through band(), which cards.js uses too.
+  function say(text, bad = false, acts = []) {
+    band(text, bad, acts);
+  }
+  /** R4 (H109): selects the shapes a press placed that are still on the canvas (the band's Select button). */
+  function selectPlaced(ids) {
+    const editor = deps.editor();
+    const there = editor ? ids.filter((id) => editor.getShape(id)) : [];
+    if (there.length) editor.select(...there);
   }
 
   /** R4 (H100): a row; `withOp`: with its operation line (an operation's own group names the operation once, above its rows). */
@@ -264,9 +387,19 @@ export function createProjectPanel(deps) {
       const put = el('button', 'Place this operation', { type: 'button', className: 'pop-place', title: 'Places its workflow, flow and result cards on this page, left to right in the order they ran, linked by arrows. Pressed again, it adds only what ran since: cards you moved, resized or deleted stay as you left them.' });
       put.addEventListener('click', () => {
         put.disabled = true;
-        placeOperation(op.id).then((r) => say(r.words), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
+        // R4 (H109): nothing it placed is selected; the band offers to select it
+        const offer = (r) => (Array.isArray(r.select) && r.select.length
+          ? [{ label: `Select the ${r.select.length === 1 ? 'card' : `${r.select.length} cards`} placed`, title: 'Selects only what this press placed, so one drag moves them together', run: () => selectPlaced(r.select) }]
+          : []);
+        placeOperation(op.id).then((r) => say(r.words, false, offer(r)), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
       });
       acts.append(put);
+    }
+    // R4 (H109): its run detail (made by Timmy), in the side panel; of the project this board reads (pinned, or the one shown)
+    if (deps.runDetail && OPERATION_ID.test(String(op.id))) {
+      const rd = el('button', 'Run detail', { type: 'button', className: 'pop-rd', title: `Shows the run detail of operation ${op.id} in this panel: its verdict, stage, exits, freshness, acceptance, files, receipts and cost, each with the record it came from` });
+      rd.addEventListener('click', () => { void deps.runDetail(String(op.id), api && api.project ? api.project.id : null); });
+      acts.append(rd);
     }
     acts.append(el('span', `${cards.length} ${cards.length === 1 ? 'card' : 'cards'}, in the order they ran`, { className: 'pop-count' }));
     section.append(acts, Object.assign(el('ol'), { className: 'plist' }));
@@ -304,13 +437,29 @@ export function createProjectPanel(deps) {
     api = now;
     // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
     try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
-    const sig = JSON.stringify([mode, now.project, now.board, now.cards, now.operations, now.notes, now.message]);
+    // R4 (H109): this board follows the active project, or is pinned to one (visibly); a following board whose project changed
+    // says so in the band (its cards of the project before stay as they were)
+    const pin = boardNow().pin;
+    if (follow) { follow.textContent = followWords(now, pin); follow.hidden = false; follow.dataset.kind = pin ? 'pinned' : 'follows'; }
+    if (pinBadge) { pinBadge.hidden = !pin; pinBadge.textContent = pin ? 'pinned' : ''; }
+    if (pinButton) {
+      pinButton.hidden = !pin && !now.project;
+      pinButton.textContent = pin ? 'Follow the active project' : now.project ? `Pin this board to ${short(now.project.name, 40)}` : 'Pin this board';
+      pinButton.title = pin ? `This board is pinned to ${pin.project}; let it follow the project the canvas shows again` : 'Keep this board on this project when the active project changes (kept in the board, so every window shows it pinned)';
+    }
+    if (!pin && now.project) {
+      const words = changeWords(lastShown, now);
+      if (words) band(words);
+      lastShown = { id: now.project.id, name: now.project.name };
+    }
+    const sig = JSON.stringify([mode, now.project, now.board, now.cards, now.operations, now.notes, now.message, now.pinned, now.shown, now.active]);
     if (sig === shown) return;
     shown = sig;
     const active = document.activeElement && groups.contains(document.activeElement) ? document.activeElement : null;
     const focused = active ? { card: active.closest('li')?.dataset.card, op: active.closest('section.pop')?.dataset.op, cls: active.className } : null;
     // R4 (H83): a reading refused to this page (its session does not count now) names no project: it says why below
-    name.textContent = now.project ? now.project.name : now.refused ? 'not shown' : 'none named';
+    // R4 (H109): a pinned board names its project even when its reading was refused (the line under it says why)
+    name.textContent = now.project ? now.project.name : pin ? pin.project : now.refused ? 'not shown' : 'none named';
     const notes = [now.message, ...(now.notes || [])].filter(Boolean);
     note.textContent = notes.join(' ');
     note.hidden = notes.length === 0;
@@ -368,5 +517,6 @@ export function createProjectPanel(deps) {
     go.finally(next);
   }, deps.fast && deps.fast() ? 1500 : 5000);
   void poll().finally(next);
-  return { place, placeCard, placeOperation, refreshAll, poll, setMode, get mode() { return mode; }, get api() { return api; } };
+  // R4 (H109): boardChanged (the canvas shows another board, or a board's pin changed)
+  return { place, placeCard, placeOperation, refreshAll, poll, setMode, boardChanged, togglePin, get mode() { return mode; }, get api() { return api; } };
 }

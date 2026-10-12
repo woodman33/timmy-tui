@@ -19,6 +19,12 @@
  * - R4 (H81): a session lasts SESSION_MS (12 hours) from its making, not renewed by use, and counts only for the project and
  *   the holder its grant was made for: once another project (or another REPL, or none) holds the canvas, it neither reads
  *   the cards' detail nor acts until the canvas shows that project from that REPL again. /canvas open gives a new one.
+ *   R4 (H109; the operator's direction of 2026-10-11, "Following windows change project together; pinned windows keep their
+ *   visibly identified project"): a session follows the project its own REPL names next (the same holder: that REPL's /project)
+ *   and the active project this server followed from its Timmy home's file (src/studio/active-follow.ts, `via: 'active'`, no
+ *   holder); another REPL's project (another holder, or none named by a REPL) stays refused, as before. Every project a
+ *   session has counted for is its reach: a board pinned to one of them keeps reading it (GET /api/project?project=<id>,
+ *   read only), and nothing else.
  * - R4 (H81): the cards' detail (GET /api/project?detail=1: each block's command, each parameter file's values) is read with
  *   the server's token (the REPL) or a page session that counts now (src/studio/project-link.ts); the plain card list (GET
  *   /api/project) needs neither.
@@ -140,15 +146,18 @@ const SESSION_WORDS = {
   holder: 'Refused: this canvas page\'s session was given by another Timmy REPL than the one that holds the project now. In Timmy: /canvas open, from the REPL that holds it.',
 } as const;
 
+/** R4 (H109): what a board pinned to a project this page's session never counted for is told. */
+export const PIN_WORDS = 'Refused: this board is pinned to a project this canvas page was never opened for (nor followed to), so it does not read it. In Timmy: /canvas open, from that project.';
+
 /** The grants, the page sessions, and the actions waiting for (or handed to) the REPL that holds the project. */
 export class CardRelay {
   /** R4 (H81): each grant with when it ends and what it was made for */
   private readonly grants = new Map<string, { until: number; for: SessionFor }>();
   /**
    * sha256 of each page session token, with when it ends and what it was given for (R4 H81): the tokens themselves are kept
-   * only by the pages
+   * only by the pages. R4 (H109): and its reach, the projects it has counted for (the one given, and those it followed since).
    */
-  private readonly sessions = new Map<string, { until: number; for: SessionFor }>();
+  private readonly sessions = new Map<string, { until: number; for: SessionFor; reach: Set<string> }>();
   private readonly queue: Pending[] = [];
   private readonly handed = new Map<string, Pending>();
   private poller: { holder: string; give: (e: CardEnvelope | null) => void } | null = null;
@@ -188,7 +197,7 @@ export class CardRelay {
     if (g.until <= now) return null;
     const token = randomBytes(32).toString('hex');
     for (const [h, s] of this.sessions) if (s.until <= now) this.sessions.delete(h);
-    this.sessions.set(sha(token), { until: now + (this.o.sessionMs ?? SESSION_MS), for: g.for });
+    this.sessions.set(sha(token), { until: now + (this.o.sessionMs ?? SESSION_MS), for: g.for, reach: new Set([g.for.project]) });
     while (this.sessions.size > SESSIONS_MAX) this.sessions.delete(this.sessions.keys().next().value!);
     return token;
   }
@@ -214,21 +223,47 @@ export class CardRelay {
    * ended, and given for that project and the REPL holding it now. With no project named, a session that has not ended counts
    * (there is nothing of a project to read or act on). An ended session is let go.
    */
-  sessionFor(header: unknown, named: Pick<NamedProject, 'id' | 'holder'> | null): SessionCheck {
+  sessionFor(header: unknown, named: Pick<NamedProject, 'id' | 'holder' | 'via'> | null): SessionCheck {
     return this.countsByKey(CardRelay.keyOf(header), named);
   }
 
-  /** R4 (H83): sessionFor by the session's key (the bridge keeps each page's key, never its token). */
-  countsByKey(key: string | null, named: Pick<NamedProject, 'id' | 'holder'> | null): SessionCheck {
+  /**
+   * R4 (H83): sessionFor by the session's key (the bridge keeps each page's key, never its token). R4 (H109): a session also
+   * counts for the project its own REPL (the holder its grant was made for) names next, and for the active project this server
+   * followed (`via: 'active'`); either is added to its reach.
+   */
+  countsByKey(key: string | null, named: Pick<NamedProject, 'id' | 'holder' | 'via'> | null): SessionCheck {
     const no = (why: Exclude<SessionCheck, { ok: true }>['why']): SessionCheck => ({ ok: false, why, words: SESSION_WORDS[why] });
     if (!key) return no('none');
     const s = this.sessions.get(key);
     if (!s) return no('unknown');
     if (s.until <= this.now()) { this.sessions.delete(key); return no('expired'); }
     if (!named) return { ok: true };
+    const given = s.for.project === named.id && s.for.holder === named.holder;
+    const follows = (named.holder !== null && named.holder === s.for.holder) || named.via === 'active';
+    if (given || follows) { s.reach.add(named.id); return { ok: true }; }
     if (s.for.project !== named.id) return no('project');
-    if (s.for.holder !== named.holder) return no('holder');
-    return { ok: true };
+    return no('holder');
+  }
+
+  /**
+   * R4 (H109): whether a page's session reaches project `id` (it was given for it, or has counted for it since), for a board
+   * pinned to it while the canvas shows another project: read only, never an action.
+   */
+  reaches(header: unknown, id: string): SessionCheck {
+    const key = CardRelay.keyOf(header);
+    if (!key) return { ok: false, why: 'none', words: SESSION_WORDS.none };
+    const s = this.sessions.get(key);
+    if (!s) return { ok: false, why: 'unknown', words: SESSION_WORDS.unknown };
+    if (s.until <= this.now()) { this.sessions.delete(key); return { ok: false, why: 'expired', words: SESSION_WORDS.expired }; }
+    return s.reach.has(id) ? { ok: true } : { ok: false, why: 'project', words: PIN_WORDS };
+  }
+
+  /** R4 (H109): the projects a page's session reaches now (empty when it has none, or it ended). */
+  reachOf(header: unknown): ReadonlySet<string> {
+    const key = CardRelay.keyOf(header);
+    const s = key ? this.sessions.get(key) : undefined;
+    return s && s.until > this.now() ? new Set(s.reach) : new Set();
   }
 
   /** Whether the holder asks for actions: it waits in a poll now, or asked moments ago. */
@@ -454,9 +489,12 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
   // the project's content, so read only with the server's token or a page session that counts now, as GET /api/project is.
   app.get('/api/project/image', (req, res) => {
     res.set('Cache-Control', 'no-store');
-    const p: NamedProject | null = o.link.project;
+    // R4 (H109): ?project=<id>: a highlight of the project a board is pinned to, for a page whose session reaches it (read only)
+    const asked = typeof req.query.project === 'string' && /^[0-9a-f]{16}$/.test(req.query.project) ? req.query.project : null;
+    const pinned = asked !== null && asked !== (o.link.project?.id ?? null);
+    const p: NamedProject | null = pinned ? o.link.knownProject(asked!) : o.link.project;
     if (!o.link.authorized(req.headers.authorization)) {
-      const s = o.relay.sessionFor(req.headers.authorization, p);
+      const s = pinned ? o.relay.reaches(req.headers.authorization, asked!) : o.relay.sessionFor(req.headers.authorization, p);
       if (!s.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').type('text/plain').send(s.why === 'none' ? IMAGE_REFUSED : s.words); return; }
     }
     const rel = inProject(String(req.query.p ?? ''));

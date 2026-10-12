@@ -38,7 +38,7 @@
 //
 // Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
 // below run in Node's tests too.
-import { operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, ROW_GAP, rowLayout } from './operations.js';
+import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -211,7 +211,10 @@ export function cardMode(type, props, answer, session) {
   // R4 (H83): the project was not read: this page's session does not count now (it ended, or the canvas shows another project)
   if (answer.refused) return diagram(`Not followed now: ${one(answer.refused)} Shown as last read.`);
   if (!answer.project) return diagram(`Not followed now: no project is named to this canvas (in Timmy: /canvas open). Shown as last read.`);
-  if (answer.project.id !== props.projectId) return diagram(`Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
+  // R4 (H109): a board pinned to a project reads that project: a card of another project on it is not followed there
+  if (answer.project.id !== props.projectId) {
+    return diagram(answer.pinned ? `Not followed on this board: it is pinned to ${answer.project.name}, not ${name}. Shown as last read.` : `Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
+  }
   const card = (answer.cards || []).find((c) => c.id === props.card);
   if (!card) return diagram(`Its record is not in ${name} now: shown as last read.`);
   // R4 (H81): the detail (each block's command, each value) is read only with a session that counts: without one the card
@@ -283,6 +286,80 @@ export function keptDetail(detail) {
   return { ...detail, facts: (detail.facts || []).filter((f) => f.how !== 'so far') };
 }
 
+/** R4 (H109): the operation a drawn card was placed for ("Place this operation" names it in the shape's meta), or null. */
+export const boundOperation = (shape) => {
+  const op = shape && shape.meta && typeof shape.meta === 'object' ? shape.meta.timmyOperation : undefined;
+  return typeof op === 'string' && OPERATION_ID.test(op) ? op : null;
+};
+
+/**
+ * R4 (H109; r25 D9 c): a parameter card placed for operation `op` keeps, beside the file as it is now (`detail`), what that
+ * operation used of the file (`used`), as the reading lists it for the operation (src/studio/used-values.ts: from its flow
+ * record, or the bytes a receipt of it names); when the reading lists the operation and none of its records names the file, that
+ * is unknown, and why; when the reading does not list the operation, what this card last read (`prev`), said as last read; with
+ * neither, unknown, and why. Never today's values in their place. A workflow card keeps its operation's own run (boundRun);
+ * any other card's detail is returned as it is.
+ */
+export function boundDetail(detail, op, answer, prev) {
+  if (!detail || typeof op !== 'string' || !OPERATION_ID.test(op)) return detail ?? null;
+  if (detail.type === 'workflow') return boundRun(detail, op, answer, prev);
+  if (detail.type !== 'params') return detail;
+  const listed = (answer && Array.isArray(answer.operations) ? answer.operations : []).find((o) => o && o.id === op);
+  const read = listed && Array.isArray(listed.used) ? listed.used.find((u) => u && u.operation === op && u.file === detail.file) : undefined;
+  const last = prev && prev.used && prev.used.operation === op && prev.used.file === detail.file ? prev.used : null;
+  const none = (from) => ({ operation: op, file: detail.file, state: 'unknown', values: [], sha256: null, from, verified: false, build: null });
+  let used;
+  if (read) used = read;
+  else if (listed) used = none(`no record of operation ${op} names ${detail.file}: no flow of it changed the file, and no receipt of it names the file's bytes`);
+  else if (last) used = last.asLastRead ? last : { ...last, asLastRead: true };
+  else used = none(`operation ${op} is not among the operations this reading lists, and this card holds no earlier reading of what it used`);
+  return { ...detail, used };
+}
+
+/** R4 (H109): a run as a workflow card keeps it: its newest run (`last`) and its blocks' states, nothing else of the document. */
+const runOfDetail = (op, doc, last, blocks) => ({
+  operation: op, doc, state: 'recorded', last,
+  blocks: (Array.isArray(blocks) ? blocks : []).map((b) => ({ name: String(b.name), word: String(b.word), glyph: String(b.glyph ?? ''), detail: String(b.detail ?? '') })),
+});
+
+/**
+ * R4 (H109; the operator's "Bind workflow/result nodes to real operation and artifact IDs"): a workflow card placed for
+ * operation `op` keeps that operation's own run of its document (`ran`) beside the document's newest run (`detail`, as read
+ * now): none when the newest run is the operation's own (the card's detail is then its run); the reading's run of it for the
+ * operation (src/studio/operation-runs.ts); unknown, and why, when the reading read the operation's runs and none ran the
+ * document; else what this card last read (`prev`: its run kept before, or its detail when that was the operation's own run),
+ * said as last read; with neither, unknown, and why. Never the newest run in its place.
+ */
+export function boundRun(detail, op, answer, prev) {
+  if (detail.operation && detail.operation.id === op) return detail;
+  const listed = (answer && Array.isArray(answer.operations) ? answer.operations : []).find((o) => o && o.id === op);
+  const read = listed && Array.isArray(listed.ran) ? listed.ran.find((r) => r && r.doc === detail.doc && r.last) : undefined;
+  const unknown = (why) => ({ operation: op, doc: detail.doc, state: 'unknown', last: null, blocks: [], why });
+  let ran;
+  if (read) ran = runOfDetail(op, detail.doc, read.last, read.blocks);
+  else if (listed && Array.isArray(listed.ran)) ran = unknown(`no job record Timmy keeps names operation ${op} running ${detail.doc}`);
+  else {
+    const same = prev && prev.type === 'workflow' && prev.doc === detail.doc ? prev : null;
+    const kept = same && same.ran && same.ran.operation === op && same.ran.state === 'recorded' ? same.ran
+      : same && same.operation && same.operation.id === op && same.last ? runOfDetail(op, detail.doc, same.last, same.blocks) : null;
+    ran = kept ? (kept.asLastRead ? kept : { ...kept, asLastRead: true })
+      : unknown(listed ? `the runs of operation ${op} were not read in this reading, and this card holds no earlier reading of its run`
+        : `operation ${op} is not among the operations this reading lists, and this card holds no earlier reading of its run`);
+  }
+  return { ...detail, ran };
+}
+
+/**
+ * R4 (H109): one value as used beside the file now: what to say after it (null when the file holds the same value now). `now`
+ * the parameter card's detail as read now (its values are the file's only when its state is 'ok').
+ */
+export function nowBeside(name, used, now) {
+  if (!now || now.state !== 'ok') return null;
+  const v = (now.values || []).find((x) => x.name === name);
+  if (!v) return `not in ${now.file} now`;
+  return shownValue(v.value) === shownValue(used) ? null : `now ${shownValue(v.value)}${v.unit ? ` ${v.unit}` : ''} in ${now.file}`;
+}
+
 /** Whether a card's detail says a job of it still runs (the page then reads the project more often). */
 export function stillRunning(detail) {
   if (!detail) return false;
@@ -302,7 +379,9 @@ function clock(iso) {
 /**
  * The three shape utils and the runtime that feeds and acts for them. `deps`: React, BaseBoxShapeUtil, HTMLContainer, T,
  * atom, useValue, resizeBox (from tldraw); createShapeId; editor() (the live editor); place(editor, size) → where a new card goes;
- * reveal(editor, ids); grant (the one-time code this page was opened with, or null).
+ * reveal(editor, ids); grant (the one-time code this page was opened with, or null). R4 (H109): say(text) writes the panel's
+ * band (what Timmy did on its own, such as the arrows it removed with a deleted card); runDetail(op, projectId), optional, shows
+ * an operation's run detail in the side panel (a card's Run detail).
  */
 export function createCards(deps) {
   const { React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox } = deps;
@@ -390,8 +469,10 @@ export function createCards(deps) {
    * page's session. R4 (H83): the card list is read with a session too, so without one that counts now there is no reading:
    * the answer says why (`refused`). A session given for another project, or by another REPL, is asked again in 30 s.
    */
-  async function read() {
+  async function read(pinned = null) {
     if (!token) return refusedReading(session.get().words);
+    // R4 (H109): a board pinned to a project reads that project (GET /api/project?project=<id>), whatever the canvas shows
+    if (typeof pinned === 'string' && /^[0-9a-f]{16}$/.test(pinned)) return readPinned(pinned);
     if (Date.now() < notFor.until) return refusedReading(notFor.why);
     const r = await request('/api/project?detail=1', 'GET', token);
     if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; countsAgain(); return { ...r.body, detail: true }; }
@@ -403,6 +484,26 @@ export function createCards(deps) {
       notFor.why = why;
     }
     return refusedReading(why);
+  }
+
+  /**
+   * R4 (H109): the reading of a board pinned to project `id`: the server serves it read only while this page's session reaches
+   * it (given for it, or followed to it since). A refusal for that project says why, and never pauses the session for the project
+   * the canvas shows; a session that ended is let go, as everywhere.
+   */
+  async function readPinned(id) {
+    const r = await request(`/api/project?detail=1&project=${id}`, 'GET', token);
+    const said = r.body || {};
+    if (r.ok && said.ok === true) {
+      // the project the canvas shows is the board's: read as the canvas's own, so the session counts again
+      if (said.pinned !== true) { notFor.until = 0; countsAgain(); }
+      return { ...said, detail: true, pinned: true };
+    }
+    if (r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
+      return { ...refusedReading(noted(r, 'Timmy did not let this page read the project.')), pinned: true, pinnedId: id };
+    }
+    if (r.status === 401 || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
+    throw new Error(`Timmy answered ${r.status} for this board's project`);
   }
 
   // ── R4 (H83): the canvas itself, its settings, its jobs, a highlight and the bridge: each with this page's session ──
@@ -433,15 +534,33 @@ export function createCards(deps) {
     }
     return r.ok && SAFE.isArray(r.body) ? r.body : null;
   }
-  /** A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. */
-  async function image(path) {
+  /**
+   * A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. R4 (H109):
+   * of the card's own project (a board pinned to it reads it while the canvas shows another).
+   */
+  async function image(path, projectId = null) {
     if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL) return null;
-    const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}`, requestInit('GET', token));
+    const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}${of}`, requestInit('GET', token));
     if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
     const b = await SAFE.apply(SAFE.blob, r, []);
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
   }
   const forget = (url) => { if (url && SAFE.revokeURL) { try { SAFE.apply(SAFE.revokeURL, SAFE.URL, [url]); } catch { /* gone */ } } };
+  /**
+   * R4 (H109): operation `op`'s run detail (src/contracts/run-detail.ts), made by Timmy (never on this page) and read with this
+   * page's session: GET /api/project/run-detail, of project `projectId` when given (a card's own project). { status, ok, body }.
+   * A refusal for the card's own project when it is not the one shown (`other`) never pauses the session; one that ended lets it go.
+   */
+  async function runDetail(op, projectId = null) {
+    if (!OPERATION_ID.test(String(op))) return { status: 400, ok: false, body: { ok: false, error: 'That is not an operation\'s id (o and 8 hex digits).' } };
+    if (!token) return { status: 401, ok: false, body: { ok: false, error: session.get().words } };
+    const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    const r = await request(`/api/project/run-detail?op=${op}${of}`, 'GET', token);
+    const said = r.body || {};
+    if (r.status === 401 && (said.other !== true || said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) noted(r, 'Timmy did not let this page read the run detail.');
+    return r;
+  }
   /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
   function bridgeSocket(url) {
     if (!token || !SAFE.WebSocket) return null;
@@ -529,7 +648,9 @@ export function createCards(deps) {
         if (r.props.gone || r.props.title !== card.title || r.props.command !== card.command) updates.push({ id: r.id, type: r.type, props: { gone: false, title: card.title, command: card.command } });
         continue;
       }
-      const kept = keptDetail(card.detail);
+      // R4 (H109; r25 D9 c): a parameter card placed for an operation keeps what that operation used beside the file now, and a
+      // workflow card that operation's own run beside the newest
+      const kept = boundDetail(keptDetail(card.detail), boundOperation(r), answer, r.props.data);
       if (r.props.gone || JSON.stringify(kept) !== JSON.stringify(r.props.data) || r.props.title !== card.title || r.props.command !== card.command) {
         updates.push({ id: r.id, type: r.type, props: { data: kept, readAt: answer.madeAt, gone: false, title: card.title, command: card.command } });
       }
@@ -548,11 +669,12 @@ export function createCards(deps) {
 
   /**
    * A drawn card's props, from the reading it is placed from. R4 (H81): a reading without the detail places the card with
-   * none (it says why, and "never read").
+   * none (it says why, and "never read"). R4 (H109): placed for operation `op`, a parameter card holds what it used, and a
+   * workflow card its own run (boundDetail).
    */
-  const propsFor = (card, answer, type) => ({
+  const propsFor = (card, answer, type, op = null) => ({
     w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command,
-    data: answer.detail === false ? null : keptDetail(card.detail), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false,
+    data: answer.detail === false ? null : boundDetail(keptDetail(card.detail), op, answer, null), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false,
   });
 
   /** One frame, or 50 ms where frames do not come (a hidden tab draws none): never a wait that does not end. */
@@ -653,12 +775,17 @@ export function createCards(deps) {
       const width = plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP);
       start = all.length ? { x: Math.min(...all.map((b) => b.minX)), y: Math.max(...all.map((b) => b.maxY)) + 96 } : deps.place(editor, { w: Math.max(1, width), h: 160 });
     }
-    editor.markHistoryStoppingPoint(`timmy place operation ${op.id}`);
+    // R4 (H109; r25 D9): one press is one step of tldraw's undo: the mark below, then the cards, their arrows and the page's
+    // record, and nothing else (a drawn card's height and the cards' readings are written outside the history; the camera is
+    // not in it). A press that adds nothing writes nothing, so it leaves no empty step behind.
+    const adding = plan.place.length > 0 || plan.links.length > 0;
+    if (adding) editor.markHistoryStoppingPoint(`timmy place operation ${op.id}`);
     const made = rowLayout(plan.place, start, widthOf).map((at) => {
       const card = cards.get(at.card);
       const type = drawnType(card.kind);
       const shape = deps.createShapeId();
-      editor.createShape({ id: shape, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type), meta: { timmyOperation: op.id } });
+      // R4 (H109): placed for this operation, so a parameter card shows the values the operation used (boundDetail)
+      editor.createShape({ id: shape, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type, op.id), meta: { timmyOperation: op.id } });
       return { card: at.card, shape };
     });
     const shapeOf = new Map([...plan.already.map((a) => [a.card, a.shape]), ...made.map((m) => [m.card, m.shape])]);
@@ -670,15 +797,53 @@ export function createCards(deps) {
       const arrow = link(editor, from, to, op.id);
       if (arrow) drawn.push({ from: l.from, to: l.to, arrow });
     }
-    const now = editor.getPage(page.id) ?? page;
-    const record = { v: 1, project: answer.project.name, placed: [...kept.placed, ...made], links: [...kept.links, ...drawn], at: new Date().toISOString() };
-    editor.updatePage({ id: page.id, meta: { ...(now.meta || {}), [PLACEMENTS]: { ...held, [key]: record } } });
+    if (adding) {
+      const now = editor.getPage(page.id) ?? page;
+      const record = { v: 1, project: answer.project.name, placed: [...kept.placed, ...made], links: [...kept.links, ...drawn], at: new Date().toISOString() };
+      editor.updatePage({ id: page.id, meta: { ...(now.meta || {}), [PLACEMENTS]: { ...held, [key]: record } } });
+    }
     const shown = [...shapeOf.values()].filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page.id);
-    if (made.length) editor.select(...made.map((m) => m.shape));
+    // R4 (H109; r25 D9): the person's selection stays as it was (it had been the placed cards, all together, so the next drag
+    // on one of them moved them all); the band offers to select what was placed (`select`)
     try { deps.reveal(editor, shown); } catch { /* showing them is a courtesy */ }
     await revealSized(editor, shown);
     const words = placementWords(op.id, { ...plan, drawn: drawn.length });
-    return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, linked: plan.linked, words };
+    return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, gone: plan.gone, linked: plan.linked, words, select: made.map((m) => m.shape) };
+  }
+
+  /**
+   * R4 (H109; r25 D9): a drawn card a person deletes takes with it the arrows "Place this operation" drew to or from it
+   * (isTimmyArrow), in the same step of tldraw's undo. tldraw tells its listeners which shapes a delete removes before it removes
+   * any of them ('deleted-shapes', from Editor.deleteShapes: the Delete key, the menu's Delete, Cut, the eraser), while the arrows
+   * are still bound to the cards; the arrows are deleted right there, inside that delete, so one undo brings the cards and the
+   * arrows back together. An arrow the person drew is never touched (tldraw leaves it where it ended, as it always does). The
+   * band says what Timmy removed. Returns a function that detaches it.
+   */
+  function attach(editor) {
+    let inner = false;
+    const onDeleted = (ids) => {
+      if (inner || !Array.isArray(ids) || ids.length === 0) return;
+      const going = new Set(ids);
+      const deleted = ids.map((id) => editor.getShape(id)).filter((s) => s && isDrawnCard(s));
+      if (deleted.length === 0) return;
+      const timmy = new Set();
+      const theirs = new Set();
+      for (const c of deleted) {
+        for (const b of editor.getBindingsToShape(c.id, 'arrow')) {
+          const arrow = editor.getShape(b.fromId);
+          if (!arrow || going.has(arrow.id)) continue;
+          (isTimmyArrow(arrow) ? timmy : theirs).add(arrow.id);
+        }
+      }
+      if (timmy.size) {
+        inner = true;
+        try { editor.deleteShapes([...timmy]); } finally { inner = false; }
+      }
+      const words = removalWords(deleted.map((c) => c.props.title || c.props.card), timmy.size, theirs.size);
+      if (words) { try { deps.say?.(words); } catch { /* the band is a courtesy */ } }
+    };
+    editor.on('deleted-shapes', onDeleted);
+    return () => editor.off('deleted-shapes', onDeleted);
   }
 
   // ── drawing ──
@@ -696,6 +861,18 @@ export function createCards(deps) {
     if (!op || typeof op !== 'object') return null;
     if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op' }, 'operation ', h('code', { className: 'tc-op-id' }, op.id));
     return h('p', { className: 'tc-op tc-op-none' }, operationLine(null, op.from));
+  }
+
+  /**
+   * R4 (H109): Run detail, beside Details, on a card that names its operation: that operation's run detail (made by Timmy, of the
+   * card's own project) in the side panel. Null when the card names none, or this page cannot show one.
+   */
+  function runDetailButton(op, projectId) {
+    if (!op || typeof op !== 'object' || typeof op.id !== 'string' || !OPERATION_ID.test(op.id) || !deps.runDetail) return null;
+    return h('button', {
+      type: 'button', className: 'tc-rd', onPointerDown: handled, onClick: () => deps.runDetail(op.id, projectId || null),
+      title: `Shows the run detail of operation ${op.id} in Timmy's side panel: its verdict, stage, exits, freshness, acceptance, files, receipts and cost, each with the record it came from`,
+    }, 'Run detail');
   }
 
   /** R4 (H100): the card's operation in Details: where it was read (or why none), its request and state as its record says, and /op. */
@@ -748,7 +925,10 @@ export function createCards(deps) {
         busy ? h('p', { className: 'tc-answer', role: 'status' }, 'Sent to Timmy; waiting for its answer…') : null,
         said ? h('pre', { className: `tc-answer${said.ok ? '' : ' tc-bad'}`, role: 'status' }, shown) : null,
         h('div', { className: 'tc-foot' },
-          h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
+          // R4 (H109): Details, and Run detail (the operation's run detail in the side panel) beside it
+          h('span', { className: 'tc-foot-acts' },
+            h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
+            mode.withheld ? null : runDetailButton(op, p.projectId)),
           span('tc-read', mode.withheld ? 'its detail withheld here' : follows ? `read from Timmy's records at ${clock(readAt)}` : p.readAt ? `as last read at ${clock(p.readAt)}` : 'never read', { title: follows ? readAt : p.readAt })),
         p.open ? h('div', { className: 'tc-details' }, ...React.Children.toArray([mode.withheld ? null : opRows(op), ...[details].flat()]), said && lines.length > 8 ? h('pre', { className: 'tc-answer' }, said.text) : null) : null));
   }
@@ -779,52 +959,82 @@ export function createCards(deps) {
    * R4 (H83): a highlight of the project, fetched with this page's session and shown from memory; the object URL is let go when
    * the card stops showing it.
    */
-  function Highlight({ path }) {
+  function Highlight({ path, projectId }) {
     const [src, setSrc] = React.useState(null);
     const [failed, setFailed] = React.useState(false);
     React.useEffect(() => {
       let made = null;
       let gone = false;
-      image(path).then((url) => {
+      // R4 (H109): of the card's own project
+      image(path, projectId).then((url) => {
         if (gone) { forget(url); return; }
         made = url;
         if (url) setSrc(url); else setFailed(true);
       }, () => { if (!gone) setFailed(true); });
       return () => { gone = true; forget(made); };
-    }, [path]);
+    }, [path, projectId]);
     if (src) return h('img', { src, alt: `highlight ${path}`, title: path, draggable: false, 'data-tc-image': path });
     return span('tc-note', failed ? `highlight ${path}: not read now` : `highlight ${path}: reading…`);
   }
 
+  /** R4 (H109): a run's words on a workflow card: its target, its word (failed and interrupted in red), prediction, time, receipt. */
+  const runWords = (lead, r) => h('p', { className: 'tc-last' }, `${lead} (${r.target}): `, span(r.word === 'failed' || r.word === 'interrupted' ? 'tc-bad' : '', r.word),
+    `${r.met === true ? ', its prediction met' : r.met === false ? ', its prediction not met' : ''}${r.took ? ` · ${r.took}` : ''}${r.receipt ? ` · receipt ${r.receipt}` : ''}`);
+  const jobWords = (r) => `job ${r.job}${r.predicted ? ` · prediction receipt ${r.predicted}` : ''}${r.receipt ? ` · outcome receipt ${r.receipt}` : ''}`;
+
   function WorkflowCard({ shape }) {
-    const { own, mode, detail, readAt } = useCard(shape, 'workflow');
+    const { own, mode, detail, readAt, now } = useCard(shape, 'workflow');
     const p = shape.props;
     const d = detail && detail.type === 'workflow' ? detail : null;
     const busy = !!(own && own.busy);
-    const blocks = d ? d.blocks : [];
+    // R4 (H109): placed for an operation: that operation's own run (boundRun), unless the newest run is its own; never the
+    // newest run in its place. Its blocks show the states its own runs left; the newest run is said beside it.
+    const bound = boundOperation(shape);
+    const ownRun = !!bound && !!d && !!d.operation && d.operation.id === bound;
+    const ran = bound && d && !ownRun && !mode.withheld && p.data && p.data.type === 'workflow' && p.data.ran && p.data.ran.operation === bound ? p.data.ran : null;
+    const stateOf = (b) => {
+      if (!ran) return b;
+      const x = ran.state === 'recorded' ? (ran.blocks || []).find((y) => y.name === b.name) : null;
+      return x ? { ...b, word: x.word, glyph: x.glyph, detail: x.detail } : { ...b, word: 'unknown', glyph: '?', detail: '' };
+    };
+    const blocks = d ? d.blocks.map(stateOf) : [];
     // R4 (H81): each Run button carries its own recorded action (actRef): the block it was drawn for, never one read at the click
     // R4 (H88): a document that names two blocks alike runs none of them (its notRunnable words say so once, above them)
     const runOf = (b) => (mode.executable && d.runnable && b.runnable
       ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'run', 'data-tc-block': b.name, disabled: busy, ref: actRef(shape, 'workflow', runAct(d, b.name), !busy), onPointerDown: handled, title: `Sends /run ${d.doc} ${b.name} to Timmy (Run up to here)` }, 'Run up to here')
       : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : one(d.notRunnable) ? null : span('tc-note', '/run cannot name this block as one word'));
     const last = d && d.last;
+    const its = ran && ran.state === 'recorded' ? ran.last : null;
+    // the run whose record, error and files Details shows: the operation's own on a card placed for one (none when unknown)
+    const shown = bound && !ownRun ? its : last;
+    const record = bound && !ownRun ? (now && Array.isArray(now.operations) ? now.operations : []).find((o) => o && o.id === bound) : null;
+    const op = !bound || ownRun ? (d ? d.operation : undefined)
+      : { id: bound, from: 'the operation it was placed for (Place this operation)', request: record ? record.request ?? null : null, state: record ? record.state ?? null : null };
+    // the newest run, beside the operation's own: whose it is, as its job record says
+    const newest = last ? `now: the newest run of ${d.doc} (${last.target}) is ${last.word}, ${d.operation && d.operation.id ? `by operation ${d.operation.id}` : 'by no operation its job record names'}` : `now: ${d ? d.doc : 'the document'} has no run`;
+    let lastLine;
+    if (!bound) lastLine = last ? runWords('Newest run', last) : d ? words('tc-note', 'Not run yet.') : null;
+    else if (ownRun) lastLine = last ? runWords(`Run of operation ${bound}`, last) : null;
+    else if (its) lastLine = h(React.Fragment, null, runWords(`Run of operation ${bound}`, its), ran.asLastRead ? words('tc-note tc-ran-last', '(as last read)') : null, words('tc-note tc-now-run', newest));
+    else if (ran) lastLine = h(React.Fragment, null, h('p', { className: 'tc-last tc-warn' }, `Run of operation ${bound}: unknown (${ran.why})`), words('tc-note tc-now-run', newest));
+    else lastLine = d && !mode.withheld ? h(React.Fragment, null, h('p', { className: 'tc-last tc-warn' }, `Run of operation ${bound}: not read yet`), words('tc-note tc-now-run', newest)) : null;
     return h(Frame, {
-      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt, op: d ? d.operation : undefined,
+      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt, op,
       details: d ? [
         dl([['document', d.doc], ['sha256', d.sha256 || 'not hashed'], ['card', p.card], ['project', `${p.project} (${p.projectId})`],
-          last ? ['newest run', `job ${last.job}${last.predicted ? ` · prediction receipt ${last.predicted}` : ''}${last.receipt ? ` · outcome receipt ${last.receipt}` : ''}`] : null,
-          last && last.note ? ['its record says', last.note] : null, last && last.error ? ['error', last.error] : null]),
+          its ? [`run of operation ${bound}`, jobWords(its)] : null,
+          last ? ['newest run', jobWords(last)] : null,
+          shown && shown.note ? ['its record says', shown.note] : null, shown && shown.error ? ['error', shown.error] : null]),
         ...blocks.map((b) => h('div', { key: `c${b.key}`, className: 'tc-block-cmd' }, span('tc-k', `${b.name}${b.needs.length ? ` (needs ${b.needs.join(', ')})` : ''}`), ...b.command.map((l, i) => h('code', { key: i }, l)))),
-        ...(last ? last.outputs.map((o) => h('div', { key: `o${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', o.now))) : []),
-        last && last.more ? words('tc-note', `${last.more} more files`) : null,
+        ...(shown ? (shown.outputs || []).map((o) => h('div', { key: `o${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', o.now))) : []),
+        shown && shown.more ? words('tc-note', `${shown.more} more files`) : null,
       ] : words('tc-note', mode.withheld ? 'Its blocks and their commands are withheld here.' : 'No reading of this document yet.'),
     },
     d && one(d.notRunnable) ? h('p', { className: 'tc-note tc-warn tc-twice' }, d.notRunnable) : null,
     d ? h('ol', { className: 'tc-blocks' }, ...blocks.map((b) => h('li', { key: b.key, className: `tc-block tc-w-${String(b.word).replace(/[^a-z]/g, '')}` },
-      span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : ''}`, b.word),
+      span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : b.word === 'unknown' ? 'tc-warn' : ''}`, b.word),
       b.detail ? span('tc-note', ` · ${b.detail}`) : null, h('div', { className: 'tc-acts' }, runOf(b))))) : mode.withheld ? withheldBody(p) : words('tc-note', p.command),
-    last ? h('p', { className: 'tc-last' }, `Newest run (${last.target}): `, span(last.word === 'failed' || last.word === 'interrupted' ? 'tc-bad' : '', last.word),
-      `${last.met === true ? ', its prediction met' : last.met === false ? ', its prediction not met' : ''}${last.took ? ` · ${last.took}` : ''}${last.receipt ? ` · receipt ${last.receipt}` : ''}`) : d ? words('tc-note', 'Not run yet.') : null);
+    lastLine);
   }
 
   function ParamsCard({ shape }) {
@@ -883,6 +1093,66 @@ export function createCards(deps) {
     d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null);
   }
 
+  /**
+   * R4 (H109; r25 D9 c): a parameter card placed for an operation ("Place this operation"): what that operation used of the
+   * file, from its own records (boundDetail; src/studio/used-values.ts), labelled "as used by operation o…", each value beside
+   * the file as it is now ("now 160 in recipes/tray.params.json") and never replaced by it; "unknown", with why, when its
+   * records do not say. It is a record: nothing on it changes the file (the file's own card, Place card in the panel, does).
+   */
+  function BoundParamsCard({ shape }) {
+    const { own, mode, detail, readAt, now } = useCard(shape, 'params');
+    const p = shape.props;
+    const op = boundOperation(shape);
+    const d = detail && detail.type === 'params' ? detail : null;
+    // what it used, as this card keeps it (onAnswer writes it from each reading: boundDetail)
+    const used = p.data && p.data.type === 'params' && p.data.used && p.data.used.operation === op ? p.data.used : null;
+    const record = (now && Array.isArray(now.operations) ? now.operations : []).find((o) => o && o.id === op);
+    const file = d ? d.file : 'its parameter file';
+    const shownMode = {
+      ...mode, executable: false, badge: 'record',
+      words: mode.withheld || !mode.follows ? mode.words : `A record of operation ${op}: what it used of ${file}, beside the file as it is now. Nothing on this card changes the file; the file's own card does (Place card in the panel).`,
+    };
+    const known = !!used && used.state === 'recorded';
+    const fileNow = !!d && d.state === 'ok';
+    const names = [...new Set([...(known ? used.values.map((v) => v.name) : []), ...(fileNow ? (d.values || []).map((v) => v.name) : [])])];
+    const todayOf = (name) => { const v = fileNow ? (d.values || []).find((x) => x.name === name) : null; return v ? `now ${shownValue(v.value)}${v.unit ? ` ${v.unit}` : ''} in ${d.file}` : null; };
+    // each value as used, and under it (as the file's own card puts a value's help) what the file holds now where it differs
+    const rows = names.flatMap((name) => {
+      const u = known ? used.values.find((v) => v.name === name) : null;
+      const beside = u ? nowBeside(name, u.value, d) : todayOf(name);
+      return [
+        h('tr', { key: `u${name}`, 'data-tc-used': name },
+          h('th', { scope: 'row' }, name),
+          h('td', { className: 'tc-as-used' }, u ? span('tc-value', `${shownValue(u.value)}${u.unit ? ` ${u.unit}` : ''}`) : span('tc-note tc-warn', known ? 'not recorded' : 'unknown'))),
+        ...(beside ? [h('tr', { key: `n${name}`, className: 'tc-help-row', 'data-tc-now': name }, h('td', null), h('td', { className: 'tc-now' }, span('tc-note', beside)))] : []),
+      ];
+    });
+    const same = known && used.sha256 && d && d.base === used.sha256;
+    const head = !used ? ': not read yet' : known ? (used.verified ? '' : ' (not verified)') : ': unknown';
+    const opNow = { id: op, from: 'the operation it was placed for (Place this operation)', request: record ? record.request ?? null : null, state: record ? record.state ?? null : null };
+    const build = d && d.build;
+    return h(Frame, {
+      shape, type: 'params', mode: shownMode, follows: mode.follows, answer: own, readAt, op: opNow,
+      details: d ? [dl([['file', d.file], ['as used, sha256', used && used.sha256 ? used.sha256 : 'not named by its records'], ['now, sha256', d.base || 'no file'],
+        ['read from', used ? used.from : 'not read yet'], ['card', p.card], ['project', `${p.project} (${p.projectId})`]]),
+      ...(build ? [dl([['today\'s newest build', `${build.title} · ${build.word}`], ...build.facts.map((f) => [f.label, `${f.value} (${f.how})`])])] : []),
+      ] : words('tc-note', mode.withheld ? 'Its values are withheld here.' : 'No reading of this file yet.'),
+    },
+    mode.withheld ? withheldBody(p) : h('p', { className: 'tc-used' }, 'As used by operation ', h('code', { className: 'tc-op-id' }, op), span(known && used.verified ? '' : 'tc-warn', head), used && used.asLastRead ? span('tc-note', ' (as last read)') : null),
+    used && !mode.withheld ? words('tc-note tc-used-from', used.from) : null,
+    rows.length ? h('table', { className: 'tc-table tc-used-table' }, h('tbody', null, ...rows)) : null,
+    d && !fileNow ? words('tc-note', d.state === 'none' ? `${d.file} is not there now.` : `${d.file} is not usable now: ${d.error}`) : null,
+    same ? words('tc-note', `${d.file} holds the same bytes now.`) : null,
+    used && used.build ? h('p', { className: 'tc-build' }, 'Its build: ', used.build) : null,
+    h('div', { className: 'tc-acts' }, cmd(`/op ${op}`), d ? cmd(`/open ${d.file}`) : null),
+    d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null);
+  }
+
+  /** R4 (H109): a parameter card draws as the file's own card, or as a record of the operation it was placed for. */
+  function ParamsAnyCard({ shape }) {
+    return boundOperation(shape) ? h(BoundParamsCard, { shape }) : h(ParamsCard, { shape });
+  }
+
   function ResultCard({ shape }) {
     const { own, mode, detail, readAt } = useCard(shape, 'result');
     const p = shape.props;
@@ -900,7 +1170,7 @@ export function createCards(deps) {
     d && d.facts.length ? h('dl', { className: 'tc-dl' }, ...d.facts.flatMap((f, i) => [h('dt', { key: `k${i}` }, f.label), h('dd', { key: `v${i}` }, f.value, ' ', span('tc-note', f.how))])) : null,
     // R4 (H83): a highlight is read with this page's session and shown from memory (Highlight), only while the card is followed
     d && d.images.length ? h('div', { className: 'tc-images' }, ...d.images.map((im) => (mode.follows
-      ? h(Highlight, { key: im.path, path: im.path })
+      ? h(Highlight, { key: im.path, path: im.path, projectId: p.projectId })
       : span('tc-note', `highlight ${im.path}: shown while the canvas follows ${p.project}`, { key: im.path })))) : null,
     d && d.outputs.length ? h('ul', { className: 'tc-outs' }, ...d.outputs.map((o) => h('li', { key: o.path }, span('tc-path', o.path), ' ', span('tc-note', `${o.sha256 ? `sha256 ${o.sha256.slice(0, 12)} · ` : ''}${o.now}`)))) : null,
     d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null,
@@ -927,13 +1197,18 @@ export function createCards(deps) {
     }
     return CardUtil;
   };
-  const utils = [make('workflow', WorkflowCard), make('params', ParamsCard), make('result', ResultCard)];
+  // R4 (H109): a parameter card placed for an operation draws as the record of what it used (ParamsAnyCard)
+  const utils = [make('workflow', WorkflowCard), make('params', ParamsAnyCard), make('result', ResultCard)];
   return {
     utils, startSession, onAnswer, wantsFast, place,
     // R4 (H100): an operation's cards at once, left to right in the order they ran, linked
     placeOperation,
+    // R4 (H109): a deleted drawn card takes Timmy's arrows to or from it (each editor, as it mounts: canvas.js attachEditor)
+    attach,
     // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
     read,
+    // R4 (H109): an operation's run detail, made by Timmy, read with this page's session (the side panel's Run detail)
+    runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
     setPoll: (f) => { poll = f; },

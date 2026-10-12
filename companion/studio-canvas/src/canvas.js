@@ -9,8 +9,10 @@ import { createRoot } from 'react-dom/client';
 import { BaseBoxShapeUtil, Box, HTMLContainer, T, Tldraw, Vec, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
-import { createProjectPanel } from './project.js';
+import { band, createProjectPanel } from './project.js';
 import { createCards, drawnType } from './cards.js';
+// R4 (H109): an operation's run detail (src/contracts/run-detail.ts, made by Timmy) in the side panel
+import { createRunDetailPanel } from './run-detail.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -56,10 +58,24 @@ const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: 
  */
 let current = null;
 
+/**
+ * R4 (H109): the side panel's Run detail (index.html #run-detail), made when first asked: an operation's run detail read with
+ * this page's session (./cards.js runDetail), from a card's Run detail or an operation's group in the Project panel.
+ */
+let runPanel = null;
+function showRunDetail(op, projectId = null) {
+  if (!runPanel) runPanel = createRunDetailPanel({ read: (o, p) => cards.runDetail(o, p) });
+  return runPanel.show(op, projectId);
+}
+
 // Round R4 (H75): Timmy Canvas's own drawn cards (workflow, parameter and result), and the session their actions go with.
 const cards = createCards({
   React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
   editor: () => current, place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  // R4 (H109): what Timmy did on its own (the arrows it removed with a deleted card), in the panel's band
+  say: (text) => band(text),
+  // R4 (H109): a card's Run detail
+  runDetail: (op, projectId) => showRunDetail(op, projectId),
 });
 
 function showStatus(editor) {
@@ -200,6 +216,8 @@ function attachEditor(editor) {
     editor.sideEffects.registerAfterChangeHandler(type, bump);
     editor.sideEffects.registerAfterDeleteHandler(type, bump);
   }
+  // R4 (H109; r25 D9): a drawn card a person deletes takes the arrows Timmy drew to or from it, in the same undo step
+  cards.attach(editor);
 }
 
 const describe = (error) => (error instanceof Error ? `${error.name}: ${error.message}` : String(error));
@@ -442,10 +460,13 @@ function connectPanel() {
   const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
     editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
-    read: () => cards.read(), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
+    // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows
+    read: (pinned) => cards.read(pinned), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
     // R4 (H100): Place this operation (its cards at once, left to right in the order they ran, linked)
     placeOperation: (id, now) => cards.placeOperation(id, now),
+    // R4 (H109): an operation group's Run detail
+    runDetail: (op, projectId) => showRunDetail(op, projectId),
   });
   cards.setPoll(() => projectPanel.poll());
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
@@ -491,6 +512,8 @@ function followEditor(editor) {
       if (current !== editor) return;
       showGuide(editor);
       showJobs(editor);
+      // R4 (H109): another board shown (or a board's pin changed): the panel reads for it at once
+      try { projectPanel?.boardChanged(); } catch { /* the next reading follows */ }
     });
   });
   showGuide(editor);

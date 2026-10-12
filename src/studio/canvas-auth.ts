@@ -139,16 +139,24 @@ export function withheldDetail(project: string): Record<string, unknown> {
 }
 
 /**
- * The saved snapshot as a page session of project `projectId` is given it: every drawn card of another project with its kept
- * detail withheld (it says so, and gives the commands to read it) and no reading time; everything else as saved.
+ * R4 (H109): the projects a page session may read the kept detail of: the one it counts for now, and (a Set) every project it
+ * reaches (src/studio/card-relay.ts: given for it, or followed to it since). A plain id (or null) is that one project only.
  */
-export function withholdOthers(snapshot: unknown, projectId: string | null): { snapshot: unknown; withheld: number } {
+export type Allowed = string | null | ReadonlySet<string>;
+const allows = (allowed: Allowed, projectId: unknown): boolean => (typeof allowed === 'string' || allowed === null ? projectId === allowed : typeof projectId === 'string' && allowed.has(projectId));
+
+/**
+ * The saved snapshot as a page session of project `projectId` is given it: every drawn card of another project with its kept
+ * detail withheld (it says so, and gives the commands to read it) and no reading time; everything else as saved. R4 (H109):
+ * `projectId` may be the set of projects the session reaches.
+ */
+export function withholdOthers(snapshot: unknown, projectId: Allowed): { snapshot: unknown; withheld: number } {
   if (!isObject(snapshot) || !isObject(snapshot.store)) return { snapshot, withheld: 0 };
   let withheld = 0;
   // (a store with no prototype: a record's id, whatever it is, stays a record of its own)
   const store: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [id, r] of Object.entries(snapshot.store)) {
-    if (isDrawnCard(r) && r.props.projectId !== projectId) {
+    if (isDrawnCard(r) && !allows(projectId, r.props.projectId)) {
       withheld += 1;
       const name = typeof r.props.project === 'string' && r.props.project.trim() ? r.props.project : 'another project';
       store[id] = { ...r, props: { ...r.props, data: withheldDetail(name), readAt: '' } };
@@ -162,22 +170,23 @@ export function withholdOthers(snapshot: unknown, projectId: string | null): { s
  * keeps its saved identity and kept detail (KEPT_PROPS and its type), whatever the page sent for them (a withheld copy
  * included), while the page's other edits to it stand; a drawn card of another project the saved document does not hold as one
  * is saved with no kept detail (a page of one project never writes another's). Cards of `projectId`, and every other record,
- * as the page sent them; a card the page deleted stays deleted.
+ * as the page sent them; a card the page deleted stays deleted. R4 (H109): `projectId` may be the set of projects the session
+ * reaches (each counts as its own).
  */
-export function keepOthers(incoming: unknown, stored: unknown, projectId: string | null): { snapshot: unknown; kept: number } {
+export function keepOthers(incoming: unknown, stored: unknown, projectId: Allowed): { snapshot: unknown; kept: number } {
   if (!isObject(incoming) || !isObject(incoming.store)) return { snapshot: incoming, kept: 0 };
   const before = isObject(stored) && isObject(stored.store) ? stored.store : {};
   let kept = 0;
   const store: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [id, r] of Object.entries(incoming.store)) {
     const was = Object.prototype.hasOwnProperty.call(before, id) ? before[id] : undefined;
-    if (isDrawnCard(was) && was.props.projectId !== projectId) {
+    if (isDrawnCard(was) && !allows(projectId, was.props.projectId)) {
       kept += 1;
       const sent = isObject(r) ? r : {};
       const props = isObject(sent.props) ? sent.props : {};
       const own = Object.fromEntries(KEPT_PROPS.filter((k) => Object.prototype.hasOwnProperty.call(was.props, k)).map((k) => [k, was.props[k]]));
       store[id] = { ...sent, id: was.id, typeName: was.typeName, type: was.type, props: { ...props, ...own } };
-    } else if (isDrawnCard(r) && r.props.projectId !== projectId) {
+    } else if (isDrawnCard(r) && !allows(projectId, r.props.projectId)) {
       store[id] = { ...r, props: { ...r.props, data: null, readAt: '' } };
     } else store[id] = r;
   }

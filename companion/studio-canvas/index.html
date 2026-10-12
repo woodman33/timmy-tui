@@ -71,6 +71,14 @@
   #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
   #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
   #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  /* R4 (H109): whether this board follows the active project or is pinned to one; the pin, visible beside the project's name */
+  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #e8e6e1); }
+  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #e8e6e1); color: var(--timmy-text, #e8e6e1); }
+  .pin-badge[hidden] { display: none; }
+  /* R4 (H109): buttons under the band's words that act on what they say (Select the cards a press placed) */
+  #project-said-acts { flex: none; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  #project-said-acts[hidden] { display: none; }
   #project-groups { margin-top: 4px; }
   /* R4 (H100): Refresh placed cards, and the grouping: By kind or By operation */
   #project-tools { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 4px; }
@@ -99,6 +107,27 @@
   #side button.pcard-cmd code { font: inherit; }
   #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  /* R4 (H109): an operation's run detail (src/run-detail.js), at the top of the scrolling region: each field, under it the
+     record it came from. Timmy's verdict, the workflow stage, each exit, the freshness and a person's acceptance are rows of
+     their own, never merged; green only for the commands to type. */
+  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #6b6b6b); border-left: 3px solid var(--timmy-accent, #28fe14); border-radius: 4px; background: var(--timmy-raised, #1c1c1c); overflow-wrap: anywhere; }
+  #run-detail[hidden] { display: none; }
+  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #6b6b6b); }
+  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #run-detail .rd-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  #run-detail h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
+  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl { margin: 0; display: grid; gap: 1px; }
+  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl dd { margin: 0 0 4px 8px; }
+  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-cmd { font: inherit; color: var(--timmy-accent, #28fe14); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-said { color: var(--timmy-text, #e8e6e1); }
+  #run-detail .rd-refused { color: var(--timmy-attention, #e5b550); }
+  /* R4 (H109): Run detail beside a drawn card's Details: like Details, it shows and changes nothing (in the side panel) */
+  .tc-foot-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .tc-rd { font: inherit; padding: 0; border: 0; background: none; color: var(--timmy-link); text-decoration: underline; cursor: pointer; }
   /* R4 (H75): whether this page's drawn cards can act (it was opened by Timmy's /canvas open), and Place card. */
   #project-acts { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   #project-acts[data-kind="ok"] { color: var(--timmy-text); }
@@ -119,6 +148,9 @@
   .tc-op { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
   .tc-op-id { font: inherit; color: var(--timmy-text); user-select: text; }
   .tc-note, .tc-help, .tc-read, .tc-k { color: var(--timmy-text-secondary); }
+  /* R4 (H109): a parameter card placed for an operation: the values it used (text colour), each beside the file now (secondary) */
+  .tc-used { overflow-wrap: anywhere; }
+  .tc-used-table td.tc-as-used { white-space: nowrap; }
   .tc-bad { color: var(--timmy-failure); }
   .tc-warn { color: var(--timmy-attention); }
   .tc-path { overflow-wrap: anywhere; }
@@ -172,18 +204,26 @@
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
     <div id="side-scroll">
+      <section id="run-detail" hidden aria-labelledby="run-detail-title">
+        <div class="rd-head"><h2 id="run-detail-title">Run detail</h2><button id="run-detail-again" type="button" title="Reads this run detail from Timmy's records again">Read again</button><button id="run-detail-close" type="button" title="Closes this run detail">Close</button></div>
+        <p id="run-detail-read" class="rd-note"></p>
+        <div id="run-detail-body"></div>
+      </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
-      <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
+      <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
+        <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>
         <p id="project-acts" role="note">This page has not opened a session with Timmy yet.</p>
         <div id="project-tools">
           <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
+          <button id="project-pin" type="button" hidden>Pin this board</button>
           <div id="project-by" role="group" aria-label="Group the project's cards" hidden><button type="button" data-by="kind" aria-pressed="true">By kind</button><button type="button" data-by="operation" aria-pressed="false">By operation</button></div>
         </div>
         <div id="project-groups"></div>
       </details>
     </div>
     <p id="project-said" role="status"></p>
+    <div id="project-said-acts" hidden></div>
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>

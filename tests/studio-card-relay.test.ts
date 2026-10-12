@@ -467,10 +467,13 @@ describe('the relay itself: what a page is told when no REPL takes its action, o
     const named = { id: FOR.project, holder: H };
     expect(SESSION_MS).toBe(12 * 60 * 60 * 1000);
     expect(r.sessionFor(header, named)).toEqual({ ok: true });
-    // given for this project and this REPL only
-    expect(r.sessionFor(header, { id: 'ffffffffffffffff', holder: H })).toMatchObject({ ok: false, why: 'project', words: expect.stringMatching(/given for another project/) });
+    // given for this project and this REPL only; R4 (H109): it follows a project its own REPL names next (that REPL's /project),
+    // but never one another REPL names, or one named with no REPL holding it
+    expect(r.sessionFor(header, { id: 'ffffffffffffffff', holder: 'b'.repeat(32) })).toMatchObject({ ok: false, why: 'project', words: expect.stringMatching(/given for another project/) });
+    expect(r.sessionFor(header, { id: 'ffffffffffffffff', holder: null })).toMatchObject({ ok: false, why: 'project' });
     expect(r.sessionFor(header, { id: FOR.project, holder: 'b'.repeat(32) })).toMatchObject({ ok: false, why: 'holder', words: expect.stringMatching(/given by another Timmy REPL/) });
     expect(r.sessionFor(header, { id: FOR.project, holder: null })).toMatchObject({ ok: false, why: 'holder' });
+    expect(r.sessionFor(header, { id: 'ffffffffffffffff', holder: H })).toEqual({ ok: true });
     // no project named: nothing of a project to read or act on, so a session that has not ended counts
     expect(r.sessionFor(header, null)).toEqual({ ok: true });
     expect(r.sessionFor(undefined, named)).toMatchObject({ ok: false, why: 'none' });
