@@ -200,7 +200,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       expect(result.type).toBe('timmy-result');
       await page.waitForSelector(`${card(wf)} .tc-blocks`);
       expect(await text(page, `${card(wf)} .tc-badge`)).toBe('executable');
-      expect(await text(page, `${card(wf)} .tc-mode`)).toBe('Executable: its buttons are sent to the Timmy REPL that holds demo, which runs them as the live board\'s own actions.');
+      expect(await text(page, `${card(wf)} .tc-mode`)).toBe('Executable: its buttons are sent to the Timmy that holds demo (a REPL, or the Workbench), which runs them as the live board\'s own actions.');
       expect(await page.$$eval(`${card(wf)} .tc-block .tc-name`, (n) => n.map((x) => x.textContent))).toEqual(['setup', 'build']);
       expect(await page.locator(`${card(wf)} button[data-tc-act="run"]`).count()).toBe(2);
       expect(await text(page, `${card(params.shape)} .tc-badge`)).toBe('executable');

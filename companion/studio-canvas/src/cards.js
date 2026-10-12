@@ -223,7 +223,7 @@ export function cardMode(type, props, answer, session) {
   if (type === 'result') return diagram('A diagram of its record, read from Timmy now: nothing runs from this card.', true);
   if (!answer.actions || answer.actions.holder !== true) return diagram(one(answer.actions?.words) || `No Timmy REPL takes ${name}'s actions now.`, true);
   if (!session) return diagram('Read from Timmy now, but this page cannot act: it was not opened by /canvas open in Timmy, or it was reloaded since. Type the command in Timmy, or /canvas open there.', true);
-  return { executable: true, badge: 'executable', words: `Executable: its buttons are sent to the Timmy REPL that holds ${name}, which runs them as the live board's own actions.`, follows: true };
+  return { executable: true, badge: 'executable', words: `Executable: its buttons are sent to the Timmy that holds ${name} (a REPL, or the Workbench), which runs them as the live board's own actions.`, follows: true };
 }
 
 /** The live board's run action for one block of a workflow card, or null when /run cannot name it. */

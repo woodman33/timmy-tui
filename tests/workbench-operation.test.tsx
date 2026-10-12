@@ -243,7 +243,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     const inspector = regionText(c, 'right');
     expect(inspector).toContain(`RUN DETAIL · ${op}`);
     expect(inspector).toContain('Objective FIXTURE objective of the run');
-    expect(inspector).toContain('Verdict completed: FIXTURE verdict words');
+    expect(inspector).toContain('Verdict completed · FIXTURE verdict words');
     expect(inspector).toContain('Cost unknown: FIXTURE: no request went out');
     expect(details).toContain(op);
 

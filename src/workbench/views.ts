@@ -805,8 +805,13 @@ function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx): Line[] {
   // the operation's id as written (a heading's capitals would change it)
   const out: Line[] = [[S('RUN DETAIL', 'secondary', { bold: true }), S(` ${c.g.sep} ${r.operation}`, 'strong')]];
   out.push(...fieldRows('Objective', r.objective?.value ?? 'not recorded', c.width, 'text', 10));
-  out.push(...fieldRows('Verdict', `${r.verdict.state}: ${r.verdict.words}`, c.width, r.verdict.state === 'failed' ? 'failure' : 'strong', 10));
-  out.push(...fieldRows('Stage', `${r.stage.current ?? 'none'} ${c.g.sep} ${r.stage.done} of ${r.stage.total ?? 'unknown'} steps`, c.width, 'text', 10));
+  // R4 lead (the r26 dry run read "completed: succeeded: job … completed" and "Stage none · 1 of 1 steps"): the verdict apart
+  // from its record's words (once when they start with it), and the stage in words: the step now, or that it ended
+  const verdictWords = r.verdict.words.startsWith(r.verdict.state) ? r.verdict.words : `${r.verdict.state} ${c.g.sep} ${r.verdict.words}`;
+  out.push(...fieldRows('Verdict', verdictWords, c.width, r.verdict.state === 'failed' ? 'failure' : 'strong', 10));
+  const stepNow = r.stage.current ?? (r.time.endedAt !== null ? 'ended' : 'no step named yet');
+  const stepsDone = r.stage.total === null ? `${r.stage.done} done (how many in all is not recorded)` : `${r.stage.done} of ${r.stage.total} step${r.stage.total === 1 ? '' : 's'} done`;
+  out.push(...fieldRows('Stage', `${stepNow} ${c.g.sep} ${stepsDone}`, c.width, 'text', 10));
   for (const e of r.exits.slice(0, 4)) out.push(...fieldRows('Exit', `${e.who}: ${e.code ?? 'none'}${e.state ? ` (${e.state})` : ''}`, c.width, 'secondary', 10));
   out.push(...fieldRows('Freshness', `${r.freshness.state}: ${r.freshness.why}`, c.width, 'text', 10));
   out.push(...fieldRows('Accepted', r.acceptance.state, c.width, 'text', 10));
