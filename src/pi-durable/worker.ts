@@ -415,16 +415,18 @@ class Worker {
     this.harness.resume();
     this.scheduling = 'running';
     updateOwner(this.paths, { scheduling: 'running' });
-    const resumed: { run: string; submission: number; same: boolean }[] = [];
+    const resumed: { run: string; submission: number; same: boolean; first?: true }[] = [];
     for (const r of runs) {
       if (r.stop_requested || r.conversation === undefined) { this.follow(r.run); continue; }
       const conv = await this.harness.conversation(r.conversation, this.C);
       if (!conv) continue;
       // the same request id after a restart: pi-durable gives back the same submission (spike A1: submission 8 again)
       const sub = await conv.submit({ type: 'input', content: r.task, requestId: r.request_id }, this.C);
-      const same = r.submission === undefined || sub.id === r.submission;
-      this.patchRun(r.run, (x) => { x.resubmitted = [...(x.resubmitted ?? []), { at: new Date().toISOString(), submission: sub.id, same }]; if (x.submission === undefined) x.submission = sub.id; });
-      resumed.push({ run: r.run, submission: sub.id, same });
+      // `first`: its task had never been submitted (a crash between creating its conversation and submitting)
+      const first = r.submission === undefined;
+      const same = !first && sub.id === r.submission;
+      this.patchRun(r.run, (x) => { x.resubmitted = [...(x.resubmitted ?? []), { at: new Date().toISOString(), submission: sub.id, same, ...(first ? { first: true as const } : {}) }]; if (x.submission === undefined) x.submission = sub.id; });
+      resumed.push({ run: r.run, submission: sub.id, same, ...(first ? { first: true as const } : {}) });
       this.follow(r.run);
     }
     this.log(`resumed: scheduling runs (${resumed.length} re-acquired by request id)`);

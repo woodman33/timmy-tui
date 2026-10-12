@@ -36,8 +36,8 @@ export interface RunFile {
   needs_you?: { readonly key: string; readonly why: string; readonly at: string }[];
   /** set when a model request was in flight at a kill: it is sent again, and its first cost is never recorded (spike G) */
   cost_unknown?: string | null;
-  /** each re-submission with the same request id, and whether the store returned the same submission */
-  resubmitted?: { readonly at: string; readonly submission: number; readonly same: boolean }[];
+  /** each re-submission with the same request id at a Resume, and whether the store returned the same submission (`first`: none existed yet) */
+  resubmitted?: { readonly at: string; readonly submission: number; readonly same: boolean; readonly first?: true }[];
   ended?: { readonly status: RunWords; readonly reason?: string; readonly at: string } | null;
 }
 

@@ -4,7 +4,7 @@
  * short name because macOS caps a socket path at 104 bytes (plan b.1.5).
  */
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectId } from '../project/index.js';
 
@@ -54,6 +54,7 @@ export function defaultWorkerDir(): string {
   if (given) return resolve(given);
   // src/pi-durable/paths.ts (or dist/src/pi-durable/paths.js) → the checkout root → workers/pi-durable
   const here = dirname(fileURLToPath(import.meta.url));
-  const root = here.includes(`${join('dist', 'src')}`) ? resolve(here, '..', '..', '..') : resolve(here, '..', '..');
+  const up2 = resolve(here, '..', '..');
+  const root = basename(up2) === 'dist' ? dirname(up2) : up2;
   return join(root, 'workers', 'pi-durable');
 }
