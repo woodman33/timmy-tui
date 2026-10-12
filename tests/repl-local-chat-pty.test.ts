@@ -4,7 +4,9 @@
 // /setup chat lists what the FAKE Ollama has (a cloud-backed entry labelled, never preselected), Enter takes the local one,
 // and the next message streams from it: the text grows on the screen before the answer ends, and the turn closes with its
 // receipt, "no charge (local endpoint)". A second REPL's header names the route chosen ("chat: local <model> · Ollama"), and
-// /model lists the models. Nothing is sent to OpenRouter: there is no key, and the FAKE Ollama saw every request.
+// /model lists the models. Nothing is sent to OpenRouter: there is no key, and the FAKE Ollama saw every request. Then the
+// same gate as the OpenRouter route: a tool the local model calls that changes the project waits at the REPL's NEEDS YOU box
+// (answered y here), runs, is given back to the model, and the turn's receipt names the file it wrote.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +14,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
-import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const TSX = resolve('node_modules/.bin/tsx');
 const CLI = resolve('src/cli.ts');
@@ -103,6 +105,47 @@ describe('the REPL\'s chat on a local model, in a terminal (FAKE Ollama)', () =>
       expect(chats[0].tools.length).toBeGreaterThan(10);
       expect(new Set(ollama.requests.map((r) => r.path))).toEqual(new Set(['/api/tags', '/api/show', '/api/chat']));
       expect(existsSync(join(dir, 'timmy', 'providers.json')) && JSON.parse(readFileSync(join(dir, 'timmy', 'providers.json'), 'utf8')).openrouter_api_key).toBeFalsy();
+    } finally {
+      t.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  // the same gate as the OpenRouter route: a tool that changes the project waits at the REPL's NEEDS YOU box; the model was
+  // chosen by TIMMY_CHAT_MODEL (a scripted run's way), so the header names it at once
+  it('a tool the local model calls that needs a person waits at the REPL\'s NEEDS YOU box; allowed once, it runs and is sealed', async () => {
+    const write = { name: 'write_project_file', arguments: { path: 'notes.md', content: 'written by the FAKE local model\n' } };
+    const ollama = await startFakeOllama({
+      models: [{ name: 'qwen3:8b' }],
+      chat: [() => ({ chunks: toolCallChunks('qwen3:8b', [write]) }), () => ({ chunks: textChunks('qwen3:8b', ['Wrote notes.md.']) })],
+    });
+    fakes.push(ollama);
+    const dir = mkdtempSync(join(tmpdir(), 'repl-local-gate-'));
+    const env = { ...withoutRunner(process.env), HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night', TIMMY_CHAT_MODEL: 'qwen3:8b' };
+    const init = await runAsync(TSX, [CLI, 'init', '--yes', '--operator', 'Sample', '--project', 'demo', '--ollama', ollama.url], { cwd: dir, env, timeout: 50_000 });
+    expect(init.status, init.stderr).toBe(0);
+    const t = terminal(dir, env, 'localgate');
+    try {
+      expect(await t.waitFor(/Enter to send/)).toMatch(/^TIMMY {2}chat: local qwen3:8b · Ollama$/m);
+      t.type('write notes.md');
+      const box = await t.waitFor(/NEEDS YOU[\s\S]*write_project_file: notes\.md[\s\S]*changes a file in your project[\s\S]*n, Esc, Enter deny/);
+      expect(box).toContain('y allow once');
+      expect(existsSync(join(dir, 'notes.md'))).toBe(false);
+      // past the box's type-ahead guard (300 ms), one key answers it
+      await sleep(600);
+      execFileSync('tmux', ['-L', 'localgate', 'send-keys', '-t', 't', 'y'], { env: { ...env, TMUX_TMPDIR: dir, TMUX: '' } });
+      const done = await t.waitFor(/RECEIPT [0-9a-f]{8} signed and verified[\s\S]*Enter to send/);
+      expect(done).toContain('Wrote notes.md.');
+      expect(done).toMatch(/1 step · no charge \(local endpoint\) · [\d.]+s · qwen3:8b/);
+      expect(readFileSync(join(dir, 'notes.md'), 'utf8')).toBe('written by the FAKE local model\n');
+      t.type('/exit');
+      await t.waitFor(/EXIT1=0/);
+      const turn = readFileSync(join(dir, 'store', 'runs.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.kind === 'turn' && typeof r.prev_hash === 'string')[0];
+      expect(turn).toMatchObject({ via: 'ollama', cost_usd: 0, cost_measured: true, tool_outcomes: [{ name: 'write_project_file', outcome: 'completed' }], files: [{ path: 'notes.md', created: true }] });
+      // the model was given the tool's own answer
+      const [, second] = ollama.chats();
+      expect(JSON.parse(second.messages.at(-1).content)).toMatchObject({ ok: true });
+      expect(second.messages.at(-1)).toMatchObject({ role: 'tool', tool_name: 'write_project_file' });
     } finally {
       t.close();
       rmSync(dir, { recursive: true, force: true });
