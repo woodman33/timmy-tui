@@ -202,6 +202,8 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
     // the run bar's Run again: disabled with why, and no button that presses the block's Run for it
     expect(live).not.toContain('data-wf-rerun=');
     expect(live).toContain('<button type="button" class="act" disabled data-wf-needs-person="3" title="Needs you: build runs a destructive shell command on this machine. The board cannot ask you: type /run BUILD.md inspect in the REPL, which asks first in its NEEDS YOU box.">Run inspect again</button>');
+    // R4 (H99, the review): why, as text beside it too (a title is never shown on a touch screen)
+    expect(live).toContain('<p class="wf-needs-you" data-wf-held-why="3"><strong>needs you</strong> Run inspect again is disabled here: build runs a destructive shell command on this machine, which needs a person, and the board cannot ask you. Type /run BUILD.md inspect in the REPL, which asks first in its NEEDS YOU box.</p>');
     expect(live).toContain('data-cmd="/run BUILD.md inspect"');
     // the nodes whose run reaches build have no Run action; check (it needs nothing) keeps its own
     expect(live).not.toMatch(/data-act="run" data-doc="BUILD.md" data-block="(build|inspect)"/);

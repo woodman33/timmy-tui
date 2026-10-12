@@ -283,12 +283,12 @@ var TimmyBoardEdit = (function () {
       if (r.from !== undefined) o.from = r.from;
       return o;
     }) };
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     say(m, 'Saving…', false);
     api.send(body).then(function (x) {
-      b.disabled = false;
+      b.disabled = false; b.removeAttribute('aria-busy');
       if (x.ok) { close(m); out(x.t, false); api.refresh(); } else say(m, x.t, true);
-    }, function () { b.disabled = false; say(m, unreachable, true); });
+    }, function () { b.disabled = false; b.removeAttribute('aria-busy'); say(m, unreachable, true); });
   };
   var workflowClick = function (m, t) {
     var b = t.closest('button');
@@ -374,15 +374,16 @@ var TimmyBoardEdit = (function () {
       values[fields[k].getAttribute('data-param')] = v !== '' && isFinite(Number(v)) ? Number(v) : v;
     }
     var base = p.getAttribute('data-params-base');
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     paramsMsg(p, 'Saving…', false);
     api.send({ action: 'set-params', recipe: p.getAttribute('data-params'), base: base === 'none' ? null : base, parameters: values }).then(function (x) {
+      b.removeAttribute('aria-busy');
       if (x.ok) {
         // Saved: these values are what the card stands for now, until the board draws it again from the file.
         for (var j = 0; j < fields.length; j++) fields[j].defaultValue = fields[j].value;
         markParams(p); cleanParams(p); paramsMsg(p, x.t, false); out(x.t, false); api.refresh();
       } else { markParams(p); paramsMsg(p, x.t, true); }
-    }, function () { markParams(p); paramsMsg(p, unreachable, true); });
+    }, function () { b.removeAttribute('aria-busy'); markParams(p); paramsMsg(p, unreachable, true); });
   };
 
 ${WORKFLOW_SCRIPT}

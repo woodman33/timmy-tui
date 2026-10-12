@@ -383,7 +383,9 @@ const LIVE_CSS = `
 #status.bad { color: ${HOMEBREW.failure}; }
 .act { font: inherit; font-size: 12px; font-weight: 600; color: ${HOMEBREW.ground}; background: ${HOMEBREW.accent}; border: 1px solid ${HOMEBREW.accent}; border-radius: 6px; padding: 3px 10px; cursor: pointer; align-self: flex-start; margin-right: 6px; }
 .act:hover, .act:focus-visible { outline: 2px solid ${HOMEBREW.text}; outline-offset: 1px; }
-.act[disabled] { opacity: .55; cursor: progress; }
+/* R4 (H99, the review): a disabled button reads not-allowed; only one whose request is on its way reads busy */
+.act[disabled] { opacity: .55; cursor: not-allowed; }
+.act[aria-busy="true"] { cursor: progress; }
 .blocks .act { margin-left: 2px; }
 #out { white-space: pre-wrap; overflow-wrap: anywhere; background: ${HOMEBREW.surface}; border: 1px solid ${HOMEBREW.line}; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; font-size: 13px; }
 #out[hidden] { display: none; }
@@ -544,12 +546,12 @@ const LIVE_SCRIPT = `
       : a === 'restore' ? { action: 'restore', file: b.getAttribute('data-file'), from: b.getAttribute('data-from') } : null;
     if (!body || !token) return;
     var label = b.textContent;
-    b.disabled = true; b.textContent = label + ' …'; busy++;
+    b.disabled = true; b.setAttribute('aria-busy', 'true'); b.textContent = label + ' …'; busy++;
     fetch('/action', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit' })
       .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
       .then(function (x) { out.hidden = false; out.textContent = x.t; out.className = x.ok ? '' : 'bad'; },
         function () { out.hidden = false; out.textContent = 'The action did not reach Timmy: is /board live still running?'; out.className = 'bad'; })
-      .then(function () { busy--; b.disabled = false; b.textContent = label; poll(); });
+      .then(function () { busy--; b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = label; poll(); });
   };
   document.addEventListener('click', function (e) {
     var t = e.target && e.target.closest ? e.target : null;

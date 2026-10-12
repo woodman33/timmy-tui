@@ -530,21 +530,26 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     r.met === undefined ? '' : r.met ? 'its sealed prediction was met' : 'its sealed prediction was missed',
     r.foreign && (r.word === 'running' || r.word === 'starting') ? 'started by another session: this REPL cannot stop it' : '',
   ].filter(Boolean).join(' · ');
+  const again = k.live && r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length ? rerun : undefined;
   const acts = k.live
     ? [
       ...(r.stoppable ? [`<button type="button" class="act act-stop" data-wf-stop="${esc(r.job)}">Stop</button>`] : []),
-      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length
+      ...(again
         // R4 (H99, gap 11): a run that reaches a block needing a person: disabled, with why (the command is the chip below)
-        ? [rerun.risky.length
-          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(rerun.key)}" title="${esc(`Needs you: ${rerun.risky.map((x) => x.name).join(', ')} ${rerun.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
-          : `<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`]
+        ? [again.risky.length
+          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(again.key)}" title="${esc(`Needs you: ${again.risky.map((x) => x.name).join(', ')} ${again.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
+          : `<button type="button" class="act" data-wf-rerun="${esc(again.key)}">Run ${esc(r.target)} again</button>`]
         : []),
     ].join('')
+    : '';
+  // R4 (H99, the review): why that Run is disabled, as text beside it (a title alone is never shown on a touch screen)
+  const held = again?.risky.length
+    ? `<p class="wf-needs-you" data-wf-held-why="${esc(again.key)}"><strong>${esc('needs you')}</strong> ${esc(`Run ${r.target} again is disabled here: ${again.risky.map((x) => x.name).join(', ')} ${again.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}, which needs a person, and the board cannot ask you. Type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}</p>`
     : '';
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' && !c.repeated?.length ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
   return `<div class="wfx-run${cls}" role="status"><div class="wfx-run-head"><span class="wfx-run-label">${esc(head)}</span> <strong class="wfx-run-job">${esc(r.job)}</strong> <span class="wfx-run-what">${esc(what)}</span> ${wordHtml(r.word)}</div>`
     + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${sealedBlocks ? `<p class="meta wfx-run-blocks">${esc(sealedBlocks)}</p>` : ''}${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
-    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${twice}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
+    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${twice}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${held}${k.cmds(cmds)}${upmd}${noLive}</div>`;
 }
 
 /** R4 (H58): what was running when an interrupted run's session ended: the block its output showed running, if any. */
@@ -1030,12 +1035,13 @@ export const WORKFLOW_SCRIPT = `
     var body = { action: 'save-workflow', doc: card.getAttribute('data-wf-doc'), sha256: card.getAttribute('data-wf-sha'), blocks: data.map(function (n) {
       return { from: n.index, name: n.name, lang: n.lang, needs: n.deps, command: String(n.index) === key ? ta.value : n.code };
     }) };
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     wfCmdMsg(card, key, 'Saving…', false);
     api.send(body).then(function (x) {
+      b.removeAttribute('aria-busy');
       if (x.ok) { ta.defaultValue = ta.value; wfCmdInput(ta, true); wfCmdMsg(card, key, x.t, false); out(x.t, false); api.refresh(); }
       else { b.disabled = false; wfCmdMsg(card, key, x.t, true); }
-    }, function () { b.disabled = false; wfCmdMsg(card, key, unreachable, true); });
+    }, function () { b.disabled = false; b.removeAttribute('aria-busy'); wfCmdMsg(card, key, unreachable, true); });
   };
 
   /* an OpenSCAD parameter form */
@@ -1069,12 +1075,13 @@ export const WORKFLOW_SCRIPT = `
       var f = fields[i], kind = f.getAttribute('data-kind'), v = String(f.value);
       values[f.getAttribute('data-scad-param')] = kind === 'number' ? (WF_NUMBER.test(v.trim()) ? Number(v) : v) : kind === 'boolean' ? (v === 'true' ? true : v === 'false' ? false : v) : v;
     }
-    b.disabled = true;
+    b.disabled = true; b.setAttribute('aria-busy', 'true');
     wfScadMsg(p, 'Saving…', false);
     api.send({ action: 'set-scad-params', model: p.getAttribute('data-scad-params'), base: p.getAttribute('data-scad-base'), parameters: values }).then(function (x) {
+      b.removeAttribute('aria-busy');
       if (x.ok) { for (var j = 0; j < fields.length; j++) fields[j].setAttribute('data-saved', String(fields[j].value)); wfScadMark(p); wfScadMsg(p, x.t, false); out(x.t, false); api.refresh(); }
       else { wfScadMark(p); wfScadMsg(p, x.t, true); }
-    }, function () { wfScadMark(p); wfScadMsg(p, unreachable, true); });
+    }, function () { b.removeAttribute('aria-busy'); wfScadMark(p); wfScadMsg(p, unreachable, true); });
   };
 
   /* the run bar: Stop and Run again press the board's own buttons */
@@ -1160,7 +1167,7 @@ export const WORKFLOWS_CSS = `
 .wf-needs-you { color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; margin: 0; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; overflow-wrap: anywhere; }
 .wf-needs-you strong { color: ${HOMEBREW.attention}; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-right: 4px; }
 .wf-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.wf-acts .act[disabled] { opacity: .5; cursor: not-allowed; }
+.wf-acts .act[disabled] { opacity: .5; } /* its pointer: board-live.ts (not-allowed; busy while it saves) */
 .act.act-stop { color: ${HOMEBREW.text}; background: ${HOMEBREW.raised}; border-color: ${HOMEBREW.failure}; }
 .wf-word { font-size: ${TYPE.size.small}px; white-space: nowrap; }
 .wf-word strong { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }

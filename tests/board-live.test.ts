@@ -459,10 +459,16 @@ describe("the page's script (fake DOM, real server)", () => {
     const p = page(port, `#t=${token}`);
     await tick(150);
     const attrs: Record<string, string> = { 'data-act': 'observe', 'data-file': 'refs/photo.png' };
-    const button = { disabled: false, textContent: 'Observe', hidden: false, getAttribute: (k: string) => attrs[k] ?? null, closest: (sel: string) => (sel === 'button[data-act]' ? button : null) };
+    const button = {
+      disabled: false, textContent: 'Observe', hidden: false, getAttribute: (k: string) => attrs[k] ?? null, closest: (sel: string) => (sel === 'button[data-act]' ? button : null),
+      setAttribute: (k: string, v: string) => { attrs[k] = v; }, removeAttribute: (k: string) => { delete attrs[k]; },
+    };
     p.handlers.click({ target: button });
     expect(button.disabled).toBe(true);
+    // R4 (H99, the review): busy while its request is on its way (its pointer says progress; a button merely disabled, not-allowed)
+    expect(attrs['aria-busy']).toBe('true');
     await tick(250);
+    expect(attrs['aria-busy']).toBeUndefined();
     const post = p.calls.find((c) => c.method === 'POST')!;
     expect(post).toMatchObject({ url: '/action', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, credentials: 'omit' });
     expect(JSON.parse(post.body!)).toEqual({ action: 'observe', file: 'refs/photo.png' });

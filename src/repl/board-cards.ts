@@ -550,7 +550,7 @@ export const CARDS_CSS = `
 .param-table .param-change { color: ${HOMEBREW.text}; font-weight: ${TYPE.weight.strong}; }
 .param-table tr[data-edited] .param-saved { text-decoration: line-through; }
 .param-table tr[data-edited] th { color: ${HOMEBREW.attention}; }
-.param-actions .act[disabled] { opacity: .45; cursor: not-allowed; }
+.param-actions .act[disabled] { opacity: .45; } /* its pointer: board-live.ts (not-allowed; busy while it saves) */
 .param-actions, .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .params-msg, .wf-msg { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: ${TYPE.size.small}px; }
 .params-msg.bad, .wf-msg.bad { color: ${HOMEBREW.failure}; }
