@@ -151,7 +151,10 @@ export function packagingFacts(root, files, pkg) {
       refs.get(p).add(f);
     }
   }
-  const assets = sortStrings([...refs.keys()]).map((p) => ({ path: p, inPackage: covered(p), namedBy: sortStrings([...refs.get(p)]) }));
+  const assets = sortStrings([...refs.keys()]).map((p) => {
+    const under = list.filter((e) => e.startsWith(`${p}/`));
+    return { path: p, inPackage: covered(p) ? 'yes' : under.length ? `partly (${under.join(', ')})` : 'no', namedBy: sortStrings([...refs.get(p)]) };
+  });
   return { entries, assets };
 }
 

@@ -146,10 +146,17 @@ export const PY_MODULES = {
 
 /** Every top-level Python import that is neither the standard library nor a module of this repository. */
 export function scanPythonImports(root, files) {
+  // The repository's own modules; a module that exists only under tests/ is a test's stand-in for a real one (the FAKE
+  // bpy, c4d or FreeCAD of tests/fixtures), so it does not hide the real module's use.
   const local = new Set();
+  const stubs = new Map();
   for (const f of files) {
-    if (f.endsWith('.py')) local.add(f.slice(f.lastIndexOf('/') + 1, -3));
-    if (f.endsWith('/__init__.py')) { const d = f.slice(0, -'/__init__.py'.length); local.add(d.slice(d.lastIndexOf('/') + 1)); }
+    let name = null;
+    if (f.endsWith('/__init__.py')) { const d = f.slice(0, -'/__init__.py'.length); name = d.slice(d.lastIndexOf('/') + 1); }
+    else if (f.endsWith('.py')) name = f.slice(f.lastIndexOf('/') + 1, -3);
+    if (!name) continue;
+    if (f.startsWith('tests/')) { if (!stubs.has(name)) stubs.set(name, f); continue; }
+    local.add(name);
   }
   const uses = new Map();
   for (const f of files) {
@@ -165,7 +172,7 @@ export function scanPythonImports(root, files) {
       for (const m of mods) {
         const top = m.split('.')[0];
         if (!top || PY_STDLIB.has(top) || local.has(top)) continue;
-        if (!uses.has(top)) uses.set(top, { files: new Set(), areas: new Set() });
+        if (!uses.has(top)) uses.set(top, { files: new Set(), areas: new Set(), stub: stubs.get(top) ?? null });
         uses.get(top).files.add(f);
         uses.get(top).areas.add(areaOf(f));
       }
@@ -307,7 +314,13 @@ export function readRegistries(root, files) {
       if (!r.ok) note(file, 'integrationDefinitions', r.why);
       else for (const v of r.value) {
         if (!v || typeof v !== 'object') continue;
-        push({ registry: 'vision adapters', file, id: str(v.id) ?? '?', name: str(v.name) ?? '?', kind: 'library', program: null, env: null, setup: 'timmy vision integrations list', runtime: str(v.executionKind), area: 'Vision (/observe, Look, adapters)' });
+        // The adapter's script, from its literal: tool('<name>') is tools/platform-vision-20260910/<name>/adapter.py (the
+        // registry's own helper), packagedAdapter('<path>') is that path at the package root.
+        const expr = typeof v.script === 'object' && v.script ? String(v.script.expr ?? '') : '';
+        const viaTool = /\btool\('([\w-]+)'\)/.exec(expr);
+        const viaPath = /packagedAdapter\('([^']+)'\)/.exec(expr);
+        const scriptPath = viaTool ? `tools/platform-vision-20260910/${viaTool[1]}/adapter.py` : viaPath ? viaPath[1] : null;
+        push({ registry: 'vision adapters', file, id: str(v.id) ?? '?', name: str(v.name) ?? '?', kind: 'library', program: null, env: null, setup: 'timmy vision integrations list', runtime: str(v.executionKind), scriptPath, scriptPresent: scriptPath ? has.has(scriptPath) : null, area: 'Vision (/observe, Look, adapters)' });
       }
     }
   }

@@ -77,6 +77,8 @@ function makeFixture(root: string, o: { leak?: boolean } = {}): void {
   put(root, 'node_modules/transitive-only/package.json', json({ name: 'transitive-only', version: '4.5.6', license: '(MIT OR Apache-2.0)' }));
   put(root, 'node_modules/dev-tool/package.json', json({ name: 'dev-tool', version: '0.1.3', license: 'MIT' }));
   put(root, 'node_modules/@types/left-pad/package.json', json({ name: '@types/left-pad', version: '1.2.0', license: 'MIT' }));
+  put(root, 'node_modules/left-pad/lib/pad.wasm', 'FIXTURE, not WebAssembly\n');
+  put(root, 'node_modules/stray/package.json', json({ name: 'stray', version: '0.0.1', description: 'FIXTURE: installed, in no lockfile' }));
 
   put(root, 'src/index.ts', [
     '// FIXTURE source',
@@ -221,6 +223,10 @@ describe('the inventory generator on a FIXTURE tree', () => {
     expect(prop(never, 'usage')).toBe('not imported: no evidence of use (not imported, not run by a script, not named in the code searched)');
     expect(prop(byRef('pkg:npm/%40types/left-pad@1.2.0'), 'usage')).toBe('not imported: type definitions for left-pad, read by the TypeScript compiler');
     expect(prop(byRef('pkg:npm/left-pad@1.3.0'), 'feature')).toBe('Core (other src/), Tests only');
+    expect(prop(byRef('pkg:npm/left-pad@1.3.0'), 'binaries')).toBe('lib/pad.wasm (in the installed tree read)');
+    const md = read(outA, 'INVENTORY.md');
+    expect(md).toContain('Installed but not in the lockfile: `stray@0.0.1`.');
+    expect(md).toContain('| … installed but not in the lockfile | 1 |');
   });
 
   it('names Python modules, containers, programs and services, and leaves excluded skill material out', () => {
@@ -260,7 +266,7 @@ describe('the inventory generator on a FIXTURE tree', () => {
     expect(md).toMatch(/### Imported but not declared \(1\)[\s\S]*`inner-dep` \| \(the root\) \| 0\.9\.0/);
     expect(md).toContain('`not-a-package-anywhere` in `src/index.ts` (the root project)');
     expect(md).toMatch(/\| `never-used` \| dependency `\^1\.0\.0` \| \*\*none found\*\*/);
-    expect(md).toContain('Entries that match no tracked file: `missing-entry`.');
+    expect(md).toContain('Entries that match no file in the tree read (npm pack leaves a missing entry out without a word): `missing-entry`.');
   });
 
   it('writes no absolute local path, and the same bytes for the same inputs and date', () => {

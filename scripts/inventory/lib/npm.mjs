@@ -1,8 +1,50 @@
 // Timmy's inventory: npm manifests and lockfiles. Reads package.json, package-lock.json (lockfile v2/v3 "packages", or
 // v1 "dependencies") and, where an installed tree is present, each installed package's own package.json for its version
 // and licence. Nothing is installed, fetched or run.
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDir, isLink, readJson } from './common.mjs';
+
+/**
+ * One walk of an installed tree (links inside it are not followed): the packages it holds, as lockfile keys, and the
+ * WebAssembly (.wasm) and native addon (.node) files of each, by the innermost package that holds them.
+ */
+export function walkInstalled(root, nmRel) {
+  const packages = new Set();
+  const binaries = new Map();
+  const ownerOf = (rel) => {
+    const at = rel.lastIndexOf('node_modules/');
+    if (at < 0) return null;
+    const rest = rel.slice(at + 'node_modules/'.length).split('/');
+    const width = rest[0]?.startsWith('@') ? 2 : 1;
+    return rel.slice(0, at) + 'node_modules/' + rest.slice(0, width).join('/');
+  };
+  const walk = (abs, rel, depth) => {
+    let entries;
+    try { entries = readdirSync(abs, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isSymbolicLink()) continue;
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        if (e.name === '.bin' || depth > 40) continue;
+        const parent = rel.split('/').at(-1);
+        const grand = rel.split('/').at(-2);
+        if (parent === 'node_modules' && !e.name.startsWith('@') && !e.name.startsWith('.')) packages.add(r);
+        else if (grand === 'node_modules' && parent.startsWith('@')) packages.add(r);
+        walk(join(abs, e.name), r, depth + 1);
+        continue;
+      }
+      if (e.isFile() && (e.name.endsWith('.wasm') || e.name.endsWith('.node'))) {
+        const owner = ownerOf(r);
+        if (!owner) continue;
+        if (!binaries.has(owner)) binaries.set(owner, []);
+        binaries.get(owner).push(r.slice(owner.length + 1));
+      }
+    }
+  };
+  walk(join(root, nmRel), nmRel, 0);
+  return { packages, binaries };
+}
 
 const DEP_FIELDS = [
   ['dependencies', 'dependency'],
@@ -126,6 +168,8 @@ export function readNpmProject(root, manifestRel, { readInstalled = false } = {}
   const nmRel = at('node_modules');
   const installedTree = readInstalled && isDir(join(root, nmRel)) ? { path: nmRel, link: isLink(join(root, nmRel)) } : null;
 
+  // The installed tree's own packages and binary files, keyed as the lockfile keys them (relative to this manifest's folder).
+  const walked = installedTree ? walkInstalled(join(root, dir), 'node_modules') : null;
   const packages = entries.map(({ key, name, entry }) => {
     let installed = null;
     if (installedTree) {
@@ -161,6 +205,7 @@ export function readNpmProject(root, manifestRel, { readInstalled = false } = {}
       licenseSource,
       licenseConflict: installedLicense && lockLicense && installedLicense !== lockLicense ? { installed: installedLicense, lockfile: lockLicense } : null,
       installed,
+      binaries: walked?.binaries.get(key)?.sort() ?? [],
       introducedBy: [...(introducedBy.get(key) ?? [])].sort(),
       dependsOn: [...(edges.get(key) ?? [])].sort(),
     };
@@ -202,6 +247,12 @@ export function readNpmProject(root, manifestRel, { readInstalled = false } = {}
     manifestLockDiffers,
     unresolved,
     installedTree,
+    // Installed packages the lockfile does not have (extraneous to this lockfile), read from the installed tree itself.
+    extraneous: walked ? [...walked.packages].filter((k) => !keys.has(k) && readJson(join(root, dir, k, 'package.json')).ok).sort().map((k) => {
+      const pj = readJson(join(root, dir, k, 'package.json')).value;
+      return { key: k, name: pj?.name ?? nameFromLockPath(k), version: pj?.version ?? null };
+    }) : [],
+    binariesOutsideLock: walked ? [...walked.binaries.keys()].filter((k) => !keys.has(k)).sort() : [],
     byKey,
   };
 }

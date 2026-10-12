@@ -202,7 +202,7 @@ export function collect(o) {
     const known = PY_MODULES[module] ?? null;
     const declaredIn = python.manifests.filter((m) => m.requirements.some((r) => known && known.dist.toLowerCase().split(/[ ,(]/)[0] === r.name.toLowerCase())).map((m) => m.file);
     const inConda = python.conda.filter((c) => c.packages.some((p) => p.name.toLowerCase() === module.toLowerCase() || (known && p.name.toLowerCase() === known.dist.toLowerCase()))).map((c) => c.file);
-    python.imports.push({ module, dist: known?.dist ?? null, via: known?.via ?? 'unknown', note: known?.note ?? null, files: sortStrings([...u.files]), areas: sortStrings([...u.areas]), declaredIn: [...declaredIn, ...inConda] });
+    python.imports.push({ module, dist: known?.dist ?? null, via: known?.via ?? 'unknown', note: known?.note ?? null, stub: u.stub, files: sortStrings([...u.files]), areas: sortStrings([...u.areas]), declaredIn: [...declaredIn, ...inConda] });
   }
   python.imports.sort((a, b) => byString(a.module, b.module));
 
@@ -302,6 +302,7 @@ export function buildSbom(c) {
         prop('lock-flags', uniq(ps.flatMap((x) => [x.dev && 'dev', x.optional && 'optional', x.devOptional && 'devOptional', x.peer && 'peer', x.link && 'link'].filter(Boolean)))),
         prop('platform', p.os || p.cpu ? [p.os ? `os=${p.os.join(',')}` : '', p.cpu ? `cpu=${p.cpu.join(',')}` : ''].filter(Boolean).join(' ') : null),
         prop('install-script', ps.some((x) => x.installScript) ? 'yes (runs at install)' : null),
+        prop('binaries', uniq(ps.flatMap((x) => x.binaries)).length ? `${uniq(ps.flatMap((x) => x.binaries)).join(', ')} (in the installed tree read)` : null),
         prop('deprecated', p.deprecated),
         p.licenseSource === 'installed package.json' ? null : prop('license-source', p.license ? p.licenseSource : 'unknown: neither the installed package nor the lockfile names one'),
         prop('license-conflict', p.licenseConflict ? `installed says ${p.licenseConflict.installed}, lockfile says ${p.licenseConflict.lockfile}` : null),
@@ -360,16 +361,17 @@ export function buildSbom(c) {
     const name = host ? `${m.module} (${m.dist})` : m.dist ?? m.module;
     components.push({
       type: host ? 'framework' : 'library', 'bom-ref': `python-module:${m.module}`, name, purl: host ? purlGeneric(`python-module-${m.module}`) : purlPypi(m.dist ? m.dist.split(/[ ,(]/)[0] : m.module), scope: 'optional',
-      properties: props(prop('python-module', m.module), prop('source', host ? 'inside an application\'s own Python' : m.via === 'unknown' ? 'not mapped to a distribution by this pass' : m.via), prop('version', 'unknown: whatever the Python that runs it has (not pinned by a manifest here)'), prop('declared-in', m.declaredIn.length ? m.declaredIn : 'no manifest in this repository'), prop('feature', m.areas), prop('note', m.note), prop('imported-by', m.files.slice(0, 8))),
+      properties: props(prop('python-module', m.module), prop('source', host ? 'inside an application\'s own Python' : m.via === 'unknown' ? 'not mapped to a distribution by this pass' : m.via), prop('version', 'unknown: whatever the Python that runs it has (not pinned by a manifest here)'), prop('declared-in', m.declaredIn.length ? m.declaredIn : 'no manifest in this repository'), prop('feature', m.areas), prop('note', m.note), prop('test-stand-in', m.stub ? `${m.stub} (a FAKE used by the tests)` : null), prop('imported-by', m.files.slice(0, 8))),
     });
   }
 
   // Programs and applications: the registries and the programs the code starts or looks up, one component per program.
   const progs = new Map();
   const addProg = (key, base, extra) => {
-    if (!progs.has(key)) progs.set(key, { name: base.name, program: base.program, sources: [], areas: new Set(), env: new Set(), setup: new Set(), observations: [] });
+    if (!progs.has(key)) progs.set(key, { name: base.name, program: base.program, sources: [], areas: new Set(), env: new Set(), setup: new Set(), observations: [], scripts: [] });
     const g = progs.get(key);
     g.sources.push(extra.source);
+    if (extra.script) g.scripts.push(extra.script);
     if (extra.area) g.areas.add(extra.area);
     if (extra.env) for (const e of String(extra.env).split(/,\s*/)) if (e) g.env.add(e);
     if (extra.setup) g.setup.add(extra.setup);
@@ -378,7 +380,7 @@ export function buildSbom(c) {
   // that needs nothing runs in Timmy's own process.
   for (const it of c.registries.items.filter((x) => x.kind !== 'service' && !(x.registry === '/tools rows' && !x.program) && !(x.registry === 'VoxVision tools' && /^nothing$/i.test(x.setup ?? '')))) {
     const key = (it.program ?? `${it.registry}:${it.id}`).toLowerCase();
-    addProg(key, { name: it.program ? `${it.program}` : it.name, program: it.program }, { source: `${it.registry} (${it.file}: ${it.id}${it.name && it.name !== it.program ? `, ${it.name}` : ''})`, area: it.area, env: it.env, setup: it.setup });
+    addProg(key, { name: it.program ? `${it.program}` : it.name, program: it.program }, { source: `${it.registry} (${it.file}: ${it.id}${it.name && it.name !== it.program ? `, ${it.name}` : ''})`, area: it.area, env: it.env, setup: it.setup, script: it.scriptPath ? `${it.scriptPath} (${it.scriptPresent ? 'in this repository' : 'NOT in this repository'})` : null });
   }
   for (const [name, e] of c.programs) {
     const key = name.toLowerCase();
@@ -393,7 +395,7 @@ export function buildSbom(c) {
   for (const [key, g] of [...progs].sort(([a], [b]) => byString(a, b))) {
     components.push({
       type: 'application', 'bom-ref': `program:${key}`, name: g.name, purl: purlGeneric(key.replace(/[^a-z0-9._+-]/g, '-')), scope: 'optional',
-      properties: props(prop('declared-in', uniq(g.sources)), prop('feature', sortStrings([...g.areas])), prop('env', sortStrings([...g.env])), prop('setup', sortStrings([...g.setup]).map(scrubText)), prop('version', 'unknown: not run or probed by this pass'), prop('status', 'named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)'), prop('recorded-observation', g.observations)),
+      properties: props(prop('declared-in', uniq(g.sources)), prop('feature', sortStrings([...g.areas])), prop('env', sortStrings([...g.env])), prop('setup', sortStrings([...g.setup]).map(scrubText)), prop('version', 'unknown: not run or probed by this pass'), prop('status', 'named in code; whether it is installed, reachable or exercised is a per-machine fact (timmy tools)'), prop('script', g.scripts), prop('recorded-observation', g.observations)),
     });
   }
 
@@ -542,10 +544,10 @@ export function buildReport(c, sbom, feats) {
   const uniqueRoot = new Set(pkgs.filter((x) => x.version).map((x) => `${x.name}@${x.version}`));
   const direct = c.directRows;
   const ov = c.overlay ?? {};
-  const rev = c.facts ? `\`${c.facts.head}\` (${c.facts.headDate})` : 'a folder that is not a git work tree';
+  const rev = c.facts ? `the tree at \`${c.facts.head}\` (${c.facts.headDate})` : 'a folder that is not a git work tree';
 
   p('# Timmy inventory: features and dependencies', '');
-  p(`Date: ${c.o.date}. Pass ${ov.pass ?? 1}: **partial**, generated where possible. Source: the tree at ${rev}${c.facts?.changed ? `, with ${plural(c.facts.changed, 'tracked file')} changed and not committed` : ''}${c.facts?.shallow ? ' (a shallow clone: history before its first commit is not read)' : ''}; ${plural(c.files.length, 'file')} read (${c.how}).`, '');
+  p(`Date: ${c.o.date}. Pass ${ov.pass ?? 1}: **partial**, generated where possible. Source: ${rev}${c.facts?.changed ? `, with ${plural(c.facts.changed, 'tracked file')} changed and not committed` : ''}${c.facts?.shallow ? ' (a shallow clone: history before its first commit is not read)' : ''}; ${plural(c.files.length, 'file')} read (${c.how}).`, '');
   p('Generated by `node scripts/inventory/inventory.mjs --date ' + c.o.date + '`: every count, table and check below comes from the files, except the', 'judgement columns (user benefit, stage, gap, owner, next task), which come from the hand-kept', '`docs/ui-cockpit/inventory/overlay.json` and say so. Machine-readable: [`inventory/sbom.json`](inventory/sbom.json) (CycloneDX 1.5)', 'and [`inventory/features.json`](inventory/features.json). There is no single completion percentage here, on purpose.', '');
   p('Words used exactly: **named in code** (the code names it; whether that path runs is not decided here); **declared** (a manifest', 'lists it); **locked** (a lockfile pins its exact version); **installed** (present in the installed tree read here, on this', 'computer only); **imported** (a static import search finds it; "not imported" is not "unused"); **implemented, tested,', 'demonstrated** (the feature checklist\'s own marks, with its evidence); **qualified** and **deployed** are claimed for nothing', 'here: no qualification record or deployment was read. Unknown stays unknown.', '');
 
@@ -581,6 +583,8 @@ export function buildReport(c, sbom, feats) {
   p(`| … with an install script | ${pkgs.filter((x) => x.installScript).length} | lockfile \`hasInstallScript\` |`);
   p(`| … licence known | ${pkgs.filter((x) => x.license).length} (${pkgs.filter((x) => x.licenseSource === 'installed package.json').length} from the installed package, ${pkgs.filter((x) => x.licenseSource === 'lockfile').length} from the lockfile); unknown: ${pkgs.filter((x) => !x.license).length} | each entry |`);
   if (rn?.installedTree) p(`| … installed version as locked | ${pkgs.filter((x) => x.installed && !x.installed.missing && x.installed.version === x.version).length}; differs: ${pkgs.filter((x) => x.installed && !x.installed.missing && x.installed.version !== x.version).length}; not installed: ${pkgs.filter((x) => x.installed?.missing).length} (${pkgs.filter((x) => x.installed?.missing && (x.os || x.cpu)).length} built for another platform) | the installed tree read here |`);
+  if (rn?.installedTree) p(`| … with WebAssembly or native addon files installed | ${pkgs.filter((x) => x.binaries.length).length} packages (${pkgs.reduce((n, x) => n + x.binaries.filter((b) => b.endsWith('.wasm')).length, 0)} .wasm, ${pkgs.reduce((n, x) => n + x.binaries.filter((b) => b.endsWith('.node')).length, 0)} .node files) | the installed tree read here (a binary named otherwise, such as esbuild's, shows only through its platform fields) |`);
+  if (rn?.installedTree) p(`| … installed but not in the lockfile | ${rn.extraneous.length} | the installed tree read here |`);
   p(`| other npm projects | ${c.others.length} (${subLocked} locked entries) | every other \`package.json\` and lockfile, minus the excluded |`);
   p(`| excluded manifests and lockfiles | ${c.excluded.length} | skill material, a demo scaffold, fixtures, template content |`);
   p(`| Python modules imported (not the standard library, not this repository's own) | ${pyMods.length} (${pyMods.filter((m) => m.via === 'host').length} live only inside an application's Python) | every tracked \`.py\` file |`);
@@ -633,6 +637,15 @@ export function buildReport(c, sbom, feats) {
   p('');
 
   const scripts = [...new Map(pkgs.filter((x) => x.installScript).map((x) => [`${x.name}@${x.version}`, x])).values()];
+  const bins = [...new Map(pkgs.filter((x) => x.binaries.length).map((x) => [`${x.name}@${x.version}`, x])).values()];
+  if (rn?.installedTree) {
+    p('### WebAssembly and native addons in the installed tree', '');
+    p('Files ending .wasm or .node inside each installed package (the tree read here, which is this computer\'s: a platform package for', 'another system is not installed here and is counted under "not installed"). These run inside Timmy\'s process or its pages.', '');
+    p('| Package | Files | Declared directly | Scope |', '|---|---|---|---|');
+    for (const x of bins.sort((a, b) => byString(a.name, b.name))) p(`| ${code(`${x.name}@${x.version}`)} | ${cut(x.binaries.join(', '), 200)} | ${x.direct ? 'yes' : `no (through ${x.introducedBy.slice(0, 3).join(', ') || '–'})`} | ${npmScope(x, null).scope} |`);
+    p('');
+    if (rn.extraneous.length) p(`Installed but not in the lockfile: ${rn.extraneous.map((x) => code(`${x.name}@${x.version ?? '?'}`)).join(', ')}.`, '');
+  }
   const deprecated = pkgs.filter((x) => x.deprecated);
   p('### Install scripts, deprecations, engines', '');
   p(`- Install scripts (they run code at \`npm install\`): ${scripts.map((x) => code(`${x.name}@${x.version}`)).join(', ') || 'none'}. The root \`allowScripts\` lists ${code(JSON.stringify(c.rootPkg?.allowScripts ?? []))}.`);
@@ -722,8 +735,8 @@ export function buildReport(c, sbom, feats) {
   p('');
 
   p(`### Python (${pyMods.length} modules imported)`, '');
-  p('| Module | Distribution | From | Declared in | Used by |', '|---|---|---|---|---|');
-  for (const m of pyMods) p(`| ${code(m.module)} | ${esc(m.dist ?? 'not mapped')} | ${esc(m.via === 'host' ? `an application's own Python${m.note ? `: ${m.note}` : ''}` : m.via)}${m.note && m.via !== 'host' ? ` (${esc(m.note)})` : ''} | ${m.declaredIn.length ? m.declaredIn.map(code).join(', ') : 'no manifest here'} | ${cut(m.areas.join(', '), 120)} |`);
+  p('| Module | Distribution | From | Declared in | Used by | Test stand-in |', '|---|---|---|---|---|---|');
+  for (const m of pyMods) p(`| ${code(m.module)} | ${esc(m.dist ?? 'not mapped')} | ${esc(m.via === 'host' ? `an application's own Python${m.note ? `: ${m.note}` : ''}` : m.via)}${m.note && m.via !== 'host' ? ` (${esc(m.note)})` : ''} | ${m.declaredIn.length ? m.declaredIn.map(code).join(', ') : 'no manifest here'} | ${cut(m.areas.join(', '), 120)} | ${m.stub ? code(m.stub) : '–'} |`);
   p('');
   for (const m of c.python.manifests) p(`- ${code(m.file)}${m.excluded ? ` (excluded: ${esc(m.excluded)})` : ''}: ${m.requirements.map((r) => `${r.name}${r.spec ? ` ${r.spec}` : ''}`).join(', ') || 'no requirements'}${m.project?.requiresPython ? `; Python ${m.project.requiresPython}` : ''}. Versions are ranges: nothing locks them.`);
   for (const cl of c.python.conda) p(`- ${code(cl.file)}: an explicit conda lock for ${cl.platform ?? 'an unnamed platform'}, ${cl.packages.length} packages with exact versions and md5 sums (in \`sbom.json\`).`);
@@ -767,14 +780,19 @@ export function buildReport(c, sbom, feats) {
   p('### Packaging: what the npm package carries', '');
   const pk = c.packaging;
   const emptyEntries = pk.entries.filter((e) => !e.built && e.trackedFiles === 0);
-  p(`\`package.json\` "files" has ${pk.entries.length} entries; ${pk.entries.filter((e) => e.built).length} name built output (\`dist\`), present only after \`npm run build\`. ${emptyEntries.length ? `Entries that match no tracked file: ${emptyEntries.map((e) => code(e.entry)).join(', ')}.` : 'Every other entry matches tracked files.'}`, '');
-  const outside = pk.assets.filter((a) => !a.inPackage);
-  p(`Repository paths the source names at run time: ${pk.assets.length}; inside the package: ${pk.assets.length - outside.length}; only in a checkout: ${outside.length}.`, '');
+  p(`\`package.json\` "files" has ${pk.entries.length} entries; ${pk.entries.filter((e) => e.built).length} name built output (\`dist\`), present only after \`npm run build\`. ${emptyEntries.length ? `Entries that match no file in the tree read (npm pack leaves a missing entry out without a word): ${emptyEntries.map((e) => code(e.entry)).join(', ')}.` : 'Every other entry matches files in the tree read.'}`, '');
+  const outside = pk.assets.filter((a) => a.inPackage !== 'yes');
+  p(`Repository paths the source names at run time: ${pk.assets.length}; inside the package: ${pk.assets.length - outside.length}; only in a checkout, or only in part: ${outside.length}.`, '');
   if (outside.length) {
-    p('| Path (checkout only) | Named by |', '|---|---|');
-    for (const a of outside) p(`| ${code(a.path)} | ${cut(a.namedBy.join(', '), 140)} |`);
+    p('| Path | In the package | Named by |', '|---|---|---|');
+    for (const a of outside) p(`| ${code(a.path)} | ${esc(a.inPackage)} | ${cut(a.namedBy.join(', '), 140)} |`);
     p('');
   }
+  const adapters = c.registries.items.filter((x) => x.registry === 'vision adapters' && x.scriptPath);
+  const absent = adapters.filter((x) => !x.scriptPresent);
+  const byScript = new Map();
+  for (const x of absent) { if (!byScript.has(x.scriptPath)) byScript.set(x.scriptPath, []); byScript.get(x.scriptPath).push(x.id); }
+  if (adapters.length) p(`Vision adapters (\`timmy vision integrations list\`): ${adapters.length} in the registry, ${absent.length} of them name a script that is not in this repository (${[...byScript].map(([path, ids]) => `${code(path)} for ${ids.join(', ')}`).join('; ') || 'none'}); a machine reports such an adapter as found only where those files exist outside the repository.`, '');
   if (c.registries.problems.length) {
     p('### Registries that could not be read', '');
     for (const x of c.registries.problems) p(`- ${code(x.file)} ${esc(x.what)}: ${esc(x.why)}`);

@@ -455,9 +455,9 @@
       "next": "ollama list on the Mac (names, digests, sizes) and the model of each sealed turn and agent run from the receipt chain."
     },
     {
-      "what": "Native binaries and WebAssembly inside npm packages, and bundled code",
-      "why": "Each installed package's package.json is read, not its files; Timmy Canvas's page and the companion's web code bundle packages at build time, and the exact set is in each build's notices, which are not tracked.",
-      "next": "List .node and .wasm files per installed package, and read the notices of npm run build:canvas and the companion web build into the SBOM."
+      "what": "Native executables inside npm packages, and bundled code",
+      "why": "The installed tree's .wasm and .node files are listed, but a native executable named otherwise (esbuild's binary in its platform package) shows only through its platform fields; Timmy Canvas's page and the companion's web code bundle packages at build time, and the exact set is in each build's notices, which are not tracked.",
+      "next": "Read each platform package's executable by its file header, and read the notices of npm run build:canvas and the companion web build into the SBOM."
     },
     {
       "what": "A fresh install of this revision",
