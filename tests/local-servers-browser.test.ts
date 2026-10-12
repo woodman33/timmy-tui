@@ -169,8 +169,8 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // R4 (H92): the page's own files (its code and style sheet), and nothing that needs the token
       expect(bare.seen.map((s) => s.path)).toContain('/');
       // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/); R4 (H97): nothing else (no theme, fonts
-      // or marked of H92's page)
-      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      // or marked of H92's page); R4 (H104, r25's D11): and the page's icon, the companion's own
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|favicon\.svg|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
       for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);
