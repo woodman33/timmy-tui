@@ -101,9 +101,9 @@ describe.skipIf(!browserPath)('the tools panel\'s ladder in a real browser (head
     await scad.waitFor({ timeout: 8000 });
     // The rung that stands, in words; the Mac's run beside it, apart from the rung.
     expect(await scad.locator('.rung').textContent()).toBe('exercised');
-    expect(await scad.locator('.tl-mac').textContent()).toBe('on the Mac (scripted): r21 PASS');
+    expect(await scad.locator('.tl-mac').textContent()).toBe('on the Mac (scripted): r23 PASS · r21 PASS');
     expect(await page.locator('li.tl[data-tool="vox:viser"] .rung').textContent()).toBe('proposed');
-    expect(await page.locator('li.tl[data-tool="openhands"] .tl-mac').textContent()).toBe('on the Mac (scripted): r21 PASS, FAIL · r20 FAIL · r19o FAIL');
+    expect(await page.locator('li.tl[data-tool="openhands"] .tl-mac').textContent()).toBe('on the Mac (scripted): r22 PASS · r21 PASS, FAIL · r20 FAIL · r19o FAIL');
     // The ladder is folded: closed until opened.
     const ladder = scad.locator('details.tl-ladder');
     expect(await ladder.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
@@ -116,13 +116,16 @@ describe.skipIf(!browserPath)('the tools panel\'s ladder in a real browser (head
     expect(dd[1]).toMatch(/^openscad on PATH at \.\/bin\/openscad; .* · where: \.\/bin\/openscad · how: the PATH \(openscad\) · version: not asked$/);
     expect(dd[3]).toContain(`receipt ${native.hash.slice(7, 15)} · record .timmy/native/0a1b2c3d-0000-4000-8000-0000000000b1/job.json`);
     expect(dd[4]).toBe('not reached: no qualification record');
-    expect(await scad.locator('ul.tl-demos li').allTextContents()).toEqual(['PASS r21 (ledger row 163, 2026-10-10, aae9e82, scripted, part R): OpenSCAD 2026.09.23 in /iterate scad: 190 × 40 × 30 mm, matching OpenSCAD\'s own summary']);
+    expect(await scad.locator('ul.tl-demos li').allTextContents()).toEqual([
+      'PASS r23 (ledger row 171, 2026-10-11, b234164, scripted, part r23b T): /tools openscad: installed, then exercised after one judged-ok /scad',
+      'PASS r21 (ledger row 163, 2026-10-10, aae9e82, scripted, part R): OpenSCAD 2026.09.23 in /iterate scad: 190 × 40 × 30 mm, matching OpenSCAD\'s own summary',
+    ]);
     // FAIL is drawn in the failure colour, PASS in the text colour: the words carry it, the colour only repeats it.
     const oh = page.locator('li.tl[data-tool="openhands"]');
     await oh.locator('details.tl-ladder summary').click();
     const colours = await oh.locator('ul.tl-demos .demo').evaluateAll((els) => els.map((e) => [e.textContent, getComputedStyle(e).color]));
     const rgb = (hex: string): string => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
-    expect(colours).toEqual([['PASS', rgb(HOMEBREW.text)], ['FAIL', rgb(HOMEBREW.failure)], ['FAIL', rgb(HOMEBREW.failure)], ['FAIL', rgb(HOMEBREW.failure)]]);
+    expect(colours).toEqual([['PASS', rgb(HOMEBREW.text)], ['PASS', rgb(HOMEBREW.text)], ['FAIL', rgb(HOMEBREW.failure)], ['FAIL', rgb(HOMEBREW.failure)], ['FAIL', rgb(HOMEBREW.failure)]]);
 
     // A second check changes the panel (oha's row joins it, in the folded "everything else" group): the page redraws, and
     // the ladders the operator opened stay open.
