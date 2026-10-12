@@ -37,6 +37,7 @@ import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
 import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './turn.js';
+import { projectTurn } from '../agent/chat-turn.js';
 import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
 import { openWebView, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
@@ -534,6 +535,8 @@ export async function runRepl(argv: string[]): Promise<number> {
       return localModelCommand(args, r, { set: (m) => { sessionModel = m; }, glyphs: theme.glyphs });
     },
     setupState: () => { const s = readSetupState(); return { pending: pendingQuestions(s).length, blank: !s.identity.exists }; },
+    // R4 (H113): each chat turn continues the active project's one conversation, shared with the other surfaces
+    project: () => ({ name: workspace.project.name, root: workspace.root }),
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
@@ -718,6 +721,12 @@ export interface ReplDeps {
   tools?: ReplContext['tools'];
   /** R1 workspace direction: the active project and its files, workflows, jobs, preview and results. */
   workspace?: ReplContext['workspace'];
+  /**
+   * R4 (H113): the active project, whose one conversation each chat turn continues (src/agent/chat-turn.ts projectTurn): one
+   * turn at a time across every surface, the conversation as it is on disk now, the surface on the receipt. Absent: the turn
+   * alone (src/repl/turn.ts runTurn), as before.
+   */
+  project?: () => { name: string; root: string };
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
@@ -827,11 +836,25 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    // Round R4 (H51): a turn is one operation too: the runs its tools start and its receipt carry its id.
-    const turn = (): ReturnType<typeof runTurn> => runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+    // Round R4 (H51): a turn is one operation too: the runs its tools start and its receipt carry its id. R4 (H113): the
+    // project's turn (one turn at a time across surfaces, its kept conversation continued, the surface on the receipt); a turn
+    // another surface is running refuses this one, and nothing is sent
+    const turn = async (): Promise<Awaited<ReturnType<typeof runTurn>> | 'refused'> => {
+      if (!d.project) return runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+      const r = await projectTurn({
+        agent, project: d.project(), surface: 'repl', text, sink: transcript, marks: turnMarks, signal: controller.signal, abandon, more: { inspect: d.inspect },
+        ...(d.seal ? { seal: d.seal } : {}),
+        onContinue: (c) => { if (c.added > 0) say([{ text: `  The conversation continues: ${c.added} ${c.added === 1 ? 'message' : 'messages'} another surface added to this project's conversation since this REPL last sent (kept in .sessions).`, role: 'secondary' }]); },
+      });
+      if (r.status !== 'refused') return r.status;
+      say([{ text: `${theme.glyphs.fail} `, role: 'failure' }, { text: r.lines[0] ?? 'Not sent.' }]);
+      for (const line of r.lines.slice(1)) say([{ text: `  ${line}`, role: 'secondary' }]);
+      transcript.endTurn();
+      return 'refused';
+    };
     const result = await (d.workspace?.operate ? d.workspace.operate(text, 'repl', turn) : turn());
     stopWatching();
-    if (!interactive && result === 'failed') status = EXIT.failure;
+    if (!interactive && (result === 'failed' || result === 'refused')) status = EXIT.failure;
     if (interactive) region.commit(['']);
   }
   session.restore();

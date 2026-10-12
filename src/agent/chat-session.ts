@@ -43,11 +43,12 @@ import type { ChatRouteState, ChatSession, ChatSurface, ChatTurnHooks, ChatTurnR
 import { gateTools, type ApprovalRequest, type Decision } from '../repl/approvals.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from '../repl/seal.js';
 import type { TurnEvent } from '../repl/transcript.js';
-import { runTurn, type TurnSummary } from '../repl/turn.js';
+import type { TurnSummary } from '../repl/turn.js';
 import { projectId } from '../project/index.js';
 import { loadConfig } from '../utils/config.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { chatRouteNow, fallbackRoute, sealedRoute, type RouteNow } from './chat-route.js';
+import { noteTurnKey, projectTurn, surfaceWords, type Continued } from './chat-turn.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
 import { defaultTools, neverSent } from './tools.js';
@@ -172,7 +173,16 @@ function agentFor(root: string, config: { apiKey?: string; model?: string }, sur
  * Opens the chat for a project on a surface (src/contracts/chat-session.ts OpenChatSession; `deps` is optional and the
  * contract's callers pass none). The agent's tools are gated from here on, and its instructions are the chat's.
  */
-export async function openChatSession(o: { project: { name: string; root: string }; surface: ChatSurface }, deps: ChatSessionDeps = {}): Promise<ChatSession> {
+/**
+ * R4 (H113): the session with a keyed send beside the contract's: a message the surface gave a key (the companion's page, whose
+ * request a reconnect may send again) that this project has already run is refused, naming its receipt, and never sent twice.
+ * Not in src/contracts/chat-session.ts yet (a contract change goes through the lead): its own surfaces use this type.
+ */
+export interface KeyedChatSession extends ChatSession {
+  sendOnce(key: string, text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult>;
+}
+
+export async function openChatSession(o: { project: { name: string; root: string }; surface: ChatSurface }, deps: ChatSessionDeps = {}): Promise<KeyedChatSession> {
   const env = deps.env ?? process.env;
   const config = deps.config ?? (() => { try { return loadConfig(); } catch { return {}; } })();
   const agent: SessionAgent = deps.agent ?? agentFor(o.project.root, config, o.surface);
@@ -192,7 +202,7 @@ export async function openChatSession(o: { project: { name: string; root: string
   // R4 (H113): the REPL's own seal (src/repl/seal.ts), the surface named in its subject
   const seal: TurnSealer | null = deps.seal === undefined ? (facts, dir) => sealTurn(facts, dir) : deps.seal;
 
-  const send = async (text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult> => {
+  const send = async (text: string, hooks: ChatTurnHooks, key?: string): Promise<ChatTurnResult> => {
     const typed = text.trim();
     const refused = (lines: string[]): ChatTurnResult => ({ status: 'refused', text: '', lines, sent: false, costWords: NO_REQUEST_COST });
     if (!typed) return refused(['Not sent: the message is empty.']);
@@ -224,24 +234,33 @@ export async function openChatSession(o: { project: { name: string; root: string
     agent.on('stream:delta', onDelta);
     ctx.current = hooks;
     ctx.touched.close(); // nothing from before this turn
+    // R4 (H113): the project's turn (src/agent/chat-turn.ts): one turn at a time across every surface, the project's kept
+    // conversation continued from disk, a keyed message never sent twice
+    let turn: Awaited<ReturnType<typeof projectTurn>>;
     try {
-      await runTurn(agent, sink as never, typed, Date.now, undefined, hooks.signal, undefined, undefined, {
-        summary: (s) => { summary = s; }, retry: deps.retry ?? false,
-        // a failure that never left this computer (no connection, no address) sent nothing
-        notSent: (err) => neverSent(err),
+      turn = await projectTurn({
+        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key ? { key } : {}),
+        more: {
+          summary: (s) => { summary = s; }, retry: deps.retry ?? false,
+          // a failure that never left this computer (no connection, no address) sent nothing
+          notSent: (err) => neverSent(err),
+        },
       });
     } finally {
       ctx.current = null;
       agent.off('stream:delta', onDelta);
     }
     const files = ctx.touched.close();
+    if (turn.status === 'refused') return refused(turn.lines);
     const s = summary as TurnSummary | null;
     if (!s) return { status: 'failed', text: '', lines: ['The turn ended without saying what it did, so whether anything was sent is not known.'], sent: false, costWords: 'cost unknown' };
-    return finish(s, { requested, local: Boolean(now.local), files });
+    const r = finish(s, { requested, local: Boolean(now.local), files, continued: turn.continued });
+    if (key && r.receipt) noteTurnKey(o.project.root, key, o.surface, r.receipt);
+    return r;
   };
 
   /** The turn's answer in the contract's words, and its receipt: the REPL's seal, with this surface, into the project's store. */
-  const finish = (s: TurnSummary, t: { requested: string; local: boolean; files: TurnFacts['files'] }): ChatTurnResult => {
+  const finish = (s: TurnSummary, t: { requested: string; local: boolean; files: TurnFacts['files']; continued: Continued }): ChatTurnResult => {
     const status: ChatTurnResult['status'] = s.result === 'ok' ? 'answered' : s.result;
     const sent = s.sent;
     const fb = agent.lastFallback();
@@ -261,6 +280,9 @@ export async function openChatSession(o: { project: { name: string; root: string
       : measured ? (t.local ? LOCAL_COST : `${dollars(s.spend)} (as OpenRouter reported)`)
         : s.spend > 0 ? `cost unknown (at least ${dollars(s.spend)})` : 'cost unknown') + (paidTool ? `; ${paidTool}` : '');
     const notices = [...s.notices];
+    // R4 (H113): the project's one conversation: what this turn continued, when another surface had added to it since
+    if (t.continued.added > 0) notices.unshift(`This turn continued the project's conversation, with ${t.continued.added} ${t.continued.added === 1 ? 'message' : 'messages'} another surface added since ${surfaceWords(o.surface)} last sent (kept in .sessions).`);
+    else if (t.continued.moved && t.continued.messages > 0) notices.unshift(`This turn continued the project's conversation (${t.continued.messages} ${t.continued.messages === 1 ? 'message' : 'messages'} kept in .sessions).`);
     // the receipt: every turn that reached the agent (refused messages reached nothing, and have none)
     let receipt: string | undefined;
     if (seal) {
@@ -282,5 +304,9 @@ export async function openChatSession(o: { project: { name: string; root: string
     return { status, text: s.streamed, lines: [...notices, ...lines], ...base };
   };
 
-  return { route: (): ChatRouteState => routeNow().state, send };
+  return {
+    route: (): ChatRouteState => routeNow().state,
+    send: (text: string, hooks: ChatTurnHooks) => send(text, hooks),
+    sendOnce: (key: string, text: string, hooks: ChatTurnHooks) => send(text, hooks, key),
+  };
 }
