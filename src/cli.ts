@@ -51,6 +51,7 @@ Commands:
                   with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust);
                   --lanes starts the lane programs (opencode, hermes, pi, openhands, jcode, minds) on a tmux server of Timmy's own,
                   ended with the monitor (off by default; a program's own first run may install its own background helpers)
+  workbench       The terminal Workbench: one project in five zones (being built in R4; exits 69 until it is)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
@@ -60,6 +61,7 @@ Commands:
   act "<slash command>"  One REPL command, headlessly, as one operation (--wait, --json, --project, --timeout)
   md <workflow.md> [<block>]  Run a upmd workflow's block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json)
   evidence flow|step|vox  In a workflow block: this run's flow record, its STEP or its VoxVision record, by the operation's id, never by time
+  op <id>         One operation's run detail: asked, ran, made, receipts (being built in R4; exits 69 until it is)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -155,7 +157,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'connect', 'cloud'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'connect', 'cloud'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -178,6 +180,18 @@ if (command === 'evidence') {
   // Round R4 (H102): this run's flow record, STEP or VoxVision record, found by the operation's id (src/ops/evidence.ts).
   const { evidenceMain } = await import('./ops/evidence.js');
   process.exit(await evidenceMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'op') {
+  // R4 lead (the Workbench direction): one operation's run detail (src/ops/op-cli.ts; the shape: src/contracts/run-detail.ts).
+  const { opMain } = await import('./ops/op-cli.js');
+  process.exit(await opMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'workbench') {
+  // R4 lead (the Workbench direction): the terminal Workbench, one project in five zones (src/workbench/cli.ts).
+  const { workbenchMain } = await import('./workbench/cli.js');
+  process.exit(await workbenchMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
 }
 
 if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
