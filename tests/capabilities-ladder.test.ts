@@ -399,7 +399,8 @@ describe('the Mac\'s demonstrations: a separate fact, from the ledger', () => {
     const ledger = readFileSync(join(ROOT, LEDGER), 'utf8').split('\n');
     const ids = new Set((await capabilities(none, { all: true })).map((r) => r.id));
     for (const d of DEMONSTRATIONS) {
-      const row = ledger.find((l) => l.startsWith(`| ${d.row} | ${d.run}:`));
+      // The row's step starts with the run's name: "r21: …", or "r23 on the Mac …" as rows 171 and 173 name theirs.
+      const row = ledger.find((l) => l.startsWith(`| ${d.row} | ${d.run}:`) || l.startsWith(`| ${d.row} | ${d.run} `));
       expect(row, `${d.tool}: ledger row ${d.row} is ${d.run}`).toBeDefined();
       expect(row!, d.tool).toContain(`\`${d.revision}\``);
       expect(row!, d.tool).toMatch(/scripted/);
@@ -410,17 +411,19 @@ describe('the Mac\'s demonstrations: a separate fact, from the ledger', () => {
       expect(ids.has(d.tool), `${d.tool} is a /tools row`).toBe(true);
     }
     // The failed ones stay listed as failed.
-    expect(DEMONSTRATIONS.filter((d) => d.result === 'FAIL').map((d) => `${d.tool} ${d.run}`)).toEqual(['openhands r19o', 'openhands r20', 'unreal r21', 'openhands r21']);
+    expect(DEMONSTRATIONS.filter((d) => d.result === 'FAIL').map((d) => `${d.tool} ${d.run}`)).toEqual(['openhands r19o', 'openhands r20', 'unreal r21', 'openhands r21', 'workflows r24', 'workflows r25']);
+    // R4 (H111): every scripted Mac run in the ledger after r21 has its entries: u23, r22, r23, r23c, and the previews r24 and r25.
+    expect([...new Set(DEMONSTRATIONS.map((d) => `${d.run} row ${d.row}`))]).toEqual(['r19 row 158', 'r19o row 159', 'r20 row 162', 'r21 row 163', 'u23 row 166', 'r22 row 168', 'r23 row 171', 'r23c row 173', 'r24 row 176', 'r25 row 180']);
   });
 
   it('never raises a rung: OpenSCAD, PASS on the Mac, stays where its own evidence here puts it, and says both', async () => {
     const r = byId(await capabilities(none));
-    expect(r.openscad.demonstrated!.map((d) => `${d.run} ${d.result} row ${d.row}`)).toEqual(['r21 PASS row 163']);
+    expect(r.openscad.demonstrated!.map((d) => `${d.run} ${d.result} row ${d.row}`)).toEqual(['r23 PASS row 171', 'r21 PASS row 163']);
     expect(r.openscad).toMatchObject({ rung: 'needs setup', ladder: { installed: null, exercised: null, qualified: null } });
-    expect(r.openhands.demonstrated!.map((d) => `${d.run} ${d.result}`)).toEqual(['r21 PASS', 'r21 FAIL', 'r20 FAIL', 'r19o FAIL']);
+    expect(r.openhands.demonstrated!.map((d) => `${d.run} ${d.result}`)).toEqual(['r22 PASS', 'r21 PASS', 'r21 FAIL', 'r20 FAIL', 'r19o FAIL']);
     const lines = capabilityLines([r.openscad, r.openhands], glyphSet(true), 80).map(lineText);
-    expect(lines).toContain('      on the Mac (scripted): r21 PASS');
-    expect(lines).toContain('      on the Mac (scripted): r21 PASS, FAIL · r20 FAIL · r19o FAIL');
+    expect(lines).toContain('      on the Mac (scripted): r23 PASS · r21 PASS');
+    expect(lines).toContain('      on the Mac (scripted): r22 PASS · r21 PASS, FAIL · r20 FAIL · r19o FAIL');
     // A row with none says nothing of the Mac in the table.
     expect(capabilityLines([r.browser], glyphSet(true), 80).map(lineText).some((l) => l.includes('on the Mac ('))).toBe(false);
   });
@@ -512,7 +515,7 @@ describe('the Control Room\'s tools panel', () => {
     const html = toolsPanel({ tools: { checkedAt: '2026-10-10T12:00:00.000Z', rows: scrubbed } } as unknown as RoomView, kit({ live: false, base: '../../' }));
     expect(html).toContain('<li class="tl" data-tool="openscad"><div class="tl-head"><span class="tl-name">OpenSCAD (command line)</span> <span class="rung rung-exercised">exercised</span></div>');
     expect(html).toContain(`used ${native.ts.slice(0, 10)} (a run&#39;s own sealed record)`);
-    expect(html).toContain('<div class="tl-mac">on the Mac (scripted): r21 PASS</div>');
+    expect(html).toContain('<div class="tl-mac">on the Mac (scripted): r23 PASS · r21 PASS</div>');
     expect(html).toContain('<details class="more tl-ladder" data-keep="room:tool:openscad"><summary>the ladder and the Mac runs</summary>');
     expect(html).toContain(`<dt class="lr-on">exercised</dt><dd class="lr-on">an openscad run judged ok from its own result file · ${native.ts.slice(0, 16).replace('T', ' ')} UTC · receipt ${native.hash.slice(7, 15)}`);
     expect(html).toContain('<dt class="lr-off">qualified</dt><dd class="lr-off">not reached: no qualification record</dd>');

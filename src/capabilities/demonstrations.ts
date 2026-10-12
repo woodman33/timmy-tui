@@ -9,7 +9,10 @@
  *
  * Each entry rests on its ledger row alone: `cites` are words that stand verbatim in that row (tests/capabilities-ladder
  * checks them against the ledger). PASS or FAIL is as the row says; a failed demonstration stays listed as failed. The
- * lead updates this table at each checkpoint. Filled from rows 158 (r19), 159 (r19o), 162 (r20) and 163 (r21).
+ * lead updates this table at each checkpoint. Filled from rows 158 (r19), 159 (r19o), 162 (r20) and 163 (r21); since R4
+ * H111, also 166 (u23), 168 (r22), 171 (r23), 173 (r23c), 176 (r24) and 180 (r25). A part the row calls partial is
+ * entered by what of it passed or failed, each with the row's own words; what a row says was only found (a program on
+ * PATH, a lane "found (not checked)") is no demonstration and is not entered.
  */
 
 export interface Demonstration {
@@ -40,6 +43,12 @@ const r19 = { run: 'r19', row: 158, date: '2026-10-10', revision: 'c8a0cf7', how
 const r19o = { run: 'r19o', row: 159, date: '2026-10-10', revision: 'c8a0cf7', how: 'scripted' } as const;
 const r20 = { run: 'r20', row: 162, date: '2026-10-10', revision: '10e9b9b', how: 'scripted' } as const;
 const r21 = { run: 'r21', row: 163, date: '2026-10-10', revision: 'aae9e82', how: 'scripted' } as const;
+const u23 = { run: 'u23', row: 166, date: '2026-10-10', revision: '796485a', how: 'scripted' } as const;
+const r22 = { run: 'r22', row: 168, date: '2026-10-10', revision: '28d1aa4', how: 'scripted' } as const;
+const r23 = { run: 'r23', row: 171, date: '2026-10-11', revision: 'b234164', how: 'scripted' } as const;
+const r23c = { run: 'r23c', row: 173, date: '2026-10-11', revision: 'a99f409', how: 'scripted' } as const;
+const r24 = { run: 'r24', row: 176, date: '2026-10-11', revision: 'a300851', how: 'scripted' } as const;
+const r25 = { run: 'r25', row: 180, date: '2026-10-11', revision: '5e5cbb3', how: 'scripted' } as const;
 
 export const DEMONSTRATIONS: readonly Demonstration[] = [
   // ── r19, row 158: the owner's first connected product demonstration (the installed package built from c8a0cf7)
@@ -89,6 +98,66 @@ export const DEMONSTRATIONS: readonly Demonstration[] = [
     cites: ['**O, OpenHands\' stop order (H62):**', 'ended its container first (docker stop, exit 0)'] },
   { ...r21, tool: 'openhands', part: 'O', result: 'FAIL', outcome: 'a completed run not shown: 0 steps, the tool call as text, recorded "✓ completed" (H69 since)',
     cites: ['r20\'s finding 4 again, fixed since in H69', '(4) OpenHands\' 0-step ✓ again'] },
+
+  // ── u23, row 166: Unreal through Timmy's own /unreal (the installed package from 796485a)
+  { ...u23, tool: 'unreal', part: '1, 3, 4', result: 'PASS', outcome: 'Unreal 5.8.2 through /unreal: the starter built, a second Unreal agreed on 9 of 9 actors; timmy act exit 0',
+    cites: ['Unreal Engine 5.8.2', 'the automatic readback agreed, 9 of 9 actors', 'exit 0 in 57 s, outcome succeeded'] },
+
+  // ── r22, row 168: batch 9 and the lead's r21 fixes (the installed package from 28d1aa4)
+  { ...r22, tool: 'workflows', part: 'W', result: 'PASS', outcome: 'a /run whose REPL ended was stopped by its own wrapper and recorded by /recover; the rerun reached 3 of 3',
+    cites: ['a `/run` whose REPL ended was stopped by its own wrapper', 'the rerun reached 3 of 3 (receipt `903db7c8`)'] },
+  { ...r22, tool: 'openhands', part: 'O1, O2', result: 'PASS', outcome: 'the first completed run: native tool calls, 10 steps, NOTES.md written; a stop ended its container first',
+    cites: ['O1: PASS, the first real OpenHands success', 'NOTES.md written (718 bytes, 8 lines) naming all 6 files; receipt `d6e2a7cc`', 'O2: PASS: the container stopped first'] },
+  { ...r22, tool: 'vox:rerun', part: 'V', result: 'PASS', outcome: '/vox view warned at 0.44 s, Rerun bound to 127.0.0.1, a STEP shown as its tessellation',
+    cites: ['V: PASS: `/vox view` warned at 0.44 s, Rerun bound to 127.0.0.1:9876, the STEP file tessellated; receipt `0564a96f`'] },
+  { ...r22, tool: 'illustrator', part: 'I', result: 'PASS', outcome: 'author, edit and inspect passed; timmy act stopped at a macOS prompt left unanswered (the row: partial)',
+    cites: ['`/illustrator` author, edit and inspect passed (receipts `9e413308`, `9ed143ec`, `9846cc5e`)'] },
+
+  // ── r23, row 171: the installed package from b234164 (r23a and r23b)
+  { ...r23, tool: 'workflows', part: 'r23a U', result: 'PASS', outcome: 'real upmd 0.2.7 ran the bytes NEEDS YOU checked; a document naming two blocks alike refused on every path',
+    cites: ['U, real upmd 0.2.7', 'upmd ran the checked bytes', 'refused by the REPL, the board\'s Run (real clicks), `timmy md` (exit 2) and `timmy act` (exit 2)'] },
+  { ...r23, tool: 'unreal', part: 'r23a R', result: 'PASS', outcome: 'five runs through /unreal: one to its end, its readback agreeing 9 of 9; two stops, each said as it happened',
+    cites: ['R, Unreal through `/unreal` (5 runs', 'the readback agreeing 9 of 9'] },
+  { ...r23, tool: 'canvas', part: 'r23b C', result: 'PASS', outcome: 'its cards and credentials: Run up to here to completed, a save with its receipt; reused grants and another project refused',
+    cites: ['C, Timmy Canvas\'s cards and credentials: PASS', 'Run up to here through to completed (receipt `4f0243b2`)'] },
+  { ...r23, tool: 'openscad', part: 'r23b T', result: 'PASS', outcome: '/tools openscad: installed, then exercised after one judged-ok /scad',
+    cites: ['`/tools openscad` installed, then exercised after one judged-ok `/scad`, receipt `be70f65e`'] },
+
+  // ── r23c, row 173: the installed package from a99f409
+  { ...r23c, tool: 'monitor', part: 'M', result: 'PASS', outcome: 'the monitor started no lane program, lane socket or model request; its FIRST RUN screen answered its keys',
+    cites: ['the monitor started no lane program, no lane socket and no model request', 'a canary `ortui-keep` session survived'] },
+  { ...r23c, tool: 'workflows', part: 'H', result: 'PASS', outcome: 'a second SIGINT: timmy md and timmy act each exited 3 with one JSON object; /recover sealed each cut block once',
+    cites: ['`timmy md` and `timmy act` exited 3 within 64 ms with one JSON object each', '`/recover` sealed each cut block once'] },
+
+  // ── r24, row 176: the first preview (the installed package from a300851)
+  { ...r24, tool: 'workflows', part: 'U4b', result: 'PASS', outcome: '/run WORKFLOW.md result: 3 of 3 blocks in 220 s, prediction met',
+    cites: ['`/run WORKFLOW.md result`: 3 of 3 blocks, 220 s, prediction met, operation `o9170961c`'] },
+  { ...r24, tool: 'workflows', part: 'U4c', result: 'FAIL', outcome: 'the board\'s Run up to here on a request already satisfied read FAILED (D3; "no change" since, row 178)',
+    cites: ['U4c, FAIL', 'read as FAILED after 67 s'] },
+  { ...r24, tool: 'workflows', part: 'U4d', result: 'PASS', outcome: 'NEEDS YOU: y ran a risky block once; timmy md (answered n) and timmy act refused it, exit 2',
+    cites: ['the REPL\'s NEEDS YOU box, y allowed it once (the job completed)', '`timmy act` refused it, exit 2'] },
+  { ...r24, tool: 'qwen-code', part: 'U4b', result: 'PASS', outcome: 'Qwen Code 0.22.2 on a local model set the tray\'s width to 150 mm in the workflow\'s change block',
+    cites: ['Qwen Code 0.22.2 on the local qwen3.8:27b-mlx made the width 140 → 150'] },
+  { ...r24, tool: 'recipe-tray', part: 'U4b', result: 'PASS', outcome: 'the workflow\'s CadQuery rebuild in 14 s and its STEP readback in 1.5 s, prediction met',
+    cites: ['the CadQuery rebuild took 14 s and the STEP readback 1.5 s'] },
+  { ...r24, tool: 'canvas', part: 'U6', result: 'PASS', outcome: '/canvas open, Place card on three cards, Open on the board through the token handoff (found: D6)',
+    cites: ['`/canvas open` (the page\'s 71 requests, all to 127.0.0.1)', 'Open on the board through the token handoff'] },
+  { ...r24, tool: 'monitor', part: 'U7', result: 'PASS', outcome: 'timmy watch: exit 78 on a blank home, then FIRST RUN and HOME (found: its companion\'s port ignored, D1; a paid model named with no key, D7)',
+    cites: ['`timmy watch` on a blank home exited 78', 'the monitor\'s FIRST RUN, HOME, q (the pairing card) and Ctrl+C (130)'] },
+
+  // ── r25, row 180: the second preview (the installed package from 5e5cbb3)
+  { ...r25, tool: 'workflows', part: 'U5, U6', result: 'PASS', outcome: '/run WORKFLOW.md result: 3 of 3 blocks in 5 min 16 s, prediction met; a satisfied rerun said no change (found: D2)',
+    cites: ['3 of 3 blocks, 5 min 16 s, prediction met, operation `o0a9ed5a0`', 'no change in 51 s'] },
+  { ...r25, tool: 'workflows', part: 'U7', result: 'FAIL', outcome: 'a stale build: no change in the end line and /jobs, failed in the block line and receipts (D3; one rule since, row 182)',
+    cites: ['U7, partial', 'its block line and receipts say failed (D3)'] },
+  { ...r25, tool: 'workflows', part: 'U8', result: 'PASS', outcome: 'NEEDS YOU: nothing ran while it waited, y ran the block once; the board\'s Run disabled with the reason',
+    cites: ['y allowed it once (the job completed, 3 receipts)', 'the board\'s Run on it disabled with the reason'] },
+  { ...r25, tool: 'recipe-tray', part: 'U7', result: 'PASS', outcome: '/recipe tray: 30 of 30 geometry checks, 160 × 80 × 30 mm',
+    cites: ['`/recipe tray`: 30 of 30 geometry checks passed, bounds 160 × 80 × 30 mm'] },
+  { ...r25, tool: 'canvas', part: 'U4, U9', result: 'PASS', outcome: '/studio; Place this operation placed 3 cards and 2 arrows in run order (found: D9)',
+    cites: ['`/studio` opened Studio\'s page with its grant (71 requests, all to 127.0.0.1)', 'Place this operation placed 3 cards and 2 arrows in run order'] },
+  { ...r25, tool: 'monitor', part: 'U2', result: 'PASS', outcome: 'timmy watch --companion-port: HOME in 1.2 s, the next port when that one was taken, exit 78 with no terminal (found: D7, D10, D12)',
+    cites: ['`timmy watch --companion-port 4422`: HOME in 1.2 s', 'the companion took 4423 when 4422 was taken'] },
 ];
 
 /** A row's demonstrations, newest run first (the ledger's row order), in the table's order within a run. */
