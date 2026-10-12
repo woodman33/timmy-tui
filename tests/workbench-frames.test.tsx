@@ -6,7 +6,7 @@ import React from 'react';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
@@ -288,6 +288,8 @@ describe('the terminal Workbench\'s frames (R4 H110)', () => {
     await sleep(100);
     expect(f.text()).toContain('The Companion at http://127.0.0.1:4321/ stopped serving.');
     expect(stops).toBe(1);
+    // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
+    for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });
 
     // Quick settings: "Saved locally" only once the file is written
     const file = join(box, 'settings', 'workbench.json');
