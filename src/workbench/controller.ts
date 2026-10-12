@@ -107,6 +107,8 @@ export class Controller {
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
   private readonly output = new OutputWatch();
+  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed) */
+  private readonly detailSig = new Map<string, string>();
 
   constructor(private readonly d: ControllerDeps) {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
@@ -279,9 +281,12 @@ export class Controller {
   private onTick(): void {
     this.followProject();
     this.readJobs();
-    // Activity's words change with the time, and a spinner turns while something runs
-    const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.activity.last?.words, this.ui.flash?.at]);
-    if (sig !== this.signature || this.data.activity.running || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
+    // Activity's words change with the time, and a spinner turns while something runs. R4 (H112): with the mouse given back
+    // to the terminal (m), so that a person can select text, the screen is drawn again only when something new happened (a
+    // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
+    const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.away.map((j) => [j.id, j.state, j.steps.length]), this.data.activity.last?.words, this.ui.flash?.at]);
+    const ticking = this.data.activity.running > 0 && this.ui.mouse;
+    if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
   }
 
   /** Follow active project: a project chosen in another surface moves this Workbench (else it says it is pinned). */
@@ -350,12 +355,18 @@ export class Controller {
     this.emit();
   }
 
-  /** The run detail of an operation the Inspector shows: read once, and again while its run goes on. */
-  private wantDetail(op: string, live: boolean): void {
+  /**
+   * The run detail of an operation the Inspector shows: read once, and again while its run goes on. R4 (H112): and again once
+   * its job's record changed since (`sig`: a run that ended, one a later session's recovery ended), and after [r] (found in
+   * tmux: a detail read while a run was stale still said "left running" after /recover had ended it).
+   */
+  private wantDetail(op: string, live: boolean, sig = ''): void {
     if (!this.detailOf?.ok) return;
     const cur = this.data.details[op];
     if (cur?.state === 'loading') return;
-    if (cur && (cur.state === 'ready' || cur.state === 'failed') && (!live || this.now() - cur.at < 1000)) return;
+    const same = this.detailSig.get(op) === sig;
+    if (cur && (cur.state === 'ready' || cur.state === 'failed') && same && (!live || this.now() - cur.at < 1000)) return;
+    this.detailSig.set(op, sig);
     const of = this.detailOf.value;
     const root = this.data.project.root;
     this.data.details[op] = cur?.state === 'ready' ? cur : { state: 'loading', since: this.now() };
@@ -396,7 +407,7 @@ export class Controller {
     // the Inspector, when it shows a job of an operation, draws that operation's run detail
     if (f.regions.right && this.ui.tab === 'inspector') {
       const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
-      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live);
+      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
     }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
@@ -435,6 +446,16 @@ export class Controller {
     if (o?.kind === 'needs-you') { this.needsYouKey(o, input, k); return; }
     if (k.ctrl && input === 'c') { void this.quit(); return; }
     if (o?.kind === 'quit') { if (k.escape) { this.ui.overlay = null; this.emit(); } return; }
+    // R4 (H112; found in tmux under load): keys that arrive together reach Ink as one chunk, and Ink takes a chunk with a
+    // carriage return in it for text: "Workflows\r" lost its Enter, and two quick Enters ("\r\r") did nothing at all. A
+    // chunk of text followed by Enters is that text, then each Enter (one press each: a second Run is refused by its own
+    // guard). In the composer the Enter is not taken: what leaves this computer is sent only by an Enter of its own.
+    const chunk = !k.ctrl && !k.meta && input.length > 1 ? /^([^\x00-\x1f\x7f]*)(\r+)$/.exec(input) : null;
+    if (chunk && this.ui.input.field !== 'composer' && (chunk[1] === '' || this.ui.input.field || chunk[1].startsWith('/'))) {
+      if (chunk[1]) this.key(chunk[1], {});
+      for (let i = 0; i < chunk[2].length; i++) this.key('\r', { return: true });
+      return;
+    }
     if (this.ui.input.field) { this.typing(input, k); return; }
     // R4 (H112): what the key acts on is the item the person sees selected, wherever the records have moved it since
     this.reselect();
@@ -573,6 +594,10 @@ export class Controller {
     if (this.ui.workspace !== ws) {
       this.ui.workspace = ws;
       this.ui.overlay = null;
+      // R4 (H112): a list opened again starts on its first row (its newest), unless the person chose a row in it (that row
+      // stays chosen, wherever new rows put it); while the person looks at a list, its selection stays on its item either way
+      const list = `center:${ws}`;
+      if (!this.ui.chosen?.[list]) { delete this.ui.sel[list]; delete this.ui.anchor[list]; delete this.ui.wheel[list]; this.ui.cursor[list] = 0; this.ui.scroll[list] = 0; }
       this.remember();
     }
     // the navigation shows the workspace chosen, wherever the wheel had scrolled it
@@ -584,7 +609,7 @@ export class Controller {
 
   private search(): void {
     // in All tools, away from the navigation, / searches the tools (R4, H112: from the words the search kept)
-    if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.loadFor('tools'); this.emit(); return; }
+    if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.toolsTop(); this.loadFor('tools'); this.emit(); return; }
     if (modeOf(this.size.columns) === 'narrow' || this.ui.focusMode) this.ui.navOpen = true;
     this.ui.focus = 'nav';
     this.ui.input = { field: 'search', text: '' };
@@ -612,6 +637,8 @@ export class Controller {
   }
 
   refresh(): void {
+    // R4 (H112): each run detail is read again too, when next shown (until then the one read before stays on screen)
+    this.detailSig.clear();
     this.readAll();
     this.loadFor(this.ui.workspace, true);
     this.say(`Read ${this.data.project.name}'s records again at ${clock(new Date(this.now()).toISOString())}.`, 'secondary');
@@ -630,7 +657,7 @@ export class Controller {
         // where the navigation is shown, gives it the keyboard, so / finds a workspace in one key (no key changes). Where it
         // is a drawer, the keyboard stays on the list: g, then /.
         this.ui.toolsQuery = '';
-        this.ui.cursor['center:tools'] = 0;
+        this.toolsTop();
         if (this.last?.regions.nav) {
           this.ui.focus = 'nav';
           this.say('Tools search cleared. The navigation has the keyboard: / finds a workspace; Tab goes back to the tools.', 'secondary');
@@ -647,14 +674,30 @@ export class Controller {
       if (f === 'picker') { this.ui.cursor.overlay = Math.max(0, (this.ui.cursor.overlay ?? 0) + (k.upArrow ? -1 : 1)); this.emit(); }
       return;
     }
-    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); this.emit(); return; }
+    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); this.emit(); return; }
     if (k.ctrl || k.meta || k.tab) return;
     // printable text only (a paste arrives as one string)
     const text = input.replace(/[\x00-\x1f\x7f]/g, '');
     if (!text) return;
     this.ui.input.text = (this.ui.input.text + text).slice(0, 300);
     if (f === 'picker') this.ui.cursor.overlay = 0;
+    if (f === 'tools') this.toolsTop();
     this.emit();
+  }
+
+  /**
+   * R4 (H112; found in tmux at 80x24): All tools' list from its top, its first match selected: the search's own row and its
+   * hint (the way to the workspace finder) are the list's first rows, so they are shown while the search is typed in, and
+   * after Esc clears it (a row selected far down had scrolled them away).
+   */
+  private toolsTop(): void {
+    const list = 'center:tools';
+    this.ui.cursor[list] = 0;
+    this.ui.scroll[list] = 0;
+    delete this.ui.sel[list];
+    delete this.ui.anchor[list];
+    delete this.ui.wheel[list];
+    if (this.ui.chosen) delete this.ui.chosen[list];
   }
 
   private async submit(field: NonNullable<Ui['input']['field']>, text: string): Promise<void> {
@@ -924,6 +967,7 @@ export class Controller {
     this.ui.sel = {};
     this.ui.anchor = {};
     this.ui.wheel = {};
+    this.ui.chosen = {};
     this.ui.toolsQuery = '';
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
     if (remembered) { this.ui.workspace = remembered.workspace; this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
@@ -1117,7 +1161,9 @@ export class Controller {
   // ── quitting ──────────────────────────────────────────────────────────────────
 
   async quit(): Promise<void> {
-    // R4 (H112): this Workbench's runs in another project are its own too: the quit box names them
+    // R4 (H112): the job store as it is now (found in tmux: a Ctrl+C just after a run ended asked about that run, read before
+    // it ended); this Workbench's runs in another project are its own too: the quit box names them
+    this.readJobs();
     const live = [...this.data.jobs, ...this.data.away].filter((j) => j.live);
     const own = live.filter((j) => j.owner === 'workbench');
     const others = live.filter((j) => j.owner !== 'workbench');

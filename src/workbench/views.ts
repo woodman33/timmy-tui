@@ -570,9 +570,12 @@ function toolsView(c: ViewCtx): View {
   } else if (ui.focus === 'nav') {
     lines.push([S(q ? `Matching "${q}"  ${g.sep} ` : '', 'secondary'), S('Search the tools: Tab to this list, then /', 'secondary')]);
   } else if (q) {
-    lines.push([S('Matching ', 'secondary'), S(`"${q}"`, 'strong'), S('  ', 'secondary'), key('/'), S(' change the search', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
+    // (a narrow row keeps the way to the finder before "[/] change the search", never cut)
+    lines.push(pick([[S('Matching ', 'secondary'), S(`"${q}"`, 'strong')], [S('a workspace: g, then /', 'secondary')], [key('/'), S(' change the search', 'secondary')]], c.width, S(`  ${g.sep} `, 'secondary')));
   } else {
-    lines.push([key('/'), S(' Search the tools by name, kind or what they need', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
+    // (at 80 columns the long form was cut before the way to the finder: the short form keeps it)
+    const long: Line = [key('/'), S(' Search the tools by name, kind or what they need', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')];
+    lines.push(lineCells(long) <= c.width ? long : [key('/'), S(' Search the tools', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
   }
   const wait = lazyLines(data.caps, 'Timmy\'s tools', c);
   if (wait) return { lines: [...lines, ...wait], items };
@@ -752,16 +755,24 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
     case 'quit': {
       lines.push([S('Quit the Workbench?', 'strong')]);
       lines.push(blank);
-      if (o.own.length) {
-        lines.push(...para(`${count(o.own.length, 'job')} this Workbench started will stop with it (its runner ends when the Workbench does):`, c.width, 'attention'));
-        for (const j of o.own) lines.push([S(`  ${j.id} ${j.label}`, 'strong')]);
+      // R4 (H112): the jobs as they are now: one that ended while the box waited is said so, not named as one to stop
+      const liveNow = (id: string): boolean => [...c.data.jobs, ...(c.data.away ?? [])].some((j) => j.id === id && j.live);
+      const own = o.own.filter((j) => liveNow(j.id));
+      const ended = o.own.filter((j) => !liveNow(j.id));
+      if (own.length) {
+        lines.push(...para(`${count(own.length, 'job')} this Workbench started will stop with it (its runner ends when the Workbench does):`, c.width, 'attention'));
+        for (const j of own) lines.push([S(`  ${j.id} ${j.label}`, 'strong')]);
+      }
+      if (ended.length) {
+        lines.push(...para(`${count(ended.length, 'job')} it started ended while this box waited (nothing of ${ended.length === 1 ? 'it' : 'them'} to stop):`, c.width, 'secondary'));
+        for (const j of ended) lines.push([S(`  ${j.id} ${j.label}`, 'text')]);
       }
       if (o.others.length) {
         lines.push(...para(`${count(o.others.length, 'job')} another session started will keep running:`, c.width));
         for (const j of o.others) lines.push([S(`  ${j.id} ${j.label}`, 'text'), S(` ${g.sep} ${j.ownerWords}`, 'secondary')]);
       }
       lines.push(blank);
-      lines.push([key('Ctrl+C'), S(o.own.length ? ' Quit and stop them   ' : ' Quit   ', 'text'), key('Esc'), S(' Stay', 'text')]);
+      lines.push([key('Ctrl+C'), S(own.length ? ` Quit and stop ${own.length === 1 ? 'it' : 'them'}   ` : ' Quit   ', 'text'), key('Esc'), S(' Stay', 'text')]);
       return { lines, items };
     }
     case 'message':

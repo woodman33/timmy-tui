@@ -72,7 +72,7 @@ function trayProject(name: string): { name: string; root: string; chosen: boolea
   return made;
 }
 
-function workbench(project: { name: string; root: string; chosen: boolean }, o: { mouse?: boolean; setMouse?: (on: boolean) => void } = {}): { c: Controller; ws: Workspace } {
+function workbench(project: { name: string; root: string; chosen: boolean }, o: { mouse?: boolean; setMouse?: (on: boolean) => void; onExit?: (code: number, after: string[]) => void } = {}): { c: Controller; ws: Workspace } {
   let c: Controller | undefined;
   const env = { ...process.env, UPMD_BIN: FAKE_UPMD };
   const ws = new Workspace({
@@ -87,7 +87,7 @@ function workbench(project: { name: string; root: string; chosen: boolean }, o: 
     env, jobsDir, onPath: () => null, glyphs: glyphsFor(true), workspace: ws, producers: NO_PRODUCERS,
     companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started in this test'); } }),
     studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(box, 'store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) }),
-    capabilities: async () => FAKE_ROWS, tickMs: 100, slowMs: 400, ...(o.setMouse ? { setMouse: o.setMouse } : {}),
+    capabilities: async () => FAKE_ROWS, tickMs: 100, slowMs: 400, ...(o.setMouse ? { setMouse: o.setMouse } : {}), ...(o.onExit ? { onExit: o.onExit } : {}),
   });
   // as `timmy workbench` starts it (TIMMY_MOUSE unset): the Workbench takes the mouse
   if (o.mouse !== false) c.ui.mouse = true;
@@ -326,7 +326,7 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     expect(c.ui.workspace).toBe('templates');
   });
 
-  it('at 80 columns (the navigation a drawer): the hint says Esc, then g, then /; Esc keeps the keyboard on the list', async () => {
+  it('at 80 columns (the navigation a drawer): the hint says Esc, then g, then /, shown even when a row far down was selected; Esc keeps the keyboard on the list, from its top', async () => {
     sandbox();
     const p = trayProject('finder-narrow');
     const { c } = workbench(p);
@@ -334,22 +334,63 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     c.selectWorkspace('tools');
     const f = frameOf(c, 80, 24);
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
+    // a row far down selected: the list's first rows (where the search is) are scrolled away
+    await press(f.r, '\u001b[6~', '\u001b[6~', '\u001b[6~');
+    expect(f.text()).not.toContain('Search the tools');
     await press(f.r, '/');
     expect(c.ui.input.field).toBe('tools');
+    // the search's own row and its hint are shown (found in tmux: they were scrolled away with the list)
+    expect(f.text()).toMatch(/Search: /);
     expect(f.text()).toMatch(/find a workspace: Esc, then g, then \//);
     await press(f.r, ESC);
     expect(c.ui.focus).toBe('center');
     expect(f.text()).toContain('Tools search cleared. g, then / finds a workspace.');
+    expect(f.text()).toContain('a workspace: g, then /');
     await press(f.r, 'g', '/', ...'Files', ENTER);
     expect(c.ui.workspace).toBe('files');
   });
 });
 
+describe('keys that arrive together (R4 H112; found in tmux under load)', () => {
+  it('text and Enter in one chunk: the text, then Enter (the finder opens what was typed; the picker switches); the composer keeps its text and takes no Enter from a chunk (a paste never sends)', async () => {
+    sandbox();
+    const a = trayProject('chunk-a');
+    trayProject('chunk-b');
+    saveActiveProject(a);
+    const { c } = workbench(a);
+    c.start();
+    const f = frameOf(c, 180, 50);
+    await sleep(150);
+    // one write: the search key, a name and Enter (as a loaded terminal delivers fast typing)
+    await press(f.r, '/Templates\r');
+    expect(c.ui.workspace).toBe('templates');
+    expect(c.ui.input.field).toBe(null);
+    await press(f.r, '/');
+    await press(f.r, 'Control\r');
+    expect(c.ui.workspace).toBe('control');
+    // the picker: a project's name and Enter at once
+    await press(f.r, 'p');
+    await press(f.r, 'chunk-b\r');
+    await until('chunk-b', () => c.data.project.name === 'chunk-b', 5000, f.text);
+    // the composer (FIXTURE producer missing here: nothing could be sent anyway) keeps the text and is still typing
+    c.selectWorkspace('chat');
+    c.ui.focus = 'center';
+    await press(f.r, '\r');
+    expect(c.ui.input.field).toBe('composer');
+    await press(f.r, 'hello\r');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'hello' });
+    // a chunk of other keys is still never taken as keys (a paste never presses x, Stop, or anything else)
+    await press(f.r, '\u001b');
+    await press(f.r, 'xq\r');
+    expect(c.ui.workspace).toBe('chat');
+  });
+});
+
 describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)', () => {
-  it('in the Control Room, a job that starts above the selected one moves nothing: the selection, the Inspector and Stop\'s named target stay on it', async () => {
+  it('in the Control Room, a job that starts above the selected one moves nothing: the selection, the Inspector and Stop\'s named target stay on it; a Control Room opened again starts on its newest row unless the person chose a row', async () => {
     sandbox();
     const p = trayProject('identity');
-    writeFileSync(join(p.root, 'SLOW.md'), '# Slow (FAKE workflow, this test)\n\n```bash [name:wait]\nsleep 20\n```\n\n```bash [name:nap]\nsleep 20\n```\n');
+    writeFileSync(join(p.root, 'SLOW.md'), '# Slow (FAKE workflow, this test)\n\n```bash [name:wait]\nsleep 20\n```\n\n```bash [name:nap]\nsleep 20\n```\n\n```bash [name:doze]\nsleep 20\n```\n');
     const { c, ws } = workbench(p);
     c.start();
     const f = frameOf(c, 180, 50);
@@ -370,18 +411,26 @@ describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)',
     const first = c.selected();
     expect(first).toMatchObject({ kind: 'job', job: { label: 'SLOW.md › wait' } });
     const firstId = first!.kind === 'job' ? first!.job.id : '';
-    // a second run starts: it is drawn above the first (the newest first), and the selection stays on the first
+    // a second run starts; the Control Room opened again starts on its first row, the newest (nobody chose a row)
     await runBlock('nap');
     c.selectWorkspace('control');
     await sleep(300);
     expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › nap', 'SLOW.md › wait']);
+    expect(c.selected()).toMatchObject({ kind: 'job', job: { label: 'SLOW.md › nap' } });
+    // the person chooses the first run (a click on its row); a third run starts above it: the selection stays on the chosen
+    await click(f.r, cellOf(c, `${firstId}  running`));
+    expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
+    await runBlock('doze');
+    c.selectWorkspace('control');
+    await sleep(300);
+    expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › doze', 'SLOW.md › nap', 'SLOW.md › wait']);
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
     expect(f.text()).toMatch(new RegExp(`▸ [^\\n]*${firstId}\\s+running\\s+SLOW\\.md › wait`));
     expect(f.text()).toContain(`[x] Stop current: ${firstId} SLOW.md › wait`);
     // x stops exactly what was named
     await press(f.r, 'x');
     await until('the stop', () => ws.jobs.get(firstId)?.state === 'cancelled', 15_000, f.text);
-    expect(ws.jobs.list().find((j) => j.label === 'SLOW.md › nap')?.state).toBe('running');
+    expect(ws.jobs.list().filter((j) => j.root === p.root && j.label !== 'SLOW.md › wait').map((j) => j.state)).toEqual(['running', 'running']);
   }, 60_000);
 });
 
@@ -429,4 +478,60 @@ describe('jobs a session left, in recovery\'s words (R4 H112, slice C item 4)', 
     await pick(ended.id);
     expect(regionText(c, 'right')).toContain('ended by recovery: a later session\'s recovery wrote its end from what it found (interrupted: its Workbench ended while wait was running; its process is gone)');
   });
+});
+
+describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)', () => {
+  it('Ctrl+C reads the job store as it is then: while a run of its own goes on, the box names it; a run that ends while the box waits is said to have ended, and Ctrl+C then quits stopping nothing; a Ctrl+C just after a run ended, before the next read, quits at once', async () => {
+    sandbox();
+    const p = trayProject('quitting');
+    writeFileSync(join(p.root, 'NAP.md'), '# Nap (FAKE workflow, this test)\n\n```bash [name:nap]\nsleep 2\n```\n');
+    const runNap = async (c: Controller, f: ReturnType<typeof frameOf>): Promise<string> => {
+      c.selectWorkspace('workflows');
+      c.ui.focus = 'center';
+      for (let i = 0; i < 12 && !(c.selected()?.kind === 'block' && (c.selected() as { block: { name: string } }).block.name === 'nap'); i++) await press(f.r, '\u001b[B');
+      expect(c.selected()).toMatchObject({ kind: 'block', block: { name: 'nap' } });
+      const before = new Set(c.data.jobs.map((j) => j.id));
+      await press(f.r, ENTER, ENTER);
+      const job = await until('the run', () => c.data.jobs.find((j) => j.live && j.label === 'NAP.md › nap' && !before.has(j.id)), 10_000, f.text);
+      return job.id;
+    };
+
+    // 1. the box names the run; the run ends while it waits: said so; Ctrl+C quits, and the run's record says completed
+    const exits: number[] = [];
+    const one = workbench(p, { onExit: (code) => { exits.push(code); } });
+    one.c.start();
+    const f1 = frameOf(one.c, 180, 50);
+    await sleep(150);
+    const first = await runNap(one.c, f1);
+    await press(f1.r, '\u0003');
+    expect(one.c.ui.overlay?.kind).toBe('quit');
+    expect(regionText(one.c, 'center')).toContain(`1 job this Workbench started will stop with it (its runner ends when the Workbench does): ${first} NAP.md › nap`);
+    expect(regionText(one.c, 'center')).toContain('[Ctrl+C] Quit and stop it [Esc] Stay');
+    await until('the run to end', () => one.ws.jobs.get(first)?.state === 'completed', 15_000, f1.text);
+    await until('the box to say so', () => regionText(one.c, 'center').includes(`1 job it started ended while this box waited (nothing of it to stop): ${first} NAP.md › nap`), 5000, f1.text);
+    expect(regionText(one.c, 'center')).not.toContain('will stop with it');
+    expect(regionText(one.c, 'center')).toContain('[Ctrl+C] Quit [Esc] Stay');
+    await press(f1.r, '\u0003');
+    await until('the quit', () => exits.length > 0, 10_000, f1.text);
+    expect(exits).toEqual([130]);
+    expect(JSON.parse(readFileSync(join(jobsDir, `${first}.json`), 'utf8'))).toMatchObject({ state: 'completed' });
+
+    // 2. a run that has just ended, while the Workbench's last read still has it running (set here: as a tick that has not
+    // come yet would leave it): Ctrl+C reads the job store and quits at once, with no box
+    const quits: number[] = [];
+    const two = workbench(p, { onExit: (code) => { quits.push(code); } });
+    two.c.start();
+    const f2 = frameOf(two.c, 180, 50);
+    await sleep(150);
+    const second = await runNap(two.c, f2);
+    await until('the second run to end', () => two.ws.jobs.get(second)?.state === 'completed', 15_000, f2.text);
+    const stale = two.c.data.jobs.map((j) => (j.id === second ? { ...j, state: 'running' as const, live: true } : j));
+    two.c.data.jobs = stale;
+    expect(two.c.data.jobs.find((j) => j.id === second)?.live).toBe(true);
+    await press(f2.r, '\u0003');
+    expect(two.c.ui.overlay?.kind).not.toBe('quit');
+    await until('the quit', () => quits.length > 0, 10_000, f2.text);
+    expect(quits).toEqual([130]);
+    expect(JSON.parse(readFileSync(join(jobsDir, `${second}.json`), 'utf8'))).toMatchObject({ state: 'completed' });
+  }, 60_000);
 });

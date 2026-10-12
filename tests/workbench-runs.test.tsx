@@ -187,10 +187,9 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     await selectBlock(c, f.r, 'SLOW.md', 'wait');
     await press(f.r, ENTER);
     expect(c.ui.overlay?.kind).toBe('confirm-run');
-    // two Enters in one write (a key held, or two presses faster than a frame)
+    // two Enters in one write (a key held, or two presses faster than a frame: Ink hands them over as one chunk, which
+    // before this round was taken for text and did nothing at all); the first runs it, the second starts nothing
     f.r.stdin.write(`${ENTER}${ENTER}`);
-    await sleep(60);
-    f.r.stdin.write(ENTER);
     await until('the run', () => runsOf(p.root, 'SLOW.md › wait').length > 0, 10_000, f.text);
     await sleep(500);
     expect(runsOf(p.root, 'SLOW.md › wait')).toHaveLength(1);

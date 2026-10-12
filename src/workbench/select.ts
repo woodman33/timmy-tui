@@ -40,6 +40,7 @@ export function select(ui: Ui, list: string, items: Items, at: number): void {
   ui.cursor[list] = i;
   ui.sel[list] = items[i].item.key;
   delete ui.wheel[list];
+  (ui.chosen ??= {})[list] = true;
 }
 
 /**

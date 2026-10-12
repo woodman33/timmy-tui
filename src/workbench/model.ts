@@ -142,6 +142,9 @@ export interface Ui {
   /** R4 (H112): lists the wheel scrolled: their view stays where the wheel left it, and the selection is brought into view
    *  only when the person moves it */
   wheel: Record<string, boolean>;
+  /** R4 (H112): lists whose selection the person chose (an arrow, a click, a search's first match): kept when its workspace
+   *  is opened again; a list whose selection was only its first row starts on its first row again (src/workbench/select.ts) */
+  chosen?: Record<string, boolean>;
   /** R4 (H112): Activity follows its newest row (the selection is the newest, and new rows keep it so); it stops when the
    *  person selects an older row, and starts again on the newest (End) */
   activityFollow: boolean;
