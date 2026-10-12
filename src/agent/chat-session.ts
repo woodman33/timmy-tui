@@ -111,6 +111,38 @@ function errorLines(err: unknown): string[] {
 /** The agents this process made for a project (one per project root): every session of that project shares it. */
 const agents = new Map<string, Agent>();
 
+/**
+ * What the sessions of one agent share: the gate and the turn's files belong to the agent, not to a session, so two views of
+ * one project (a Workbench and a companion, each with its own session) ask the person through whichever runs the turn.
+ */
+interface AgentContext {
+  /** the hooks of the turn running on this agent: its NEEDS YOU asks go to them; with no turn running, a call is denied */
+  current: ChatTurnHooks | null;
+  /** the files the running turn wrote, for its receipt */
+  touched: ProjectTurnFiles;
+  /** the project root the agent's tools are rooted at now (null: no session has gated them yet) */
+  root: string | null;
+  /** the tools a caller gave (deps.tools), or null for Timmy's own */
+  given: readonly unknown[] | null;
+}
+const contexts = new WeakMap<object, AgentContext>();
+
+function contextFor(agent: SessionAgent): AgentContext {
+  let ctx = contexts.get(agent);
+  if (!ctx) { ctx = { current: null, touched: new ProjectTurnFiles(), root: null, given: null }; contexts.set(agent, ctx); }
+  return ctx;
+}
+
+/** Roots the agent's tools at this project, gated (the same NEEDS YOU rule as the REPL's); only when they change. */
+function gateAgent(agent: SessionAgent, ctx: AgentContext, root: string, given: readonly unknown[] | undefined): void {
+  if (ctx.root === root && ctx.given === (given ?? null)) return;
+  const offered = given ?? [...defaultTools, ...createProjectTools({ root: () => root, touched: ctx.touched })];
+  const ask = (req: ApprovalRequest): Promise<Decision> => (ctx.current ? ctx.current.askPerson(req) : Promise.resolve<Decision>('deny'));
+  agent.setTools(gateTools(offered, ask) as Parameters<Agent['setTools']>[0]);
+  ctx.root = root;
+  ctx.given = given ?? null;
+}
+
 function agentFor(root: string, config: { apiKey?: string; model?: string }, surface: ChatSurface): Agent {
   const made = agents.get(root);
   if (made) return made;
@@ -129,12 +161,10 @@ export async function openChatSession(o: { project: { name: string; root: string
   const env = deps.env ?? process.env;
   const config = deps.config ?? (() => { try { return loadConfig(); } catch { return {}; } })();
   const agent: SessionAgent = deps.agent ?? agentFor(o.project.root, config, o.surface);
-  const touched = new ProjectTurnFiles();
-  const tools = deps.tools ?? [...defaultTools, ...createProjectTools({ root: () => o.project.root, touched })];
-  // NEEDS YOU: each call that needs a person is asked through the turn's own hooks; with no turn running, denied
-  let current: ChatTurnHooks | null = null;
-  const ask = (req: ApprovalRequest): Promise<Decision> => (current ? current.askPerson(req) : Promise.resolve<Decision>('deny'));
-  agent.setTools(gateTools(tools, ask) as Parameters<Agent['setTools']>[0]);
+  // NEEDS YOU: each call that needs a person is asked through the running turn's own hooks; with no turn running, denied.
+  // The gate is the agent's (shared by its sessions), rooted at the project of the session that sends.
+  const ctx = contextFor(agent);
+  gateAgent(agent, ctx, o.project.root, deps.tools);
   agent.setInstructions(chatInstructions(o.surface));
 
   const keyFound = (): boolean => agent.hasModelKey() || modelKeySource(env) !== null;
@@ -155,7 +185,10 @@ export async function openChatSession(o: { project: { name: string; root: string
     refreshKey();
     const now = routeNow();
     if (!now.state.ready) return refused(now.state.refusal?.length ? [...now.state.refusal] : ['Not sent: the chat has no route to a model.', 'Nothing was sent to any model.']);
-    if (agent.isRunning()) return refused(['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.']);
+    if (agent.isRunning() || ctx.current) return refused(['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.']);
+    // this session's project, surface and route for this turn (another session of the agent may have sent the last one)
+    gateAgent(agent, ctx, o.project.root, deps.tools);
+    agent.setInstructions(chatInstructions(o.surface));
     agent.useLocalChat(now.local ?? null);
     const requested = now.local ? now.local.model : agent.openRouterModel();
 
@@ -198,7 +231,8 @@ export async function openChatSession(o: { project: { name: string; root: string
       },
     };
     for (const [event, fn] of Object.entries(on)) agent.on(event as never, fn as never);
-    current = hooks;
+    ctx.current = hooks;
+    ctx.touched.close(); // nothing from before this turn
     const t0 = Date.now();
     let answer = '';
     let status: ChatTurnResult['status'] = 'answered';
@@ -210,9 +244,10 @@ export async function openChatSession(o: { project: { name: string; root: string
       if ((err as Error)?.name === 'AbortError' || hooks.signal?.aborted) status = 'cancelled';
       else { status = 'failed'; failure = err; }
     } finally {
-      current = null;
+      ctx.current = null;
       for (const [event, fn] of Object.entries(on)) agent.off(event as never, fn as never);
     }
+    const files = ctx.touched.close();
     const ms = Date.now() - t0;
     // a request went out: an answer came, a stream started, or a cost came back; a failure that never left this computer
     // (no connection, no address) did not send one, and an error that says nothing was sent did not either
@@ -237,7 +272,6 @@ export async function openChatSession(o: { project: { name: string; root: string
     let receipt: string | undefined;
     if (seal) {
       const tools = [...outcomes.values()];
-      const files = touched.close();
       const input: ReceiptInput = {
         kind: 'chat',
         subject: `chat.turn · ${o.surface}${status === 'answered' ? '' : ` · ${status}`} · ${model}`,
@@ -260,7 +294,7 @@ export async function openChatSession(o: { project: { name: string; root: string
         ms,
       };
       try { receipt = seal(input).hash; } catch (err) { notices.push(`The turn's receipt could not be sealed: ${(err as Error)?.message ?? err}.`); }
-    } else touched.close();
+    }
 
     const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}) };
     if (status === 'answered') return { status, text: answer, ...(notices.length ? { lines: notices } : {}), ...base };

@@ -191,6 +191,26 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     controller.abort();
     expect(await running).toMatchObject({ status: 'cancelled', sent: true });
   });
+
+  it('two sessions of one project share the agent: a write asks the session that sends, under its own rules, and its receipt names the file', async () => {
+    const write = { name: 'write_project_file', arguments: { path: 'notes.md', content: 'hello\n' } };
+    const ollama = await fake({
+      models: [{ name: 'qwen3:8b' }],
+      chat: [() => ({ chunks: toolCallChunks('qwen3:8b', [write]) }), () => ({ chunks: textChunks('qwen3:8b', ['Written.']) })],
+    });
+    setUp({ chat: 'local', model: 'qwen3:8b' }, ollama.url);
+    network(portOf(ollama));
+    const first = await contract({ project: { name: 'demo', root: project }, surface: 'workbench' });
+    // a second view of the project opens after the first: it must not take the first one's NEEDS YOU box or its rules
+    await contract({ project: { name: 'demo', root: project }, surface: 'companion' });
+    const s = surface(['once']);
+    const r = await first.send('write notes.md', s.hooks);
+    expect(s.asked).toMatchObject([{ tool: 'write_project_file', summary: 'notes.md' }]);
+    expect(readFileSync(join(project, 'notes.md'), 'utf8')).toBe('hello\n');
+    expect(r).toMatchObject({ status: 'answered', text: 'Written.' });
+    expect(ollama.chats()[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('the Workbench') });
+    expect(chats().at(-1)).toMatchObject({ subject: 'chat.turn · workbench · qwen3:8b', tool_outcomes: [{ name: 'write_project_file', outcome: 'completed' }], files: [{ path: 'notes.md', created: true }] });
+  });
 });
 
 describe('a turn on the OpenRouter route (FAKE OpenRouter client)', () => {
