@@ -61,11 +61,14 @@ const DEFAULT_CONFIG: TuiConfig = {
 };
 
 // The settings file can hold a key saved on purpose, so every write of it is private (0600), also over
-// a file an older version left 0644.
+// a file an older version left 0644. R4 (H98): TIMMY_SETTINGS_DIR moves its folder (the tests give every file one of its
+// own: tests/isolation-setup.ts); without it, conf's own folder for the `timmy-tui` project.
+const settingsDir = process.env.TIMMY_SETTINGS_DIR?.trim();
 const store = new Conf<TuiConfig>({
   projectName: 'timmy-tui',
   defaults: DEFAULT_CONFIG,
   configFileMode: 0o600,
+  ...(settingsDir ? { cwd: resolve(settingsDir) } : {}),
 });
 
 /**

@@ -12,8 +12,9 @@ export function withoutCI(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 // Fourth order, step 1: nor may the runner's own folders. XDG_CONFIG_HOME and its kin point Timmy's config
-// store (and others) at the runner's folders, shared by every test on the machine.
-const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'];
+// store (and others) at the runner's folders, shared by every test on the machine. R4 (H98): nor the test file's own
+// settings folder (TIMMY_SETTINGS_DIR, tests/isolation-setup.ts): a terminal of a test's has its HOME's.
+const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'TIMMY_SETTINGS_DIR'];
 
 export function withoutRunner(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const copy = withoutCI(env);

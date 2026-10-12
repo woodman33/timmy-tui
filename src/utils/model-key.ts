@@ -10,8 +10,12 @@ import { readDotEnv } from './dotenv.js';
 export type KeySource = 'environment' | 'timmy-tui.config.json' | 'settings' | 'providers.json';
 type Env = Record<string, string | undefined>;
 
-/** The settings file the store keeps (conf's `timmy-tui` project with its `nodejs` suffix, as env-paths places it). */
+/**
+ * The settings file the store keeps (conf's `timmy-tui` project with its `nodejs` suffix, as env-paths places it). R4 (H98):
+ * TIMMY_SETTINGS_DIR moves its folder, as it moves the store's (src/utils/config.ts).
+ */
 export function settingsFile(env: Env = process.env, home: string = homedir(), platform: string = process.platform): string {
+  if (env.TIMMY_SETTINGS_DIR?.trim()) return join(resolve(env.TIMMY_SETTINGS_DIR.trim()), 'config.json');
   const dir = platform === 'darwin' ? join(home, 'Library', 'Preferences', 'timmy-tui-nodejs')
     : platform === 'win32' ? join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'timmy-tui-nodejs', 'Config')
       : join(env.XDG_CONFIG_HOME || join(home, '.config'), 'timmy-tui-nodejs');

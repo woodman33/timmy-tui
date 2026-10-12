@@ -45,6 +45,17 @@ afterEach(() => {
 // there, which this check cannot see.
 const given = process.env.TIMMY_HOME;
 const real = watchPaths([join(homedir(), 'timmy'), ...(given ? [given] : [])].map((p) => resolve(p)), { exempt: ['tests/fixtures/home-guard.ts'] });
+// R4 (H98, journey-2): the monitor's settings folder too. The settings store (src/utils/config.ts, conf) is made when its module
+// loads and keeps its file in the account's own settings folder (Linux: $XDG_CONFIG_HOME or ~/.config, then timmy-tui-nodejs;
+// macOS: ~/Library/Preferences/timmy-tui-nodejs); the full suite rewrote this computer's (apiKey "", a model, onboarded
+// true). Every file now gets a settings folder of its own (TIMMY_SETTINGS_DIR, which the store, src/setup/home.ts and
+// src/utils/model-key.ts follow, set below with the others), and the account's own is watched: a file that read or wrote
+// there fails after its tests, naming each call. A child process's use is not seen (the terminal fixtures give theirs a HOME).
+const givenSettings = process.env.TIMMY_SETTINGS_DIR;
+const accountSettings = process.platform === 'darwin' ? join(homedir(), 'Library', 'Preferences', 'timmy-tui-nodejs')
+  : process.platform === 'win32' ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'timmy-tui-nodejs', 'Config')
+    : join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'timmy-tui-nodejs');
+const settingsWatch = watchPaths([accountSettings, ...(givenSettings ? [givenSettings] : [])].map((p) => resolve(p)));
 // named now (an unguessable name), made before the file's hooks and tests run: a file whose tests are all skipped runs no
 // hook, so it leaves no folder behind (code that reads the home when it loads finds it empty, as a fresh home is)
 const fileHome = join(tmpdir(), `timmy-home-${randomBytes(9).toString('hex')}`);
@@ -54,6 +65,7 @@ const OWN: Readonly<Record<string, string>> = {
   TIMMY_OUT_ROOT: join(fileHome, 'out'),
   TIMMY_PROJECTS_ROOT: join(fileHome, 'projects'),
   TIMMY_SIGNAL_DIR: join(fileHome, 'projects', 'the-signal'),
+  TIMMY_SETTINGS_DIR: join(fileHome, 'settings'),
 };
 const before = Object.fromEntries(Object.keys(OWN).map((k) => [k, process.env[k]]));
 for (const [k, v] of Object.entries(OWN)) process.env[k] = v;
@@ -63,10 +75,15 @@ beforeEach(() => {
 });
 afterAll(() => {
   real.stop();
+  settingsWatch.stop();
   for (const [k, v] of Object.entries(before)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   try { rmSync(fileHome, { recursive: true, force: true }); } catch { /* gone */ }
   const uses = [...new Set(real.seen)];
   if (uses.length) {
     throw new Error(`A test of this file used the account's own Timmy home (${real.roots.join(', ')}), which tests must never read or write; give it a TIMMY_HOME of its own. ${uses.length} use${uses.length === 1 ? '' : 's'}: ${uses.slice(0, 20).join('; ')}${uses.length > 20 ? ' …' : ''}`);
+  }
+  const settingsUses = [...new Set(settingsWatch.seen)];
+  if (settingsUses.length) {
+    throw new Error(`A test of this file used the account's own settings folder (${settingsWatch.roots.join(', ')}), which tests must never read or write; the settings store follows TIMMY_SETTINGS_DIR, which this setup gives every file. ${settingsUses.length} use${settingsUses.length === 1 ? '' : 's'}: ${settingsUses.slice(0, 20).join('; ')}${settingsUses.length > 20 ? ' …' : ''}`);
   }
 });
