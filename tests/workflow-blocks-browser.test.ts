@@ -76,7 +76,7 @@ describe.skipIf(!browserPath)('per-block receipts and NEEDS YOU on the connected
   }
   const card = '[data-wfx="RISKY.md"]';
 
-  it('a node whose run reaches a risky block says it needs you; the board\'s Run is refused before anything runs and waits on you with the command; the block editor keeps its own look', async () => {
+  it('a node whose run reaches a risky block says it needs you; its Run shows disabled with why and the command to copy before anyone presses it; a Run sent anyway is refused before anything runs and waits on you once; the block editor keeps its own look', async () => {
     const { ws, root, sealed } = make();
     const { page, problems, close } = await open(ws);
     await page.click(`${card} [data-wf-select="2"]`);
@@ -84,7 +84,7 @@ describe.skipIf(!browserPath)('per-block receipts and NEEDS YOU on the connected
     const words = (await page.textContent(note)) ?? '';
     expect(words.startsWith('needs you clean (rm -rf dist): a destructive shell command on this machine.')).toBe(true);
     expect(words).toContain('asks first in the REPL\'s NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).');
-    expect(words).toContain('The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.');
+    expect(words).toContain('The board cannot show that box, so its Run is disabled here: copy the command below and type it in the REPL. A Run sent from the board anyway is refused and listed in Waiting on you.');
     // clean's own node says so too; hello, which reaches no risky block, does not
     expect(await page.$$(`${card} [data-wf-insp="1"] [data-wf-needs-you="1"]`)).toHaveLength(1);
     expect(await page.$$(`${card} [data-wf-insp="3"] [data-wf-needs-you]`)).toHaveLength(0);
@@ -92,10 +92,24 @@ describe.skipIf(!browserPath)('per-block receipts and NEEDS YOU on the connected
     const look = await page.$eval(note, (e) => { const s = getComputedStyle(e); return [s.display, s.borderLeftWidth, s.borderLeftStyle, s.borderLeftColor]; });
     expect(look).toEqual(['block', '3px', 'solid', rgb(HOMEBREW.attention)]);
 
-    // Run up to here: refused before anything runs, with the command to type in the REPL
-    await page.click(`${card} [data-wf-insp="2"] button[data-act="run"]`);
-    await page.waitForFunction(() => (document.getElementById('out')!.textContent ?? '').startsWith('board /run RISKY.md build'));
-    expect(await page.textContent('#out')).toContain('Not run: clean (rm -rf dist) is a destructive shell command on this machine, which needs a person, and the board cannot ask you. Type this in the REPL instead: /run RISKY.md build');
+    // R4 (H99, r24 gap 11): before anyone presses it, Run up to here shows disabled, with why, and the command to copy; it is
+    // no action button, so nothing on the page enables it (hello's Run stays an enabled action)
+    const run = await page.$eval(`${card} [data-wf-insp="2"] .wf-acts button[data-wf-needs-person="2"]`, (b) => ({ text: b.textContent, disabled: (b as HTMLButtonElement).disabled, act: b.getAttribute('data-act'), title: b.getAttribute('title') }));
+    expect(run).toEqual({ text: 'Run up to here', disabled: true, act: null, title: 'Needs you: clean runs a destructive shell command on this machine. The board cannot ask you: type /run RISKY.md build in the REPL, which asks first in its NEEDS YOU box.' });
+    expect(await page.$$(`${card} [data-wf-insp="2"] button[data-act="run"]`)).toHaveLength(0);
+    expect(await page.$$eval(`${card} [data-wf-insp="2"] .wf-runs .cmds button.cmd`, (bs) => bs.map((b) => b.getAttribute('data-cmd')))).toEqual(['/run RISKY.md build']);
+    expect(await page.$eval(`${card} [data-wf-insp="3"] button[data-act="run"]`, (b) => (b as HTMLButtonElement).disabled)).toBe(false);
+    // a click on it does nothing: nothing is sent, nothing runs
+    await page.click(`${card} [data-wf-insp="2"] button[data-wf-needs-person="2"]`, { force: true });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await page.textContent('#out')).not.toContain('/run RISKY.md build');
+    expect(ws.jobs.list()).toEqual([]);
+    // a Run sent anyway (not from this page's buttons): the REPL still refuses it before anything runs, with the command
+    const lb = ws.liveBoard!;
+    const sent = await fetch(`http://127.0.0.1:${lb.port}/action`, { method: 'POST', headers: { Authorization: `Bearer ${lb.url.split('#t=')[1]}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'run', doc: 'RISKY.md', block: 'build' }) });
+    const said = await sent.text();
+    expect(said.split('\n')[0]).toBe('board /run RISKY.md build');
+    expect(said).toContain('Not run: clean (rm -rf dist) is a destructive shell command on this machine, which needs a person, and the board cannot ask you. Type this in the REPL instead: /run RISKY.md build');
     expect(ws.jobs.list()).toEqual([]);
     expect(sealed).toEqual([]);
     expect(readFileSync(join(root, 'dist', 'keep.txt'), 'utf8')).toBe('kept\n');
@@ -110,6 +124,9 @@ describe.skipIf(!browserPath)('per-block receipts and NEEDS YOU on the connected
     expect(item).toMatchObject({ kind: 'blocks a requested run', cmds: '/run RISKY.md build', keys: 0 });
     expect(item.text).toContain('type the command below in the REPL and answer its NEEDS YOU box: the board cannot show the box, so its Run was refused and nothing ran');
     expect(item.text).toContain('upmd would run clean → build, and clean runs a destructive shell command on this machine: rm -rf dist');
+    // God's Eye View's Needs card lists the waiting item once (r24: once as its "first" line, again as its list's first item)
+    const needs = await page.$eval('[data-ov="needs"]', (e) => e.textContent ?? '');
+    expect(needs.split(title).length - 1, needs).toBe(1);
 
     // the block editor's row of dependencies ("needs") keeps its own look: no attention rule from the note above
     await page.click(`${card} [data-wf-edit]`);

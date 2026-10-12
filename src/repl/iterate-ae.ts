@@ -38,7 +38,8 @@ import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { aerenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, sha256File, type NativeJobSpec } from '../native/index.js';
 import { aeCompsLine, aeScriptJob, aeStem, judgeAeJob, type AeCompReport, type AeJobSpec } from '../native/ae-author.js';
 import { projectId, resolveInside } from '../project/index.js';
-import { DOCTRINE_15, FLOW_SCHEMA, flowRecordPath, flowWorkDir, newFlowId, writeProjectJson } from '../flows/iterate.js';
+import { DOCTRINE_15, FLOW_SCHEMA, flowFailed, flowMark, outcomeWhy, flowRecordPath, flowWorkDir, newFlowId, NO_CHANGE, noChangeWhy, writeProjectJson } from '../flows/iterate.js';
+import { nativeLastRun } from '../flows/iterate-native.js'; // R4 (H99)
 import {
   AE_FFMPEG_SETUP, AE_FILE_MAX_BYTES, AE_READBACK_LABEL, AE_RENDER_EXT, AE_REPORTED_BY, aeIterateTask, changeText, chooseComp, compareAeReadback, compFacts,
   compileCheck, compileWords, differencesText, factsChanges, judgeFileChanges, lineCount, parseVideoReadback, planReadback, previousAeAuthor, reportedComps,
@@ -417,7 +418,14 @@ export class AeFlows {
     const now = sha(bytes);
     const seen = judged.params === 'changed' ? judged.change?.sha256 ?? null : before.sha256;
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); After Effects did not run`);
-    if (judged.params === 'unchanged') return this.end(f, 'stopped', 'checks', 'the agent changed nothing; After Effects did not run');
+    // R4 (H99, r24): no change is its own outcome. The last build of an After Effects flow is a scripted new version and
+    // its render; only the scripted run's inputs and files are checked, so a build that otherwise matches is said unknown.
+    if (judged.params === 'unchanged') {
+      const run = nativeLastRun(f.root, { app: 'afterfx', appName: 'After Effects', input: rel, again: `/iterate ae ${rel}` });
+      const lb = run.state === 'current' ? { ...run, state: 'unknown' as const, words: `${run.words}; its render is not checked here, so whether the last build as a whole still matches is not known` } : run;
+      f.record.last_build = { ...lb, words: this.d.scrub(lb.words, f.root) };
+      return this.end(f, NO_CHANGE, 'checks', noChangeWhy('the agent changed nothing', f.record.last_build, keptOut));
+    }
     const afterText = bytes.toString('utf8');
     f.record.script.after = { sha256: now, bytes: bytes.length, lines: lineCount(afterText) };
     f.record.script.change = scriptChange(f.beforeText, afterText);
@@ -738,12 +746,13 @@ export class AeFlows {
     const r = rec.receipts;
     rec.child_receipts = [r.agent, r.author, r.render, r.readback].filter((x): x is string => typeof x === 'string');
     const w = writeProjectJson(f.root, flowRecordPath(f.id), rec);
-    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
+    // R4 (H99): a flow that made no change is sealed with no status: neither ok (no change was made) nor failed
+    const status = rec.outcome === 'succeeded' ? 'ok' as const : rec.outcome === 'cancelled' ? 'cancelled' as const : rec.outcome === NO_CHANGE ? undefined : 'failed' as const;
     const cost = rec.agent?.cost_usd;
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
-        kind: 'flow', subject: `flow · iterate · ae · ${f.id} · ${rec.outcome}`, policy: 'human-gated', status,
+        kind: 'flow', subject: `flow · iterate · ae · ${f.id} · ${rec.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
         project: f.project, project_id: projectId(f.root),
         prompt_hash: `sha256:${sha(rec.instruction)}`,
         ...(w.ok ? { outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }] } : { discrepancies: [`the flow record could not be written: ${this.d.scrub(w.error, f.root)}`] }),
@@ -765,10 +774,11 @@ export class AeFlows {
   private endLines(f: AeRun, file: string | undefined, receipt: string | undefined): Line[] {
     const g = this.d.glyphs;
     const rec = f.record;
-    const ok = rec.outcome === 'succeeded';
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
-    const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
-      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 (H99): no change is marked = and said in the text colour, never as a failure
+    const bad = flowFailed(rec.outcome);
+    const lines: Line[] = [[{ text: `  ${flowMark(rec.outcome, g)} `, role: bad ? 'failure' : undefined },
+      { text: `${f.id} ${rec.outcome}`, role: bad ? 'failure' : 'strong' }, { text: `: ${outcomeWhy(rec.outcome, rec.why)}${tail}`, role: 'secondary' }]];
     // R4 (H46): what the change check did not look into, as the other flows say it.
     const unseen = notComparedText(rec.agent?.compared);
     if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);

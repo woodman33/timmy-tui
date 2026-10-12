@@ -121,13 +121,13 @@ describe('result cards', () => {
     });
     const chain = [{ kind: 'workflow', job: { id: 'j000001' }, outputs: [{ path: 'dist/index.html', bytes: 9 }, { path: 'dist/gone.js', bytes: 1 }, { path: '/etc/passwd', bytes: 1 }], prediction: { met: true } }] as unknown as Receipt[];
     const cards = jobResults([
-      job('j000001', 'BUILD.md › build', 'completed', { receipt: 'cafe0001' }),
+      job('j000001', 'BUILD.md › build', 'completed', { receipt: 'cafe0001', expected: { steps: ['setup', 'build'] } }),
       job('j000002', 'look refs/a.png', 'completed'), job('j000003', 'recipe enclosure.tray/1 x', 'completed'), job('j000004', 'agent qwen a1: x', 'completed'),
       job('j000005', 'BUILD.md › wait', 'running'), job('j000006', 'Blender · s.py', 'failed', { kind: 'task', exitCode: 1 }),
     ], chain, new Set(['j000006']), (t) => t);
     expect(cards.map((c) => c.title)).toEqual(['j000001 · BUILD.md › build']);
     expect(cards[0]).toMatchObject({
-      kind: 'job', status: { word: 'completed', tone: 'ok' }, lines: ['workflow · 2 of 2 steps completed · its sealed prediction was met'],
+      kind: 'job', status: { word: 'completed', tone: 'ok' }, lines: ['workflow · 2 of 2 steps · its sealed prediction was met'], // R4 (H99): counted as /jobs counts
       files: [{ rel: 'dist/index.html', note: 'written during the job' }, { rel: 'dist/gone.js', note: 'not there now' }], receipts: [{ id: 'cafe0001', what: 'workflow' }], commands: ['/jobs j000001'],
     });
   });

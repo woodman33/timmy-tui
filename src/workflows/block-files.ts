@@ -75,8 +75,15 @@ function recentFlows(root: string, since: number): string[] {
  * The files Timmy can prove a block changed (see the module comment), at most BLOCK_FILES_MAX of them (`more` counts the
  * rest), and what was checked, in words. Never throws: a record that cannot be read is not a proof of anything.
  */
-export function provenFiles(root: string, operation: string | undefined, w: BlockWindow, chain: readonly Receipt[]): { files: ProvenFile[]; more: number; checked: string } {
-  if (!operation) return { files: [], more: 0, checked: BLOCK_FILES_NO_OPERATION };
+/**
+ * R4 (H99, r24): a flow a block ran (found as provenFiles finds it): its id, its outcome, and when it made no change, its
+ * words and its last build's state, as its own record says them.
+ */
+export interface BlockFlow { id: string; outcome: string; why?: string; last_build?: string }
+
+export function provenFiles(root: string, operation: string | undefined, w: BlockWindow, chain: readonly Receipt[]): { files: ProvenFile[]; more: number; checked: string; flows: BlockFlow[] } {
+  if (!operation) return { files: [], more: 0, checked: BLOCK_FILES_NO_OPERATION, flows: [] };
+  const flows: BlockFlow[] = [];
   const files: ProvenFile[] = [];
   let more = 0;
   const add = (f: ProvenFile): void => {
@@ -93,6 +100,9 @@ export function provenFiles(root: string, operation: string | undefined, w: Bloc
     if (!read || !r || r.operation !== operation || !within(w, time(r.started_at), time(r.ended_at))) continue;
     for (const c of flowClaims(r)) claimed.add(c);
     const id = str(r.id) ?? n.slice(0, -5);
+    // R4 (H99): how the flow ended, as its record says (a block whose flows each made no change made no change)
+    const lb = obj(r.last_build);
+    flows.push({ id, outcome: str(r.outcome) ?? 'unknown', ...(str(r.why) ? { why: str(r.why) } : {}), ...(str(lb?.state) ? { last_build: str(lb?.state) } : {}) });
     const sealed = [...chain].reverse().find((x) => x.kind === 'flow' && (x.outputs ?? []).some((o) => o.path === rel && o.sha256 === read.sha256));
     for (const o of flowOutputs(r)) add({ path: o.path, ...(o.sha256 ? { sha256: o.sha256 } : {}), role: o.role, by: `flow ${id}`, record: rel, ...(sealed ? { receipt: receiptShort(sealed) } : {}) });
   }
@@ -128,5 +138,5 @@ export function provenFiles(root: string, operation: string | undefined, w: Bloc
       }
     }
   }
-  return { files, more, checked: BLOCK_FILES_CHECKED };
+  return { files, more, checked: BLOCK_FILES_CHECKED, flows };
 }

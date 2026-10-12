@@ -56,8 +56,9 @@ export const JOB_KINDS: Readonly<Record<JobKind, JobKindRow>> = {
   look: { what: 'a Look measurement (/observe)', by: 'record', judge: 'its observe receipt' },
 };
 
-/** How a job's outcome is marked: only a judged success is ok. */
-export type JobMark = 'ok' | 'unknown' | 'failed' | 'stopped' | 'running';
+/** How a job's outcome is marked: only a judged success is ok. R4 (H99, r24): 'unchanged', a /run that stopped at a block
+ *  whose own flows made no change (nothing went wrong, and nothing was made): drawn =, its word "no change". */
+export type JobMark = 'ok' | 'unknown' | 'failed' | 'stopped' | 'running' | 'unchanged';
 
 export interface JobJudgement {
   kind: JobKind;
@@ -275,6 +276,10 @@ export function jobJudgement(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number
   const row = JOB_KINDS[kind];
   if (!j.stale && LIVE.has(j.state)) return { kind, by: row.by, mark: j.state === 'ready' ? 'ok' : 'running', word: j.state };
   if (row.by === 'exit') {
+    // R4 (H99, r24): a /run whose failed blocks each made no change (Timmy's block sealer noted it on their steps) stopped
+    // there with no change: never "failed"
+    const failed = kind === 'workflow' && j.state === 'failed' ? j.steps.filter((s) => s.state === 'failed') : [];
+    if (failed.length && failed.every((s) => s.outcome === 'no change')) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
     const mark: JobMark = j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'running';
     return { kind, by: 'exit', mark, word: j.state };
   }
@@ -298,7 +303,7 @@ export function jobJudgement(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number
 
 /** A mark as the terminal draws it: ✓, ✖, ?, a stop's blank, the running bullet. */
 export function markGlyph(m: JobMark, g: { ok: string; fail: string; bullet: string }): string {
-  return m === 'ok' ? g.ok : m === 'failed' ? g.fail : m === 'unknown' ? '?' : m === 'stopped' ? ' ' : g.bullet;
+  return m === 'ok' ? g.ok : m === 'failed' ? g.fail : m === 'unknown' ? '?' : m === 'stopped' ? ' ' : m === 'unchanged' ? '=' : g.bullet;
 }
 
 /** "its verdict: the script reported ok: false" (or, with no judgement here, the words that say so), or "" for a job its

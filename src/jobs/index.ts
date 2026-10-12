@@ -37,6 +37,11 @@ export interface JobStep {
   /** Round R4 (H67): 'wrapper' when the step's end (its state, code and endedAt) is what the run's pty wrapper saw once the
    *  REPL that followed the job no longer did (its stop file, read by recovery); Timmy did not see that end itself. */
   seen?: 'wrapper';
+  /** Round R4 (H99, r24): 'no change' when the block's own runs made no change (its block receipt says why; its state and
+   *  code stay as upmd gave them): noted by Timmy's block sealer from the flows the block ran, never from an exit alone. */
+  outcome?: 'no change';
+  /** R4 (H99): with `outcome`, the words of the flow that made no change (the last build's state among them) */
+  why?: string;
 }
 /** Round R4 (H67): what a run's pty wrapper wrote in its stop file (workers/upmd/pty_run.py) once the REPL that started it
  *  had ended, as recovery keeps it: why it ended (its own words), when, whether it stopped upmd and with which signals,
@@ -392,6 +397,21 @@ export class JobManager {
     if (!left?.exitedAtOnce || left.exitedAtOnce.sealed) return false;
     const { stale: _stale, ...job } = left;
     return this.persist({ ...job, exitedAtOnce: { ...left.exitedAtOnce, sealed: true } });
+  }
+
+  /**
+   * Round R4 (H99, r24): notes what Timmy's block sealer found of a step of this manager's job (a /run block whose runs made
+   * no change), on its record: the step at `index`, only while it carries `name`. Its state and code stay as they were. The
+   * record is written now; listeners hear of it with the job's next change (a job that is ending is written by its end).
+   */
+  noteStep(id: string, index: number, name: string, note: { outcome: 'no change'; why?: string }): boolean {
+    const entry = this.jobs.get(id);
+    const step = entry?.job.steps[index];
+    if (!entry || !step || step.name !== name) return false;
+    step.outcome = note.outcome;
+    if (note.why) step.why = note.why.slice(0, 600);
+    if (!entry.finished) this.persist(entry.job);
+    return true;
   }
 
   /** Round R4 (H29): signal a job's process group at once, without waiting (the REPL exiting at once). Only a job of
@@ -871,6 +891,8 @@ function parseStep(raw: unknown): JobStep[] {
   if (typeof s.startedAt === 'string') step.startedAt = s.startedAt;
   if (typeof s.endedAt === 'string') step.endedAt = s.endedAt;
   if (s.seen === 'wrapper') step.seen = 'wrapper';
+  // R4 (H99): a block that made no change, as Timmy's block sealer noted it
+  if (s.outcome === 'no change') { step.outcome = 'no change'; if (typeof s.why === 'string') step.why = s.why.slice(0, 600); }
   return [step];
 }
 

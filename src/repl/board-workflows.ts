@@ -68,7 +68,7 @@ type Line = Segment[];
 /** A block's state, always in words. R4 (H67): 'not seen', a block after an ended REPL that nothing proves did not run
  *  (src/workflows/run-blocks.ts). */
 export type NodeWord = RunBlockWord | 'not run yet';
-export const NODE_GLYPH: Record<NodeWord, string> = { waiting: '○', running: '●', completed: '✓', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', 'not seen': '◌', 'not run yet': '·', unknown: '?' };
+export const NODE_GLYPH: Record<NodeWord, string> = { waiting: '○', running: '●', completed: '✓', failed: '✕', stopped: '■', interrupted: '!', 'not run': '–', 'not seen': '◌', 'not run yet': '·', unknown: '?', 'no change': '=' };
 /** The class a state word gives (colour and border only; the word and the glyph carry the meaning). */
 export const wordClass = (w: string): string => `wfs-${w.replace(/[^a-z]/g, '')}`;
 
@@ -344,7 +344,10 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   const live = !j.stale && !TERMINAL.has(j.state);
   // R4 (H58): ended by a later session's recovery because its session ended while it ran (src/jobs endLeft)
   const interrupted = j.stale || !!j.interrupted;
-  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : j.state;
+  // R4 (H99, r24): a run that stopped at a block whose own flows made no change reads "no change", never "failed"
+  const failedSteps = j.steps.filter((s) => s.state === 'failed');
+  const stillStop = j.state === 'failed' && failedSteps.length > 0 && failedSteps.every((s) => s.outcome === 'no change');
+  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : stillStop ? 'no change' : j.state;
   // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
   const pty = isLiveRun(j.args);
   // R4 (H67): each block's state, as /jobs reads it too (src/workflows/run-blocks.ts): 'not run' only where it is known
@@ -520,7 +523,12 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const acts = k.live
     ? [
       ...(r.stoppable ? [`<button type="button" class="act act-stop" data-wf-stop="${esc(r.job)}">Stop</button>`] : []),
-      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length ? [`<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`] : []),
+      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length
+        // R4 (H99, gap 11): a run that reaches a block needing a person: disabled, with why (the command is the chip below)
+        ? [rerun.risky.length
+          ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(rerun.key)}" title="${esc(`Needs you: ${rerun.risky.map((x) => x.name).join(', ')} ${rerun.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type /run ${w.rel} ${r.target} in the REPL, which asks first in its NEEDS YOU box.`)}">Run ${esc(r.target)} again</button>`
+          : `<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`]
+        : []),
     ].join('')
     : '';
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' && !c.repeated?.length ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
@@ -691,10 +699,16 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
       ? `${n.name} needs nothing, so upmd runs it alone: Run this block is ${cmd}. The prediction is sealed first, the outcome after.`
       : `Run up to here is ${cmd}: upmd runs ${arrow(n.order)}, ${n.name} after the blocks it needs. The prediction is sealed first, the outcome after.`;
   const notAlone = alone ? '' : `Run this block alone is not offered: upmd runs a block after the blocks it needs, and Timmy does not run a block without them.`;
+  // R4 (H99, r24 gap 11): a run that reaches a block needing a person shows its Run disabled before anyone presses it, with
+  // the reason (its title and the note below) and the command to type in the REPL (the copy chip below). It is no action
+  // button (no data-act), so nothing on the page enables or presses it; a Run sent anyway is still refused by the REPL.
+  const heldWhy = n.risky.length ? `Needs you: ${n.risky.map((x) => x.name).join(', ')} ${n.risky.length === 1 ? 'runs' : 'run'} ${RISKY_REASON}. The board cannot ask you: type ${cmd} in the REPL, which asks first in its NEEDS YOU box.` : '';
   const buttons = k.live
-    ? alone
-      ? k.act('Run this block', { act: 'run', doc: w.rel, block: n.name })
-      : `${k.act('Run up to here', { act: 'run', doc: w.rel, block: n.name })}<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`
+    ? heldWhy
+      ? `<button type="button" class="act" disabled data-wf-needs-person="${esc(n.key)}" title="${esc(heldWhy)}">${esc(alone ? 'Run this block' : 'Run up to here')}</button>${alone ? '' : `<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`}`
+      : alone
+        ? k.act('Run this block', { act: 'run', doc: w.rel, block: n.name })
+        : `${k.act('Run up to here', { act: 'run', doc: w.rel, block: n.name })}<button type="button" class="act quiet" disabled title="${esc(notAlone)}">Run this block</button>`
     : '';
   const live = c.runs.find((r) => r.job === c.latest && (r.word === 'running' || r.word === 'starting'));
   const busy = live && k.live ? `<p class="meta">${esc(`${live.job} is running now (${live.target}); another run starts beside it.`)}</p>` : '';
@@ -702,7 +716,7 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
   // (wf-needs-you: the block editor's .wf-needs is its row of dependencies, src/repl/board-edits.ts)
   const first = (code: string): string => code.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   const needs = n.risky.length
-    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.' : ''}`)}</p>`
+    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box, so its Run is disabled here: copy the command below and type it in the REPL. A Run sent from the board anyway is refused and listed in Waiting on you.' : ''}`)}</p>`
     : '';
   return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${needs}${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
 }
@@ -1142,7 +1156,7 @@ export const WORKFLOWS_CSS = `
 .wf-word strong { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
 .wf-word .wf-detail { color: ${HOMEBREW.textSecondary}; white-space: normal; }
 .wf-glyph { display: inline-block; min-width: 1em; text-align: center; font-weight: ${TYPE.weight.strong}; }
-.wfs-completed { color: ${HOMEBREW.text}; }
+.wfs-completed, .wfs-nochange { color: ${HOMEBREW.text}; } /* R4 (H99): no change, an outcome in the text colour */
 .wfs-running, .wfs-stopped, .wfs-interrupted, .wfs-notseen { color: ${HOMEBREW.attention}; }
 .wfs-failed { color: ${HOMEBREW.failure}; }
 .wfs-waiting, .wfs-notrun, .wfs-notrunyet, .wfs-unknown { color: ${HOMEBREW.textSecondary}; }
@@ -1197,7 +1211,7 @@ dl.wf-facts { font-size: ${TYPE.size.small}px; }
 .wf-node:focus-visible .wf-box, .wf-node:hover .wf-box { stroke: ${HOMEBREW.accent}; }
 .wf-node.wf-sel .wf-box { stroke: ${HOMEBREW.accent}; stroke-width: 2.5; }
 .wf-state { font-size: 11px; font-weight: ${TYPE.weight.strong}; letter-spacing: .03em; }
-.wf-state.wfs-completed { fill: ${HOMEBREW.text}; }
+.wf-state.wfs-completed, .wf-state.wfs-nochange { fill: ${HOMEBREW.text}; }
 .wf-state.wfs-running, .wf-state.wfs-stopped, .wf-state.wfs-interrupted, .wf-state.wfs-notseen { fill: ${HOMEBREW.attention}; }
 .wf-state.wfs-failed { fill: ${HOMEBREW.failure}; }
 .wf-state.wfs-waiting, .wf-state.wfs-notrun, .wf-state.wfs-notrunyet, .wf-state.wfs-unknown { fill: ${HOMEBREW.textSecondary}; }

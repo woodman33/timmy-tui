@@ -33,7 +33,7 @@ import {
 import { resolveInside } from '../project/index.js';
 import { FLOW_SCHEMA, flowRecordPath, flowWorkDir, mm3Text, mmText, newFlowId, READBACK_TOLERANCE, toleranceText } from '../flows/iterate.js';
 import { changeText, DOCTRINE_15, judgeFileChanges, lineCount, NATIVE_FILE_MAX_BYTES, scriptChange, syntaxWords, unseenFolder } from '../flows/iterate-native.js';
-import { FREECAD_FLOW_MEASURED_BY, freecadIterateTask, previousFreecadRun, stepMeasure, type FreecadFlowRecord, type FreecadMeasure } from '../flows/iterate-freecad.js';
+import { FREECAD_FLOW_MEASURED_BY, freecadIterateTask, freecadLastRun, previousFreecadRun, stepMeasure, type FreecadFlowRecord, type FreecadMeasure } from '../flows/iterate-freecad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 // R4 (H51): each flow record names the operation (one request) that started it.
@@ -187,7 +187,8 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     const now = sha(bytes);
     const seen = judged.params === 'changed' ? judged.change?.sha256 ?? null : before.sha256;
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); FreeCAD did not run`);
-    if (judged.params === 'unchanged') return this.end(f, 'stopped', 'checks', 'the agent changed nothing; FreeCAD did not run');
+    // R4 (H99, r24): no change is its own outcome, with what a check of the last /freecad run's recorded inputs found.
+    if (judged.params === 'unchanged') return this.noChange(f, 'the agent changed nothing', freecadLastRun(f.root, rel), keptOut);
     const afterText = bytes.toString('utf8');
     const change = scriptChange(f.beforeText, afterText);
     f.record.script.after = { sha256: now, bytes: bytes.length, lines: lineCount(afterText) };

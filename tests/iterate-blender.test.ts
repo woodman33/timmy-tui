@@ -762,11 +762,13 @@ describe.skipIf(!python)('/iterate blender end to end (FAKE agent, FAKE Blender 
     expect(sealed[1]).toMatchObject({ status: 'failed', native: { app: 'blender', outcome: 'failed' } });
   }, 90000);
 
-  it('no change: "the agent changed nothing; Blender did not run"', async () => {
+  // R4 (H99, r24): no change is its own outcome, with the last /blender run checked (none here)
+  it('no change: "no change: the agent changed nothing, so nothing was rebuilt", the last Blender run none', async () => {
     const { ws, sealed } = make();
     const id = flowIdIn(text(await ws.iterate('blender scene.py "keep it as it is"')));
     await until(ended(sealed, id));
-    expect(recordOf(id)).toMatchObject({ outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; Blender did not run' });
+    expect(recordOf(id)).toMatchObject({ outcome: 'no change', ended_in: 'checks', last_build: { state: 'none' } });
+    expect(recordOf(id).why).toMatch(/^no change: the agent changed nothing, so nothing was rebuilt; there is no Blender run of scene\.py in this project yet: \/blender scene\.py runs it/);
     expect(nativeRuns()).toEqual([]);
   }, 90000);
 

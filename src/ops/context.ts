@@ -26,6 +26,12 @@ export const newOperationId = (): string => `o${randomBytes(4).toString('hex')}`
 /** The runs an operation can start, by the record that names them. */
 export type OperationRunKind = 'job' | 'flow' | 'vox' | 'agent' | 'native' | 'mcp';
 
+/**
+ * R4 (H99, r24): a process the request itself started and that ended within it, with no record of its own to name it (a
+ * server command `/mcp tools` started for a listing): what it was and how it ended, in words, and whether that was a failure.
+ */
+export interface StartedProcess { what: string; ended: string; failed: boolean }
+
 /** An operation as this process carries it: its id, and where the runs it starts and the receipts it seals are noted. */
 export interface OperationScope {
   readonly id: string;
@@ -33,6 +39,8 @@ export interface OperationScope {
   noteRun?(kind: OperationRunKind, id: string): void;
   /** a receipt was sealed under this operation */
   noteSeal?(): void;
+  /** R4 (H99): a process the request started and that has ended (it has no record of its own) */
+  noteStarted?(p: StartedProcess): void;
 }
 
 const storage = new AsyncLocalStorage<OperationScope | null>();
@@ -87,6 +95,11 @@ export function stampReceipt<T extends { operation_id?: string }>(input: T): T {
   if (!scope) return input;
   try { scope.noteSeal?.(); } catch { /* the receipt stands */ }
   return { ...input, operation_id: scope.id };
+}
+
+/** R4 (H99): notes, on the current operation, a process its request started and that has ended; outside one, nothing. */
+export function noteStartedProcess(p: StartedProcess): void {
+  try { storage.getStore()?.noteStarted?.(p); } catch { /* the request stands; only its note in the operation is lost */ }
 }
 
 /**

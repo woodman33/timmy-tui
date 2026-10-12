@@ -254,7 +254,7 @@ export function knownOperations(ix: OpIndex): string[] {
 // ── the parts of a card ───────────────────────────────────────────────────────
 
 /** R4 (H73): a judged mark as a card's tone (unknown is attention: never ok, and not a failure). */
-const MARK_TONE: Readonly<Record<JobMark, CardTone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running' };
+const MARK_TONE: Readonly<Record<JobMark, CardTone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running', unchanged: 'neutral' };
 const cutWords = (t: string, max: number): string => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
 
 const toneOf = (state: string): CardTone => (/^(running|starting|queued|ready)/.test(state) ? 'running'
@@ -358,8 +358,11 @@ function workflowParts(ix: OpIndex, id: string): CardWorkflow[] {
     const order = j.expected?.steps?.length ? j.expected.steps : p?.prediction?.order;
     const count = blockCount(j, { ...(order ? { order } : {}), receipts: blockReceiptsOf(ix.chain, j.id) });
     const steps: CardStep[] = count.blocks.map((b) => ({ name: b.name, state: b.word, ...(b.code !== undefined ? { code: b.code } : {}), ...(b.receipt ? { receipt: b.receipt } : {}) }));
-    // R4 (H88; r23): the record's own word for its state ("cancelled"), as /jobs says it: one word per state
-    const state = `${j.stale ? `${j.state}; its process is gone` : j.state} · ${count.words}`;
+    // R4 (H88; r23): the record's own word for its state ("cancelled"), as /jobs says it: one word per state. R4 (H99, r24): a
+    // run that stopped at a block whose own flows made no change says "no change", never "failed"
+    const failed = j.steps.filter((s) => s.state === 'failed');
+    const word = j.state === 'failed' && failed.length && failed.every((s) => s.outcome === 'no change') ? 'no change' : j.state;
+    const state = `${j.stale ? `${j.state}; its process is gone` : word} · ${count.words}`;
     return {
       doc, block, job: j.id, state, tone: toneOf(state), steps, check,
       commands: [...(block ? [`/run ${doc} ${block}`] : []), `/workflows ${doc}`, `/jobs ${j.id}`],
@@ -377,7 +380,9 @@ function flowParts(ix: OpIndex, id: string): { flows: CardFlow[]; outputs: CardO
     const outcome = String(r.outcome ?? 'unknown');
     const running = !!f.live && outcome === 'running';
     const verdict = str(obj(r.readback)?.verdict);
-    const words = running ? `running: its ${String(r.step ?? '?')} step` : `${outcome}${verdict ? `; readback ${verdict}` : ''}${str(r.why) ? `: ${str(r.why)}` : ''}`;
+    // R4 (H99): a flow that made no change says so once (its why already begins with it)
+    const why = str(r.why)?.replace(/^no change: /, '');
+    const words = running ? `running: its ${String(r.step ?? '?')} step` : `${outcome}${verdict ? `; readback ${verdict}` : ''}${why ? `: ${why}` : ''}`;
     const verified = f.check.status === 'verified';
     const check: CardCheck = running
       ? { status: 'unverified', words: 'running: no record yet (its state file, as its session last wrote it)' }
@@ -547,8 +552,10 @@ function runParts(ix: OpIndex, id: string, rec: OperationRecord | undefined, flo
       add({ kind: 'job', id: j.id, role: roleOf('job', j.label), state: `${judged.word}${judged.why ? `: ${cutWords(judged.why, 120)}` : ''}`, tone: MARK_TONE[judged.mark] });
       continue;
     }
-    const state = j.stale ? `${j.state}; its process is gone` : j.state; // R4 (H88; r23): the record's own word ("cancelled")
-    add({ kind: j.kind === 'workflow' ? 'workflow run' : 'job', id: j.id, role: j.kind === 'workflow' ? 'role not recorded (a workflow run: its blocks act)' : roleOf('job', j.label), state, tone: toneOf(state) });
+    // R4 (H88; r23): the record's own word ("cancelled"); R4 (H99, r24): "no change" for a run that stopped at a block whose own
+    // flows made no change (the judge's word), never "failed"
+    const state = j.stale ? `${j.state}; its process is gone` : judged.mark === 'unchanged' ? judged.word : j.state;
+    add({ kind: j.kind === 'workflow' ? 'workflow run' : 'job', id: j.id, role: j.kind === 'workflow' ? 'role not recorded (a workflow run: its blocks act)' : roleOf('job', j.label), state, tone: judged.mark === 'unchanged' ? MARK_TONE.unchanged : toneOf(state) });
   }
   for (const m of ix.mcps.get(id) ?? []) add({ kind: 'mcp', id: m, role: roleOf('mcp'), state: 'MCP call', tone: 'neutral' });
   for (const r of rec?.runs ?? []) if (!claimed.has(`${r.kind}:${r.id}`) && !runs.some((x) => x.id === r.id || x.id === r.id.slice(0, 8))) add({ kind: r.kind, id: r.id, role: roleOf(r.kind), state: 'named by its operation record', tone: 'neutral' });

@@ -16,7 +16,7 @@ import type { JobRecord } from '../jobs/index.js';
 import { runBlocks, type RunBlock } from './run-blocks.js';
 
 /** The words of a block that ended (runBlocks' words). */
-export const ENDED_WORDS: ReadonlySet<string> = new Set(['completed', 'failed', 'stopped', 'interrupted']);
+export const ENDED_WORDS: ReadonlySet<string> = new Set(['completed', 'failed', 'stopped', 'interrupted', 'no change']);
 /** What a run whose record has no planned order says beside what it saw. */
 export const NO_PLAN = 'the planned count is not recorded';
 
@@ -53,6 +53,7 @@ export function blockCount(j: CountRecord, o: { order?: readonly string[]; clock
   for (const b of blocks) {
     if (b.word === 'running') parts.push(`${b.name} running`);
     else if (b.word === 'failed') parts.push(`${b.name} failed${b.code !== undefined ? `, exit ${b.code}` : ''}`);
+    else if (b.word === 'no change') parts.push(`${b.name} no change${b.code ? `, exit ${b.code}` : ''}`); // R4 (H99)
     else if (b.word === 'stopped' || b.word === 'interrupted') parts.push(`${b.name} ${b.word}`);
   }
   const notRun = blocks.filter((b) => b.word === 'not run');

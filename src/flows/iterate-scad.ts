@@ -15,9 +15,34 @@ import { listNativeRuns, readNativeRecord } from '../native/index.js';
 import type { ScadReadout } from '../native/openscad.js';
 import { SCAD_PARAMS_SCHEMA, scadLiteral, type ScadValue } from '../native/scad-params.js';
 import { STL_READBACK, topologyWords, type StlReadback } from '../native/stl-readback.js';
-import { DOCTRINE_15, sizeText, numText, type FlowAgentPart, type NativeFlowRecordBase } from './iterate-native.js';
+import { DOCTRINE_15, nativeLastRun, sizeText, numText, type FlowAgentPart, type NativeFlowRecordBase } from './iterate-native.js';
+import type { LastBuildCheck } from './iterate.js';
 
 export { DOCTRINE_15 };
+
+/**
+ * R4 (H99, r24): the last /scad run of a model, checked when a flow made no change (src/flows/iterate-native.ts
+ * nativeLastRun): its model and its parameter file hash as its record says (scad.json's params_file), it took every value
+ * from that file (no name=value word overrode one), and the files it wrote are the bytes its verdict names.
+ */
+export function scadLastRun(root: string, modelRel: string, paramsRel: string, o: { now?: () => Date } = {}): LastBuildCheck {
+  return nativeLastRun(root, {
+    app: 'openscad', appName: 'OpenSCAD', input: modelRel, again: `/scad ${modelRel}`, ...(o.now ? { now: o.now } : {}),
+    extra: (dir) => {
+      let s: Record<string, unknown> | undefined;
+      try { s = objOf(JSON.parse(fs.readFileSync(path.join(dir, 'scad.json'), 'utf8'))); } catch { s = undefined; }
+      const file = objOf(s?.params_file);
+      const words = Object.entries(objOf(s?.params) ?? {}).filter(([, p]) => objOf(p)?.from === 'words').map(([k]) => k);
+      const recorded = file && file.path === paramsRel && typeof file.sha256 === 'string' ? file.sha256 : null;
+      return [{
+        what: paramsRel, path: paramsRel, recorded,
+        ...(!s ? { why: 'its record has no readable OpenSCAD part (scad.json)' }
+          : words.length ? { why: `it was given ${words.join(', ')} as name=value words, not only ${paramsRel}'s values` }
+            : recorded === null ? { why: `it did not read ${paramsRel}` } : {}),
+      }];
+    },
+  });
+}
 
 /** What the comparison is, said once: on the record, the board and the notices. */
 export const SCAD_COMPARE_SCOPE = "Timmy's own reading of the exported STL (its own TypeScript, independent of OpenSCAD's engine), compared with OpenSCAD's own summary of the same export (--summary all). Both describe the generated CAD file, in its own units (OpenSCAD models are millimetres by convention), never a physical part.";

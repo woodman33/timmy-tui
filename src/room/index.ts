@@ -451,7 +451,7 @@ function starterEnded(j: JobRecord): boolean {
 export const LEFT_RUNNING = 'The Timmy that started it has ended and it still runs: /recover stops it and records how it ended.';
 const leftHint = (c: Ctx, j: JobRecord | undefined): RoomRun['hint'] | undefined => (j && liveJob(j) && !c.mine(j.id) && starterEnded(j) ? { words: LEFT_RUNNING, command: '/recover' } : undefined);
 /** R4 (H73): a job's judged mark as the room's tone (only a judged success is ok; unknown is attention, never ok). */
-const TONE_OF: Readonly<Record<JobMark, Tone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running' };
+const TONE_OF: Readonly<Record<JobMark, Tone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running', unchanged: 'neutral' };
 const span = (c: Ctx, start: number, end: number | undefined, running: boolean): string | undefined => (start ? elapsedWords((end ?? c.nowMs) - start, running) : undefined);
 
 /** The chat agent's turns: the model each asked for and how it ended, from its sealed receipt (a turn being answered has none yet). */
@@ -661,7 +661,7 @@ function flowRuns(c: Ctx, flows: BoardFlows): RoomRun[] {
       ...(str(agent?.model) ? { model: String(agent!.model) } : {}),
       ...(route ? { endpoint: /^local endpoint/.test(route) ? 'local' as const : 'remote' as const } : {}),
       route: route ? `its agent step: ${cleanLine(route, c.scrub, 80)}` : 'not recorded',
-      state: running ? (ours ? 'running' : "running, as its state file says (this REPL does not run it)") : outcome, tone: running ? 'running' : outcome === 'succeeded' ? 'ok' : outcome === 'failed' || outcome === 'differs' ? 'failed' : outcome === 'cancelled' || outcome === 'stopped' ? 'stopped' : 'attention',
+      state: running ? (ours ? 'running' : "running, as its state file says (this REPL does not run it)") : outcome, tone: running ? 'running' : outcome === 'succeeded' ? 'ok' : outcome === 'failed' || outcome === 'differs' ? 'failed' : outcome === 'cancelled' || outcome === 'stopped' ? 'stopped' : outcome === 'no change' ? 'neutral' : 'attention', // R4 (H99): no change, an outcome word in the text colour
       running,
       ...(running && step ? { step: `its ${step} step` } : str(r.ended_in) ? { step: `ended in its ${String(r.ended_in)} step` } : {}),
       ...(start ? { startedAt: String(r.started_at), elapsed: span(c, start, time(r.ended_at) || undefined, running) } : {}),
@@ -903,7 +903,8 @@ function jobRuns(c: Ctx): RoomRun[] {
     const blocks: RoomStep[] | undefined = count?.blocks.map((b) => ({
       name: b.name, owner: 'a shell block, run by upmd', state: b.word, ...(b.receipt ? { receipt: b.receipt } : {}),
       ...(blockDetail(b) ? { detail: blockDetail(b) } : {}),
-      ...(b.word === 'running' ? { here: 'running now' } : b.word === 'failed' || b.word === 'interrupted' || b.word === 'stopped' ? { here: `${b.word} here` } : {}),
+      ...(b.word === 'running' ? { here: 'running now' } : b.word === 'failed' || b.word === 'interrupted' || b.word === 'stopped' || b.word === 'no change' ? { here: `${b.word} here` } : {}),
+      ...(b.why ? { detail: [blockDetail(b), cleanLine(b.why, c.scrub, 200)].filter(Boolean).join(' · ') } : {}), // R4 (H99)
     }));
     // R4 (H73): a request that went out from a job (VoxVision's Roboflow detection: its label says "a network call") and
     // returned no cost is unknown; any other job sent no request of Timmy's
@@ -912,8 +913,9 @@ function jobRuns(c: Ctx): RoomRun[] {
     return {
       kind: 'job', id: j.id, owner, harness: program ? cleanLine(program, c.scrub, 40) : 'its program (not named)',
       endpoint: network ? 'remote' : 'local', route: network ? 'a request to a hosted service (its label says a network call); the service reports no cost to Timmy' : 'this machine (a job); no cost recorded',
-      state: j.state === 'ready' ? `ready${j.url ? ` at ${cleanLine(j.url, c.scrub, 60)}` : ''}` : byRecord ? `${judged.word}${judged.why ? `: ${judged.why}` : ''}` : jobWords(j),
-      tone: running ? 'running' : byRecord ? TONE_OF[judged.mark] : j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'attention', running,
+      // R4 (H99, r24): a /run that stopped at a block whose own flows made no change reads "no change", never "failed"
+      state: j.state === 'ready' ? `ready${j.url ? ` at ${cleanLine(j.url, c.scrub, 60)}` : ''}` : byRecord ? `${judged.word}${judged.why ? `: ${judged.why}` : ''}` : judged.mark === 'unchanged' ? 'no change' : jobWords(j),
+      tone: running ? 'running' : byRecord || judged.mark === 'unchanged' ? TONE_OF[judged.mark] : j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'attention', running,
       step: cleanLine(j.label, c.scrub, 80),
       ...(start ? { startedAt: j.startedAt, elapsed: span(c, start, j.endedAt ? time(j.endedAt) : undefined, running) } : {}),
       ...(j.endedAt ? { endedAt: j.endedAt } : {}),

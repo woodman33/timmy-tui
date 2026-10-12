@@ -12,11 +12,31 @@
  * shows the file holds the geometry FreeCAD reported, not an independent kernel's confirmation. DOCTRINE §15's sentence
  * goes with every dimension shown.
  */
-import { FREECAD_REPORTED_BY, freecadReport, type FreecadReadbackCheck, type FreecadReport, type FreecadShape } from '../native/freecad.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FREECAD_RECORD, FREECAD_REPORTED_BY, freecadReport, type FreecadReadbackCheck, type FreecadReport, type FreecadShape } from '../native/freecad.js';
 import { listNativeRuns, readNativeRecord } from '../native/index.js';
-import { changeText, DOCTRINE_15, type FlowAgentPart, type NativeFlowRecordBase, type ScriptChange, type SyntaxCheck } from './iterate-native.js';
+import { changeText, DOCTRINE_15, nativeLastRun, type FlowAgentPart, type NativeFlowRecordBase, type ScriptChange, type SyntaxCheck } from './iterate-native.js';
+import type { LastBuildCheck } from './iterate.js';
 
 export { DOCTRINE_15 };
+
+/**
+ * R4 (H99, r24): the last /freecad run of a script, checked when a flow made no change (src/flows/iterate-native.ts
+ * nativeLastRun): the script hashes as its submission recorded, it was given no arguments of its own (the flow runs the
+ * script with none), and the files it wrote are the bytes its verdict names.
+ */
+export function freecadLastRun(root: string, scriptRel: string, o: { now?: () => Date } = {}): LastBuildCheck {
+  return nativeLastRun(root, {
+    app: 'freecad', appName: 'FreeCAD', input: scriptRel, again: `/freecad ${scriptRel}`, ...(o.now ? { now: o.now } : {}),
+    extra: (dir) => {
+      let args: unknown;
+      try { args = (JSON.parse(fs.readFileSync(path.join(dir, FREECAD_RECORD), 'utf8')) as { script_args?: unknown }).script_args; } catch { args = undefined; }
+      if (Array.isArray(args) && args.length === 0) return [];
+      return [{ what: `its arguments (${FREECAD_RECORD})`, path: scriptRel, recorded: null, why: Array.isArray(args) ? `it was given ${args.length} argument${args.length === 1 ? '' : 's'} of its own, and the flow runs ${scriptRel} with none` : `its record does not say which arguments it was given (${FREECAD_RECORD})` }];
+    },
+  });
+}
 
 /** Who measured the before and after numbers. */
 export const FREECAD_FLOW_MEASURED_BY = FREECAD_REPORTED_BY;

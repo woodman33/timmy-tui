@@ -33,7 +33,7 @@ import { resolveInside } from '../project/index.js';
 import { FLOW_SCHEMA, flowRecordPath, flowWorkDir, newFlowId } from '../flows/iterate.js';
 import { DOCTRINE_15, judgeFileChanges, numText, sizeText, unseenFolder } from '../flows/iterate-native.js';
 import {
-  compareScadRun, measureOf, previousScadRun, SCAD_COMPARE_SCOPE, SCAD_MEASURED_BY, SCAD_MODEL_TEXT_MAX, scadDiffText, scadIterateTask, scadNameChanges, scadParamDiff,
+  compareScadRun, measureOf, previousScadRun, SCAD_COMPARE_SCOPE, SCAD_MEASURED_BY, SCAD_MODEL_TEXT_MAX, scadDiffText, scadIterateTask, scadLastRun, scadNameChanges, scadParamDiff,
   scadVolumeText, type ScadFlowRecord, type ScadMeasure,
 } from '../flows/iterate-scad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
@@ -200,7 +200,8 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
     const now = sha(bytes);
     const seen = judged.params === 'changed' ? judged.change?.sha256 ?? null : before.sha256;
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); OpenSCAD did not run`);
-    if (judged.params === 'unchanged') return this.end(f, 'stopped', 'checks', 'the agent changed nothing; OpenSCAD did not run');
+    // R4 (H99, r24): no change is its own outcome, with what a check of the last /scad run's recorded inputs found.
+    if (judged.params === 'unchanged') return this.noChange(f, 'the agent changed nothing', scadLastRun(f.root, f.record.model.path, rel), keptOut);
     const parsed = parseScadParams(bytes.toString('utf8'), path.posix.basename(f.record.model.path));
     if (!parsed.ok) {
       f.record.parameters.invalid = { sha256: now, error: parsed.error };
@@ -215,7 +216,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
       const what = [...(names.added.length ? [`added ${names.added.join(', ')}`] : []), ...(names.removed.length ? [`removed ${names.removed.join(', ')}`] : [])].join(' and ');
       return this.end(f, 'stopped', 'checks', `the agent ${what} in ${rel}, and may change values only; it is left as the agent wrote it; OpenSCAD did not run${keptOut}`);
     }
-    if (!diff.some((x) => x.changed)) return this.end(f, 'stopped', 'checks', `the agent rewrote ${rel} but changed no value; OpenSCAD did not run`);
+    if (!diff.some((x) => x.changed)) return this.noChange(f, `the agent rewrote ${rel} but changed no value`, scadLastRun(f.root, f.record.model.path, rel), keptOut);
     this.note(f, `agent ${a.agent} ${a.run} completed: changed ${rel}${this.sep}${scadDiffText(diff, this.d.glyphs.arrow)}`);
     this.saveState(f);
   }

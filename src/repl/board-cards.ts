@@ -25,6 +25,8 @@ import path from 'node:path';
 import { listAgentRuns, taskWords, AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
 import { answerLines, hintWords, readMcpCalls, readRouteAnswer, serverSaid } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
+import { jobJudgement } from '../room/judge.js';
+import { blockCount, blockCountLine } from '../workflows/block-count.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
 import { checkCopyOf, deliverable, DOCTRINE_15, EXPORTS, failureFiles, isRecipeJobId, outcomeOf, outDir, PARAMETER_HELP, PARAMETER_NAMES, readCard, readRecipe, RECIPE_ID, type RecipeRead } from '../recipes/index.js';
@@ -411,8 +413,21 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 export function jobResults(jobs: readonly JobRecord[], chain: readonly Receipt[], skip: ReadonlySet<string>, scrub: (t: string, root: string) => string, max = 6): ResultCard[] {
   return jobs.filter((j) => TERMINAL.has(j.state) && !skip.has(j.id) && !/^(look|recipe|agent) /.test(j.label)).slice(0, max).map((j): ResultCard => {
     const rec = [...chain].reverse().find((r) => r.job?.id === j.id);
-    const steps = j.steps.length ? `${j.steps.filter((s) => s.state === 'completed').length} of ${j.steps.length} steps completed` : '';
+    // R4 (H99, r24): a workflow run's blocks counted as /jobs counts them (the order its sealed prediction kept: "1 of 3 steps;
+    // change failed, exit 1; inspect, result not run"), never the steps seen ("0 of 1 steps completed" was shown)
+    const steps = j.kind === 'workflow' ? blockCountLine(blockCount(j)) : j.steps.length ? `${j.steps.filter((s) => s.state === 'completed').length} of ${j.steps.length} steps completed` : '';
     const met = rec?.prediction?.met;
+    // R4 (H99, r24): a run that stopped at a block which made no change says so, as every view does (never "failed")
+    const still = j.kind === 'workflow' && jobJudgement(j).mark === 'unchanged' ? j.steps.find((s) => s.state === 'failed' && s.outcome === 'no change') : undefined;
+    if (still) {
+      return {
+        kind: 'job', title: `${j.id} · ${scrub(j.label, j.root)}`, at: j.endedAt ?? j.startedAt,
+        status: { word: 'no change', tone: 'neutral', detail: scrub(`stopped at ${still.name}, which made no change${still.why ? `: ${still.why}` : ''}`, j.root) },
+        lines: [[j.kind, steps, met === undefined ? '' : met ? 'its sealed prediction was met' : 'its sealed prediction was missed'].filter(Boolean).join(' · ')],
+        ...(j.receipt ? { receipts: [{ id: j.receipt, what: rec?.kind ?? 'job' }] } : {}),
+        commands: [`/jobs ${j.id}`],
+      };
+    }
     const tone: ResultCard['status']['tone'] = j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : 'neutral';
     const files = (rec?.outputs ?? []).flatMap((o) => { const rel = inProject(o.path); return rel ? [{ rel, note: fs.existsSync(path.join(j.root, rel)) ? 'written during the job' : 'not there now' }] : []; }).slice(0, 8);
     return {
@@ -542,4 +557,7 @@ export const CARDS_CSS = `
 .rfiles { margin: 0; padding-left: 18px; font-size: ${TYPE.size.small}px; }
 .rfiles li { overflow-wrap: anywhere; }
 dl.facts { margin: 0; }
+/* R4 (H99, r24): a result card's kind badge keeps its own size beside a title that wraps (a flex row stretched it to the title's height) */
+.result .jobhead { align-items: flex-start; }
+.result .jobhead .kind { flex: none; white-space: nowrap; margin-right: 0; }
 `;

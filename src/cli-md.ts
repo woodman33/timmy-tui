@@ -33,7 +33,7 @@ import { operationRel } from './ops/operations.js';
 import { timmyHome } from './utils/init.js';
 import { appendReceipt, readChain } from './utils/receipts.js';
 import { stopReason } from './utils/stop-words.js';
-import { blockReceiptsOf } from './workflows/block-receipts.js';
+import { blockReceiptsOf, NO_CHANGE_EXIT } from './workflows/block-receipts.js';
 import { findUpmd, upmdVersion } from './workflows/upmd.js';
 
 export const MD_USAGE = 'timmy md <workflow.md> [<block>] [--plan] [--json]';
@@ -64,6 +64,7 @@ export function mdHelp(): string {
     '',
     'EXIT',
     '  0 succeeded (or --plan)   1 failed   2 refused, needs a person, or usage   3 stopped or interrupted',
+    '  4 no change: the run stopped at a block whose request made no change while the last build does not match its inputs',
     '',
     'EXAMPLES',
     '  timmy md WORKFLOW.md lesson --plan',
@@ -280,7 +281,8 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
 
   const ended = h.ended!;
   const state = stopping ? 'stopped' : failedToRun ? 'failed' : ended.state;
-  const code = state === 'succeeded' || state === 'answered' ? 0 : state === 'failed' || state === 'differs' ? 1 : state === 'refused' ? 2 : 3;
+  // R4 (H99): a run that stopped at a block that made no change exits as `timmy act` does for no change (NO_CHANGE_EXIT)
+  const code = state === 'succeeded' || state === 'answered' ? 0 : state === 'failed' || state === 'differs' ? 1 : state === 'refused' ? 2 : state === 'no change' ? NO_CHANGE_EXIT : 3;
   // What the run sealed: its prediction, each block's receipt and its own, from the chain.
   const jobId = h.runs.find((r) => r.kind === 'job')?.id;
   const job = jobId ? ws.jobs.get(jobId) : undefined;
@@ -300,7 +302,7 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
     if (blocks.some((b) => b.receipt)) out(`  Blocks     ${blocks.filter((b) => b.receipt).map((b) => `block ${b.name}: receipt ${b.receipt}`).join(sep)}`);
     if (job?.receipt) out(`  Run        receipt ${job.receipt}${sep}/jobs ${job.id}`);
     const who = h.joined ? `this request (in operation ${h.id}, joined)` : `operation ${h.id}`;
-    out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' || state === 'refused' ? ' ' : glyphs.fail} ${who} ${state}: ${ended.why}`);
+    out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' || state === 'refused' ? ' ' : state === 'no change' ? '=' : glyphs.fail} ${who} ${state}: ${ended.why}`);
     out(`  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`);
   }
   printedCode = code; // R4 (H88)

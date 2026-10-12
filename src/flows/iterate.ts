@@ -14,7 +14,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChangeSet, ComparedScope, FileChange } from '../code-agents/index.js';
-import { DOCTRINE_15, PARAMETER_HELP, PARAMETER_NAMES, RECIPE_ID } from '../recipes/index.js';
+import { checkCopy, DOCTRINE_15, listRecipeJobs, PARAMETER_HELP, PARAMETER_NAMES, RECIPE_ID, requestFrom } from '../recipes/index.js';
+import { loadJob } from '../../lanes/recipes/jobs.js';
+import { validate } from '../../lanes/recipes/tray.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
 
 export { DOCTRINE_15 };
@@ -258,8 +260,49 @@ export const mm3Text = (n: number): string => (Math.round(n * 1000) / 1000).toLo
 
 // ── the flow record ──────────────────────────────────────────────────────────────
 
-export type FlowOutcome = 'running' | 'succeeded' | 'differs' | 'stopped' | 'failed' | 'cancelled';
+/**
+ * R4 (H99, r24): 'no change' is its own outcome: the agent changed nothing (or rewrote its file with the same values), so
+ * nothing was rebuilt. It is never 'succeeded' (the requested change was not made, and whether the request already held is
+ * not something Timmy can tell) and never 'stopped' or 'failed' (nothing went wrong). The record's `last_build` says whether
+ * the last build still matches its recorded inputs, from a check of their hashes made when the flow ended.
+ */
+export type FlowOutcome = 'running' | 'succeeded' | 'differs' | 'stopped' | 'failed' | 'cancelled' | 'no change';
 export type FlowStep = 'prepare' | 'agent' | 'checks' | 'build' | 'readback' | 'record';
+
+/** R4 (H99): the outcome word of a flow that made no change (FlowOutcome). */
+export const NO_CHANGE = 'no change' as const;
+
+/**
+ * R4 (H99): what a flow that made no change found of the last build, by a check of the recorded input hashes made as it
+ * ended: `current` only when every recorded input hashes as it did then and every file the build left is the bytes its own
+ * record names; `stale` when one differs (the first is said); `none` when there is no build; `unknown` when it could not be
+ * read (with why). `checks` keeps each comparison: what, as recorded, as now (sha256s or values; never a path outside the
+ * project: files outside it are named by their file name only).
+ */
+export interface LastBuildCheck {
+  state: 'current' | 'stale' | 'none' | 'unknown';
+  checked_at: string;
+  /** the build checked: a recipe job (the tray) or a native run (OpenSCAD, FreeCAD, Blender) */
+  build?: { kind: 'recipe' | 'native'; id: string; app?: string; job?: string; at?: string; outputs?: string };
+  checks: Array<{ what: string; recorded: string | null; now: string | null; same: boolean }>;
+  /** the sentence every view says it with */
+  words: string;
+}
+
+/** R4 (H99): a flow's `why` when it made no change: what the agent did, that nothing was rebuilt, and the last build's state. */
+export const noChangeWhy = (what: string, lb: Pick<LastBuildCheck, 'words'>, kept = ''): string => `no change: ${what}, so nothing was rebuilt; ${lb.words}${kept}`;
+
+/**
+ * R4 (H99): a flow outcome's mark in the terminal: ✓ succeeded, a stop's blank for cancelled, = for no change (nothing went
+ * wrong and nothing was made), ✖ otherwise; and its text role (a failure's colour only for a failure).
+ */
+export const flowMark = (outcome: unknown, g: { ok: string; fail: string }): string => (outcome === 'succeeded' ? g.ok : outcome === 'cancelled' ? ' ' : outcome === NO_CHANGE ? '=' : g.fail);
+export const flowFailed = (outcome: unknown): boolean => outcome !== 'succeeded' && outcome !== 'cancelled' && outcome !== NO_CHANGE;
+/** R4 (H99): a flow's why after its outcome word ("f1a2b3c4d no change: the agent changed nothing, …"), said once. */
+export const outcomeWhy = (outcome: unknown, why: unknown): string => {
+  const w = typeof why === 'string' ? why : '';
+  return outcome === NO_CHANGE && w.startsWith(`${NO_CHANGE}: `) ? w.slice(NO_CHANGE.length + 2) : w;
+};
 
 export interface FlowRecord {
   flow: 1;
@@ -331,7 +374,94 @@ export interface FlowRecord {
   doctrine: string;
   /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
   lessons?: Array<{ id: string; sha256: string; status: string }>;
+  /** R4 (H99): with outcome 'no change', what the check of the last build found (LastBuildCheck) */
+  last_build?: LastBuildCheck;
 }
+
+// ── R4 (H99): the last build of the tray, checked when a flow made no change ────────────────────
+
+const short8 = (s: string): string => s.slice(0, 8);
+const stampOf = (ms: number | undefined): string | undefined => (ms === undefined || !Number.isFinite(ms) ? undefined : `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`);
+const valueWords = (o: Record<string, unknown>): string => Object.entries(o).map(([k, v]) => `${k} ${typeof v === 'number' ? fmt(v) : String(v)}`).join(', ');
+
+/**
+ * R4 (H99, r24): whether the tray's last build still matches its recorded inputs, for a flow that made no change. The last
+ * build is the project's newest recipe job that succeeded (lanes/recipes/jobs.ts, each read through its own verification). It
+ * is current only when (1) the request the parameter file's values make now hashes as the job's recorded request did (its
+ * requestHash: the values it was built from), (2) every source file the job recorded (the recipe's code, its card, its
+ * worker, the Python it ran with) hashes as recorded, and (3) its exports in the project (out/recipes/<job>/) are the bytes
+ * its signed result names (checkCopy). A newer recipe job that has not ended leaves it unknown. Nothing is built, written or
+ * run here; files outside the project are named by their file name only.
+ */
+export function trayLastBuild(root: string, values: Record<string, number>, o: { now?: () => Date; deps?: TrayLastBuildDeps } = {}): LastBuildCheck {
+  const checked_at = (o.now ?? (() => new Date()))().toISOString();
+  const d = o.deps ?? trayDeps;
+  const unknown = (why: string, build?: LastBuildCheck['build']): LastBuildCheck => ({ state: 'unknown', checked_at, ...(build ? { build } : {}), checks: [], words: `whether the last build still matches its inputs is not known: ${why}` });
+  try {
+    const jobs = d.list(root);
+    const at = jobs.findIndex((j) => j.state === 'succeeded');
+    if (at < 0) {
+      return { state: 'none', checked_at, checks: [], words: `there is no build of the tray in this project yet${jobs.length ? ` (${jobs.length} recipe job${jobs.length === 1 ? '' : 's'}, none succeeded)` : ''}: /recipe tray builds it from recipes/tray.params.json` };
+    }
+    const newer = jobs.slice(0, at).find((j) => j.state === 'queued' || j.state === 'running');
+    const last = jobs[at];
+    const build: LastBuildCheck['build'] = { kind: 'recipe', id: last.id, ...(stampOf(last.created) ? { at: stampOf(last.created) } : {}), outputs: `out/recipes/${short8(last.id)}/` };
+    if (newer) return unknown(`a newer build (recipe job ${short8(newer.id)}) has not ended (${newer.state}); /recipe jobs follows it`, build);
+    const job = d.load(root, last.id);
+    const checks: LastBuildCheck['checks'] = [];
+    // (1) the request the values make now, as enqueue makes it (src/recipes requestFrom, then tray.ts validate)
+    const wanted = d.request(values);
+    const recorded = (job.request as { parameters?: Record<string, unknown> } | undefined)?.parameters ?? {};
+    checks.push({ what: 'the request (the parameter values it was built from)', recorded: job.requestHash, now: wanted.sha256, same: wanted.sha256 === job.requestHash });
+    // (2) every source the job recorded, by its file name (an absolute path outside the project is never kept)
+    for (const s of job.sources) {
+      const now = d.hashFile(s.file);
+      checks.push({ what: `source ${path.basename(s.file)}`, recorded: s.hash, now, same: now === s.hash });
+    }
+    // (3) its exports in the project, against its signed result
+    const copy = d.copy(root, last.id);
+    checks.push({ what: `its exports in ${build.outputs}`, recorded: last.resultHash ?? null, now: copy.ok ? last.resultHash ?? null : null, same: copy.ok });
+    const name = `the last build (recipe job ${short8(last.id)}${build.at ? `, ${build.at}` : ''})`;
+    if (wanted.sha256 !== job.requestHash) {
+      const diff = Object.keys({ ...recorded, ...wanted.parameters }).filter((k) => recorded[k] !== wanted.parameters[k]);
+      const was = valueWords(Object.fromEntries(diff.map((k) => [k, recorded[k]])));
+      const is = valueWords(Object.fromEntries(diff.map((k) => [k, wanted.parameters[k]])));
+      return { state: 'stale', checked_at, build, checks, words: `${name} is stale: it was built from ${diff.length ? was : 'other values'}, and the parameter file holds ${diff.length ? is : 'these'} now; /recipe tray rebuilds it from the file` };
+    }
+    const moved = checks.find((c) => c.what.startsWith('source ') && !c.same);
+    if (moved) return { state: 'stale', checked_at, build, checks, words: `${name} is stale: its ${moved.what} ${moved.now ? 'has changed since' : 'is not there now'} (sha256 ${moved.recorded ? short8(moved.recorded) : '?'} then${moved.now ? `, ${short8(moved.now)} now` : ''}); /recipe tray rebuilds it` };
+    if (!copy.ok) return { state: 'stale', checked_at, build, checks, words: `${name} is stale: its exports in the project are not the bytes its signed result names (${copy.error}); /recipe copy ${last.id} or /recipe tray` };
+    return {
+      state: 'current', checked_at, build, checks,
+      words: `${name} still matches its recorded inputs: its request is the parameter file's values (${valueWords(wanted.parameters)}), its ${job.sources.length} source files hash as recorded, and its exports in ${build.outputs} are the bytes its signed result names`,
+    };
+  } catch (e) {
+    return unknown(`the recipe jobs could not be read (${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').slice(0, 200)})`);
+  }
+}
+
+/** What trayLastBuild reads: the recipe jobs, one job's signed file, a request's hash, a file's hash, a copy's check (a test seam). */
+export interface TrayLastBuildDeps {
+  list: (root: string) => Array<{ id: string; created?: number; state?: string; resultHash?: string }>;
+  load: (root: string, id: string) => { request: unknown; requestHash: string; sources: Array<{ file: string; hash: string }> };
+  request: (values: Record<string, number>) => { sha256: string; parameters: Record<string, number> };
+  hashFile: (abs: string) => string | null;
+  copy: (root: string, id: string) => { ok: true } | { ok: false; error: string };
+}
+
+const trayDeps: TrayLastBuildDeps = {
+  list: (root) => listRecipeJobs(root),
+  load: (root, id) => loadJob(root, id),
+  request: (values) => {
+    const r = requestFrom(values);
+    if (!r.ok) throw new Error(r.error);
+    // exactly as lanes/recipes/jobs.ts enqueue makes a job's request, so its sha256 is comparable with requestHash
+    const request = { schema: 'timmy.recipe-request/1', recipe: RECIPE_ID, parameters: validate(r.request) };
+    return { sha256: sha(JSON.stringify(request)), parameters: request.parameters as unknown as Record<string, number> };
+  },
+  hashFile: (abs) => { try { const st = fs.lstatSync(abs); return st.isFile() ? sha(fs.readFileSync(abs)) : null; } catch { return null; } },
+  copy: (root, id) => { const c = checkCopy(root, id); return c.ok ? { ok: true } : { ok: false, error: c.error }; },
+};
 
 /** The project-relative folder checked: inside the project, through no link that leads out of it. */
 function insideProject(root: string, rel: string): { ok: true; abs: string } | { ok: false; error: string } {

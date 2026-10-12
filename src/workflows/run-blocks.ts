@@ -15,9 +15,11 @@
 import type { JobRecord, JobStep } from '../jobs/index.js';
 import { isLiveRun } from './upmd-live.js';
 
-export type RunBlockWord = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted' | 'not run' | 'not seen' | 'unknown';
-/** R4 (H74): `receipt`, the block's own receipt (its short id; src/workflows/block-receipts.ts), when the caller gave them. */
-export interface RunBlock { name: string; word: RunBlockWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string }
+/** R4 (H99, r24): 'no change', a block whose own flows made no change (its step's outcome, noted by Timmy's block sealer). */
+export type RunBlockWord = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted' | 'not run' | 'not seen' | 'unknown' | 'no change';
+/** R4 (H74): `receipt`, the block's own receipt (its short id; src/workflows/block-receipts.ts), when the caller gave them.
+ *  R4 (H99): `why`, with 'no change', the words of the flow that made no change (the last build's state among them). */
+export interface RunBlock { name: string; word: RunBlockWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string; why?: string }
 type RunRecord = Pick<JobRecord, 'state' | 'stale' | 'interrupted' | 'steps' | 'args'>;
 
 const TERMINAL: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled']);
@@ -62,11 +64,11 @@ export function runBlocks(j: RunRecord, order: readonly string[], clock?: (i: nu
     const ms = !pty || !s ? undefined : stepMs(s) ?? clock?.(at);
     let word: RunBlockWord;
     if (!s) word = live && !chainStopped ? 'waiting' : rest;
-    else if (s.state !== 'running') word = s.state;
+    else if (s.state !== 'running') word = s.outcome === 'no change' ? 'no change' : s.state; // R4 (H99): never "failed" for no change
     else word = live ? 'running' : ended ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : 'unknown';
     // R4 (H74): a block that started has its own receipt once it has ended (a block that never started has none)
     const receipt = s ? receipts?.get(name)?.receipt : undefined;
-    return { name, word, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}), ...(s?.seen ? { seen: s.seen } : {}), ...(receipt ? { receipt } : {}) };
+    return { name, word, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}), ...(s?.seen ? { seen: s.seen } : {}), ...(receipt ? { receipt } : {}), ...(word === 'no change' && s?.why ? { why: s.why } : {}) };
   });
 }
 

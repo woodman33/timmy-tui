@@ -24,7 +24,7 @@ import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agent
 import { aeSpecFromRecord, type AeCompReport, type AeKeyed, type AeLayerReport, type AeValue } from '../native/ae-author.js';
 import { listNativeRuns, readNativeRecord } from '../native/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
-import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type OtherChange } from './iterate.js';
+import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type LastBuildCheck, type OtherChange } from './iterate.js';
 
 export { DOCTRINE_15 };
 
@@ -747,6 +747,8 @@ export interface AeFlowRecord {
   outcome: FlowOutcome;
   ended_in?: AeFlowStep;
   why?: string;
+  /** R4 (H99): with outcome 'no change', what the check of the last build found (src/flows/iterate.ts LastBuildCheck) */
+  last_build?: LastBuildCheck;
   /** what the line asked: the comp to render (--comp) and an output module template (--om, passed as given) */
   options?: { comp?: string; om?: string };
   script: {

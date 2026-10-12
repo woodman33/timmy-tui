@@ -20,8 +20,8 @@ import type { JobRecord, JobStep } from '../jobs/index.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { provenFiles, type BlockWindow } from '../workflows/block-files.js';
 import {
-  blockOf, blockReceiptInput, blockReceiptsOf, CODE_FROM, CODE_FROM_RECOVERY, CODE_UNKNOWN_CHANGED, CODE_UNKNOWN_MISSING, codeSha256, docAtEnd,
-  outcomeOf, receiptShort, type BlockCut, type BlockFacts, type BlockOutcome,
+  blockOf, blockOutcome, blockReceiptInput, blockReceiptsOf, CODE_FROM, CODE_FROM_RECOVERY, CODE_UNKNOWN_CHANGED, CODE_UNKNOWN_MISSING, codeSha256, docAtEnd,
+  noChangeWords, receiptShort, type BlockCut, type BlockFacts, type BlockOutcome,
 } from '../workflows/block-receipts.js';
 import { stepMs } from '../workflows/run-blocks.js';
 import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
@@ -52,6 +52,8 @@ export interface BlockSealerDeps {
   /** the project's folder written as "." and the home folder as "~" */
   scrub: (text: string, root: string) => string;
   now?: () => number;
+  /** R4 (H99, r24): a block whose own flows made no change is noted on its job's step (JobManager.noteStep) */
+  noteStep?: (job: string, index: number, name: string, note: { outcome: 'no change'; why?: string }) => void;
 }
 
 interface Followed { run: BlockRun; sealed: Map<number, string | null>; ends: Map<number, number> }
@@ -122,8 +124,10 @@ export class BlockSealer {
     const from = before ? (before.endedAt ? Date.parse(before.endedAt) : f.ends.get(i - 1)) : undefined;
     const window: BlockWindow = { from: Number.isFinite(from) ? from! : Date.parse(job.startedAt), to: end };
     let found: ReturnType<typeof provenFiles>;
-    try { found = provenFiles(run.root, job.operation, window, this.d.chain()); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read' }; }
-    const outcome = o.outcome ?? outcomeOf(s);
+    try { found = provenFiles(run.root, job.operation, window, this.d.chain()); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read', flows: [] }; }
+    // R4 (H99, r24): a block whose own flows each made no change made no change (its state and exit stay as upmd gave them)
+    const outcome = o.outcome ?? blockOutcome(s, found.flows);
+    const still = outcome === 'no change' ? { flows: found.flows.map((x) => x.id), last_build: found.flows[0]?.last_build ?? null, words: this.d.scrub(noChangeWords(found.flows), run.root).slice(0, 600) } : undefined;
     const facts: BlockFacts = {
       run: job.id, doc: run.doc, name: s.name, index: s.index ?? block?.index ?? null,
       code_sha256: block ? codeSha256(block) : null, code_from: block ? CODE_FROM : CODE_UNKNOWN_MISSING,
@@ -139,10 +143,12 @@ export class BlockSealer {
       seen: s.seen === 'wrapper' ? 'wrapper' : 'timmy',
       prediction: run.prediction ?? null,
       files: found.files.map((x) => ({ ...x, path: this.d.scrub(x.path, run.root) })), ...(found.more ? { files_more: found.more } : {}), files_checked: found.checked,
+      ...(still ? { no_change: still } : {}),
     };
     let id: string | undefined;
     try { id = this.d.seal(blockReceiptInput(facts, { label: this.d.scrub(job.label, run.root), project: run.project, projectId: run.projectId })); } catch { id = undefined; }
     if (id) f.sealed.set(i, id);
+    if (still) { try { this.d.noteStep?.(job.id, i, s.name, { outcome: 'no change', why: still.words }); } catch { /* the receipt says it */ } }
   }
 }
 
@@ -199,8 +205,9 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord, cut?: LeftCut)
     const fromAt = before?.endedAt ? Date.parse(before.endedAt) : Date.parse(job.startedAt);
     const toAt = s.endedAt ? Date.parse(s.endedAt) : job.interrupted?.wrapper?.at ? Date.parse(job.interrupted.wrapper.at) : cut?.at ? Date.parse(cut.at) : now;
     let found: ReturnType<typeof provenFiles>;
-    try { found = provenFiles(job.root, job.operation, { from: fromAt, to: Number.isFinite(toAt) ? toAt : now }, chain); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read' }; }
-    const outcome = outcomeOf(s);
+    try { found = provenFiles(job.root, job.operation, { from: fromAt, to: Number.isFinite(toAt) ? toAt : now }, chain); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read', flows: [] }; }
+    const outcome = blockOutcome(s, found.flows); // R4 (H99)
+    const still = outcome === 'no change' ? { flows: found.flows.map((x) => x.id), last_build: found.flows[0]?.last_build ?? null, words: d.scrub(noChangeWords(found.flows)).slice(0, 600) } : undefined;
     const facts: BlockFacts = {
       run: job.id, doc, name: s.name, index: s.index ?? block?.index ?? null,
       code_sha256: block ? codeSha256(block) : null,
@@ -214,6 +221,7 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord, cut?: LeftCut)
       seen: s.seen === 'wrapper' ? 'wrapper' : 'timmy',
       prediction: job.expected?.receipt ?? null,
       files: found.files.map((x) => ({ ...x, path: d.scrub(x.path) })), ...(found.more ? { files_more: found.more } : {}), files_checked: found.checked,
+      ...(still ? { no_change: still } : {}),
     };
     let id: string | undefined;
     try { id = d.seal(blockReceiptInput(facts, { label: d.scrub(job.label), project: d.project, projectId: d.projectId, ...(job.operation ? { operation: job.operation } : {}) })); } catch { id = undefined; }

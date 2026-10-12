@@ -15,7 +15,9 @@
  *   nothing it started is left without its record.
  * - Exit: 0 succeeded (a flow that succeeded, a completed job, an ok VoxVision record) or answered (it started nothing and
  *   said so); 1 failed or differs; 2 refused or a usage error; 3 stopped or interrupted (--timeout, SIGINT, SIGTERM, or
- *   stopped because --wait was not given). SIGINT and SIGTERM stop what it started through the normal stop path, record it,
+ *   stopped because --wait was not given). R4 (H99, r24): a request that made no change (an /iterate whose agent changed
+ *   nothing) exits 0 when its check found the last build current, so the workflow blocks that need it run on that build, and
+ *   4 otherwise (the last build stale, missing or not known), so they do not; its words say "no change" either way. SIGINT and SIGTERM stop what it started through the normal stop path, record it,
  *   and exit 3. R4 (H88): a second signal while that stop runs exits at once with 3, after settling the operation's end and
  *   the record of each /run job it started and printing the end (its JSON's at_once says what was not sealed and what
  *   /recover does: src/ops/exit-at-once.ts).
@@ -42,6 +44,7 @@ import { actStopReason } from '../utils/stop-words.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { workflowNeedsPerson } from '../repl/workflow-gate.js'; // R4 (H74)
 import { exitAtOnce, writeNow } from './exit-at-once.js'; // R4 (H88)
+import { NO_CHANGE_EXIT } from '../workflows/block-receipts.js'; // R4 (H99)
 
 export const ACT_USAGE = 'timmy act "<slash command>" [--wait] [--json] [--project <dir>] [--timeout <dur>]';
 
@@ -61,6 +64,7 @@ export function actHelp(): string {
     '',
     'EXIT',
     '  0 succeeded or answered   1 failed or differs   2 refused or usage   3 stopped or interrupted',
+    '  no change (the agent changed nothing): 0 when the last build still matches its recorded inputs, else 4',
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
     '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
@@ -161,7 +165,11 @@ export function startsWork(line: string): boolean {
 }
 
 // R4 (H68): interrupted is only written by a later recovery (an act never ends its own operation so): as stopped.
-const EXIT: Readonly<Record<OperationState, number>> = { succeeded: 0, answered: 0, failed: 1, differs: 1, refused: 2, stopped: 3, running: 3, interrupted: 3 };
+const EXIT: Readonly<Record<OperationState, number>> = { succeeded: 0, answered: 0, failed: 1, differs: 1, refused: 2, stopped: 3, running: 3, interrupted: 3, 'no change': NO_CHANGE_EXIT };
+
+/** R4 (H99, r24): an operation's exit: as EXIT says, and for no change, 0 only when every run that made no change found the
+ *  last build current (the blocks that need it then run on it), else NO_CHANGE_EXIT. */
+export const exitCodeOf = (state: OperationState, current?: boolean): number => (state === 'no change' && current === true ? 0 : EXIT[state]);
 const plain = (segs: Segment[]): string => segs.map((s) => s.text).join('');
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
@@ -338,7 +346,7 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   const end = h.ended!;
   // A stop overrides: a run already ended stays as it ended in its own record.
   const state: OperationState = stopping ? 'stopped' : failedToRun ? 'failed' : end.state;
-  const code = EXIT[state];
+  const code = exitCodeOf(state, end.current);
   const receipts = (() => { try { return readChain('runs').filter((r) => r.operation_id === h.id).map((r) => ({ id: r.hash.slice(7, 15), kind: r.kind, ...(r.status ? { status: r.status } : {}) })); } catch { return []; } })();
   if (a.json) {
     process.stdout.write(`${JSON.stringify({
@@ -350,7 +358,8 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   } else {
     // A joined act says how its own request ended: the operation it joined goes on in the Timmy that began it.
     const who = h.joined ? `this request (in operation ${h.id}, joined)` : `operation ${h.id}`;
-    out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' ? ' ' : glyphs.fail} ${who} ${state}: ${end.why}`);
+    // R4 (H99): no change is marked =, never as a failure
+    out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' ? ' ' : state === 'no change' ? '=' : glyphs.fail} ${who} ${state}: ${end.why}`);
     out(`  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`);
   }
   printedCode = code; // R4 (H88)
