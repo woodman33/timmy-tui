@@ -81,6 +81,8 @@ export interface ReplContext {
   tools?: (args: string) => Promise<Segment[][]>;
   /** R1 workspace direction: the active project, its files, workflows, jobs, preview and results. */
   workspace?: WorkspaceViews;
+  /** R4 (H103): /model on the chat's local route (the models Ollama lists, src/agent/chat-route.ts); null: the plain /model. */
+  chatModel?: (args: string) => Promise<Segment[][]> | null;
 }
 
 /** The workspace surfaces (src/repl/workspace.ts), one per command. */
@@ -384,6 +386,9 @@ export const COMMANDS: SlashCommand[] = [
     group: 'setup',
     description: 'Show the model, or switch: /model <id>',
     run: (args, ctx) => {
+      // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it)
+      const local = ctx.chatModel?.(args);
+      if (local) return local.then((lines) => { for (const line of lines) ctx.print(line); });
       const current = ctx.agent.getModel();
       if (!args) return void ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
       ctx.agent.setModel(args);

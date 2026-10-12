@@ -125,11 +125,16 @@ export async function runTurn(
   });
   // R4 (H82; H73's open item): how many cost reports came back (cost:update), so a failed turn with none is not a measured $0.
   let costReports = 0;
-  const onCost = (cost: number, _total?: number, info?: { complete?: boolean }): void => {
+  // R4 (H103): how many of them came from a local endpoint (the chat's Ollama route on this computer, src/agent/local-chat.ts)
+  let localReports = 0;
+  const onCost = (cost: number, _total?: number, info?: { complete?: boolean; basis?: string }): void => {
     costReports++;
+    if (info?.basis === 'local endpoint') localReports++;
     if (Number.isFinite(cost)) spend += cost;
     if (info?.complete === false) costMeasured = false;
   };
+  /** R4 (H103): every cost report of the turn came from a local endpoint, none charged: no charge, a cancel's included. */
+  const localOnly = (): boolean => costReports > 0 && localReports === costReports && spend === 0;
   // R4 (H40): each call's first answer is read once for the tool's own receipt (TOOL_RECEIPT_FIELD).
   const answered = new Set<string>();
   // R4 (H30): a describe_image call's result, read once per call (a repeated item is not counted again).
@@ -159,7 +164,8 @@ export async function runTurn(
       else toolUnknown = true; // no cost came back, or no result came: it may have been charged
     }
     const total = spend + toolSum;
-    const head = costMeasured && !toolUnknown ? usd(total) : total > 0 ? `at least ${usd(total)}` : 'cost unknown';
+    // R4 (H103): the chat's own requests on a local endpoint cost nothing; a paid tool's charge is said after it
+    const head = localOnly() ? `${toolCalls ? 'chat ' : ''}no charge (local endpoint)` : costMeasured && !toolUnknown ? usd(total) : total > 0 ? `at least ${usd(total)}` : 'cost unknown';
     if (!toolCalls) return head;
     return `${head} (${PAID_TOOL} ${toolUnknown ? (toolSum > 0 ? `at least ${usd(toolSum)}` : 'cost unknown') : usd(toolSum)})`;
   };
@@ -178,8 +184,8 @@ export async function runTurn(
   const sealCancelled = (ms: number): void => {
     const o = outcomesNow();
     const at = stageOf(o);
-    // A cancelled request may still be charged: a cancel is never the whole cost.
-    costMeasured = false;
+    // A cancelled request may still be charged: a cancel is never the whole cost. R4 (H103): except on a local endpoint.
+    if (!localOnly()) costMeasured = false;
     // A cancelled turn is sealed too, with what its tools actually did; nothing is rolled back.
     transcript.handle({ type: 'cancelled', at, tools: o });
     if (seal) receipt(seal({ prompt: text, answer: '', steps, spend, costMeasured, ms, status: 'cancelled', tools: o, cancelledAt: at }), ms, true);
