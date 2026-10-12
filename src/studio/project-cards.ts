@@ -189,7 +189,7 @@ const opOf = (v: unknown): string | null => (typeof v === 'string' && OPERATION_
 /** A record's time, as it writes it, when it is one; else null. */
 const timeOf = (v: unknown): string | null => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? v : null);
 /** A card's operation: the id its record names and where it was read, or none and why. */
-const named = (id: string | null, from: string, none: string): { operation: string | null; operationFrom: string } => (id ? { operation: id, operationFrom: from } : { operation: null, operationFrom: none });
+const opNamed = (id: string | null, from: string, none: string): { operation: string | null; operationFrom: string } => (id ? { operation: id, operationFrom: from } : { operation: null, operationFrom: none });
 
 /** The operation a record file names (its `operation`), read in place now: null when it names none, undefined when it cannot be read as a record. */
 function recordOperation(root: string, rel: string): string | null | undefined {
@@ -204,9 +204,9 @@ function recordOperation(root: string, rel: string): string | null | undefined {
 
 /** A parameter card's operation: the one the newest receipt naming its file names. */
 function receiptOperation(by: { receipt: Receipt; short: string } | null, rel: string, exists: boolean): { operation: string | null; operationFrom: string } {
-  if (!exists) return named(null, '', `no ${rel} yet`);
-  if (!by) return named(null, '', `no receipt names ${rel}`);
-  return named(opOf(by.receipt.operation_id), `receipt ${by.short}, the newest naming ${rel}`, `receipt ${by.short}, the newest naming ${rel}, names none`);
+  if (!exists) return opNamed(null, '', `no ${rel} yet`);
+  if (!by) return opNamed(null, '', `no receipt names ${rel}`);
+  return opNamed(opOf(by.receipt.operation_id), `receipt ${by.short}, the newest naming ${rel}`, `receipt ${by.short}, the newest naming ${rel}, names none`);
 }
 
 // ── the cards ─────────────────────────────────────────────────────────────────
@@ -234,8 +234,8 @@ function workflowCards(c: Ctx): ProjectCard[] {
     const runCmd = word(doc.rel) && last && word(last) && new Set(names).size === names.length ? `/run ${doc.rel} ${last}` : `/workflows ${doc.rel}`;
     // R4 (H100): the operation of its newest run, as that run's job record names it
     const job = run ? c.jobs.find((j) => j.id === run.job) : undefined;
-    const op = !run ? named(null, '', 'not run yet')
-      : named(opOf(job?.operation), `its newest run's job record (${run.job})`, job ? `its newest run's job record (${run.job}) names none` : `its newest run's job record (${run.job}) is not in the jobs folder Timmy named`);
+    const op = !run ? opNamed(null, '', 'not run yet')
+      : opNamed(opOf(job?.operation), `its newest run's job record (${run.job})`, job ? `its newest run's job record (${run.job}) names none` : `its newest run's job record (${run.job}) is not in the jobs folder Timmy named`);
     return {
       id: `workflow:${doc.rel}`, kind: 'workflow', title: c.text(title, 160), state: c.text(state), record: doc.rel,
       receipt: run?.receipt ?? null, command: c.text(runCmd, 400), section: 'workflows',
@@ -309,7 +309,7 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
       id: `flow:${id}`, kind: 'flow', title: c.text(title, 160), state: c.text(`running: ${step}, as its state file says (written ${f.live.written})`),
       record: f.file, receipt: null, command: `/stop ${id}`, section: 'flows',
       ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
-      ...named(opOf(r.operation), 'its state file', 'its state file names none'), at,
+      ...opNamed(opOf(r.operation), 'its state file', 'its state file names none'), at,
     };
   }
   const readback = r.readback && typeof r.readback === 'object' ? r.readback as Record<string, unknown> : undefined;
@@ -321,7 +321,7 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
     record: f.file, receipt: f.check.status === 'verified' ? f.check.receipt ?? null : null,
     command: FLOW_ID.test(id) ? `/room ${id}` : '/iterate', section: 'flows',
     ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
-    ...named(opOf(r.operation), 'its flow record', 'its flow record names none'), at,
+    ...opNamed(opOf(r.operation), 'its flow record', 'its flow record names none'), at,
   };
 }
 
@@ -352,7 +352,7 @@ function voxCards(c: Ctx): ProjectCard[] {
       record: v.file, receipt,
       command: c.text(v.command ?? `/inspect ${v.inputs[0]?.path ?? v.file}`, 400), section: 'voxvision', highlights: shown,
       ...(c.detail ? { detail: voxResult(v, receipt, c.root, c.text) } : {}),
-      ...named(op ?? null, 'its VoxVision record', op === undefined ? 'its VoxVision record cannot be read now' : 'its VoxVision record names none'),
+      ...opNamed(op ?? null, 'its VoxVision record', op === undefined ? 'its VoxVision record cannot be read now' : 'its VoxVision record names none'),
       at: timeOf(v.madeAt),
     };
   });
@@ -379,7 +379,7 @@ function runCards(c: Ctx, flows: BoardFlows): ProjectCard[] {
       id, kind: 'run', title: c.text(`${r.owner} · ${r.id}`, 160), state: c.text(`${r.state}${r.step ? ` · ${r.step}` : ''}${r.recordNote ? ` · ${r.recordNote}` : ''}`),
       record: r.record ?? null, receipt: r.receipt ?? null, command: c.text(command, 400), section: 'room',
       ...(c.detail ? { detail: runResult(r, c.root, c.text) } : {}),
-      ...named(opOf(r.operation), 'its record or receipt', c.ix ? 'neither its record nor its receipt names one' : `not read: ${c.opsError ?? 'the operations could not be read'}`),
+      ...opNamed(opOf(r.operation), 'its record or receipt', c.ix ? 'neither its record nor its receipt names one' : `not read: ${c.opsError ?? 'the operations could not be read'}`),
       at: timeOf(r.startedAt),
     }];
   });

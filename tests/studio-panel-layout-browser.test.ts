@@ -9,7 +9,8 @@
  * again inside it, with nothing between a list's cut edge and what came after. Now the panel never scrolls; its lists scroll
  * in one region, which ends above the message band and the footer. Checked by geometry and by hit-testing: what the browser
  * finds at the middle of a row's button scrolled to the bottom of the list, and of New board's Open, is that button itself.
- * Screenshots are kept under TMPDIR (h100-shots) for a look by eye. Skipped, saying so, where no Chromium is found.
+ * Screenshots for a look by eye are taken only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind
+ * otherwise). Skipped, saying so, where no Chromium is found.
  */
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -48,10 +49,14 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
   let server: StudioServer;
   let browser: Browser;
   let base = '';
-  const shots = join(tmpdir(), 'h100-shots');
+  const shots = process.env.TIMMY_CANVAS_SHOTS;
+  const shoot = async (page: Page, name: string): Promise<void> => {
+    if (!shots) return;
+    mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: join(shots, name) });
+  };
 
   beforeAll(async () => {
-    mkdirSync(shots, { recursive: true });
     p = await makeCanvasProject('studio-panel-layout-');
     o = await addOperation(p);
     for (let i = 1; i <= 24; i++) p.write(`WF${String(i).padStart(2, '0')}.md`, `# Workflow number ${i}, with a title long enough to wrap in the panel\n\n\`\`\`bash [name:a]\necho ${i}\n\`\`\`\n`);
@@ -109,7 +114,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         await page.locator('#project-groups li.pcard[data-card="workflow:WF12.md"] .pcard-drawn').scrollIntoViewIfNeeded();
         await page.click('#project-groups li.pcard[data-card="workflow:WF12.md"] .pcard-drawn');
         await page.waitForFunction(() => /^Placed card: /.test(document.getElementById('project-said')?.textContent ?? ''));
-        await page.screenshot({ path: join(shots, `layout-${size.width}x${size.height}.png`) });
+        await shoot(page, `layout-${size.width}x${size.height}.png`);
 
         const side = (await box(page, '#side'))!;
         const region = (await box(page, '#side-scroll'))!;
@@ -160,7 +165,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-place`);
         await page.locator(`#project-groups section.pop[data-op="${o.op}"] .pop-place`).scrollIntoViewIfNeeded();
         expect(await reachable(page, `#project-groups section.pop[data-op="${o.op}"] .pop-place`)).toBe(true);
-        await page.screenshot({ path: join(shots, `layout-by-operation-${size.width}x${size.height}.png`) });
+        await shoot(page, `layout-by-operation-${size.width}x${size.height}.png`);
         // the new words clear 4.5:1 on the panel
         const pairs = await page.evaluate(() => {
           const bg = getComputedStyle(document.getElementById('side')!).backgroundColor;

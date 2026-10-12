@@ -160,8 +160,12 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       // 1. The first press
       expect(await place(page, /^Operation /)).toBe(`Operation ${o.op}: 4 cards placed left to right in the order they ran, linked by 3 arrows.`);
       await page.waitForTimeout(400);
-      mkdirSync(join(tmpdir(), 'h100-shots'), { recursive: true });
-      await page.screenshot({ path: join(tmpdir(), 'h100-shots', 'operation-placed-1440x900.png') });
+      // a screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder: otherwise a run leaves nothing behind
+      const shots = process.env.TIMMY_CANVAS_SHOTS;
+      if (shots) {
+        mkdirSync(shots, { recursive: true });
+        await page.screenshot({ path: join(shots, 'operation-placed-1440x900.png') });
+      }
       const first = await drawn(page, o.op);
       expect(first.map((d) => d.card)).toEqual(['workflow:RUN.md', `run:job:${o.job.id}`, `flow:${o.flowId}`, `vox:${o.voxId}`]);
       for (let i = 1; i < first.length; i++) {
