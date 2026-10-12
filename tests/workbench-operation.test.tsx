@@ -210,7 +210,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(new Set(chain.map((r) => r.operation_id))).toEqual(new Set([op]));
     expect(chain[0]).toMatchObject({ decisions: [{ decision: 'allow once', tier: 'NEEDS YOU (the person, in its box)' }] });
     const record = JSON.parse(readFileSync(join(p.root, '.timmy', 'operations', `${op}.json`), 'utf8'));
-    expect(record).toMatchObject({ id: op, request: '/run APPROVAL.md tidy', via: 'repl', state: 'succeeded', runs: [{ kind: 'job', id: job.id }] });
+    expect(record).toMatchObject({ id: op, request: '/run APPROVAL.md tidy', via: 'workbench', state: 'succeeded', runs: [{ kind: 'job', id: job.id }] });
     // the block ran once: it made scratch/x and deleted it
     expect(readdirSync(join(p.root, 'scratch'))).toEqual([]);
 
@@ -250,7 +250,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     // Studio's cards name the same operation, read from the same records
     const cards = projectCards({ root: p.root, name: p.name, jobs: jobsDir, receipts: null }, { chain, jobs: ws.jobs.list() });
     expect(cards.operations?.map((o) => o.id)).toContain(op);
-    expect(cards.operations?.find((o) => o.id === op)).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'repl', state: 'succeeded' });
+    expect(cards.operations?.find((o) => o.id === op)).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'workbench', state: 'succeeded' });
   }, 60_000);
 
   it('deny is the default: Enter at the NEEDS YOU box denies; nothing runs and nothing is sealed', async () => {
@@ -340,13 +340,18 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(sent).toEqual(['hi there']);
   });
 
-  it('without the producers (this revision): the Inspector and the composer say what they need; nothing is sent', async () => {
+  it('without the producers: the Inspector and the composer say what they need; nothing is sent', async () => {
     sandbox();
     const p = trayProject('tray-none');
-    // the real loaders: src/ops/run-detail.ts and src/agent/chat-session.ts are not in this revision
-    expect(await realProducers.runDetail()).toEqual({ ok: false, why: 'src/ops/run-detail.ts (H102\'s run detail) is not in this revision' });
-    expect(await realProducers.openChat()).toEqual({ ok: false, why: 'src/agent/chat-session.ts (H103\'s chat session) is not in this revision' });
-    const { c } = workbench(p, realProducers);
+    // R4 lead (the merge): the real loaders find both producers in this revision (H102's and H103's, merged)
+    expect((await realProducers.runDetail()).ok).toBe(true);
+    expect((await realProducers.openChat()).ok).toBe(true);
+    // a Timmy without them (FIXTURE loaders that say so, as the real ones would): the words, and nothing is sent
+    const missing: Producers = {
+      runDetail: async () => ({ ok: false, why: 'src/ops/run-detail.ts (H102\'s run detail) is not in this revision' }),
+      openChat: async () => ({ ok: false, why: 'src/agent/chat-session.ts (H103\'s chat session) is not in this revision' }),
+    };
+    const { c } = workbench(p, missing);
     c.start();
     c.selectWorkspace('chat');
     const f = frameOf(c, 180, 50);

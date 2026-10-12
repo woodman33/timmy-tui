@@ -51,7 +51,7 @@ Commands:
                   with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust);
                   --lanes starts the lane programs (opencode, hermes, pi, openhands, jcode, minds) on a tmux server of Timmy's own,
                   ended with the monitor (off by default; a program's own first run may install its own background helpers)
-  workbench       The terminal Workbench: one project in five zones (being built in R4; exits 69 until it is)
+  workbench       The terminal Workbench: one project in five zones: navigation, project and task, the work, Tools/Inspector/Files, Activity (--json)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
@@ -59,9 +59,9 @@ Commands:
   tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
   drop <file|folder>…  Into the hot-drop lanes: copied, matched by a rule, sealed (--lane; --list [project])
   act "<slash command>"  One REPL command, headlessly, as one operation (--wait, --json, --project, --timeout)
-  md <workflow.md> [<block>]  Run a upmd workflow's block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json)
-  evidence flow|step|vox  In a workflow block: this run's flow record, its STEP or its VoxVision record, by the operation's id, never by time
-  op <id>         One operation's run detail: asked, ran, made, receipts (being built in R4; exits 69 until it is)
+  md <workflow.md> [<block>]  Run a upmd workflow's block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json, --project)
+  evidence flow|step|vox|stl  In a workflow block: this run's flow record, its STEP, its VoxVision record or its STL, by the operation's id, never by time
+  op <id>         One operation's run detail: what it was asked, what ran, what it made, its receipts (--json, --summary, --save)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version

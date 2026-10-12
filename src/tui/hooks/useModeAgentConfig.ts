@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
 import { BUILT_IN_MODES, resolveToolsForMode } from '../../modes/index.js';
+import { gateTools } from '../../repl/approvals.js';
 
 interface UseModeAgentConfigProps {
   agent: Agent;
@@ -25,10 +26,12 @@ export function useModeAgentConfig({
         agent.setInstructions(modeInstructions);
 
         const activeTools = resolveToolsForMode(mode as any);
-        agent.setTools(activeTools);
+        // R4 lead (H103's finding): this legacy shell (TIMMY_SHELL=v1) cannot show the NEEDS YOU box, so a tool that needs a
+        // person is refused here, as the board refuses a risky Run; before, these tools ran unasked (one runs shell commands)
+        agent.setTools(gateTools(activeTools, async () => 'deny'));
       }
     } catch {
       // Guard silently to never crash the TUI on configuration changes
     }
-  }, [mode, agent, config]);
+  }, [mode, agent, config, enabled]);
 }

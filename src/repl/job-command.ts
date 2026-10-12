@@ -53,7 +53,7 @@ export function jobCommandWords(j: Pick<JobRecord, 'command' | 'args' | 'root' |
 
 /** The words every end a later recovery writes in a job's record begin with (src/repl/recover.ts, workflow-recover.ts,
  *  openhands-recover.ts), the Timmy that started it named (R4, H88: its REPL, timmy md or timmy act). */
-export const ENDED_BY_RECOVERY = /^(?:interrupted: )?its (?:REPL|timmy md|timmy act) (?:ended|did not see it end)\b/;
+export const ENDED_BY_RECOVERY = /^(?:interrupted: )?its (?:REPL|timmy md|timmy act|Workbench) (?:ended|did not see it end)\b/;
 
 /** Whether a job's end was written by a later session's recovery (JobManager endLeft), not seen when it happened. */
 export const endedByRecovery = (j: Pick<JobRecord, 'endedAt' | 'interrupted' | 'error' | 'note'>): boolean =>

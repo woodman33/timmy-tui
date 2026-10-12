@@ -74,6 +74,12 @@ export async function runDetailAnswer(operation: string, root: string, producer?
   if (!make) return { status: 200, body: { ok: false, reason: 'no-producer', error: RUN_NO_PRODUCER } };
   let got: RunDetailAnswer;
   try { got = await make(operation, { project: root }); } catch (err) {
+    // R4 lead (merge of H102 and H104): H102's producer throws a RunDetailError (with its `refusal`: 'not an id', 'unknown',
+    // 'other project', 'unreadable') for an operation it gives no run detail of: a refusal in words, as the page is told
+    const refusal = err instanceof Error ? (err as Error & { refusal?: unknown }).refusal : undefined;
+    if (typeof refusal === 'string') {
+      return { status: 200, body: { ok: false, reason: refusal === 'unknown' ? 'unknown' : 'refused', error: words(err instanceof Error ? err.message.split('\n')[0] : String(err)) } };
+    }
     return { status: 500, body: { ok: false, error: `The run detail of ${operation} could not be made: ${words(err instanceof Error ? err.message.split('\n')[0] : String(err))}` } };
   }
   if (got === null || got === undefined) return { status: 200, body: { ok: false, reason: 'unknown', error: `No operation ${operation} in this project's records.` } };

@@ -276,16 +276,18 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       expect(sealed.every((r) => r.operation_id === op)).toBe(true);
       expect(sealed[0].decisions?.[0]?.decision).toBe('allow once');
       for (let i = 0; i < 50 && !JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8')).ended; i++) await sleep(100);
-      expect(JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8'))).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'repl', state: 'succeeded', runs: [{ kind: 'job', id: run.id }] });
+      expect(JSON.parse(readFileSync(join(trayRoot, '.timmy', 'operations', `${op}.json`), 'utf8'))).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'workbench', state: 'succeeded', runs: [{ kind: 'job', id: run.id }] });
 
-      // Control Room: the same job and operation; the Inspector says the run detail's producer is not in this revision
+      // Control Room: the same job and operation; the Inspector shows its run detail
       await keys('/');
       await typed('Control');
       await keys('Enter');
       const room = await waitFor(new RegExp(`${run.id}\\s+completed\\s+APPROVAL\\.md › tidy`));
       expect(room).toContain(op);
-      // (the dock is narrow: its words wrap after the module's name)
-      await waitFor(/Run detail: src\/ops\/run-detail\.ts/);
+      // R4 lead (merged with H102's producer, src/ops/run-detail.ts): the Inspector draws that operation's real run detail
+      await waitFor(/RUN DETAIL/);
+      const detail = await waitFor(/Verdict\s+completed/);
+      expect(detail).toContain(op);
       capture('wb-160x45-control-run');
 
       await keys('C-c');
@@ -302,7 +304,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(card.stdout).toContain(runId);
     const { projectCards } = await import('../src/studio/project-cards.js');
     const cards = projectCards({ root: trayRoot, name: 'tray1', jobs: jobsDir, receipts: join(box, 'store') });
-    expect(cards.operations?.find((o) => o.id === op)).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'repl' });
+    expect(cards.operations?.find((o) => o.id === op)).toMatchObject({ request: '/run APPROVAL.md tidy', via: 'workbench' });
     // still one run of it
     expect(runsOf()).toHaveLength(1);
   }, 180_000);

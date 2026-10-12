@@ -9,7 +9,7 @@ import { emitKeypressEvents, type Key } from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
-import { localModelCommand, localRouteWords, prepareLocal, resolveChatRoute, sealedRoute, type ChatRoute } from '../agent/chat-route.js';
+import { fallbackRoute, localModelCommand, localRouteWords, prepareLocal, resolveChatRoute, sealedRoute, type ChatRoute } from '../agent/chat-route.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
@@ -539,9 +539,10 @@ export async function runRepl(argv: string[]): Promise<number> {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
       const jobs = canvasJob.close();
-      // R4 (H103): a turn on the local route seals where it went (via ollama, its host, tools on or off, the cost's basis)
+      // R4 (H103): a turn on the local route seals where it went (via ollama, its host, tools on or off, the cost's basis);
+      // R4 lead (H103's open item): so does a turn the last-resort fallback answered after OpenRouter failed
       const local = agent.localChatRoute();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}), ...(local ? { route: sealedRoute(local, agent.lastLocalTurn()) } : {}) });
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}), ...(local ? { route: sealedRoute(local, agent.lastLocalTurn()) } : agent.lastFallback() ? { route: fallbackRoute(agent.lastFallback()!) } : {}) });
       void ensureCanvas();
       // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
       lastCanvas = jobs;

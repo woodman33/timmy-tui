@@ -1,7 +1,7 @@
 /**
  * R4 (H110): the two producers the Workbench draws from but does not own, used once they are in this Timmy:
  *
- *   the run detail    src/ops/run-detail.ts (H102): `runDetail(operation, { root })` gives one RunDetail
+ *   the run detail    src/ops/run-detail.ts (H102): `runDetail(operation, { project })` gives one RunDetail (adapted below)
  *                     (src/contracts/run-detail.ts), from the project's own records
  *   the chat session  src/agent/chat-session.ts (H103): `openChatSession({ project, surface })` gives a ChatSession
  *                     (src/contracts/chat-session.ts), the one chat path every surface sends through
@@ -42,8 +42,24 @@ async function load<T>(spec: string, name: string, what: string): Promise<Loaded
   return typeof f === 'function' ? { ok: true, value: f as T } : { ok: false, why: `${what} has no ${name} export` };
 }
 
+/** H102's producer as it landed: `runDetail(operation, { project: <folder>, waiting? })`. */
+type ProducedRunDetail = (operation: string, o: { project?: string; waiting?: (operation: string) => string | undefined }) => RunDetail;
+const APPROVALS_MODULE: string = '../repl/approvals.js';
+
 export const realProducers: Producers = {
-  runDetail: () => load<RunDetailOf>(RUN_DETAIL_MODULE, 'runDetail', 'src/ops/run-detail.ts (H102\'s run detail)'),
+  // R4 lead (merge of H102 and H110): the producer takes the project folder as `project`, and a NEEDS YOU box this
+  // process is showing (the Workbench draws the REPL's own boxes) is passed as `waiting`, so the verdict says needs you
+  runDetail: async () => {
+    const got = await load<ProducedRunDetail>(RUN_DETAIL_MODULE, 'runDetail', 'src/ops/run-detail.ts (H102\'s run detail)');
+    if (!got.ok) return got;
+    let waiting: ((operation: string) => string | undefined) | undefined;
+    try {
+      const m = await import(APPROVALS_MODULE) as { waitingApprovals?: () => Array<{ operation?: string; summary: string }> };
+      if (typeof m.waitingApprovals === 'function') waiting = (op) => m.waitingApprovals!().find((w) => w.operation === op)?.summary;
+    } catch { /* no waiting boxes known: the records alone */ }
+    const value: RunDetailOf = (operation, o) => got.value(operation, { project: o.root, ...(waiting ? { waiting } : {}) });
+    return { ok: true, value };
+  },
   openChat: () => load<OpenChatSession>(CHAT_SESSION_MODULE, 'openChatSession', 'src/agent/chat-session.ts (H103\'s chat session)'),
 };
 

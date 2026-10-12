@@ -101,7 +101,7 @@ function what(j: JobRecord): { name: string; again: string } {
 function starterOf(d: WorkflowRecoverDeps, j: JobRecord): string {
   if (!j.operation) return 'REPL';
   const r = readOperationRecord(d.root, j.operation);
-  return !r.ok ? 'REPL' : r.record.via === 'md' ? 'timmy md' : r.record.via === 'act' ? 'timmy act' : 'REPL';
+  return !r.ok ? 'REPL' : r.record.via === 'md' ? 'timmy md' : r.record.via === 'act' ? 'timmy act' : r.record.via === 'workbench' ? 'Workbench' : 'REPL';
 }
 
 /** What its output showed running when its session ended: the block, or why none can be named. */

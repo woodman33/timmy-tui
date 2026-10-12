@@ -594,7 +594,7 @@ export class Controller {
     if (!chat || chat.root !== this.data.project.root || chat.state !== 'open') return;
     const session = chat.session;
     const ws = this.d.workspace;
-    const h = ws.ops.begin({ request: text, via: 'repl', root: ws.root, project: ws.project.name });
+    const h = ws.ops.begin({ request: text, via: 'workbench', root: ws.root, project: ws.project.name });
     const turn: NonNullable<Data['turn']> = { text, answer: '', state: 'sending', lines: [], sent: null, tools: [], at: this.now(), operation: h.id };
     this.data.turn = turn;
     const abort = new AbortController();
@@ -694,7 +694,7 @@ export class Controller {
     const request = `/run ${args}`;
     if (this.starting.has(args)) { this.say(`${request} is already starting here: one press runs it once.`, 'secondary'); return; }
     this.starting.add(args);
-    const h = ws.ops.begin({ request, via: 'repl', root: ws.root, project: ws.project.name });
+    const h = ws.ops.begin({ request, via: 'workbench', root: ws.root, project: ws.project.name });
     this.say(`${request}: operation ${h.id}, through the REPL's own /run${o.risky.length ? '; its NEEDS YOU box asks first' : ''}…`, 'secondary', { operation: h.id });
     try {
       const lines = await ws.ops.run(h, () => ws.run(args));
