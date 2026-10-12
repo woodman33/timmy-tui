@@ -167,6 +167,19 @@ def note(text):
         pass
 
 
+def note_now(text):
+    """`note` for a stop (R4, H114): written to fd 2 itself, whole and unbuffered. A stop's words are written from a signal
+    handler, which may run while the main thread is inside a write to sys.stderr (the SDK's and LiteLLM's logs go there,
+    and fd 1 too): sys.stderr's buffer refuses that second, reentrant write (RuntimeError: reentrant call), and `note`,
+    which swallows it, lost the words (the full suite at 1ec5671: an exit 143 that said nothing)."""
+    data = ("timmy_openhands: " + text.replace("\n", " ") + "\n").encode("utf-8", "replace")
+    try:
+        while data:
+            data = data[os.write(2, data):]
+    except OSError:
+        pass
+
+
 def finish(code):
     try:
         _proto.flush()
@@ -197,7 +210,7 @@ def stop_now(signum):
     _pending = None
     name = signal_name(signum)
     if not TOKEN:
-        note("stopped (%s) before it read its task" % name)
+        note_now("stopped (%s) before it read its task" % name)
         finish(128 + signum)
     events = RUN.get("events")
     steps = events.steps if events is not None else 0
@@ -221,7 +234,7 @@ def stop_now(signum):
     finally:
         if held:
             _lock.release()
-    note("stopped (%s) at step %d" % (name, steps))
+    note_now("stopped (%s) at step %d" % (name, steps))
     finish(128 + signum)
 
 
