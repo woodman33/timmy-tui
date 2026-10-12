@@ -4,8 +4,9 @@
 // says which port the companion took when it is not the one asked for. Real processes, a real tmux terminal, real files in
 // a temporary home; no model is asked (no key).
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -17,7 +18,7 @@ const CLI = resolve('src/cli.ts');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function sandbox() {
-  const dir = mkdtempSync('/tmp/sw-');
+  const dir = mkdtempSync(join(tmpdir(), 'sw-'));
   const env: NodeJS.ProcessEnv = {
     ...withoutRunner(process.env), HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, XDG_CONFIG_HOME: join(dir, '.config'),
     XDG_DATA_HOME: join(dir, '.local', 'share'), XDG_STATE_HOME: join(dir, '.local', 'state'), XDG_CACHE_HOME: join(dir, '.cache'),
@@ -97,11 +98,10 @@ describe('timmy watch on a home without setup', () => {
       p.type('demo');
       await p.waitFor(/Proceed\? \[Y\/n\]/);
       p.type('');
-      // the monitor opens on HOME: no FIRST RUN, and one line of what the setup chose
-      await p.waitFor(/YOUR JOURNEY/);
-      const home = p.screen();
-      expect(home).not.toContain('FIRST RUN');
-      expect(home).toMatch(/Set up by timmy watch: chat local model \(no key\) · logs this computer only · project demo/);
+      // the monitor opens on HOME: no FIRST RUN, and one line of what the setup chose (waited for whole: a capture taken as a
+      // frame is written can hold part of the one before)
+      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy watch: chat local model \(no key\) · logs this computer only · project demo/);
+      expect(p.screen()).not.toContain('FIRST RUN');
       // the companion took the port TIMMY_COMPANION_PORT asked for
       const listening = await new Promise<boolean>((done) => { const c = createServer(); c.once('error', () => done(true)); c.listen(port, '127.0.0.1', () => c.close(() => done(false))); });
       expect(listening).toBe(true);
@@ -110,6 +110,26 @@ describe('timmy watch on a home without setup', () => {
       expect(code).toBe('130');
       const rec = JSON.parse(readFileSync(join(dir, 'timmy', 'setup.json'), 'utf8'));
       expect({ by: rec.by, chat: rec.answers.chat, logs: rec.answers.logs }).toEqual({ by: 'timmy watch', chat: 'local', logs: 'local' });
+    } finally {
+      p.kill();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  // r24: on a computer whose monitor finished its own FIRST RUN before (its settings say so), a home timmy init set up opened
+  // HOME with nothing said about the setup
+  it('a monitor whose own first run finished before asks nothing, and still says in one line what the setup recorded', async () => {
+    const { dir, env } = sandbox();
+    mkdirSync(join(dir, '.config', 'timmy-tui-nodejs'), { recursive: true });
+    writeFileSync(join(dir, '.config', 'timmy-tui-nodejs', 'config.json'), JSON.stringify({ onboarded: true }));
+    execFileSync(process.execPath, ['--import', LOADER, CLI, 'init', '--yes', '--operator', 'Sample', '--project', 'demo'], { cwd: dir, env, stdio: 'ignore', timeout: 60_000 });
+    const port = await freePort();
+    const p = pty(dir, 'watchdone', { ...env, TIMMY_COMPANION_PORT: String(port) }, `${process.execPath} --import ${LOADER} ${CLI} watch; echo EXIT=$?; sleep 60`);
+    try {
+      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy init: chat local model \(no key\) · logs this computer only · project demo/);
+      expect(p.screen()).not.toMatch(/FIRST RUN|guided setup/);
+      p.keys('C-c');
+      await p.waitFor(/EXIT=\d+/, 15_000);
     } finally {
       p.kill();
       rmSync(dir, { recursive: true, force: true });

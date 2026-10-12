@@ -89,7 +89,8 @@ describe('the monitor\'s FIRST RUN, answered (R4 H98)', () => {
       h.tmux('send-keys', '-t', 't', 'Enter');
       await h.waitFor(/Save these answers\?/);
       h.tmux('send-keys', '-t', 't', 'Enter');
-      await h.waitFor(/YOUR JOURNEY/);
+      // the whole HOME frame, its top line included (a capture taken as the frame is written can hold the old top line)
+      await h.waitFor(/^TIMMY [^\n]*chat: [^\n]*\n[\s\S]*YOUR JOURNEY/);
       const home = h.tmux('capture-pane', '-p', '-t', 't');
       h.tmux('send-keys', '-t', 't', 'q');
       await h.waitFor(/COMPANION PAIR/);

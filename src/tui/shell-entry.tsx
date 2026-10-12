@@ -57,7 +57,8 @@ export function fitsTerminal(text: string, columns = process.stdout.columns): bo
 }
 
 /**
- * R4 (H98): what the monitor does first. Its own FIRST RUN finished (`onboarded`): HOME. Otherwise the setup in the Timmy
+ * R4 (H98): what the monitor does first. Its own FIRST RUN finished (`onboarded`): HOME, with the line of what the setup
+ * recorded when it recorded something (setup.json). Otherwise the setup in the Timmy
  * home decides: every question answered (`timmy init` or `timmy watch` asked them): HOME, with one line of what the setup
  * chose and who answered, and nothing asked; questions without an answer: the FIRST RUN asks those (src/tui/Onboarding.tsx),
  * then HOME on the same screen. Before, a home `timmy init` had set up still opened the monitor's own FIRST RUN, through
@@ -65,8 +66,9 @@ export function fitsTerminal(text: string, columns = process.stdout.columns): bo
  */
 export function monitorStart(config: unknown): { setup: boolean; intro: string } {
   const cfg = config as { onboarded?: boolean } | null;
-  if (cfg?.onboarded === true) return { setup: false, intro: '' };
   const state = readSetupState();
+  // its first run finished before: nothing is asked, and what the setup recorded last is still said (r24: nothing was)
+  if (cfg?.onboarded === true) return { setup: false, intro: state.recorded ? `Set up by ${answeredBy(state) ?? 'timmy init'}: ${setupLine(state)}` : '' };
   if (pendingQuestions(state).length) return { setup: true, intro: '' };
   // the answers were given elsewhere: the monitor's settings remember its first run is done, and it says what was chosen
   try { saveConfig({ onboarded: true } as never); } catch { /* said again next time */ }
