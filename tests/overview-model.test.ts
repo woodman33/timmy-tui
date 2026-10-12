@@ -191,7 +191,7 @@ describe("God's Eye View from the records the real writers made (FAKE agent, Ope
     for (const l of first) expect(Array.from(l).length, l).toBeLessThanOrEqual(80);
     expect(first[1]).toMatch(/^ {2}Needs you {3}/);
     // R4 (H93): Devices, Hosting and Costs, a line each (God's Eye View, slice 2)
-    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Devices', 'Hosting', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Costs', 'Project', 'Map', 'In full']);
+    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Devices', 'Hosting', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Costs', 'Project', 'Map', 'Request', 'In full', 'Board'] /* R4 (H99, gap 4): the newest request, its operation id whole; where the board shows it */);
     expect(first[2].trim()).toBe(o.needs.urgent!.source.command);
     // Narrower: still within the width.
     for (const l of plain(overviewFirstLines(o, { glyphs: g, width: 60 }))) expect(Array.from(l).length, l).toBeLessThanOrEqual(60);

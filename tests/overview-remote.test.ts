@@ -371,7 +371,7 @@ describe("God's Eye View, slice 2, from real Connect records and a real backend'
     const first = plain(overviewFirstLines(o, { glyphs: g }));
     expect(first.length).toBeLessThanOrEqual(25);
     for (const l of first) expect(Array.from(l).length, l).toBeLessThanOrEqual(80);
-    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Devices', 'Hosting', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Costs', 'Project', 'Map', 'In full']);
+    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Devices', 'Hosting', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Costs', 'Project', 'Map', 'In full', 'Board'] /* R4 (H99, gap 4): the newest request, its operation id whole; where the board shows it */);
     expect(first[2].trim()).toBe('/connect scan moved');
     expect(first[3]).toMatch(/^ {2}Devices {5}4 computers, 1 answered its last probe; 4 jobs, 1 running as read/);
     expect(first[4]).toMatch(/^ {2}Hosting {5}6 orders, 4 need a person, 1 partial, simulated; read /);

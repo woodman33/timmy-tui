@@ -32,6 +32,37 @@ export interface OverviewTextOptions {
   link?: (rel: string) => string;
   /** the columns the first screen fits (80 by default) */
   width?: number;
+  /** R4 (H99, gap 4): the live board's address when one runs (no token): each view ends with its Overview section's address */
+  board?: string;
+}
+
+/** An operation's id, which the first screen never cuts (R4 H99, gap 4: r24 found it cut off). */
+const OPERATION_IN_TEXT = /\bo[0-9a-f]{8}\b/g;
+
+/**
+ * R4 (H99, gap 4): a text cut to `n` columns that keeps every operation id in it whole: the words around the ids are shortened
+ * (each cut part ends with an ellipsis), never an id. When the ids alone do not fit, they are kept and the rest dropped.
+ */
+export function cutKeepingIds(text: string, n: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= n) return text;
+  const ids = [...text.matchAll(OPERATION_IN_TEXT)];
+  if (!ids.length) return cut(text, n);
+  // the text as parts: words, id, words, id, …, words
+  const parts: Array<{ id: boolean; text: string }> = [];
+  let at = 0;
+  for (const m of ids) { parts.push({ id: false, text: text.slice(at, m.index) }, { id: true, text: m[0] }); at = m.index! + m[0].length; }
+  parts.push({ id: false, text: text.slice(at) });
+  let room = n - ids.reduce((k, m) => k + m[0].length, 0);
+  if (room <= 0) return ids.map((m) => m[0]).join(' ');
+  return parts.map((p) => {
+    if (p.id) return p.text;
+    const len = Array.from(p.text).length;
+    if (len <= room) { room -= len; return p.text; }
+    const kept = room > 1 ? cut(p.text, room) : room === 1 ? '…' : '';
+    room = Math.max(0, room - Array.from(kept).length);
+    return kept;
+  }).join('');
 }
 
 export const OVERVIEW_USAGE = '/overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]';
@@ -93,8 +124,9 @@ export function overviewFirstLines(o: Overview, t: OverviewTextOptions): Line[] 
     const head = sec.state === 'unknown' ? `unknown: ${sec.why ?? 'not read'}` : `${sec.state === 'partial' ? 'partly read; ' : ''}${sec.summary}`;
     // R4 (H93): how long ago, when the urgent item has a time (a probe, the backend's answer)
     const urgent = sec.urgent ? `${sep}${sec.urgent.text}${sec.urgent.ago ? ` (${sec.urgent.ago})` : ''}` : '';
-    const whole = cut(`${head}${urgent}`, room);
-    const headPart = cut(head, room);
+    // R4 (H99, gap 4): an operation id is never cut off; the words around it are shortened instead
+    const whole = cutKeepingIds(`${head}${urgent}`, room);
+    const headPart = cutKeepingIds(head, room);
     if (!sec.urgent || whole.length <= headPart.length) return [label(sec.title), { text: whole, ...(sec.state === 'unknown' ? { role: 'estimate' as Role } : {}) }];
     return [label(sec.title), { text: headPart, ...(sec.state === 'unknown' ? { role: 'estimate' as Role } : {}) }, { text: whole.slice(headPart.length), ...(ROLE[sec.urgent.tone] ? { role: ROLE[sec.urgent.tone] } : {}) }];
   };
@@ -110,9 +142,19 @@ export function overviewFirstLines(o: Overview, t: OverviewTextOptions): Line[] 
   const cols = o.map.columns;
   const n = (i: number): number => (cols[i] ? cols[i].nodes.length + cols[i].more : 0);
   lines.push([label('Map'), { text: cut(`${n(0)} agents ${g.arrow} ${n(1)} workflows/flows ${g.arrow} ${n(2)} files (${MAP_LABEL}): /board`, room) }]);
+  // R4 (H99, gap 4): the newest request (running first), its operation id whole, and its card's command
+  const op = o.agents.operations?.[0];
+  if (op) lines.push([label('Request'), { text: cutKeepingIds(`${op.id} ${op.life === 'ended' ? op.state : LIFE_WORD[op.life]}${sep}${op.request}`, room - `${sep}/op ${op.id}`.length) }, { text: `${sep}/op ${op.id}`, role: 'accent' }]);
   lines.push([label('In full'), { text: cut(`/overview <section>${sep}/overview --all${sep}/overview --json`, room), role: 'accent' }]);
+  // R4 (H99, gap 4): the live board's Overview section when one runs, else what starts it
+  lines.push(t.board ? [label('Board'), { text: cut(`${t.board}#overview`, room), role: 'accent' }] : [label('Board'), { text: '/board live', role: 'accent' }, { text: ' shows it in your browser', role: 'secondary' }]);
   return lines;
 }
+
+/** R4 (H99, gap 4): the last line of every /overview view: the live board's Overview section, or what starts one. */
+const overviewBoardLine = (board: string | undefined): Line => (board
+  ? [{ text: '  On the board  ', role: 'secondary' }, { text: `${board}#overview`, role: 'accent' }, { text: '  (the live board this REPL runs)', role: 'secondary' }]
+  : [{ text: '  On the board  ', role: 'secondary' }, { text: '/board live', role: 'accent' }, { text: ' shows it in your browser', role: 'secondary' }]);
 
 // ── one section in full ──────────────────────────────────────────────────────
 
@@ -388,6 +430,7 @@ export function overviewLines(o: Overview, args: string, t: OverviewTextOptions)
   const ids: Array<OverviewSectionId | 'map'> = v.view === 'all' ? [...OVERVIEW_SECTIONS, 'map'] : [v.id];
   const lines: Line[] = [[{ text: `  God's Eye View  ${o.project.name}${` ${t.glyphs.sep} `}as of ${stamp(o.as_of)}`, role: 'strong' }]];
   for (const id of ids) lines.push(...overviewSectionLines(o, id, t));
-  lines.push([{ text: `  ${SECTION_TITLE.needs} first: /overview${` ${t.glyphs.sep} `}the board's Overview: /board live`, role: 'secondary' }]);
+  lines.push([{ text: `  ${SECTION_TITLE.needs} first: /overview`, role: 'secondary' }]);
+  lines.push(overviewBoardLine(t.board)); // R4 (H99, gap 4)
   return lines;
 }

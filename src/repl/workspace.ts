@@ -2172,7 +2172,8 @@ export class Workspace {
       let chain: Receipt[] = [];
       try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
       const room = this.roomOf({ jobs, chain });
-      const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel) };
+      // R4 (H99, gap 4): the view ends with the live board's address of its section when one runs
+      const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel), ...(this.live?.listening ? { board: this.live.address } : {}) };
       return id ? roomItemLines(room, id, o) : roomLines(room.view, o);
     });
   }
@@ -2371,7 +2372,7 @@ export class Workspace {
     if (!this.roomTools) await this.checkRoomTools();
     const o = this.boardData().input.overview;
     if (!o) return this.say('The overview could not be built: the board says why (/board).', 'failure');
-    return overviewLines(o, args, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
+    return overviewLines(o, args, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel), ...(this.live?.listening ? { board: this.live.address } : {}) });
   }
 
   /** R4 (H78): God's Eye View from what the board read; never throws (undefined only when even that fails). */

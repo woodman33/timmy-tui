@@ -17,6 +17,19 @@ export interface RoomTextOptions {
   glyphs: GlyphSet;
   /** a project path as the terminal shows it (an OSC 8 link where it can); plain text by default */
   link?: (rel: string) => string;
+  /** R4 (H99, gap 4): the live board's address when one runs (http://127.0.0.1:<port>/, no token): the view ends with its
+   *  Control Room section's address; without one, with what starts it */
+  board?: string;
+}
+
+/**
+ * R4 (H99, gap 4): where a view of the board is, said as its last line: the live board's address of the section (`#room`,
+ * `#overview`; no token: a tab opened at it asks the board's open tab for its token) when a board runs, else what starts one.
+ */
+export function boardLine(board: string | undefined, section: string): Segment[] {
+  return board
+    ? [{ text: '  On the board  ', role: 'secondary' }, { text: `${board}#${section}`, role: 'accent' }, { text: '  (the live board this REPL runs; a tab opened there asks its open tab for its token)', role: 'secondary' }]
+    : [{ text: '  On the board  ', role: 'secondary' }, { text: '/board live', role: 'accent' }, { text: ' shows it in your browser', role: 'secondary' }];
 }
 
 const TONE_ROLE: Readonly<Record<Tone, Role | undefined>> = { running: 'estimate', ok: undefined, failed: 'failure', stopped: 'secondary', attention: 'estimate', neutral: undefined };
@@ -101,7 +114,8 @@ export function roomLines(v: RoomView, o: RoomTextOptions): Line[] {
     if (v.tools.note) lines.push([{ text: `    ${v.tools.note}`, role: 'secondary' }]);
   }
   for (const n of v.notes) lines.push([{ text: `  ${n}`, role: 'secondary' }]);
-  lines.push([{ text: `  One run: /room <id>${sep}every tool: /tools${sep}the same on the board: /board live`, role: 'secondary' }]);
+  lines.push([{ text: `  One run: /room <id>${sep}every tool: /tools`, role: 'secondary' }]);
+  lines.push(boardLine(o.board, 'room')); // R4 (H99, gap 4)
   return lines;
 }
 
@@ -136,5 +150,6 @@ export function roomItemLines(room: Room, id: string, o: RoomTextOptions): Line[
   const rec = [r.record ? link(r.record) : '', r.recordNote ?? '', r.receipt ? `receipt ${r.receipt}` : 'no receipt seals it yet', ...(r.receipts?.length ? [`its record names receipts ${r.receipts.join(', ')}`] : [])].filter(Boolean).join(sep);
   lines.push([label('Record'), { text: rec }]);
   if (r.running) lines.push([label('Stop'), { text: r.stop ? `/stop ${r.stop.id}` : r.hint?.words ?? NOT_OURS, role: r.stop ? 'strong' : 'secondary' }]);
+  lines.push(boardLine(o.board, 'room')); // R4 (H99, gap 4)
   return lines;
 }
