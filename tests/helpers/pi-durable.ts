@@ -37,6 +37,9 @@ export function project(name: string, files: Record<string, string> = {}): strin
   return root;
 }
 
+/** Registers a process the test caused (a worker started another way, a command a worker ran): killed by pid at cleanup. */
+export function track(pid: number | undefined): void { if (pid !== undefined && pid > 1) pids.add(pid); }
+
 export async function start(root: string, opts: EnsureOptions = {}): Promise<Attached> {
   const a = await ensureWorker(root, { waitMs: 45_000, surface: 'test', ...opts });
   pids.add(a.client.hello.pid);
@@ -70,7 +73,7 @@ export function jsonl<T = Record<string, unknown>>(path: string): T[] {
   try { return readFileSync(path, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as T); } catch { return []; }
 }
 
-export interface EffectLine { key: string; run: string; state: string; by: string; outcome?: string; readback?: { sha256: string }; new_sha256?: string; expected_sha256?: string }
+export interface EffectLine { key: string; run: string; state: string; by: string; outcome?: string; readback?: { sha256: string }; new_sha256?: string; expected_sha256?: string; argv?: string[]; output?: string; exit?: number | null }
 export const effects = (root: string, run?: string): EffectLine[] => jsonl<EffectLine>(piPaths(root).effects).filter((e) => !run || e.run === run);
 export const fauxCalls = (root: string, run: string): { run: string; last_role: string | null; last_text: string | null; pid: number }[] => jsonl<{ run: string; last_role: string | null; last_text: string | null; pid: number }>(piPaths(root).fauxCalls).filter((c) => c.run === run);
 export const reads = (root: string, run: string): { run: string; call_id: string; pid: number }[] => jsonl<{ run: string; call_id: string; pid: number }>(join(piPaths(root).dir, 'reads.jsonl')).filter((c) => c.run === run);
@@ -79,7 +82,7 @@ export interface Status {
   run: string; status: string; scheduling: string; submission: { id: number; status: string; reason: string | null; request_id: string } | null;
   tasks: { id: number; kind: string; status: string; phase: string | null; owner: number | null; abort_requested: boolean; inspect: string }[];
   entries: { id: number; kind: string; stop: string | null; text: string }[]; user_entries: number;
-  effects: EffectLine[]; needs_you: { key: string; why: string }[]; stop_requested: unknown; paused: { why: string } | null; interrupted: { why: string } | null;
+  effects: EffectLine[]; needs_you: { key: string; why: string; answered?: { decision: string; by: string; at: string } }[]; stop_requested: unknown; paused: { why: string } | null; interrupted: { why: string } | null;
   cost: { usd: number | null; basis: string; measured: boolean; words: string }; resubmitted: { submission: number; same: boolean }[]; ended: { status: string; reason?: string } | null;
   submissions: number[]; messages: { n: number; key?: string; mode: string; submission: number }[];
 }

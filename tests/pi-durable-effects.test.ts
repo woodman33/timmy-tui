@@ -10,15 +10,18 @@
  * - The model repeating an interrupted write whose outcome is unknown (the file now has neither the old nor the new
  *   bytes) is refused by the guard: one effect (A0 had two without the guard; A3 one with it), and the run is aborted at
  *   that first refusal (A2): the FAKE model gets no request after it, though its script would repeat forever (A1).
- * - Not in S1: the trial shell case of i.3 (S6's trial copy and trial_shell do not exist yet).
+ * - A trial shell killed mid-command (S1's trial_shell fixture, a real program run as argv in the run's trial folder):
+ *   its ledger entry stays `started` through the kill; the restart makes it `unknown` (NEEDS YOU, with the command and
+ *   its output so far), never `ended`; the FAKE model's repeat is refused and the run stops there. S6 replaces the
+ *   empty trial folder with a disposable copy of the project.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { EffectLedger, effectKey } from '../src/pi-durable/effects.js';
 import { reconcileOpen } from '../src/pi-durable/reconcile.js';
-import { anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, until } from './helpers/pi-durable.js';
+import { alive, anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, track, until } from './helpers/pi-durable.js';
 
 vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 const dirs: string[] = [];
@@ -115,6 +118,49 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     expect(fauxCalls(root, d.run).slice(callsBefore)).toHaveLength(1);
     await b.client.request('shutdown');
     b.client.close();
+  });
+
+  it('a trial shell killed mid-command: its entry stays started; the restart makes it NEEDS YOU unknown, never ended; the repeat is refused (i.3)', async () => {
+    const root = project('effects-shell');
+    const a = await start(root, { worker: { trialShell: true } });
+    // a real program, run by the worker as argv: it prints, then would print again after 8 s
+    const argv = [process.execPath, '-e', "process.stdout.write('partial output\\n'); setTimeout(() => process.stdout.write('late output\\n'), 8000)"];
+    const d = await delegate(a.client, { first: { tool: 'trial_shell', args: { argv } }, after_interrupted: 'repeat', after_blocked: 'repeat' });
+    expect(d.ok).toBe(true);
+    const out = await until('the command to have printed', () => {
+      const e = effects(root, d.run).find((x) => x.state === 'started');
+      return e?.output && existsSync(join(root, e.output)) && readFileSync(join(root, e.output), 'utf8').includes('partial output') ? join(root, e.output) : undefined;
+    });
+    const childPid = Number.parseInt(readFileSync(`${out}.pid`, 'utf8'), 10);
+    track(childPid);
+    a.client.close();
+    await killWorker(root);
+    expect(effects(root, d.run).map((e) => e.state)).toEqual(['started']);
+    expect(effects(root, d.run)[0]).toMatchObject({ key: `trial_shell:.timmy/pi/${d.run}/trial:${d.run}`, argv });
+
+    const b = await start(root, { worker: { trialShell: true } });
+    const after = effects(root, d.run);
+    expect(after.map((e) => `${e.state}/${e.by}`)).toEqual(['started/tool', 'unknown/reconcile']);
+    expect(after[1].outcome).toMatch(/^trial_shell was interrupted mid-command; what a command did cannot be read back: NEEDS YOU\. The command: /);
+    expect(after[1].outcome).toContain('partial output');
+    if (alive(childPid)) expect(after[1].outcome).toContain(`A process with its pid (${childPid}) still runs`);
+    const paused = await status(b.client, d.run);
+    expect(paused.status).toBe('interrupted');
+    expect(paused.needs_you.map((n) => n.key)).toEqual([after[0].key]);
+
+    await b.client.request('resume');
+    const end = await ended(b.client, d.run);
+    expect(end.status).toBe('needs you');
+    expect(end.entries.filter((e) => e.kind === 'pi.tool-result').map((e) => e.text)).toEqual([
+      expect.stringMatching(/Tool trial_shell was interrupted and may have partially run/),
+      expect.stringMatching(/Tool call blocked: NEEDS YOU: an earlier trial_shell/),
+    ]);
+    const final = effects(root, d.run);
+    expect(final.filter((e) => e.state === 'started')).toHaveLength(1); // the command ran once
+    expect(final.some((e) => e.state === 'ended')).toBe(false); // never ended
+    await b.client.request('shutdown');
+    b.client.close();
+    if (alive(childPid)) process.kill(childPid, 'SIGKILL'); // the command the test caused, by its pid
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
