@@ -26,7 +26,8 @@ import { LiveRegion } from '../term/live-region.js';
 import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
-import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
+import { buildTheme, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
+import { wrapSegments } from './notice-wrap.js';
 import { DEMO_LOADER, DEMO_TURN, type DemoStep } from './demo.js';
 import { hyperlink, OSC133 } from '../term/marks.js';
 import { gateTools, readDecision, type ApprovalRequest, type Decision } from './approvals.js';
@@ -358,7 +359,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
   // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
   // prompt (the live region redraws what is being typed below them).
-  const notify = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
+  // R4 (H98, journey-2): a notice wider than the terminal wraps (a hanging indent), never cut: its id and reason stay whole
+  const notify = (segments: Segment[]): void => void region.commit(wrapSegments(segments, size.columns).map((row) => serialize(row, theme)));
   const editFile = (path: string): void => {
     const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim();
     spawnSync('sh', ['-c', `${command} "$1"`, 'timmy-editor', path], { stdio: 'inherit' });
@@ -680,9 +682,10 @@ const MENU = COMMANDS.map(({ name, description }) => ({ name, description }));
 export async function replLoop(d: ReplDeps): Promise<number> {
   const { agent, caps, theme, region, transcript, session } = d;
   const interactive = caps.interactive && region.live && !caps.plain;
-  // r21 (ledger row 163): its own lines too are cut at the width the terminal has now.
+  // r21 (ledger row 163): its own lines too fit the width the terminal has now. R4 (H98, journey-2): wrapped onto
+  // indented continuation rows (src/repl/notice-wrap.ts), no longer cut: a cut lost the ids and reasons at the end.
   const size = liveSize(process.stdout, caps);
-  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
+  const say = (segments: Segment[]): void => void region.commit(wrapSegments(segments, size.columns).map((row) => serialize(row, theme)));
   if (interactive) {
     say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${d.chat ? d.chat() : agent.getModel()}`, role: 'secondary' }]);
     // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
