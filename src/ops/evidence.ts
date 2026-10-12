@@ -111,14 +111,15 @@ export function fileNow(root: string, rel: string): { ok: true; sha256: string; 
 
 // ── records ───────────────────────────────────────────────────────────────────
 
-interface Rec { kind: 'flow' | 'vox'; id: string; rel: string; value: Obj; sha256: string; bytes: number; operation: string | null }
+/** A flow or VoxVision record as read (by name, never by time): its id, place, parsed value, sha256 and the operation it names. */
+export interface RecordRead { kind: 'flow' | 'vox'; id: string; rel: string; value: Obj; sha256: string; bytes: number; operation: string | null }
 
 /** Every record of a kind in the project, by name (never by time), and the files that could not be read, each with why. */
-export function readRecords(root: string, kind: 'flow' | 'vox'): { list: Rec[]; unreadable: Array<{ rel: string; why: string }>; dir: string } {
+export function readRecords(root: string, kind: 'flow' | 'vox'): { list: RecordRead[]; unreadable: Array<{ rel: string; why: string }>; dir: string } {
   const dir = kind === 'flow' ? FLOWS_DIR : VOX_DIR;
   const re = kind === 'flow' ? FLOW_FILE : VOX_FILE;
   const schema = kind === 'flow' ? 'timmy.flow/1' : 'timmy.vox/1';
-  const out: Rec[] = [];
+  const out: RecordRead[] = [];
   const unreadable: Array<{ rel: string; why: string }> = [];
   // the folder itself, reached through no link
   let at = root;
@@ -159,14 +160,14 @@ export function sealOf(chain: readonly Receipt[], rec: { kind: 'flow' | 'vox'; r
   return { ok: true, receipt: exact };
 }
 
-const recState = (r: Rec): string => (r.kind === 'flow' ? String(r.value.outcome ?? 'unknown') : `${String(r.value.action ?? '?')}, ${String(r.value.status ?? 'unknown')}`);
-const recWords = (r: Rec): string => `${r.id}: ${recState(r)}`;
+const recState = (r: RecordRead): string => (r.kind === 'flow' ? String(r.value.outcome ?? 'unknown') : `${String(r.value.action ?? '?')}, ${String(r.value.status ?? 'unknown')}`);
+const recWords = (r: RecordRead): string => `${r.id}: ${recState(r)}`;
 const kindWords = (k: 'flow' | 'vox'): string => (k === 'flow' ? 'flow record' : 'VoxVision record');
 
 /** The one record of the operation (or the one --id names, which must be the operation's); or why there is not one. */
-function pick(root: string, kind: 'flow' | 'vox', what: EvidenceWhat, operation: string, o: { id?: string; filter?: (r: Rec) => boolean; about?: string } = {}): { ok: true; rec: Rec } | Extract<EvidenceAnswer, { ok: false }> {
+function pick(root: string, kind: 'flow' | 'vox', what: EvidenceWhat, operation: string, o: { id?: string; filter?: (r: RecordRead) => boolean; about?: string } = {}): { ok: true; rec: RecordRead } | Extract<EvidenceAnswer, { ok: false }> {
   const read = readRecords(root, kind);
-  const refuse = (refusal: EvidenceRefusal, why: string, cands?: Rec[]): Extract<EvidenceAnswer, { ok: false }> => ({
+  const refuse = (refusal: EvidenceRefusal, why: string, cands?: RecordRead[]): Extract<EvidenceAnswer, { ok: false }> => ({
     ok: false, what, operation, refusal, why,
     ...(cands?.length ? { candidates: cands.map((r) => ({ id: r.id, path: r.rel, operation: r.operation, state: recState(r) })) } : {}),
   });
@@ -197,10 +198,20 @@ function pick(root: string, kind: 'flow' | 'vox', what: EvidenceWhat, operation:
 
 /** The flows of the operation whose state file says they run and that have no record yet. */
 function runningFlows(root: string, operation: string): string[] {
+  return runningFlowStates(root, operation).map((f) => f.id);
+}
+
+/**
+ * R4 (H102, part 2): the flows of the operation whose state file (.timmy/flows/<id>/state.json, which each flow's session
+ * writes at each step) says they run and that have no record yet, by name (never by time): each with its state file and the
+ * step it names. The state is what its session last wrote: a session that ended leaves it saying `running` until /recover
+ * records the flow as interrupted.
+ */
+export function runningFlowStates(root: string, operation: string): Array<{ id: string; rel: string; step?: string; value: Obj }> {
   const dir = path.join(root, '.timmy', 'flows');
   let ids: string[];
   try { ids = fs.readdirSync(dir).filter((n) => FLOW_ID.test(n)).sort(); } catch { return []; }
-  const out: string[] = [];
+  const out: Array<{ id: string; rel: string; step?: string; value: Obj }> = [];
   for (const id of ids) {
     try {
       if (fs.existsSync(path.join(root, FLOWS_DIR, `${id}.json`))) continue;
@@ -208,7 +219,7 @@ function runningFlows(root: string, operation: string): string[] {
       const st = fs.lstatSync(abs);
       if (!st.isFile() || st.size > RECORD_MAX) continue;
       const v = obj(JSON.parse(fs.readFileSync(abs, 'utf8')));
-      if (v && v.id === id && v.outcome === 'running' && v.operation === operation) out.push(id);
+      if (v && v.id === id && v.outcome === 'running' && v.operation === operation) out.push({ id, rel: `.timmy/flows/${id}/state.json`, ...(str(v.step) ? { step: str(v.step) } : {}), value: v });
     } catch { /* not one */ }
   }
   return out;
@@ -273,19 +284,19 @@ export function findEvidence(q: EvidenceQuery): EvidenceAnswer {
   const { root, what, operation } = q;
   const pid = projectId(root);
   const notUsable = (why: string): EvidenceAnswer => ({ ok: false, what, operation, refusal: 'not usable', why });
-  const sealedOr = (rec: Rec): { ok: true; receipt: Receipt } | { ok: false; why: string } => {
+  const sealedOr = (rec: RecordRead): { ok: true; receipt: Receipt } | { ok: false; why: string } => {
     const s = sealOf(q.chain, rec, pid, operation);
     if (s.ok || !q.chainError) return s;
     return { ok: false, why: `${s.why} (the runs chain could not be read: ${q.chainError})` };
   };
-  const recordOf = (rec: Rec, receipt: Receipt): EvidenceRecord => ({ kind: rec.kind, id: rec.id, path: rec.rel, sha256: rec.sha256, receipt: receiptShort(receipt) });
+  const recordOf = (rec: RecordRead, receipt: Receipt): EvidenceRecord => ({ kind: rec.kind, id: rec.id, path: rec.rel, sha256: rec.sha256, receipt: receiptShort(receipt) });
   const sealWords = (receipt: Receipt, whose: string): string => `receipt ${receiptShort(receipt)} on the runs chain sealed ${whose}${typeof receipt.operation_id === 'string' ? '' : ' (that receipt names no operation)'}`;
 
   if (what === 'vox') {
     const ofRel = q.of;
     const p = pick(root, 'vox', what, operation, {
       ...(q.id ? { id: q.id } : {}),
-      ...(ofRel ? { filter: (r: Rec) => list(r.value.inputs).some((i) => i.path === ofRel), about: `about ${ofRel}` } : {}),
+      ...(ofRel ? { filter: (r: RecordRead) => list(r.value.inputs).some((i) => i.path === ofRel), about: `about ${ofRel}` } : {}),
     });
     if (!p.ok) return p;
     const rec = p.rec;
