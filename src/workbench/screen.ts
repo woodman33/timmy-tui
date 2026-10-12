@@ -7,8 +7,9 @@ import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js
 import { layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
+import { endOf, keepInView, scrollFor } from './select.js';
 import { fit, type Line } from './text.js';
-import { bottomView, centerView, cursorOf, navView, rightView, runWords, stopWords, topLines, type ViewCtx } from './views.js';
+import { bottomView, centerView, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
 
 export interface RegionDraw {
   rect: Rect;
@@ -19,6 +20,9 @@ export interface RegionDraw {
   scroll: number;
   /** rows of the view not scrolled (the right dock's tabs) */
   fixed: number;
+  /** R4 (H112): how many of the scrolled rows the zone shows, and how many there are (the wheel scrolls within them) */
+  height: number;
+  total: number;
 }
 
 export interface Frame {
@@ -31,17 +35,8 @@ export interface Frame {
 
 export interface FrameAsk { ui: Ui; data: Data; g: Glyphs; columns: number; rows: number; now: number; can: ViewCtx['can'] }
 
-/** The first row to show so that row `at` is in view, keeping the earlier rows where they fit. */
-export function scrollTo(at: number | undefined, prev: number, height: number, total: number): number {
-  const max = Math.max(0, total - height);
-  if (at === undefined) return Math.min(Math.max(0, prev), max);
-  let s = Math.min(Math.max(0, prev), max);
-  if (at < s) s = at;
-  if (at >= s + height) s = at - height + 1;
-  // the first selectable row of a list: show what is above it too
-  if (at < height) s = Math.min(s, 0);
-  return Math.min(Math.max(0, s), max);
-}
+/** The first row to show so that row `at` is in view, keeping the earlier rows where they fit (src/workbench/select.ts). */
+export const scrollTo = (at: number | undefined, prev: number, height: number, total: number): number => keepInView(at, prev, height, total, undefined, at !== undefined && at < height);
 
 const rangeNote = (scroll: number, height: number, total: number): string | undefined => (total > height ? `${scroll + 1}–${Math.min(total, scroll + height)} of ${total}` : undefined);
 
@@ -55,7 +50,7 @@ export function frameOf(a: FrameAsk): Frame {
 
   if (layout.tooSmall) {
     // too small for the zones: the facts that stay at every size, and why the rest is not drawn
-    const stop = stopWords(data);
+    const stop = stopWords(data, selectedItem(ctx(layout.top)), ui.workspace);
     const lines: Line[] = [
       [{ text: `${data.project.name} / ${navItem(ui.workspace).label}`, role: 'strong' }],
       [{ text: runWords(data), role: data.decisions.total ? 'attention' : 'secondary' }],
@@ -65,22 +60,22 @@ export function frameOf(a: FrameAsk): Frame {
     return { screen: Array.from({ length: a.rows }, (_, i) => fit(lines[i] ?? [], a.columns, g.ellipsis)), layout, regions, tabs };
   }
 
-  // the navigation
+  // the navigation (its selection is the workspace shown)
   if (layout.nav) {
     const c = ctx(layout.nav);
     const v = navView(c);
     const active = v.items.findIndex((it) => it.item.kind === 'action' && it.item.action === ui.workspace);
     const at = active >= 0 ? v.items[active].line : undefined;
-    const scroll = scrollTo(at, ui.scroll.nav ?? 0, c.height, v.lines.length);
+    const scroll = scrollFor(ui, 'nav', v.items, { ...(at !== undefined ? { at } : {}), height: c.height, total: v.lines.length, first: active === 0 });
     placed.push({ rect: layout.nav, rows: panel({ title: 'TIMMY', lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'nav', ...(layout.navAs === 'drawer' ? { footer: 'Esc closes' } : {}) }, layout.nav, g) });
-    regions.nav = { rect: layout.nav, list: 'nav', items: v.items, scroll, fixed: 0 };
+    regions.nav = { rect: layout.nav, list: 'nav', items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
   }
 
   // the top: project, task, state and Stop
   {
     const c = ctx(layout.top);
     placed.push({ rect: layout.top, rows: panel({ title: 'Timmy Workbench', lines: topLines(c), focused: ui.focus === 'top' }, layout.top, g) });
-    regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0 };
+    regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
   }
 
   // the center
@@ -88,11 +83,11 @@ export function frameOf(a: FrameAsk): Frame {
     const c = ctx(layout.center);
     const v = centerView(c);
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
-    const cur = v.items.length ? v.items[cursorOf(ui, list, v.items.length)].line : undefined;
-    const scroll = scrollTo(cur, ui.scroll[list] ?? 0, c.height, v.lines.length);
+    const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
+    const scroll = scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line } : {}), height: c.height, total: v.lines.length, first: i === 0 });
     const title = ui.overlay ? overlayTitle(ui) : `${navItem(ui.workspace).title}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
     placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
-    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0 };
+    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
   }
 
   // the right dock: its tabs stay; its rows scroll
@@ -103,12 +98,13 @@ export function frameOf(a: FrameAsk): Frame {
     const fixed = 2;
     const body = Math.max(1, c.height - fixed);
     const rest = v.lines.slice(fixed);
-    const cur = v.items.length ? v.items[cursorOf(ui, list, v.items.length)].line - fixed : undefined;
-    const scroll = scrollTo(cur, ui.scroll[list] ?? 0, body, rest.length);
+    const items = v.items.map((x) => ({ ...x, line: x.line - fixed }));
+    const i = items.length ? cursorOf(ui, list, items.length) : -1;
+    const scroll = scrollFor(ui, list, items, { ...(i >= 0 ? { at: items[i].line } : {}), height: body, total: rest.length, first: i === 0 });
     const lines = [...v.lines.slice(0, fixed), ...rest.slice(scroll, scroll + body)];
     const drawer = layout.rightAs === 'drawer';
     placed.push({ rect: layout.right, rows: panel({ title: drawer ? 'Context (drawer)' : 'Context', lines, focused: ui.focus === 'right', ...(drawer ? { footer: 'Esc closes' } : {}), ...(rangeNote(scroll, body, rest.length) ? { note: rangeNote(scroll, body, rest.length)! } : {}) }, layout.right, g) });
-    regions.right = { rect: layout.right, list, items: v.items.map((x) => ({ ...x, line: x.line - fixed })), scroll, fixed };
+    regions.right = { rect: layout.right, list, items, scroll, fixed, height: body, total: rest.length };
     // where each tab's label is drawn on the tabs' row (inside the border and its one cell of air)
     let x = layout.right.x + 1 + (layout.right.w - 2 >= 6 ? 1 : 0);
     for (const seg of v.lines[0] ?? []) {
@@ -119,18 +115,21 @@ export function frameOf(a: FrameAsk): Frame {
     }
   }
 
-  // the bottom: task controls and Activity (its events scroll)
+  // the bottom: task controls and Activity (its events scroll; R4, H112: oldest first, the newest at the bottom, each event
+  // shown whole when it fits, and the view follows the newest only while the selection is the newest)
   {
     const c = ctx(layout.bottom);
     const v = bottomView(c);
     const fixed = ui.activityOpen ? 3 : 2;
     const body = Math.max(0, c.height - fixed);
     const rest = v.lines.slice(fixed);
-    const cur = v.items.length ? v.items[cursorOf(ui, 'bottom', v.items.length)].line - fixed : undefined;
-    const scroll = scrollTo(cur, ui.scroll.bottom ?? 0, Math.max(1, body), rest.length);
+    const items = v.items.map((x) => ({ ...x, line: x.line - fixed }));
+    const i = items.length ? cursorOf(ui, 'bottom', items.length) : -1;
+    const scroll = scrollFor(ui, 'bottom', items, { ...(i >= 0 ? { at: items[i].line, end: endOf(items, i, rest.length) } : {}), height: Math.max(1, body), total: rest.length });
     const lines = [...v.lines.slice(0, fixed), ...rest.slice(scroll, scroll + body)];
-    placed.push({ rect: layout.bottom, rows: panel({ title: navItem(ui.workspace).task, lines, focused: ui.focus === 'bottom' }, layout.bottom, g) });
-    regions.bottom = { rect: layout.bottom, list: 'bottom', items: v.items.map((x) => ({ ...x, line: x.line - fixed })), scroll, fixed };
+    const note = ui.activityOpen ? rangeNote(scroll, Math.max(1, body), rest.length) : undefined;
+    placed.push({ rect: layout.bottom, rows: panel({ title: navItem(ui.workspace).task, lines, focused: ui.focus === 'bottom', ...(note ? { note } : {}) }, layout.bottom, g) });
+    regions.bottom = { rect: layout.bottom, list: 'bottom', items, scroll, fixed, height: Math.max(1, body), total: rest.length };
   }
 
   return { screen: compose(layout, placed), layout, regions, tabs };

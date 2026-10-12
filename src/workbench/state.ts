@@ -24,6 +24,7 @@ import {
   listProjectFiles, listProjects, projectId, readActiveProject, readProjectFile, sameFolder, type ActiveProject, type FileRole, type ProjectFile,
 } from '../project/index.js';
 import { waitingApprovals } from '../repl/approvals.js';
+import { endedByRecovery } from '../repl/job-command.js';
 import { workflowForBoard } from '../repl/board-nodes.js';
 import { connectWorkflow, NODE_GLYPH, type NodeWord } from '../repl/board-workflows.js';
 import { gatherDecisions, type DecisionsView } from '../room/decisions.js';
@@ -177,9 +178,23 @@ export function readWorkflows(root: string, o: { jobs: readonly JobRecord[]; cha
 /** Who started a job, as far as this Workbench can tell without stopping anything. */
 export type JobOwner = 'workbench' | 'live-session' | 'ended-session' | 'unknown';
 
+/**
+ * R4 (H112): a job a session left, in the words recovery uses (src/repl/recover.ts, src/repl/workflow-recover.ts,
+ * src/ops/recover-operations.ts), read from its record and the process table as they are now, never decided here:
+ *   left running        its record says it runs, the session that started it has ended, and its process still runs
+ *   stale               its record says it runs, and no process of it runs: its session ended without recording its end
+ *   ended by recovery   a later session's recovery wrote its end (JobManager endLeft), from what it found, not as it happened
+ */
+export type RecoveryState = 'left running' | 'stale' | 'ended by recovery';
+
 export interface JobRow {
   id: string;
   label: string;
+  /** R4 (H112): the project it runs in, by name and folder (a run keeps its own project when the view switches) */
+  project: string;
+  root: string;
+  /** R4 (H112): recovery's words for a job a session left, with what to do */
+  recovery?: { state: RecoveryState; words: string };
   kind: JobRecord['kind'];
   /** the record's own state */
   state: JobRecord['state'];
@@ -227,12 +242,32 @@ export function jobRow(j: JobRecord, o: { mine: ReadonlySet<string>; judge?: Ret
   }
   const count = j.kind === 'workflow' ? blockCount(j, { ...(j.expected?.steps ? { order: j.expected.steps } : {}) }) : undefined;
   const out = jobOutcome(j);
+  const recovery = recoveryOf(j, { live, owner, ownerWords });
+  // R4 (H112): a stale record is not judged by its own state (it says it runs, and nothing of it does): its outcome is unknown
+  const mark: JobMark = j.stale ? 'unknown' : r.mark;
+  const word = j.stale ? 'stale' : r.word;
   return {
-    id: j.id, label: j.label, kind: j.kind, state: j.state, mark: r.mark, word: r.word, why: r.why ?? '', outcome: { state: out.state, words: out.words },
+    id: j.id, label: j.label, project: j.project, root: j.root, ...(recovery ? { recovery } : {}),
+    kind: j.kind, state: j.state, mark, word, why: r.why ?? '', outcome: { state: out.state, words: out.words },
     live, stale: j.stale === true, startedAt: j.startedAt, ...(j.endedAt ? { endedAt: j.endedAt } : {}), elapsedMs, elapsed: took(elapsedMs),
     ...(j.operation ? { operation: j.operation } : {}), ...(j.receipt ? { receipt: j.receipt } : {}), ...(count ? { blocks: count.words } : {}),
     owner, ownerWords, steps: j.steps, ...(j.exitCode !== undefined ? { exitCode: j.exitCode } : {}), ...(j.error ? { error: j.error } : {}), ...(j.note ? { note: j.note } : {}),
   };
+}
+
+/** R4 (H112): recovery's words for a job a session left (RecoveryState), or none. */
+function recoveryOf(j: JobRecord, o: { live: boolean; owner: JobOwner; ownerWords: string }): JobRow['recovery'] | undefined {
+  if (j.stale) {
+    return { state: 'stale', words: `stale: its record says it ${j.state === 'ready' ? 'serves' : 'runs'}, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it (nothing is run again).` };
+  }
+  if (o.live && o.owner === 'ended-session') {
+    return { state: 'left running', words: `left running: ${o.ownerWords}, and its process still runs. Stop ends it through recovery's stop (only when the process table proves the group is the job's).` };
+  }
+  if (!o.live && endedByRecovery(j)) {
+    const why = (j.error ?? j.note ?? '').replace(/\s+/g, ' ').trim();
+    return { state: 'ended by recovery', words: `ended by recovery: a later session's recovery wrote its end from what it found${why ? ` (${why})` : ''}; nothing was run again.` };
+  }
+  return undefined;
 }
 
 /** This project's jobs, newest first, each judged. */
@@ -248,11 +283,17 @@ export function readJobs(all: readonly JobRecord[], root: string, o: { mine: Rea
 export interface ActivityEvent {
   at: string;
   words: string;
+  /** R4 (H112): the event's own name, the same at every reading (a selection in Activity stays on it while rows arrive) */
+  key: string;
+  /** R4 (H112): its order among events of the same time (a job's start before its blocks, a job's lines in the order seen) */
+  seq?: number;
   job?: string;
   operation?: string;
   /** a decision waits on a person */
   attention?: boolean;
   failed?: boolean;
+  /** R4 (H112): a line the job printed (its log), not an event of its record */
+  output?: boolean;
 }
 
 export interface ActivityView {
@@ -261,32 +302,58 @@ export interface ActivityView {
   last: ActivityEvent | null;
   /** newest first */
   events: ActivityEvent[];
+  /** R4 (H112): of `running`, how many this Workbench started in another project than the one shown, and where */
+  away?: { running: number; where: string[] };
 }
 
-/** Each job's start, each block's start and end, and the job's end, from the records themselves (newest first). */
-export function jobEvents(rows: readonly JobRow[], max = 60): ActivityEvent[] {
+/** R4 (H112): the newest first; at the same time, the later in its own order first. */
+export const newestFirst = (a: ActivityEvent, b: ActivityEvent): number => (Date.parse(b.at) - Date.parse(a.at)) || ((b.seq ?? 0) - (a.seq ?? 0));
+
+/** Each job's start, each block's start and end, and the job's end, from the records themselves (newest first). A job of
+ *  another project than the one shown (R4, H112: one this Workbench started) says where it runs. */
+export function jobEvents(rows: readonly JobRow[], max = 60, shown?: string): ActivityEvent[] {
   const out: ActivityEvent[] = [];
   for (const j of rows.slice(0, 24)) {
     const op = j.operation ? { operation: j.operation } : {};
-    out.push({ at: j.startedAt, job: j.id, ...op, words: `${j.id} started: ${j.label}` });
-    for (const s of j.steps) {
-      if (s.startedAt) out.push({ at: s.startedAt, job: j.id, ...op, words: `${j.id} ${s.name} started` });
-      if (s.endedAt) out.push({ at: s.endedAt, job: j.id, ...op, words: `${j.id} ${s.name} ${s.outcome ?? s.state}${s.code !== undefined ? ` (exit ${s.code})` : ''}`, ...(s.state === 'failed' && !s.outcome ? { failed: true } : {}) });
-    }
-    if (j.endedAt) out.push({ at: j.endedAt, job: j.id, ...op, words: `${j.id} ${j.word}${j.blocks ? `: ${j.blocks}` : ''}${j.error ? `: ${j.error}` : ''}`, ...(j.mark === 'failed' ? { failed: true } : {}) });
+    const where = shown !== undefined && !sameFolder(j.root, shown) ? ` (in ${j.project})` : '';
+    out.push({ at: j.startedAt, key: `job:${j.id}:start`, seq: 0, job: j.id, ...op, words: `${j.id} started: ${j.label}${where}` });
+    j.steps.forEach((s, i) => {
+      if (s.startedAt) out.push({ at: s.startedAt, key: `job:${j.id}:s${i}:start`, seq: 1 + 2 * i, job: j.id, ...op, words: `${j.id} ${s.name} started${where}` });
+      if (s.endedAt) out.push({ at: s.endedAt, key: `job:${j.id}:s${i}:end`, seq: 2 + 2 * i, job: j.id, ...op, words: `${j.id} ${s.name} ${s.outcome ?? s.state}${s.code !== undefined ? ` (exit ${s.code})` : ''}${where}`, ...(s.state === 'failed' && !s.outcome ? { failed: true } : {}) });
+    });
+    if (j.endedAt) out.push({ at: j.endedAt, key: `job:${j.id}:end`, seq: 1e6, job: j.id, ...op, words: `${j.id} ${j.word}${j.blocks ? `: ${j.blocks}` : ''}${j.error ? `: ${j.error}` : ''}${where}`, ...(j.mark === 'failed' ? { failed: true } : {}) });
   }
-  return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, max);
+  return out.sort(newestFirst).slice(0, max);
 }
 
-export function activityOf(rows: readonly JobRow[], waiting: number, extra: readonly ActivityEvent[] = []): ActivityView {
-  const events = [...extra, ...jobEvents(rows)].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 80);
-  return { running: rows.filter((j) => j.live).length, waiting, last: events[0] ?? null, events };
+/** R4 (H112): the lines jobs printed, as Activity's events (src/workbench/output.ts OutputWatch keeps them as first seen). */
+export function outputEvents(lines: ReadonlyArray<{ job: string; n: number; text: string; at: string; operation?: string }>, o: { where?: (job: string) => string; bar?: string } = {}): ActivityEvent[] {
+  const bar = o.bar ?? '│';
+  return lines.map((l) => ({ at: l.at, key: `out:${l.job}:${l.n}`, seq: l.n, job: l.job, ...(l.operation ? { operation: l.operation } : {}), words: `${l.job} ${bar} ${l.text}${o.where?.(l.job) ?? ''}`, output: true }));
 }
 
-/** The job Stop current names: this Workbench's newest live job first, else the project's newest live job; null: idle. */
-export function stopTarget(rows: readonly JobRow[]): JobRow | null {
+/** How many events Activity keeps (the newest). */
+export const ACTIVITY_MAX = 200;
+
+/**
+ * Activity: the records' events, the Workbench's own notices and the jobs' lines, newest first. R4 (H112): `away` is the
+ * live jobs this Workbench started in another project than the one shown (`shown`, its folder): counted as running, with where.
+ */
+export function activityOf(rows: readonly JobRow[], waiting: number, extra: readonly ActivityEvent[] = [], o: { away?: readonly JobRow[]; shown?: string; output?: readonly ActivityEvent[] } = {}): ActivityView {
+  const away = o.away ?? [];
+  const events = [...extra, ...(o.output ?? []), ...jobEvents([...rows, ...away], 60, o.shown)].sort(newestFirst).slice(0, ACTIVITY_MAX);
+  const awayLive = away.filter((j) => j.live);
+  return {
+    running: rows.filter((j) => j.live).length + awayLive.length, waiting, last: events[0] ?? null, events,
+    ...(awayLive.length ? { away: { running: awayLive.length, where: [...new Set(awayLive.map((j) => j.project))] } } : {}),
+  };
+}
+
+/** The job Stop current names: this Workbench's newest live job first (R4, H112: in any project), else the project's newest
+ *  live job; null: idle. */
+export function stopTarget(rows: readonly JobRow[], away: readonly JobRow[] = []): JobRow | null {
   const live = rows.filter((j) => j.live);
-  return live.find((j) => j.owner === 'workbench') ?? live[0] ?? null;
+  return live.find((j) => j.owner === 'workbench') ?? away.find((j) => j.live && j.owner === 'workbench') ?? live[0] ?? null;
 }
 
 // ── the chat route ─────────────────────────────────────────────────────────────

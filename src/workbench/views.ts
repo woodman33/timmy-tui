@@ -8,6 +8,7 @@
  * run says what it needs; a label says what an action does and to what.
  */
 import type { CapabilityRow } from '../capabilities/index.js';
+import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { Glyphs } from './frame.js';
@@ -85,9 +86,13 @@ export function navView(c: ViewCtx): View {
   lines.push([S(data.project.name, 'strong'), S(data.project.chosen ? '' : '  (this folder)', 'secondary')]);
   if (data.pinnedAway) lines.push([S('pinned; active elsewhere: ', 'secondary'), S(data.pinnedAway, 'attention')]);
   lines.push([key('p'), S(' Switch  ', 'text'), key('n'), S(' New', 'text')]);
-  if (ui.input.field === 'search') lines.push([S('/ ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
-  else lines.push([key('/'), S(' Find a workspace', 'secondary')]);
-  lines.push(blank);
+  // R4 (H112; the r26 dry run): "[/] Find a workspace" reads as a key only where / finds a workspace now; in All tools, away
+  // from the navigation, / searches the tools, and two rows say how to reach the finder instead (the second takes the blank
+  // row's place, so nothing below moves)
+  const how = ui.input.field === 'search' ? undefined : finderKeys(ui);
+  if (ui.input.field === 'search') lines.push([S('/ ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
+  else if (how) lines.push([S('Find a workspace:', 'secondary')], [S(`  ${how}`, 'secondary')]);
+  else lines.push([key('/'), S(' Find a workspace', 'secondary')], blank);
   const q = ui.input.field === 'search' ? ui.input.text.trim().toLowerCase() : '';
   const shown = NAV.filter((n) => !q || n.label.toLowerCase().includes(q) || n.title.toLowerCase().includes(q));
   const waiting = data.decisions.total;
@@ -133,17 +138,36 @@ export function topButtons(c: Pick<ViewCtx, 'ui'> & { g?: Glyphs }): Button[] {
   return [{ key: 'c', label: comp }, { key: 's', label: stud }, { key: ',', label: 'Quick settings' }];
 }
 
+/**
+ * R4 (H112): the keys that reach the workspace finder when / alone does not (All tools, away from the navigation, where /
+ * searches the tools); undefined where / finds a workspace now. No key changes here: the words say the way that exists.
+ */
+export function finderKeys(ui: Pick<Ui, 'workspace' | 'focus' | 'input' | 'navShown'>): string | undefined {
+  if (ui.workspace !== 'tools' || ui.focus === 'nav') return undefined;
+  // Esc leaves the tools search with the keyboard on the navigation where it is shown (src/workbench/controller.ts)
+  if (ui.input.field === 'tools') return ui.navShown === false ? 'Esc, then g, then /' : 'Esc, then /';
+  return 'g, then /';
+}
+
 export function runWords(d: Data): string {
   const r = d.activity.running;
   const w = d.decisions.total;
   if (!r && !w) return 'run: idle';
-  return `run: ${[r ? `${r} running` : '', w ? `${w} waiting on you` : ''].filter(Boolean).join(', ')}`;
+  const away = d.activity.away;
+  const here = r - (away?.running ?? 0);
+  const running = away ? [here ? `${here} running` : '', `${away.running} running in ${away.where.join(', ')}`].filter(Boolean).join(', ') : `${r} running`;
+  return `run: ${[r ? running : '', w ? `${w} waiting on you` : ''].filter(Boolean).join(', ')}`;
 }
 
-export function stopWords(d: Data): { text: string; target: JobRow | null } {
+/** Stop current's target, named before anything is pressed: in the Control Room, the selected job while it runs; else this
+ *  Workbench's newest live job (R4, H112: in any project, with its project when it is not the one shown), else the project's
+ *  newest live job. x stops exactly this one (src/workbench/controller.ts stop). */
+export function stopWords(d: Data, selected?: Item | null, workspace?: WorkspaceId): { text: string; target: JobRow | null } {
   const live = d.jobs.filter((j) => j.live);
-  const t = live.find((j) => j.owner === 'workbench') ?? live[0] ?? null;
-  return { text: t ? `Stop current: ${t.id} ${t.label}` : 'Stop current: idle', target: t };
+  const picked = workspace === 'control' && selected?.kind === 'job' && selected.job.live ? selected.job : null;
+  const t = picked ?? live.find((j) => j.owner === 'workbench') ?? (d.away ?? []).find((j) => j.live && j.owner === 'workbench') ?? live[0] ?? null;
+  const where = t && !sameFolder(t.root, d.project.root) ? ` (in ${t.project})` : '';
+  return { text: t ? `Stop current: ${t.id} ${t.label}${where}` : 'Stop current: idle', target: t };
 }
 
 /** The crumb (project / workspace) kept whole; the environment and route after it, cut first when the row is short. */
@@ -174,7 +198,7 @@ export function topLines(c: ViewCtx): Line[] {
   const ws = navItem(ui.workspace);
   const crumb: Line = [S(data.project.name, 'strong'), S(' / ', 'secondary'), S(ws.label, 'text')];
   const env: Line = [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(data.route.words, data.route.ready ? 'text' : 'secondary')];
-  const stop = stopWords(data);
+  const stop = stopWords(data, selectedItem(c), ui.workspace);
   const state: Line = [S(runWords(data), data.decisions.total ? 'attention' : 'secondary')];
   const stopLine: Line = stop.target ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, 'secondary')];
   // the state and Stop are kept whole first; when even they do not fit, Stop alone, cut at its end
@@ -317,10 +341,14 @@ function workflowsView(c: ViewCtx): View {
 
 function jobLine(j: JobRow, c: ViewCtx): Line {
   const m = markOf(j, c.g);
+  // R4 (H112): a job a session left is said in recovery's words (left running, stale, ended by recovery), never as one of ours
   const who = j.owner === 'workbench' ? 'this Workbench' : j.owner === 'live-session' ? 'another session' : j.owner === 'ended-session' ? 'an ended session' : 'unknown';
+  const where = sameFolder(j.root, c.data.project.root) ? '' : ` ${c.g.sep} in ${j.project}`;
+  // what the row must keep comes first (a row is cut at its end): recovery's state and where it runs right after its label
   return [
     S(`${m.glyph} `, m.role), S(j.id, 'strong'), S(`  ${cut(j.word, 10, c.g.ellipsis).padEnd(10)} `, m.role),
-    S(j.label, 'text'), S(j.blocks ? ` ${c.g.sep} ${j.blocks}` : '', 'secondary'), S(` ${c.g.sep} ${j.elapsed}`, 'secondary'),
+    S(j.label, 'text'), S(j.recovery && j.recovery.state !== j.word ? ` ${c.g.sep} ${j.recovery.state}` : '', 'attention'), S(where, 'secondary'),
+    S(j.blocks ? ` ${c.g.sep} ${j.blocks}` : '', 'secondary'), S(` ${c.g.sep} ${j.elapsed}`, 'secondary'),
     S(j.operation ? ` ${c.g.sep} ${j.operation}` : ` ${c.g.sep} no operation`, 'secondary'), S(` ${c.g.sep} ${who}`, 'secondary'),
   ];
 }
@@ -330,14 +358,21 @@ function controlView(c: ViewCtx): View {
   const lines: Line[] = [];
   const items: View['items'] = [];
   const live = data.jobs.filter((j) => j.live);
+  // R4 (H112): this Workbench's runs in another project keep running when the view switches: listed here, with where
+  const away = (data.away ?? []).filter((j) => j.live);
   const ended = data.jobs.filter((j) => !j.live).slice(0, 30);
   const decisions = data.decisions.items;
-  const total = live.length + decisions.length + ended.length;
+  const total = live.length + away.length + decisions.length + ended.length;
   const cur = cursorOf(c.ui, 'center:control', total);
   let i = 0;
   lines.push(heading(`Running now (${live.length})`));
   if (!live.length) lines.push([S('  Nothing runs in this project.', 'secondary')]);
   for (const j of live) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
+  if (away.length) {
+    lines.push(blank);
+    lines.push(heading(`Running in another project, started here (${away.length})`));
+    for (const j of away) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
+  }
   lines.push(blank);
   lines.push([...heading(`Waiting on you (${data.decisions.total})`), S(data.decisions.total ? `  ${g.warn} nothing is done until you do it` : '', 'attention')]);
   if (!decisions.length) lines.push([S('  Nothing waits on you.', 'secondary')]);
@@ -520,8 +555,25 @@ function toolsView(c: ViewCtx): View {
   const { data, g, ui } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
-  const q = ui.input.field === 'tools' ? ui.input.text : (ui.cursor['tools:q:len'] ? '' : '');
-  lines.push(ui.input.field === 'tools' ? [S('Search: ', 'secondary'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })] : [key('/'), S(' Search the tools by name, kind or what they need', 'secondary')]);
+  // R4 (H112): the search's words stay after Enter (the matches can then be chosen); Esc clears them
+  const typing = ui.input.field === 'tools';
+  const q = typing ? ui.input.text : ui.toolsQuery ?? '';
+  if (typing) {
+    lines.push([S('Search: ', 'secondary'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+    // R4 (H112; the r26 dry run): while this search holds /, the way to the workspace finder is said here, first (a narrow
+    // row keeps it and leaves the rest out, never cut)
+    lines.push([S('  '), ...pick([
+      [S(`find a workspace: ${finderKeys(ui) ?? '/'}`, 'secondary')],
+      [S('Esc', 'action'), S(' clears the search', 'secondary')],
+      [S('Enter keeps the matches', 'secondary')],
+    ], Math.max(0, c.width - 2), S(`  ${g.sep} `, 'secondary'))]);
+  } else if (ui.focus === 'nav') {
+    lines.push([S(q ? `Matching "${q}"  ${g.sep} ` : '', 'secondary'), S('Search the tools: Tab to this list, then /', 'secondary')]);
+  } else if (q) {
+    lines.push([S('Matching ', 'secondary'), S(`"${q}"`, 'strong'), S('  ', 'secondary'), key('/'), S(' change the search', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
+  } else {
+    lines.push([key('/'), S(' Search the tools by name, kind or what they need', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
+  }
   const wait = lazyLines(data.caps, 'Timmy\'s tools', c);
   if (wait) return { lines: [...lines, ...wait], items };
   const all = (data.caps as Extract<typeof data.caps, { state: 'ready' }>).value;
@@ -593,6 +645,8 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['m', 'mouse capture on or off (off: the terminal selects text as usual)'],
   ['?', 'these keys'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
+  ['Mouse', 'a click opens a workspace, picks a tab, selects a row or presses a [key]; a click never runs or allows anything (Enter, the key, runs; y allows); the wheel scrolls the list under the pointer'],
+  ['Activity', 'oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
 ];
 
 function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
@@ -670,12 +724,17 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push(field('Where', `${data.project.name} (${data.project.shown}), on this computer`));
       if (o.risky.length) lines.push(field('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, 'attention'));
       {
-        // a run of it that goes on now: Enter would start another, separate one
-        const now = data.jobs.find((j) => j.live && j.label === `${o.doc} › ${o.block}`);
-        if (now) lines.push(...para(`Running now: ${now.id} (${now.ownerWords}). Enter starts a second, separate run; x stops the one running.`, c.width, 'attention'));
+        // R4 (H112): a run of it that goes on now: Enter starts nothing (one press, one operation, one job)
+        const going = runOfBlock(c, o.doc, o.block);
+        if (going) {
+          lines.push(...para(`Not now: ${going.words}.`, c.width, 'attention'));
+          lines.push(blank);
+          lines.push([key('Esc'), S(' Close', 'text')]);
+          return { lines, items };
+        }
       }
       lines.push(blank);
-      lines.push([key('Enter'), S(' Run it   ', 'text'), key('Esc'), S(' Do not run', 'text')]);
+      lines.push([key('Enter'), S(' Run it   ', 'text'), key('Esc'), S(' Do not run', 'text'), S('   (a click never starts a run: Enter, the key, does)', 'secondary')]);
       return { lines, items };
     case 'needs-you': {
       const req = o.req;
@@ -687,7 +746,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push(...para(req.reason, c.width, 'secondary'));
       if (req.detail) { lines.push(blank); for (const l of req.detail.split('\n').slice(0, 12)) lines.push(...para(l, c.width, 'text', '  ')); }
       lines.push(blank);
-      lines.push(...para('Nothing runs until you answer. The Control Room lists it as waiting on you.', c.width, 'secondary'));
+      lines.push(...para('Nothing runs until you answer, with a key: a click never allows (a click on [n] denies). The Control Room lists it as waiting on you.', c.width, 'secondary'));
       return { lines, items };
     }
     case 'quit': {
@@ -717,15 +776,32 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
 
 export interface Action { key: string; label: string; enabled: boolean; why?: string }
 
+/**
+ * R4 (H112): a run of a workflow document's block that is under way: being started here (its confirm answered, its NEEDS YOU
+ * box or its start still to come), or a job of it that runs in this project, whoever started it. A second press starts
+ * nothing while one goes on (one press, one operation, one job); its words say which run and what stops it.
+ */
+export function runOfBlock(c: Pick<ViewCtx, 'ui' | 'data'>, doc: string, block: string): { words: string; job?: JobRow } | undefined {
+  const label = `${doc} › ${block}`;
+  if ((c.ui.starting ?? []).includes(label)) return { words: `${label} is being started here already (one press runs it once)` };
+  const job = c.data.jobs.find((j) => j.live && j.label === label);
+  if (!job) return undefined;
+  const who = job.owner === 'workbench' ? 'this Workbench' : job.owner === 'live-session' ? 'another Timmy session' : job.recovery ? `a session that ended (${job.recovery.state})` : 'a session';
+  return { job, words: `it is running now as ${job.id}, started by ${who}${job.operation ? `, operation ${job.operation}` : ''}: Run starts nothing until it ends (x stops it${job.owner === 'live-session' ? ' only in the session that started it' : ''})` };
+}
+
 /** The named actions of the workspace and its selection: what each does and to what; one that cannot run says what it needs. */
 export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
   const ws = c.ui.workspace;
   const out: Action[] = [];
-  const stop = stopWords(c.data);
+  const stop = stopWords(c.data, item, ws);
   if (ws === 'workflows' && item?.kind === 'block') {
-    const runnable = c.data.workflows.upmd && !item.doc.repeated.includes(item.block.name) && !item.block.missing.length && !item.block.cycle;
-    const why = !c.data.workflows.upmd ? 'upmd is not installed: brew install rezigned/tap/upmd'
-      : item.doc.repeated.includes(item.block.name) ? 'the document names it more than once' : item.block.missing.length ? `it needs ${item.block.missing.join(', ')}, which the document does not have` : c.can.runWhy;
+    // R4 (H112): a run of this block that goes on (in any session) or is being started here: Run starts nothing until it ends
+    const going = runOfBlock(c, item.doc.rel, item.block.name);
+    const runnable = c.data.workflows.upmd && !item.doc.repeated.includes(item.block.name) && !item.block.missing.length && !item.block.cycle && !going;
+    const why = going ? going.words
+      : !c.data.workflows.upmd ? 'upmd is not installed: brew install rezigned/tap/upmd'
+        : item.doc.repeated.includes(item.block.name) ? 'the document names it more than once' : item.block.missing.length ? `it needs ${item.block.missing.join(', ')}, which the document does not have` : c.can.runWhy;
     out.push({ key: 'Enter', label: `Run ${item.doc.rel} › ${item.block.name}${item.block.order.length > 1 ? ` (${item.block.order.join(` ${c.g.arrow} `)})` : ''}`, enabled: runnable && c.can.run, ...(why && !(runnable && c.can.run) ? { why } : {}) });
   }
   if (ws === 'control' && item?.kind === 'job') out.push({ key: 'x', label: item.job.live ? `Stop ${item.job.id} ${item.job.label}` : `Stop ${item.job.id}`, enabled: item.job.live, ...(item.job.live ? {} : { why: `it already ${item.job.word}` }) });
@@ -854,8 +930,13 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     case 'job': {
       const j = item.job;
       lines.push(heading('Job'));
-      f('Job', j.id); f('What', j.label); f('Judged', `${j.word}${j.why ? `: ${j.why}` : ''}`, j.mark === 'failed' ? 'failure' : 'strong');
-      f('Outcome', j.outcome.words); f('Record', `${j.state}${j.exitCode !== undefined ? ` (exit ${j.exitCode ?? 'none'})` : ''}`, 'secondary');
+      f('Job', j.id); f('What', j.label);
+      // R4 (H112): where it runs (a run keeps its own project when the view switches)
+      if (!sameFolder(j.root, c.data.project.root)) f('Runs in', `${j.project} (not the project shown)`, 'attention');
+      f('Judged', `${j.word}${j.why ? `: ${j.why}` : ''}`, j.mark === 'failed' ? 'failure' : 'strong');
+      // R4 (H112): a job a session left, in recovery's words
+      if (j.recovery) lines.push(...para(j.recovery.words, w, 'attention'));
+      f('Outcome', j.outcome.words); f('Record', `${j.state}${j.stale ? ', stale' : ''}${j.exitCode !== undefined ? ` (exit ${j.exitCode ?? 'none'})` : ''}`, 'secondary');
       f('Started', `${clock(j.startedAt)} (${ago(j.startedAt, c.now)})`); f(j.live ? 'Running' : 'Took', j.elapsed);
       if (j.blocks) f('Blocks', j.blocks);
       f('Operation', j.operation ?? 'none recorded'); if (j.receipt) f('Receipt', j.receipt);
@@ -952,9 +1033,11 @@ export function bottomView(c: ViewCtx): View {
   const a = data.activity;
   const last = a.last ? `${clock(a.last.at)} ${a.last.words}` : 'nothing yet';
   const motion = !ui.settings.settings.reducedMotion && a.running ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][Math.floor(c.now / 250) % 10] : '';
+  // R4 (H112): this Workbench's runs in another project count as running, with where they run
+  const running = a.away ? `${a.running} running (${a.away.running} in ${a.away.where.join(', ')})` : `${a.running} running`;
   const strip: Line = [
     S(ui.activityOpen ? (g.unicode ? '▾ ' : 'v ') : (g.unicode ? '▸ ' : '> '), 'action'), S('Activity  ', 'strong'),
-    S(`${motion && g.unicode ? `${motion} ` : ''}${a.running} running`, 'text'), S(` ${g.sep} `, 'secondary'),
+    S(`${motion && g.unicode ? `${motion} ` : ''}${running}`, 'text'), S(` ${g.sep} `, 'secondary'),
     S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'), S(` ${g.sep} last: `, 'secondary'), S(last, a.last?.failed ? 'failure' : 'text'),
   ];
   const lines: Line[] = [controls, spread(strip, [key('a'), S(ui.activityOpen ? ' collapse' : ' expand', 'secondary')], width, g.ellipsis)];
@@ -962,12 +1045,18 @@ export function bottomView(c: ViewCtx): View {
   if (ui.activityOpen) {
     const sel = selectedItem(c);
     const op = operationOf(sel);
-    const events = ui.activityAll || !op ? a.events : a.events.filter((e) => e.operation === op);
-    lines.push([S(ui.activityAll || !op ? 'All operations' : `Operation ${op}`, 'strong'), S('  ', 'secondary'), key('A'), S(ui.activityAll || !op ? (op ? ` only ${op}` : '') : ' all operations', 'secondary')]);
+    // R4 (H112): oldest first, the newest at the bottom (a log's order): rows that arrive are added below, so a row the person
+    // selected higher up, and the rows around it, stay where they are; the view follows the newest only while it is selected
+    const events = [...(ui.activityAll || !op ? a.events : a.events.filter((e) => e.operation === op))].reverse();
+    const follow = ui.activityFollow !== false;
+    lines.push([
+      S(ui.activityAll || !op ? 'All operations' : `Operation ${op}`, 'strong'), S('  ', 'secondary'), key('A'), S(ui.activityAll || !op ? (op ? ` only ${op}` : '') : ' all operations', 'secondary'),
+      S(`  ${g.sep} `, 'secondary'), S(follow ? 'following the newest' : 'held where you are (End follows the newest)', follow ? 'secondary' : 'attention'),
+    ]);
     const cur = cursorOf(ui, 'bottom', events.length);
     if (!events.length) lines.push([S('  No events yet.', 'secondary')]);
     events.forEach((e, i) => {
-      items.push({ line: lines.length, item: { kind: 'event', key: `ev:${i}`, event: e } });
+      items.push({ line: lines.length, item: { kind: 'event', key: `ev:${e.key}`, event: e } });
       // an event's words are whole here: a long one wraps under its time (the strip above shows only its start)
       const at = `${clock(e.at)} `;
       const role: Role = e.failed ? 'failure' : e.attention ? 'attention' : 'text';
