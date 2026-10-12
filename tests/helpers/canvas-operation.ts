@@ -1,10 +1,10 @@
 /**
- * Round R4 (H100): one operation in a canvas test project (tests/helpers/canvas-project.ts), made of real records: its own
- * record written by Timmy's writer (src/ops/operations.ts writeOperationRecord), a workflow job started inside it by the real
- * JobManager (so the job's record names the operation through the real context, src/ops/context.ts), then a flow record and a
- * VoxVision record naming it, each sealed by a receipt with its operation_id. The job's program is node itself, standing in
- * for upmd (labelled: no workflow block runs). Times: the job now, the flow and the VoxVision record later (2099), so they
- * read in that order.
+ * Round R4 (H100): one operation in a canvas test project (tests/helpers/canvas-project.ts): its own record written by
+ * Timmy's writer (src/ops/operations.ts writeOperationRecord), a workflow job started inside it by the real JobManager (so the
+ * job's record names the operation through the real context, src/ops/context.ts), then a flow record and a VoxVision record
+ * naming it, each sealed by a receipt with its operation_id. FIXTURES: the flow and VoxVision records are written here in
+ * their schemas (no /iterate or /inspect ran). FAKE: the job's program is node itself, standing in for upmd (no workflow
+ * block runs). Times: the job now, the flow and the VoxVision record later (2099), so they read in that order.
  */
 import { JobManager, type JobRecord } from '../../src/jobs/index.js';
 import { inOperation } from '../../src/ops/context.js';

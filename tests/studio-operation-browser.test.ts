@@ -1,8 +1,9 @@
 /**
  * Round R4 (H100): operations on Timmy Canvas in a real headless Chromium, against the real canvas server, the real bundle
- * (built here into a temporary folder, as tests/studio-project-browser.test.ts builds it) and a real temporary project whose
- * operation is made of real records (tests/helpers/canvas-operation.ts: Timmy's own operation record, a job started inside
- * it by the real JobManager, then a flow and a VoxVision record naming it). The project is named the way the REPL names it
+ * (built here into a temporary folder, as tests/studio-project-browser.test.ts builds it) and a real temporary project with
+ * one operation (tests/helpers/canvas-operation.ts: Timmy's own operation record, a job started inside it by the real
+ * JobManager with a FAKE program standing in for upmd, then a flow and a VoxVision record naming it, FIXTURES written in
+ * their schemas). The project is named the way the REPL names it
  * (POST /api/project/active with the server's token, no holder: the drawn cards are diagrams here; their actions are tested
  * in tests/studio-cards-browser.test.ts). A person's moves are Chromium's own input (a mouse drag, a click, the Delete key);
  * a resize is the editor's own call, as tldraw's resize handle makes it. Every request the page makes goes to 127.0.0.1

@@ -3,11 +3,12 @@
  * hands-on review: "Studio never shows the id"), read from those records at each reading, and the answer lists the
  * operations the cards name, each as its own record says it, its cards in the order they ran.
  *
- * A real temporary project (tests/helpers/canvas-project.ts) with real records: an operation record written by Timmy's own
- * writer (src/ops/operations.ts writeOperationRecord), a job started inside that operation by the real JobManager (so its
- * record carries the operation through the real context, src/ops/context.ts), a flow record and a VoxVision record naming
- * it, and receipts with and without an operation_id. The job's program is node itself, standing in for upmd (labelled
- * here: no workflow block runs). Real HTTP on 127.0.0.1 for the route; everything else through projectCards directly.
+ * A real temporary project (tests/helpers/canvas-project.ts): an operation record written by Timmy's own writer
+ * (src/ops/operations.ts writeOperationRecord), a job started inside that operation by the real JobManager (so its record
+ * carries the operation through the real context, src/ops/context.ts), a flow record and a VoxVision record naming it
+ * (FIXTURES written in their schemas: no /iterate or /inspect ran), and receipts with and without an operation_id. FAKE: the
+ * job's program is node itself, standing in for upmd (no workflow block runs). Real HTTP on 127.0.0.1 for the route;
+ * everything else through projectCards directly.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
