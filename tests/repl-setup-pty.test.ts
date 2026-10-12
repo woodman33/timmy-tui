@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { closedPort } from './fixtures/fake-ollama-chat.js';
 
 const TSX = resolve('node_modules/.bin/tsx');
 const CLI = resolve('src/cli.ts');
@@ -56,6 +57,8 @@ describe('the REPL and the guided setup (R4 H98)', () => {
   it('a home without setup: the header names the chat route, the first screen the three surfaces and /setup, which asks here and seals the check', async () => {
     const { dir, env, home } = sandbox();
     const t = terminal(dir, env, 'setup');
+    // R4 (H103): the chat question lists what the Ollama given has: here one where nothing answers (never a machine's own)
+    const nowhere = `http://127.0.0.1:${await closedPort()}`;
     try {
       const first = await t.waitFor(/Enter to send/);
       expect(first).toMatch(/^TIMMY {2}chat: no model key · \/setup$/m);
@@ -69,9 +72,10 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       await t.waitFor(/Identity: Enter makes a new key[\s\S]*> \[new key\]/);
       t.type('');
       await t.waitFor(/Ollama host \(the local model\)/);
-      t.type('');
-      const chat = await t.waitFor(/Chat model/);
-      expect(chat).toMatch(/l {2}local model only/);
+      t.type(nowhere);
+      const chat = await t.waitFor(/Chat model[\s\S]*> \[l\]/);
+      expect(chat).toMatch(/Ollama at 127\.0\.0\.1:\d+ did not answer/);
+      expect(chat).toMatch(/l {2}local model only: off until a model is chosen/);
       expect(chat).toMatch(/o {2}OpenRouter: a paid cloud service/);
       t.type('');
       await t.waitFor(/First project name/);
@@ -82,22 +86,28 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(done).toMatch(/✓ Set up: operator Sample · chat: local model only/);
       expect(done).toContain('Back in the REPL.');
       expect(done).toMatch(/identity\s+Sample/);
-      expect(done).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
+      // R4 (H103): the chat is the local model, which needs no key: the check names it, with no model chosen yet the gap
+      expect(done).toMatch(/✖ chat\s+local · no model chosen · \/model/);
+      expect(done).not.toMatch(/model key\s+none/);
       // written once, in the Timmy home, as timmy init writes it
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup.by).toBe('the REPL (/setup)');
-      expect(setup.answers).toEqual({ operator: 'Sample', identity: 'generated', ollama: 'http://127.0.0.1:11434', chat: 'local', project: 'demo' });
+      expect(setup.answers).toEqual({ operator: 'Sample', identity: 'generated', ollama: nowhere, chat: 'local', model: '', project: 'demo' });
       expect(JSON.parse(readFileSync(join(home, 'identity.json'), 'utf8')).operator).toBe('Sample');
       expect(statSync(join(home, 'identity.seed')).mode & 0o777).toBe(0o600);
       expect(statSync(join(home, 'setup.json')).mode & 0o777).toBe(0o600);
-      expect(receipts(join(dir, 'store')).map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
-      // a message without a key says how to add one
+      expect(receipts(join(dir, 'store')).map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['chat']]]);
+      // R4 (H103): the chat is the local model now, with none chosen (Ollama did not answer): a message says so, and nothing is sent
       t.type('hello');
-      expect(await t.waitFor(/no model key, so Timmy cannot answer[\s\S]*Enter to send/)).toContain('Try: /setup key (it asks for the key, hidden)');
+      const off = await t.waitFor(/no model is chosen\.[\s\S]*Enter to send/);
+      expect(off).toContain('Error: the chat is set to the local model, and no model is chosen.');
+      expect(off).toContain('Try: /model (lists what Ollama has), then /model <name>; /setup chat keeps one');
+      expect(off).toContain('Nothing was sent to any model.');
+      expect(off).not.toContain('no model key, so Timmy cannot answer');
       // nothing left to ask: /setup is the check again; /help starts with the three surfaces
       t.type('/setup');
       const again = await t.waitFor(/setup check sealed and verified/, 2);
-      expect(again.slice(again.lastIndexOf('setup check sealed and verified'))).toMatch(/^setup check sealed and verified\n {2}Set up: operator Sample · chat: local model only \(Ollama\s+at 127\.0\.0\.1:11434; no key\) · logs: this computer only ·\s+project demo\./);
+      expect(again.slice(again.lastIndexOf('setup check sealed and verified')).replace(/\s+/g, ' ')).toMatch(/^setup check sealed and verified Set up: operator Sample · chat: local model only, none chosen yet \(Ollama at 127\.0\.0\.1:\d+; no key\) · logs: this computer only · project demo\./);
       expect(again.split('TIMMY · first run — guided setup')).toHaveLength(2);
       expect(receipts(join(dir, 'store'))).toHaveLength(2);
       t.type('/help');
@@ -147,7 +157,8 @@ describe('the REPL and the guided setup (R4 H98)', () => {
     const key = `sk-or-test-${randomBytes(12).toString('hex')}`;
     try {
       const first = await t.waitFor(/Enter to send/);
-      expect(first).toMatch(/^TIMMY {2}chat: no model key · \/setup$/m);
+      // R4 (H103): timmy init --yes chose the local model (no list without questions): the header names that route
+      expect(first).toMatch(/^TIMMY {2}chat: local · no model chosen · \/model$/m);
       // set up, no receipts yet: the check
       expect(first).toMatch(/^First run: type \/setup to check what Timmy needs\.$/m);
       t.type('/setup key');
@@ -192,8 +203,8 @@ describe('the REPL and the guided setup (R4 H98)', () => {
     const t = terminal(dir, env, 'replace');
     const key = `sk-or-test-${randomBytes(12).toString('hex')}`;
     try {
-      // the settings' key is the one in use: the header says so
-      expect(await t.waitFor(/Enter to send/)).toMatch(/^TIMMY {2}chat: \S+ · OpenRouter$/m);
+      // R4 (H103): the setup chose the local model, so a key in the settings never moves the chat to OpenRouter on its own
+      expect(await t.waitFor(/Enter to send/)).toMatch(/^TIMMY {2}chat: local · no model chosen · \/model$/m);
       t.type('/setup key');
       const where = await t.waitFor(/Replace it\? \[y\/N\]/);
       expect(where.replace(/\s+/g, ' ')).toContain('A model key is stored in the monitor\'s settings (~/.config/timmy-tui-nodejs/config.json).');

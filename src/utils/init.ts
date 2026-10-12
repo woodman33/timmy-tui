@@ -252,7 +252,8 @@ export function applySetup(answers: Answers, o: { by: string; repoRoot?: string;
     answers: {
       ...prev, operator, identity: s.identity.exists ? (prev.identity ?? source) : source,
       ollama: answers.ollama || prev.ollama || s.providers.ollama || OLLAMA_DEFAULT,
-      ...(chat ? { chat } : {}), project,
+      // R4 (H103): the chat's local model, when the chat question named one now ('' none chosen); else the one recorded before
+      ...(chat ? { chat } : {}), ...(answers.model !== undefined ? { model: answers.model } : {}), project,
     },
   }, 0o600, repoRoot));
   return { ok: true, written: [...new Set(written)], operator, operator_id: operatorId, project, identity_source: source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined, ...(notes.length ? { notes } : {}) };

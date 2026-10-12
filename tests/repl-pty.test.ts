@@ -82,10 +82,11 @@ describe('timmy repl', () => {
 
   // C-14, and the 20:14 order: a first run in a terminal, with no model key and no receipts yet. The
   // REPL opens anyway (only a pipe still exits 78), its prompt empty and a line saying to type /setup;
-  // /setup runs the check and seals the first receipt, verified. A message without a key gets the cause
-  // and the fix, and the REPL stays. R4 (H98): on a home timmy init has set up (the guided setup's
-  // preselected answers: the local model, so no key); a home without setup gets the guided setup itself
-  // from /setup (tests/repl-setup-pty.test.ts).
+  // /setup runs the check and seals the first receipt, verified. A message gets the cause and the fix,
+  // and the REPL stays. R4 (H98): on a home timmy init has set up (the guided setup's preselected answers:
+  // the local model, so no key); a home without setup gets the guided setup itself from /setup
+  // (tests/repl-setup-pty.test.ts). R4 (H103): the local model is the chat's route; with none chosen, a
+  // message says so (tests/repl-local-chat-pty.test.ts: one chosen, and a streamed turn).
   it('a first run opens with an empty prompt and says to type /setup, which seals the first receipt', async () => {
     const { dir, env } = sandbox();
     const init = await runAsync(TSX, [CLI, 'init', '--yes'], { cwd: dir, env, timeout: CLI_MS });
@@ -108,14 +109,19 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
-      expect(shown).toMatch(/model key\s+none · \/setup key or OPENROUTER_API_KEY/);
+      // R4 (H103): timmy init --yes chose the local model (no key needed) and no model: the check says the chat is the gap
+      expect(shown).toMatch(/chat\s+local · no model chosen · \/model/);
       expect(shown).toContain('setup check sealed and verified');
       // runs.jsonl also carries the bus's events; receipts are the lines with a prev_hash.
       const chain = readFileSync(`${dir}/store/runs.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string');
-      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
+      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['chat']]]);
       tmux('send-keys', '-t', 't', '-l', 'hello');
       tmux('send-keys', '-t', 't', 'Enter');
-      await waitFor(/no model key, so Timmy cannot answer/);
+      // R4 (H103): the setup chose the local model (it needs no key), and no model is chosen yet (timmy init --yes lists none):
+      // the message says so and how to choose one, and nothing is sent (before, "no model key, so Timmy cannot answer")
+      await waitFor(/the chat is set to the local model, and no model is chosen\./);
+      expect(screen()).toContain('Nothing was sent to any model.');
+      expect(screen()).not.toContain('no model key, so Timmy cannot answer');
       tmux('send-keys', '-t', 't', '-l', '/exit');
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/EXIT=\d+/);

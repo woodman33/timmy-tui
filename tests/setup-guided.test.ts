@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { closedPort } from './fixtures/fake-ollama-chat.js';
 import { chatRoute, knownAnswers, pendingQuestions, readSetupState, setupSummary } from '../src/setup/questions.js';
 import { IDENTITY_WORDS } from '../src/setup/identity.js';
 import { modelKeySource } from '../src/utils/model-key.js';
@@ -112,8 +113,9 @@ describe('timmy init writes the answers once, in the Timmy home', () => {
 
   it('asks only what has no answer, in order; the identity and the key are read hidden; the key goes to providers.json only', async () => {
     const key = fakeKey();
-    // operator, identity (Enter: a new key), Ollama host, chat (o), the key, project, proceed
-    const t = typing(['Sample', '', '', 'o', key, 'demo', '']);
+    // operator, identity (Enter: a new key), Ollama host, chat (o), the key, project, proceed. R4 (H103): the chat question
+    // lists what that Ollama has, so the host is one where nothing answers (a machine's own Ollama would change the list)
+    const t = typing(['Sample', '', `http://127.0.0.1:${await closedPort()}`, 'o', key, 'demo', '']);
     expect(await guidedSetup('timmy init', {}, t.io)).toBe(0);
     expect(t.prompts).toEqual(['  > [operator] ', '  > [new key] ', '  > [http://127.0.0.1:11434] ', '  > [l] ', '  > ', '  > [first-light] ', '  Proceed? [Y/n] ']);
     expect(t.hiddenPrompts).toEqual(['  > [new key] ', '  > ']);
@@ -345,6 +347,8 @@ describe('timmy init in a real terminal', () => {
     const { dir, env } = ptyHome();
     const key = fakeKey();
     const p = pty(dir, 'init', env, `${TSX} ${CLI} init; echo EXIT=$?; sleep 60`);
+    // R4 (H103): the chat question lists what the Ollama given has: one where nothing answers (never a machine's own)
+    const nowhere = `127.0.0.1:${await closedPort()}`;
     try {
       await p.waitFor(/TIMMY · first run — guided setup/);
       await p.waitFor(/Operator name \(your receipts show it\)\n\s+> \[operator\]/);
@@ -352,8 +356,8 @@ describe('timmy init in a real terminal', () => {
       await p.waitFor(/Identity: Enter makes a new key[\s\S]*Hidden as you type\.\n\s+> \[new key\]/);
       p.type('');
       await p.waitFor(/Ollama host \(the local model\)\n\s+> \[http:\/\/127\.0\.0\.1:11434\]/);
-      p.type('');
-      await p.waitFor(/Chat model\n\s+l  local model only[\s\S]*o  OpenRouter: a paid cloud service[\s\S]*> \[l\]/);
+      p.type(nowhere);
+      await p.waitFor(/Chat model\n\s+Ollama at 127\.0\.0\.1:\d+ did not answer[\s\S]*l  local model only: off until a model is chosen[\s\S]*o  OpenRouter: a paid cloud service[\s\S]*> \[l\]/);
       p.type('o');
       await p.waitFor(/OpenRouter key \(hidden as you type; blank: no key\)\n\s+>\s*$/m);
       p.type(key);

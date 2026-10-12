@@ -1,5 +1,6 @@
 // OpenRouter is primary. The fallback accepts only installed local Ollama
 // weights: a localhost endpoint can also advertise cloud-backed models.
+import { cloudModelTag, validOllamaModelName } from '../setup/ollama-models.js';
 
 export interface OllamaProbeResult {
   ok: boolean;
@@ -65,13 +66,14 @@ export function getLocalOllamaBaseUrl(base?: string): string {
   return url.origin;
 }
 
+// R4 (H103): one rule for each, kept with the chat's model list (src/setup/ollama-models.ts: the setup imports nothing outside
+// its folder), the same regular expressions as were here.
 function cloudTag(model: string): boolean {
-  return /(?:^|[:/_-])cloud(?:$|[:/_-])/i.test(model);
+  return cloudModelTag(model);
 }
 
 function validModelName(model: string): boolean {
-  return typeof model === 'string' && model.length > 0 && model.length <= 512 &&
-    !/[\s\x00-\x1f\x7f]/.test(model);
+  return validOllamaModelName(model);
 }
 
 function record(value: unknown): Record<string, unknown> {

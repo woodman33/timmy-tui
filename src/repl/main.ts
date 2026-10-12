@@ -9,6 +9,7 @@ import { emitKeypressEvents, type Key } from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
+import { localModelCommand, localRouteWords, prepareLocal, resolveChatRoute, sealedRoute, type ChatRoute } from '../agent/chat-route.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
@@ -228,14 +229,28 @@ export async function runRepl(argv: string[]): Promise<number> {
 
   const config = loadConfig();
   const interactive = caps.interactive && region.live && !caps.plain;
+  // R4 (H103): the chat's route, from the setup at every message (src/agent/chat-route.ts): the local model (Ollama) when the
+  // setup's chat answer is local, else OpenRouter. `sessionModel`: this REPL's /model on the local route.
+  let sessionModel: string | null = null;
+  const route = (): ChatRoute => resolveChatRoute({ env: process.env, session: sessionModel });
+  const startRoute = route();
   // C-14: in a terminal a missing key does not end the REPL: the first run opens with the setup check,
   // which says what is missing. A pipe or a script still gets the config error (exit 78).
-  if (!config.apiKey && !interactive) {
+  if (!config.apiKey && !interactive && startRoute.kind !== 'local') {
     const fail = serialize([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }], theme);
-    // R4 (H98): the setup's default chat is the local model, which this chat cannot use yet: the key is OpenRouter's (paid)
-    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter (it asks for the key, hidden)\n    Help: timmy repl --help\n`);
+    // R4 (H103): the local model needs no key; this chat is OpenRouter's (paid) because the setup did not choose the local one
+    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: the chat is set to OpenRouter (or not set up), OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter (it asks for the key, hidden), or the local model: /setup chat in a terminal\n    Help: timmy repl --help\n`);
     session.restore();
     return EXIT.config;
+  }
+  // R4 (H103): the local route without a model, or with an address Timmy does not use: the same error, before any message
+  if (!interactive && startRoute.kind === 'local') {
+    const ready = prepareLocal(startRoute, theme.glyphs);
+    if ('refusal' in ready) {
+      process.stderr.write(`${ready.refusal.map((row) => `  ${serialize(row, theme)}`).join('\n')}\n    Or: TIMMY_CHAT_MODEL=<model> for this run\n`);
+      session.restore();
+      return EXIT.config;
+    }
   }
   const agent = createAgent(
     { apiKey: config.apiKey ?? '', model: config.model, instructions: REPL_INSTRUCTIONS, maxSteps: 10, maxCost: 1 },
@@ -261,7 +276,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   agent.setTools(
     gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
       vision: {
-        root: () => workspace.root, model: () => agent.getModel(),
+        // R4 (H103): describe_image asks OpenRouter, so its model is OpenRouter's whichever route answers the chat
+        root: () => workspace.root, model: () => agent.openRouterModel(),
         observe: async (rel, question, model, opts) => { const s = await workspace.observeFile(rel, question, model, opts); return s.ok ? s.done : s; },
       },
       // R4 (H40): the active project's name on each call_mcp_tool record (read when the call runs; workspace is made below).
@@ -374,8 +390,9 @@ export async function runRepl(argv: string[]): Promise<number> {
     link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
     seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
     jobsDir: join(timmyHome(), 'jobs'),
-    // Round R2: /observe asks the model the REPL is using whether it takes images, and uses it when it does.
-    model: () => agent.getModel(),
+    // Round R2: /observe asks the model the REPL is using whether it takes images, and uses it when it does. R4 (H103): the
+    // OpenRouter model (/observe asks OpenRouter), not a local route's Ollama model, which OpenRouter does not know.
+    model: () => agent.openRouterModel(),
     edit: editFile,
     tildify,
     // Round R4 (H32): at a terminal, what an ended session left in the project is picked up as the REPL starts; a pipe never adopts it.
@@ -417,7 +434,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   // row in full (each rung's evidence and its demonstrations on the Mac), looked for among every row.
   const tools = async (args: string): Promise<Segment[][]> => {
     // R4 (H81): the project's own records are read in the REPL's project now (it follows /project), never process.cwd()
-    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel(), projectRoot: workspace.root }), { all: args.trim() !== '' });
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.openRouterModel(), projectRoot: workspace.root }), { all: args.trim() !== '' });
     return toolsView(rows, args, theme.glyphs, size.columns);
   };
   let lastCanvas: CanvasJobResult[] = [];
@@ -466,6 +483,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   const check = (): Segment[][] => setupCheck({
     operator: readOperator(),
     key: Boolean(config.apiKey),
+    // R4 (H103): a chat on the local model needs no key: the check names that route (and a model not chosen yet) instead
+    ...((r) => (r.kind === 'local' ? { local: { words: localRouteWords(r).replace(/^chat: /, ''), ready: Boolean(r.model) && !('error' in r.at) } } : {}))(route()),
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
@@ -482,21 +501,47 @@ export async function runRepl(argv: string[]): Promise<number> {
       agent.updateApiKey(key);
       return true;
     },
+    // R4 (H103): a chat answer given now replaces this session's /model: the route from the next message, in words
+    chatChanged: () => {
+      sessionModel = null;
+      const r = route();
+      return r.kind === 'local' ? `The chat from your next message: ${localRouteWords(r).replace(/^chat: /, '')}.` : null;
+    },
     // the REPL's own prompt turns bracketed paste back on; the setup's prompts read a key typed or pasted without it
     beforeAsk: () => void (process.stdout.isTTY && process.stdout.write('\x1b[?2004l')),
   });
   const code = await replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, get noKey() { return !config.apiKey; }, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
-    // R4 (H98): the header names the chat route in effect, and the first screen says what the setup still asks
-    chat: () => chatRoute({ key: Boolean(config.apiKey), model: agent.getModel() }),
+    // R4 (H103): no key matters only on the OpenRouter route (the local model needs none)
+    setup, get noKey() { return !config.apiKey && route().kind !== 'local'; }, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
+    // R4 (H98): the header names the chat route in effect, and the first screen says what the setup still asks. R4 (H103):
+    // the local route's own words ("chat: local <model> · Ollama")
+    chat: () => { const r = route(); return r.kind === 'local' ? localRouteWords(r) : chatRoute({ key: Boolean(config.apiKey), model: agent.openRouterModel() }); },
+    // R4 (H103): before each message, the route it goes by (the agent takes it up), or why it cannot go (nothing is sent)
+    prepareChat: () => {
+      const r = route();
+      if (r.kind !== 'local') { agent.useLocalChat(null); return null; }
+      const ready = prepareLocal(r, theme.glyphs);
+      if ('refusal' in ready) { agent.useLocalChat(null); return ready.refusal; }
+      agent.useLocalChat(ready.route);
+      return null;
+    },
+    // R4 (H103): /model on the local route lists what Ollama has, and switches among it for this session
+    // (on the OpenRouter route the agent leaves any local route a /setup has just ended, so the plain /model is OpenRouter's)
+    chatModel: (args) => {
+      const r = route();
+      if (r.kind !== 'local') { agent.useLocalChat(null); return null; }
+      return localModelCommand(args, r, { set: (m) => { sessionModel = m; }, glyphs: theme.glyphs });
+    },
     setupState: () => { const s = readSetupState(); return { pending: pendingQuestions(s).length, blank: !s.identity.exists }; },
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
       const jobs = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}) });
+      // R4 (H103): a turn on the local route seals where it went (via ollama, its host, tools on or off, the cost's basis)
+      const local = agent.localChatRoute();
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}), ...(local ? { route: sealedRoute(local, agent.lastLocalTurn()) } : {}) });
       void ensureCanvas();
       // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
       lastCanvas = jobs;
@@ -539,6 +584,8 @@ export interface ReplSetupDeps {
   check: () => Segment[][];
   /** Takes up a key the setup stored; true when the chat has a new one. */
   keyChanged?: () => boolean;
+  /** R4 (H103): after a setup that asked the chat question: the route from the next message, in words (null: nothing to say). */
+  chatChanged?: () => string | null;
   /** Just before the questions (the REPL turns bracketed paste off). */
   beforeAsk?: () => void;
   /** Where the questions are asked and answered (tests give their own); the terminal's by default. */
@@ -556,13 +603,15 @@ export interface ReplSetupDeps {
 export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment[][]> {
   const words = args.trim();
   const quiet = (text: string): Segment[] => [{ text, role: 'secondary' }];
-  if (words && words !== 'key') return [quiet('  Usage: /setup      the guided setup, then the check'), quiet('         /setup key  an OpenRouter key for the chat (paid)')];
+  if (words && words !== 'key' && words !== 'chat') return [quiet('  Usage: /setup       the guided setup, then the check'), quiet('         /setup chat  the chat\'s model: one Ollama lists, or OpenRouter'), quiet('         /setup key   an OpenRouter key for the chat (paid)')];
   const keyMode = words === 'key';
+  // R4 (H103): /setup chat asks the chat question again, here, with the models Ollama lists (the local route's model)
+  const chatMode = words === 'chat';
   const given: Answers = keyMode ? { chat: 'openrouter' } : {};
   const state = readSetupState();
   // the key's one place is providers.json; a key the monitor's old FIRST RUN kept in its settings moves there at the setup
   const stored = state.providers.key ? `${prettyPath(join(state.home, 'providers.json'))}` : state.settingsKey ? `the monitor's settings (${prettyPath(settingsFile())})` : null;
-  const force: QuestionId[] = keyMode && stored ? ['key'] : [];
+  const force: QuestionId[] = keyMode && stored ? ['key'] : chatMode ? ['chat'] : [];
   const pending = pendingQuestions(state, given, force);
   const out: Segment[][] = [];
   let asked = false;
@@ -572,6 +621,7 @@ export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment
   if (pending.length || keyMode) {
     if (!d.tty) {
       if (keyMode) say('In a terminal: /setup key here, or timmy init --chat openrouter (it asks for the key, hidden; OpenRouter is paid).');
+      else if (chatMode) say('In a terminal: /setup chat here (it lists the models Ollama has), or timmy init --chat local|openrouter.');
       else {
         out.push(quiet(`  ${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet.`));
         out.push(quiet(`  In a terminal, run timmy init: it asks only ${pending.length === 1 ? 'that' : 'those'}.`));
@@ -592,6 +642,9 @@ export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment
       asked = true;
       out.push(quiet('  Back in the REPL.'));
       if (d.keyChanged?.() === true) say(state.envKey ? 'The key is stored; the chat uses OPENROUTER_API_KEY while it is set.' : 'The chat uses the stored key from your next message.');
+      // R4 (H103): the chat question was asked: the route it gives, from the next message
+      const chatNow = pending.some((q) => q.id === 'chat') ? d.chatChanged?.() : null;
+      if (chatNow) say(chatNow);
     }
   }
   out.push(...d.check());
@@ -640,6 +693,13 @@ export interface ReplDeps {
   noKey?: boolean;
   /** R4 (H98): the chat route in effect, for the header ("chat: no model key · /setup"); absent: the model's name. */
   chat?: () => string;
+  /**
+   * R4 (H103): called before each message: sets the route the agent answers it by (the setup's, read now) and returns null,
+   * or returns the lines the message gets instead of a turn (the local route without a model): nothing is sent then.
+   */
+  prepareChat?: () => Segment[][] | null;
+  /** R4 (H103): /model on the chat's local route (Ollama's models); null on the OpenRouter route (the plain /model). */
+  chatModel?: (args: string) => Promise<Segment[][]> | null;
   /** R4 (H98): how many setup questions have no answer yet, and whether there is no identity (a first run). */
   setupState?: () => { pending: number; blank: boolean };
   /** No receipts yet: the first prompt holds the setup check, ready for Enter (C-14). */
@@ -722,19 +782,27 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace, columns: () => size.columns };
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace, columns: () => size.columns, chatModel: d.chatModel };
       // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
       const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
       if ((await (d.workspace?.operate ? d.workspace.operate(text, 'repl', slash) : slash())) === 'exit') break;
       region.commit(['']);
       continue;
     }
+    // R4 (H103): the route this message goes by, from the setup now; the local route without a model sends nothing
+    const refusal = d.prepareChat?.() ?? null;
+    if (refusal) {
+      for (const row of refusal) say(row);
+      if (!interactive) status = EXIT.failure;
+      region.commit(['']);
+      continue;
+    }
     if (d.noKey) {
       say([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }, { text: ' no model key, so Timmy cannot answer.' }]);
       say([{ text: '  Cause: no OPENROUTER_API_KEY, and the setup stored none.', role: 'secondary' }]);
-      // R4 (H98): the REPL's chat goes through OpenRouter (paid); the local model is for code agents, not this chat yet.
-      // journey-2: /setup key asks for the key hidden (never a command with the key in its arguments)
-      say([{ text: '  Try: /setup key (it asks for the key, hidden)', role: 'secondary' }]);
+      // journey-2: /setup key asks for the key hidden (never a command with the key in its arguments). R4 (H103): this chat
+      // is OpenRouter's because the setup did not choose the local model, which needs no key (/setup chat chooses it)
+      say([{ text: '  Try: /setup key (it asks for the key, hidden), or the local model: /setup chat', role: 'secondary' }]);
       say([{ text: '  Help: /help, or timmy repl --help', role: 'secondary' }]);
       region.commit(['']);
       continue;

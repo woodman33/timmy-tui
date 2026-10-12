@@ -86,8 +86,10 @@ function errorEvent(err: unknown): TurnEvent {
   const lines = sanitize(err instanceof Error ? err.message : String(err)).split('\n').map((l) => l.trim()).filter(Boolean);
   const cause = lines.find((l) => /^Reason:/i.test(l))?.replace(/^Reason:\s*/i, '');
   const said = lines.find((l) => /^(Next|Try):/i.test(l))?.replace(/^(Next|Try):\s*/i, '');
-  // A key problem needs a key fix; and the REPL has no `/model fallback`, so never suggest it.
-  const fix = cause && /\b401\b|unauthori[sz]ed|authentication|api key/i.test(cause)
+  // A key problem needs a key fix; and the REPL has no `/model fallback`, so never suggest it. R4 (H103): an error of the
+  // chat's local route (src/agent/local-chat.ts) keeps its own fix: an OpenRouter key is never the fix for Ollama's words.
+  const local = (err as { route?: unknown } | null)?.route === 'ollama';
+  const fix = !local && cause && /\b401\b|unauthori[sz]ed|authentication|api key/i.test(cause)
     ? '/setup key (it asks for the key, hidden), or timmy init --chat openrouter'
     : said?.replace(/ or run \/model fallback\.?$/i, ': /model <id>');
   return { type: 'error', message: lines[0] ?? 'The turn failed.', ...(cause ? { cause } : {}), ...(fix ? { fix } : {}) };

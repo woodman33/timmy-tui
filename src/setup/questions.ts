@@ -22,6 +22,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { identityPath, privateDir, setupPath, settingsFile, timmyHome, workspaceRoot, type Env } from './home.js';
 import { identityProblem, isNewKey } from './identity.js';
+import { cloudModelTag } from './ollama-models.js';
 
 export const OLLAMA_DEFAULT = 'http://127.0.0.1:11434';
 export const OPERATOR_DEFAULT = 'operator';
@@ -40,6 +41,11 @@ export interface Answers {
   identity?: string;
   ollama?: string;
   chat?: Chat;
+  /**
+   * R4 (H103): the chat's local model, a name Ollama listed when the chat question was asked in a terminal
+   * (./chat-question.ts); '' is "none chosen" (the chat stays off until one is). Absent: not asked.
+   */
+  model?: string;
   /** the OpenRouter key; '' is "no key" */
   key?: string;
   /** `--edge-host <host>` only: the worker's host other features use (the private overlay's edge_host); never asked */
@@ -54,7 +60,7 @@ export interface Recorded {
   version: 1;
   by?: string;
   at?: string;
-  answers: { operator?: string; identity?: string; ollama?: string; chat?: Chat; project?: string };
+  answers: { operator?: string; identity?: string; ollama?: string; chat?: Chat; /** R4 (H103): the chat's local model ('' none) */ model?: string; project?: string };
 }
 
 /** What the home holds now, read without writing anything. */
@@ -119,6 +125,8 @@ export function readSetupState(env: Env = process.env, workspace: string = works
       ...(text(answers.identity) ? { identity: text(answers.identity) } : {}),
       ...(text(answers.ollama) ? { ollama: text(answers.ollama) } : {}),
       ...(answers.chat === 'local' || answers.chat === 'openrouter' ? { chat: answers.chat } : {}),
+      // R4 (H103): '' is an answer too ("none chosen"); a name with whitespace or control characters is not one
+      ...(typeof answers.model === 'string' && (answers.model === '' || /^[^\s\x00-\x1f\x7f-\x9f]{1,512}$/.test(answers.model)) ? { model: answers.model } : {}),
       ...(text(answers.project) ? { project: text(answers.project) } : {}),
     },
   } : null;
@@ -237,7 +245,8 @@ export const QUESTIONS: readonly Question[] = [
   {
     id: 'chat', kind: 'choice', title: 'Chat model',
     choices: [
-      { key: 'l', value: 'local', label: 'local model only', note: 'Ollama: free, private, no key. Code agents use it now; the REPL\'s chat needs a model key (a local chat route comes later).' },
+      // R4 (H103): the REPL's chat has a local route now; in a terminal this question lists Ollama's models (./chat-question.ts)
+      { key: 'l', value: 'local', label: 'local model only', note: 'Ollama: free, private, no key. The REPL\'s chat and the code agents use a model Ollama has; /setup chat in the REPL lists them to choose one.' },
       { key: 'o', value: 'openrouter', label: 'OpenRouter: a paid cloud service', note: 'Your messages go to OpenRouter and each answer costs money. Asks for your key next.' },
     ],
     preselect: () => 'local',
@@ -308,11 +317,19 @@ export function pendingQuestions(s: SetupState, given: Answers = {}, force: read
 /** Every question has an answer (the monitor and the REPL then ask nothing). */
 export const setupComplete = (s: SetupState): boolean => pendingQuestions(s).length === 0;
 
-/** A chat answer in words. */
-export function chatWords(chat: string | undefined, s: SetupState, ollama?: string): string {
+/**
+ * A chat answer in words. R4 (H103): with the local model chosen (`model`, else the one recorded): a home set up before the
+ * chat had a local route has none recorded, and keeps the words it had.
+ */
+export function chatWords(chat: string | undefined, s: SetupState, ollama?: string, model?: string): string {
   const host = hostOf(ollama ?? s.recorded?.answers.ollama ?? s.providers.ollama ?? OLLAMA_DEFAULT);
   if (chat === 'openrouter') return `OpenRouter (paid, cloud; key ${s.providers.key || s.settingsKey ? 'set' : 'not set'})`;
-  if (chat === 'local') return `local model only (Ollama at ${host}; no key)`;
+  if (chat === 'local') {
+    const m = model ?? s.recorded?.answers.model;
+    if (m === undefined) return `local model only (Ollama at ${host}; no key)`;
+    if (m === '') return `local model only, none chosen yet (Ollama at ${host}; no key)`;
+    return cloudModelTag(m) ? `${m} through Ollama at ${host} (cloud-backed: the chat leaves this computer)` : `local model ${m} (Ollama at ${host}; no key)`;
+  }
   return 'not answered yet';
 }
 
@@ -334,7 +351,10 @@ export function setupSummary(s: SetupState): string {
 export function setupLine(s: SetupState): string {
   const k = knownAnswers(s);
   const key = s.providers.key || s.settingsKey;
-  const chat = k.chat === 'openrouter' ? `OpenRouter, paid (key ${key ? 'set' : 'not set'})` : k.chat === 'local' ? 'local model (no key)' : 'not answered yet';
+  // R4 (H103): the chat's local model, when the setup chose one
+  const m = s.recorded?.answers.model;
+  const local = m ? `local ${m} (${cloudModelTag(m) ? 'cloud-backed' : 'no key'})` : 'local model (no key)';
+  const chat = k.chat === 'openrouter' ? `OpenRouter, paid (key ${key ? 'set' : 'not set'})` : k.chat === 'local' ? local : 'not answered yet';
   return `chat ${chat} · logs ${LOGS_WORDS} · project ${k.project ?? 'not answered yet'} · operator ${k.operator ?? 'not answered yet'}`;
 }
 

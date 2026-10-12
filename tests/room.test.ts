@@ -21,6 +21,7 @@ import {
   type RoomContext, type RoomRun,
 } from '../src/room/index.js';
 import { roomItemLines, roomLines } from '../src/room/text.js';
+import { toolUses } from '../src/room/decisions.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt } from '../src/utils/receipts.js';
 import { fakeAe, fakeBlender, fakeFreecad, fakeScad, fakeTray, fakeTrayFailed, fakeTrayRunningState } from './fixtures/fake-flow-records.js';
@@ -548,5 +549,39 @@ describe('the Control Room never throws for a record it cannot read', () => {
     expect(() => gatherRoom(ctx)).not.toThrow();
     const run: RoomRun | undefined = findRun(gatherRoom(ctx).all, 'a0000ffff');
     expect(run).toBeUndefined();
+  });
+});
+
+// R4 (H103): a chat turn on the chat's local route (src/agent/local-chat.ts) is sealed via "ollama", with a source of kind
+// "ollama" (src/repl/seal.ts). Every receipt here is FAKE (no model ran): the room says the route from the receipt, counts a
+// turn on this computer's Ollama as free (as a local agent run), keeps a cloud-backed one unknown, and credits the Ollama row
+// with the turn, never OpenRouter (before, every turn was said to have asked OpenRouter).
+describe('the Control Room: a chat turn on the local route (FAKE receipts)', () => {
+  it('names its route, counts it free on this computer\'s Ollama and unknown when cloud-backed, and credits the Ollama row', () => {
+    const root = temp('room-local-chat-');
+    const pid = 'p-local-chat';
+    const local = receipt(pid, { kind: 'turn', ts: '2026-10-10T09:10:00.000Z', status: 'ok', model_requested: 'fake-local:8b', via: 'ollama', cost_usd: 0, cost_measured: true, ms: 1200,
+      sources: [{ kind: 'ollama', host: '127.0.0.1:11434', endpoint: 'local', tools: 'on', cost_basis: 'local endpoint' }] });
+    const cloud = receipt(pid, { kind: 'turn', ts: '2026-10-10T09:11:00.000Z', status: 'ok', model_requested: 'fake:120b-cloud', via: 'ollama', cost_usd: 0, cost_measured: false, ms: 900,
+      sources: [{ kind: 'ollama', host: '127.0.0.1:11434', endpoint: 'remote', tools: 'off', cost_basis: 'unknown' }] });
+    const paid = receipt(pid, { kind: 'turn', ts: '2026-10-10T09:12:00.000Z', status: 'ok', model_requested: 'fake/chat', cost_usd: 0.002, cost_measured: true, ms: 800 });
+    const sealed = receiptCosts([local, cloud, paid], pid);
+    expect(sealed.get(`turn:${String(local.hash)}`)!.cost).toEqual({ kind: 'free', words: 'free: a local endpoint (Ollama on this computer), sealed as no charge' });
+    expect(sealed.get(`turn:${String(cloud.hash)}`)!.cost.kind).toBe('unknown');
+    expect(sealed.get(`turn:${String(paid.hash)}`)!.cost).toMatchObject({ kind: 'known', usd: 0.002 });
+    expect(sumCosts(sealed.values())).toMatchObject({ known: 1, unknown: 1, free: 1 });
+    const ctx: RoomContext = { root, project: 'fake-room', projectId: pid, jobs: [], chain: [local, cloud, paid], observations: [], mine: () => false, activeFlows: [], scrub: (t) => t, now: () => NOW };
+    const chats = gatherRoom(ctx).all.filter((r) => r.kind === 'chat');
+    const byModel = (m: string): RoomRun => chats.find((r) => r.model === m)!;
+    expect(byModel('fake-local:8b')).toMatchObject({ endpoint: 'local', route: "local endpoint, no charge: the chat's local route, Ollama at 127.0.0.1:11434; tools on", cost: { kind: 'free' } });
+    expect(byModel('fake:120b-cloud')).toMatchObject({ endpoint: 'remote', cost: { kind: 'unknown' } });
+    expect(byModel('fake:120b-cloud').route).toContain('sent it off this computer');
+    expect(byModel('fake/chat').route).toBe('not recorded on its receipt (it names the model asked for, not the endpoint that answered)');
+    // the rows the turns used: Ollama for the local ones (never OpenRouter), OpenRouter for the paid one; the REPL for all
+    const onlyLocal = toolUses({ root, chain: [local], projectId: pid, scrub: (t) => t }, { running: [], list: [] } as never);
+    expect([...onlyLocal.keys()].sort()).toEqual(['ollama', 'repl']);
+    const all = toolUses({ root, chain: [local, cloud, paid], projectId: pid, scrub: (t) => t }, { running: [], list: [] } as never);
+    expect([...all.keys()].sort()).toEqual(['ollama', 'openrouter', 'repl']);
+    expect(all.get('openrouter')!.by).toBe(`a chat turn (receipt ${String(paid.hash).slice(7, 15)})`);
   });
 });

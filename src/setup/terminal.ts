@@ -7,8 +7,10 @@
  */
 import { emitKeypressEvents } from 'node:readline';
 import { createInterface } from 'node:readline/promises';
-import { chatWords, effectiveAnswers, hostOf, needsAsking, pendingQuestions, QUESTIONS, type Answers, type Chat, type Question, type QuestionId, type SetupState } from './questions.js';
+import { chatWords, effectiveAnswers, hostOf, needsAsking, OLLAMA_DEFAULT, pendingQuestions, QUESTIONS, type Answers, type Question, type QuestionId, type SetupState } from './questions.js';
 import { isNewKey } from './identity.js';
+import { chatChoices } from './chat-question.js';
+import { listOllamaModels } from './ollama-models.js';
 
 export interface SetupIO {
   log(s: string): void;
@@ -58,7 +60,7 @@ export function answersWords(a: Answers, s: SetupState, given: Answers = {}): st
   const stored = s.providers.key || s.settingsKey;
   const keyNow = a.key !== undefined ? Boolean(a.key) || stored : stored;
   const replaced = Boolean(a.key) && stored;
-  if (a.chat) parts.push(`chat: ${a.chat === 'openrouter' ? `OpenRouter (paid, cloud; key ${replaced ? 'replaced' : keyNow ? 'set' : 'not set'})` : chatWords('local', s, a.ollama)}`);
+  if (a.chat) parts.push(`chat: ${a.chat === 'openrouter' ? `OpenRouter (paid, cloud; key ${replaced ? 'replaced' : keyNow ? 'set' : 'not set'})` : chatWords('local', s, a.ollama, a.model)}`);
   else if (a.ollama) parts.push(`Ollama at ${hostOf(a.ollama)}`);
   if (a.project) parts.push(`project ${a.project}`);
   void given;
@@ -148,6 +150,23 @@ export async function askSetup(o: { state: SetupState; given?: Answers; io: Setu
   for (const q of QUESTIONS) {
     if (!needsAsking(q, s, a, given, force)) continue;
     io.log('');
+    // R4 (H103): the chat question lists what the Ollama named above has (./chat-question.ts): the answer is the route and,
+    // for the local model, which one ('' none chosen)
+    if (q.id === 'chat') {
+      const host = a.ollama ?? s.providers.ollama ?? OLLAMA_DEFAULT;
+      const c = chatChoices(await listOllamaModels(host), host, wrap);
+      for (const l of c.lines) io.log(l);
+      for (;;) {
+        const typed = await ask(`  > [${c.shown}] `);
+        if (typed === null) { io.log(''); io.log('  Stopped: nothing was written.'); return { stopped: 'interrupted' }; }
+        const r = c.read(typed);
+        if (!r.ok) { for (const l of wrap(r.why)) io.log(l); continue; }
+        a.chat = now.chat = r.chat;
+        if (r.model !== undefined) a.model = now.model = r.model;
+        break;
+      }
+      continue;
+    }
     for (const l of questionLines(q)) io.log(l);
     if (q.id === 'key' && force.includes('key') && stored) io.log('    Blank keeps the key stored now.');
     for (;;) {
@@ -156,8 +175,7 @@ export async function askSetup(o: { state: SetupState; given?: Answers; io: Setu
       if (typed === null) { io.log(''); io.log('  Stopped: nothing was written.'); return { stopped: 'interrupted' }; }
       const r = q.read(typed, a, s);
       if (!r.ok) { for (const l of wrap(r.why)) io.log(l); continue; }
-      if (q.id === 'chat') a.chat = now.chat = r.value as Chat;
-      else (a as Record<string, string>)[q.id] = (now as Record<string, string>)[q.id] = r.value;
+      (a as Record<string, string>)[q.id] = (now as Record<string, string>)[q.id] = r.value;
       break;
     }
   }

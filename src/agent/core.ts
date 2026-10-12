@@ -22,6 +22,7 @@ import { writeLog, tuiLogger } from '../utils/logger.js';
 import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
 import { modelCheckUrl } from './model-check.js';
+import { runLocalTurn, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
 
 export interface SendOptions {
   /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
@@ -503,11 +504,43 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.config.instructions = instructions;
   }
 
-  getModel(): string {
+  /**
+   * R4 (H103): the chat's local route (src/agent/local-chat.ts): while one is set, every turn is answered by that Ollama and
+   * model, never by OpenRouter or another model; null (the default) is the OpenRouter route, as before.
+   */
+  private localChat: (LocalChatRoute & { numCtx?: number }) | null = null;
+  /** R4 (H103): what the last turn on the local route reported (null: none yet, or it did not finish). */
+  private lastLocal: LocalTurnResult | null = null;
+
+  useLocalChat(route: (LocalChatRoute & { numCtx?: number }) | null): void {
+    this.localChat = route ? { ...route } : null;
+  }
+
+  localChatRoute(): (LocalChatRoute & { numCtx?: number }) | null {
+    return this.localChat ? { ...this.localChat } : null;
+  }
+
+  lastLocalTurn(): LocalTurnResult | null {
+    return this.lastLocal;
+  }
+
+  /** R4 (H103): the OpenRouter route's model, whichever route answers the chat (/observe and describe_image ask OpenRouter). */
+  openRouterModel(): string {
     return this.config.model;
   }
 
+  getModel(): string {
+    return this.localChat ? this.localChat.model : this.config.model;
+  }
+
   setModel(model: string): void {
+    // R4 (H103): on the local route the model is the local one (the REPL's /model checks it against Ollama's list first)
+    if (this.localChat) {
+      this.localChat = { ...this.localChat, model };
+      this.logModelEvent('model.selected', { model, route: 'ollama' });
+      this.emit('model:switch', model);
+      return;
+    }
     this.config.model = model;
     this.modelHealthStatus = 'UNTESTED';
     this.logModelEvent('model.selected', { model });
@@ -767,6 +800,33 @@ export class Agent extends EventEmitter<AgentEvents> {
         role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
       }));
+
+      // R4 (H103): the local route: the Ollama the setup recorded answers (src/agent/local-chat.ts), with the same tools and
+      // gates; never OpenRouter, never another model. A cancel leaves the same record as below (its calls and text).
+      if (this.localChat) {
+        this.lastLocal = null;
+        const local = await runLocalTurn({
+          route: this.localChat, instructions: this.config.instructions, history, tools: this.tools,
+          maxSteps: this.config.maxSteps || 10, signal: opts.signal, ...(this.localChat.numCtx ? { numCtx: this.localChat.numCtx } : {}),
+          hooks: {
+            emit: (event, ...args) => void (this.emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
+            call: (id, name, args) => void calls.set(id, { name, args }),
+            output: (id, name, output, late) => {
+              const seen = calls.get(id);
+              if (seen) Object.assign(seen, { output, late });
+              else calls.set(id, { name, args: '', output, late });
+            },
+            text: (full) => { streamed = full; },
+          },
+        });
+        this.lastLocal = local;
+        this.activeProvider = 'ollama';
+        this.emit('stream:end', local.fullText);
+        const answer: Message = { role: 'assistant', content: local.fullText, timestamp: Date.now() };
+        this.conversation.appendMessage(answer);
+        this.emit('message:assistant', answer);
+        return local.fullText;
+      }
 
       const runCompletionWithModel = async (modelId: string, isFallback = false) => {
         const result = this.client.callModel({

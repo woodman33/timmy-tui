@@ -44,6 +44,20 @@ describe('the setup check', () => {
     expect(out).not.toContain(g.fail);
     expect(readChain('runs', dir)[0].discrepancies).toEqual([]);
   });
+  // R4 (H103): a chat set to the local model needs no key: the check names that route instead of a missing key, and a
+  // local route with no model chosen yet is the gap it seals (never "model key", which that chat does not use)
+  it('a chat on the local model: no key needed, never flagged; with no model chosen, the chat is what is missing', () => {
+    const ready = store();
+    const a = setupCheck({ operator: 'Sample', key: false, local: { words: 'local qwen3:8b · Ollama', ready: true }, palette: 'night', themes: '/x' }, g, ready);
+    expect(text(a.lines).join('\n')).toMatch(/● chat {7}local qwen3:8b · Ollama \(no key needed\)/);
+    expect(text(a.lines).join('\n')).not.toContain('model key');
+    expect(readChain('runs', ready)[0].discrepancies).toEqual([]);
+    const off = store();
+    const b = setupCheck({ operator: 'Sample', key: false, local: { words: 'local · no model chosen · /model', ready: false }, palette: 'night', themes: '/x' }, g, off);
+    expect(text(b.lines).join('\n')).toMatch(/✖ chat {7}local · no model chosen · \/model/);
+    expect(readChain('runs', off)[0].discrepancies).toEqual(['chat']);
+    expect(text(b.lines).filter((l) => visibleWidth(l) > 60)).toEqual([]);
+  });
   it('the receipt line is green only after a real verify: a broken chain shows ✖', () => {
     const dir = store();
     const r = setupCheck({ operator: 'Sample', key: true, palette: 'day', themes: '/x' }, g, dir, () => ({ ok: false, count: 1, reason: 'hash mismatch' }));

@@ -45,6 +45,12 @@ export interface TurnFacts {
   files?: Array<{ path: string; sha256: string; previous_sha256?: string; created: boolean; bytes: number }>;
   /** Fourth order, step 5: the turn's Timmy Canvas jobs, each with the revision and source revision it left. */
   canvas?: Array<{ job: string; revision: number; sourceRevision: string }>;
+  /**
+   * R4 (H103): the chat's local route (src/agent/local-chat.ts): the Ollama it asked (this computer, or another one), whether
+   * tools were offered, the model that answered and the cost's basis. Sealed as via "ollama", model_resolved and a source of
+   * kind "ollama"; absent on the OpenRouter route, whose receipts stay as they were.
+   */
+  route?: { host: string; endpoint: 'local' | 'remote'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown' };
 }
 
 export interface SealedTurn {
@@ -79,7 +85,11 @@ export function sealTurn(
     ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome, ...(t.receipt ? { receipt: t.receipt } : {}) })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
-    ...(facts.canvas?.length ? { sources: facts.canvas.map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })) } : {}),
+    ...(facts.canvas?.length || facts.route ? { sources: [
+      ...(facts.route ? [{ kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis }] : []),
+      ...(facts.canvas ?? []).map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })),
+    ] } : {}),
+    ...(facts.route ? { via: 'ollama', ...(facts.route.modelResolved ? { model_resolved: facts.route.modelResolved } : {}) } : {}),
     ...(facts.project ? { project: facts.project } : {}),
     ...(facts.projectId ? { project_id: facts.projectId } : {}),
     ...(facts.files?.length ? { files: facts.files } : {}),
