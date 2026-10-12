@@ -48,6 +48,22 @@
  * it: this monitor's own (`sync`, `agent:delta`, from src/tui/hooks/useCompanionSync.ts) with its words, and each REPL turn
  * as the bus carries it (`receipt.sealed` of kind `turn`: its receipt and step count only; the REPL seals a turn's prompt
  * and answer as hashes, so its words are never on the bus). The welcome says when this companion started (`since`).
+ *
+ * R4 (H104, second part; the operator's direction of 2026-10-11: one project, three connected workspaces):
+ *  - the PROJECT: each page shows one (the welcome and `project` messages: its name, its folder from ~, following, pinned or
+ *    fixed; src/companion/project.ts): the active project (<TIMMY_HOME>/state/active-project.json), followed when it changes,
+ *    unless the page pinned it ({type:'pin'} / {type:'unpin'}; a reloaded page names its pin in its hello); TIMMY_REPO fixes
+ *    the folder instead. The bus tail, its live events and the receipts a page reads are that project's folder's;
+ *  - the CHAT's route (GET /api/chat/route, POST /chat): the setup's (src/companion/chat-route.ts): the local model through
+ *    the recorded Ollama with no tools, OpenRouter with a key as before, or none, and then Send is off, saying why;
+ *  - a RUN DETAIL by operation id: GET /run/<id> is the page with that run's detail open, GET /api/run/<id> (the token) is
+ *    src/contracts/run-detail.ts's RunDetail from its producer (src/companion/run-detail.ts);
+ *  - the page's icon (r25's D11), the companion's own SVG (src/companion/favicon.ts).
+ *
+ *   route                                  requires                          why
+ *   GET /run/<operation id>                nothing more                      the page (as GET /), its RUN DETAIL tab on that id
+ *   GET /api/chat/route                    the token                         the chat's route in words (never a key)
+ *   GET /api/run/<operation id>            the token                         the operator's records, as a run detail
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -70,11 +86,16 @@ import { packagedPath } from '../utils/asset-dirs.js';
 import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
+// R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
+import { projectId, type ActiveProject } from '../project/index.js';
+import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
+import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
+import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Model used by the /chat streaming proxy (the page's model chat, the Streamdown island /web/island/companion-chat.js, TMX P3). */
-const CHAT_MODEL = 'qwen/qwen3.8-max';
+/** Model used by the /chat streaming proxy on the OpenRouter route (the page's model chat, the Streamdown island, TMX P3). */
+const CHAT_MODEL = OPENROUTER_MODEL;
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -97,6 +118,12 @@ export const COMPANION_NOT_FOUND = 'The browser companion has nothing at this ad
 export const COMPANION_BAD_REQUEST = 'The browser companion could not read this request (its body is not the JSON it expects, or is too large); nothing was done.';
 export const SLATE3D_ABSENT = 'Slate 3D is not part of this installation: its built bundle (companion/slate3d) ships only in a source checkout that has built it. Everything else in the browser companion works without it.';
 export const COMPANION_FOREIGN = 'Refused: the browser companion answers only to this computer (127.0.0.1 or localhost), or with --lan to this computer\'s own network address, and only from its own pages.';
+/** R4 (H104, second part): what a page that names a project the companion does not know is told. */
+export const PROJECT_UNKNOWN = 'This page\'s project is not one this companion knows (it knows the active project, the projects under the Timmy home and the ones its pages have shown), so nothing was read.';
+/** R4 (H104, second part): a pin where TIMMY_REPO fixed the folder. */
+export const PIN_FIXED = 'This companion\'s folder is fixed by TIMMY_REPO (set when it started): it follows no project, so a pin changes nothing.';
+/** R4 (H104, second part): a reloaded page's pin the companion cannot keep. */
+export const PIN_UNKNOWN = 'The project this page had pinned is not one this companion knows (moved or removed, or this companion was started again), so this page follows the active project.';
 
 export interface CompanionOptions {
   /** R4 (H84): also listen on this computer's networks (`timmy watch --lan`): plain HTTP; every route but the page needs the token. */
@@ -112,6 +139,16 @@ export interface CompanionOptions {
    * (dist/companion-web; a source checkout builds it on the first request: src/companion/web-assets.ts).
    */
   webDir?: string;
+  /**
+   * R4 (H104, second part): the environment the chat's route and its key are read from (a test's, so that nothing of this
+   * computer's is): with it, no .env file is read and nothing is set in this process's environment. process.env when absent.
+   */
+  chatEnv?: Record<string, string | undefined>;
+  /**
+   * R4 (H104, second part): the run-detail producer GET /api/run/<id> asks (a test's FIXTURE); this revision's
+   * src/ops/run-detail.ts when absent, and words saying there is none where it is not built yet.
+   */
+  runDetail?: RunDetailProducer;
 }
 
 /**
@@ -217,17 +254,19 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  // Event-bus tail → every client as {type:'bus', event}. The bus lives in the
-  // pinned repo root (TIMMY_REPO when set), never in a worktree copy. Two files
-  // are tailed: the one bus (event envelopes appended beside the receipts in
-  // .timmy/receipts/runs.jsonl, src/bus) and the legacy .timmy/runs/timmy-events.jsonl
-  // that older writers still use. Receipt records are skipped; only event
-  // envelopes pass. Whole lines only; a partial append waits for its newline.
-  const busRoot = process.env.TIMMY_REPO ?? process.cwd();
-  const busFiles = [
-    path.join(busRoot, '.timmy', 'receipts', 'runs.jsonl'),
-    path.join(busRoot, '.timmy', 'runs', 'timmy-events.jsonl'),
-  ];
+  // Event-bus tail → each page as {type:'bus', event}. The bus lives in the
+  // project's folder, never in a worktree copy. Two files are tailed: the one
+  // bus (event envelopes appended beside the receipts in .timmy/receipts/runs.jsonl,
+  // src/bus) and the legacy .timmy/runs/timmy-events.jsonl that older writers
+  // still use. Receipt records are skipped; only event envelopes pass. Whole
+  // lines only; a partial append waits for its newline.
+  // R4 (H104, second part): the folder is the project the page shows (src/companion/project.ts): the active project,
+  // followed when its record changes, unless the page pinned one; TIMMY_REPO, when it is set as this companion starts,
+  // fixes the folder for every page (it was the one folder before). Each page's own view: the project it shows, whether it
+  // pinned it, and whether it said hello (the welcome and the tail are sent then). Every folder a page shows is tailed.
+  interface PageView { project: ActiveProject; pinned: boolean; hello: boolean }
+  const views = new Map<import('ws').WebSocket, PageView>();
+  const follower = new ProjectFollower({ cwd: process.cwd(), fixed: process.env.TIMMY_REPO || null, onChange: (p) => followed(p) });
   const isBusEvent = (o: any): boolean =>
     Boolean(o && typeof o.kind === 'string' && o.payload && typeof o.payload === 'object' && o.ts && !o.hash && !o.sig);
   const parseBusLines = (text: string): any[] =>
@@ -236,40 +275,77 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // files (so a burst on one file cannot hide a seal on the other), and never
   // fewer than n events. The viewer fades pods by age, so history reads as glow.
   const BUS_WINDOW_MS = 6 * 60 * 60 * 1000;
-  const busTail = (n: number): any[] => {
+  const busTail = (root: string, n: number): any[] => {
     const all: any[] = [];
-    for (const f of busFiles) { try { all.push(...parseBusLines(fs.readFileSync(f, 'utf8')).slice(-2000)); } catch { /* no file yet */ } }
+    for (const f of busFilesOf(root)) { try { all.push(...parseBusLines(fs.readFileSync(f, 'utf8')).slice(-2000)); } catch { /* no file yet */ } }
     all.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
     const since = Date.now() - BUS_WINDOW_MS;
     const recent = all.filter((e) => Date.parse(e.ts) >= since);
     return recent.length >= n ? recent : all.slice(-n);
   };
-  const busOffsets = busFiles.map((f) => { try { return fs.statSync(f).size; } catch { return 0; } });
+  // how far each shown folder's two files have been read (bytes), by folder; a folder starts at its files' ends
+  const tails = new Map<string, number[]>();
+  const sizeOf = (f: string): number => { try { return fs.statSync(f).size; } catch { return 0; } };
+  const tailFrom = (root: string): void => { if (!tails.has(root)) tails.set(root, busFilesOf(root).map(sizeOf)); };
+  tailFrom(follower.current().root);
   const busTimer = setInterval(() => {
-    busFiles.forEach((f, i) => {
-      let size = 0;
-      try { size = fs.statSync(f).size; } catch { return; }
-      if (size < busOffsets[i]) busOffsets[i] = 0;
-      if (size === busOffsets[i]) return;
-      let chunk = '';
-      try {
-        const fd = fs.openSync(f, 'r');
-        const buf = Buffer.alloc(size - busOffsets[i]);
-        fs.readSync(fd, buf, 0, buf.length, busOffsets[i]);
-        fs.closeSync(fd);
-        chunk = buf.toString('utf8');
-      } catch { return; }
-      const cut = chunk.lastIndexOf('\n');
-      if (cut < 0) return;
-      const whole = chunk.slice(0, cut + 1);
-      busOffsets[i] += Buffer.byteLength(whole, 'utf8');
-      for (const event of parseBusLines(whole)) {
-        const msg = JSON.stringify({ type: 'bus', event });
-        for (const c of clients) if (c.readyState === 1) c.send(msg);
-      }
-    });
+    const shown = new Set([...views.values()].map((v) => v.project.root));
+    for (const root of [...tails.keys()]) if (!shown.has(root) && root !== follower.current().root) tails.delete(root);
+    for (const root of shown) {
+      const busOffsets = tails.get(root);
+      if (!busOffsets) { tailFrom(root); continue; }
+      busFilesOf(root).forEach((f, i) => {
+        let size = 0;
+        try { size = fs.statSync(f).size; } catch { return; }
+        if (size < busOffsets[i]) busOffsets[i] = 0;
+        if (size === busOffsets[i]) return;
+        let chunk = '';
+        try {
+          const fd = fs.openSync(f, 'r');
+          const buf = Buffer.alloc(size - busOffsets[i]);
+          fs.readSync(fd, buf, 0, buf.length, busOffsets[i]);
+          fs.closeSync(fd);
+          chunk = buf.toString('utf8');
+        } catch { return; }
+        const cut = chunk.lastIndexOf('\n');
+        if (cut < 0) return;
+        const whole = chunk.slice(0, cut + 1);
+        busOffsets[i] += Buffer.byteLength(whole, 'utf8');
+        for (const event of parseBusLines(whole)) {
+          const msg = JSON.stringify({ type: 'bus', event });
+          for (const [c, v] of views) if (v.project.root === root && c.readyState === 1) c.send(msg);
+        }
+      });
+    }
   }, 500);
   busTimer.unref();
+  // R4 (H104, second part): what a page is told of the project it shows, and a page moved to another project (its project,
+  // then that folder's tail); a page that has not said hello yet is told in its welcome.
+  const sendTo = (ws: import('ws').WebSocket, msg: unknown): void => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
+  const modeOf = (v: PageView): ProjectMode => (follower.fixed ? 'fixed' : v.pinned ? 'pinned' : 'following');
+  const showProject = (ws: import('ws').WebSocket, v: PageView, reason: string, note?: string): void => {
+    if (v.hello) sendTo(ws, { type: 'project', reason, project: follower.view(v.project, modeOf(v), note) });
+  };
+  const moveTo = (ws: import('ws').WebSocket, v: PageView, p: ActiveProject, reason: string): void => {
+    v.project = p;
+    tailFrom(p.root);
+    if (!v.hello) return;
+    showProject(ws, v, reason);
+    sendTo(ws, { type: 'bus.tail', events: busTail(p.root, 200), project: projectId(p.root) });
+  };
+  // the active project changed: every following page moves to it; a pinned page stays, and is told what is active now
+  function followed(p: ActiveProject): void {
+    for (const [ws, v] of views) {
+      if (v.pinned) showProject(ws, v, 'active');
+      else moveTo(ws, v, p, 'followed');
+    }
+  }
+  /** The project a request is about: the one its page names (?project=<id>), else the one followed; null when unknown. */
+  const projectFor = (req: express.Request): ActiveProject | null => {
+    const asked = req.query.project;
+    if (asked === undefined) return follower.current();
+    return typeof asked === 'string' ? follower.find(asked) : null;
+  };
   let currentState = 'idle';
 
   // Serve static client files
@@ -299,10 +375,13 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // Receipts for Slate 3D capsule state: receipt records (never the event
   // envelopes) from the pinned root store, filtered by subject, newest first,
   // with their sources (the seal metadata, e.g. an order id). Read-only.
+  // R4 (H104, second part): the shown project's (?project=<id>, else the one followed).
   app.get('/slate3d/receipts', withToken, (req, res) => {
     const subject = String(req.query.subject ?? '');
     const limit = Math.min(2000, Math.max(1, Number(req.query.limit ?? 400)));
-    const store = path.join(busRoot, '.timmy', 'receipts', 'runs.jsonl');
+    const project = projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const store = path.join(project.root, '.timmy', 'receipts', 'runs.jsonl');
     const receipts: any[] = [];
     try {
       const lines = fs.readFileSync(store, 'utf8').split('\n').filter(Boolean);
@@ -326,6 +405,10 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const action = String(req.body?.action ?? '');
     const capsule = String(req.body?.capsule ?? '');
     if (!['compile', 'store'].includes(action)) { res.status(400).json({ ok: false, error: 'action must be compile or store' }); return; }
+    // R4 (H104, second part): the act goes on the bus of the project the page shows
+    const project = projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const busRoot = project.root;
     const logsPort = Number(process.env.TIMMY_LOGS_PORT ?? 4310);
     const gateway = `http://127.0.0.1:${logsPort}/mission/${action}`;
     // artifact paths resolve against the checkout that serves this page (the
@@ -343,7 +426,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     }
     try {
       const oneBus = path.join(busRoot, '.timmy', 'receipts', 'runs.jsonl');
-      const p = fs.existsSync(oneBus) && fs.existsSync(path.join(busRoot, 'src', 'bus', 'index.ts')) ? oneBus : busFiles[1];
+      const p = fs.existsSync(oneBus) && fs.existsSync(path.join(busRoot, 'src', 'bus', 'index.ts')) ? oneBus : busFilesOf(busRoot)[1];
       fs.appendFileSync(p, JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: `slate.emit.${action}`, payload: { capsule, ok: !!out?.ok, state: out?.state ?? null, plan_hash: out?.plan_hash ?? null, plans: Array.isArray(out?.plans) ? out.plans.length : undefined } }) + '\n');
     } catch { /* the bus never breaks the emit */ }
     res.json({ ok: !!out?.ok, action, capsule, gateway, ...out });
@@ -468,6 +551,20 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   /**
+   * R4 (H104, second part): the environment the chat's route and key are read from: a test's (CompanionOptions.chatEnv), or
+   * this process's, with the .env files it always read loaded first (never over a variable already set).
+   */
+  const chatEnv = (): Record<string, string | undefined> => {
+    if (options.chatEnv) return options.chatEnv;
+    ensureOpenRouterApiKey();
+    return process.env;
+  };
+  // R4 (H104, second part): the chat's route, as the page shows it beside Send (src/companion/chat-route.ts; never a key)
+  app.get('/api/chat/route', withToken, (_req, res) => {
+    res.set('Cache-Control', 'no-store').json(pageRoute(chatEnv(), process.cwd()));
+  });
+
+  /**
    * POST /chat — TMX P3 streaming chat proxy.
    * Accepts JSON { message: string } or { messages: [{ role, content }] },
    * proxies a streaming OpenRouter chat completion (model: qwen/qwen3.8-max)
@@ -478,9 +575,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
    *   event: done   — { ok: true }
    * R4 (H84): it spends the operator's credits, so only with the token (checked before the body is read or a key is
    * looked for); the completion goes to `chatUrl`: OpenRouter, or a test's FAKE (CompanionOptions.upstream).
+   * R4 (H104, second part): on the route the setup chose, read at each request (src/companion/chat-route.ts), said first
+   * (event: route {kind, label}): the local model streams from the recorded Ollama with no tools (event: notice, what the
+   * turn says beside its answer; event: cost, none on this computer's Ollama or unknown with why), never OpenRouter; OpenRouter
+   * with its key as before (the key where the REPL finds it); with no route, an error in words and nothing is sent anywhere.
    */
   app.post('/chat', withToken, express.json(), async (req, res) => {
-    ensureOpenRouterApiKey();
+    const env = chatEnv();
+    const route = pageRoute(env, process.cwd());
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -497,11 +599,10 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
       }
     };
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      sendSse('error', {
-        error: 'OPENROUTER_API_KEY is missing. Add it to .env at the repo root (or export it) and restart the companion.'
-      });
+    // R4 (H104, second part): the route first; with none, its words and nothing sent anywhere
+    sendSse('route', { kind: route.kind, label: route.label });
+    if (!route.ready) {
+      sendSse('error', { error: route.words, route: route.kind });
       res.end();
       return;
     }
@@ -535,6 +636,20 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     res.on('close', () => {
       if (!res.writableEnded) controller.abort();
     });
+
+    // R4 (H104, second part): the local route: the recorded Ollama, no tools, never OpenRouter
+    if (route.kind === 'local') {
+      await streamLocalChat({ route, messages: chatMessages, signal: controller.signal, send: sendSse });
+      try { if (!res.writableEnded) res.end(); } catch { /* socket already gone */ }
+      return;
+    }
+    // the OpenRouter route: its key where the REPL finds it (pageRoute found one a moment ago)
+    const apiKey = openRouterKey(env, process.cwd())?.key;
+    if (!apiKey) {
+      sendSse('error', { error: 'No OpenRouter key is set any more, so nothing was sent. `timmy init` keeps one.', route: 'openrouter' });
+      res.end();
+      return;
+    }
 
     try {
       const upstream = await fetch(chatUrl, {
@@ -606,12 +721,28 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     }
   });
 
+  // R4 (H104, second part): one operation's run detail by its id (src/companion/run-detail.ts), from the producer, for the
+  // project the page shows (?project=<id>, else the one followed)
+  app.get('/api/run/:op', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.set('Cache-Control', 'no-store').json({ ok: false, reason: 'project', error: PROJECT_UNKNOWN }); return; }
+    const answer = await runDetailAnswer(String(req.params.op), project.root, options.runDetail);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
-  app.get('/', (_req, res) => {
+  const sendPage = (res: express.Response): void => {
     res.sendFile(path.join(clientDir, 'index.html'), (err?: Error) => {
       if (err) failRequest(res, (err as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 500, (err as NodeJS.ErrnoException).code === 'ENOENT' ? COMPANION_PAGE_ABSENT : COMPANION_FAILED, 'text');
     });
+  };
+  app.get('/', (_req, res) => { sendPage(res); });
+  // R4 (H104, second part): the address another surface links a run detail with (the terminal Workbench's Activity, a Timmy
+  // Studio card): the page, its RUN DETAIL tab open on that id. It carries no token: Timmy's address for the page gives it.
+  app.get('/run/:op', (req, res) => {
+    if (OPERATION_ID.test(String(req.params.op))) { sendPage(res); return; }
+    failRequest(res, 404, `${COMPANION_NOT_FOUND} A run detail's address is /run/<operation id>, an operation id being o and 8 hex digits.`, 'text');
   });
   // R4 (H87): nothing else here: words, not express's page (which names the request's path); and every failure, words with
   // no path of this computer and no stack (express's default error page shows the stack outside production)
@@ -625,23 +756,39 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   wss.on('connection', (ws) => {
     // R4 (H87): a client's broken frame or a dropped socket ends that client, never the monitor
-    ws.on('error', () => { clients.delete(ws); });
+    ws.on('error', () => { clients.delete(ws); views.delete(ws); });
     clients.add(ws);
+    // R4 (H104, second part): a page shows the followed project until it says otherwise (a pin, in its hello or later)
+    views.set(ws, { project: follower.current(), pinned: false, hello: false });
     logger.info(`Companion client connected (total: ${clients.size})`);
     ws.send(JSON.stringify({ type: 'state', state: currentState }));
     ws.on('close', () => {
       clients.delete(ws);
+      views.delete(ws);
       logger.info(`Companion client disconnected (total: ${clients.size})`);
     });
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
         const globalServer = (global as any).companionServer;
+        const view = views.get(ws);
 
         if (msg.type === 'hello') {
-          // R4 (H104): `since`, this companion's start, before the bus tail (the page cuts the tail to this session with it)
-          ws.send(JSON.stringify({ type: 'welcome', state: currentState, since: startedAt }));
-          ws.send(JSON.stringify({ type: 'bus.tail', events: busTail(200) }));
+          // R4 (H104, second part): a reloaded page names the project it had pinned (its id); kept when this companion knows it
+          let note: string | undefined;
+          if (view) {
+            view.hello = true;
+            if (typeof msg.pin === 'string' && msg.pin) {
+              const pinned = follower.fixed ? null : follower.find(msg.pin);
+              if (pinned) { view.project = pinned; view.pinned = true; } else note = follower.fixed ? PIN_FIXED : PIN_UNKNOWN;
+            }
+            tailFrom(view.project.root);
+          }
+          const root = view?.project.root ?? follower.current().root;
+          // R4 (H104): `since`, this companion's start, before the bus tail (the page cuts the tail to this session with it).
+          // R4 (H104, second part): the project the page shows, and the tail of that project's folder.
+          ws.send(JSON.stringify({ type: 'welcome', state: currentState, since: startedAt, ...(view ? { project: follower.view(view.project, modeOf(view), note) } : {}) }));
+          ws.send(JSON.stringify({ type: 'bus.tail', events: busTail(root, 200), project: projectId(root) }));
           
           // Send integration status
           const daytonaKey = process.env.DAYTONA_API_KEY;
@@ -673,6 +820,21 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           if (globalServer && globalServer.lastTmux) {
             ws.send(JSON.stringify({ type: 'tmux', data: globalServer.lastTmux }));
           }
+        } else if (msg.type === 'pin' && view) {
+          // R4 (H104, second part): this page keeps the project it shows (`id`: the one it showed when the pin was pressed)
+          if (follower.fixed) showProject(ws, view, 'pinned', PIN_FIXED);
+          else {
+            const asked = typeof msg.id === 'string' ? follower.find(msg.id) : null;
+            view.pinned = true;
+            if (asked && asked.root !== view.project.root) moveTo(ws, view, asked, 'pinned');
+            else showProject(ws, view, 'pinned');
+          }
+        } else if (msg.type === 'unpin' && view) {
+          // R4 (H104, second part): this page follows the active project again
+          view.pinned = false;
+          const now = follower.current();
+          if (now.root !== view.project.root || now.name !== view.project.name) moveTo(ws, view, now, 'unpinned');
+          else showProject(ws, view, 'unpinned');
         } else if (msg.type === 'addTmuxSession') {
           if (globalServer && globalServer.agent) {
             globalServer.agent.addTmuxSession(msg.name || 'AgentPane', msg.model || 'claude-opus-4.7');
@@ -694,6 +856,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const onError = (err: Error) => {
       cleanup();
       wss.close();
+      // R4 (H104, second part): nothing of this companion's keeps watching
+      clearInterval(busTimer);
+      follower.stop();
       reject(err);
     };
     const onListening = () => {
@@ -721,8 +886,10 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     lanUrls: lan.map((a) => key.open(`http://${a}:${bound}/`)),
     shutdown: async () => {
       clearInterval(busTimer);
+      follower.stop();
       for (const c of clients) c.close();
       clients.clear();
+      views.clear();
       await new Promise<void>((resolve) => {
         wss.close(() => resolve());
       });

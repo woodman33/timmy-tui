@@ -21,6 +21,15 @@
   <header>
     <h1>🛡️ TIMMY OS Companion</h1>
     <div class="header-right">
+      <!-- R4 (H104, second part): the project this page shows (the active one, followed; or pinned on this page; or fixed by
+           TIMMY_REPO), as the companion says it; its Pin keeps this page on it. The script fills it when the companion answers. -->
+      <div id="project" class="project-bar" data-mode="unknown" role="status" aria-live="polite">
+        <span class="project-label">PROJECT</span>
+        <strong id="project-name">not known yet</strong>
+        <span id="project-pin-mark" class="project-pin" hidden>📌 PINNED</span>
+        <span id="project-mode" class="project-mode">asking the companion</span>
+        <button type="button" id="project-pin" class="btn-action tiny project-pin-btn" data-action="pin-project" disabled>📌 Pin: keep this page on this project</button>
+      </div>
       <div id="status" role="status" aria-live="polite">
         <span class="status-dot" data-state="connecting"></span>
         <span id="status-text">COMPANION SOCKET · CONNECTING</span>
@@ -32,6 +41,8 @@
   <div id="token-note" class="token-note" role="alert" hidden></div>
 
   <div class="explainer-bar">
+    <!-- R4 (H104, second part): which folder this page reads (the shown project's event bus and receipts) -->
+    <span id="project-folder" class="project-folder">Project folder: not known yet (the companion says which when it answers).</span>
     TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
   </div>
 
@@ -46,6 +57,7 @@
         <button type="button" class="tab-btn" id="btn-streamdown" data-tab="streamdown" role="tab" aria-selected="false" aria-controls="tab-streamdown">⚡ STREAMDOWN CHAT</button>
         <button type="button" class="tab-btn" id="btn-canvas" data-tab="canvas" role="tab" aria-selected="false" aria-controls="tab-canvas">🎨 CANVAS</button>
         <button type="button" class="tab-btn" id="btn-slate3d" data-tab="slate3d" role="tab" aria-selected="false" aria-controls="tab-slate3d">◈ SLATE 3D</button>
+        <button type="button" class="tab-btn" id="btn-run" data-tab="run" role="tab" aria-selected="false" aria-controls="tab-run">🧭 RUN DETAIL</button>
       </div>
 
       <!-- Tab Panel 1: Chat Mirror -->
@@ -206,6 +218,27 @@
         <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
       </div>
 
+      <!-- R4 (H104, second part): one operation's run detail, opened by its operation id: this page's address /run/<id> (from
+           the terminal Workbench's Activity or a Timmy Studio card), or the box below. Drawn from Timmy's records as its
+           producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing. -->
+      <div id="tab-run" class="tab-panel" role="tabpanel" aria-labelledby="btn-run">
+        <div id="run-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-blue">🧭 Run detail</h3>
+            <span class="status-badge blue">FROM TIMMY'S RECORDS · NOT CHECKED HERE</span>
+          </div>
+          <form id="run-form" class="run-form" autocomplete="off">
+            <label for="run-op" class="run-label">Operation id</label>
+            <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
+            <button type="submit" id="run-open" class="btn-action success">Open its run detail</button>
+          </form>
+          <p id="run-hint" class="run-hint">An operation id is o and 8 hex digits, as Timmy prints it. This page's address for one is <code>/run/&lt;operation id&gt;</code> on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.</p>
+          <div id="run-detail" class="run-detail" aria-live="polite">
+            <p class="run-empty">No run detail opened yet.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Canvas: Timmy Canvas's revision and jobs, read with the token -->
       <div id="tab-canvas" class="tab-panel" role="tabpanel" aria-labelledby="btn-canvas">
         <div class="glass-card canvas-card">
@@ -223,7 +256,8 @@
               Streamdown Chat
               <span class="badge-planned violet">TMX P3</span>
             </div>
-            <span class="sd-route">POST /chat → OpenRouter with this computer's key (each message spends credits) → SSE → live React components</span>
+            <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
+            <span class="sd-route" id="sd-route">POST /chat → the chat's route (asking the companion) → SSE → live React components</span>
           </div>
           <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
           <div id="streamdown-root" class="dark"></div>

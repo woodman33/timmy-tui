@@ -38,6 +38,8 @@ const companion = (() => {
     refuse() {
       c.refused = true;
       c.say('This page’s token is not the companion’s (Timmy started it again, or the address was copied wrong), so it loads nothing. ' + OPEN_FROM_TIMMY);
+      // R4 (H104, second part): what waits for the companion (a run detail opened by its address) says why it is not read
+      try { document.dispatchEvent(new Event('timmy:refused')); } catch (e) { /* no document events here */ }
     },
     // Every request to the companion: the token in a header, never in the address; a 401 stops the page.
     fetch(path, init) {
@@ -82,12 +84,44 @@ const companion = (() => {
   if (!token) c.say('This page has no token from Timmy, so it loads nothing: the companion answers only the address Timmy gives, which carries its token after #. ' + OPEN_FROM_TIMMY);
   return c;
 })();
+// R4 (H104, second part): the chat's route as the companion says it (GET /api/chat/route: the setup's choice, read again at
+// each ask): the local model through this computer's Ollama with no tools, OpenRouter with a key, or none, and then why Send
+// is off. The island draws it beside Send; the STREAMDOWN CHAT tab's route line says it too. Never a key.
+const chatRoute = (() => {
+  let now = null;
+  const listeners = new Set();
+  const set = (r) => {
+    now = r;
+    const line = document.getElementById('sd-route');
+    if (line) line.textContent = r.ready ? `POST /chat → ${r.label} → SSE → live React components` : String(r.label);
+    for (const fn of listeners) { try { fn(r); } catch (e) { /* one listener's failure is its own */ } }
+  };
+  const refresh = async () => {
+    if (!companion.token || companion.refused) {
+      set({ kind: 'none', ready: false, label: 'no token · Send is off', words: 'Send is off: this page has no token from Timmy (or not this companion’s), so it asks nothing. Open the companion from `timmy watch` (q on HOME).' });
+      return now;
+    }
+    try {
+      const r = await companion.fetch('/api/chat/route');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      set(await r.json());
+    } catch (e) {
+      set({ kind: 'none', ready: false, label: 'route not known · Send is off', words: `Send is off: the companion could not be asked which route the chat takes (${e && e.message ? e.message : 'no answer'}), so this page asks nothing.` });
+    }
+    return now;
+  };
+  return { now: () => now, refresh, on(fn) { listeners.add(fn); if (now) fn(now); return () => { listeners.delete(fn); }; } };
+})();
 // The model chat (the Streamdown island, /web/island/companion-chat.js) streams through this call and asks whether the page
-// may ask; the token itself is not put on window.
+// may ask; the token itself is not put on window. R4 (H104, second part): and which route it takes (route, onRoute, refreshRoute).
 window.timmyCompanion = {
   chat: (messages, on, signal) => companion.chat(messages, on, signal),
   ready: () => Boolean(companion.token) && !companion.refused,
+  route: chatRoute.now,
+  onRoute: chatRoute.on,
+  refreshRoute: chatRoute.refresh,
 };
+chatRoute.refresh();
 
 const statusEl = document.getElementById('status-text');
 const consoleLogs = document.getElementById('console-logs');
@@ -151,6 +185,38 @@ let mirrorSince = null;
 const mirrorTurns = new Map(); // this session's REPL turns, by their receipt's hash
 const REPL_TURN = /^repl · (cancelled · )?(\d+) steps?$/; // src/repl/seal.ts: the subject of a turn's receipt
 
+// R4 (H104, second part): the project this page shows, as the companion says it (its welcome, then a `project` message when
+// it changes: its id, name, folder from ~, and following, pinned or fixed). The REPL turns shown are that project's (the
+// companion tails its folder's bus); a page moved to another project does not keep the turns of the one before. A pin is
+// this tab's own: kept over a reload (sessionStorage), named in the hello, forgotten when the companion does not keep it.
+let mirrorProject = null;
+const PIN_KEY = 'timmy.companion.pin';
+
+/** The project id this tab pinned, or null. */
+function storedPin() {
+  try { const id = sessionStorage.getItem(PIN_KEY); return id && /^[0-9a-f]{16}$/.test(id) ? id : null; } catch (e) { return null; }
+}
+function keepPin(id) {
+  try { if (id) sessionStorage.setItem(PIN_KEY, id); else sessionStorage.removeItem(PIN_KEY); } catch (e) { /* no storage here */ }
+}
+
+/** This page shows `project` now; true when it is another project than before (its REPL turns are not this one's). */
+function takeProject(project) {
+  if (!project || typeof project !== 'object' || typeof project.id !== 'string') return false;
+  const moved = Boolean(mirrorProject) && mirrorProject.id !== project.id;
+  if (moved) mirrorTurns.clear();
+  mirrorProject = project;
+  keepPin(project.mode === 'pinned' ? project.id : null);
+  if (typeof projectHeader === 'function') projectHeader(project);
+  return moved;
+}
+
+/** The hello this page sends: with the project this tab pinned, when it pinned one. */
+function helloMessage() {
+  const pin = storedPin();
+  return pin ? { type: 'hello', pin } : { type: 'hello' };
+}
+
 /** A REPL turn from a bus event, or null: a sealed turn receipt of the runs chain, this session's. */
 function replTurnOf(event, live) {
   if (!event || event.kind !== 'receipt.sealed' || !event.payload || typeof event.payload !== 'object') return null;
@@ -198,6 +264,18 @@ function replTurnHtml(turn) {
     `;
 }
 
+/**
+ * R4 (H104, second part): where a REPL turn must happen to be seen here: in the project this page shows (Timmy keeps an
+ * event bus in each project's folder, and the companion reads the shown project's).
+ */
+function replWhereHtml() {
+  const p = mirrorProject;
+  if (!p) return 'A REPL turn is seen here when the REPL works in the project this page shows (not known yet): Timmy keeps an event bus in each project\'s folder, and this page reads that project\'s.';
+  const which = `${escapeMirrorText(p.name)} (<span class="mirror-code">${escapeMirrorText(p.folder)}</span>)`;
+  if (p.mode === 'fixed') return `A REPL turn is seen here when the REPL works in ${which}, the folder <span class="mirror-code">TIMMY_REPO</span> fixed for this companion: Timmy keeps an event bus in each project's folder, and this page reads that one's.`;
+  return `A REPL turn is seen here when the REPL works in the project this page shows, ${which} (in the REPL, <span class="mirror-code">/project</span> chooses one): Timmy keeps an event bus in each project's folder, and this page reads that project's.`;
+}
+
 /** What the mirror says when no chat of this session has reached it: where chat happens, and why none is shown. */
 function mirrorEmptyHtml() {
   let head;
@@ -215,7 +293,7 @@ function mirrorEmptyHtml() {
         <div>Chat happens in Timmy's terminal, not on this page:</div>
         <ul>
           <li>In this monitor (<span class="mirror-code">timmy watch</span>), type in its chat line: each message and its answer appear here as they are sent.</li>
-          <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). A REPL turn is seen here when the REPL works in the folder this monitor was started in (or the one <span class="mirror-code">TIMMY_REPO</span> names): Timmy's event bus is kept in each folder.</li>
+          <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). ${replWhereHtml()}</li>
         </ul>
         <div>STREAMDOWN CHAT is this page's own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.</div>
       </div>
@@ -471,7 +549,8 @@ function connect() {
     setDot('connected');
     appendToLocalLogs('INFO', 'Companion WebSocket connected.');
 
-    ws.send(JSON.stringify({ type: 'hello' }));
+    // R4 (H104, second part): with the project this tab pinned, when it pinned one
+    ws.send(JSON.stringify(helloMessage()));
   };
 
   ws.onmessage = (event) => {
@@ -481,11 +560,23 @@ function connect() {
 
       if (msg.type === 'state' || msg.type === 'welcome') {
         appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
+        // R4 (H104, second part): the project this page shows (before the tail of its folder's bus, which follows)
+        if (msg.type === 'welcome' && msg.project) {
+          takeProject(msg.project);
+          appendToLocalLogs('INFO', `Project: ${String(msg.project.name)} (${String(msg.project.folder)}), ${String(msg.project.mode)}`);
+        }
         // R4 (H104): when this companion started (its session); the empty mirror says since when
         if (msg.type === 'welcome' && typeof msg.since === 'string' && Number.isFinite(Date.parse(msg.since))) {
           mirrorSince = msg.since;
           if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
         }
+      } else if (msg.type === 'project' && msg.project) {
+        // R4 (H104, second part): the active project changed (a following page moves to it, its folder's tail follows), or
+        // this page pinned or unpinned it
+        const moved = takeProject(msg.project);
+        appendToLocalLogs('INFO', `Project: ${String(msg.project.name)} (${String(msg.project.folder)}), ${String(msg.project.mode)}${msg.reason ? ` (${String(msg.reason)})` : ''}`);
+        if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
+        if (moved) updateMirrorStatus(mirrorHasSession() ? 'LIVE' : 'WAITING');
       } else if (msg.type === 'bus.tail' && Array.isArray(msg.events)) {
         // R4 (H84): the event bus, as it reached this page: the tail on connecting, then each event
         appendToLocalLogs('INFO', `Event bus: ${msg.events.length} recent event${msg.events.length === 1 ? '' : 's'}${msg.events.length ? `, latest ${String(msg.events[msg.events.length - 1].kind)}` : ''}`);
@@ -710,6 +801,191 @@ async function refreshCanvas() {
 // end Timmy Canvas tab
 setInterval(() => { if (document.getElementById('tab-canvas')?.classList.contains('active')) refreshCanvas(); }, 5000);
 
+// ── R4 (H104, second part): the project this page shows, and one operation's run detail ──
+
+// A run detail asked for by this page's address (/run/<operation id>), opened once the companion has said which project
+// this page shows (the detail is that project's).
+const OPERATION_ID = /^o[0-9a-f]{8}$/;
+let pendingRun = null;
+// the run asked for last (an answer to an earlier ask that comes after it is not drawn over it)
+let runAsked = 0;
+document.addEventListener('timmy:refused', () => { if (pendingRun) { const op = pendingRun; pendingRun = null; openRun(op, false); } });
+
+/** The header's project: its name, how this page came to show it, its Pin (what it does, and on which project); the folder line. */
+function projectHeader(p) {
+  const bar = document.getElementById('project');
+  const name = document.getElementById('project-name');
+  const mark = document.getElementById('project-pin-mark');
+  const mode = document.getElementById('project-mode');
+  const btn = document.getElementById('project-pin');
+  const folder = document.getElementById('project-folder');
+  if (!bar || !name || !mark || !mode || !btn || !folder) return;
+  const otherActive = Boolean(p.active && p.active.id !== p.id);
+  bar.dataset.mode = String(p.mode);
+  bar.dataset.project = String(p.id);
+  name.textContent = String(p.name);
+  mark.hidden = p.mode !== 'pinned';
+  if (p.mode === 'fixed') {
+    mode.textContent = 'fixed by TIMMY_REPO';
+    btn.disabled = true;
+    btn.dataset.action = 'pin-project';
+    btn.textContent = 'Pin: off (TIMMY_REPO fixed this companion’s folder)';
+  } else if (p.mode === 'pinned') {
+    mode.textContent = otherActive ? `pinned · the active project is ${p.active.name}` : 'pinned on this page';
+    btn.disabled = false;
+    btn.dataset.action = 'unpin-project';
+    btn.textContent = otherActive ? `Unpin: follow the active project (${p.active.name})` : 'Unpin: follow the active project';
+  } else {
+    mode.textContent = p.chosen ? 'following the active project' : 'following the active project (none chosen yet: this companion’s folder)';
+    btn.disabled = false;
+    btn.dataset.action = 'pin-project';
+    btn.textContent = `📌 Pin: keep this page on ${p.name}`;
+  }
+  const reads = `Project folder: ${p.folder}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab`;
+  folder.textContent = p.mode === 'fixed' ? `${reads}. TIMMY_REPO fixed this folder: this companion follows no project.`
+    : p.mode === 'pinned' ? `${reads}. Pinned on this page${otherActive ? `; the active project is now ${p.active.name} (${p.active.folder})` : ''}.`
+      : `${reads}. Following the active project, which Timmy records in ${p.record}.`;
+  if (p.note) folder.textContent += ` ${p.note}`;
+  if (pendingRun) { const op = pendingRun; pendingRun = null; openRun(op, false); }
+}
+
+/** Pin or unpin the project this page shows (the companion confirms, and the header says so). */
+function pinProject(on) {
+  if (!wsConnection || wsConnection.readyState !== 1) { appendToLocalLogs('WARN', 'Not connected to the companion, so the pin was not changed.'); return; }
+  const id = document.getElementById('project')?.dataset.project;
+  wsConnection.send(JSON.stringify(on ? (id ? { type: 'pin', id } : { type: 'pin' }) : { type: 'unpin' }));
+}
+
+/** Reads and draws the run detail of `op` for the project this page shows; `address`: this page's address says /run/<op>. */
+async function openRun(op, address = true) {
+  const box = document.getElementById('run-detail');
+  const input = document.getElementById('run-op');
+  if (!box) return;
+  const mine = ++runAsked;
+  const id = String(op || '').trim();
+  if (input && input.value !== id) input.value = id;
+  if (!OPERATION_ID.test(id)) {
+    box.innerHTML = `<p class="run-error" data-run="not-an-id">${canvasEsc('Not an operation id: an operation id is o and 8 hex digits (o1a2b3c4d), as Timmy prints it. Nothing was read.')}</p>`;
+    return;
+  }
+  // the address names the run (never the token: the page took it out of its address when it opened)
+  if (address) { try { history.replaceState(null, '', `/run/${id}`); } catch (e) { /* the address stays as it was */ } }
+  if (!companion.token || companion.refused) {
+    box.innerHTML = '<p class="run-error" data-run="no-token">The run detail is read with the companion’s token, which this page does not have, so nothing was read. Open the companion from Timmy: in <code>timmy watch</code>, press q on HOME.</p>';
+    return;
+  }
+  box.innerHTML = `<p class="run-empty">Reading the run detail of ${canvasEsc(id)}…</p>`;
+  const project = document.getElementById('project')?.dataset.project;
+  let r;
+  let body = null;
+  try {
+    r = await companion.fetch(`/api/run/${id}${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+    body = await r.json().catch(() => null);
+  } catch (e) {
+    if (mine !== runAsked) return;
+    box.innerHTML = `<p class="run-error" data-run="unreachable">${canvasEsc(`The companion could not be reached to read the run detail of ${id}.`)}</p>`;
+    return;
+  }
+  if (mine !== runAsked) return;
+  if (!r.ok || !body || body.ok !== true || !body.detail) {
+    box.innerHTML = `<p class="run-error" data-run="refused" data-status="${canvasEsc(r.status)}">${canvasEsc((body && body.error) || `The companion answered HTTP ${r.status}, so no run detail is shown.`)}</p>`;
+    return;
+  }
+  box.innerHTML = runDetailHtml(body.detail);
+  appendToLocalLogs('INFO', `Run detail: ${id}`);
+}
+
+/**
+ * One run detail (src/contracts/run-detail.ts), as its producer gave it: every value with where it came from. Timmy's
+ * verdict, the workflow stage (steps done of total, never a percentage), each process's exit, the artifact's freshness and
+ * a person's acceptance each on a row of their own; a cost is the number reported, or unknown with why. Text only.
+ */
+function runDetailHtml(d) {
+  const e = canvasEsc;
+  const from = (f) => (f ? ` <span class="run-from">from ${e(f)}</span>` : '');
+  const none = (words) => `<span class="run-none">${e(words)}</span>`;
+  const when = (t) => { if (!t) return none('not recorded'); const x = new Date(t); return Number.isNaN(x.getTime()) ? e(t) : e(x.toLocaleString()); };
+  const elapsed = (ms) => {
+    if (typeof ms !== 'number' || !Number.isFinite(ms)) return none('not recorded');
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m} min ${s % 60} s` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  };
+  const sourced = (s) => (s && typeof s === 'object' ? `${e(s.value)}${from(s.from)}` : none('not recorded'));
+  const opLink = (id) => `<button type="button" class="run-link" data-action="open-run" data-op="${e(id)}">${e(id)}</button>`;
+  const rows = [];
+  const row = (key, label, html) => rows.push(`<div class="run-row" data-field="${key}"><dt>${e(label)}</dt>
+<dd>${html}</dd></div>`);
+  row('verdict', 'Timmy’s verdict', `<strong class="run-verdict" data-state="${e(d.verdict.state)}">${e(d.verdict.state)}</strong> · ${e(d.verdict.words)}${from(d.verdict.from)}`);
+  row('stage', 'Workflow stage', `${d.stage.current ? `${e(d.stage.current)} · ` : ''}${e(d.stage.done)} of ${d.stage.total === null || d.stage.total === undefined ? 'an unrecorded number of' : e(d.stage.total)} steps done${from(d.stage.from)}`);
+  row('exits', 'Process exits', d.exits.length ? `<ul class="run-list">
+${d.exits.map((x) => `<li>${e(x.who)}: ${x.code === null || x.code === undefined ? 'its exit is not known' : `exit ${e(x.code)}`}${x.state ? ` (${e(x.state)})` : ''}${from(x.from)}</li>`).join('\n')}
+</ul>` : none('none recorded'));
+  row('freshness', 'Artifact freshness', `${e(d.freshness.state)} · ${e(d.freshness.why)}${from(d.freshness.from)}`);
+  row('acceptance', 'A person’s acceptance', `${e(d.acceptance.state)}${d.acceptance.by ? ` by ${e(d.acceptance.by)}` : ''}${d.acceptance.at ? `, ${when(d.acceptance.at)}` : ''}${from(d.acceptance.from)}`);
+  row('objective', 'Objective', sourced(d.objective));
+  row('project', 'Project', `${e(d.project.name)} <span class="run-from">${e(d.project.root)} · id ${e(d.project.id)}</span>`);
+  row('source', 'Source revision', sourced(d.sourceRevision));
+  const w = d.worker || {};
+  row('worker', 'Worker', [['model', w.model], ['harness', w.harness], ['environment', w.environment]].filter(([, v]) => v).map(([k, v]) => `${e(k)} ${sourced(v)}`).join('; ') || none('not recorded'));
+  row('time', 'Time', `started ${when(d.time.startedAt)} · ended ${when(d.time.endedAt)} · elapsed ${elapsed(d.time.elapsedMs)}`);
+  row('family', 'Parent · children', `${d.parent ? opLink(d.parent) : none('no parent')} · ${d.children.length ? d.children.map(opLink).join(' ') : none('no children')}`);
+  row('cost', 'Cost', d.cost.measured ? `$${e(Number(d.cost.usd).toFixed(4))} (reported)${from(d.cost.from)}` : `unknown: ${e(d.cost.why)}`);
+  row('next', 'Next', d.next ? `${e(d.next.words)}${d.next.command ? ` <code>${e(d.next.command)}</code>` : ''}` : none('nothing recorded'));
+  row('summary', 'Summary', d.summary && d.summary.path ? `<code>${e(d.summary.path)}</code>` : none('none saved'));
+  const prediction = d.prediction
+    ? `<p>${e(d.prediction.words)} <span class="run-from">receipt ${e(d.prediction.receipt)}${d.prediction.frozenAt ? `, frozen ${when(d.prediction.frozenAt)}` : ''}</span></p>`
+    : `<p>${none('No prediction was recorded before this run.')}</p>`;
+  const differs = (v) => (v === true ? 'differs' : v === false ? 'as predicted' : 'not compared');
+  const checks = d.checks.length
+    ? `<table class="run-table"><thead><tr><th>Check</th>
+<th>Predicted</th>
+<th>Actual</th>
+<th>Compared</th></tr></thead>
+<tbody>${d.checks.map((c) => `<tr data-differs="${e(c.differs)}"><td>${e(c.name)}</td>
+<td>${c.predicted === null ? none('none') : e(c.predicted)}</td>
+<td>${e(c.actual)}${from(c.from)}</td>
+<td>${differs(c.differs)}</td></tr>`).join('\n')}</tbody></table>`
+    : `<p>${none('No checks recorded.')}</p>`;
+  const files = d.files.length
+    ? `<table class="run-table"><thead><tr><th>File</th>
+<th>Role</th>
+<th>sha256</th></tr></thead>
+<tbody>${d.files.map((f) => `<tr><td><code>${e(f.path)}</code>${from(f.from)}</td>
+<td>${e(f.role)}</td>
+<td>${f.sha256 ? `<code>${e(String(f.sha256).slice(0, 12))}</code>` : none('none')}</td></tr>`).join('\n')}</tbody></table>`
+    : `<p>${none('No files recorded.')}</p>`;
+  const receipts = d.receipts.length ? `<ul class="run-list">
+${d.receipts.map((r) => `<li><code>${e(r.id)}</code> · ${e(r.kind)}${r.subject ? ` · ${e(r.subject)}` : ''}</li>`).join('\n')}
+</ul>` : `<p>${none('No receipts recorded.')}</p>`;
+  const unknown = d.unknown.length ? `<ul class="run-list">
+${d.unknown.map((u) => `<li><strong>${e(u.field)}</strong>: ${e(u.why)}</li>`).join('\n')}
+</ul>` : `<p>${none('Nothing listed.')}</p>`;
+  return `<article class="run-view" data-operation="${e(d.operation)}">
+    <h4 class="run-title">Run <code>${e(d.operation)}</code> · ${e(d.project.name)}</h4>
+    <dl class="run-facts">
+${rows.join('\n')}
+</dl>
+    <h5>Prediction (frozen before the result; not an observed receipt)</h5>
+    ${prediction}
+    <h5>Checks: predicted beside actual</h5>
+    ${checks}
+    <h5>Files</h5>
+    ${files}
+    <h5>Receipts</h5>
+    ${receipts}
+    <h5>Not known (no record says)</h5>
+    ${unknown}
+  </article>`;
+}
+
+// the run box: its form opens the id typed in it
+document.getElementById('run-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  openRun(document.getElementById('run-op')?.value ?? '');
+});
+
 // Slate 3D's tab: its frame is given its address when the tab is first opened, with the same token in its fragment (the
 // frame takes it out of its address too). Without a token the page loads nothing, Slate 3D included.
 function openSlate() {
@@ -788,6 +1064,10 @@ document.addEventListener('click', (event) => {
     case 'load-saved': if (chatId !== null) loadSavedChat(chatId); break;
     case 'download-saved': if (chatId !== null) downloadSavedChat(chatId); break;
     case 'delete-saved': if (chatId !== null) deleteSavedChat(chatId); break;
+    // R4 (H104, second part): the header's Pin, and a run detail's parent or child operation
+    case 'pin-project': pinProject(true); break;
+    case 'unpin-project': pinProject(false); break;
+    case 'open-run': if (el.dataset.op) openRun(el.dataset.op); break;
     default: break;
   }
 });
@@ -796,6 +1076,22 @@ document.addEventListener('click', (event) => {
 (() => {
   const btn = document.querySelector('[data-copy-carbonyl]');
   if (btn) btn.dataset.copy = `carbonyl ${location.origin}/`;
+})();
+
+// R4 (H104, second part): this page opened at /run/<operation id>: its RUN DETAIL tab, that run's detail once the companion
+// has said which project this page shows (at once, in words, without the token)
+(() => {
+  const m = /^\/run\/([^/]+)$/.exec(location.pathname);
+  if (!m) return;
+  let op = '';
+  try { op = decodeURIComponent(m[1]); } catch (e) { op = m[1]; }
+  switchTab('run');
+  const input = document.getElementById('run-op');
+  if (input) input.value = op;
+  if (!companion.token || companion.refused || !OPERATION_ID.test(op)) { openRun(op, false); return; }
+  pendingRun = op;
+  const box = document.getElementById('run-detail');
+  if (box) box.innerHTML = `<p class="run-empty">The run detail of ${canvasEsc(op)} is read once the companion says which project this page shows.</p>`;
 })();
 
 // Initial load

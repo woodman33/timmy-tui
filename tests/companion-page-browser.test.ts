@@ -26,12 +26,13 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { sealTurn } from '../src/repl/seal.js';
+import { tildePath } from '../src/utils/home-scrub.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -643,7 +644,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
 
   for (const viewport of [{ width: 1400, height: 900 }, { width: 390, height: 844 }]) it(`the chat mirror with no chat in this session says so and since when, where chat happens, and why a REPL turn has no words, readable at ${viewport.width} wide; no sample is in it; a turn sealed before this companion started is not shown (R4 H104)`, async () => {
     // FAKE: a REPL turn sealed an hour before this companion started: on its bus, not of this session
-    const { own } = await ownCompanion([fakeTurn(new Date(Date.now() - 3_600_000), 'repl · 1 step')]);
+    const { own, root } = await ownCompanion([fakeTurn(new Date(Date.now() - 3_600_000), 'repl · 1 step')]);
     const { page, context, seen } = await open({ on: own, viewport });
     try {
       await connected(page);
@@ -664,7 +665,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(words).toContain('Chat happens in Timmy\'s terminal, not on this page:');
       expect(words).toContain('In this monitor (timmy watch), type in its chat line: each message and its answer appear here as they are sent.');
       expect(words).toContain('In the REPL (timmy), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn\'s prompt and answer are sealed as hashes only).');
-      expect(words).toContain('A REPL turn is seen here when the REPL works in the folder this monitor was started in (or the one TIMMY_REPO names)');
+      // R4 (H104, second part): where a REPL turn must happen to be seen: the project this page shows (here the folder
+      // TIMMY_REPO fixed, as the test's own companion was started)
+      expect(words).toContain(`A REPL turn is seen here when the REPL works in ${basename(root)} (${tildePath(root)}), the folder TIMMY_REPO fixed for this companion: Timmy keeps an event bus in each project's folder, and this page reads that one's.`);
       expect(words).toContain('STREAMDOWN CHAT is this page\'s own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.');
       expect(words).not.toMatch(/Waiting for session chat streams/);
       expect(await page.textContent('#mirror-status')).toBe('Local chat mirror: WAITING');
