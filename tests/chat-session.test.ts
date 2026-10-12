@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openChatSession, NO_REQUEST_COST } from '../src/agent/chat-session.js';
 import type { OpenChatSession } from '../src/contracts/chat-session.js';
 import { createAgent, type Agent } from '../src/agent/core.js';
+import { createProjectTools } from '../src/agent/project-tools.js';
 import type { ApprovalRequest, Decision } from '../src/repl/approvals.js';
 import { readChain } from '../src/utils/receipts.js';
 import { startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
@@ -210,6 +211,27 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     expect(r).toMatchObject({ status: 'answered', text: 'Written.' });
     expect(ollama.chats()[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('the Workbench') });
     expect(chats().at(-1)).toMatchObject({ subject: 'chat.turn · workbench · qwen3:8b', tool_outcomes: [{ name: 'write_project_file', outcome: 'completed' }], files: [{ path: 'notes.md', created: true }] });
+  });
+
+  it('tools set on a surface\'s agent after the session opened (ungated) are gated again before the turn: the write still asks', async () => {
+    const write = { name: 'write_project_file', arguments: { path: 'notes.md', content: 'hello\n' } };
+    const ollama = await fake({
+      models: [{ name: 'qwen3:8b' }],
+      chat: [() => ({ chunks: toolCallChunks('qwen3:8b', [write]) }), () => ({ chunks: textChunks('qwen3:8b', ['Not written.']) })],
+    });
+    setUp({ chat: 'local', model: 'qwen3:8b' }, ollama.url);
+    network(portOf(ollama));
+    // the surface's own agent (as the monitor hands over its own), with no key: the local route needs none
+    const agent = createAgent({ apiKey: '', model: '', instructions: '', maxSteps: 3, maxCost: 1 }, { multiplexer: 'none' });
+    agent.useSessions(join(box, 'sessions'));
+    const chat = await openChatSession({ project: { name: 'demo', root: project }, surface: 'monitor' }, { agent });
+    // something else on the surface sets the agent's tools again, with no gate (as a mode's tool list would)
+    agent.setTools(createProjectTools({ root: () => project }) as Parameters<Agent['setTools']>[0]);
+    const s = surface(['deny']);
+    const r = await chat.send('write notes.md', s.hooks);
+    expect(s.asked).toMatchObject([{ tool: 'write_project_file', summary: 'notes.md' }]);
+    expect(existsSync(join(project, 'notes.md'))).toBe(false);
+    expect(r).toMatchObject({ status: 'answered', text: 'Not written.' });
   });
 });
 

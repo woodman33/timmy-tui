@@ -120,27 +120,24 @@ interface AgentContext {
   current: ChatTurnHooks | null;
   /** the files the running turn wrote, for its receipt */
   touched: ProjectTurnFiles;
-  /** the project root the agent's tools are rooted at now (null: no session has gated them yet) */
-  root: string | null;
-  /** the tools a caller gave (deps.tools), or null for Timmy's own */
-  given: readonly unknown[] | null;
 }
 const contexts = new WeakMap<object, AgentContext>();
 
 function contextFor(agent: SessionAgent): AgentContext {
   let ctx = contexts.get(agent);
-  if (!ctx) { ctx = { current: null, touched: new ProjectTurnFiles(), root: null, given: null }; contexts.set(agent, ctx); }
+  if (!ctx) { ctx = { current: null, touched: new ProjectTurnFiles() }; contexts.set(agent, ctx); }
   return ctx;
 }
 
-/** Roots the agent's tools at this project, gated (the same NEEDS YOU rule as the REPL's); only when they change. */
+/**
+ * Roots the agent's tools at this project, gated (the same NEEDS YOU rule as the REPL's): when a session opens, and again
+ * before each of its turns, so a turn never runs on tools something else set on the agent since (another session's
+ * project, or a surface's own tools set on a shared agent).
+ */
 function gateAgent(agent: SessionAgent, ctx: AgentContext, root: string, given: readonly unknown[] | undefined): void {
-  if (ctx.root === root && ctx.given === (given ?? null)) return;
   const offered = given ?? [...defaultTools, ...createProjectTools({ root: () => root, touched: ctx.touched })];
   const ask = (req: ApprovalRequest): Promise<Decision> => (ctx.current ? ctx.current.askPerson(req) : Promise.resolve<Decision>('deny'));
   agent.setTools(gateTools(offered, ask) as Parameters<Agent['setTools']>[0]);
-  ctx.root = root;
-  ctx.given = given ?? null;
 }
 
 function agentFor(root: string, config: { apiKey?: string; model?: string }, surface: ChatSurface): Agent {
@@ -162,7 +159,7 @@ export async function openChatSession(o: { project: { name: string; root: string
   const config = deps.config ?? (() => { try { return loadConfig(); } catch { return {}; } })();
   const agent: SessionAgent = deps.agent ?? agentFor(o.project.root, config, o.surface);
   // NEEDS YOU: each call that needs a person is asked through the running turn's own hooks; with no turn running, denied.
-  // The gate is the agent's (shared by its sessions), rooted at the project of the session that sends.
+  // The gate is the agent's (shared by its sessions), set again before each turn at the project of the session that sends.
   const ctx = contextFor(agent);
   gateAgent(agent, ctx, o.project.root, deps.tools);
   agent.setInstructions(chatInstructions(o.surface));
@@ -186,7 +183,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     const now = routeNow();
     if (!now.state.ready) return refused(now.state.refusal?.length ? [...now.state.refusal] : ['Not sent: the chat has no route to a model.', 'Nothing was sent to any model.']);
     if (agent.isRunning() || ctx.current) return refused(['Not sent: another chat turn of this project is running here.', 'Try: send it again when that turn ends. Nothing was sent to any model.']);
-    // this session's project, surface and route for this turn (another session of the agent may have sent the last one)
+    // this session's gated tools, rules and route for this turn (another session, or the surface itself, may have set the
+    // agent's since: its tools gated again here, never the ones it found)
     gateAgent(agent, ctx, o.project.root, deps.tools);
     agent.setInstructions(chatInstructions(o.surface));
     agent.useLocalChat(now.local ?? null);

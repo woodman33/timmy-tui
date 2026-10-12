@@ -156,14 +156,14 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
     } catch { return null; }
   };
   // R4 (H103): the one chat session (src/agent/chat-session.ts), on this monitor's own agent (which also runs its lanes),
-  // for the active project; opened again when another surface has chosen another project
-  const sessionRef = useRef<{ root: string; session: ChatSession } | null>(null);
+  // for the active project; opened again when another surface has chosen another project, or the monitor's agent is another
+  const sessionRef = useRef<{ root: string; agent: Agent; session: ChatSession } | null>(null);
   const sessionFor = async (ag: Agent): Promise<ChatSession> => {
     const p = readActiveProject();
-    if (sessionRef.current?.root === p.root) return sessionRef.current.session;
+    if (sessionRef.current?.root === p.root && sessionRef.current.agent === ag) return sessionRef.current.session;
     const m = await import('../../agent/chat-session.js');
     const session = await m.openChatSession({ project: { name: p.name, root: p.root }, surface: 'monitor' }, { agent: ag, ...(config ? { config: config as { apiKey?: string; model?: string } } : {}) });
-    sessionRef.current = { root: p.root, session };
+    sessionRef.current = { root: p.root, agent: ag, session };
     return session;
   };
   // R4 (H103, D1d): NEEDS YOU in the monitor: a tool that needs a person waits for its answer in the box below (y once, a this
