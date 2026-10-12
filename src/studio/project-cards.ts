@@ -42,7 +42,7 @@ import { listProjectFiles, projectId, readProjectFile, sameFolder, type ProjectF
 import { PARAMETER_NAMES } from '../recipes/index.js';
 import { paramsCard, recipeResults } from '../repl/board-cards.js';
 import { readBoardFlows, type BoardFlow, type BoardFlows } from '../repl/board-flows.js';
-import { workflowForBoard } from '../repl/board-nodes.js';
+import { workflowForBoard, type WorkflowDocInput } from '../repl/board-nodes.js';
 import { readBoardVox } from '../repl/board-vox.js';
 import { connectWorkflow, mentions, TRAY_PARAMS } from '../repl/board-workflows.js';
 import { gatherRoom, type RoomRun } from '../room/index.js';
@@ -53,6 +53,8 @@ import { findWorkflowDocs } from '../workflows/upmd.js';
 import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail, type DetailOperation, type ParamsDetail } from './card-detail.js';
 // R4 (H109): what each operation used of a parameter file, from its own records
 import { usedReader, type UsedValues } from './used-values.js';
+// R4 (H109): each operation's own run of a workflow document, for a workflow card placed for it
+import { operationRuns, RUNS_OPERATIONS, type OperationRun } from './operation-runs.js';
 
 export type ProjectCardKind = 'workflow' | 'params' | 'flow' | 'vox' | 'run' | 'unreadable';
 
@@ -109,6 +111,12 @@ export interface ProjectOperation {
    * so a parameter card placed for it shows those values beside the file as it is now; absent when its records name none
    */
   used?: UsedValues[];
+  /**
+   * R4 (H109): with the detail, its own run of each workflow document listed here whose newest run is another's
+   * (src/studio/operation-runs.ts), so a workflow card placed for it shows its run beside the newest; empty when it ran none of
+   * them; absent when its runs were not read
+   */
+  ran?: OperationRun[];
 }
 
 export interface ProjectCards {
@@ -223,6 +231,8 @@ function workflowCards(c: Ctx): ProjectCard[] {
   return c.docs.slice(0, 20).map((doc): ProjectCard => {
     const r = c.doc(doc.rel);
     const view = workflowForBoard(doc.rel, r.ok && r.text !== undefined && !r.truncated ? { text: r.text, ...(r.sha256 ? { sha256: r.sha256 } : {}) } : undefined);
+    // R4 (H109): kept, so an operation's own run of it can be read too (operationRuns)
+    if (c.detail) (c.views ??= new Map()).set(`workflow:${doc.rel}`, view);
     let w = view;
     try {
       w = connectWorkflow(view, { root: c.root, jobs: c.jobs, chain: c.chain, files: c.rels, scrub: c.scrub, tray: () => paramsCard(c.root) });
@@ -444,6 +454,8 @@ interface Ctx {
   opsError?: string;
   /** R4 (H100): the project's judgements, read once for the index and the Control Room */
   judged?: JudgeIndex;
+  /** R4 (H109): each workflow card's document as the board views it before it is connected to its runs (with the detail only) */
+  views?: Map<string, WorkflowDocInput>;
 }
 
 const KIND_ORDER: readonly ProjectCardKind[] = ['workflow', 'params', 'flow', 'vox', 'run', 'unreadable'];
@@ -565,6 +577,18 @@ function projectCardsNow(src: CardSource, given: { chain?: Receipt[]; jobs?: Job
         if (used.length) op.used = used;
       }
     } catch (e) { notes.push(`What the operations used of their parameter files could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`); }
+  }
+  // R4 (H109): with the detail, each operation's own run of each workflow document listed here whose newest run is another's
+  // (or names none): the same readers, given only the job records that name it
+  const views = c.views;
+  if (c.detail && operations.length && views && views.size) {
+    try {
+      const flows = sent.flatMap((x) => (x.kind === 'workflow' && x.detail && views.has(x.id) ? [{ card: x.id, view: views.get(x.id)!, newest: x.operation }] : []));
+      const src = { root, jobs: c.jobs, chain: c.chain, files: c.rels, scrub: c.scrub, tray: () => paramsCard(root), text: c.text };
+      // each operation read gets its list, empty when it ran none of them (so "none" is told apart from "not read")
+      for (const op of operations.slice(0, RUNS_OPERATIONS)) op.ran = operationRuns(op.id, flows.filter((f) => f.newest !== op.id), src);
+      if (operations.length > RUNS_OPERATIONS) notes.push(`The runs of ${operations.length - RUNS_OPERATIONS} older operations were not read: a workflow card placed for one of them shows its run as last read, or unknown.`);
+    } catch (e) { notes.push(`The operations' own runs of their workflow documents could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`); }
   }
   return { cards: sent, notes: notes.map((n) => cardText(n, root)), operations };
 }

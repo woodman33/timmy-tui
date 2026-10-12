@@ -297,10 +297,13 @@ export const boundOperation = (shape) => {
  * operation used of the file (`used`), as the reading lists it for the operation (src/studio/used-values.ts: from its flow
  * record, or the bytes a receipt of it names); when the reading lists the operation and none of its records names the file, that
  * is unknown, and why; when the reading does not list the operation, what this card last read (`prev`), said as last read; with
- * neither, unknown, and why. Never today's values in their place. Any other card's detail is returned as it is.
+ * neither, unknown, and why. Never today's values in their place. A workflow card keeps its operation's own run (boundRun);
+ * any other card's detail is returned as it is.
  */
 export function boundDetail(detail, op, answer, prev) {
-  if (!detail || detail.type !== 'params' || typeof op !== 'string' || !OPERATION_ID.test(op)) return detail ?? null;
+  if (!detail || typeof op !== 'string' || !OPERATION_ID.test(op)) return detail ?? null;
+  if (detail.type === 'workflow') return boundRun(detail, op, answer, prev);
+  if (detail.type !== 'params') return detail;
   const listed = (answer && Array.isArray(answer.operations) ? answer.operations : []).find((o) => o && o.id === op);
   const read = listed && Array.isArray(listed.used) ? listed.used.find((u) => u && u.operation === op && u.file === detail.file) : undefined;
   const last = prev && prev.used && prev.used.operation === op && prev.used.file === detail.file ? prev.used : null;
@@ -311,6 +314,39 @@ export function boundDetail(detail, op, answer, prev) {
   else if (last) used = last.asLastRead ? last : { ...last, asLastRead: true };
   else used = none(`operation ${op} is not among the operations this reading lists, and this card holds no earlier reading of what it used`);
   return { ...detail, used };
+}
+
+/** R4 (H109): a run as a workflow card keeps it: its newest run (`last`) and its blocks' states, nothing else of the document. */
+const runOfDetail = (op, doc, last, blocks) => ({
+  operation: op, doc, state: 'recorded', last,
+  blocks: (Array.isArray(blocks) ? blocks : []).map((b) => ({ name: String(b.name), word: String(b.word), glyph: String(b.glyph ?? ''), detail: String(b.detail ?? '') })),
+});
+
+/**
+ * R4 (H109; the operator's "Bind workflow/result nodes to real operation and artifact IDs"): a workflow card placed for
+ * operation `op` keeps that operation's own run of its document (`ran`) beside the document's newest run (`detail`, as read
+ * now): none when the newest run is the operation's own (the card's detail is then its run); the reading's run of it for the
+ * operation (src/studio/operation-runs.ts); unknown, and why, when the reading read the operation's runs and none ran the
+ * document; else what this card last read (`prev`: its run kept before, or its detail when that was the operation's own run),
+ * said as last read; with neither, unknown, and why. Never the newest run in its place.
+ */
+export function boundRun(detail, op, answer, prev) {
+  if (detail.operation && detail.operation.id === op) return detail;
+  const listed = (answer && Array.isArray(answer.operations) ? answer.operations : []).find((o) => o && o.id === op);
+  const read = listed && Array.isArray(listed.ran) ? listed.ran.find((r) => r && r.doc === detail.doc && r.last) : undefined;
+  const unknown = (why) => ({ operation: op, doc: detail.doc, state: 'unknown', last: null, blocks: [], why });
+  let ran;
+  if (read) ran = runOfDetail(op, detail.doc, read.last, read.blocks);
+  else if (listed && Array.isArray(listed.ran)) ran = unknown(`no job record Timmy keeps names operation ${op} running ${detail.doc}`);
+  else {
+    const same = prev && prev.type === 'workflow' && prev.doc === detail.doc ? prev : null;
+    const kept = same && same.ran && same.ran.operation === op && same.ran.state === 'recorded' ? same.ran
+      : same && same.operation && same.operation.id === op && same.last ? runOfDetail(op, detail.doc, same.last, same.blocks) : null;
+    ran = kept ? (kept.asLastRead ? kept : { ...kept, asLastRead: true })
+      : unknown(listed ? `the runs of operation ${op} were not read in this reading, and this card holds no earlier reading of its run`
+        : `operation ${op} is not among the operations this reading lists, and this card holds no earlier reading of its run`);
+  }
+  return { ...detail, ran };
 }
 
 /**
@@ -612,7 +648,8 @@ export function createCards(deps) {
         if (r.props.gone || r.props.title !== card.title || r.props.command !== card.command) updates.push({ id: r.id, type: r.type, props: { gone: false, title: card.title, command: card.command } });
         continue;
       }
-      // R4 (H109; r25 D9 c): a parameter card placed for an operation keeps what that operation used beside the file now
+      // R4 (H109; r25 D9 c): a parameter card placed for an operation keeps what that operation used beside the file now, and a
+      // workflow card that operation's own run beside the newest
       const kept = boundDetail(keptDetail(card.detail), boundOperation(r), answer, r.props.data);
       if (r.props.gone || JSON.stringify(kept) !== JSON.stringify(r.props.data) || r.props.title !== card.title || r.props.command !== card.command) {
         updates.push({ id: r.id, type: r.type, props: { data: kept, readAt: answer.madeAt, gone: false, title: card.title, command: card.command } });
@@ -632,7 +669,8 @@ export function createCards(deps) {
 
   /**
    * A drawn card's props, from the reading it is placed from. R4 (H81): a reading without the detail places the card with
-   * none (it says why, and "never read"). R4 (H109): placed for operation `op`, a parameter card holds what it used (boundDetail).
+   * none (it says why, and "never read"). R4 (H109): placed for operation `op`, a parameter card holds what it used, and a
+   * workflow card its own run (boundDetail).
    */
   const propsFor = (card, answer, type, op = null) => ({
     w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command,
@@ -939,35 +977,64 @@ export function createCards(deps) {
     return span('tc-note', failed ? `highlight ${path}: not read now` : `highlight ${path}: reading…`);
   }
 
+  /** R4 (H109): a run's words on a workflow card: its target, its word (failed and interrupted in red), prediction, time, receipt. */
+  const runWords = (lead, r) => h('p', { className: 'tc-last' }, `${lead} (${r.target}): `, span(r.word === 'failed' || r.word === 'interrupted' ? 'tc-bad' : '', r.word),
+    `${r.met === true ? ', its prediction met' : r.met === false ? ', its prediction not met' : ''}${r.took ? ` · ${r.took}` : ''}${r.receipt ? ` · receipt ${r.receipt}` : ''}`);
+  const jobWords = (r) => `job ${r.job}${r.predicted ? ` · prediction receipt ${r.predicted}` : ''}${r.receipt ? ` · outcome receipt ${r.receipt}` : ''}`;
+
   function WorkflowCard({ shape }) {
-    const { own, mode, detail, readAt } = useCard(shape, 'workflow');
+    const { own, mode, detail, readAt, now } = useCard(shape, 'workflow');
     const p = shape.props;
     const d = detail && detail.type === 'workflow' ? detail : null;
     const busy = !!(own && own.busy);
-    const blocks = d ? d.blocks : [];
+    // R4 (H109): placed for an operation: that operation's own run (boundRun), unless the newest run is its own; never the
+    // newest run in its place. Its blocks show the states its own runs left; the newest run is said beside it.
+    const bound = boundOperation(shape);
+    const ownRun = !!bound && !!d && !!d.operation && d.operation.id === bound;
+    const ran = bound && d && !ownRun && !mode.withheld && p.data && p.data.type === 'workflow' && p.data.ran && p.data.ran.operation === bound ? p.data.ran : null;
+    const stateOf = (b) => {
+      if (!ran) return b;
+      const x = ran.state === 'recorded' ? (ran.blocks || []).find((y) => y.name === b.name) : null;
+      return x ? { ...b, word: x.word, glyph: x.glyph, detail: x.detail } : { ...b, word: 'unknown', glyph: '?', detail: '' };
+    };
+    const blocks = d ? d.blocks.map(stateOf) : [];
     // R4 (H81): each Run button carries its own recorded action (actRef): the block it was drawn for, never one read at the click
     // R4 (H88): a document that names two blocks alike runs none of them (its notRunnable words say so once, above them)
     const runOf = (b) => (mode.executable && d.runnable && b.runnable
       ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'run', 'data-tc-block': b.name, disabled: busy, ref: actRef(shape, 'workflow', runAct(d, b.name), !busy), onPointerDown: handled, title: `Sends /run ${d.doc} ${b.name} to Timmy (Run up to here)` }, 'Run up to here')
       : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : one(d.notRunnable) ? null : span('tc-note', '/run cannot name this block as one word'));
     const last = d && d.last;
+    const its = ran && ran.state === 'recorded' ? ran.last : null;
+    // the run whose record, error and files Details shows: the operation's own on a card placed for one (none when unknown)
+    const shown = bound && !ownRun ? its : last;
+    const record = bound && !ownRun ? (now && Array.isArray(now.operations) ? now.operations : []).find((o) => o && o.id === bound) : null;
+    const op = !bound || ownRun ? (d ? d.operation : undefined)
+      : { id: bound, from: 'the operation it was placed for (Place this operation)', request: record ? record.request ?? null : null, state: record ? record.state ?? null : null };
+    // the newest run, beside the operation's own: whose it is, as its job record says
+    const newest = last ? `now: the newest run of ${d.doc} (${last.target}) is ${last.word}, ${d.operation && d.operation.id ? `by operation ${d.operation.id}` : 'by no operation its job record names'}` : `now: ${d ? d.doc : 'the document'} has no run`;
+    let lastLine;
+    if (!bound) lastLine = last ? runWords('Newest run', last) : d ? words('tc-note', 'Not run yet.') : null;
+    else if (ownRun) lastLine = last ? runWords(`Run of operation ${bound}`, last) : null;
+    else if (its) lastLine = h(React.Fragment, null, runWords(`Run of operation ${bound}`, its), ran.asLastRead ? words('tc-note tc-ran-last', '(as last read)') : null, words('tc-note tc-now-run', newest));
+    else if (ran) lastLine = h(React.Fragment, null, h('p', { className: 'tc-last tc-warn' }, `Run of operation ${bound}: unknown (${ran.why})`), words('tc-note tc-now-run', newest));
+    else lastLine = d && !mode.withheld ? h(React.Fragment, null, h('p', { className: 'tc-last tc-warn' }, `Run of operation ${bound}: not read yet`), words('tc-note tc-now-run', newest)) : null;
     return h(Frame, {
-      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt, op: d ? d.operation : undefined,
+      shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt, op,
       details: d ? [
         dl([['document', d.doc], ['sha256', d.sha256 || 'not hashed'], ['card', p.card], ['project', `${p.project} (${p.projectId})`],
-          last ? ['newest run', `job ${last.job}${last.predicted ? ` · prediction receipt ${last.predicted}` : ''}${last.receipt ? ` · outcome receipt ${last.receipt}` : ''}`] : null,
-          last && last.note ? ['its record says', last.note] : null, last && last.error ? ['error', last.error] : null]),
+          its ? [`run of operation ${bound}`, jobWords(its)] : null,
+          last ? ['newest run', jobWords(last)] : null,
+          shown && shown.note ? ['its record says', shown.note] : null, shown && shown.error ? ['error', shown.error] : null]),
         ...blocks.map((b) => h('div', { key: `c${b.key}`, className: 'tc-block-cmd' }, span('tc-k', `${b.name}${b.needs.length ? ` (needs ${b.needs.join(', ')})` : ''}`), ...b.command.map((l, i) => h('code', { key: i }, l)))),
-        ...(last ? last.outputs.map((o) => h('div', { key: `o${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', o.now))) : []),
-        last && last.more ? words('tc-note', `${last.more} more files`) : null,
+        ...(shown ? (shown.outputs || []).map((o) => h('div', { key: `o${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', o.now))) : []),
+        shown && shown.more ? words('tc-note', `${shown.more} more files`) : null,
       ] : words('tc-note', mode.withheld ? 'Its blocks and their commands are withheld here.' : 'No reading of this document yet.'),
     },
     d && one(d.notRunnable) ? h('p', { className: 'tc-note tc-warn tc-twice' }, d.notRunnable) : null,
     d ? h('ol', { className: 'tc-blocks' }, ...blocks.map((b) => h('li', { key: b.key, className: `tc-block tc-w-${String(b.word).replace(/[^a-z]/g, '')}` },
-      span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : ''}`, b.word),
+      span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : b.word === 'unknown' ? 'tc-warn' : ''}`, b.word),
       b.detail ? span('tc-note', ` · ${b.detail}`) : null, h('div', { className: 'tc-acts' }, runOf(b))))) : mode.withheld ? withheldBody(p) : words('tc-note', p.command),
-    last ? h('p', { className: 'tc-last' }, `Newest run (${last.target}): `, span(last.word === 'failed' || last.word === 'interrupted' ? 'tc-bad' : '', last.word),
-      `${last.met === true ? ', its prediction met' : last.met === false ? ', its prediction not met' : ''}${last.took ? ` · ${last.took}` : ''}${last.receipt ? ` · receipt ${last.receipt}` : ''}`) : d ? words('tc-note', 'Not run yet.') : null);
+    lastLine);
   }
 
   function ParamsCard({ shape }) {

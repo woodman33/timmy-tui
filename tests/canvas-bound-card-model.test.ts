@@ -1,8 +1,9 @@
 /**
  * R4 (H109; r25 D9 c): Timmy Canvas's rules for a parameter card placed for an operation (companion/studio-canvas/src/cards.js
  * boundDetail, nowBeside, boundOperation), run here in Node: what it keeps of what the operation used, beside the file as it is
- * now, and never in its place. The card itself runs in a real Chromium in tests/studio-used-values-browser.test.ts. The
- * readings below are FIXTURES in the shape GET /api/project?detail=1 answers.
+ * now, and never in its place; and for a workflow card placed for one (boundRun): its own run beside the newest. The cards
+ * themselves run in a real Chromium in tests/studio-used-values-browser.test.ts and tests/studio-operation-runs-browser.test.ts.
+ * The readings below are FIXTURES in the shape GET /api/project?detail=1 answers.
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the page's module is plain JavaScript, bundled for the browser
@@ -54,11 +55,58 @@ describe("a parameter card placed for an operation", () => {
     expect(boundDetail(detail(160), OP, reading([{ id: OP, used: [{ ...used, file: 'box.params.json' }] }]), null).used.state).toBe('unknown');
   });
 
-  it('leaves every other card, and a card placed for no operation, as it is', () => {
-    const w = { type: 'workflow', doc: 'RUN.md' };
-    expect(boundDetail(w, OP, reading([{ id: OP, used: [used] }]), null)).toBe(w);
+  it('leaves a result card, and a card placed for no operation, as it is', () => {
+    const r = { type: 'result', title: 'flow' };
+    expect(boundDetail(r, OP, reading([{ id: OP, used: [used] }]), null)).toBe(r);
     const d = detail(160);
     expect(boundDetail(d, null, reading([{ id: OP, used: [used] }]), null)).toBe(d);
+    const w = { type: 'workflow', doc: 'RUN.md' };
+    expect(boundDetail(w, null, reading([]), null)).toBe(w);
     expect(boundDetail(null, OP, reading([]), null)).toBeNull();
+  });
+});
+
+// R4 (H109; the operator's "Bind workflow/result nodes to real operation and artifact IDs"): a workflow card placed for an
+// operation keeps that operation's own run beside the newest (boundRun). FIXTURES in the shape GET /api/project?detail=1 answers.
+describe('a workflow card placed for an operation', () => {
+  const Y = 'ob1b2c3d4';
+  const run = (job: string, word: string) => ({ job, target: 'build', word, met: null, receipt: null, predicted: null, startedAt: '2026-10-11T10:00:00.000Z', endedAt: '2026-10-11T10:00:01.000Z', took: '0.1 s', error: null, note: null, blocks: [], outputs: [], more: 0 });
+  const wf = (newestOp: string | null, word = 'completed') => ({
+    type: 'workflow', doc: 'RUN.md', blocks: [{ name: 'build', word, glyph: '✓', detail: 'exit 0' }], last: run('j-newest', word),
+    operation: { id: newestOp, from: "its newest run's job record (j-newest)", request: null, state: null },
+  });
+  const mine = { card: 'workflow:RUN.md', doc: 'RUN.md', last: run('j-mine', 'failed'), blocks: [{ name: 'build', word: 'failed', glyph: '✗', detail: 'exit 1' }] };
+
+  it("is its own detail when the newest run is the operation's own", () => {
+    const d = wf(OP);
+    expect(boundDetail(d, OP, reading([{ id: OP, ran: [] }]), null)).toBe(d);
+  });
+
+  it("keeps the operation's own run, from the reading, beside a newer run of another operation (never in its place)", () => {
+    const d = boundDetail(wf(Y), OP, reading([{ id: OP, ran: [mine] }]), null);
+    expect(d.last.job).toBe('j-newest');
+    expect(d.ran).toEqual({ operation: OP, doc: 'RUN.md', state: 'recorded', last: mine.last, blocks: mine.blocks });
+  });
+
+  it('when the reading read its runs and none ran the document: unknown, and why', () => {
+    const d = boundDetail(wf(Y), OP, reading([{ id: OP, ran: [{ ...mine, doc: 'OTHER.md' }] }]), null);
+    expect(d.ran).toMatchObject({ operation: OP, state: 'unknown', last: null, blocks: [] });
+    expect(d.ran.why).toBe(`no job record Timmy keeps names operation ${OP} running RUN.md`);
+  });
+
+  it('otherwise what it last read, as last read: its run kept before, or its own detail when the newest run was its own; else unknown', () => {
+    // placed while its run was the newest; another operation ran it since, and the reading no longer lists this one
+    const kept = boundDetail(wf(Y), OP, reading([]), wf(OP, 'completed'));
+    expect(kept.ran).toEqual({ operation: OP, doc: 'RUN.md', state: 'recorded', last: run('j-newest', 'completed'), blocks: [{ name: 'build', word: 'completed', glyph: '✓', detail: 'exit 0' }], asLastRead: true });
+    // read again: the same
+    expect(boundDetail(wf(Y), OP, reading([]), kept)).toEqual(kept);
+    // listed, its runs not read in this reading: kept as last read too
+    expect(boundDetail(wf(Y), OP, reading([{ id: OP }]), kept).ran).toEqual(kept.ran);
+    const none = boundDetail(wf(Y), OP, reading([{ id: OP }]), null);
+    expect(none.ran.why).toBe(`the runs of operation ${OP} were not read in this reading, and this card holds no earlier reading of its run`);
+    expect(boundDetail(wf(Y), OP, reading([]), null).ran.why).toBe(`operation ${OP} is not among the operations this reading lists, and this card holds no earlier reading of its run`);
+    // another operation's run, or another document's, is never taken
+    expect(boundDetail(wf(Y), OP, reading([]), { ...wf(Y), ran: { ...kept.ran, operation: Y } }).ran.state).toBe('unknown');
+    expect(boundDetail(wf(Y), OP, reading([]), { ...wf(OP), doc: 'OTHER.md' }).ran.state).toBe('unknown');
   });
 });
