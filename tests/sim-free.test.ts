@@ -8,7 +8,9 @@
 // with nothing sealed (--no-seal). No network: a refusal happens before any request, and a dry run makes none. The one run
 // file a run writes (lanes/sim/runs/<run>.jsonl) is read, then removed.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -56,6 +58,33 @@ describe('timmy sim run --free: every model of the run free, the simulator too',
       }
     } finally {
       for (const f of made) rmSync(join(RUNS, f), { force: true });
+    }
+  });
+
+  it('a live run under --free (FAKE OpenRouter, in the process): each request names a free model, and none carries a plugin whose price is not known', () => {
+    const box = mkdtempSync(join(tmpdir(), 'sim-free-'));
+    const log = join(box, 'requests.jsonl');
+    const before = new Set(runsNow());
+    // the key is made here, for this run only; the FAKE answers, and nothing leaves the process
+    const r = spawnSync(process.execPath, ['--import', resolve('tests/fixtures/fake-openrouter-preload.mjs'), SIM, 'run', '--no-seal', '--turns', '1', '--layers', 'L1', '--free', '--sim-model', FREE_SIM], {
+      encoding: 'utf8', timeout: 60_000,
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, OPENROUTER_API_KEY: `sk-or-FAKE-${randomBytes(8).toString('hex')}`, TIMMY_TEST_FETCH_LOG: log },
+    });
+    const made = runsNow().filter((f) => !before.has(f));
+    try {
+      expect(r.status, r.stderr).toBe(0);
+      const sent = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      expect(sent.map((q) => [q.method, q.url, q.body.model])).toEqual([
+        ['POST', 'https://openrouter.ai/api/v1/chat/completions', 'openrouter/free'],
+        ['POST', 'https://openrouter.ai/api/v1/chat/completions', FREE_SIM],
+      ]);
+      // the simulator still asks for JSON (a request parameter), and no plugin rides along
+      expect(sent[1].body.response_format).toEqual({ type: 'json_object' });
+      expect(sent.filter((q) => 'plugins' in q.body)).toEqual([]);
+      expect(JSON.parse(r.stdout)).toMatchObject({ policy: 'free models only', models: { sim: FREE_SIM, actor: 'openrouter/free' }, dry: false, usd: 0 });
+    } finally {
+      for (const f of made) rmSync(join(RUNS, f), { force: true });
+      rmSync(box, { recursive: true, force: true });
     }
   });
 

@@ -143,6 +143,8 @@ function askedFor(ch, known) {
 
 /** structured-outputs + response-healing-plugin: the referee's JSON is a contract, healed server-side when malformed (firstJson stays as the last resort). */
 const REFEREE_CONTRACT = { response_format: { type: 'json_object' }, plugins: [{ id: 'response-healing' }] };
+/** R4 (H103): under --free, no plugin: its price is not known here, and --free sends nothing whose price is not known (firstJson reads the JSON, and an unparsed answer is kept as narration). */
+const REFEREE_FREE = { response_format: { type: 'json_object' } };
 
 function refereePrompt(board, world, ch, did) {
   return [
@@ -182,7 +184,7 @@ async function runLayer(ctx, board, layerId, order, turns, opening, parent) {
     const actor = DRY ? dryActor(ch, world) : await openrouter(models.actor, [{ role: 'system', content: 'You play one character in a story simulation. Stay in character.' }, { role: 'user', content: asked }], 300);
     const did = actor.content.trim();
     const stakesBefore = stakesMap(world);
-    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700, REFEREE_CONTRACT);
+    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700, ctx.referee);
     const outcome = firstJson(ref.content) ?? { narration: ref.content.slice(0, 300), unparsed: true };
     applyOutcome(world, outcome);
     const stakesAfter = stakesMap(world);
@@ -247,7 +249,7 @@ async function run() {
   mkdirSync(RUNS, { recursive: true });
   const file = join(RUNS, `${runId}.jsonl`);
   const store = rootStore();
-  const ctx = { models, runId, file, store, boardSha: sha(boardText), turnCounter: 1, noSeal: has('--no-seal'), layers: flag('--layers', 'all') };
+  const ctx = { models, runId, file, store, boardSha: sha(boardText), turnCounter: 1, noSeal: has('--no-seal'), layers: flag('--layers', 'all'), referee: FREE ? REFEREE_FREE : REFEREE_CONTRACT };
   writeFileSync(file, JSON.stringify({ header: true, run: runId, board: boardPath.replace(ROOT + '/', ''), board_sha256: ctx.boardSha, name: board.name, layers: board.layers.map((l) => l.id), ...said, dry: DRY, started: new Date().toISOString(), store }) + '\n');
   const named = (who) => (DRY ? `dry/${who} (a live run: ${models[who]})` : models[who]);
   console.error(`run ${runId} · ${board.name} · ${policy} · sim ${named('sim')} · actors ${named('actor')}`);
