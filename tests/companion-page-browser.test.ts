@@ -15,8 +15,14 @@
  * browser resolves no name but 127.0.0.1, so even a failing run fetches nothing from elsewhere. The policy's violations are
  * collected in every frame (a script the test itself adds is refused and reported, which shows they are seen). The model is
  * a FAKE OpenRouter on 127.0.0.1. Skipped, saying so, where no Chromium or Chrome is found.
+ *
+ * R4 (H104): the CHAT MIRROR says where chat happens when none of this session has come (r24: an empty panel that said
+ * nothing), and shows a REPL turn as the bus carries it (a FAKE receipt.sealed event appended to the bus file the companion
+ * tails: its receipt, never words) beside this monitor's chat; the ✨ sample's diagram labels are measured on the drawn SVG
+ * at 1440 and 390 wide, in the chat and in fullscreen (r24: about 6 px; now at least 12), with zoom, pan and fullscreen used.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -25,6 +31,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { sealTurn } from '../src/repl/seal.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -175,16 +182,21 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
 
-  /** The page in a fresh context, opened with the address Timmy gives; requests elsewhere are recorded and aborted. */
-  async function open(opts: { reducedMotion?: 'reduce' } = {}): Promise<{ page: Page; context: BrowserContext; seen: Seen }> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true, ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}) });
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  /**
+   * The page in a fresh context, opened with the address Timmy gives; requests elsewhere are recorded and aborted. R4 (H104):
+   * `viewport` (1400 x 900 unless given) and `on`, a companion of a test's own (the one this file starts unless given).
+   */
+  async function open(opts: { reducedMotion?: 'reduce'; viewport?: { width: number; height: number }; on?: CompanionServer } = {}): Promise<{ page: Page; context: BrowserContext; seen: Seen }> {
+    const target = opts.on ?? server;
+    const origin = `http://127.0.0.1:${target.port}`;
+    const context = await browser.newContext({ viewport: opts.viewport ?? { width: 1400, height: 900 }, acceptDownloads: true, ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}) });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     const seen: Seen = { requests: [], failed: [], outside: [], sockets: [], console: [], errors: [], dialogs: [], downloads: [] };
     context.on('request', (r) => seen.requests.push(r.url()));
     context.on('requestfailed', (r) => seen.failed.push(`${r.url()} ${r.failure()?.errorText ?? ''}`));
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url());
-      if (url.origin === base) return route.continue();
+      if (url.origin === origin) return route.continue();
       seen.outside.push(url.href);
       return route.abort('blockedbyclient');
     });
@@ -199,7 +211,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     page.on('pageerror', (e) => seen.errors.push(e.message));
     page.on('dialog', (d) => { seen.dialogs.push(d.message()); void d.dismiss(); });
     page.on('download', (d) => seen.downloads.push(d.suggestedFilename()));
-    await page.goto(server.url);
+    await page.goto(target.url);
     return { page, context, seen };
   }
 
@@ -596,4 +608,212 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       'box-shadow: 0 0 20px hsla(var(--secondary-h), 80%, 60%, 0.35);', 'transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);',
     ]) expect(css, rule).toContain(rule);
   });
+
+  // ---------- R4 (H104): the chat mirror (r24: empty, nothing said why) and readable diagrams (r24: labels about 6 px) ----------
+
+  /** A companion of a test's own, its bus in a folder of its own (it reads TIMMY_REPO as it starts); `seed`: lines on its bus already. */
+  async function ownCompanion(seed: object[] = []): Promise<{ own: CompanionServer; bus: string; root: string }> {
+    const root = temp('h104-root-');
+    mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
+    const bus = join(root, '.timmy', 'receipts', 'runs.jsonl');
+    writeFileSync(bus, seed.map((e) => `${JSON.stringify(e)}\n`).join(''));
+    const was = process.env.TIMMY_REPO;
+    process.env.TIMMY_REPO = root;
+    try { return { own: await startCompanionServer(0, {}), bus, root }; } finally { process.env.TIMMY_REPO = was; }
+  }
+
+  /**
+   * FAKE: the bus event Timmy publishes when the REPL seals a turn's receipt (src/utils/receipts.ts appendReceipt publishes
+   * receipt.sealed; src/repl/seal.ts gives a turn kind `turn` and its subject). No REPL runs here and nothing is sealed.
+   */
+  const fakeTurn = (at: Date, subject: string, kind = 'turn') => ({
+    v: 1, ts: at.toISOString(), kind: 'receipt.sealed',
+    payload: { stream: 'runs', id: 'FAKE-turn-receipt', hash: `sha256_${randomBytes(32).toString('hex')}`, kind, subject, epoch: 1 },
+  });
+
+  for (const viewport of [{ width: 1400, height: 900 }, { width: 390, height: 844 }]) it(`the chat mirror with no chat in this session says so and since when, where chat happens, and why a REPL turn has no words, readable at ${viewport.width} wide; no sample is in it; a turn sealed before this companion started is not shown (R4 H104)`, async () => {
+    // FAKE: a REPL turn sealed an hour before this companion started: on its bus, not of this session
+    const { own } = await ownCompanion([fakeTurn(new Date(Date.now() - 3_600_000), 'repl · 1 step')]);
+    const { page, context, seen } = await open({ on: own, viewport });
+    try {
+      await connected(page);
+      // the tail reached the page (its log says so), then the mirror is read
+      await page.waitForFunction(() => /Event bus: 1 recent event, latest receipt\.sealed/.test(document.getElementById('logs-list')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /since this companion started at/.test(document.querySelector('#console-logs [data-mirror="empty"]')?.textContent ?? ''), null, { timeout: 10_000 });
+      // seen, not only present: the words have room in the panel (at 390 wide the panel was its header alone)
+      expect(await page.isVisible('#console-logs [data-mirror="empty"]')).toBe(true);
+      const room = await page.evaluate(() => {
+        const logs = document.getElementById('console-logs')!.getBoundingClientRect();
+        const head = document.querySelector('#console-logs .mirror-empty-head')!.getBoundingClientRect();
+        return { logs: logs.height, headInside: head.top >= logs.top && head.bottom <= logs.bottom && head.height > 0 };
+      });
+      expect(room.logs).toBeGreaterThan(200);
+      expect(room.headInside).toBe(true);
+      const words = (await page.textContent('#console-logs'))!.replace(/\s+/g, ' ').trim();
+      expect(words).toMatch(/^No chat in this session yet: none has reached this page since this companion started at \d/);
+      expect(words).toContain('Chat happens in Timmy\'s terminal, not on this page:');
+      expect(words).toContain('In this monitor (timmy watch), type in its chat line: each message and its answer appear here as they are sent.');
+      expect(words).toContain('In the REPL (timmy), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn\'s prompt and answer are sealed as hashes only).');
+      expect(words).toContain('A REPL turn is seen here when the REPL works in the folder this monitor was started in (or the one TIMMY_REPO names)');
+      expect(words).toContain('STREAMDOWN CHAT is this page\'s own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.');
+      expect(words).not.toMatch(/Waiting for session chat streams/);
+      expect(await page.textContent('#mirror-status')).toBe('Local chat mirror: WAITING');
+      // the hour-old turn is not this session's; and nothing of the sample is in the mirror
+      expect(await page.locator('#console-logs [data-mirror="repl-turn"]').count()).toBe(0);
+      expect(await page.locator('#console-logs [data-sample-label], #console-logs [data-card]').count()).toBe(0);
+      expect(words).not.toMatch(/run_tmx_demo_001|TMX P3|streaming markdown surface/);
+      expect(seen.outside).toEqual([]);
+      for (const r of seen.requests) expect(new URL(r).origin, r).toBe(`http://127.0.0.1:${own.port}`);
+      expect(await violations(page)).toEqual([]);
+      expect(seen.errors).toEqual([]);
+    } finally { await context.close(); await own.shutdown(); }
+  });
+
+  it('a REPL turn the bus carries (a FAKE receipt.sealed event appended to the bus file the companion tails) appears in the mirror: its receipt and steps, no words; with this monitor\'s chat in time order; once; a monitor chat receipt is not a REPL turn (R4 H104)', async () => {
+    const { own, bus } = await ownCompanion();
+    const { page, context, seen } = await open({ on: own });
+    try {
+      await connected(page);
+      await page.waitForSelector('#console-logs [data-mirror="empty"]');
+      const first = fakeTurn(new Date(), 'repl · 2 steps');
+      appendFileSync(bus, `${JSON.stringify(first)}\n`);
+      await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
+      const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ').trim();
+      expect(row).toMatch(/^⌨ REPL turn · ended \d/);
+      expect(row).toContain(`A chat turn in the REPL (timmy) ended (2 steps); Timmy sealed it as receipt ${first.payload.hash.slice(7, 15)}. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.`);
+      expect(await page.locator('#console-logs [data-mirror="empty"]').count()).toBe(0);
+      await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
+      // this monitor's chat as its terminal sends it (sync), around a second, cancelled REPL turn: one list, in time order
+      const t0 = Date.now();
+      own.sendUpdate('sync', [{ role: 'user', content: 'FAKE: a message typed in the monitor', timestamp: t0 + 1000 }, { role: 'assistant', content: 'FAKE: its answer', timestamp: t0 + 3000 }]);
+      appendFileSync(bus, `${JSON.stringify(fakeTurn(new Date(t0 + 2000), 'repl · cancelled · 1 step'))}\n`);
+      // a monitor chat turn's receipt (kind chat): its words came with sync; it is not a REPL turn
+      appendFileSync(bus, `${JSON.stringify(fakeTurn(new Date(t0 + 2500), 'chat.turn · FAKE-model', 'chat'))}\n`);
+      await page.waitForFunction(() => document.querySelectorAll('#console-logs [data-mirror="repl-turn"]').length === 2 && /FAKE: its answer/.test(document.getElementById('console-logs')?.textContent ?? ''), null, { timeout: 15_000 });
+      // all three events reached the page (its log names each) before the mirror is read
+      await page.waitForFunction(() => ((document.getElementById('logs-list')?.textContent ?? '').match(/Event bus: receipt\.sealed/g) ?? []).length >= 3, null, { timeout: 15_000 });
+      const order = await page.$$eval('#console-logs .log-msg', (els) => els.map((e) => (e.querySelector('.log-header span')?.textContent ?? '').trim()));
+      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · cancelled', '◀ TIMMY Agent']);
+      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) cancelled (1 step);');
+      // the same sealed turn again (as a reconnect's tail brings it) is still one row
+      appendFileSync(bus, `${JSON.stringify(first)}\n`);
+      await page.waitForTimeout(1_500);
+      expect(await page.locator('#console-logs [data-mirror="repl-turn"]').count()).toBe(2);
+      expect(seen.outside).toEqual([]);
+      for (const r of seen.requests) expect(new URL(r).origin, r).toBe(`http://127.0.0.1:${own.port}`);
+      expect(await violations(page)).toEqual([]);
+      expect(seen.errors).toEqual([]);
+    } finally { await context.close(); await own.shutdown(); }
+  });
+
+  it('a turn sealed by the REPL\'s own code (src/repl/seal.ts sealTurn: a real signed receipt, in a store of the test\'s own pinned in its folder) appears in the mirror with the receipt the REPL prints and its steps, and none of its words (R4 H104)', async () => {
+    const { own, root } = await ownCompanion();
+    // the test's own store: a pin in its folder, so the receipt is sealed there and nowhere else (src/utils/receipts.ts rootStoreDir)
+    writeFileSync(join(root, '.timmy', 'store-pin'), join(root, '.timmy', 'receipts'));
+    const { page, context, seen } = await open({ on: own });
+    try {
+      await connected(page);
+      await page.waitForSelector('#console-logs [data-mirror="empty"]');
+      // SYNTHETIC turn facts (no model was asked); the sealing, its signature, its chain and its bus event are the real ones
+      const sealed = sealTurn({ prompt: 'SYNTHETIC prompt, never shown', answer: 'SYNTHETIC answer, never shown', steps: 3, spend: 0, costMeasured: false, ms: 1_200, status: 'ok', model: 'SYNTHETIC/model' }, root);
+      expect(sealed.verified).toBe(true);
+      expect(readFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), 'utf8')).toContain(sealed.hash);
+      await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
+      const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ');
+      expect(row).toContain(`A chat turn in the REPL (timmy) ended (3 steps); Timmy sealed it as receipt ${sealed.id}.`);
+      expect(await page.textContent('#console-logs')).not.toMatch(/SYNTHETIC (prompt|answer)/);
+      await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
+      expect(seen.outside).toEqual([]);
+      expect(await violations(page)).toEqual([]);
+      expect(seen.errors).toEqual([]);
+    } finally { await context.close(); await own.shutdown(); }
+  });
+
+  /** The drawn sample diagram's text as shown on screen: each label's size (its font size at the drawing's scale on screen). */
+  const shownLabels = (page: Page, where: 'chat' | 'fullscreen') => page.evaluate((w) => {
+    const svg = [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg')].find((s) => (w === 'chat') === Boolean(s.closest('#streamdown-root'))) as SVGSVGElement | undefined;
+    if (!svg) return null;
+    const box = svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const scale = rect.width / box.width;
+    const labels: Array<{ text: string; px: number; boxPx: number; left: number; right: number }> = [];
+    const walker = document.createTreeWalker(svg, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement!;
+      if (!n.nodeValue?.trim() || el.closest('style, title, desc')) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const r = range.getBoundingClientRect();
+      // its font size, scaled as the drawing is shown; and, apart from that, the height of its text's own box on screen
+      labels.push({ text: n.nodeValue.trim(), px: parseFloat(getComputedStyle(el).fontSize) * scale, boxPx: r.height, left: r.left, right: r.right });
+    }
+    return { scale, left: rect.left, labels };
+  }, where);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    it(`the ✨ sample's diagram labels are at least 12 px at ${viewport.width} wide, in the chat and in fullscreen, its start shown first; zoom, pan, Reset and fullscreen work; the column fits the window; nothing from elsewhere, no policy violated (R4 H104)`, async () => {
+      const { page, context, seen } = await open({ viewport });
+      try {
+        await connected(page);
+        await tab(page, 'streamdown');
+        await page.click('#sd-try');
+        await page.waitForSelector('[data-card="approval"]', { timeout: 30_000 });
+        await idle(page);
+        await drawn(page);
+        const block = page.locator('#sd-messages [data-streamdown="mermaid-block"]').last();
+        // the drawing given its size (data-fit, by the chat's script); what is measured below decides, whether or not it is
+        await page.waitForFunction(() => Boolean(document.querySelector('#streamdown-root [aria-label="Mermaid chart"] > svg[data-fit]')), null, { timeout: 5_000 }).catch(() => undefined);
+        const shown = (await shownLabels(page, 'chat'))!;
+        expect(shown.labels.map((l) => l.text)).toEqual(['User Prompt', 'POST /chat SSE', 'Streamdown Parser', 'receipt Card', 'approval Gate', 'Mermaid Diagram']);
+        for (const l of shown.labels) {
+          expect(l.px, `${l.text} at ${viewport.width}`).toBeGreaterThanOrEqual(12);
+          expect(l.boxPx, `${l.text}'s text box at ${viewport.width}`).toBeGreaterThanOrEqual(12);
+        }
+        // its start is shown first: the first label is inside the diagram's block
+        const area = block.locator('[role="application"]');
+        const blockBox = (await block.boundingBox())!;
+        expect(shown.labels[0].left).toBeGreaterThanOrEqual(blockBox.x);
+        // the page's column fits the window (at 390 it was laid out 712 px wide)
+        expect(await page.evaluate(() => document.querySelector('.right-col')!.getBoundingClientRect().right)).toBeLessThanOrEqual(viewport.width + 1);
+        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing
+        const settle = (): Promise<void> => page.waitForTimeout(400); // its transform eases in 150 ms
+        await block.locator('button[title="Zoom in"]').click();
+        await settle();
+        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(1.1, 2);
+        await block.locator('button[title="Zoom out"]').click();
+        await block.locator('button[title="Zoom out"]').click();
+        await settle();
+        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(0.9, 2);
+        await block.locator('button[title="Reset zoom and pan"]').click();
+        await settle();
+        expect((await shownLabels(page, 'chat'))!.scale).toBeCloseTo(shown.scale, 3);
+        // pan: a drag moves the drawing by as much; Reset brings it back
+        const a = (await area.boundingBox())!;
+        await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(a.x + a.width / 2 - 120, a.y + a.height / 2, { steps: 12 });
+        await page.mouse.up();
+        await settle();
+        expect((await shownLabels(page, 'chat'))!.left - shown.left).toBeCloseTo(-120, 0);
+        await block.locator('button[title="Reset zoom and pan"]').click();
+        await settle();
+        expect((await shownLabels(page, 'chat'))!.left).toBeCloseTo(shown.left, 0);
+        // fullscreen: the drawing in Streamdown's own view (in the page's body), its labels at least 12 px too; Escape closes it
+        await block.locator('[data-streamdown="mermaid-block-actions"] button[title="View fullscreen"]').click();
+        await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg')].some((s) => !s.closest('#streamdown-root')), null, { timeout: 15_000 });
+        await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg[data-fit]')].some((s) => !s.closest('#streamdown-root')), null, { timeout: 5_000 }).catch(() => undefined);
+        const full = (await shownLabels(page, 'fullscreen'))!;
+        expect(full.labels.map((l) => l.text)).toContain('User Prompt');
+        for (const l of full.labels) expect(l.px, `fullscreen ${l.text} at ${viewport.width}`).toBeGreaterThanOrEqual(12);
+        expect(full.labels[0].left).toBeGreaterThanOrEqual(0);
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => document.querySelectorAll('[aria-label="Mermaid chart"] > svg').length === 1, null, { timeout: 5_000 });
+        // nothing from elsewhere; the policy refused nothing; no error
+        expect(seen.outside).toEqual([]);
+        for (const r of seen.requests) expect(new URL(r).origin, r).toBe(base);
+        expect(await violations(page)).toEqual([]);
+        expect(seen.errors).toEqual([]);
+      } finally { await context.close(); }
+    });
+  }
 });
