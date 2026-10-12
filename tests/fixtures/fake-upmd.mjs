@@ -37,6 +37,12 @@
 // Like upmd (r18 saw each block's bash in a session of its own), each block runs in a session of its
 // own; unlike upmd, its output comes through pipes, not a terminal of its own, so it gets no hangup
 // when this process ends. The pipe mode (stdout not a terminal) is unchanged.
+//
+// Round R4 (H107; r25 on the operator's Mac, finding D5): with FAKE_UPMD_WRAP=1 in its environment the
+// pty mode also wraps each line a block prints at its terminal's width less the two-space indent,
+// mid-word, and at 40 columns when its terminal has no size (a new pty's is 0 by 0). This models what
+// r25 saw (upmd's output in a job's log wrapped at about 40 columns, mid-word, on a terminal that had no
+// size); upmd's own rule is not known. Without the variable nothing is wrapped, as before.
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeSync } from 'node:fs';
 import { isatty } from 'node:tty';
@@ -115,6 +121,14 @@ async function runOnTerminal() {
   const E = '\x1b';
   const quiet = `${E}[38;2;130;130;146m`;
   const lang = (l) => (l ? l[0].toUpperCase() + l.slice(1) : 'Text');
+  // R4 (H107): the FAKE model of r25's wrapping (see the header); its width is read once, as the run starts
+  const wrapAt = process.env.FAKE_UPMD_WRAP === '1' ? Math.max(1, (process.stdout.columns || 40) - 2) : 0;
+  const wrapped = (l) => {
+    if (!wrapAt || l.length <= wrapAt) return [l];
+    const parts = [];
+    for (let i = 0; i < l.length; i += wrapAt) parts.push(l.slice(i, i + wrapAt));
+    return parts;
+  };
   out(`${E}[?25l\n`);
   for (const block of order) {
     const header = `${E}[48;2;60;60;76m${quiet} [${E}[38;2;203;166;247m${block.n}${E}[0m${E}[48;2;60;60;76m${quiet}/${blocks.length}]${quiet} ${lang(block.lang)}`
@@ -136,9 +150,9 @@ async function runOnTerminal() {
         data: (chunk) => {
           const lines = (rest + chunk.toString('utf8')).split('\n');
           rest = lines.pop();
-          if (lines.length) { output.push(...lines); draw(); }
+          if (lines.length) { output.push(...lines.flatMap(wrapped)); draw(); }
         },
-        end: () => { if (rest) output.push(rest); rest = ''; },
+        end: () => { if (rest) output.push(...wrapped(rest)); rest = ''; },
       };
     };
     const o = reader();
