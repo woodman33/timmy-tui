@@ -34,6 +34,8 @@ afterEach(async () => {
 const LOADER = createRequire(import.meta.url).resolve('tsx');
 const BIN = path.join(REPO, 'timmy.ts');
 const HOLD = path.join(REPO, 'tests', 'fixtures', 'slow-end-read.cjs');
+/** R4 (H114): FAKE, a stop held at its first signal until the test releases it (see the H88 describe below). */
+const STOP_HOLD = path.join(REPO, 'tests', 'fixtures', 'slow-stop.cjs');
 const F = '```';
 const LONG = ['# Long', '', `${F}bash [name:first]`, 'echo ready', F, '', `${F}bash [name:long, deps:first]`, 'touch long.started', 'sleep 30', F, ''].join('\n');
 
@@ -132,8 +134,16 @@ describe('timmy md: the same', () => {
  *
  * Two shapes: r23's own (a plain `sleep 30` block: here its stop may end within the 80 ms, so the second signal may land in
  * the stop or just after it, and either way the JSON is printed and no record is left running), and a block that ignores
- * SIGTERM (`trap '' TERM`, a real block slow to stop: its stop then takes the pty wrapper's grace, 0.8 s, so the second signal
- * lands inside the stop every time, and what was settled at once is checked).
+ * SIGTERM (`trap '' TERM`, a real block slow to stop: its stop then takes the pty wrapper's grace, 0.8 s), where what was
+ * settled at once is checked.
+ *
+ * R4 (H114; the lead's full suite at c56303c, a loaded machine): 80 ms after the first is not inside the stop for certain.
+ * That suite's run of the held shape got the normal stop (why "SIGINT received; job … stopped", its four receipts sealed):
+ * two SIGINTs that reach the process before it has handled the first are one (a signal of a kind is pending once), and a
+ * test's timer that fires after the stop (about 1 s) sends the second into nothing (tests/suite-causes-md-signals.test.ts
+ * reproduces both). So the held shape's second SIGINT is sent while the FAKE slow stop (tests/fixtures/slow-stop.cjs) holds
+ * the process at its stop's first signal: its held file says the first SIGINT was handled, and the stop cannot end before
+ * the test releases it, after sending the second.
  */
 describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop: exit 3 at once, the end JSON printed, the records settled', () => {
   const SLOW = ['# Slow to stop', '', `${F}bash [name:first]`, 'echo ready', F, '', `${F}bash [name:long, deps:first]`, "trap '' TERM", 'touch long.started', 'sleep 30', F, ''].join('\n');
@@ -147,6 +157,21 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
     group(r, 'SIGINT');
     await new Promise((z) => { setTimeout(z, 80); });
     group(r, 'SIGINT');
+  };
+  /** R4 (H114): the FAKE slow stop for one run (tests/fixtures/slow-stop.cjs), armed from the start (it acts only at its stop). */
+  const stopHold = (s: Sandbox): { env: NodeJS.ProcessEnv; held: string; release: string } => {
+    const arm = path.join(s.base, 'stop.arm');
+    const held = path.join(s.base, 'stop.held');
+    const release = path.join(s.base, 'stop.release');
+    fs.writeFileSync(arm, '');
+    return { held, release, env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${STOP_HOLD}`.trim(), TIMMY_TEST_STOP_ARM: arm, TIMMY_TEST_STOP_HELD: held, TIMMY_TEST_STOP_RELEASE: release } };
+  };
+  /** R4 (H114): a second SIGINT inside the first one's stop, for certain: sent once the stop is held at its first signal, then released. */
+  const insideTheStop = async (r: Run, h: { held: string; release: string }): Promise<void> => {
+    group(r, 'SIGINT');
+    await until(() => fs.existsSync(h.held), 60_000, 'the first SIGINT\'s stop, held at its first signal');
+    group(r, 'SIGINT');
+    fs.writeFileSync(h.release, '');
   };
   const record = (file: string): Record<string, unknown> => JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   const jobRecord = (s: Sandbox, id: string): Record<string, unknown> => record(path.join(s.home, 'timmy', 'jobs', `${id}.json`));
@@ -185,9 +210,10 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
 
   it('timmy md, inside the stop (a block that ignores SIGTERM): the JSON says it exited at once, what it settled, what it did not seal and what /recover does; the records say so; /recover then seals the cut block, once', async () => {
     const s = box('h88-md-held-', SLOW);
-    const r = timmy(s, ['md', 'LONG.md', 'long', '--json']);
+    const hs = stopHold(s);
+    const r = timmy(s, ['md', 'LONG.md', 'long', '--json'], hs.env);
     await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
-    await twice(r);
+    await insideTheStop(r, hs);
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
     const j = lastJson(d.stdout);
@@ -258,9 +284,10 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
 
   it('timmy act \'/run …\', inside the stop (a block that ignores SIGTERM): its JSON says it exited at once and settled the run\'s job record', async () => {
     const s = box('h88-act-held-', SLOW);
-    const r = timmy(s, ['act', '/run LONG.md long', '--wait', '--json']);
+    const hs = stopHold(s);
+    const r = timmy(s, ['act', '/run LONG.md long', '--wait', '--json'], hs.env);
     await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
-    await twice(r);
+    await insideTheStop(r, hs);
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
     const j = lastJson(d.stdout);
