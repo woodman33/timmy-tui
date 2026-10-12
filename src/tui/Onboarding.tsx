@@ -221,7 +221,7 @@ export function Onboarding({ agent, onDone, onQuit, teach = false, by = 'the mon
             <Text bold color={theme.accent}>Terminal-first Agent Trust OS — Flight Recorder for AI Agent Runs</Text>
             <Text color={theme.textSecondary}>Every action seals a cryptographic receipt. Targets are not receipts.</Text>
             {pending.length ? (
-              <Text color={theme.textPrimary} wrap="wrap">{`${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet: ${pending.map((q) => q.title.replace(/ \(.*\)$/, '')).join(', ')}. The same ones timmy init asks; the answers are saved in ${where}.`}</Text>
+              <Text color={theme.textPrimary} wrap="wrap">{`${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet: ${pending.map((q) => q.title.replace(/ \(.*\)$/, '').replace(/:.*$/, '')).join(', ')}. The same ones timmy init asks; the answers are saved in ${where}.`}</Text>
             ) : (
               <Text color={theme.textPrimary} wrap="wrap">{`Every setup question has an answer: ${setupSummary(state)}.`}</Text>
             )}
