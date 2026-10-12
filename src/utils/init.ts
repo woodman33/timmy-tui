@@ -18,6 +18,7 @@ import { join, resolve, relative, isAbsolute } from 'node:path';
 import { identityPath as identityPathOf, isBlankSlate as blankSlate, privateDir as privateDirOf, prettyPath, settingsFile, setupPath, timmyHome as homeOf, workspaceRoot as workspaceOf } from '../setup/home.js';
 import { OLLAMA_DEFAULT, PROJECT_DEFAULT, OPERATOR_DEFAULT, pendingQuestions, readSetupState, setupSummary, type Answers, type Chat, type QuestionId, type SetupState } from '../setup/questions.js';
 import { askSetup, terminalIO, wrap, type SetupIO } from '../setup/terminal.js';
+import { atWords, cloudModelTag, listOllamaModels, listProblem, PULL_WORDS, validOllamaModelName } from '../setup/ollama-models.js';
 import { identityProblem, isNewKey, seedIdentity, type Identity } from '../setup/identity.js';
 
 // the identity parser lives with the setup's questions (one parser for the question and the writer)
@@ -49,11 +50,12 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('  in a terminal) asks these and writes only to:');
   log(`    ${relPretty(timmyHome())}/`);
   log(`    ${relPretty(privateDir())}/`);
-  log('    <repo>/.timmy/store-pin (the receipts store)\n');
+  // R4 (H103, D12): the store pin in the same words, path and form as the setup's "Will write only to" (writesFor)
+  log(`    ${storePinWords()}\n`);
   for (const [k, q] of QUESTIONS) log(`    ${k.padEnd(10)} ${q}`);
   log('\n  Without questions: timmy init --yes, and any of');
   log('    --operator <name>  --seed generate|<key file>|-');
-  log('    --ollama <host>  --chat local|openrouter');
+  log('    --ollama <host>  --chat local|openrouter  --model <name>');
   log('    --openrouter -  --project <name>  --edge-host <host>');
   log('    --json');
   log('  - reads the key from stdin: a key in a command\'s');
@@ -62,6 +64,12 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('  Logs and run events stay on this computer.\n');
 }
 const relPretty = (p: string): string => prettyPath(p);
+/**
+ * R4 (H103, D12): the receipts store pin as a person reads it, the one wording the blank-slate text (exit 78) and the setup's
+ * Proceed screen both use: the workspace's .timmy/store-pin, its folder as prettyPath says it (~ for the home folder, <repo>
+ * for a workspace outside it). They said "<repo>/.timmy/store-pin" and "~/work/.timmy/store-pin" for the same file.
+ */
+export const storePinWords = (repoRoot: string = workspaceRoot()): string => `${relPretty(join(repoRoot, '.timmy', 'store-pin'))} (the receipts store)`;
 
 export interface InitOptions {
   yes: boolean; json: boolean;
@@ -69,6 +77,8 @@ export interface InitOptions {
   operator?: string; seed?: string; openrouter?: string; anthropic?: string; ollama?: string; project?: string; edgeHost?: string;
   /** R4 (H98): `--chat local|openrouter` */
   chat?: Chat;
+  /** R4 (H103): `--model <name>`: the local chat's model, checked against what the Ollama lists (never downloaded) */
+  model?: string;
   /** a flag with a value it cannot take, in words */
   error?: string;
 }
@@ -83,6 +93,13 @@ export function parseInitArgs(args: string[]): InitOptions {
   o.ollama = v('--ollama'); o.project = v('--project');
   const chat = v('--chat');
   if (chat !== undefined) { if (chat === 'local' || chat === 'openrouter') o.chat = chat; else o.error = `--chat takes local or openrouter, not ${chat}.`; }
+  // R4 (H103): the local chat's model, by the name Ollama lists it under (checked against that list before anything is written)
+  const model = v('--model');
+  if (model !== undefined) {
+    if (!validOllamaModelName(model)) o.error = `--model takes a model's name as Ollama lists it (ollama list shows them), not ${JSON.stringify(model)}.`;
+    else if (o.chat === 'openrouter') o.error = '--model names the local chat\'s model: it goes with --chat local (OpenRouter\'s model is OPENROUTER_MODEL).';
+    else o.model = model;
+  }
   const logs = v('--logs');
   if (logs !== undefined && logs !== 'local') o.error = logs === 'cloud' ? LOGS_CLOUD_REFUSED : `--logs takes local, not ${logs}.`;
   const edge = v('--edge-host');
@@ -101,6 +118,7 @@ export function answersFromFlags(o: InitOptions): Answers {
     ...(o.seed !== undefined ? { identity: o.seed } : {}),
     ...(o.ollama !== undefined ? { ollama: o.ollama } : {}),
     ...(o.chat ? { chat: o.chat } : o.openrouter ? { chat: 'openrouter' as Chat } : {}),
+    ...(o.model !== undefined ? { model: o.model } : {}),
     ...(o.openrouter !== undefined ? { key: o.openrouter } : {}),
     ...(o.anthropic !== undefined ? { anthropic: o.anthropic } : {}),
     ...(o.edgeHost !== undefined ? { edge: o.edgeHost } : {}),
@@ -286,7 +304,7 @@ function writesFor(state: SetupState, repoRoot: string, newKey = false): string[
   const settings = settingsKeyPlan(timmyHome(), newKey ? 'given' : undefined);
   return [
     `${relPretty(timmyHome())}/`, `${relPretty(privateDir(repoRoot))}/`,
-    ...(existsSync(pin) ? [] : [`${relPretty(pin)} (the receipts store)`]),
+    ...(existsSync(pin) ? [] : [storePinWords(repoRoot)]),
     ...(settings && settings.plan !== 'keep' ? [`${relPretty(settings.at.file)} (its model key ${settings.plan === 'move' ? 'moves to' : 'leaves it for'} providers.json)`] : []),
   ];
 }
@@ -307,7 +325,7 @@ export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO =
   if (!pending.length && !Object.keys(given).length) {
     io.log('');
     say(io.log, `Every setup question has an answer: ${setupSummary(state)}.`);
-    say(io.log, 'To change one: timmy init --chat local|openrouter, --ollama <host> or --operator <name>; a model key: /setup key in the REPL, or timmy init --openrouter - (the key from stdin). An identity is never replaced.');
+    say(io.log, 'To change one: timmy init --chat local|openrouter, --model <name> (the local model, one Ollama lists), --ollama <host> or --operator <name>; a model key: /setup key in the REPL, or timmy init --openrouter - (the key from stdin). An identity is never replaced.');
     io.log('');
     return 0;
   }
@@ -402,6 +420,22 @@ async function readDash(what: string, log: (s: string) => void): Promise<string 
 /** A key (or a seed) written in a command's arguments: other processes see it and the shell's history keeps it. */
 export const KEY_IN_ARGUMENTS = 'A key given in a command\'s arguments is visible to other processes (ps) and kept in your shell history: next time, give - and pipe it in (timmy init --yes --openrouter - < a file), or answer the questions, which hide it.';
 
+/**
+ * R4 (H103): `--model <name>` is the local chat's model: the chat must be local (given now, or recorded), and the Ollama the
+ * setup names must list it (GET /api/tags, as the chat question lists them). Nothing is downloaded. Words and an exit status
+ * (2 a model it does not list, or a chat that is not local; 1 an Ollama that did not answer), or null: it may be written.
+ */
+async function modelRefusal(model: string, o: InitOptions): Promise<{ words: string; code: number } | null> {
+  const state = readSetupState();
+  const chat = o.chat ?? state.recorded?.answers.chat;
+  if (chat !== 'local') return { words: `--model names the local chat's model: give --chat local with it (the chat is set to ${chat === 'openrouter' ? 'OpenRouter' : 'nothing yet'}). Nothing was written.`, code: 2 };
+  const host = o.ollama ?? state.providers.ollama ?? state.recorded?.answers.ollama ?? OLLAMA_DEFAULT;
+  const list = await listOllamaModels(host, { timeoutMs: 5000 });
+  if (!list.ok) return { words: `Nothing was written: ${listProblem(list, host)}, so Timmy cannot check that it lists ${model}. Start Ollama (the Ollama app, or ollama serve), then run this again.`, code: 1 };
+  if (!list.models.some((m) => m.name === model)) return { words: `Nothing was written: ${atWords(list.at)} lists no model named ${model}. ${PULL_WORDS.replace('<model>', model)} Then run this again.`, code: 2 };
+  return null;
+}
+
 /** The wizard. Returns the process exit code. */
 export async function runInit(args: string[], io: { isTTY: boolean; log: (s: string) => void; question?: (q: string) => Promise<string> } = { isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY), log: console.log }): Promise<number> {
   const o = parseInitArgs(args);
@@ -419,6 +453,11 @@ export async function runInit(args: string[], io: { isTTY: boolean; log: (s: str
   }
   if (!o.yes && !io.isTTY) { printBlankSlateBanner(io.log); io.log('  (no TTY: nothing written — answer with flags and --yes)'); return 0; }
   const given = answersFromFlags(o);
+  if (o.model !== undefined) {
+    const refused = await modelRefusal(o.model, o);
+    if (refused) { say(io.log, refused.words); return refused.code; }
+    if (cloudModelTag(o.model)) say(io.log, `${o.model} is cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).`);
+  }
   if (o.yes) {
     const state = readSetupState();
     const refused = identityRefusal(state, given);

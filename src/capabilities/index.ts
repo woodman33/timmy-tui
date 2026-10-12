@@ -27,6 +27,8 @@ import type { ChainEvidence, RunMark } from './evidence.js';
 import type { Ladder, NotReached, Rung } from './ladder.js';
 import { ladderFor, type Probes, type Timed } from './ladder-rows.js';
 import { ollamaRow, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
+import type { ChatRoute } from '../agent/chat-route.js'; // R4 (H103): the REPL row's route
+import { atWords } from '../setup/ollama-models.js';
 
 export type { Rung } from './ladder.js';
 export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter' | 'vox';
@@ -122,6 +124,11 @@ export interface ProbeDeps {
   qualificationRoot?: () => string | undefined;
   /** R4 (H76): the local Ollama's address, as its probe asks it (said in the reachable evidence). */
   ollamaBase?: string;
+  /**
+   * R4 (H103): the chat's route as the REPL resolves it (src/agent/chat-route.ts resolveChatRoute): the REPL's row says it (the
+   * local model needs no key). Absent: the row says the model key only, as before.
+   */
+  chatRoute?: () => ChatRoute | null;
 }
 
 export const KIND_TITLES: Record<Kind, string> = {
@@ -162,10 +169,19 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   const program = (id: string, kind: Kind, name: string, bin: string, ok: string, setup: string, tools?: string[]): void =>
     add(d.onPath(bin) ? { id, kind, name, rung: 'installed', detail: ok, ...(tools ? { tools } : {}) } : { id, kind, name, rung: 'needs setup', detail: `${bin} is not on PATH`, setup, ...(tools ? { tools } : {}) });
 
-  // ── where you work
-  add(keySource
-    ? { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'installed', detail: `model key from ${keySource === 'environment' ? 'the environment' : keySource}` }
-    : { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'needs setup', detail: 'no model key', setup: 'timmy init, or export OPENROUTER_API_KEY' });
+  // ── where you work. R4 (H103): the REPL's row says the chat's route, the setup's: on the local model no key is needed
+  const chat = ((): ChatRoute | null => { try { return d.chatRoute?.() ?? null; } catch { return null; } })();
+  if (chat?.kind === 'local') {
+    add(chat.model && !('error' in chat.at)
+      ? { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'installed', detail: `chat: local ${chat.model} · ${atWords(chat.at)}${chat.cloud ? ', cloud-backed' : ''} (no model key needed)` }
+      : 'error' in chat.at
+        ? { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'needs setup', detail: 'chat: local · its Ollama address is not one Timmy uses', setup: 'timmy init --chat local --ollama <host>, or /setup chat in the REPL' }
+        : { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'needs setup', detail: 'chat: local · no model chosen', setup: 'timmy init --chat local --model <name>, or /model in the REPL' });
+  } else {
+    add(keySource
+      ? { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'installed', detail: `${chat ? 'chat: OpenRouter · ' : ''}model key from ${keySource === 'environment' ? 'the environment' : keySource}` }
+      : { id: 'repl', kind: 'surface', name: 'REPL (timmy)', rung: 'needs setup', detail: 'no model key', setup: 'timmy init, or export OPENROUTER_API_KEY' });
+  }
   if (studio.state === 'running') {
     add({ id: 'canvas', kind: 'surface', name: 'Timmy Canvas (/canvas)', rung: 'reachable', detail: `${page} · ${studio.pageConnected === true ? 'page open' : studio.pageConnected === false ? 'no page open: /canvas open' : 'page state unknown'}` });
   } else if (studio.state === 'other') {

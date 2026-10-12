@@ -2,6 +2,8 @@ import { getWorkspaceEvidenceStatus } from '../src/utils/workspace-evidence.js';
 import { depsDoctor, networkDoctor, hardwareDoctor, printRows } from '../src/utils/doctors.js';
 import { readiness, readinessLines, runDoctor, NODE_MAJOR } from '../src/utils/doctor.js';
 import { modelKeySource } from '../src/utils/model-key.js';
+import { readDotEnv } from '../src/utils/dotenv.js';
+import { chatReadiness } from '../src/agent/chat-readiness.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { VERSION } from '../src/version.js';
 
@@ -32,15 +34,21 @@ async function printDoctor(json = false): Promise<void> {
     });
   } catch { /* chain unwritable: doctor still reports */ }
   // What works here: the REPL apart from the optional lanes; the exit code is the REPL's (0, 78 or 1).
-  const ready = readiness(pre, { node: process.versions.node, key: modelKeySource() !== null });
+  // R4 (H103): the chat's route as the REPL resolves it (the working folder's .env steers it as it steers the REPL): on the
+  // local route the model needs no key, so the doctor says that route instead of "no model key"
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const [k, v] of Object.entries(readDotEnv(process.cwd()))) if (env[k] === undefined) env[k] = v;
+  const chat = await chatReadiness({ env, node: process.versions.node, keySource: modelKeySource() });
+  const ready = readiness(pre, { node: process.versions.node, key: chat.answers });
   process.exitCode = ready.exit;
+  const local = chat.route === 'local' && ready.repl.state !== 'unsupported';
   const rmux = workspace.rmux;
   const tmuxSessions = workspace.tmux.sessions;
   const palette = workspace.palette;
   const zellij = workspace.zellij;
 
   if (json) {
-    console.log(JSON.stringify({ ...workspace, preflight: pre, readiness: ready }, null, 2));
+    console.log(JSON.stringify({ ...workspace, preflight: pre, readiness: ready, chat: chat.json }, null, 2));
     return;
   }
 
@@ -73,10 +81,13 @@ async function printDoctor(json = false): Promise<void> {
   console.log('');
   // The operator's 22:23 order: no "Ready for demo: YES" beside a blocked preflight. Each capability says
   // what it can do here, and the exit code is documented in the output itself.
-  for (const line of readinessLines(ready)) console.log(line);
+  for (const line of readinessLines(ready)) {
+    console.log(local && chat.replLine && /^ {2}[✓!] REPL:/.test(line) ? chat.replLine : local && chat.exitLine && /^Exit \d+:/.test(line) ? chat.exitLine : line);
+  }
   // Works from an installed package (the 20:14 order): there is no `npm start` outside a checkout.
   const wait = pre.ok ? '' : '; the lanes wait for the required checks above';
   console.log(ready.repl.state === 'unsupported' ? `Next step: install Node ${NODE_MAJOR} or later, then run \`timmy doctor\` again.`
+    : local && chat.next ? `${chat.next.replace(/\.$/, '')}${wait}.`
     : ready.repl.state === 'no-key' ? `Next step: \`timmy\` opens the REPL, where /setup says how to add the model key${wait}.`
       : `Next step: \`timmy\` opens the REPL${wait}.`);
 }
