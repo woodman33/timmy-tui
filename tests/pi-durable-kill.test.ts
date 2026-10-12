@@ -105,7 +105,7 @@ describe.skipIf(!INSTALLED)(`SIGKILL of the Pi worker and its restart (plan i.1)
     const paused = await status(b.client, d.run);
     expect(paused.status).toBe('interrupted');
     expect(paused.tasks.find((t) => t.kind === 'pi.generation')).toMatchObject({ phase: 'request' });
-    expect(paused.cost).toEqual({ usd: null, words: IN_FLIGHT_COST });
+    expect(paused.cost).toMatchObject({ usd: null, basis: 'unknown', measured: false, words: IN_FLIGHT_COST });
     expect(fauxCalls(root, d.run)).toHaveLength(1);
 
     await b.client.request('resume');
@@ -117,7 +117,7 @@ describe.skipIf(!INSTALLED)(`SIGKILL of the Pi worker and its restart (plan i.1)
     const assistant = end.entries.filter((e) => e.kind === 'pi.assistant');
     expect(assistant.map((e) => e.stop)).toEqual(['aborted', 'stop']);
     expect(assistant[0].text.length).toBeGreaterThan(0);
-    expect(end.cost.words).toBe(IN_FLIGHT_COST);
+    expect(end.cost).toMatchObject({ usd: null, words: IN_FLIGHT_COST }); // the resend does not make the cost known again
     await b.client.request('shutdown');
     b.client.close();
   });

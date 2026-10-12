@@ -11,6 +11,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { dirname } from 'node:path';
 import { THIS_PROCESS, writerState } from '../ops/process-proof.js';
 import type { PiPaths } from './paths.js';
+import type { WorkerSetting } from './protocol.js';
 
 export const OWNER_SCHEMA = 'timmy.pi-worker/1';
 
@@ -27,8 +28,8 @@ export interface OwnerRecord {
   readonly pins: Record<string, string>;
   readonly node: string;
   readonly scheduling: 'paused' | 'running';
-  /** S1: what the worker does when Timmy exits. "pause" is the plan's proposed default; the operator has not decided it. */
-  readonly setting: { readonly on_exit: 'pause' };
+  /** what the worker does when Timmy exits ("pause" is the plan's proposed default; the operator has not decided it), its idle exit and lease grace */
+  readonly setting: WorkerSetting;
   readonly written: string;
 }
 

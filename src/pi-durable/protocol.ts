@@ -6,18 +6,38 @@
  * `{id, method, params}` and each answer `{id, ok: true, result}` or `{id, ok: false, error}`; requests on one
  * connection may be answered out of order (a Stop that waits for a deaf tool does not hold a status read).
  *
- * Frozen for S2 (records, the follower job) and S3 (the delegation tools): PROTOCOL_VERSION and the methods below.
+ * An authenticated connection is a LEASE (plan b.2): the worker knows which Timmy processes are attached (hello's pid,
+ * process start and surface), drops a lease when its connection closes or its process is proven gone, and treats "no
+ * lease for the grace period" as Timmy's exit.
+ *
+ * FROZEN for S2-S5 as PROTOCOL_VERSION 1: the twelve methods of plan b.1.5 and the parameter and result shapes below.
+ * A change of meaning is a new version.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { chmodSync, rmSync } from 'node:fs';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
+import type { CostWords } from './cost.js';
+import type { EffectRecord } from './effects.js';
+import type { FauxScript } from './faux.js';
 
 export const PROTOCOL_VERSION = 1;
-export const METHODS = ['hello', 'delegate', 'status', 'list', 'stop', 'pause', 'resume', 'shutdown'] as const;
+export const METHODS = ['hello', 'delegate', 'status', 'list', 'events', 'stop', 'pause', 'resume', 'answer', 'message', 'transcript', 'shutdown'] as const;
 export type Method = (typeof METHODS)[number];
 /** A line longer than this ends the connection (a client is never trusted with the worker's memory). */
 export const MAX_LINE = 1024 * 1024;
 
+export type OnExit = 'pause' | 'keep-working';
+export interface WorkerSetting {
+  /** what the worker does when Timmy exits (no lease for lease_grace_ms): "pause" is the plan's proposed default, not yet the operator's decision */
+  readonly on_exit: OnExit;
+  /** with no lease and no live work for this long, the worker exits */
+  readonly idle_ms: number;
+  readonly lease_grace_ms: number;
+  /** whether the trial_shell fixture tool is offered */
+  readonly trial_shell: boolean;
+}
+
+// ── hello ──────────────────────────────────────────────────────────────────────────────────────
 export interface HelloParams { readonly token: string; readonly pid?: number; readonly started?: string; readonly surface?: string }
 export interface HelloResult {
   readonly protocol: number;
@@ -28,14 +48,94 @@ export interface HelloResult {
   readonly pins: Record<string, string>;
   readonly node: string;
   readonly scheduling: 'paused' | 'running';
-  readonly setting: { readonly on_exit: 'pause' };
+  readonly setting: WorkerSetting;
+  /** attached Timmy processes, this one included */
+  readonly leases: number;
 }
 
+// ── delegate, status, list ─────────────────────────────────────────────────────────────────────
+/** S1's one model route is FAKE (pi-ai's scripted faux provider). */
+export interface DelegateParams { readonly task: string; readonly key?: string; readonly model: { readonly route: 'faux'; readonly script: FauxScript } }
+export type DelegateResult =
+  | { readonly ok: true; readonly started: true; readonly run: string; readonly conversation: number; readonly submission: number; readonly request_id: string; readonly model: string }
+  | { readonly ok: false; readonly refused: string; readonly run?: string; readonly submission?: number };
+
+export type RunWords = 'queued' | 'running' | 'needs you' | 'paused' | 'interrupted' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+export interface NeedsYouItem { readonly key: string; readonly why: string; readonly at: string; readonly answered?: { readonly decision: AnswerDecision; readonly by: string; readonly at: string } }
+export interface StatusResult {
+  readonly run: string;
+  readonly key: string | null;
+  readonly status: RunWords;
+  readonly scheduling: 'paused' | 'running';
+  /** the run's newest submission */
+  readonly submission: { readonly id: number; readonly status: string; readonly reason: string | null; readonly request_id: string | null } | null;
+  readonly submissions: number[];
+  readonly conversation: number | null;
+  readonly tasks: { readonly id: number; readonly kind: string; readonly status: string; readonly phase: string | null; readonly owner: number | null; readonly abort_requested: boolean; readonly inspect: string }[];
+  readonly entries: { readonly id: number; readonly kind: string; readonly stop: string | null; readonly text: string }[];
+  readonly user_entries: number;
+  readonly effects: EffectRecord[];
+  readonly needs_you: NeedsYouItem[];
+  readonly stop_requested: { readonly by: string; readonly at: string } | null;
+  readonly paused: { readonly why: string; readonly at: string } | null;
+  readonly interrupted: { readonly why: string; readonly at: string } | null;
+  readonly cost: CostWords;
+  readonly resubmitted: { readonly submission: number; readonly same: boolean; readonly first?: true }[];
+  readonly messages: { readonly n: number; readonly key?: string; readonly mode: 'steer' | 'followUp'; readonly submission: number }[];
+  readonly ended: { readonly status: RunWords; readonly reason?: string; readonly at: string } | null;
+  readonly model: string;
+}
+export interface ListResult { readonly scheduling: 'paused' | 'running'; readonly runs: { readonly run: string; readonly key: string | null; readonly status: RunWords; readonly created: string }[] }
+
+// ── events ─────────────────────────────────────────────────────────────────────────────────────
+/** `after`: the last event number the caller has (0 for all); `wait_ms` (at most 30 s): wait for a newer one before answering. */
+export interface EventsParams { readonly run: string; readonly after?: number; readonly limit?: number; readonly wait_ms?: number }
+/** pi-durable's agent events as they came (experimental upstream), numbered from 1, kept in the run's events file. */
+export interface EventsResult { readonly run: string; readonly events: { readonly n: number; readonly at: string; readonly event: Record<string, unknown> }[]; readonly next: number; readonly more: boolean }
+
+// ── stop, pause, resume ────────────────────────────────────────────────────────────────────────
+export interface StopResult { readonly run: string; readonly result: string; readonly ms?: number; readonly scheduling?: 'paused' | 'running'; readonly status: RunWords }
+export interface PauseResult { readonly scheduling: 'paused'; readonly runs?: string[]; readonly already?: true }
+export interface ResumeResult { readonly scheduling: 'running'; readonly resumed?: { readonly run: string; readonly submission: number; readonly same: boolean; readonly first?: true }[]; readonly already?: true }
+
+// ── answer (a NEEDS YOU decision) ──────────────────────────────────────────────────────────────
+/** accept: the effect is taken as done; retry: one more attempt is allowed (its earlier outcome stays unknown); stop: the run stops. */
+export type AnswerDecision = 'accept' | 'retry' | 'stop';
+export interface AnswerParams { readonly run: string; readonly key: string; readonly decision: AnswerDecision }
+export type AnswerResult =
+  | { readonly ok: true; readonly run: string; readonly key: string; readonly decision: AnswerDecision; readonly ledger: EffectRecord | null; readonly stop?: StopResult }
+  | { readonly ok: false; readonly refused: string };
+
+// ── message (steer or follow-up) ───────────────────────────────────────────────────────────────
+export interface MessageParams { readonly run: string; readonly text: string; readonly mode: 'steer' | 'followUp'; readonly key?: string }
+export type MessageResult =
+  | { readonly ok: true; readonly run: string; readonly n: number; readonly submission: number; readonly request_id: string; readonly mode: 'steer' | 'followUp' }
+  | { readonly ok: false; readonly refused: string; readonly n?: number; readonly submission?: number };
+
+// ── transcript ─────────────────────────────────────────────────────────────────────────────────
+export interface TranscriptParams { readonly run: string; readonly after?: number; readonly limit?: number }
+export interface TranscriptEntry {
+  readonly id: number; readonly kind: string; readonly by_task: number | null; readonly role: string | null; readonly stop: string | null;
+  readonly text: string; readonly tool_calls: { readonly id: string; readonly name: string; readonly arguments: unknown }[]; readonly error: string | null;
+}
+export interface TranscriptResult { readonly run: string; readonly conversation: number | null; readonly note: string; readonly entries: TranscriptEntry[]; readonly more: boolean }
+
+// ── shutdown ───────────────────────────────────────────────────────────────────────────────────
+export interface ShutdownResult { readonly ok: true; readonly on_exit: 'pause'; readonly words: string }
+
+// ── the server ─────────────────────────────────────────────────────────────────────────────────
 export interface Request { readonly id: number; readonly method: string; readonly params?: unknown }
 export type Response = { readonly id: number; readonly ok: true; readonly result: unknown } | { readonly id: number; readonly ok: false; readonly error: string };
 
-export interface Peer { readonly pid?: number; readonly started?: string; readonly surface?: string }
+/** One authenticated connection: a lease. */
+export interface Peer { readonly id: number; readonly pid?: number; readonly started?: string; readonly surface?: string; readonly since: number }
 export type Handler = (method: Method, params: Record<string, unknown>, peer: Peer) => Promise<unknown>;
+export interface LeaseHooks {
+  /** a connection said hello with the token: a lease begins (`end()` closes it) */
+  opened(peer: Peer, end: () => void): void;
+  /** its connection closed */
+  closed(peer: Peer): void;
+}
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
 
@@ -56,9 +156,10 @@ function lines(socket: Socket, onLine: (line: string) => void): void {
 }
 
 /** Listens on the socket path (a stale file there is removed first: the caller holds the store's lock). */
-export async function serve(socketPath: string, tokenSha256Hex: string, handler: Handler, hello: () => HelloResult): Promise<Server> {
+export async function serve(socketPath: string, tokenSha256Hex: string, handler: Handler, hello: (peer: Peer) => HelloResult, leases?: LeaseHooks): Promise<Server> {
   rmSync(socketPath, { force: true });
   const expected = Buffer.from(tokenSha256Hex, 'hex');
+  let nextPeer = 1;
   const server = createServer((socket) => {
     let peer: Peer | undefined;
     const send = (r: Response): void => { if (!socket.destroyed) socket.write(`${JSON.stringify(r)}\n`); };
@@ -74,8 +175,14 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
           socket.end();
           return;
         }
-        peer = { pid: typeof params.pid === 'number' ? params.pid : undefined, started: typeof params.started === 'string' ? params.started : undefined, surface: typeof params.surface === 'string' ? params.surface : undefined };
-        send({ id, ok: true, result: hello() });
+        peer = {
+          id: nextPeer++, since: Date.now(),
+          pid: typeof params.pid === 'number' ? params.pid : undefined,
+          started: typeof params.started === 'string' ? params.started : undefined,
+          surface: typeof params.surface === 'string' ? params.surface.slice(0, 64) : undefined,
+        };
+        leases?.opened(peer, () => socket.destroy());
+        send({ id, ok: true, result: hello(peer) });
         return;
       }
       if (!(METHODS as readonly string[]).includes(req.method)) { send({ id, ok: false, error: `no such method: ${String(req.method)}` }); return; }
@@ -85,6 +192,7 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
         (e: unknown) => send({ id, ok: false, error: e instanceof Error ? e.message : String(e) }),
       );
     });
+    socket.on('close', () => { if (peer) leases?.closed(peer); });
     socket.on('error', () => { /* a client that went away */ });
   });
   const was = process.umask(0o077);

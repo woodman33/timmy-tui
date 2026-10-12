@@ -80,7 +80,8 @@ export interface Status {
   tasks: { id: number; kind: string; status: string; phase: string | null; owner: number | null; abort_requested: boolean; inspect: string }[];
   entries: { id: number; kind: string; stop: string | null; text: string }[]; user_entries: number;
   effects: EffectLine[]; needs_you: { key: string; why: string }[]; stop_requested: unknown; paused: { why: string } | null; interrupted: { why: string } | null;
-  cost: { usd: number | null; words: string }; resubmitted: { submission: number; same: boolean }[]; ended: { status: string; reason?: string } | null;
+  cost: { usd: number | null; basis: string; measured: boolean; words: string }; resubmitted: { submission: number; same: boolean }[]; ended: { status: string; reason?: string } | null;
+  submissions: number[]; messages: { n: number; key?: string; mode: string; submission: number }[];
 }
 export const status = (c: PiClient, run: string): Promise<Status> => c.request<Status>('status', { run });
 

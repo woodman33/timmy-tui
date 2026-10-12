@@ -21,6 +21,8 @@ export interface PiPaths {
   readonly log: string;
   readonly effects: string;
   readonly runs: string;
+  /** one line per worker start (the supervisor's start budget, plan b.2) */
+  readonly starts: string;
   readonly fauxCalls: string;
   readonly socket: string;
 }
@@ -39,6 +41,7 @@ export function piPaths(root: string): PiPaths {
     log: join(dir, 'worker.log'),
     effects: join(dir, 'effects.jsonl'),
     runs: join(dir, 'runs'),
+    starts: join(dir, 'starts.jsonl'),
     // FAKE: every request the scripted faux model receives, one line each (the tests count them; spike model.log)
     fauxCalls: join(dir, 'faux-calls.jsonl'),
     socket: join(tmpdir(), `timmy-pi-${id.slice(0, 12)}.sock`),

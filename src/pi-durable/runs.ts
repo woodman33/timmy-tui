@@ -11,10 +11,11 @@ import { join } from 'node:path';
 import { writePrivate } from './owner.js';
 import type { FauxScript } from './faux.js';
 import type { PiPaths } from './paths.js';
+import type { RunWords } from './protocol.js';
 
 export const RUN_SCHEMA = 'timmy.pi-run/1';
 
-export type RunWords = 'queued' | 'running' | 'needs you' | 'paused' | 'interrupted' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+export type { RunWords } from './protocol.js';
 
 export interface Stamp { readonly why: string; readonly at: string }
 
@@ -25,7 +26,12 @@ export interface RunFile {
   readonly task: string;
   readonly request_id: string;
   conversation?: number;
+  /** the delegation's submission (request id timmy:<run>:1) */
   submission?: number;
+  /** every submission of the run in order: the delegation's, then each message's */
+  submissions?: number[];
+  /** steers and follow-ups sent to the run (message n has request id timmy:<run>:<n>, n from 2) */
+  messages?: { readonly n: number; readonly key?: string; readonly mode: 'steer' | 'followUp'; readonly submission: number; readonly by: string; readonly at: string }[];
   /** FAKE: S1's only model route is pi-ai's scripted faux provider */
   readonly model: { readonly route: 'faux'; readonly provider: string; readonly model: 'faux-1'; readonly fake: true; readonly script: FauxScript };
   readonly created: string;
@@ -33,8 +39,9 @@ export interface RunFile {
   paused?: Stamp | null;
   interrupted?: Stamp | null;
   stop_requested?: { readonly by: string; readonly at: string } | null;
-  needs_you?: { readonly key: string; readonly why: string; readonly at: string }[];
-  /** set when a model request was in flight at a kill: it is sent again, and its first cost is never recorded (spike G) */
+  /** NEEDS YOU items; the first answer wins and is recorded (accept · retry · stop) */
+  needs_you?: { readonly key: string; readonly why: string; readonly at: string; answered?: { readonly decision: 'accept' | 'retry' | 'stop'; readonly by: string; readonly at: string } }[];
+  /** set when a model request was in flight when a worker stopped: it is sent again, and its first cost is never recorded (spike G); cost.ts says it */
   cost_unknown?: string | null;
   /** each re-submission with the same request id at a Resume, and whether the store returned the same submission (`first`: none existed yet) */
   resubmitted?: { readonly at: string; readonly submission: number; readonly same: boolean; readonly first?: true }[];
@@ -42,6 +49,12 @@ export interface RunFile {
 }
 
 export const runPath = (paths: PiPaths, run: string): string => join(paths.runs, `${run}.json`);
+/** The run's agent events as the worker received them from pi-durable, one JSON line each, numbered from 1. */
+export const eventsPath = (paths: PiPaths, run: string): string => join(paths.runs, `${run}.events.jsonl`);
+/** The run's newest submission (the one its words describe). */
+export const lastSubmission = (r: RunFile): number | undefined => r.submissions?.at(-1) ?? r.submission;
+/** Whether a NEEDS YOU of the run is still open (not answered). */
+export const openNeedsYou = (r: RunFile): RunFile['needs_you'] => (r.needs_you ?? []).filter((n) => !n.answered);
 
 export function readRun(paths: PiPaths, run: string): RunFile | undefined {
   if (!/^[0-9a-f]{8}$/.test(run)) return undefined;

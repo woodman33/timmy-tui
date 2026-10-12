@@ -1,5 +1,5 @@
 /**
- * Pi Durable, slice S1 (R4 H118): how any Timmy process gets the project's Pi worker (plan b.1.6).
+ * Pi Durable, slice S1 (R4 H118): how any Timmy process gets the project's Pi worker (plan b.1.6, b.2).
  *
  * `ensureWorker(root)`: read worker.json; when its writer is alive (the writerState proof: pid AND process start) and its
  * hello answers with this project's id and store, attach. Otherwise start `node <worker entry> --project <root>`
@@ -7,18 +7,30 @@
  * started worker that exits 3 found the store owned (another starter won the race): attach to that owner. The SQLite
  * lock is the guarantee that one store never has two workers; worker.json is only the directory.
  *
+ * The start budget (plan b.2): at most 3 starts per 10 minutes per project, counted in .timmy/pi/starts.jsonl (a start
+ * that lost the race, exit 3, does not count). Past it nothing is started: a NEEDS YOU with the last lines of
+ * worker.log (`PiNeedsYou`). A store held by a live owner that does not answer is refused with words naming it; Timmy
+ * never kills it by itself.
+ *
+ * `recoverOnStart(root)` is the start-up rule of b.2: the worker is started again only when there is persisted pending
+ * work, the setting allows it ("free local work only", the default, or "never"), and the budget holds; it then resumes
+ * only when every pending run's route costs nothing (S1: the FAKE route), never a run that could cost money.
+ *
  * `attachWorker(root)` only attaches; it never starts anything (what a UI that is just looking does).
  */
-import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { THIS_PROCESS } from '../ops/process-proof.js';
+import { freeRoute } from './cost.js';
 import { ownerState, readOwner, readToken, sha256Hex } from './owner.js';
 import { piPaths, STORE_REL, type PiPaths } from './paths.js';
-import { PiClient } from './protocol.js';
+import { PiClient, type OnExit, type ResumeResult } from './protocol.js';
+import { listRuns } from './runs.js';
 
 export const START_WAIT_MS = 10_000;
+export const START_BUDGET = Object.freeze({ limit: 3, windowMs: 10 * 60_000 });
 /** provider keys the worker never needs in S1 (its only model is FAKE): blanked in its environment, as planAgent blanks OPENROUTER_API_KEY */
 export const BLANKED_KEYS = ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'];
 
@@ -26,9 +38,15 @@ export interface EnsureOptions {
   readonly workerDir?: string;
   /** how long to wait for a started worker's hello (default 10 s) */
   readonly waitMs?: number;
+  /** how long one hello may take (default 5 s) */
+  readonly helloTimeoutMs?: number;
   readonly env?: NodeJS.ProcessEnv;
   /** who is asking, sent in hello */
   readonly surface?: string;
+  /** the worker's exit setting and timings, passed as its arguments when this call starts it */
+  readonly worker?: { readonly onExit?: OnExit; readonly idleMs?: number; readonly leaseGraceMs?: number; readonly trialShell?: boolean };
+  /** the start budget (default 3 per 10 minutes) */
+  readonly budget?: { readonly limit: number; readonly windowMs: number };
 }
 
 export interface Attached {
@@ -39,10 +57,16 @@ export interface Attached {
   readonly spawnedExit?: number | null;
 }
 
+/** Something only a person can settle: the words to show, and the end of the worker's log. */
+export class PiNeedsYou extends Error {
+  readonly needsYou = true;
+  constructor(readonly words: string, readonly log: string) { super(words); this.name = 'PiNeedsYou'; }
+}
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Attaches to the project's live worker, or answers why not (never starts one). */
-export async function attachWorker(root: string, surface = 'timmy'): Promise<PiClient | { error: string }> {
+export async function attachWorker(root: string, surface = 'timmy', helloTimeoutMs = 5000): Promise<PiClient | { error: string }> {
   const paths = piPaths(root);
   const owner = readOwner(paths);
   if (!owner) return { error: 'no Pi worker record (worker.json) in this project' };
@@ -53,7 +77,7 @@ export async function attachWorker(root: string, surface = 'timmy'): Promise<PiC
   if (!token || owner.token_sha256 !== sha256Hex(token)) return { error: 'the Pi worker token does not match worker.json' };
   let client: PiClient;
   try {
-    client = await PiClient.connect(owner.socket, { token, pid: THIS_PROCESS.pid, started: THIS_PROCESS.started, surface }, 5000);
+    client = await PiClient.connect(owner.socket, { token, pid: THIS_PROCESS.pid, started: THIS_PROCESS.started, surface }, helloTimeoutMs);
   } catch (e) { return { error: `the Pi worker (pid ${owner.pid}) did not answer hello: ${e instanceof Error ? e.message : String(e)}` }; }
   if (client.hello.project_id !== paths.projectId || client.hello.store !== STORE_REL || client.hello.pid !== owner.pid) {
     client.close();
@@ -61,7 +85,6 @@ export async function attachWorker(root: string, surface = 'timmy'): Promise<PiC
   }
   return client;
 }
-
 
 /** The worker's entry and how node runs it: the built .js as it is, the source .ts through tsx's loader. */
 export function workerCommand(): { command: string; args: string[] } {
@@ -79,6 +102,21 @@ export function logTail(paths: PiPaths, n = 12): string {
   try { return readFileSync(paths.log, 'utf8').trimEnd().split('\n').slice(-n).join('\n'); } catch { return '(no worker log)'; }
 }
 
+interface StartLine { at: string; pid: number; by_pid?: number; surface?: string; lost_race?: true }
+
+/** The starts that count against the budget in its window: every start, less those that lost the race (exit 3). */
+export function startsInWindow(paths: PiPaths, windowMs: number, now = Date.now()): { pid: number; at: string }[] {
+  let lines: StartLine[] = [];
+  try { lines = readFileSync(paths.starts, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as StartLine); } catch { lines = []; }
+  const lost = new Set(lines.filter((l) => l.lost_race).map((l) => l.pid));
+  return lines.filter((l) => !l.lost_race && !lost.has(l.pid) && now - Date.parse(l.at) < windowMs).map((l) => ({ pid: l.pid, at: l.at }));
+}
+
+const recordStart = (paths: PiPaths, line: StartLine): void => {
+  mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  appendFileSync(paths.starts, `${JSON.stringify(line)}\n`, { mode: 0o600 });
+};
+
 /** Starts one worker, detached, with its output appended to worker.log. */
 function startWorker(paths: PiPaths, opts: EnsureOptions): { pid: number; exited: Promise<number | null> } {
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
@@ -86,9 +124,16 @@ function startWorker(paths: PiPaths, opts: EnsureOptions): { pid: number; exited
   const { command, args } = workerCommand();
   const env: NodeJS.ProcessEnv = { ...(opts.env ?? process.env) };
   for (const k of BLANKED_KEYS) delete env[k];
-  const child = spawn(command, [...args, '--project', paths.root, ...(opts.workerDir ? ['--worker-dir', opts.workerDir] : [])], {
-    cwd: paths.root, env, detached: true, stdio: ['ignore', fd, fd],
-  });
+  const w = opts.worker ?? {};
+  const workerArgs = [
+    '--project', paths.root,
+    ...(opts.workerDir ? ['--worker-dir', opts.workerDir] : []),
+    ...(w.onExit ? ['--on-exit', w.onExit] : []),
+    ...(w.idleMs !== undefined ? ['--idle-ms', String(w.idleMs)] : []),
+    ...(w.leaseGraceMs !== undefined ? ['--lease-grace-ms', String(w.leaseGraceMs)] : []),
+    ...(w.trialShell ? ['--allow-trial-shell'] : []),
+  ];
+  const child = spawn(command, [...args, ...workerArgs], { cwd: paths.root, env, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd);
   const exited = new Promise<number | null>((resolveExit) => {
     child.once('exit', (code) => resolveExit(code));
@@ -106,20 +151,31 @@ function startWorker(paths: PiPaths, opts: EnsureOptions): { pid: number; exited
 export async function ensureWorker(root: string, opts: EnsureOptions = {}): Promise<Attached> {
   const paths = piPaths(root);
   const surface = opts.surface ?? 'timmy';
-  const first = await attachWorker(root, surface);
+  const helloMs = opts.helloTimeoutMs ?? 5000;
+  const first = await attachWorker(root, surface, helloMs);
   if (first instanceof PiClient) return { client: first, how: 'attached' };
   const waitMs = opts.waitMs ?? START_WAIT_MS;
+  const budget = opts.budget ?? START_BUDGET;
   let lastExit: number | null | undefined;
   let spawned: number | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
+    const used = startsInWindow(paths, budget.windowMs);
+    if (used.length >= budget.limit) {
+      const log = logTail(paths);
+      throw new PiNeedsYou(`NEEDS YOU: the Pi worker was started ${used.length} times in the last ${Math.round(budget.windowMs / 60_000)} minutes (pids ${used.map((u) => u.pid).join(', ')}); it is not started again by itself. The end of its log (.timmy/pi/worker.log):\n${log}`, log);
+    }
     const started = startWorker(paths, opts);
     spawned = started.pid;
+    recordStart(paths, { at: new Date().toISOString(), pid: started.pid, by_pid: THIS_PROCESS.pid, surface });
     let exit: number | null | undefined;
-    void started.exited.then((code) => { exit = code; });
+    void started.exited.then((code) => {
+      exit = code;
+      if (code === 3) recordStart(paths, { at: new Date().toISOString(), pid: started.pid, lost_race: true });
+    });
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       await sleep(100);
-      const c = await attachWorker(root, surface);
+      const c = await attachWorker(root, surface, helloMs);
       if (c instanceof PiClient) {
         if (c.hello.pid === started.pid) return { client: c, how: 'started', spawned: started.pid };
         return { client: c, how: 'attached after exit 3', spawned: started.pid, spawnedExit: exit ?? (await Promise.race([started.exited, sleep(3000).then(() => undefined)])) ?? null };
@@ -132,5 +188,33 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
     if (exit === undefined) throw new Error(`the Pi worker (pid ${started.pid}) did not answer hello within ${waitMs} ms: ${logTail(paths)}`);
     // it exited 3 and no owner answered in time: one more start
   }
+  const owner = readOwner(paths);
+  const state = owner ? ownerState(owner) : undefined;
+  if (lastExit === 3 && owner && state !== 'gone') {
+    throw new PiNeedsYou(`NEEDS YOU: the Pi store ${STORE_REL} is held by pid ${owner.pid} (${state}), which did not answer hello within ${helloMs} ms; a second worker cannot open it ("database is locked"). It may be stopped or hung: Timmy does not kill it by itself.`, logTail(paths));
+  }
   throw new Error(`no Pi worker could be started or attached (last start exited ${String(lastExit)}, pid ${String(spawned)}): ${logTail(paths)}`);
+}
+
+export interface RecoverOptions extends EnsureOptions {
+  /** the setting (plan g): "free local work only" (the default) or "never" */
+  readonly resumeOnStart?: 'free local work only' | 'never';
+}
+export interface Recovered { readonly started: boolean; readonly resumed: boolean; readonly words: string; readonly attached?: Attached; readonly resume?: ResumeResult }
+
+/**
+ * Timmy's start-up pass for Pi (plan b.2): start the worker again only when there is persisted pending work (a run
+ * record not ended), the setting allows it and the budget holds; resume only when every pending run is free.
+ */
+export async function recoverOnStart(root: string, opts: RecoverOptions = {}): Promise<Recovered> {
+  const paths = piPaths(root);
+  const pending = listRuns(paths).filter((r) => !r.ended);
+  if (!pending.length) return { started: false, resumed: false, words: 'nothing pending: the Pi worker is not started' };
+  if ((opts.resumeOnStart ?? 'free local work only') === 'never') return { started: false, resumed: false, words: `the setting is "never": the Pi worker is not started; ${pending.length} run(s) wait for Resume` };
+  const attached = await ensureWorker(root, opts); // the budget applies here (PiNeedsYou past it)
+  if (attached.client.hello.scheduling === 'running') return { started: attached.how !== 'attached', resumed: false, words: 'the Pi worker runs', attached };
+  const paid = pending.filter((r) => !freeRoute({ route: r.model.route, model: r.model.model }));
+  if (paid.length) return { started: attached.how !== 'attached', resumed: false, words: `the Pi worker is paused: ${paid.length} run(s) use a route that may cost money and wait for the operator's Resume`, attached };
+  const resume = await attached.client.request<ResumeResult>('resume');
+  return { started: attached.how !== 'attached', resumed: true, words: `resumed ${pending.length} free run(s) (the FAKE route costs nothing)`, attached, resume };
 }
