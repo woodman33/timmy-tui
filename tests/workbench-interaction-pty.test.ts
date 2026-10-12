@@ -1,0 +1,699 @@
+// R4 (H112): the terminal Workbench's interaction proof (the operator's slice C) in a real terminal: tmux, over a sandbox of
+// its own (HOME, the XDG folders, the Timmy home, the settings folder, the store, TMPDIR and the tmux servers all inside this
+// test's temporary folder). The home is made by `timmy init --yes`, the projects by the REPL's own `/project new` (through
+// `timmy act`), and `timmy workbench` runs as the installed command runs it (src/cli.ts through tsx's loader). Keys are sent
+// with tmux send-keys; mouse reports as the terminal sends them once a program asks for SGR reports (send-keys -l of
+// ESC [ < b ; x ; y M, then m); what the program asked of the terminal is read from tmux (#{mouse_any_flag} and its kin) and
+// from the bytes it wrote (pipe-pane).
+//
+// FAKE here: upmd, a TEST DOUBLE of upmd 0.2.7 (tests/fixtures/fake-upmd.mjs, through UPMD_BIN; its blocks run for real
+// through sh, on a pty through Timmy's own workers/upmd/pty_run.py, this machine's python3); the workflow documents SLOW.md
+// and STREAM.md (this test's: they sleep and print); one job a FAKE session leaves running (a helper this test writes, as
+// tests/workbench-pty.test.ts does); the browser openers on PATH (stubs that only log; nothing here presses Show). The person
+// is this test's keys and clicks. Everything else is the real program, the REPL's recovery (`timmy act /recover`) included.
+//
+// Screens are kept (capture-pane -e as .ansi, plain as .txt) in <tmpdir>/timmy-workbench-captures, as the H110 test keeps its.
+import { execFileSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { visibleWidth } from '../src/term/width.js';
+import { withoutRunner } from './fixtures/repl-pty-env.js';
+import { runAsync } from './helpers/run-async.js';
+
+const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
+const CLI = resolve('src/cli.ts');
+const JOBS = pathToFileURL(resolve('src/jobs/index.ts')).href;
+const CONTEXT = pathToFileURL(resolve('src/ops/context.ts')).href;
+const OPERATIONS = pathToFileURL(resolve('src/ops/operations.ts')).href;
+// FAKE: upmd is a TEST DOUBLE of upmd 0.2.7's --ci behaviour (tests/fixtures/fake-upmd.mjs); each block runs for real through sh
+const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
+const CAPTURES = join(tmpdir(), 'timmy-workbench-captures');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// FAKE workflows (this test's): blocks that sleep, and one that prints a line every 200 ms for 6 s
+const SLOW = '# Slow (FAKE workflow, this test)\n\nIts blocks only wait.\n\n```bash [name:wait]\nsleep 10\n```\n\n```bash [name:long]\nsleep 120\n```\n';
+const STREAM = '# Stream (FAKE workflow, this test)\n\nIt prints a line every 200 ms for 6 s.\n\n```bash [name:talk]\nfor i in $(seq 1 30); do echo "line $i"; sleep 0.2; done\n```\n';
+
+let box = '';
+let repo = '';
+let timmyHome = '';
+let trayA = '';
+let env: NodeJS.ProcessEnv = {};
+const servers: string[] = [];
+
+const cli = (args: string[], timeout = 60_000) => runAsync(process.execPath, ['--import', LOADER, CLI, ...args], { cwd: repo, env, timeout });
+const jobsDir = () => join(timmyHome, 'jobs');
+const records = () => (existsSync(jobsDir()) ? readdirSync(jobsDir()) : []).filter((n) => n.endsWith('.json'))
+  .map((n) => JSON.parse(readFileSync(join(jobsDir(), n), 'utf8')) as { id: string; label: string; root: string; state: string; pid?: number; operation?: string; error?: string; owner?: { pid: number } });
+const runsOf = (label: string, root = trayA) => records().filter((j) => j.root === root && j.label === label);
+const opsDir = (root = trayA) => join(root, '.timmy', 'operations');
+const operations = (root = trayA) => (existsSync(opsDir(root)) ? readdirSync(opsDir(root)) : []).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(opsDir(root), n), 'utf8')) as { id: string; request: string; via: string; state: string; ended: string | null });
+const storeLines = () => { const f = join(box, 'store', 'runs.jsonl'); return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).length : 0; };
+const widest = (s: string) => Math.max(...s.split('\n').map((l) => visibleWidth(l)));
+const count = (s: string, needle: string) => s.split(needle).length - 1;
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+/** A panel's text (its title `title`: the navigation's TIMMY, the right dock's Context): its rows inside its borders, as one line. */
+function panelText(screen: string, title: string): string {
+  const rows = screen.split('\n');
+  const head = new RegExp(`[╭┏][─━] (?:◆ )?${title}\\b`);
+  const top = rows.findIndex((l) => head.test(l));
+  if (top < 0) return '';
+  const x = rows[top].search(head);
+  const right = rows[top].slice(x + 1).search(/[╮┓]/) + x + 1;
+  const out: string[] = [];
+  for (let y = top + 1; y < rows.length && !/^[╰┗]/.test(rows[y].slice(x)); y++) out.push(rows[y].slice(x + 1, right));
+  return out.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/** The panel with the keyboard (its title marked ◆): its rows below its first `fixed`, and its range note (a–b of n). */
+function focusedPanel(screen: string, fixed = 3): { rows: string[]; range: string; total: number } {
+  const lines = screen.split('\n');
+  const top = lines.findIndex((l) => l.includes('┏━ ◆ '));
+  if (top < 0) return { rows: [], range: '', total: 0 };
+  const x = lines[top].indexOf('┏━ ◆ ');
+  const note = /(\d+)–(\d+) of (\d+)/.exec(lines[top].slice(x));
+  const rows: string[] = [];
+  for (let y = top + 1; y < lines.length && !lines[y].slice(x).startsWith('┗'); y++) rows.push(lines[y].slice(x + 1).replace(/┃\s*$/, '').trimEnd());
+  return { rows: rows.slice(fixed), range: note ? `${note[1]}–${note[2]}` : '', total: note ? Number(note[3]) : rows.length - fixed };
+}
+
+/** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, its mouse and a kept capture. */
+function terminal(label: string) {
+  servers.push(label);
+  const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
+  const screen = (t = 't') => tmux('capture-pane', '-p', '-t', t);
+  const waitFor = async (re: RegExp, ms = 30_000, t = 't'): Promise<string> => {
+    let s = '';
+    for (const end = Date.now() + ms; Date.now() < end;) {
+      s = screen(t);
+      if (re.test(s)) return s;
+      await sleep(100);
+    }
+    throw new Error(`timed out waiting for ${re}:\n${s}`);
+  };
+  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
+  const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  // the workspace search: '/', then its prompt on screen, the text, the text on screen, then Enter
+  const find = async (name: string) => {
+    tmux('send-keys', '-t', 't', '/');
+    await waitFor(/^\S?\s*\/ /m, 10_000);
+    tmux('send-keys', '-t', 't', '-l', name);
+    // the navigation's own search row (the top line's "project / workspace" is not it)
+    await waitFor(new RegExp(`^\\S?\\s*/ ${name}`, 'm'), 10_000);
+    tmux('send-keys', '-t', 't', 'Enter');
+    await sleep(300);
+  };
+  /** The 1-based cell of `needle` on the screen now (its `nth` match), as a mouse report names it. */
+  const cellOf = (needle: string, nth = 0, t = 't'): { x: number; y: number } => {
+    let rows: string[] = [];
+    // a capture taken while a frame is being written may miss rows: read it again for up to 3 s
+    for (const end = Date.now() + 3000; ;) {
+      rows = screen(t).split('\n');
+      let seen = 0;
+      for (let y = 0; y < rows.length; y++) {
+        const at = rows[y].indexOf(needle);
+        if (at < 0 || seen++ < nth) continue;
+        return { x: visibleWidth(rows[y].slice(0, at)) + 1, y: y + 1 };
+      }
+      if (Date.now() > end) break;
+      execFileSync('sleep', ['0.1']);
+    }
+    throw new Error(`"${needle}" is not on the screen:\n${rows.join('\n')}`);
+  };
+  /** The cell of `needle` on the first row that matches `row` (a tab on the tabs' row, say). */
+  const cellOnRow = (needle: string, row: RegExp, t = 't'): { x: number; y: number } => {
+    const rows = screen(t).split('\n');
+    const y = rows.findIndex((l) => row.test(l));
+    const at = y >= 0 ? rows[y].indexOf(needle, rows[y].search(row)) : -1;
+    if (at < 0) throw new Error(`"${needle}" is not on a row matching ${row}:\n${rows.join('\n')}`);
+    return { x: visibleWidth(rows[y].slice(0, at)) + 1, y: y + 1 };
+  };
+  const click = async (p: { x: number; y: number }) => { tmux('send-keys', '-t', 't', '-l', `\x1b[<0;${p.x};${p.y}M\x1b[<0;${p.x};${p.y}m`); await sleep(300); };
+  const wheel = async (p: { x: number; y: number }, down: boolean) => { tmux('send-keys', '-t', 't', '-l', `\x1b[<${down ? 65 : 64};${p.x};${p.y}M`); await sleep(200); };
+  const modes = (t = 't') => tmux('display-message', '-p', '-t', t, '#{mouse_any_flag} #{mouse_standard_flag} #{mouse_sgr_flag} #{alternate_on}').trim();
+  const capture = (name: string, t = 't'): string => {
+    const txt = screen(t);
+    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', t));
+    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
+    return txt;
+  };
+  const start = (w: number, h: number, raw?: string) => {
+    tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', String(w), '-y', String(h), '-c', repo, 'bash', '--norc', '-c',
+      `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+    if (raw) tmux('pipe-pane', '-o', '-t', 't', `cat >> '${raw}'`);
+  };
+  /** The Workbench's own process (the pane's shell's child). */
+  const pid = (t = 't'): number => {
+    const shell = tmux('display-message', '-p', '-t', t, '#{pane_pid}').trim();
+    const child = execFileSync('ps', ['-o', 'pid=', '--ppid', shell], { encoding: 'utf8' }).trim().split(/\s+/)[0];
+    return Number(child);
+  };
+  const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
+  return { tmux, screen, waitFor, keys, typed, find, cellOf, cellOnRow, click, wheel, modes, capture, start, pid, close };
+}
+
+/** Moves the Workflows list's selection to `doc` › `block` (its row's marker), with the keys. */
+async function selectBlock(t: ReturnType<typeof terminal>, doc: string, block: string, w = 't'): Promise<void> {
+  const selected = (): string => /RUN\s+(\S+ › \S+)/.exec(t.screen(w))?.[1] ?? '';
+  const want = `${doc} › ${block}`;
+  // from the list's first row (Home), one Down at a time, each waited for on the screen (a loaded machine draws later than
+  // the key arrives)
+  if (selected() !== want) {
+    const before = t.screen(w);
+    t.tmux('send-keys', '-t', w, 'Home');
+    for (const end = Date.now() + 3000; t.screen(w) === before && Date.now() < end;) await sleep(50);
+  }
+  for (let i = 0; i < 20 && selected() !== want; i++) {
+    const before = selected();
+    t.tmux('send-keys', '-t', w, 'Down');
+    for (const end = Date.now() + 3000; selected() === before && Date.now() < end;) await sleep(50);
+  }
+  if (selected() !== want) throw new Error(`${want} is not selected:\n${t.screen(w)}`);
+}
+
+beforeAll(async () => {
+  box = mkdtempSync(join(tmpdir(), 'wb-interaction-pty-'));
+  const home = join(box, 'home');
+  repo = join(box, 'repo');
+  timmyHome = join(home, 'timmy');
+  const bin = join(box, 'fakebin');
+  for (const d of [home, repo, bin, join(box, 'tmp'), join(box, 'settings'), CAPTURES]) mkdirSync(d, { recursive: true });
+  // FAKE openers: a Show pressed here would only be logged (none is pressed in this file)
+  for (const name of ['open', 'xdg-open']) {
+    writeFileSync(join(bin, name), `#!/bin/sh\necho "$0 $*" >> '${box}/opened.log'\n`);
+    chmodSync(join(bin, name), 0o755);
+  }
+  const base = withoutRunner(process.env);
+  delete base.NODE_PATH;
+  env = {
+    ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'), XDG_STATE_HOME: join(home, '.local', 'state'),
+    XDG_CACHE_HOME: join(home, '.cache'), TIMMY_HOME: timmyHome, TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
+    TIMMY_SETTINGS_DIR: join(box, 'settings'), TMPDIR: join(box, 'tmp'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor',
+    TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', PATH: `${bin}:${process.env.PATH ?? ''}`, UPMD_BIN: FAKE_UPMD,
+  };
+  const init = await cli(['init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo']);
+  expect(init.status, init.stderr).toBe(0);
+  for (const cmd of ['/project new trayB', '/project new trayA --from tray-workflow']) {
+    const made = await cli(['act', cmd]);
+    expect(made.status, `${made.stdout}\n${made.stderr}`).toBe(0);
+  }
+  trayA = join(timmyHome, 'projects', 'trayA');
+  writeFileSync(join(trayA, 'SLOW.md'), SLOW);
+  writeFileSync(join(trayA, 'STREAM.md'), STREAM);
+}, 180_000);
+
+afterAll(async () => {
+  for (const label of servers) { try { execFileSync('tmux', ['-L', label, 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ } }
+  // what a test left running (a stopped test's runs), by their records' pids: only processes this test's records name
+  for (const j of records()) if (j.pid && (j.state === 'running' || j.state === 'queued')) { try { process.kill(-j.pid, 'SIGKILL'); } catch { /* gone */ } }
+  for (let i = 0; ; i++) {
+    try { rmSync(box, { recursive: true, force: true }); return; } catch (e) {
+      if (i >= 50) throw e;
+      await sleep(200);
+    }
+  }
+});
+
+describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112, slice C)', () => {
+  it('the mouse (item 1): it asks for SGR reports; a click opens a workspace, picks a tab, selects a row and runs nothing; the wheel scrolls the list under the pointer; m gives the mouse to the terminal and takes it back; quit with the mouse given back leaves no mouse mode', async () => {
+    const raw = join(box, 'raw-mouse.log');
+    const t = terminal('wbM');
+    try {
+      t.start(160, 45, raw);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/);
+      await t.find('Workflows');
+      await t.waitFor(/trayA \/ Workflows/, 5000);
+      await sleep(500);
+      // it asked the terminal for button reports in SGR encoding, in its own screen
+      expect(t.modes()).toBe('1 1 1 1');
+      // a click on the navigation's Control Room opens it, and on Workflows
+      await t.click(t.cellOf('Control Room'));
+      await t.waitFor(/trayA \/ Control Room/, 5000);
+      await t.click(t.cellOf('Workflows'));
+      await t.waitFor(/trayA \/ Workflows/, 5000);
+      // a click on a right-dock tab picks it: Tools, then Files (the Inspector is the first one shown)
+      expect(t.screen()).toMatch(/Tools │ ▸ Inspector │ {3}Files/);
+      await t.click(t.cellOnRow('Tools', /Tools │/));
+      await t.waitFor(/▸ Tools │ {3}Inspector │ {3}Files/, 5000);
+      await t.click(t.cellOnRow('Files', /Tools │/));
+      await t.waitFor(/Tools │ {3}Inspector │ ▸ Files/, 5000);
+      // a click on a row selects it; clicked again and again, it is only selected: no confirm, no NEEDS YOU box, no job
+      const row = t.cellOf(' tidy ');
+      await t.click(row);
+      await t.click(row);
+      await t.click(row);
+      await t.waitFor(/RUN\s+APPROVAL\.md › tidy/, 5000);
+      await sleep(800);
+      expect(t.screen()).not.toMatch(/Run APPROVAL\.md › tidy\?|⚠ NEEDS YOU/);
+      expect(runsOf('APPROVAL.md › tidy')).toEqual([]);
+      t.capture('wb-mouse-160x45-row-selected');
+      // the wheel over All tools' list scrolls it by rows (its range note moves), and opens nothing
+      await t.click(t.cellOf('All tools'));
+      const tools = await t.waitFor(/All tools · capabilities[^\n]*1–\d+ of \d+/, 30_000);
+      const total = /1–(\d+) of (\d+)/.exec(tools)!;
+      const over = t.cellOf('[r] checks again');
+      for (let i = 0; i < 3; i++) await t.wheel(over, true);
+      await t.waitFor(new RegExp(`4–${Number(total[1]) + 3} of ${total[2]}`), 5000);
+      expect(t.screen()).toContain('trayA / All tools');
+      // m: the mouse back to the terminal (it reports none to the Workbench; the terminal selects text again), then taken
+      await t.keys('m');
+      await t.waitFor(/Mouse: the terminal's again/, 5000);
+      expect(t.modes()).toBe('0 0 0 1');
+      await t.keys('m');
+      await t.waitFor(/Mouse: the Workbench takes clicks/, 5000);
+      expect(t.modes()).toBe('1 1 1 1');
+      // given back again, then quit: the terminal is left with no mouse mode and its own screen
+      await t.keys('m');
+      await t.keys('C-c');
+      const after = await t.waitFor(/EXIT=(\d+)/, 20_000);
+      expect(after.match(/EXIT=(\d+)/)![1]).toBe('130');
+      expect(t.modes()).toBe('0 0 0 0');
+      const bytes = readFileSync(raw, 'utf8');
+      expect(bytes.includes('\x1b[?1000h') && bytes.includes('\x1b[?1006h')).toBe(true);
+      expect(bytes.lastIndexOf('\x1b[?1000l')).toBeGreaterThan(bytes.lastIndexOf('\x1b[?1000h'));
+      expect(bytes.lastIndexOf('\x1b[?1006l')).toBeGreaterThan(bytes.lastIndexOf('\x1b[?1006h'));
+    } finally {
+      t.close();
+    }
+  }, 180_000);
+
+  it('duplicates and retries (item 2), and a project switch during a run (item 3): two Enters at once start one job and one operation; Run again says so; a second Workbench in another window shows the run and starts nothing; p to trayB keeps the run and its Stop, back in trayA it ends once', async () => {
+    const t = terminal('wbD');
+    try {
+      t.start(160, 45);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/);
+      await t.find('Workflows');
+      await t.waitFor(/trayA \/ Workflows/, 5000);
+      await selectBlock(t, 'SLOW.md', 'wait');
+      await t.keys('Enter');
+      await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
+      const jobsBefore = records().length;
+      const sealedBefore = storeLines();
+      // two Enters in one send (as fast as a terminal delivers them)
+      t.tmux('send-keys', '-t', 't', 'Enter', 'Enter');
+      await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › wait/, 15_000);
+      await sleep(1000);
+      expect(runsOf('SLOW.md › wait')).toHaveLength(1);
+      expect(operations().filter((o) => o.request === '/run SLOW.md wait')).toHaveLength(1);
+      expect(records().length).toBe(jobsBefore + 1);
+      const [job] = runsOf('SLOW.md › wait');
+      expect(job.state).toBe('running');
+      // Run again while it runs: said, nothing started
+      await t.keys('Enter');
+      await t.waitFor(new RegExp(`Not started: it is running now as ${job.id}, started by this Workbench`), 5000);
+      expect(t.screen()).not.toMatch(/Run SLOW\.md › wait\?/);
+      t.capture('wb-dup-160x45-run-again');
+
+      // a second Workbench, in another window of this terminal: it shows the run, as another session's, and starts nothing
+      const ops = operations().length;
+      const sealed = storeLines();
+      t.tmux('new-window', '-t', 't', '-c', repo, 'bash', '--norc', '-c', `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/, 30_000, 't:1');
+      t.tmux('send-keys', '-t', 't:1', '/');
+      await t.waitFor(/^\S?\s*\/ /m, 10_000, 't:1');
+      t.tmux('send-keys', '-t', 't:1', '-l', 'Control');
+      await sleep(300);
+      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      const second = await t.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+SLOW\\.md › wait[^\\n]*another session`), 10_000, 't:1');
+      expect(second).toMatch(new RegExp(`Activity\\s+\\S* ?1 running`));
+      t.tmux('send-keys', '-t', 't:1', 'a');
+      await t.waitFor(new RegExp(`${job.id} started: SLOW\\.md › wait`), 5000, 't:1');
+      t.capture('wb-dup-160x45-second-workbench', 't:1');
+      await sleep(1000);
+      expect(records().length).toBe(jobsBefore + 1);
+      expect(operations().length).toBe(ops);
+      expect(storeLines()).toBe(sealed);
+      // its Run on the same block: who runs it, and nothing starts
+      t.tmux('send-keys', '-t', 't:1', 'a');
+      t.tmux('send-keys', '-t', 't:1', '/');
+      await t.waitFor(/^\S?\s*\/ /m, 10_000, 't:1');
+      t.tmux('send-keys', '-t', 't:1', '-l', 'Workflows');
+      await sleep(300);
+      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      await t.waitFor(/trayA \/ Workflows/, 5000, 't:1');
+      await selectBlock(t, 'SLOW.md', 'wait', 't:1');
+      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      await t.waitFor(new RegExp(`Not started: it is running now as ${job.id}, started by another Timmy session`), 5000, 't:1');
+      await sleep(500);
+      expect(runsOf('SLOW.md › wait')).toHaveLength(1);
+      expect(operations().length).toBe(ops);
+      // the second one quits at once (nothing of its own runs); the run goes on
+      t.tmux('send-keys', '-t', 't:1', 'C-c');
+      await t.waitFor(/EXIT=130/, 20_000, 't:1');
+      expect(runsOf('SLOW.md › wait')[0].state).toBe('running');
+      expect(sealedBefore).toBeLessThan(storeLines()); // only the first run's prediction (and nothing of the second window)
+
+      // p to trayB: the run keeps running in trayA; Stop still names it, with its project; Activity says where it runs
+      t.tmux('select-window', '-t', 't:0');
+      await t.keys('p');
+      await t.waitFor(/Switch project/, 5000);
+      await t.typed('trayB');
+      await t.keys('Enter');
+      const b = await t.waitFor(/trayB \/ Workflows/, 10_000);
+      expect(b).toContain(`[x] Stop current: ${job.id} SLOW.md › wait (in trayA)`);
+      expect(b).toMatch(/run: 1 running in trayA/);
+      expect(b).toMatch(/Activity\s+\S* ?1 running \(1 in trayA\)/);
+      t.capture('wb-switch-160x45-in-trayB');
+      expect(runsOf('SLOW.md › wait')[0].state).toBe('running');
+      // back in trayA: it ends there, normally, once
+      await t.keys('p');
+      await t.waitFor(/Switch project/, 5000);
+      await t.typed('trayA');
+      await t.keys('Enter');
+      await t.waitFor(/trayA \/ Workflows/, 10_000);
+      for (const end = Date.now() + 30_000; runsOf('SLOW.md › wait')[0]?.state === 'running' && Date.now() < end;) await sleep(200);
+      expect(runsOf('SLOW.md › wait')).toMatchObject([{ id: job.id, state: 'completed' }]);
+      expect(runsOf('SLOW.md › wait', join(timmyHome, 'projects', 'trayB'))).toEqual([]);
+      await t.waitFor(/Stop current: idle/, 10_000);
+      await t.keys('C-c');
+      await t.waitFor(/EXIT=130/, 20_000);
+    } finally {
+      t.close();
+    }
+  }, 240_000);
+
+  it('reconnect and stale (item 4): quit while a run goes on (Ctrl+C twice): its record ends as the Workbench\'s own stop writes it, and recovery finds nothing left; a Workbench killed outright leaves a stale record: started again, the Workbench says stale, the REPL\'s recovery ends it, and the Workbench then says ended by recovery; a job an ended session left running is said left running, with its operation, and Stop names it', async () => {
+    const recordOf = (id: string) => records().find((j) => j.id === id)!;
+    const opOf = (id: string) => operations().find((o) => o.id === recordOf(id).operation);
+
+    // 1. quit while it runs: Ctrl+C asks (naming the run), Ctrl+C again quits, stopping it through the Workbench's own stop
+    const t = terminal('wbR');
+    let quit = { id: '' } as ReturnType<typeof records>[number];
+    try {
+      t.start(160, 45);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/);
+      await t.find('Workflows');
+      await t.waitFor(/trayA \/ Workflows/, 5000);
+      await selectBlock(t, 'SLOW.md', 'long');
+      await t.keys('Enter');
+      await t.waitFor(/Run SLOW\.md › long\?/, 5000);
+      await t.keys('Enter');
+      await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
+      [quit] = runsOf('SLOW.md › long');
+      await t.keys('C-c');
+      const asked = await t.waitFor(/Quit the Workbench\?/, 5000);
+      expect(asked).toContain(`${quit.id} SLOW.md › long`);
+      await t.keys('C-c');
+      await t.waitFor(/EXIT=130/, 30_000);
+    } finally {
+      t.close();
+    }
+    // its record says how it ended (cancelled, its cleanup complete) and its operation that it was stopped: nothing is left
+    // for recovery, and the REPL's /recover says so (and changes nothing)
+    const quitRecord = recordOf(quit.id);
+    expect(quitRecord).toMatchObject({ state: 'cancelled', cleanup: 'complete' });
+    expect(quitRecord.pid !== undefined && alive(quitRecord.pid)).toBe(false);
+    const quitOp = opOf(quit.id)!;
+    expect(quitOp).toMatchObject({ state: 'stopped', via: 'workbench' });
+    expect(quitOp.ended).not.toBe(null);
+    const nothing = await cli(['act', '/recover', '--project', trayA]);
+    expect(nothing.status, nothing.stderr).toBe(0);
+    expect(nothing.stdout).toMatch(/nothing to pick up in trayA/);
+    expect(recordOf(quit.id)).toEqual(quitRecord);
+
+    // 2. killed outright while it runs (SIGKILL: nothing of the Workbench runs to record its end)
+    const k = terminal('wbK');
+    let killed = { id: '' } as ReturnType<typeof records>[number];
+    try {
+      k.start(160, 45);
+      await k.waitFor(/trayA \/ [\s\S]*Activity/);
+      await k.find('Workflows');
+      await k.waitFor(/trayA \/ Workflows/, 5000);
+      await selectBlock(k, 'SLOW.md', 'long');
+      await k.keys('Enter');
+      await k.waitFor(/Run SLOW\.md › long\?/, 5000);
+      await k.keys('Enter');
+      await k.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
+      killed = runsOf('SLOW.md › long').find((j) => j.state === 'running')!;
+      process.kill(k.pid(), 'SIGKILL');
+      await k.waitFor(/EXIT=137/, 10_000);
+    } finally {
+      k.close();
+    }
+    // its pty wrapper saw its Workbench end and stopped upmd: nothing of it runs, and its record still says it runs
+    for (const end = Date.now() + 10_000; killed.pid !== undefined && alive(killed.pid) && Date.now() < end;) await sleep(200);
+    expect(killed.pid !== undefined && alive(killed.pid)).toBe(false);
+    expect(recordOf(killed.id)).toMatchObject({ state: 'running' });
+    const killedOp = opOf(killed.id)!;
+    expect(killedOp).toMatchObject({ state: 'running', ended: null, via: 'workbench' });
+
+    // started again: the Control Room says stale, and what waits on you; the Inspector says it in recovery's words, with its
+    // operation; Stop has nothing to stop (no process of it runs: /recover records it)
+    const w = terminal('wbS');
+    try {
+      w.start(160, 45);
+      await w.waitFor(/trayA \/ [\s\S]*Activity/);
+      await w.find('Control');
+      const stale = await w.waitFor(new RegExp(`${killed.id}\\s+stale\\s+SLOW\\.md › long · 1 of 1 step`), 10_000);
+      // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files)
+      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │/)); await w.waitFor(/▸ Inspector/, 5000); }
+      expect(stale).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
+      expect(stale).toContain('Stop current: idle');
+      // the one quit with its Workbench: ended by its own stop, said as its record says (no recovery words)
+      expect(stale).toMatch(new RegExp(`${quit.id}\\s+cancelled\\s+SLOW\\.md › long · 1 of 1 step[^\\n]*${quitOp.id}`));
+      await w.click(w.cellOf(`${quit.id}  cancelled`));
+      const quitDock = panelText(await w.waitFor(new RegExp(`Job\\s+${quit.id}`), 5000), 'Context');
+      expect(quitDock).toContain(`Operation ${quitOp.id}`);
+      expect(quitDock).toContain('Record cancelled');
+      expect(quitDock).not.toMatch(/left running|stale|ended by recovery/);
+      w.capture('wb-recover-160x45-quit-inspector');
+      // the stale one, selected
+      await w.click(w.cellOf(`${killed.id}  stale`));
+      const staleDock = panelText(await w.waitFor(new RegExp(`Job\\s+${killed.id}`), 5000), 'Context');
+      expect(staleDock).toContain('stale: its record says it runs, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it (nothing is run again).');
+      expect(staleDock).toContain('Record running, stale');
+      expect(staleDock).toContain(`Operation ${killedOp.id}`);
+      w.capture('wb-recover-160x45-stale-inspector');
+      await w.keys('x');
+      await w.waitFor(/Stop current: nothing runs in trayA\./, 5000);
+      expect(recordOf(killed.id)).toMatchObject({ state: 'running' });
+
+      // the REPL's recovery: it records the interrupted run (nothing is run again); [r]: ended by recovery, in its words
+      const recovered = await cli(['act', '/recover', '--project', trayA]);
+      expect(recovered.status, recovered.stderr).toBe(0);
+      expect(recovered.stdout).toContain(`run ${killed.id} of SLOW.md › long was interrupted while long was running`);
+      expect(recordOf(killed.id)).toMatchObject({ state: 'cancelled' });
+      expect(opOf(killed.id)).toMatchObject({ state: 'interrupted' });
+      await w.keys('r');
+      const ended = await w.waitFor(new RegExp(`${killed.id}\\s+cancelled\\s+SLOW\\.md › long · ended by recovery`), 10_000);
+      expect(panelText(ended, 'Context')).toMatch(/ended by recovery: a later session's recovery wrote its end from what it found \(.+\); nothing was run again\./);
+      // whether to run it again still waits on the person (upmd resumes nothing), now with its record's own words
+      expect(ended).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
+      // its operation's run detail, read again since its record changed (the wheel over the Inspector shows its foot)
+      const inspector = w.cellOnRow('Inspector', /Tools │/);
+      for (let i = 0; i < 60 && !/Verdict \S+ · \S+/.test(panelText(w.screen(), 'Context')); i++) await w.wheel({ x: inspector.x, y: inspector.y + 8 }, true);
+      const detail = panelText(await w.waitFor(/RUN DETAIL[\s\S]*Verdict/, 10_000), 'Context');
+      expect(detail).toMatch(new RegExp(`RUN DETAIL · ${killedOp.id} Objective /run SLOW\\.md long Verdict recovered · interrupted`));
+      expect(detail).not.toContain('left running');
+      w.capture('wb-recover-160x45-ended-by-recovery');
+
+      // 3. a job an ended session left running (FAKE: a helper session starts it in an operation of its own and ends)
+      const helper = join(box, 'fake-left-job.mts');
+      writeFileSync(helper, [
+        '// FAKE session (test only): starts one job in an operation of its own, records that operation, and ends without stopping it',
+        `import { JobManager } from '${JOBS}';`,
+        `import { inOperation, newOperationId } from '${CONTEXT}';`,
+        `import { writeOperationRecord } from '${OPERATIONS}';`,
+        'const [dir, root, project] = process.argv.slice(2);',
+        'const jobs = new JobManager({ dir });',
+        'const op = newOperationId();',
+        'const started = new Date().toISOString();',
+        "const j = inOperation({ id: op }, () => jobs.start({ kind: 'task', label: 'FAKE job (test): sleep 300', project, root, command: 'sleep', args: ['300'] }));",
+        "const w = writeOperationRecord(root, { schema: 'timmy.operation/1', id: op, request: 'FAKE request (test): sleep 300', via: 'repl', project, started, ended: null, state: 'running', parent: null, runs: [{ kind: 'job', id: j.id, at: started }], owner: { pid: process.pid, started } });",
+        "if (!w.ok) { console.error(w.error); process.exit(1); }",
+        "for (let i = 0; i < 100 && jobs.get(j.id)?.state !== 'running'; i++) await new Promise((r) => setTimeout(r, 50));",
+        'console.log(`${j.id} ${op}`);',
+        'process.exit(0);',
+        '',
+      ].join('\n'));
+      const left = await runAsync(process.execPath, ['--import', LOADER, helper, jobsDir(), trayA, 'trayA'], { cwd: repo, env, timeout: 30_000 });
+      expect(left.status, left.stderr).toBe(0);
+      const [leftId, leftOp] = left.stdout.trim().split(/\s+/);
+      expect(recordOf(leftId)).toMatchObject({ state: 'running', operation: leftOp });
+      const helperPid = recordOf(leftId).owner!.pid;
+      expect(alive(helperPid)).toBe(false);
+      await w.keys('r');
+      const running = await w.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${leftId}\\s+running\\s+FAKE job \\(test\\): sleep 300 · left running`), 10_000);
+      expect(running).toContain(`Stop current: ${leftId} FAKE job (test): sleep 300`);
+      await w.click(w.cellOf(`${leftId}  running`));
+      const leftDock = panelText(await w.waitFor(new RegExp(`Job\\s+${leftId}`), 5000), 'Context');
+      expect(leftDock).toContain(`left running: started by a Timmy session that has ended (pid ${helperPid}), and its process still runs. Stop ends it through recovery's stop (only when the process table proves the group is the job's).`);
+      expect(leftDock).toContain(`Operation ${leftOp}`);
+      expect(leftDock).toContain('Record running');
+      expect(w.screen()).toContain(`Stop current: ${leftId} FAKE job (test): sleep 300`);
+      w.capture('wb-recover-160x45-left-running');
+      // x stops what the top line named: through recovery's stop; its record says cancelled; its process is gone
+      const leftPid = recordOf(leftId).pid!;
+      await w.keys('x');
+      await w.waitFor(new RegExp(`Stopped ${leftId}; its record says cancelled\\.`), 10_000);
+      expect(recordOf(leftId)).toMatchObject({ state: 'cancelled' });
+      for (const end = Date.now() + 5000; alive(leftPid) && Date.now() < end;) await sleep(100);
+      expect(alive(leftPid)).toBe(false);
+      await w.waitFor(/Stop current: idle/, 10_000);
+      await w.keys('C-c');
+      await w.waitFor(/EXIT=130/, 20_000);
+    } finally {
+      w.close();
+    }
+  }, 300_000);
+
+  it('lines arriving and resizes (item 5): Activity expanded, a row selected higher up stays selected, on its row, with the rows above it, while a FAKE block prints a line every 200 ms (only following the newest moves the view; End follows again); resized during a run and during a NEEDS YOU box, the Workbench draws one frame as wide as the terminal, and the box still takes y', async () => {
+    const t = terminal('wbL');
+    try {
+      t.start(160, 45);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/);
+      await t.find('Workflows');
+      await t.waitFor(/trayA \/ Workflows/, 5000);
+      await selectBlock(t, 'STREAM.md', 'talk');
+      await t.keys('Enter');
+      await t.waitFor(/Run STREAM\.md › talk\?/, 5000);
+      await t.keys('Enter');
+      await t.waitFor(/Stop current: j[0-9a-f]+ STREAM\.md › talk/, 15_000);
+      const [job] = runsOf('STREAM.md › talk');
+      // Activity, expanded, with the keyboard (Tab: the right dock, then Activity)
+      await t.keys('a', 'Tab', 'Tab');
+      await t.waitFor(/following the newest/, 5000);
+      await t.waitFor(new RegExp(`${job.id} │ line 10\\b`), 15_000);
+      const activity = () => focusedPanel(t.screen());
+      expect(activity().total).toBeGreaterThan(activity().rows.length);
+      // three rows up: held there
+      await t.keys('Up', 'Up', 'Up');
+      await t.waitFor(/held where you are \(End follows the newest\)/, 5000);
+      const before = activity();
+      const at = before.rows.findIndex((r) => /^\s?▸ /.test(r));
+      expect(at).toBeGreaterThan(0);
+      // five more lines arrive (its range note counts them): the selected row, the rows above it and the range stay
+      for (const end = Date.now() + 10_000; activity().total < before.total + 5 && Date.now() < end;) await sleep(100);
+      const after = activity();
+      expect(after.total).toBeGreaterThanOrEqual(before.total + 5);
+      expect(after.range).toBe(before.range);
+      expect(after.rows.slice(0, at + 1)).toEqual(before.rows.slice(0, at + 1));
+      t.capture('wb-stream-160x45-held');
+      // End: the newest again, shown at the foot
+      await t.keys('End');
+      await t.waitFor(/following the newest/, 5000);
+      const following = activity();
+      expect(following.range.endsWith(`–${following.total}`)).toBe(true);
+      expect(following.rows.findIndex((r) => /^\s?▸ /.test(r))).toBeGreaterThan(-1);
+      for (const end = Date.now() + 20_000; runsOf('STREAM.md › talk')[0]?.state === 'running' && Date.now() < end;) await sleep(200);
+      expect(runsOf('STREAM.md › talk')[0].state).toBe('completed');
+      // every line once, in order, whatever upmd redrew (Activity, all of it, by its rows' words)
+      await sleep(1500);
+      expect(activity().range.endsWith(`–${activity().total}`)).toBe(true);
+
+      // resized during a run: one frame each time, as wide as the terminal; the run and its Stop as they were
+      await t.keys('BTab', 'BTab');
+      await selectBlock(t, 'SLOW.md', 'wait');
+      await t.keys('Enter');
+      await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
+      await t.keys('Enter');
+      await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › wait/, 15_000);
+      const wait = runsOf('SLOW.md › wait').find((j) => j.state === 'running')!;
+      for (const [w, h] of [[120, 40], [100, 30], [160, 45]] as const) {
+        t.tmux('resize-window', '-t', 't', '-x', String(w), '-y', String(h));
+        await t.waitFor(new RegExp(`Stop current: ${wait.id}`), 10_000);
+        await sleep(500);
+        const shot = t.capture(`wb-resize-run-${w}x${h}`);
+        expect(count(shot, 'Timmy Workbench'), shot).toBe(1);
+        expect(widest(shot)).toBeLessThanOrEqual(w);
+        // one frame from the first row to the last: its top border first, its bottom border last
+        const rows = shot.trimEnd().split('\n');
+        expect(rows).toHaveLength(h);
+        expect(rows[0]).toMatch(/^[╭┏]/);
+        expect(rows[h - 1]).toMatch(/^[╰┗]/);
+      }
+      for (const end = Date.now() + 20_000; records().find((j) => j.id === wait.id)?.state === 'running' && Date.now() < end;) await sleep(200);
+      expect(records().find((j) => j.id === wait.id)).toMatchObject({ state: 'completed' });
+      expect(runsOf('SLOW.md › wait').filter((j) => j.state !== 'completed')).toEqual([]);
+
+      // resized during a NEEDS YOU box: one box each time, answerable; y allows it once: one job, one operation, its receipts
+      await t.waitFor(/Stop current: idle/, 10_000);
+      await selectBlock(t, 'APPROVAL.md', 'tidy');
+      await t.keys('Enter');
+      await t.waitFor(/Run APPROVAL\.md › tidy\?/, 5000);
+      const sealed = storeLines();
+      await t.keys('Enter');
+      await t.waitFor(/⚠ NEEDS YOU/, 15_000);
+      for (const [w, h] of [[120, 40], [100, 30], [160, 45]] as const) {
+        t.tmux('resize-window', '-t', 't', '-x', String(w), '-y', String(h));
+        await t.waitFor(/⚠ NEEDS YOU[\s\S]*\[y\] allow once/, 10_000);
+        await sleep(500);
+        const shot = t.capture(`wb-resize-needs-you-${w}x${h}`);
+        expect(count(shot, '⚠ NEEDS YOU'), shot).toBe(1);
+        expect(count(shot, '[y] allow once'), shot).toBe(1);
+        expect(count(shot, 'Timmy Workbench'), shot).toBe(1);
+        expect(widest(shot)).toBeLessThanOrEqual(w);
+      }
+      // nothing of the run has started while the box waits, and nothing is sealed
+      expect(runsOf('APPROVAL.md › tidy')).toEqual([]);
+      expect(storeLines()).toBe(sealed);
+      await t.keys('y');
+      for (const end = Date.now() + 20_000; runsOf('APPROVAL.md › tidy')[0]?.state !== 'completed' && Date.now() < end;) await sleep(200);
+      expect(runsOf('APPROVAL.md › tidy')).toMatchObject([{ state: 'completed' }]);
+      expect(operations().filter((o) => o.request === '/run APPROVAL.md tidy')).toHaveLength(1);
+      const chain = readFileSync(join(box, 'store', 'runs.jsonl'), 'utf8').split('\n').filter(Boolean).slice(sealed).map((l) => (JSON.parse(l) as { kind: string }).kind);
+      // its receipts (the store notes each one sealed, as receipt.sealed): the prediction with the answer, the block, the run
+      expect(chain.filter((k) => k !== 'receipt.sealed')).toEqual(['predict', 'workflow-block', 'workflow']);
+      expect(chain.filter((k) => k === 'receipt.sealed')).toHaveLength(3);
+      expect(t.screen()).not.toContain('⚠ NEEDS YOU');
+      await t.keys('C-c');
+      await t.waitFor(/EXIT=130/, 20_000);
+    } finally {
+      t.close();
+    }
+  }, 240_000);
+
+  it('the way to the workspace finder (item 6): in All tools, while its search holds /, the search and the navigation say Esc, then /; [/] Find a workspace shows only where / finds one; Esc leaves the keyboard on the navigation, where / finds a workspace in one key; at 80x24 (no navigation shown) it says Esc, then g, then /', async () => {
+    const t = terminal('wbF');
+    try {
+      t.start(160, 45);
+      await t.waitFor(/trayA \/ [\s\S]*Activity/);
+      await t.find('All tools');
+      const tools = await t.waitFor(/trayA \/ All tools[\s\S]*\[r\] checks again/, 30_000);
+      // the center has the keyboard: / searches the tools there; the navigation says how to reach the finder
+      expect(panelText(tools, 'TIMMY')).toContain('Find a workspace: g, then /');
+      expect(tools).not.toContain('[/] Find a workspace');
+      expect(tools).toContain('a workspace: g, then /');
+      // /: the tools search, its first hint the way to the finder; the navigation says the same
+      await t.keys('/');
+      const typing = await t.waitFor(/Search: /, 5000);
+      expect(typing).toContain('find a workspace: Esc, then /');
+      expect(panelText(typing, 'TIMMY')).toContain('Find a workspace: Esc, then /');
+      expect(typing).not.toContain('[/] Find a workspace');
+      await t.typed('blender');
+      await t.waitFor(/match "blender"/, 5000);
+      t.capture('wb-finder-160x45-tools-search');
+      // Esc: the search cleared, the keyboard on the navigation (said), where / finds a workspace: one key
+      await t.keys('Escape');
+      const cleared = await t.waitFor(/Tools search cleared\. The navigation has the keyboard: \/ finds a workspace; Tab goes back to the tools\./, 5000);
+      expect(panelText(cleared, 'TIMMY')).toContain('[/] Find a workspace');
+      await t.find('Templates');
+      await t.waitFor(/trayA \/ Templates/, 5000);
+
+      // 80x24: the navigation is not shown; the way is Esc, then g, then /
+      t.tmux('resize-window', '-t', 't', '-x', '80', '-y', '24');
+      await t.waitFor(/trayA \/ Templates/, 10_000);
+      await t.find('All tools');
+      // (its list is where it was left: the matched row selected, so its first rows are scrolled away)
+      await t.waitFor(/trayA \/ All tools[\s\S]*All tools · capabilities/, 30_000);
+      await t.keys('/');
+      const narrow = await t.waitFor(/Search: /, 5000);
+      expect(narrow).toContain('find a workspace: Esc, then g, then /');
+      expect(narrow).not.toContain('[/] Find a workspace');
+      t.capture('wb-finder-80x24-tools-search');
+      await t.keys('Escape');
+      await t.waitFor(/Tools search cleared\. g, then \/ finds a workspace\./, 5000);
+      await t.keys('g');
+      await t.find('Templates');
+      const there = await t.waitFor(/trayA \/ Templates/, 5000);
+      expect(widest(there)).toBeLessThanOrEqual(80);
+      await t.keys('C-c');
+      await t.waitFor(/EXIT=130/, 20_000);
+    } finally {
+      t.close();
+    }
+  }, 180_000);
+});

@@ -80,6 +80,9 @@ export interface Data {
   readAt: number;
   /** the active-project record names another project than the one shown (Follow active project is off) */
   pinnedAway?: string;
+  /** R4 (H112): live jobs this Workbench started in another project than the one shown: a run keeps its own project when
+   *  the view switches, and Stop and Activity still name it, with where it runs */
+  away: JobRow[];
 }
 
 export type Item =
@@ -130,6 +133,23 @@ export interface Ui {
   cursor: Record<string, number>;
   /** each list's first shown row */
   scroll: Record<string, number>;
+  /** R4 (H112): each list's selected item by its key: the selection stays on the same thing (a job, a file, an event) while
+   *  rows arrive, end or move, rather than on the same place (src/workbench/select.ts) */
+  sel: Record<string, string>;
+  /** R4 (H112): each list's anchor, the item kept on the same row of its zone as rows arrive or go: the selected one, or the
+   *  first one shown when the wheel scrolled the list */
+  anchor: Record<string, { key: string; row: number }>;
+  /** R4 (H112): lists the wheel scrolled: their view stays where the wheel left it, and the selection is brought into view
+   *  only when the person moves it */
+  wheel: Record<string, boolean>;
+  /** R4 (H112): lists whose selection the person chose (an arrow, a click, a search's first match): kept when its workspace
+   *  is opened again; a list whose selection was only its first row starts on its first row again (src/workbench/select.ts) */
+  chosen?: Record<string, boolean>;
+  /** R4 (H112): Activity follows its newest row (the selection is the newest, and new rows keep it so); it stops when the
+   *  person selects an older row, and starts again on the newest (End) */
+  activityFollow: boolean;
+  /** R4 (H112): All tools' search words, kept when Enter closes the search (Esc clears them) */
+  toolsQuery: string;
   /** the last notice, with when it came (it stays in Activity) */
   flash: { text: string; role: Role; at: number } | null;
   mouse: boolean;
@@ -142,6 +162,10 @@ export interface Ui {
   studio: ServerState;
   /** the job ids this Workbench started */
   mine: string[];
+  /** R4 (H112): the runs (doc › block) being started here: their confirm was answered and their job has not started yet */
+  starting?: string[];
+  /** R4 (H112): the navigation was drawn in the last frame (a column, or an open drawer) */
+  navShown?: boolean;
   /** Follow selected artifact: the job a run started here, shown by the Inspector and Activity until the cursor moves */
   follow?: string | null;
   /** focus mode ([z]): the center alone, with the top and the bottom */

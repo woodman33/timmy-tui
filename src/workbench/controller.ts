@@ -24,23 +24,27 @@ import { projectCards } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
 import { keyAt, type MouseReport } from '../tui/mouse.js';
+import { scrubHomes } from '../utils/home-scrub.js';
 import { receiptsPath, type Receipt } from '../utils/receipts.js';
+import { isLiveRun } from '../workflows/upmd-live.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { modeOf } from './layout.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
+import { OutputWatch } from './output.js';
 import { checkDetail, realProducers, type Loaded, type Producers, type RunDetailOf } from './producers.js';
+import { remember as rememberList, resolve, select } from './select.js';
 import type { CompanionControl, StudioControl } from './servers.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
-  activityOf, chainOf, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readRoute, readVoxRecords, readWorkflows,
+  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readRoute, readVoxRecords, readWorkflows,
   type ActivityEvent,
 } from './state.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
-import { actionsOf, centerView, cursorOf, selectedItem, stopWords, topButtons, type ViewCtx } from './views.js';
+import { actionsOf, bottomView, centerView, cursorOf, rightView, runOfBlock, selectedItem, stopWords, topButtons, type ViewCtx } from './views.js';
 
 /** What this Workbench uses of the REPL's Workspace. */
 export type WorkspaceLike = Pick<Workspace, 'project' | 'root' | 'jobs' | 'project_' | 'stop' | 'overview' | 'close' | 'run' | 'ops'>;
@@ -100,6 +104,11 @@ export class Controller {
   /** the runs being started here (one press runs once) */
   private readonly starting = new Set<string>();
   private turnAbort: AbortController | null = null;
+  /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
+  private noticeSeq = 0;
+  private readonly output = new OutputWatch();
+  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed) */
+  private readonly detailSig = new Map<string, string>();
 
   constructor(private readonly d: ControllerDeps) {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
@@ -108,8 +117,9 @@ export class Controller {
     this.ui = {
       workspace: remembered?.workspace ?? 'workflows', focus: 'nav', tab: remembered?.tab ?? 'inspector',
       navOpen: false, rightOpen: false, activityOpen: remembered?.activity ?? false, activityAll: false, overlay: null,
-      input: { field: null, text: '' }, cursor: {}, scroll: {}, flash: null, mouse: false, related: false, settings, saved: null,
-      companion: d.companion.state(), studio: d.studio.state(), mine: [],
+      input: { field: null, text: '' }, cursor: {}, scroll: {}, sel: {}, anchor: {}, wheel: {}, activityFollow: true, toolsQuery: '',
+      flash: null, mouse: false, related: false, settings, saved: null,
+      companion: d.companion.state(), studio: d.studio.state(), mine: [], starting: [],
     };
     this.data = this.emptyData(project);
     this.readAll();
@@ -119,11 +129,25 @@ export class Controller {
 
   private emptyData(project: ReturnType<typeof projectView>): Data {
     return {
-      project, projects: [], files: { total: 0, truncated: false, groups: [] }, workflows: { upmd: false, docs: [] }, jobs: [],
+      project, projects: [], files: { total: 0, truncated: false, groups: [] }, workflows: { upmd: false, docs: [] }, jobs: [], away: [],
       decisions: { items: [], more: 0, total: 0, otherSetup: 0, tools: {}, operations: {}, notes: [] }, route: readRoute(this.d.env),
       activity: { running: 0, waiting: 0, last: null, events: [] }, chat: { session: null, total: 0, messages: [] }, vox: [], native: {},
       starters: [], boards: [], studio: { state: 'idle' }, overview: { state: 'idle' }, caps: { state: 'idle' }, details: {}, readAt: 0,
     };
+  }
+
+  /** Activity from the jobs (the shown project's and, R4 H112, this Workbench's runs in another), the notices and the lines
+   *  jobs printed. */
+  private activity(): Data['activity'] {
+    const shown = this.data.project.root;
+    const where = (job: string): string => {
+      const j = this.records.find((r) => r.id === job);
+      return j && !sameFolder(j.root, shown) ? ` (in ${j.project})` : '';
+    };
+    // the lines of the jobs Activity shows: the shown project's, and this Workbench's own elsewhere (never another project's)
+    const shownJobs = new Set([...this.data.jobs, ...this.data.away].map((j) => j.id));
+    const output = outputEvents(this.output.all().filter((l) => shownJobs.has(l.job)), { where, bar: this.d.glyphs.unicode ? '│' : '|' });
+    return activityOf(this.data.jobs, this.data.decisions.total, this.notices, { away: this.data.away, shown, output });
   }
 
   // ── subscribers ───────────────────────────────────────────────────────────────
@@ -139,9 +163,11 @@ export class Controller {
     const named = meta.job ?? /\b(j[0-9a-f]{6,})\b/.exec(text)?.[1];
     const job = named ? this.records.find((j) => j.id === named) : undefined;
     const operation = meta.operation ?? job?.operation;
-    this.notices.unshift({ at, words: text, ...(job ? { job: job.id } : {}), ...(operation ? { operation } : {}), ...(role === 'failure' ? { failed: true } : {}), ...(role === 'attention' ? { attention: true } : {}) });
-    this.notices.splice(40);
-    this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
+    // R4 (H112): each notice has a name of its own (Activity's selection stays on it) and its place among notices of its time
+    const n = ++this.noticeSeq;
+    this.notices.unshift({ at, words: text, key: `note:${n}`, seq: n, ...(job ? { job: job.id } : {}), ...(operation ? { operation } : {}), ...(role === 'failure' ? { failed: true } : {}), ...(role === 'attention' ? { attention: true } : {}) });
+    this.notices.splice(60);
+    this.data.activity = this.activity();
     this.emit();
   }
 
@@ -161,7 +187,26 @@ export class Controller {
     try { this.records = this.d.workspace.jobs.list(); } catch { this.records = []; }
     const root = this.data.project.root;
     this.data.jobs = readJobs(this.records, root, { mine: this.mine, chain: this.chain() });
-    this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
+    // R4 (H112): a run this Workbench started keeps its own project when the view switches: still named, with where
+    this.data.away = this.records.filter((j) => this.mine.has(j.id) && !sameFolder(j.root, root)).slice(0, 12).map((j) => jobRow(j, { mine: this.mine }));
+    this.readOutput();
+    this.data.activity = this.activity();
+  }
+
+  /** R4 (H112): what each running job printed since the last look (its log; src/workbench/output.ts), kept as first seen; a
+   *  job seen running is read once more after it ends, so its last lines are not lost. */
+  private readOutput(): void {
+    const at = new Date(this.now()).toISOString();
+    const shown = new Set([...this.data.jobs, ...this.data.away].map((j) => j.id));
+    for (const rec of this.records) {
+      if (!shown.has(rec.id)) continue;
+      const live = (rec.state === 'queued' || rec.state === 'running' || rec.state === 'ready') && !rec.stale;
+      if (!live && !this.output.watching(rec.id)) continue;
+      this.output.read({
+        id: rec.id, ...(rec.operation ? { operation: rec.operation } : {}), logPath: rec.logPath, live,
+        drawn: rec.kind === 'workflow' && isLiveRun(rec.args),
+      }, at, (t) => scrubHomes(t.split(rec.root).join('.'), this.d.env));
+    }
   }
 
   /** Everything but the on-demand parts (every few seconds, and on [r]). */
@@ -174,7 +219,7 @@ export class Controller {
     const own = this.records.filter((j) => sameFolder(j.root, root));
     this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
     this.data.decisions = readDecisions(root, this.records, chain, this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
-    this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
+    this.data.activity = this.activity();
     this.data.route = readRoute(this.d.env, root);
     this.data.chat = readChatTail(root);
     this.data.vox = readVoxRecords(root);
@@ -236,9 +281,12 @@ export class Controller {
   private onTick(): void {
     this.followProject();
     this.readJobs();
-    // Activity's words change with the time, and a spinner turns while something runs
-    const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.activity.last?.words, this.ui.flash?.at]);
-    if (sig !== this.signature || this.data.activity.running || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
+    // Activity's words change with the time, and a spinner turns while something runs. R4 (H112): with the mouse given back
+    // to the terminal (m), so that a person can select text, the screen is drawn again only when something new happened (a
+    // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
+    const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.away.map((j) => [j.id, j.state, j.steps.length]), this.data.activity.last?.words, this.ui.flash?.at]);
+    const ticking = this.data.activity.running > 0 && this.ui.mouse;
+    if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
   }
 
   /** Follow active project: a project chosen in another surface moves this Workbench (else it says it is pinned). */
@@ -307,12 +355,18 @@ export class Controller {
     this.emit();
   }
 
-  /** The run detail of an operation the Inspector shows: read once, and again while its run goes on. */
-  private wantDetail(op: string, live: boolean): void {
+  /**
+   * The run detail of an operation the Inspector shows: read once, and again while its run goes on. R4 (H112): and again once
+   * its job's record changed since (`sig`: a run that ended, one a later session's recovery ended), and after [r] (found in
+   * tmux: a detail read while a run was stale still said "left running" after /recover had ended it).
+   */
+  private wantDetail(op: string, live: boolean, sig = ''): void {
     if (!this.detailOf?.ok) return;
     const cur = this.data.details[op];
     if (cur?.state === 'loading') return;
-    if (cur && (cur.state === 'ready' || cur.state === 'failed') && (!live || this.now() - cur.at < 1000)) return;
+    const same = this.detailSig.get(op) === sig;
+    if (cur && (cur.state === 'ready' || cur.state === 'failed') && same && (!live || this.now() - cur.at < 1000)) return;
+    this.detailSig.set(op, sig);
     const of = this.detailOf.value;
     const root = this.data.project.root;
     this.data.details[op] = cur?.state === 'ready' ? cur : { state: 'loading', since: this.now() };
@@ -336,18 +390,45 @@ export class Controller {
     this.ui.companion = this.d.companion.state();
     this.ui.studio = this.d.studio.state();
     this.ui.mine = [...this.mine];
+    this.ui.starting = [...this.starting];
+    this.ui.navShown = (mode !== 'narrow' && !this.ui.focusMode) || this.ui.navOpen;
+    // R4 (H112): each list's selection is found again by its item, wherever the records moved it, before anything is drawn
+    this.reselect();
     const f = frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
-    for (const d of Object.values(f.regions)) if (d) this.ui.scroll[d.list] = d.scroll;
+    // and the next frame keeps each list's selected item, and its anchor on the same row
+    for (const d of Object.values(f.regions)) {
+      if (!d || d.list === 'top') continue;
+      if (d.list === 'nav') {
+        const active = d.items.findIndex((it) => it.item.kind === 'action' && it.item.action === this.ui.workspace);
+        if (active >= 0) this.ui.cursor.nav = active;
+      }
+      rememberList(this.ui, d.list, d.items, d.scroll);
+    }
     // the Inspector, when it shows a job of an operation, draws that operation's run detail
     if (f.regions.right && this.ui.tab === 'inspector') {
       const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
-      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live);
+      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
     }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
     if (this.ui.focus === 'center' && !f.regions.center) this.ui.focus = f.regions.right ? 'right' : 'top';
     this.last = f;
     return f;
+  }
+
+  /**
+   * R4 (H112): each list's cursor set to its selected item's place now (src/workbench/select.ts): the center's first (the
+   * Inspector and Activity read its selection), then the right dock's tab and Activity (which follows its newest while
+   * Ui.activityFollow holds). Called before a frame is drawn and before a key or a click acts, so what the person acts on is
+   * the item they see selected, never the item that moved into its place.
+   */
+  reselect(): void {
+    if (this.ui.overlay) return;
+    const c = this.ctx();
+    resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items);
+    const right = rightView(c).items;
+    resolve(this.ui, `right:${this.ui.tab}`, right);
+    resolve(this.ui, 'bottom', bottomView(c).items, { follow: this.ui.activityFollow });
   }
 
   private ctx(): ViewCtx {
@@ -365,7 +446,19 @@ export class Controller {
     if (o?.kind === 'needs-you') { this.needsYouKey(o, input, k); return; }
     if (k.ctrl && input === 'c') { void this.quit(); return; }
     if (o?.kind === 'quit') { if (k.escape) { this.ui.overlay = null; this.emit(); } return; }
+    // R4 (H112; found in tmux under load): keys that arrive together reach Ink as one chunk, and Ink takes a chunk with a
+    // carriage return in it for text: "Workflows\r" lost its Enter, and two quick Enters ("\r\r") did nothing at all. A
+    // chunk of text followed by Enters is that text, then each Enter (one press each: a second Run is refused by its own
+    // guard). In the composer the Enter is not taken: what leaves this computer is sent only by an Enter of its own.
+    const chunk = !k.ctrl && !k.meta && input.length > 1 ? /^([^\x00-\x1f\x7f]*)(\r+)$/.exec(input) : null;
+    if (chunk && this.ui.input.field !== 'composer' && (chunk[1] === '' || this.ui.input.field || chunk[1].startsWith('/'))) {
+      if (chunk[1]) this.key(chunk[1], {});
+      for (let i = 0; i < chunk[2].length; i++) this.key('\r', { return: true });
+      return;
+    }
     if (this.ui.input.field) { this.typing(input, k); return; }
+    // R4 (H112): what the key acts on is the item the person sees selected, wherever the records have moved it since
+    this.reselect();
     if (o && this.overlayKey(o, input, k)) return;
     if (k.escape) { this.escape(); return; }
     if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return; }
@@ -373,7 +466,8 @@ export class Controller {
     if (k.downArrow || (!k.ctrl && input === 'j')) { this.move(1); return; }
     if (k.pageUp) { this.move(-this.page()); return; }
     if (k.pageDown) { this.move(this.page()); return; }
-    // Home and End: the first or last tab of the right dock (as the reference's tabs), else the first or last row
+    // Home and End: the first or last tab of the right dock (as the reference's tabs), else the first or last row (End on
+    // Activity follows its newest again)
     if (k.home || k.end) {
       if (this.ui.focus === 'right') { this.ui.tab = RIGHT_TABS[k.home ? 0 : RIGHT_TABS.length - 1]; this.remember(); this.emit(); } else this.move(k.home ? -1e6 : 1e6);
       return;
@@ -464,10 +558,24 @@ export class Controller {
       return;
     }
     const list = this.listOf(region);
-    const n = this.itemsOf(region);
+    // R4 (H112): the selection is the item moved to (by its key, src/workbench/select.ts); the wheel's view is let go
+    const items = this.itemsNow(region);
+    const n = items?.length ?? this.itemsOf(region);
     if (!n) return;
-    this.ui.cursor[list] = Math.max(0, Math.min(n - 1, (this.ui.cursor[list] ?? 0) + delta));
+    const at = Math.max(0, Math.min(n - 1, (this.ui.cursor[list] ?? 0) + delta));
+    if (items) select(this.ui, list, items, at); else { this.ui.cursor[list] = at; delete this.ui.wheel[list]; }
+    // Activity follows its newest while the newest is selected, and is held where the person moved otherwise
+    if (region === 'bottom') this.ui.activityFollow = at === n - 1;
     this.emit();
+  }
+
+  /** R4 (H112): a region's selectable items as they are now (the center's, the right tab's, Activity's). */
+  private itemsNow(region: Region): ReadonlyArray<{ line: number; item: Item }> | null {
+    const c = this.ctx();
+    if (region === 'center') return centerView(c).items;
+    if (region === 'right') return rightView(c).items;
+    if (region === 'bottom') return bottomView(c).items;
+    return null;
   }
 
   private side(dir: 1 | -1): void {
@@ -486,15 +594,22 @@ export class Controller {
     if (this.ui.workspace !== ws) {
       this.ui.workspace = ws;
       this.ui.overlay = null;
+      // R4 (H112): a list opened again starts on its first row (its newest), unless the person chose a row in it (that row
+      // stays chosen, wherever new rows put it); while the person looks at a list, its selection stays on its item either way
+      const list = `center:${ws}`;
+      if (!this.ui.chosen?.[list]) { delete this.ui.sel[list]; delete this.ui.anchor[list]; delete this.ui.wheel[list]; this.ui.cursor[list] = 0; this.ui.scroll[list] = 0; }
       this.remember();
     }
+    // the navigation shows the workspace chosen, wherever the wheel had scrolled it
+    delete this.ui.wheel.nav;
     this.loadFor(ws);
     if (ws === 'chat') void this.openChat();
     this.emit();
   }
 
   private search(): void {
-    if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.input.text }; this.loadFor('tools'); this.emit(); return; }
+    // in All tools, away from the navigation, / searches the tools (R4, H112: from the words the search kept)
+    if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.toolsTop(); this.loadFor('tools'); this.emit(); return; }
     if (modeOf(this.size.columns) === 'narrow' || this.ui.focusMode) this.ui.navOpen = true;
     this.ui.focus = 'nav';
     this.ui.input = { field: 'search', text: '' };
@@ -522,6 +637,8 @@ export class Controller {
   }
 
   refresh(): void {
+    // R4 (H112): each run detail is read again too, when next shown (until then the one read before stays on screen)
+    this.detailSig.clear();
     this.readAll();
     this.loadFor(this.ui.workspace, true);
     this.say(`Read ${this.data.project.name}'s records again at ${clock(new Date(this.now()).toISOString())}.`, 'secondary');
@@ -533,8 +650,22 @@ export class Controller {
     const f = this.ui.input.field!;
     if (k.escape) {
       if (f === 'composer' && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent (Esc)…', 'secondary'); }
-      this.ui.input = { field: null, text: f === 'tools' ? '' : '' };
+      this.ui.input = { field: null, text: '' };
       if (f === 'picker' || f === 'new') this.ui.overlay = null;
+      if (f === 'tools') {
+        // R4 (H112; the r26 dry run, where / could not reach the finder from All tools): Esc clears the tools search and,
+        // where the navigation is shown, gives it the keyboard, so / finds a workspace in one key (no key changes). Where it
+        // is a drawer, the keyboard stays on the list: g, then /.
+        this.ui.toolsQuery = '';
+        this.toolsTop();
+        if (this.last?.regions.nav) {
+          this.ui.focus = 'nav';
+          this.say('Tools search cleared. The navigation has the keyboard: / finds a workspace; Tab goes back to the tools.', 'secondary');
+          return;
+        }
+        this.say('Tools search cleared. g, then / finds a workspace.', 'secondary');
+        return;
+      }
       this.emit();
       return;
     }
@@ -543,14 +674,30 @@ export class Controller {
       if (f === 'picker') { this.ui.cursor.overlay = Math.max(0, (this.ui.cursor.overlay ?? 0) + (k.upArrow ? -1 : 1)); this.emit(); }
       return;
     }
-    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); this.emit(); return; }
+    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); this.emit(); return; }
     if (k.ctrl || k.meta || k.tab) return;
     // printable text only (a paste arrives as one string)
     const text = input.replace(/[\x00-\x1f\x7f]/g, '');
     if (!text) return;
     this.ui.input.text = (this.ui.input.text + text).slice(0, 300);
     if (f === 'picker') this.ui.cursor.overlay = 0;
+    if (f === 'tools') this.toolsTop();
     this.emit();
+  }
+
+  /**
+   * R4 (H112; found in tmux at 80x24): All tools' list from its top, its first match selected: the search's own row and its
+   * hint (the way to the workspace finder) are the list's first rows, so they are shown while the search is typed in, and
+   * after Esc clears it (a row selected far down had scrolled them away).
+   */
+  private toolsTop(): void {
+    const list = 'center:tools';
+    this.ui.cursor[list] = 0;
+    this.ui.scroll[list] = 0;
+    delete this.ui.sel[list];
+    delete this.ui.anchor[list];
+    delete this.ui.wheel[list];
+    if (this.ui.chosen) delete this.ui.chosen[list];
   }
 
   private async submit(field: NonNullable<Ui['input']['field']>, text: string): Promise<void> {
@@ -563,7 +710,16 @@ export class Controller {
       this.emit();
       return;
     }
-    if (field === 'tools') { this.ui.input = { field: null, text: '' }; this.ui.cursor['center:tools'] = 0; this.emit(); return; }
+    if (field === 'tools') {
+      // R4 (H112): Enter keeps the matches listed, the first one selected, for the arrows and the Inspector; / changes them
+      this.ui.toolsQuery = text.trim();
+      this.ui.input = { field: null, text: '' };
+      this.ui.focus = 'center';
+      const items = this.itemsNow('center');
+      if (items?.length) select(this.ui, 'center:tools', items, 0); else this.ui.cursor['center:tools'] = 0;
+      this.emit();
+      return;
+    }
     if (field === 'picker') {
       const v = centerView(this.ctx());
       const it = v.items[cursorOf(this.ui, 'overlay', v.items.length)]?.item;
@@ -684,7 +840,7 @@ export class Controller {
   private refreshDecisions(): void {
     const root = this.data.project.root;
     this.data.decisions = readDecisions(root, this.records, this.chain(), this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
-    this.data.activity = activityOf(this.data.jobs, this.data.decisions.total, this.notices);
+    this.data.activity = this.activity();
     this.emit();
   }
 
@@ -695,9 +851,16 @@ export class Controller {
     this.ui.overlay = null;
     const ws = this.d.workspace;
     const args = `${o.doc} ${o.block}`;
+    const label = `${o.doc} › ${o.block}`;
     const request = `/run ${args}`;
-    if (this.starting.has(args)) { this.say(`${request} is already starting here: one press runs it once.`, 'secondary'); return; }
-    this.starting.add(args);
+    // R4 (H112): one press, one operation, one job. A run of it being started here, or one that runs now in any session (the
+    // job store read again, not the last tick's reading), starts nothing: no operation is begun and nothing is sealed.
+    this.ui.starting = [...this.starting];
+    this.readJobs();
+    const going = runOfBlock({ ui: this.ui, data: this.data }, o.doc, o.block);
+    if (going) { this.say(`Not started: ${going.words}.`, 'secondary', going.job?.operation ? { operation: going.job.operation } : {}); return; }
+    this.starting.add(label);
+    this.ui.starting = [...this.starting];
     const h = ws.ops.begin({ request, via: 'workbench', root: ws.root, project: ws.project.name });
     this.say(`${request}: operation ${h.id}, through the REPL's own /run${o.risky.length ? '; its NEEDS YOU box asks first' : ''}…`, 'secondary', { operation: h.id });
     try {
@@ -712,7 +875,8 @@ export class Controller {
     } catch (e) {
       this.say(`${request} could not start: ${e instanceof Error ? e.message : String(e)}`, 'failure');
     } finally {
-      this.starting.delete(args);
+      this.starting.delete(label);
+      this.ui.starting = [...this.starting];
       this.emit();
     }
   }
@@ -799,11 +963,19 @@ export class Controller {
     if (this.ui.workspace === 'chat') void this.openChat();
     this.ui.cursor = {};
     this.ui.scroll = {};
+    // R4 (H112): another project's lists: nothing of this one's selection, anchors or wheel is kept (Activity keeps following)
+    this.ui.sel = {};
+    this.ui.anchor = {};
+    this.ui.wheel = {};
+    this.ui.chosen = {};
+    this.ui.toolsQuery = '';
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
     if (remembered) { this.ui.workspace = remembered.workspace; this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
     this.readAll();
     this.loadFor(this.ui.workspace);
-    this.say(`Now in ${p.name} (${this.data.project.shown}): ${why}. The REPL, the monitor and Studio follow the same record; a running job keeps its own project.`);
+    // R4 (H112): this Workbench's runs elsewhere go on, named with where they run
+    const away = this.data.away.filter((j) => j.live).map((j) => `${j.id} (${j.label}) keeps running in ${j.project}`);
+    this.say(`Now in ${p.name} (${this.data.project.shown}): ${why}. The REPL, the monitor and Studio follow the same record; a running job keeps its own project${away.length ? `: ${away.join('; ')}. Stop still names it` : ''}.`);
   }
 
   // ── the servers ───────────────────────────────────────────────────────────────
@@ -823,10 +995,13 @@ export class Controller {
   // ── Stop current ──────────────────────────────────────────────────────────────
 
   async stop(): Promise<void> {
-    const sel = this.selected();
-    const target = this.ui.workspace === 'control' && sel?.kind === 'job' && sel.job.live ? sel.job : stopWords(this.data).target;
+    this.reselect();
+    // R4 (H112): the target the top line names (src/workbench/views.ts stopWords: the Control Room's selected live job there),
+    // so what x stops is always what was named beforehand
+    const target = stopWords(this.data, this.selected(), this.ui.workspace).target;
     if (!target) { this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary'); return; }
-    this.say(`Stopping ${target.id} (${target.label})…`, 'secondary');
+    const where = sameFolder(target.root, this.data.project.root) ? '' : `, in ${target.project}`;
+    this.say(`Stopping ${target.id} (${target.label}${where})…`, 'secondary');
     const r = await stopCurrent(target, { stop: (id) => this.d.workspace.stop(id), jobs: this.d.workspace.jobs, ...(this.d.stopLeft ? { stopLeft: this.d.stopLeft } : {}) });
     this.readJobs();
     this.say(r.words, r.role);
@@ -859,6 +1034,11 @@ export class Controller {
     if (!item) return;
     switch (item.kind) {
       case 'block': {
+        // R4 (H112): a run of this block under way (here, or in any session, read now from the job store) starts nothing
+        this.ui.starting = [...this.starting];
+        this.readJobs();
+        const going = runOfBlock({ ui: this.ui, data: this.data }, item.doc.rel, item.block.name);
+        if (going) { this.say(`Not started: ${going.words}.`, 'secondary', going.job?.operation ? { operation: going.job.operation } : {}); return; }
         const acts = actionsOf(this.ctx(), item);
         const run = acts.find((a) => a.key === 'Enter');
         if (run?.enabled) this.open({ kind: 'confirm-run', doc: item.doc.rel, block: item.block.name, order: item.block.order, risky: item.block.risky });
@@ -880,53 +1060,111 @@ export class Controller {
 
   // ── the mouse ─────────────────────────────────────────────────────────────────
 
+  /**
+   * A mouse report (SGR, as the Workbench asks for them: src/tui/mouse.ts). R4 (H112), the operator's slice C: a click opens a
+   * workspace (the navigation), picks a tab (the right dock), selects a row, or presses the [key] it lands on; a click never
+   * runs or allows anything: a row is only selected (Enter, the key, acts on it), a click on [Enter] in the Run confirm or on
+   * [y] or [a] in a NEEDS YOU box says the key to press instead (a click on [n] denies, the default), and while a field has
+   * the keyboard only [Esc] counts (a one-letter hint is never typed into it). The wheel scrolls the list under the pointer
+   * by rows, moving no selection and no focus.
+   */
   mouse(m: MouseReport): void {
     const f = this.last;
     if (!f || !this.ui.mouse) return;
     const x = m.x - 1;
     const y = m.y - 1;
-    // the wheel moves the list under the pointer
-    if (m.button === 64 || m.button === 65) {
-      const region = (Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>).find(([, d]) => x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h)?.[0];
-      if (region) { this.ui.focus = region; this.move(m.button === 64 ? -1 : 1); }
+    const hit = (Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>).find(([, d]) => x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h);
+    // the wheel (its modifier bits aside): the list under the pointer scrolls by a row
+    const plainButton = m.button & ~(4 | 8 | 16);
+    if (plainButton === 64 || plainButton === 65) {
+      if (hit && hit[0] !== 'top') this.wheel(hit[0], hit[1], plainButton === 64 ? -1 : 1);
       return;
     }
     if (!m.press || m.button !== 0) return;
-    // a [key] hint presses its key, wherever it is drawn
+    // the [key] hint it lands on, wherever it is drawn
     const hint = keyAt(f.screen.map((l) => l.map((s) => s.text).join('')), m.x, m.y);
-    // a NEEDS YOU box is answered only by its keys (a click on [y] is y); a click elsewhere does nothing
-    if (this.ui.overlay?.kind === 'needs-you') { if (hint && hint.length === 1) this.key(hint, {}); return; }
-    if (hint) {
-      if (hint === 'Enter') { void this.enter(); return; }
-      if (hint === 'Esc') { this.escape(); return; }
-      if (hint.length === 1) { this.key(hint, {}); return; }
-    }
-    for (const t of f.tabs) if (y === t.y && x >= t.x0 && x <= t.x1) { this.ui.tab = t.tab; this.ui.focus = 'right'; this.remember(); this.emit(); return; }
-    for (const [region, d] of Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>) {
-      if (!(x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h)) continue;
-      this.ui.focus = region;
-      const row = y - d.rect.y - 1 - d.fixed;
-      if (x === d.rect.x || x === d.rect.x + d.rect.w - 1) { this.emit(); return; }
-      if (row < 0) { this.emit(); return; }
-      const line = row + d.scroll;
-      const at = d.items.findIndex((it) => it.line === line);
-      if (at < 0) { this.emit(); return; }
-      const it = d.items[at].item;
-      if (region === 'nav' && it.kind === 'action') { this.selectWorkspace(it.action as WorkspaceId); return; }
-      const already = (this.ui.cursor[d.list] ?? 0) === at;
-      this.ui.cursor[d.list] = at;
-      if (region === 'center') this.ui.follow = null;
-      this.emit();
-      // a second click on the selected row does what Enter does
-      if (already && region === 'center') void this.enter();
+    const o = this.ui.overlay;
+    if (o?.kind === 'needs-you') {
+      if (hint === 'n') this.key('n', {});
+      else if (hint === 'y' || hint === 'a') this.say('A click never allows: press y to allow once (or n, Esc or Enter to deny). The box waits for a key.', 'attention');
       return;
     }
+    if (this.ui.input.field) {
+      if (hint === 'Esc') this.key('', { escape: true });
+      else this.say('A field has the keyboard: Esc leaves it (a click on a key\'s hint is never typed into it).', 'secondary');
+      return;
+    }
+    if (o?.kind === 'confirm-run') {
+      if (hint === 'Esc') this.escape();
+      else if (hint === 'Enter') this.say('A click never starts a run: press Enter, the key, to run it (or Esc).', 'attention');
+      return;
+    }
+    if (o?.kind === 'quit') { if (hint === 'Esc') { this.ui.overlay = null; this.emit(); } return; }
+    if (o?.kind === 'settings') {
+      // a checkbox or a preset is changed by its click, as Space would (a setting, never a run)
+      const d = f.regions.center;
+      const at = d && hit?.[0] === 'center' ? this.rowAt(d, x, y, false) : -1;
+      if (at >= 0) { this.ui.cursor.overlay = at; this.toggleSetting(at); return; }
+      if (hint === 'Esc') this.escape();
+      return;
+    }
+    if (o) { if (hint === 'Esc') this.escape(); return; }
+    if (!hit) return;
+    // a tab of the right dock
+    for (const t of f.tabs) if (y === t.y && x >= t.x0 && x <= t.x1) { this.ui.tab = t.tab; this.ui.focus = 'right'; this.remember(); this.emit(); return; }
+    const [region, d] = hit;
+    const at = this.rowAt(d, x, y, region === 'bottom');
+    const it = at >= 0 ? d.items[at].item : null;
+    // a workspace in the navigation opens it
+    if (region === 'nav' && it?.kind === 'action') { this.ui.focus = 'nav'; this.selectWorkspace(it.action as WorkspaceId); return; }
+    // the region under the pointer has the keyboard; the row under it is selected (only selected)
+    this.ui.focus = region;
+    if (at >= 0) {
+      this.reselect();
+      select(this.ui, d.list, d.items, at);
+      if (region === 'center') this.ui.follow = null;
+      if (region === 'bottom') this.ui.activityFollow = at === d.items.length - 1;
+    }
+    if (hint === 'Esc') { this.escape(); return; }
+    // [Enter] does what Enter does to what is now selected: it opens or asks (a run's confirm), and never runs
+    if (hint === 'Enter') { void this.enter(); return; }
+    if (hint && [...hint].length === 1) { this.key(hint, {}); return; }
+    this.emit();
+  }
+
+  /** R4 (H112): the item a click at (x, y) lands on in a drawn region, or -1 (a border, a heading, the air). `rows`: an item
+   *  takes every row up to the next item's (Activity's wrapped events). */
+  private rowAt(d: NonNullable<Frame['regions'][Region]>, x: number, y: number, rows: boolean): number {
+    if (x <= d.rect.x || x >= d.rect.x + d.rect.w - 1) return -1;
+    const row = y - d.rect.y - 1 - d.fixed;
+    if (row < 0 || (d.height && row >= d.height)) return -1;
+    const line = row + d.scroll;
+    const exact = d.items.findIndex((it) => it.line === line);
+    if (exact >= 0 || !rows) return exact;
+    for (let i = d.items.length - 1; i >= 0; i--) if (d.items[i].line <= line) return i;
+    return -1;
+  }
+
+  /** R4 (H112): the wheel over a region scrolls its list by `delta` rows: the view only (no selection, no focus moves). */
+  private wheel(region: Region, d: NonNullable<Frame['regions'][Region]>, delta: number): void {
+    const max = Math.max(0, d.total - d.height);
+    const next = Math.max(0, Math.min(max, d.scroll + delta));
+    if (next === d.scroll) return;
+    this.ui.scroll[d.list] = next;
+    this.ui.wheel[d.list] = true;
+    delete this.ui.anchor[d.list];
+    // Activity scrolled by the wheel is held where it is (its newest is not followed until End)
+    if (region === 'bottom') this.ui.activityFollow = false;
+    this.emit();
   }
 
   // ── quitting ──────────────────────────────────────────────────────────────────
 
   async quit(): Promise<void> {
-    const live = this.data.jobs.filter((j) => j.live);
+    // R4 (H112): the job store as it is now (found in tmux: a Ctrl+C just after a run ended asked about that run, read before
+    // it ended); this Workbench's runs in another project are its own too: the quit box names them
+    this.readJobs();
+    const live = [...this.data.jobs, ...this.data.away].filter((j) => j.live);
     const own = live.filter((j) => j.owner === 'workbench');
     const others = live.filter((j) => j.owner !== 'workbench');
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
