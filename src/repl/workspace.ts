@@ -65,6 +65,7 @@ import { makeRunFolder, starterIn, wrapperDid } from '../workflows/pty-stop.js';
 // R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
 import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
 import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
+import { RunProgress } from './run-progress.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import type { ApprovalRequest, Decision } from './approvals.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
@@ -193,6 +194,8 @@ export interface WorkspaceDeps {
   /** R4 (H74): the NEEDS YOU box of a terminal (the REPL's own, `timmy md`'s); absent where no one can be asked (`timmy act`):
    *  a /run whose blocks include a risky one is then refused before anything runs. */
   askPerson?: (req: ApprovalRequest) => Promise<Decision>;
+  /** R4 (H99): /run's progress lines (src/repl/run-progress.ts): its timings (a test gives short ones), or false for none */
+  runProgress?: { tickMs?: number; quietMs?: number; minGapMs?: number } | false;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -355,9 +358,14 @@ export class Workspace {
   private readonly blockSeals: BlockSealer;
   /** R4 (H74): the live board's runs refused because a block needs a person (listed in "Waiting on you") */
   private readonly heldRuns = new HeldRuns();
+  /** R4 (H99, gap 5): progress lines while this REPL's /run jobs run, read from their own records */
+  private readonly runProgress?: RunProgress;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
+    if (d.runProgress !== false) {
+      this.runProgress = new RunProgress({ jobs: { get: (id) => this.jobs.get(id) }, notify: (l) => this.d.notify(l), glyphs: d.glyphs, scrub: (t, root) => this.scrub(t, root), ...(d.runProgress ?? {}) });
+    }
     this.blockSeals = new BlockSealer({
       seal: (input) => this.d.seal(input), chain: () => this.chainNow(), scrub: (t, root) => this.scrub(t, root),
       // R4 (H99, r24): a block whose own flows made no change is noted on its job's step, which every view reads
@@ -1069,6 +1077,8 @@ export class Workspace {
     // R4 (H74): each block's receipt is sealed as it ends, from what /run read before upmd started
     this.blockSeals.begin(job.id, { root: this.root, project: this.project.name, projectId: projectId(this.root), doc: r.rel, ...(r.sha256 ? { docSha256: r.sha256 } : {}), blocks, ...(predicted ? { prediction: predicted } : {}) });
     this.heldRuns.settle(this.root, r.rel, target);
+    // R4 (H99, gap 5): a line as its state changes, and while it runs at least every 15 s, read from its own records
+    this.runProgress?.follow(job.id, { root: this.root, ...(job.operation ? { operation: job.operation } : {}), order: plan.order, live: how.live });
     return [
       ...(approved ? [[{ text: '  Approved   ', role: 'secondary' as const }, { text: `${p.risky.map((b) => b.name).join(', ')}, ${approved}, in its NEEDS YOU box`, role: 'strong' as const }]] : []),
       [{ text: '  Predicted  ', role: 'secondary' }, { text: plan.order.join(` ${this.d.glyphs.arrow} `), role: 'strong' }, { text: `, each exits 0${predicted ? `${this.sep}receipt ${predicted}` : ''}`, role: 'secondary' }],
@@ -1513,6 +1523,7 @@ export class Workspace {
   /** The REPL is ending: stop what this REPL started, a model's interpretation included, and let a stopped
    *  observation be recorded (round R3). */
   async close(o: { by?: string } = {}): Promise<void> {
+    this.runProgress?.stopAll(); // R4 (H99): no progress line once this REPL is ending (each run's end is said as before)
     // Round R4 (H17): recipes first, through their own cancel; a recipe start under way settles (bounded) and starts no watcher.
     for (const a of this.cancelRecipes()) if (a.error) this.d.notify(this.say(cancelSentence(a), 'failure')[0]);
     await within(this.launches.settled());
@@ -1547,6 +1558,7 @@ export class Workspace {
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(by: string = REPL_END_REASON): void {
+    this.runProgress?.stopAll(); // R4 (H99)
     this.unrealRuns.close(); // R4 (H63): no readback starts once the process exits at once
     this.flows.abortAll(by);
     this.vox.abortAll(by);
