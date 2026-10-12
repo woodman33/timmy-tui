@@ -61,7 +61,7 @@ import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal 
 import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
 import { findUpmd, findWorkflowDocs, parseWorkflow, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
-import { makeRunFolder, starterIn, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67); R4 (H88): starterIn
+import { makeRunFolder, runBlocksFile, starterIn, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67); R4 (H88): starterIn; R4 (H114): runBlocksFile
 // R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
 import { BlockSealer, noteLeftSteps, sealLeftBlocks } from './workflow-blocks.js';
 import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
@@ -1071,8 +1071,10 @@ export class Workspace {
     // R4 (H67): the wrapper stops upmd at once when this process ends, and leaves a stop file in the run's own folder.
     const pty = await ptyReady(this.d.onPath('python3'));
     const stopFile = pty.ok ? stop : undefined;
-    const how = upmdJob(tool.bin, upmdRunArgs(copy.path, target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}) });
-    const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe');
+    // R4 (H114): each block's start and end as the wrapper reads them, beside its stop file: a block's own time is the wrapper's
+    const blocksFile = stopFile ? runBlocksFile(stopFile) : undefined;
+    const how = upmdJob(tool.bin, upmdRunArgs(copy.path, target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}), ...(blocksFile ? { blocksFile } : {}) });
+    const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe', undefined, how.live && blocksFile ? { blocksFile } : {});
     const job = this.jobs.start({
       kind: 'workflow', label: `${r.rel} › ${target}`, project: this.project.name, root: this.root,
       command: how.command, args: how.args,

@@ -278,7 +278,8 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
     expect(lines[0]).toMatch(/ ended unseen: a later recovery recorded its end at .+; its blocks' own times: first (<0\.1|\d+\.\d) s, long \d+\.\d s · interrupted: its session ended while long ran; its pty wrapper saw its timmy md end/);
     expect(lines[0]).not.toMatch(/steps · \d/);
     const ran = lines.find((l) => l.startsWith('  Ran      '))!;
-    expect(ran).toMatch(/^ {2}Ran {6}\S*python3(\.\d+)? -I \[Timmy\]\/workers\/upmd\/pty_run\.py --parent \d+ --stop-file \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/\S+ -- \[Timmy\]\/tests\/fixtures\/fake-upmd\.mjs --ci -b long -d \[project project\] \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/checked\.md$/);
+    // R4 (H114): the wrapper also names the run's blocks file, where it writes each block's start and end as it reads them
+    expect(ran).toMatch(/^ {2}Ran {6}\S*python3(\.\d+)? -I \[Timmy\]\/workers\/upmd\/pty_run\.py --parent \d+ --stop-file \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/\S+ --blocks-file \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/blocks\.json -- \[Timmy\]\/tests\/fixtures\/fake-upmd\.mjs --ci -b long -d \[project project\] \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/checked\.md$/);
     expect(said).not.toContain(s.base);
   }, 120_000);
 

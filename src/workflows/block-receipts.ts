@@ -34,8 +34,9 @@
  *                                exit_code }; null when upmd gave none (a block stopped, interrupted, or running at the end)
  *   interrupted_by, stop_words   what cut it, and the stop's own words when they are known
  *   exit_code                    upmd's word for it ("exited with code N"); null when not seen
- *   started_at, ended_at, ms     when Timmy saw its start and end (a run on a pty only: over a pipe upmd prints both when the
- *                                block ends) and its own time; null when not seen
+ *   started_at, ended_at, ms     when its start and end were seen (a run on a pty only: over a pipe upmd prints both when the
+ *                                block ends) and its own time; null when not seen. R4 (H114): seen means read by the run's
+ *                                pty wrapper from upmd's terminal (its blocks file), else parsed by Timmy
  *   seen                         'timmy', or 'wrapper' (its end as the run's pty wrapper saw it, its REPL gone)
  *   prediction                   the prediction receipt sealed before the run (its short id), null when there is none
  *   files, files_checked         the files Timmy can prove it changed, and what was checked for them, in words: see
