@@ -5,3 +5,9 @@ lanes/wire/snips/openrouter.snip.yaml:generic-api-key:7725
 # c9a4755 (gone from the tree since 30f2942), which gitleaks read together with the next word as a
 # value. This fingerprint matches that one finding only: its commit, file, rule and line.
 c9a475548f74f13da16c0f0cdf795bf6a6678afe:scripts/ui/replay-sandbox.sh:generic-api-key:54
+# 2026-10-12, approved by the operator (14:48 PT order): the synthetic send-once message key of a test, a FAKE value
+# ("k-" and 16 hex digits) in tests/chat-one-conversation.test.ts, added in H113's 7a31736 and merged in 19d35e8; not a
+# secret. gitleaks' generic-api-key rule read "key:" and that value. Each fingerprint matches that one finding only: its
+# commit, file, rule and line. Every other rule and path is scanned as before.
+7a31736abf110345b65e333ed85d7f47c5b1cfab:tests/chat-one-conversation.test.ts:generic-api-key:199
+19d35e81ecc82449198b29d03ef5348833cbfb25:tests/chat-one-conversation.test.ts:generic-api-key:202
