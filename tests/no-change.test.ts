@@ -33,7 +33,11 @@ function fakeDeps(o: { built?: Record<string, number>; jobs?: TrayLastBuildDeps[
     load: () => ({ request: { parameters: built }, requestHash: hashOf(built), sources: [{ file: '/somewhere/outside/build.py', hash: 'a'.repeat(64) }, { file: '/somewhere/outside/tray.ts', hash: 'b'.repeat(64) }] }),
     request: (v) => ({ sha256: hashOf(v), parameters: v }),
     hashFile: (abs) => (abs.endsWith('build.py') ? (o.sourceNow === undefined ? 'a'.repeat(64) : o.sourceNow) : 'b'.repeat(64)),
-    copy: () => (o.copy === false ? { ok: false, error: 'out/recipes/11111111/console-tray.step differs from the verified result' } : { ok: true }),
+    // each export as the signed result names it, and as read now (FAKE hashes)
+    copy: () => {
+      const files = [{ path: 'out/recipes/11111111/console-tray.step', recorded: 's'.repeat(64), now: o.copy === false ? 'd'.repeat(64) : 's'.repeat(64) }, { path: 'out/recipes/11111111/console-tray.stl', recorded: 't'.repeat(64), now: 't'.repeat(64) }];
+      return o.copy === false ? { ok: false, error: 'out/recipes/11111111/console-tray.step differs from the verified result', files } : { ok: true, files };
+    },
   };
 }
 
@@ -42,7 +46,7 @@ describe('the tray\'s last build, checked when a flow made no change (FAKE reade
     const lb = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps() });
     expect(lb.state).toBe('current');
     expect(lb.words).toBe('the last build (recipe job 11111111, 2026-10-11 10:00 UTC) still matches its recorded inputs: its request is the parameter file\'s values (width 150, wall 3, supportOffset 10, bore 3), its 2 source files hash as recorded, and its exports in out/recipes/11111111/ are the bytes its signed result names');
-    expect(lb.checks.map((c) => c.what)).toEqual(['the request (the parameter values it was built from)', 'source build.py', 'source tray.ts', 'its exports in out/recipes/11111111/']);
+    expect(lb.checks.map((c) => c.what)).toEqual(['the request (the parameter values it was built from)', 'source build.py', 'source tray.ts', 'its export out/recipes/11111111/console-tray.step', 'its export out/recipes/11111111/console-tray.stl']);
     // a source outside the project is named by its file name only
     expect(JSON.stringify(lb)).not.toContain('/somewhere');
     expect(lb.checked_at).toBe('2026-10-11T12:00:00.000Z');
@@ -60,6 +64,15 @@ describe('the tray\'s last build, checked when a flow made no change (FAKE reade
     const lb = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps({ copy: false }) });
     expect(lb.state).toBe('stale');
     expect(lb.words).toContain('its exports in the project are not the bytes its signed result names (out/recipes/11111111/console-tray.step differs from the verified result)');
+    // R4 (H99, the review): what was read now is kept as read, never the recorded hash copied
+    expect(lb.checks.filter((c) => c.what.startsWith('its export '))).toEqual([
+      { what: 'its export out/recipes/11111111/console-tray.step', recorded: 's'.repeat(64), now: 'd'.repeat(64), same: false },
+      { what: 'its export out/recipes/11111111/console-tray.stl', recorded: 't'.repeat(64), now: 't'.repeat(64), same: true },
+    ]);
+    // a signed result that cannot be read: its exports were not read, and are not current
+    const unread = trayLastBuild('/p', VALUES, { now: NOW, deps: { ...fakeDeps(), copy: () => ({ ok: false, error: 'the job could not be read: FAKE', files: [] }) } });
+    expect(unread.state).toBe('stale');
+    expect(unread.checks.at(-1)).toEqual({ what: 'its exports in out/recipes/11111111/', recorded: 'r'.repeat(64), now: null, same: false });
   });
   it('unknown while a newer build has not ended; none when nothing succeeded; unknown when the jobs cannot be read', () => {
     const running = trayLastBuild('/p', VALUES, { now: NOW, deps: fakeDeps({ jobs: [{ id: NEWER, created: 3, state: 'running' }, { id: UUID, created: 2, state: 'succeeded' }] }) });
