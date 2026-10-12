@@ -11,6 +11,8 @@
        classes it emits, precompiled; its scripts below. No inline script, style or handler (the page's
        Content-Security-Policy allows none), and nothing from any other site. In b69ab12's order: the Tailwind classes first
        (its Play CDN script stood before the page's style block), the page's own sheet, then Streamdown's (linked last). -->
+  <!-- R4 (H104, r25's D11): the page's icon, the companion's own (with none declared the browser asked for /favicon.ico: a 404) -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/web/styles/tailwind.css">
   <link rel="stylesheet" href="/companion.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">

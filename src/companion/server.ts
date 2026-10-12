@@ -68,6 +68,8 @@ import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
 import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
+// R4 (H104): the page's icon (r25's D11)
+import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -274,6 +276,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
+  // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
+  const favicon = faviconSvg();
+  app.get([...FAVICON_PATHS], (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').send(favicon);
+  });
   app.use(express.static(clientDir));
 
   // Slate 3D (companion/slate3d/dist) and the boards it renders, served beside

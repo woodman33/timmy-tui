@@ -96,8 +96,11 @@ const HOSTILE = [
   '```',
 ].join('\n');
 
-/** Every request a page made, every socket, every console line, refused dialog and page error. */
-interface Seen { requests: string[]; failed: string[]; outside: string[]; sockets: string[]; console: string[]; errors: string[]; dialogs: string[]; downloads: string[] }
+/**
+ * Every request a page made, every socket, every console line, refused dialog and page error. R4 (H104, r25's D11): every
+ * answer of status 400 or more (`bad`, "<status> <url>") and every console error on its own (`consoleErrors`).
+ */
+interface Seen { requests: string[]; failed: string[]; outside: string[]; sockets: string[]; console: string[]; errors: string[]; dialogs: string[]; downloads: string[]; bad: string[]; consoleErrors: string[] }
 
 /** The violations of the page's policy each frame reported (a listener the test adds before any page script runs). */
 async function violations(page: Page): Promise<string[]> {
@@ -191,8 +194,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const origin = `http://127.0.0.1:${target.port}`;
     const context = await browser.newContext({ viewport: opts.viewport ?? { width: 1400, height: 900 }, acceptDownloads: true, ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}) });
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
-    const seen: Seen = { requests: [], failed: [], outside: [], sockets: [], console: [], errors: [], dialogs: [], downloads: [] };
+    const seen: Seen = { requests: [], failed: [], outside: [], sockets: [], console: [], errors: [], dialogs: [], downloads: [], bad: [], consoleErrors: [] };
     context.on('request', (r) => seen.requests.push(r.url()));
+    context.on('response', (r) => { if (r.status() >= 400) seen.bad.push(`${r.status()} ${r.url()}`); });
     context.on('requestfailed', (r) => seen.failed.push(`${r.url()} ${r.failure()?.errorText ?? ''}`));
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url());
@@ -207,7 +211,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     });
     const page = await context.newPage();
     page.on('websocket', (ws) => seen.sockets.push(ws.url()));
-    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') seen.console.push(m.text()); });
+    page.on('console', (m) => {
+      if (m.type() === 'error' || m.type() === 'warning') seen.console.push(m.text());
+      if (m.type() === 'error') seen.consoleErrors.push(`${m.text()} ${m.location().url ?? ''}`.trim());
+    });
     page.on('pageerror', (e) => seen.errors.push(e.message));
     page.on('dialog', (d) => { seen.dialogs.push(d.message()); void d.dismiss(); });
     page.on('download', (d) => seen.downloads.push(d.suggestedFilename()));
@@ -315,13 +322,16 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(gone.status, p).toBe(404);
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
     }
+    // R4 (H104, r25's D11): the page names its icon, this server's own SVG
+    expect(named).toContain('/favicon.svg');
     for (const p of named) {
       const a = await fetch(`${base}${p}`);
       expect(a.status, p).toBe(200);
-      expect(a.headers.get('content-type'), p).toMatch(p.endsWith('.css') ? /^text\/css/ : /^(text|application)\/javascript/);
+      expect(a.headers.get('content-type'), p).toMatch(p.endsWith('.css') ? /^text\/css/ : p.endsWith('.svg') ? /^image\/svg\+xml/ : /^(text|application)\/javascript/);
       expect(a.headers.get('content-security-policy'), p).toBe(csp);
       expect(a.headers.get('x-content-type-options'), p).toBe('nosniff');
-      if (!p.startsWith('/web/')) expect(await a.text(), p).not.toMatch(/https?:\/\/(?!127\.0\.0\.1|localhost)/);
+      // (an SVG names its own namespace, an identifier that is never fetched)
+      if (!p.startsWith('/web/')) expect((await a.text()).replace('http://www.w3.org/2000/svg', ''), p).not.toMatch(/https?:\/\/(?!127\.0\.0\.1|localhost)/);
     }
     // in the browser: an inline script the test adds is refused and reported (so a violation would have been seen above)
     const { page, context } = await open();
@@ -816,4 +826,50 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       } finally { await context.close(); }
     });
   }
+
+  // R4 (H104, r25's D11): the page logged one 404 on the Mac (the browser's own /favicon.ico: the page declared no icon); and an
+  // installed companion's SLATE 3D tab (the package never ships Slate 3D's bundle) answered 404, logged as a failed load
+  it('the page, its icon and every tab answer with no 4xx or 5xx and put no error in the console; the icon is the companion\'s own SVG in Timmy Homebrew\'s colours (r25 D11)', async () => {
+    const { page, context, seen } = await open();
+    try {
+      await connected(page);
+      for (const name of ['workspace', 'logs', 'proof', 'canvas', 'streamdown', 'slate3d', 'chat']) {
+        await tab(page, name);
+        if (name === 'streamdown') {
+          await page.click('#sd-try');
+          await page.waitForSelector('[data-card="approval"]', { timeout: 30_000 });
+          await idle(page);
+          await drawn(page);
+        }
+        if (name === 'canvas') await page.waitForFunction(() => /Revision 0|No canvas jobs yet/.test(document.getElementById('canvas-summary')?.textContent ?? ''), null, { timeout: 15_000 });
+        if (name === 'slate3d') {
+          await page.waitForFunction(() => {
+            const d = (document.getElementById('slate3d-frame') as HTMLIFrameElement | null)?.contentDocument;
+            return Boolean(d && d.readyState === 'complete' && d.location.pathname.startsWith('/slate3d') && d.body);
+          }, null, { timeout: 15_000 });
+        }
+      }
+      await page.waitForTimeout(1_000);
+      // nothing answered 400 or more, and the console holds no error (it held "Failed to load resource … 404")
+      expect(seen.bad).toEqual([]);
+      expect(seen.consoleErrors).toEqual([]);
+      // the icon the page declares: asked for by this browser (it asks for a page's icon), and this server's own
+      expect(await page.evaluate(() => [...document.querySelectorAll('link[rel="icon"]')].map((l) => [l.getAttribute('href'), l.getAttribute('type')]))).toEqual([['/favicon.svg', 'image/svg+xml']]);
+      expect(seen.requests).toContain(`${base}/favicon.svg`);
+      for (const p of ['/favicon.svg', '/favicon.ico']) {
+        const icon = await fetch(`${base}${p}`);
+        expect(icon.status, p).toBe(200);
+        expect(icon.headers.get('content-type'), p).toMatch(/^image\/svg\+xml/);
+        const svg = await icon.text();
+        expect(svg, p).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+        // Timmy Homebrew's charcoal surface and green (src/theme/tokens.ts), and no script or other site
+        expect(svg, p).toContain('fill="#121212"');
+        expect(svg, p).toContain('stroke="#28FE14"');
+        expect(svg.replace('http://www.w3.org/2000/svg', ''), p).not.toMatch(/<script|https?:|href=/i);
+      }
+      expect(seen.errors).toEqual([]);
+      expect(seen.outside).toEqual([]);
+      expect(await violations(page)).toEqual([]);
+    } finally { await context.close(); }
+  });
 });

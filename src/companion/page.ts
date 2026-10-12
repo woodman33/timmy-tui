@@ -108,13 +108,15 @@ const escHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&am
 
 /**
  * Where Slate 3D's bundle is not built: its words as a page of Timmy's look (r23c, row 173: they were plain text, drawn black
- * on the companion's dark frame). Status 404, as before; no script, no path of this computer. R4 (H95): in the companion's
- * own look (its text colour on the frame's ground, Inter), as the page around it.
+ * on the companion's dark frame). No script, no path of this computer. R4 (H95): in the companion's own look (its text
+ * colour on the frame's ground, Inter), as the page around it. R4 (H104, r25's D11): status 200: the words are the page
+ * (the npm package never ships Slate 3D's bundle, so this is what an installed companion's SLATE 3D tab shows), and a 404
+ * made the browser log "Failed to load resource … 404" in the companion page's console each time the tab was opened.
  */
 export function sendSlateAbsent(res: Response, words: string): void {
   if (res.headersSent) { res.destroy(); return; }
   safetyHeaders(res, SLATE_ABSENT_POLICY, 'SAMEORIGIN');
-  res.status(404).set('Cache-Control', 'no-store').type('text/html; charset=utf-8').send([
+  res.status(200).set('Cache-Control', 'no-store').type('text/html; charset=utf-8').send([
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Slate 3D</title>',
     '<link rel="stylesheet" href="/companion.css"></head>',
     `<body class="slate-absent"><p>${escHtml(words)}</p></body></html>`,
