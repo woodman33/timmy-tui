@@ -48,18 +48,27 @@ timmy act '/op' --wait
 
 ## Keep a lesson
 
-A lesson is a sentence kept with the records that show it. This block adds the sentence below as a draft
-lesson whose evidence is this run's flow record and the VoxVision record of its STEP, each found by the
-run's operation id with `timmy evidence` (`vox --of` takes the record about that STEP's bytes). Edit the
-sentence to say what you learned. `/lesson check <id>` (or Check on the board) checks it against those
-files and their receipts; only a checked lesson is given to a later `/iterate tray` as context, and
+A lesson is a sentence kept with the records that show it. This block adds a draft lesson whose evidence
+is this run's flow record and the VoxVision record of its STEP, each found by the run's operation id with
+`timmy evidence` (`vox --of` takes the record about that STEP's bytes). Its sentence says only what ran,
+by how the flow ended (`timmy evidence flow --outcome`): when the flow changed the tray, that its STEP
+readback and the VoxVision inspection confirm the change; when the request made no change, that nothing
+was rebuilt or read back, and that the flow's check found the last build current. Edit the sentences to
+say what you learned. `/lesson check <id>` (or Check on the board) checks it against those files and
+their receipts; only a checked lesson is given to a later `/iterate tray` as context, and
 `/lesson eval <id>` compares runs before and after it. No model is trained.
 
 ```bash [name:lesson, deps:result]
 flow=$(timmy evidence flow) || exit 1
+outcome=$(timmy evidence flow --outcome) || exit 1
 step=$(timmy evidence step) || exit 1
 vox=$(timmy evidence vox --of "$step") || exit 1
-timmy act "/lesson add \"A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP.\" --from $flow --from $vox --applies tray" --wait
+case "$outcome" in
+  succeeded) lesson="A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP." ;;
+  "no change") lesson="This tray request made no change: nothing was rebuilt or read back. The check of flow $(basename "$flow" .json) found the last build current, and VoxVision inspected the STEP of that build." ;;
+  *) echo "No lesson kept: flow $flow ended $outcome, and neither sentence here says what that run showed." >&2; exit 1 ;;
+esac
+timmy act "/lesson add \"$lesson\" --from $flow --from $vox --applies tray" --wait
 ```
 
 Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.

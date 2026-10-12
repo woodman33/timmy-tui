@@ -25,13 +25,21 @@ it back, inspect its STEP, and see the result.
 `/run` predicts the order (change → inspect → result → lesson) and seals that prediction before upmd runs a
 block. Each block runs `timmy act "<command>" --wait`, which waits for what the command started and
 exits 0 when it succeeded, 1 when it failed or differs, 2 when it was refused (a missing tool, a busy
-project) and 3 when it was stopped; a block that exits otherwise than 0 stops the chain.
+project) and 3 when it was stopped; a request that made no change exits 0 while the last build still
+matches its recorded inputs, and 4 when that build is stale. A block that exits otherwise than 0 stops
+the chain.
 
 The `inspect` and `lesson` blocks find this run's own evidence by the run's operation id, with
 `timmy evidence step`, `timmy evidence flow` and `timmy evidence vox --of <file>`: the STEP this run's flow
 delivered, its flow record and the VoxVision record of that STEP, each only while its bytes are the ones
 recorded and a receipt on the runs chain seals the record that names them. Another run's files are never
-taken, however new they are; with no record of this run, the block says why and stops.
+taken, however new they are; with no record of this run, the block says why and stops. The lesson's
+sentence follows how the flow ended (`timmy evidence flow --outcome`): a readback is named only when one
+ran; a request that made no change says so, with the flow whose check found the last build current.
+
+`timmy op <operation id>` shows one run in full (its request, Timmy's verdict, each block's exit, the
+prediction beside each check, its files, receipts and next step); `--summary` prints it as Markdown, and
+`--save` keeps that summary beside the operation's record.
 
 `APPROVAL.md` shows what Timmy asks before a risky block: its prose says what the NEEDS YOU box is, that
 `y` allows the block once, and that the board will not run it (its Run is refused, with the line to type

@@ -7,10 +7,13 @@
  * `timmy act` of that block makes names it (`operation`): the flow its change block ran, the VoxVision record its inspect
  * block made. So a block asks for its own run's evidence by that id:
  *
- *   flow   the operation's flow record (results/flows/<id>.json);
+ *   flow   the operation's flow record (results/flows/<id>.json); with --outcome, how that flow ended (its record's word:
+ *          succeeded, no change, …) instead of its path, so a block can say only what ran (R4 H102, part 2);
  *   step   the STEP that flow delivered (its rebuild's export, the STEP its readback read, or FreeCAD's export); or, when
  *          the flow made no change and its own check found the last build current, that build's STEP (the export its
  *          check names with the sha256 it found);
+ *   stl    the same for an STL (its rebuild's export, or OpenSCAD's export of a /iterate scad flow; when it made no change,
+ *          the last build's STL its check found current) (R4 H102, part 2: the tests' `ls -t out/scad/…` lines);
  *   vox    the operation's VoxVision record (results/vox/<id>.json); with --of <file>, the one whose input is that file.
  *
  * It prints exactly one project-relative path on stdout, and on stderr how it was found; or it refuses, exit 1, saying
@@ -30,11 +33,17 @@ import { readChain, type Receipt } from '../utils/receipts.js';
 import { VOX_DIR } from '../vox/record.js';
 import { OPERATION_ENV, OPERATION_ID } from './context.js';
 
-export const EVIDENCE_USAGE = 'timmy evidence <flow|step|vox> [--of <file>] [--id <record>] [--operation <id>] [--project <dir>] [--json]';
+export const EVIDENCE_USAGE = 'timmy evidence <flow|step|stl|vox> [--of <file>] [--id <record>] [--operation <id>] [--project <dir>] [--outcome] [--json]';
 export const EVIDENCE_SCHEMA = 'timmy.evidence/1';
 
-export type EvidenceWhat = 'flow' | 'step' | 'vox';
-export const EVIDENCE_WHAT: readonly EvidenceWhat[] = ['flow', 'step', 'vox'];
+export type EvidenceWhat = 'flow' | 'step' | 'stl' | 'vox';
+export const EVIDENCE_WHAT: readonly EvidenceWhat[] = ['flow', 'step', 'stl', 'vox'];
+/** The files a flow names that a block can ask for, each with its word and the names it takes (R4 H102, part 2: stl). */
+export type FlowFileKind = 'step' | 'stl';
+const FILE_KIND: Readonly<Record<FlowFileKind, { name: string; re: RegExp }>> = {
+  step: { name: 'STEP', re: /\.(step|stp)$/i },
+  stl: { name: 'STL', re: /\.stl$/i },
+};
 /** Why no single answer was given: refused with exit 1. */
 export type EvidenceRefusal = 'none' | 'more than one' | 'not in this operation' | 'not usable';
 
@@ -50,6 +59,8 @@ export type EvidenceAnswer =
     record: EvidenceRecord;
     /** how it was found and checked, in words */
     how: string;
+    /** flow, step and stl: how the flow they were found by ended, as its record says (succeeded, no change, …) */
+    outcome?: string;
   }
   | { ok: false; what: EvidenceWhat; operation: string; refusal: EvidenceRefusal; why: string; candidates?: Array<{ id: string; path: string; operation: string | null; state: string }> };
 
@@ -70,7 +81,6 @@ const sha = (v: unknown): v is string => typeof v === 'string' && SHA.test(v);
 const s12 = (s: string): string => s.slice(0, 12);
 const receiptShort = (r: Receipt): string => (typeof r.hash === 'string' && r.hash.length > 15 ? r.hash.slice(7, 15) : String(r.id ?? '?'));
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-const isStep = (p: string): boolean => /\.(step|stp)$/i.test(p);
 /** A path a record may name: relative, inside the project by its words (no "..", no drive, no NUL). */
 const relOk = (p: unknown): p is string => typeof p === 'string' && p.length > 0 && !p.startsWith('/') && !/^[A-Za-z]:/.test(p) && !p.includes('\0') && !p.split(/[\\/]/).includes('..');
 
@@ -227,41 +237,56 @@ export function runningFlowStates(root: string, operation: string): Array<{ id: 
 
 // ── the STEP a flow names ─────────────────────────────────────────────────────
 
-/** The STEP files a flow record names as delivered: its rebuild's export, the STEP its readback read, FreeCAD's export. */
-export function deliveredSteps(v: Obj): Array<{ path: string; sha256: string; by: string }> {
+/**
+ * The files of a kind a flow record names as delivered: a STEP (its rebuild's export, the STEP its readback read, FreeCAD's
+ * export) or an STL (its rebuild's export, the STL OpenSCAD made in a /iterate scad flow), each with its sha256.
+ */
+export function deliveredFiles(v: Obj, kind: FlowFileKind): Array<{ path: string; sha256: string; by: string }> {
   const out: Array<{ path: string; sha256: string; by: string }> = [];
-  const add = (p: unknown, s: unknown, by: string): void => { if (relOk(p) && isStep(p) && sha(s)) out.push({ path: p, sha256: s, by }); };
+  const add = (p: unknown, s: unknown, by: string): void => { if (relOk(p) && FILE_KIND[kind].re.test(p) && sha(s)) out.push({ path: p, sha256: s, by }); };
   for (const x of list(obj(v.rebuild)?.outputs)) add(x.path, x.sha256, 'its rebuild delivered');
-  const rb = obj(obj(v.readback)?.step);
-  add(rb?.path, rb?.sha256, 'its readback read');
-  const fc = obj(obj(v.freecad)?.step);
-  add(fc?.path, fc?.sha256, 'FreeCAD exported');
+  if (kind === 'step') {
+    const rb = obj(obj(v.readback)?.step);
+    add(rb?.path, rb?.sha256, 'its readback read');
+    const fc = obj(obj(v.freecad)?.step);
+    add(fc?.path, fc?.sha256, 'FreeCAD exported');
+  } else {
+    const st = obj(obj(v.openscad)?.stl);
+    if (st?.made === true) add(st.path, st.sha256, 'OpenSCAD made');
+  }
   return out;
 }
+/** The STEP files a flow record names as delivered (deliveredFiles of 'step'). */
+export const deliveredSteps = (v: Obj): Array<{ path: string; sha256: string; by: string }> => deliveredFiles(v, 'step');
 
 /**
- * R4 (H99): a flow that made no change names the last build its check found (`last_build`): the STEP among the files that
- * check found as recorded (the tray's "its export <path>", a native run's written files by path), only when it found that
- * build current. Its words otherwise.
+ * R4 (H99): a flow that made no change names the last build its check found (`last_build`): the files of a kind among the
+ * files that check found as recorded (the tray's "its export <path>", a native run's written files by path), only when it
+ * found that build current. Its words otherwise.
  */
-export function lastBuildSteps(v: Obj): { state: string; words?: string; build?: string; steps: Array<{ path: string; sha256: string }> } {
+export function lastBuildFiles(v: Obj, kind: FlowFileKind): { state: string; words?: string; build?: string; files: Array<{ path: string; sha256: string }> } {
   const lb = obj(v.last_build);
   const state = str(lb?.state) ?? 'not recorded';
   const words = str(lb?.words);
   const b = obj(lb?.build);
   const build = b ? `${b.kind === 'recipe' ? 'recipe job' : `${String(b.app ?? 'native')} run`} ${String(b.id ?? '?').slice(0, 8)}` : undefined;
-  if (state !== 'current') return { state, ...(words ? { words } : {}), ...(build ? { build } : {}), steps: [] };
+  if (state !== 'current') return { state, ...(words ? { words } : {}), ...(build ? { build } : {}), files: [] };
   const folder = str(b?.outputs);
-  const steps: Array<{ path: string; sha256: string }> = [];
+  const files: Array<{ path: string; sha256: string }> = [];
   for (const c of list(lb?.checks)) {
     const w = str(c.what);
     if (!w || c.same !== true || !sha(c.recorded) || c.now !== c.recorded) continue;
     const p = w.startsWith(EXPORT_WORDS) ? w.slice(EXPORT_WORDS.length) : w;
-    if (!relOk(p) || !isStep(p)) continue;
+    if (!relOk(p) || !FILE_KIND[kind].re.test(p)) continue;
     if (w.startsWith(EXPORT_WORDS) && folder && !p.startsWith(folder)) continue;
-    if (!steps.some((s) => s.path === p)) steps.push({ path: p, sha256: c.recorded });
+    if (!files.some((s) => s.path === p)) files.push({ path: p, sha256: c.recorded });
   }
-  return { state, ...(words ? { words } : {}), ...(build ? { build } : {}), steps };
+  return { state, ...(words ? { words } : {}), ...(build ? { build } : {}), files };
+}
+/** The last build's STEP files a no-change flow's check found current (lastBuildFiles of 'step', as `steps`). */
+export function lastBuildSteps(v: Obj): { state: string; words?: string; build?: string; steps: Array<{ path: string; sha256: string }> } {
+  const { files, ...rest } = lastBuildFiles(v, 'step');
+  return { ...rest, steps: files };
 }
 
 // ── the answer ────────────────────────────────────────────────────────────────
@@ -316,53 +341,56 @@ export function findEvidence(q: EvidenceQuery): EvidenceAnswer {
     };
   }
 
+  // what is flow, step or stl: found by the operation's flow
+  const kind: FlowFileKind | undefined = what === 'step' || what === 'stl' ? what : undefined;
+  const K = kind ? FILE_KIND[kind].name : '';
   const p = pick(root, 'flow', what, operation, q.id ? { id: q.id } : {});
   if (!p.ok) {
-    if (what !== 'step') return p;
-    return { ...p, why: `${p.refusal === 'none' ? 'no STEP of this run' : p.refusal === 'more than one' ? 'which STEP is this run\'s is not known' : 'not this run\'s STEP'}: ${p.why}` };
+    if (!kind) return p;
+    return { ...p, why: `${p.refusal === 'none' ? `no ${K} of this run` : p.refusal === 'more than one' ? `which ${K} is this run's is not known` : `not this run's ${K}`}: ${p.why}` };
   }
   const rec = p.rec;
   const s = sealedOr(rec);
   if (!s.ok) return notUsable(`flow ${rec.id} of operation ${operation}: ${s.why}`);
   const outcome = String(rec.value.outcome ?? 'unknown');
-  if (what === 'flow') {
-    return { ok: true, what, operation, path: rec.rel, sha256: rec.sha256, bytes: rec.bytes, record: recordOf(rec, s.receipt), how: `flow ${rec.id} of operation ${operation} (${outcome}); ${sealWords(s.receipt, 'this record')}` };
+  if (!kind) {
+    return { ok: true, what, operation, path: rec.rel, sha256: rec.sha256, bytes: rec.bytes, record: recordOf(rec, s.receipt), how: `flow ${rec.id} of operation ${operation} (${outcome}); ${sealWords(s.receipt, 'this record')}`, outcome };
   }
 
-  // what === 'step'
-  let step: { path: string; sha256: string } | undefined;
+  // a file the flow names: its STEP or its STL
+  let file: { path: string; sha256: string } | undefined;
   /** what the flow names the file as, and how it was found, in words */
   let as = '';
   let source = '';
   if (outcome === NO_CHANGE) {
-    const lb = lastBuildSteps(rec.value);
-    if (lb.state !== 'current') return notUsable(`flow ${rec.id} made no change, and its check found the last build ${lb.state}${lb.words ? ` (${lb.words})` : ''}: there is no STEP of this run`);
-    if (!lb.steps.length) return notUsable(`flow ${rec.id} made no change; its check found the last build current${lb.build ? ` (${lb.build})` : ''} but names no STEP among the files it checked`);
-    if (lb.steps.length > 1) return { ok: false, what, operation, refusal: 'more than one', why: `flow ${rec.id} made no change, and its check of the last build names ${plural(lb.steps.length, 'STEP')} (${lb.steps.map((x) => x.path).join(', ')}); this takes exactly one` };
-    step = lb.steps[0];
-    as = 'the last build\'s STEP';
-    source = `the last build's STEP${lb.build ? ` (${lb.build})` : ''}, which flow ${rec.id}'s check found current (the flow made no change), sha256 ${s12(step.sha256)} as that check recorded it`;
+    const lb = lastBuildFiles(rec.value, kind);
+    if (lb.state !== 'current') return notUsable(`flow ${rec.id} made no change, and its check found the last build ${lb.state}${lb.words ? ` (${lb.words})` : ''}: there is no ${K} of this run`);
+    if (!lb.files.length) return notUsable(`flow ${rec.id} made no change; its check found the last build current${lb.build ? ` (${lb.build})` : ''} but names no ${K} among the files it checked`);
+    if (lb.files.length > 1) return { ok: false, what, operation, refusal: 'more than one', why: `flow ${rec.id} made no change, and its check of the last build names ${plural(lb.files.length, K)} (${lb.files.map((x) => x.path).join(', ')}); this takes exactly one` };
+    file = lb.files[0];
+    as = `the last build's ${K}`;
+    source = `the last build's ${K}${lb.build ? ` (${lb.build})` : ''}, which flow ${rec.id}'s check found current (the flow made no change), sha256 ${s12(file.sha256)} as that check recorded it`;
   } else {
-    const named = deliveredSteps(rec.value);
+    const named = deliveredFiles(rec.value, kind);
     const paths = [...new Set(named.map((x) => x.path))];
     if (!paths.length) {
       const why = str(rec.value.why);
-      return notUsable(`flow ${rec.id} ended ${outcome}${why ? ` (${why})` : ''} and names no STEP it delivered`);
+      return notUsable(`flow ${rec.id} ended ${outcome}${why ? ` (${why})` : ''} and names no ${K} it delivered`);
     }
-    if (paths.length > 1) return { ok: false, what, operation, refusal: 'more than one', why: `flow ${rec.id} names ${plural(paths.length, 'STEP')} (${paths.join(', ')}); this takes exactly one` };
+    if (paths.length > 1) return { ok: false, what, operation, refusal: 'more than one', why: `flow ${rec.id} names ${plural(paths.length, K)} (${paths.join(', ')}); this takes exactly one` };
     const shas = [...new Set(named.map((x) => x.sha256))];
     if (shas.length > 1) return notUsable(`flow ${rec.id} names ${paths[0]} with ${shas.length} different sha256s (${named.map((x) => `${x.by}: ${s12(x.sha256)}`).join('; ')}), so which bytes it delivered is not known`);
-    step = { path: paths[0], sha256: shas[0] };
+    file = { path: paths[0], sha256: shas[0] };
     const verdict = str(obj(rec.value.readback)?.verdict);
-    as = 'the STEP it delivered';
-    source = `the STEP flow ${rec.id} delivered (${outcome}${verdict ? `; its readback ${verdict}` : ''}), sha256 ${s12(step.sha256)} as the flow recorded it`;
+    as = `the ${K} it delivered`;
+    source = `the ${K} flow ${rec.id} delivered (${outcome}${verdict ? `; its readback ${verdict}` : ''}), sha256 ${s12(file.sha256)} as the flow recorded it`;
   }
-  const now = fileNow(root, step.path);
-  if (!now.ok) return notUsable(`flow ${rec.id} names ${step.path} as ${as}, and ${now.why}`);
-  if (now.sha256 !== step.sha256) return notUsable(`${step.path} changed since flow ${rec.id} named it as ${as}: sha256 ${s12(now.sha256)} now, ${s12(step.sha256)} as it recorded`);
+  const now = fileNow(root, file.path);
+  if (!now.ok) return notUsable(`flow ${rec.id} names ${file.path} as ${as}, and ${now.why}`);
+  if (now.sha256 !== file.sha256) return notUsable(`${file.path} changed since flow ${rec.id} named it as ${as}: sha256 ${s12(now.sha256)} now, ${s12(file.sha256)} as it recorded`);
   return {
-    ok: true, what, operation, path: step.path, sha256: now.sha256, bytes: now.bytes, record: recordOf(rec, s.receipt),
-    how: `${source}, and the same now; flow ${rec.id} is operation ${operation}'s, and ${sealWords(s.receipt, 'its record')}`,
+    ok: true, what, operation, path: file.path, sha256: now.sha256, bytes: now.bytes, record: recordOf(rec, s.receipt),
+    how: `${source}, and the same now; flow ${rec.id} is operation ${operation}'s, and ${sealWords(s.receipt, 'its record')}`, outcome,
   };
 }
 
@@ -377,13 +405,16 @@ export function evidenceHelp(): string {
     '',
     '  flow   the operation\'s flow record (results/flows/<id>.json)',
     '  step   the STEP that flow delivered; when it made no change and its check found the last build current, that build\'s STEP',
+    '  stl    the STL that flow delivered (its rebuild\'s export, or OpenSCAD\'s in a /iterate scad flow); when it made no change',
+    '         and its check found the last build current, that build\'s STL',
     '  vox    the operation\'s VoxVision record (results/vox/<id>.json)',
     '',
     'OPTIONS',
     '  --of <file>        vox: the record whose input is this file, with the bytes it has now',
-    '  --id <record>      that record (f… for flow and step, v… for vox), which must be the operation\'s',
+    '  --id <record>      that record (f… for flow, step and stl, v… for vox), which must be the operation\'s',
     `  --operation <id>   the operation (default: ${OPERATION_ENV}, which each block of a /run has)`,
     '  --project <dir>    the project folder (default: the current folder)',
+    '  --outcome          flow: how the flow ended, as its record says (succeeded, no change, …), instead of its path',
     '  --json             one JSON object on stdout instead of the path',
     '',
     'WHAT IT CHECKS',
@@ -391,18 +422,20 @@ export function evidenceHelp(): string {
     '  names its bytes; a file only while its sha256 is the one its record names. Nothing runs, is written or is sealed.',
     '',
     'EXIT',
-    '  0 exactly one: its path on stdout, how it was found on stderr',
+    '  0 exactly one: its path on stdout (with --outcome, its flow\'s outcome), how it was found on stderr',
     '  1 none, more than one, not in this operation, or not usable: why on stderr',
     '  2 usage, or not in an operation',
     '',
     'EXAMPLES (in a block of a /run)',
     '  step=$(timmy evidence step) || exit 1',
     '  vox=$(timmy evidence vox --of "$step") || exit 1',
+    '  stl=$(timmy evidence stl) || exit 1',
+    '  outcome=$(timmy evidence flow --outcome) || exit 1',
     '',
   ].join('\n');
 }
 
-interface EvidenceArgs { what: EvidenceWhat; id?: string; of?: string; operation?: string; project?: string; json: boolean; help?: boolean }
+interface EvidenceArgs { what: EvidenceWhat; id?: string; of?: string; operation?: string; project?: string; json: boolean; outcome?: boolean; help?: boolean }
 
 export function parseEvidenceArgs(argv: string[], o: { json?: boolean } = {}): EvidenceArgs | { error: string } {
   const a: Partial<EvidenceArgs> & { json: boolean } = { json: o.json === true };
@@ -411,6 +444,7 @@ export function parseEvidenceArgs(argv: string[], o: { json?: boolean } = {}): E
     const w = argv[i];
     if (w === '-h' || w === '--help') { a.help = true; continue; }
     if (w === '--json') { a.json = true; continue; }
+    if (w === '--outcome') { a.outcome = true; continue; }
     const eq = /^--(id|of|operation|project)=(.*)$/.exec(w);
     const name = eq ? eq[1] : /^--(id|of|operation|project)$/.exec(w)?.[1];
     if (name) {
@@ -423,13 +457,14 @@ export function parseEvidenceArgs(argv: string[], o: { json?: boolean } = {}): E
     words.push(w);
   }
   if (a.help) return { what: 'flow', json: a.json, help: true };
-  if (!words.length) return { error: `Name what to find: flow, step or vox. Usage: ${EVIDENCE_USAGE}` };
+  if (!words.length) return { error: `Name what to find: flow, step, stl or vox. Usage: ${EVIDENCE_USAGE}` };
   if (words.length > 1) return { error: `One thing at a time (it was given ${words.join(' ')}). Usage: ${EVIDENCE_USAGE}` };
   const what = words[0] as EvidenceWhat;
-  if (!EVIDENCE_WHAT.includes(what)) return { error: `No evidence ${words[0]}: flow, step or vox. Usage: ${EVIDENCE_USAGE}` };
+  if (!EVIDENCE_WHAT.includes(what)) return { error: `No evidence ${words[0]}: flow, step, stl or vox. Usage: ${EVIDENCE_USAGE}` };
   if (a.of !== undefined && what !== 'vox') return { error: `--of is for vox (the VoxVision record about a file). Usage: ${EVIDENCE_USAGE}` };
+  if (a.outcome && what !== 'flow') return { error: `--outcome is for flow (how the operation's flow ended). Usage: ${EVIDENCE_USAGE}` };
   if (a.id !== undefined && !(what === 'vox' ? VOX_ID : FLOW_ID).test(a.id)) return { error: `--id ${a.id} is not a ${what === 'vox' ? 'VoxVision record id (v and 8 hex digits)' : 'flow id (f and 8 hex digits)'}. Usage: ${EVIDENCE_USAGE}` };
-  return { what, json: a.json, ...(a.id ? { id: a.id } : {}), ...(a.of ? { of: a.of } : {}), ...(a.operation ? { operation: a.operation } : {}), ...(a.project ? { project: a.project } : {}) };
+  return { what, json: a.json, ...(a.id ? { id: a.id } : {}), ...(a.of ? { of: a.of } : {}), ...(a.operation ? { operation: a.operation } : {}), ...(a.project ? { project: a.project } : {}), ...(a.outcome ? { outcome: true } : {}) };
 }
 
 /** `timmy evidence …`: its exit code (the CLI exits with it). */
@@ -475,9 +510,10 @@ export async function evidenceMain(argv: string[], o: { json?: boolean } = {}): 
   const r = findEvidence({ root, what: a.what, operation, chain, ...(a.id ? { id: a.id } : {}), ...(of ? { of } : {}), ...(chainError ? { chainError } : {}) });
   if (r.ok) {
     if (json) {
-      process.stdout.write(`${JSON.stringify({ schema: EVIDENCE_SCHEMA, what: r.what, operation, operation_from: from, found: true, path: r.path, sha256: r.sha256, bytes: r.bytes, record: r.record, how: r.how, exit_code: 0 })}\n`);
+      process.stdout.write(`${JSON.stringify({ schema: EVIDENCE_SCHEMA, what: r.what, operation, operation_from: from, found: true, path: r.path, sha256: r.sha256, bytes: r.bytes, record: r.record, how: r.how, ...(r.outcome ? { outcome: r.outcome } : {}), exit_code: 0 })}\n`);
     } else {
-      process.stdout.write(`${r.path}\n`);
+      // R4 (H102, part 2): --outcome prints how the flow ended (its record's word), so a block says only what ran
+      process.stdout.write(`${a.outcome ? r.outcome ?? 'unknown' : r.path}\n`);
       process.stderr.write(`  ${r.what} ${r.path}: ${r.how}\n`);
     }
     return 0;

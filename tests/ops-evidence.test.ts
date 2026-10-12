@@ -8,6 +8,11 @@
  * FAKE: the flow and VoxVision records are tests/fixtures/fake-tray-flow.ts's, in their records' shapes (no flow ran, no
  * tool measured anything); the last build trayLastBuild checks is given through its own test seam (TrayLastBuildDeps), as
  * no recipe job ran here.
+ *
+ * R4 (H102, part 2): `timmy evidence stl` (the STL a flow delivered: OpenSCAD's in a /iterate scad flow, or a rebuild's
+ * export; a no-change flow's last build STL), and `timmy evidence flow --outcome` (how the flow ended, for the tray
+ * template's lesson). FAKE: the /iterate scad flow records here are written in their record's shape by fakeScadFlow below
+ * (no agent or OpenSCAD ran); each is sealed by a real flow receipt on the project's chain.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -15,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { trayLastBuild, type TrayLastBuildDeps } from '../src/flows/iterate.js';
-import { deliveredSteps, findEvidence, lastBuildSteps, parseEvidenceArgs, type EvidenceAnswer, type EvidenceQuery } from '../src/ops/evidence.js';
+import { deliveredFiles, deliveredSteps, findEvidence, lastBuildFiles, lastBuildSteps, parseEvidenceArgs, type EvidenceAnswer, type EvidenceQuery } from '../src/ops/evidence.js';
 import { appendReceipt, readChain, receiptsPath } from '../src/utils/receipts.js';
 import { projectId } from '../src/project/index.js';
 import { fakeTrayFlow, fakeVoxRecord } from './fixtures/fake-tray-flow.js';
@@ -41,14 +46,17 @@ const refused = (a: EvidenceAnswer): Extract<EvidenceAnswer, { ok: false }> => {
 const found = (a: EvidenceAnswer): Extract<EvidenceAnswer, { ok: true }> => { if (!a.ok) throw new Error(`expected an answer, got ${a.refusal}: ${a.why}`); return a; };
 
 describe('its arguments', () => {
-  it('takes one of flow, step or vox and its options; anything else is a usage error that names what it takes', () => {
+  it('takes one of flow, step, stl or vox and its options; anything else is a usage error that names what it takes', () => {
     expect(parseEvidenceArgs(['step'])).toEqual({ what: 'step', json: false });
+    expect(parseEvidenceArgs(['stl'])).toEqual({ what: 'stl', json: false });
+    expect(parseEvidenceArgs(['flow', '--outcome'])).toEqual({ what: 'flow', json: false, outcome: true });
     expect(parseEvidenceArgs(['vox', '--of', 'out/a.step', '--operation=o1a2b3c4d', '--json'])).toEqual({ what: 'vox', of: 'out/a.step', operation: 'o1a2b3c4d', json: true });
     expect(parseEvidenceArgs(['flow', '--id', 'f1a2b3c4d', '--project', 'p'])).toEqual({ what: 'flow', id: 'f1a2b3c4d', project: 'p', json: false });
     expect(parseEvidenceArgs(['--help'])).toMatchObject({ help: true });
     const err = (argv: string[]): string => { const r = parseEvidenceArgs(argv); return 'error' in r ? r.error : 'no error'; };
-    expect(err([])).toMatch(/^Name what to find: flow, step or vox\. Usage: timmy evidence /);
-    expect(err(['stl'])).toMatch(/^No evidence stl: flow, step or vox\./);
+    expect(err([])).toMatch(/^Name what to find: flow, step, stl or vox\. Usage: timmy evidence /);
+    expect(err(['png'])).toMatch(/^No evidence png: flow, step, stl or vox\./);
+    expect(err(['step', '--outcome'])).toMatch(/^--outcome is for flow \(how the operation's flow ended\)\./);
     expect(err(['step', 'flow'])).toMatch(/^One thing at a time \(it was given step flow\)\./);
     expect(err(['step', '--of', 'x.step'])).toMatch(/^--of is for vox/);
     expect(err(['step', '--id', 'v1a2b3c4d'])).toMatch(/^--id v1a2b3c4d is not a flow id \(f and 8 hex digits\)/);
@@ -214,6 +222,87 @@ describe('vox: the operation\'s VoxVision record; with --of, the one about that 
   });
 });
 
+/**
+ * A FAKE /iterate scad flow (a TEST DOUBLE: no agent or OpenSCAD ran), its record in the record's shape: the STL OpenSCAD
+ * made, with its sha256; or, with no change, the last OpenSCAD run its check found current (a native run's written file,
+ * named by its path). Sealed by a real flow receipt on the project's chain naming the record's bytes, under the operation.
+ */
+function fakeScadFlow(root: string, o: { operation: string; run: string; outcome?: 'succeeded' | 'no change' }): { id: string; rel: string; stl: string; stlSha256: string; receipt: string } {
+  const outcome = o.outcome ?? 'succeeded';
+  const id = `f${sha(`${o.operation} ${o.run} ${outcome}`).slice(0, 8)}`;
+  const stl = `out/scad/${o.run}/box.stl`;
+  if (!fs.existsSync(path.join(root, stl))) {
+    fs.mkdirSync(path.dirname(path.join(root, stl)), { recursive: true });
+    fs.writeFileSync(path.join(root, stl), `FAKE STL of OpenSCAD run ${o.run} (a test double: no geometry)\n`);
+  }
+  const stlSha256 = sha(fs.readFileSync(path.join(root, stl)));
+  const now = new Date().toISOString();
+  const record = {
+    flow: 1, schema: 'timmy.flow/1', id, kind: 'iterate', target: 'scad', instruction: 'FAKE: make it wider', project: path.basename(root),
+    operation: o.operation, started_at: now, ended_at: now, outcome,
+    ...(outcome === 'succeeded'
+      ? { openscad: { run: `${o.run}-0000-4000-8000-000000000000`, state: 'completed', outcome: 'ok', stl: { path: stl, made: true, sha256: stlSha256 } } }
+      : {
+        why: 'no change: FAKE: the agent changed nothing, so nothing was rebuilt',
+        last_build: {
+          state: 'current', checked_at: now, build: { kind: 'native', id: `${o.run}-0000-4000-8000-000000000000`, app: 'openscad' },
+          checks: [{ what: 'box.scad', recorded: sha('FAKE scad'), now: sha('FAKE scad'), same: true }, { what: stl, recorded: stlSha256, now: stlSha256, same: true }],
+          words: 'FAKE: the last OpenSCAD run still matches its recorded inputs',
+        },
+      }),
+  };
+  const body = `${JSON.stringify(record, null, 2)}\n`;
+  const rel = `results/flows/${id}.json`;
+  fs.mkdirSync(path.join(root, 'results', 'flows'), { recursive: true });
+  fs.writeFileSync(path.join(root, rel), body);
+  const r = appendReceipt('runs', {
+    kind: 'flow', subject: `flow · iterate · scad · ${id} · ${outcome} (FAKE)`, policy: 'human-gated', project: path.basename(root), project_id: projectId(root),
+    operation_id: o.operation, outputs: [{ path: rel, sha256: sha(body), bytes: Buffer.byteLength(body) }],
+  }, root);
+  return { id, rel, stl, stlSha256, receipt: r.hash.slice(7, 15) };
+}
+
+describe('stl (R4 H102, part 2): the STL a flow delivered, found as the STEP is, never by a file\'s time', () => {
+  it('OpenSCAD\'s STL of this operation\'s /iterate scad flow, though another operation\'s is newer; a scad flow names no STEP', () => {
+    const root = project();
+    const mine = fakeScadFlow(root, { operation: OP, run: 'aaaaaaaa' });
+    const theirs = fakeScadFlow(root, { operation: OTHER, run: 'bbbbbbbb' });
+    // the other operation's STL is the newer file (what `ls -t out/scad/*/box.stl | head -n 1` took)
+    const ahead = new Date(Date.now() + 3600_000);
+    fs.utimesSync(path.join(root, theirs.stl), ahead, ahead);
+    const a = found(ask(root, { what: 'stl' }));
+    expect(a).toMatchObject({ path: mine.stl, sha256: mine.stlSha256, outcome: 'succeeded', record: { kind: 'flow', id: mine.id, path: mine.rel, receipt: mine.receipt } });
+    expect(a.how).toBe(`the STL flow ${mine.id} delivered (succeeded), sha256 ${mine.stlSha256.slice(0, 12)} as the flow recorded it, and the same now; flow ${mine.id} is operation ${OP}'s, and receipt ${mine.receipt} on the runs chain sealed its record`);
+    expect(refused(ask(root, { what: 'step' })).why).toBe(`flow ${mine.id} ended succeeded and names no STEP it delivered`);
+    // its bytes changed since: not usable
+    fs.appendFileSync(path.join(root, mine.stl), 'changed\n');
+    expect(refused(ask(root, { what: 'stl' })).why).toMatch(new RegExp(`^out/scad/aaaaaaaa/box\\.stl changed since flow ${mine.id} named it as the STL it delivered: sha256 [0-9a-f]{12} now, ${mine.stlSha256.slice(0, 12)} as it recorded$`));
+  });
+
+  it('a flow that made no change: the last build\'s STL its check found current (a native run\'s file, by its path)', () => {
+    const root = project();
+    fakeScadFlow(root, { operation: OTHER, run: 'cccccccc' });
+    const nc = fakeScadFlow(root, { operation: OP, run: 'cccccccc', outcome: 'no change' });
+    const a = found(ask(root, { what: 'stl' }));
+    expect(a.path).toBe('out/scad/cccccccc/box.stl');
+    expect(a.outcome).toBe('no change');
+    expect(a.how).toBe(`the last build's STL (openscad run cccccccc), which flow ${nc.id}'s check found current (the flow made no change), sha256 ${nc.stlSha256.slice(0, 12)} as that check recorded it, and the same now; flow ${nc.id} is operation ${OP}'s, and receipt ${nc.receipt} on the runs chain sealed its record`);
+    expect(lastBuildFiles(JSON.parse(fs.readFileSync(path.join(root, nc.rel), 'utf8')), 'step').files).toEqual([]);
+  });
+
+  it('what each kind takes from a record: a rebuild\'s exports by their names; OpenSCAD\'s STL only when it was made', () => {
+    const s1 = sha('FAKE step');
+    const s2 = sha('FAKE stl');
+    const v = {
+      rebuild: { outputs: [{ path: 'out/recipes/1a2b3c4d/console-tray.step', sha256: s1 }, { path: 'out/recipes/1a2b3c4d/console-tray.stl', sha256: s2 }] },
+      openscad: { stl: { path: 'out/scad/x/box.stl', made: false, sha256: s2 } },
+    };
+    expect(deliveredFiles(v, 'stl')).toEqual([{ path: 'out/recipes/1a2b3c4d/console-tray.stl', sha256: s2, by: 'its rebuild delivered' }]);
+    expect(deliveredFiles(v, 'step')).toEqual([{ path: 'out/recipes/1a2b3c4d/console-tray.step', sha256: s1, by: 'its rebuild delivered' }]);
+    expect(deliveredSteps(v)).toEqual(deliveredFiles(v, 'step'));
+  });
+});
+
 describe('timmy evidence, the command (a real child process)', () => {
   /** `timmy evidence …` in the project, with its chain from the project (TIMMY_STORE, as a block's `timmy act` has it). */
   const cli = (root: string, args: string[], env: NodeJS.ProcessEnv = {}) => {
@@ -247,7 +336,7 @@ describe('timmy evidence, the command (a real child process)', () => {
     expect(bad.stderr).toBe('timmy evidence step: TIMMY_OPERATION "j1a2b3c" is not an operation id (o and 8 hex digits)\n');
     const usage = await cli(root, ['newest'], { TIMMY_OPERATION: OP });
     expect(usage.status).toBe(2);
-    expect(usage.stderr).toMatch(/^No evidence newest: flow, step or vox\. Usage: timmy evidence <flow\|step\|vox>/);
+    expect(usage.stderr).toMatch(/^No evidence newest: flow, step, stl or vox\. Usage: timmy evidence <flow\|step\|stl\|vox>/);
   }, 120_000);
 
   it('--json: one object on stdout, found or refused, with its exit code; --help and timmy --help name it', async () => {
@@ -258,7 +347,7 @@ describe('timmy evidence, the command (a real child process)', () => {
     expect(JSON.parse(ok.stdout)).toEqual({
       schema: 'timmy.evidence/1', what: 'flow', operation: OP, operation_from: 'TIMMY_OPERATION', found: true, path: f.rel, sha256: sha(fs.readFileSync(path.join(root, f.rel))),
       bytes: fs.statSync(path.join(root, f.rel)).size, record: { kind: 'flow', id: f.id, path: f.rel, sha256: sha(fs.readFileSync(path.join(root, f.rel))), receipt: f.receipt },
-      how: `flow ${f.id} of operation ${OP} (succeeded); receipt ${f.receipt} on the runs chain sealed this record`, exit_code: 0,
+      how: `flow ${f.id} of operation ${OP} (succeeded); receipt ${f.receipt} on the runs chain sealed this record`, outcome: 'succeeded', exit_code: 0,
     });
     const no = await cli(root, ['vox', '--json'], { TIMMY_OPERATION: OP });
     expect(no.status).toBe(1);
@@ -271,5 +360,27 @@ describe('timmy evidence, the command (a real child process)', () => {
     expect(help.stdout).toContain('timmy evidence: the one record or file of an operation a workflow block needs, found by the operation\'s id, never by a file\'s time.');
     const all = await runAsync(TSX, [CLI, '--help'], { cwd: root, env: { ...process.env, NO_COLOR: '1' }, timeout: 90_000 });
     expect(all.stdout).toContain('evidence flow|step|vox  In a workflow block: this run\'s flow record, its STEP or its VoxVision record, by the operation\'s id, never by time');
+  }, 120_000);
+
+  it('R4 (H102, part 2): stl prints the STL path; flow --outcome prints how the flow ended (succeeded, no change); --outcome with step is a usage error', async () => {
+    const root = project();
+    const mine = fakeScadFlow(root, { operation: OP, run: 'aaaaaaaa' });
+    fakeScadFlow(root, { operation: OTHER, run: 'bbbbbbbb' });
+    const stl = await cli(root, ['stl'], { TIMMY_OPERATION: OP });
+    expect(stl.status, stl.stderr).toBe(0);
+    expect(stl.stdout).toBe(`${mine.stl}\n`);
+    expect(stl.stderr).toContain(`  stl ${mine.stl}: the STL flow ${mine.id} delivered (succeeded)`);
+    const outcome = await cli(root, ['flow', '--outcome'], { TIMMY_OPERATION: OP });
+    expect(outcome.status, outcome.stderr).toBe(0);
+    expect(outcome.stdout).toBe('succeeded\n');
+    expect(outcome.stderr).toBe(`  flow ${mine.rel}: flow ${mine.id} of operation ${OP} (succeeded); receipt ${mine.receipt} on the runs chain sealed this record\n`);
+    const nc = fakeTrayFlow(root, { operation: 'o5a5a5a5a', job: 'dddddddd', outcome: 'no change', dir: root });
+    const ncOut = await cli(root, ['flow', '--outcome', '--operation', 'o5a5a5a5a']);
+    expect(ncOut.status, ncOut.stderr).toBe(0);
+    expect(ncOut.stdout).toBe('no change\n');
+    expect(ncOut.stderr).toContain(`flow ${nc.id} of operation o5a5a5a5a (no change)`);
+    const bad = await cli(root, ['step', '--outcome'], { TIMMY_OPERATION: OP });
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toMatch(/^--outcome is for flow/);
   }, 120_000);
 });
