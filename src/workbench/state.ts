@@ -10,6 +10,8 @@
  *                exit alone; its outcome in src/ops/outcome.ts's words (a run that changed nothing says no change)
  *   decisions    what waits on a person (src/room/decisions.ts), as the Control Room shows it
  *   route        where a chat message would go, in the words the REPL's header and the monitor's top line use
+ *   turns        R4 (H117): the project's chat turns, every surface's, from their sealed receipts (src/repl/seal.ts chatTurnOf),
+ *                as the REPL's Control Room reads them; a receipt holds hashes only, so no turn's words are shown
  *
  * Nothing here runs, seals or writes. A record that cannot be read is said to be unreadable, with why; nothing is guessed.
  */
@@ -27,9 +29,10 @@ import { waitingApprovals } from '../repl/approvals.js';
 import { endedByRecovery } from '../repl/job-command.js';
 import { workflowForBoard } from '../repl/board-nodes.js';
 import { connectWorkflow, NODE_GLYPH, type NodeWord } from '../repl/board-workflows.js';
+import { chatTurnOf } from '../repl/seal.js';
 import { gatherDecisions, type DecisionsView } from '../room/decisions.js';
 import { jobJudgement, judgeIndex, type JobMark } from '../room/judge.js';
-import type { RoomTools } from '../room/index.js';
+import { shortReceipt, turnOllama, type RoomTools } from '../room/index.js';
 import { tildePath, scrubHomes } from '../utils/home-scrub.js';
 import { timmyHome } from '../setup/home.js';
 import { loadConfig } from '../utils/config.js';
@@ -37,6 +40,7 @@ import { readChain, type Receipt } from '../utils/receipts.js';
 import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { blockCount } from '../workflows/block-count.js';
 import { findUpmd, findWorkflowDocs } from '../workflows/upmd.js';
+import type { TurnRow } from './model.js';
 import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
 import { took } from './text.js';
 
@@ -412,6 +416,41 @@ export function readChatTail(root: string, max = 6): ChatTail {
   } catch (e) {
     return { session: null, total: 0, messages: [], error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+// ── the project's chat turns ───────────────────────────────────────────────────
+
+/** R4 (H117): how many chat turns the Control Room lists (the newest). */
+export const TURNS_SHOWN = 8;
+
+/**
+ * R4 (H117): the project's chat turns from their sealed receipts, whichever surface sent each (src/repl/seal.ts chatTurnOf:
+ * the REPL's, the Workbench's, a monitor's, a companion page's), the newest first and one per receipt (the same receipt read
+ * twice is one turn), as the REPL's Control Room reads them (src/room/index.ts chatRuns). A turn being answered has no receipt
+ * yet and is not here. Receipts hold hashes only, and so do these rows: never a word of a prompt or an answer.
+ */
+export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_SHOWN): TurnRow[] {
+  const id = projectId(root);
+  const seen = new Set<string>();
+  const out: TurnRow[] = [];
+  // the chain is in the order its receipts were sealed: read from its end, the newest come first
+  for (let i = chain.length - 1; i >= 0 && out.length < max; i -= 1) {
+    const r = chain[i];
+    const turn = chatTurnOf(r);
+    if (!turn || r.project_id !== id || seen.has(String(r.hash))) continue;
+    seen.add(String(r.hash));
+    // a receipt that records no status counts as answered, as the REPL's Control Room reads it (chatRuns)
+    const status = r.status ?? 'ok';
+    const model = [r.model_resolved, r.model_requested].find((m): m is string => typeof m === 'string' && m.trim() !== '') ?? null;
+    const endpoint = turnOllama(r)?.endpoint;
+    out.push({
+      receipt: shortReceipt(r), surface: turn.surface, state: status === 'ok' ? 'answered' : status === 'cancelled' ? 'stopped' : 'failed',
+      model, at: r.ts, ...(typeof r.ms === 'number' && Number.isFinite(r.ms) ? { ms: r.ms } : {}),
+      operation: typeof r.operation_id === 'string' && r.operation_id ? r.operation_id : null,
+      ...(endpoint === 'local' ? { local: true } : endpoint ? { local: false } : {}),
+    });
+  }
+  return out;
 }
 
 // ── each tool workspace's records in this project ──────────────────────────────
