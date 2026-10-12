@@ -48,8 +48,10 @@ export interface Receipt {
   // when the copy was renamed, its source's base name (never its folder).
   files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number; kind?: string; kind_by?: 'bytes' | 'name'; source_name?: string }>;
   outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
-  // R4 (H74): a workflow run's step names its block's receipt (`receipt`, a short id)
-  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number; receipt?: string }>; log_sha256?: string; url?: string; ms?: number; error?: string };
+  // R4 (H74): a workflow run's step names its block's receipt (`receipt`, a short id). R4 (H107; r25 D3): a workflow run's
+  // `state` and its steps' are Timmy's words ("no change" for a run or block that made no change), and `upmd` is upmd's own
+  // verdict kept as its own field (src/workflows/run-verdict.ts): how its process ended, and each block's end line
+  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; upmd?: { state: string; exit_code: number | null }; steps?: Array<{ name: string; state: string; code?: number; outcome?: string; upmd?: { state: string; exit_code: number | null }; receipt?: string }>; log_sha256?: string; url?: string; ms?: number; error?: string };
   // R4 (H74): the risky blocks of a workflow's prediction (each with why) and how Timmy asked about them (`gate`)
   prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string; risky?: Array<{ name: string; reason: string; code_sha256: string }>; gate?: string };
   /** R4 (H74): one workflow block's receipt (kind workflow-block; src/workflows/block-receipts.ts) */

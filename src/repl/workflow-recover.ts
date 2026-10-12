@@ -51,6 +51,7 @@ import type { LeftCut } from './workflow-blocks.js';
 import { writerState } from '../ops/process-proof.js';
 import { readOperationRecord } from '../ops/operations.js';
 import { jobOutcome } from '../ops/outcome.js';
+import { upmdCounted } from '../workflows/run-verdict.js';
 
 export interface WorkflowRecoverDeps {
   /** the project folder looked at */
@@ -275,7 +276,8 @@ function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, r
     // run is then "no change", as every other view reads it, never failed: say so, with upmd's own word beside it
     const judged = recorded ? jobOutcome(recorded) : undefined;
     if (recorded && judged?.state === 'no change') {
-      const saw = m.ended.length ? `; it saw ${listed(m.ended.map((name) => { const st = recorded!.steps.find((x) => x.name === name); return st && st.outcome === 'no change' ? `${name} made no change${st.state === 'failed' ? ' (upmd counted it as failed)' : ''}` : `${name} ${st?.state ?? 'end'}`; }))}, which Timmy did not see itself` : '';
+      // R4 (H107; r25 D3): upmd's word in the words every view uses
+      const saw = m.ended.length ? `; it saw ${listed(m.ended.map((name) => { const st = recorded!.steps.find((x) => x.name === name); return st && st.outcome === 'no change' ? `${name} made no change${st.state === 'failed' ? ` (${upmdCounted(st.code)})` : ''}` : `${name} ${st?.state ?? 'end'}`; }))}, which Timmy did not see itself` : '';
       item = { did: 'judged', outcome: 'no change', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${saw}; its job record now says no change: ${d.scrub(judged.words)}, from its wrapper's stop file${sealBlocks(d, recorded)}; nothing was run again` };
     } else {
       item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };

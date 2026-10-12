@@ -14,6 +14,7 @@ import { captureEnvLock, type EnvLock } from './envlock.js';
 import { harnessFields } from '../harness/policy.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
+import { mcporterLaneServer, mcporterServerConfigured } from '../connectors/mcp-configured.js'; // R4 (H107; r25 D13)
 import { keySet } from './keys.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
 import { openHandsPreflight, runOpenHandsTask } from './openhands-adapter.js';
@@ -105,13 +106,24 @@ function onPath(cmd: string): boolean {
 const LANE_COMMAND: Record<string, string> = { hyperframes: 'hyperframes' };
 const LANE_INSTALL: Record<string, string> = { hyperframes: 'npm install -g hyperframes' };
 
-export function listLanes(env: NodeJS.ProcessEnv = process.env): { id: string; label: string; available: boolean; install?: string; model?: string; key?: string }[] {
-  return Object.entries(LANE_RUNNERS).map(([id, r]) => ({
-    id, label: r.label,
-    available: onPath(LANE_COMMAND[id] ?? r.cmd) && (!r.key || keySet(env[r.key])),
-    install: LANE_INSTALL[id] ?? r.install, model: r.model,
-    ...(r.key ? { key: r.key } : {}),
-  }));
+/** R4 (H107; r25 D13): an MCP-backed lane's server: whether its program is on PATH and its server configured for Timmy. */
+export interface LaneMcp { server: string; program: string; found: boolean; configured: boolean; where?: string; checked: string[]; unreadable?: string[] }
+
+export function listLanes(env: NodeJS.ProcessEnv = process.env, o: { cwd?: string } = {}): { id: string; label: string; available: boolean; install?: string; model?: string; key?: string; mcp?: LaneMcp }[] {
+  return Object.entries(LANE_RUNNERS).map(([id, r]) => {
+    const found = onPath(LANE_COMMAND[id] ?? r.cmd);
+    // R4 (H107; r25 D13): a lane that runs `mcporter call <server>.…` is ready only when that server is configured for Timmy
+    // (MCPorter's config files, read; nothing is run or contacted): mcporter on PATH alone said "found" on the Mac
+    const server = mcporterLaneServer(r);
+    const mcp: LaneMcp | undefined = server ? { server, program: r.cmd, found, ...mcporterServerConfigured(server, { env, ...(o.cwd ? { cwd: o.cwd } : {}) }) } : undefined;
+    return {
+      id, label: r.label,
+      available: found && (!r.key || keySet(env[r.key])) && (!mcp || mcp.configured),
+      install: LANE_INSTALL[id] ?? r.install, model: r.model,
+      ...(r.key ? { key: r.key } : {}),
+      ...(mcp ? { mcp } : {}),
+    };
+  });
 }
 
 // V-01 rung 2 (v0.7.6): the cone selects token-budgeted L0/L1/L2 slices; this

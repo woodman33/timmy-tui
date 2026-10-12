@@ -203,7 +203,8 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
       receipts: `not read: timmy md exited at once, without reading the receipts chain; /op ${op} lists them`,
     });
     // the first block's receipt was sealed as it ended; the cut one's was not
-    expect(j.blocks).toEqual([{ name: 'first', state: 'completed', exit_code: 0, receipt: expect.stringMatching(/^[0-9a-f]{8}$/) }, { name: 'long', state: 'stopped', exit_code: null, receipt: null }]);
+    // R4 (H107; r25 D3): each with upmd's own verdict as its own field (null for the cut block: upmd gave none)
+    expect(j.blocks).toEqual([{ name: 'first', state: 'completed', exit_code: 0, upmd: { state: 'completed', exit_code: 0 }, receipt: expect.stringMatching(/^[0-9a-f]{8}$/) }, { name: 'long', state: 'stopped', exit_code: null, upmd: null, receipt: null }]);
     // what it settled at once, on disk: neither record says running
     expect(opRecord(s, op)).toMatchObject({ state: 'stopped', ended: expect.any(String), why: expect.stringContaining('a second SIGINT: timmy md exited at once') });
     const jobRec = jobRecord(s, job);

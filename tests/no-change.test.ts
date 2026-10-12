@@ -138,7 +138,7 @@ describe('a /run block whose own flows made no change, and a run that stopped th
     expect(jobOutcome(job).words).toBe('stopped at change, which made no change (upmd counted it as failed: exit 4, and its record shows no block run after it): flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
     // /jobs <id>: the block is = no change, and says upmd counted it as failed; never ✖
     const shown = jobBlockLines(job, ['change', 'inspect', 'result'], { glyphs: { ok: '✓', fail: '✖', bullet: '●' } }).map((l) => l.map((x) => x.text).join(''));
-    expect(shown).toEqual(['      = change  no change (upmd counted it as failed) · exit 4', '      ● inspect  not run', '      ● result  not run']);
+    expect(shown).toEqual(['      = change  no change (upmd counted it as failed: exit 4)', '      ● inspect  not run', '      ● result  not run']); // R4 (H107): its exit said once
     expect(jobOutcome(job).words).not.toMatch(/request failed|run failed/);
     // a block that failed for another reason beside it: failed, as before
     const both = { ...job, steps: [...steps, { name: 'other', state: 'failed', code: 1 }] } as JobRecord;

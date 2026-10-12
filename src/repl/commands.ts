@@ -72,7 +72,8 @@ export interface ReplContext {
   /** R4 (H98): the terminal's width now (/help's top line wraps within it, and within 60 columns). */
   columns?: () => number;
   /** The lanes Timmy can run, and whether each is installed (C-10). */
-  lanes?: () => Array<{ id: string; label: string; available: boolean; install?: string }>;
+  /** R4 (H107; r25 D13): `mcp`, an MCP-backed lane's server: its program found, the server configured (src/utils/dispatch.ts) */
+  lanes?: () => Array<{ id: string; label: string; available: boolean; install?: string; mcp?: { server: string; program: string; found: boolean; configured: boolean; where?: string; unreadable?: string[] } }>;
   /** Opens the cockpit (`timmy center`); returns one sentence: where, or why not. */
   openCenter?: () => string;
   /** Round R1: Timmy Canvas's state (starting it when nothing serves it), or opens it (`/canvas open`). */
@@ -348,9 +349,13 @@ export const COMMANDS: SlashCommand[] = [
       const g = ctx.glyphs;
       const blank = ' '.repeat(g.bullet.length);
       for (const l of lanes) {
+        // R4 (H107; r25 D13): an MCP-backed lane is found only with its server configured for Timmy (files read, nothing contacted)
+        const m = l.mcp;
         ctx.print(l.available
-          ? [{ text: `  ${g.bullet} ` }, { text: l.id.padEnd(10), role: 'strong' }, { text: ` ${l.label} ${g.sep} found (not checked)`, role: 'secondary' }]
-          : [{ text: `  ${blank} ${l.id.padEnd(10)}` }, { text: ` ${l.label} ${g.sep} not installed${l.install ? `: ${l.install}` : ''}`, role: 'secondary' }]);
+          ? [{ text: `  ${g.bullet} ` }, { text: l.id.padEnd(10), role: 'strong' }, { text: ` ${l.label} ${g.sep} found (not checked)${m?.where ? `; its server ${m.server} is configured in ${m.where}` : ''}`, role: 'secondary' }]
+          : m?.found && !m.configured
+            ? [{ text: `  ${blank} ${l.id.padEnd(10)}` }, { text: ` ${l.label} ${g.sep} ${m.program} found, no ${l.label} server configured: name one ${m.server} in MCPorter's config (TIMMY_MCP_HOME's or your home's .mcporter/mcporter.json, or ./config/mcporter.json)${m.unreadable?.length ? `; not readable as JSON: ${m.unreadable.join(', ')}` : ''}; /mcp servers lists what it knows; nothing was contacted`, role: 'secondary' }]
+            : [{ text: `  ${blank} ${l.id.padEnd(10)}` }, { text: ` ${l.label} ${g.sep} not installed${l.install ? `: ${l.install}` : ''}`, role: 'secondary' }]);
       }
     },
   },

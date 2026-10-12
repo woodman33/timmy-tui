@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
-import { JobManager, type JobRecord } from '../jobs/index.js';
+import { JobManager, type JobRecord, type JobStep } from '../jobs/index.js';
 import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
 import { AE_RENDER_NOTES, AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeRenderArgs, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
 // Round R4 (helper H27): OpenSCAD as a judged native route, its STL read back by Timmy's own reader.
@@ -68,6 +68,7 @@ import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun,
 import { RunProgress } from './run-progress.js';
 import { lastBuildWords, noChangeEndLine, opJoint, opLead, opTail } from './end-lines.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
+import { blockWord, noChangeOf, upmdBlockVerdict, upmdCounted, upmdRunVerdict } from '../workflows/run-verdict.js'; // R4 (H107; r25 D3)
 import type { ApprovalRequest, Decision } from './approvals.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
 import { spawnSync, execFile } from 'node:child_process';
@@ -1176,19 +1177,24 @@ export class Workspace {
     // R4 (H51): a job that ended may end its operation (checked once this change is through).
     if (job.operation && TERMINAL.has(job.state)) queueMicrotask(() => this.ops.check());
     const before = this.seen.get(job.id) ?? { state: 'queued', done: 0 };
-    const done = job.steps.filter((s) => s.state !== 'running').length;
+    // R4 (H107; r25 D3): a block upmd says failed is said once its exit is known (or its run has ended): whether it made no
+    // change is read from that exit and its flows (the sealer above), so it is never said as "failed" first (r25: "change
+    // failed · 1 of 3" while its block receipt, its end line and /jobs said no change)
+    const said = (s: JobStep): boolean => s.state !== 'running' && (job.kind !== 'workflow' || s.state !== 'failed' || s.code !== undefined || TERMINAL.has(job.state));
+    const done = job.steps.filter(said).length;
     this.seen.set(job.id, { state: job.state, done });
     const g = this.d.glyphs;
     if (job.kind === 'workflow' && done > before.done) {
-      const s = job.steps.filter((x) => x.state !== 'running').at(-1);
+      const s = job.steps.filter(said).at(-1);
       const total = this.expected(job) ?? job.steps.length;
       // R4 (H58): a block's exit may come after upmd says it failed; a stopped block is said as stopped
       // R4 (H74): with its block receipt, once sealed
       const sealed = s ? this.blockSeals.receiptOf(job.id, job.steps.lastIndexOf(s)) : undefined;
       // R4 (H99, r24): a block whose own flows made no change says so, never "failed"; R4 (H99, the review): its short reason
-      // first (the last build's state, and what upmd does with its exit), the flow's long words last
+      // first (the last build's state, and what upmd does with its exit), the flow's long words last. R4 (H107): upmd's word
+      // in the words every view uses
       const still = s?.outcome === 'no change';
-      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (exit ${s.code ?? '?'}${s.state === 'failed' ? ': upmd counts a non-zero exit as failed' : ''})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
+      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (${s.state === 'failed' ? upmdCounted(s.code) : `exit ${s.code ?? '?'}`})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
       if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${word}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}${still && s.why ? `${this.sep}${s.why}` : ''}`, role: s.state === 'failed' && !still ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
@@ -1315,22 +1321,32 @@ export class Workspace {
               : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
       : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
-    const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     // R4 (H74): a /run's blocks not sealed yet are sealed first; this receipt names each block's (its steps, child_receipts)
     const stopWords = this.stopBy.get(job.id);
     let blocks: ReturnType<BlockSealer['finish']> = [];
     try { if (job.kind === 'workflow') blocks = this.blockSeals.finish(job, stopWords ? { stop: stopWords } : {}); } catch { blocks = []; }
     const blockIds = blocks.flatMap((b) => (b.receipt ? [b.receipt] : []));
+    // R4 (H99): a block the sealer found made no change says so (read again, after the blocks are sealed: the sealer notes it
+    // on the live record). R4 (H107; r25 D3): and a /run that made no change is "no change" here too, as in every view (its
+    // subject, job.state and each such step's state), with no status (neither ok, as nothing was changed, nor failed: as its
+    // blocks' receipts), and upmd's own verdict kept as its own field: job.upmd (how upmd's process ended and its exit) and
+    // each step's upmd (upmd's end line for the block). `timmy verify` hashes whatever fields a receipt holds.
+    const steps = (this.jobs.get(job.id) ?? job).steps;
+    const still = job.kind === 'workflow' ? noChangeOf({ kind: job.kind, state: job.state, steps }) : undefined;
+    const status = still ? undefined : job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     try {
       return this.d.seal({
-        kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${judged && job.state !== 'cancelled' ? judged.native.outcome : job.state}`, policy: 'human-gated',
+        kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${still ? 'no change' : judged && job.state !== 'cancelled' ? judged.native.outcome : job.state}`, policy: 'human-gated',
         ...(status ? { status } : {}),
         ...(judged ? { native: judged.native } : {}),
         project: job.project, project_id: projectId(job.root),
         job: {
-          id: job.id, kind: job.kind, label, state: job.state, exit_code: job.exitCode ?? null,
-          // R4 (H99): a block the sealer found made no change says so (read again: the sealer notes it on the live record)
-          steps: (this.jobs.get(job.id) ?? job).steps.map(({ name, state, code, outcome }, i) => ({ name, state, ...(code === undefined ? {} : { code }), ...(outcome ? { outcome } : {}), ...(blocks[i]?.receipt ? { receipt: blocks[i].receipt } : {}) })),
+          id: job.id, kind: job.kind, label, state: still ? 'no change' : job.state, exit_code: job.exitCode ?? null,
+          ...(job.kind === 'workflow' ? { upmd: upmdRunVerdict(job) } : {}),
+          steps: steps.map(({ name, state, code, outcome }, i) => {
+            const upmd = job.kind === 'workflow' ? upmdBlockVerdict({ state, code }) : null;
+            return { name, state: blockWord({ state, outcome }), ...(code === undefined ? {} : { code }), ...(outcome ? { outcome } : {}), ...(upmd ? { upmd } : {}), ...(blocks[i]?.receipt ? { receipt: blocks[i].receipt } : {}) };
+          }),
           ...(log ? { log_sha256: log } : {}), ...(job.url ? { url: job.url } : {}), ...(ms !== undefined ? { ms } : {}), ...(error ? { error } : {}),
         },
         ...(blockIds.length ? { child_receipts: blockIds } : {}),
@@ -2572,7 +2588,9 @@ export class Workspace {
         const r = this.judgedJob(j, judged);
         const count = j.kind === 'workflow' ? blockCount(j, { order: this.predictions.get(j.id)?.order }) : undefined;
         return {
-          id: j.id, state: r.by === 'record' ? r.word : j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
+          // R4 (H107; r25 D2): the judgement's word for a job its own exit judges too, as /jobs and /room say it: "no change"
+          // for a /run that made no change (r25: its card said COMPLETED); any other such job's word is its own state
+          id: j.id, state: r.by === 'record' ? r.word : j.stale ? `${r.word} (its process is gone)` : r.word, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
           ...(judgedLine(r) ? { judged: judgedLine(r) } : {}), ...(count ? { count: count.words } : {}),
           ...(j.receipt ? { receipt: j.receipt } : {}),
           ...(live ? { stoppable: this.mine.has(j.id) && !j.stale && !TERMINAL.has(j.state) } : {}),

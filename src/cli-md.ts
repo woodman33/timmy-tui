@@ -6,7 +6,9 @@
  * operation (`.timmy/operations/<id>.json`, as `timmy act` records one; with TIMMY_OPERATION set, a block of another run,
  * it joins that operation while it runs).
  *
- * - The project is the current folder (as the REPL would open it); the document is a file of it.
+ * - The project is the current folder (as the REPL would open it), or R4 (H107; r25 D4) --project <dir>, as `timmy act`
+ *   decides it (a launcher that starts each command in a folder of its own names the project); the document is a file of
+ *   it, its blocks run in it and its receipts are sealed on its store.
  * - `--plan` prints the prediction (the blocks in run order) and the risky blocks with their commands, and runs and seals
  *   nothing.
  * - A run that would reach a risky block (a destructive shell command, by the agent's shell tool's own rule): in a terminal,
@@ -19,7 +21,7 @@
  *   run's job record and printing the end (its JSON's at_once says what was not sealed and what /recover does).
  */
 import fs from 'node:fs';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import { folderProject } from './project/index.js';
 import { realOnPath } from './repl/center.js';
 import { readDecision, type ApprovalRequest, type Decision } from './repl/approvals.js';
@@ -34,9 +36,11 @@ import { timmyHome } from './utils/init.js';
 import { appendReceipt, readChain } from './utils/receipts.js';
 import { stopReason } from './utils/stop-words.js';
 import { blockReceiptsOf, NO_CHANGE_EXIT } from './workflows/block-receipts.js';
+import { blockWord, runWord, upmdBlockVerdict, upmdRunVerdict, type UpmdVerdict } from './workflows/run-verdict.js'; // R4 (H107; r25 D3)
+import type { JobRecord, JobStep } from './jobs/index.js';
 import { findUpmd, upmdVersion } from './workflows/upmd.js';
 
-export const MD_USAGE = 'timmy md <workflow.md> [<block>] [--plan] [--json]';
+export const MD_USAGE = 'timmy md <workflow.md> [<block>] [--project <dir>] [--plan] [--json]';
 
 export function mdHelp(): string {
   return [
@@ -45,12 +49,17 @@ export function mdHelp(): string {
     'USAGE',
     `  ${MD_USAGE}`,
     '',
-    '  <workflow.md>  a Markdown file of the current folder (the project) with named blocks: ```bash [name:build]',
+    '  <workflow.md>  a Markdown file of the project, named by its path in the project, with named blocks: ```bash [name:build]',
     '  <block>        the block to run; upmd runs the blocks it needs first (needed when the document names more than one)',
     '',
     'OPTIONS',
-    '  --plan         print the prediction (the blocks in run order) and the risky blocks, and run and seal nothing',
-    '  --json         one JSON object at the end on stdout (the run, its receipts and outcome); progress on stderr',
+    '  --project <dir>  the project folder: the document is a file of it, its blocks run in it, its receipts are sealed on its store',
+    '  --plan           print the prediction (the blocks in run order) and the risky blocks, and run and seal nothing',
+    '  --json           one JSON object at the end on stdout (the run, its receipts and outcome); progress on stderr',
+    '',
+    'THE PROJECT',
+    '  Without --project the project is the current folder (as the REPL would open it from here), as timmy act decides it.',
+    '  With --project <dir> (relative to the current folder, or absolute) the project is that folder, from any folder.',
     '',
     'WHAT IT DOES',
     '  The same run as /run: the prediction is sealed first; upmd runs the block after the blocks it needs; each block\'s',
@@ -75,15 +84,24 @@ export function mdHelp(): string {
   ].join('\n');
 }
 
-interface MdArgs { doc: string; block?: string; plan: boolean; json: boolean; help?: boolean }
+interface MdArgs { doc: string; block?: string; plan: boolean; json: boolean; help?: boolean; project?: string }
 
 export function parseMdArgs(argv: string[], o: { json?: boolean } = {}): MdArgs | { error: string } {
   const a: MdArgs = { doc: '', plan: false, json: o.json === true };
   const words: string[] = [];
-  for (const w of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i];
     if (w === '-h' || w === '--help') { a.help = true; continue; }
     if (w === '--plan') { a.plan = true; continue; }
     if (w === '--json') { a.json = true; continue; }
+    // R4 (H107; r25 D4): the project folder, as `timmy act --project` takes it
+    const eq = /^--project=(.*)$/.exec(w);
+    if (w === '--project' || eq) {
+      const v = eq ? eq[1] : argv[++i];
+      if (v === undefined || v === '') return { error: `--project needs a value. Usage: ${MD_USAGE}` };
+      a.project = v;
+      continue;
+    }
     if (/^--?\S/.test(w)) return { error: `No option ${w}. Usage: ${MD_USAGE}` };
     words.push(w);
   }
@@ -96,6 +114,14 @@ export function parseMdArgs(argv: string[], o: { json?: boolean } = {}): MdArgs 
 }
 
 const plain = (segs: Segment[]): string => segs.map((s) => s.text).join('');
+/**
+ * R4 (H107; r25 D3): the run's job and its blocks in its JSON as every view says them: `state` is Timmy's word ("no change"
+ * for a run or block that made no change; r25 gave job state failed), and `upmd` is upmd's own verdict kept as its own field
+ * (how upmd's process ended and its exit; each block's end line as upmd gave it, null when it gave none).
+ */
+const jobJson = (j: JobRecord): Record<string, unknown> => ({ id: j.id, state: runWord(j), exit_code: j.exitCode ?? null, upmd: upmdRunVerdict(j) });
+const blockJson = (s: JobStep): { name: string; state: string; exit_code: number | null; outcome?: string; upmd: UpmdVerdict | null } =>
+  ({ name: s.name, state: blockWord(s), exit_code: s.code ?? null, ...(s.outcome ? { outcome: s.outcome } : {}), upmd: upmdBlockVerdict(s) });
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 const riskyJson = (risky: readonly RiskyBlock[]): Array<{ name: string; index: number; command: string; reason: string; code_sha256: string }> =>
   risky.map((b) => ({ name: b.name, index: b.index, command: b.command, reason: b.reason, code_sha256: b.code_sha256 }));
@@ -139,7 +165,28 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   const glyphs = glyphSet(true);
   const sep = ` ${glyphs.sep} `;
   let root = process.cwd();
+  // R4 (H107; r25 D4): --project <dir>, as `timmy act` takes it (src/ops/act.ts): a folder, entered, so the run's receipts are
+  // sealed on that project's store, as from a REPL opened there
+  if (a.project) {
+    root = path.resolve(a.project);
+    let dir = false;
+    try { dir = fs.statSync(root).isDirectory(); } catch { dir = false; }
+    if (!dir) {
+      const why = `--project ${a.project} is not a folder. Usage: ${MD_USAGE}`;
+      process.stderr.write(`${why}\n`);
+      if (a.json) end({ operation: null, outcome: 'usage', exit_code: 2, why });
+      return 2;
+    }
+  }
   try { root = fs.realpathSync(root); } catch { /* as given */ }
+  if (a.project) {
+    try { process.chdir(root); } catch (e) {
+      const why = `The project folder cannot be entered: ${e instanceof Error ? e.message : String(e)}`;
+      process.stderr.write(`${why}\n`);
+      if (a.json) end({ operation: null, outcome: 'usage', exit_code: 2, why });
+      return 2;
+    }
+  }
 
   // The run, read as /run reads it.
   const p = planRun(root, a.doc, a.block);
@@ -239,9 +286,9 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
       writeNow(1, `${JSON.stringify({
         schema: 'timmy.md/1', operation: h.id, joined: h.joined, parent: h.parent, request, project: ws.project.name, ...facts,
         outcome: 'stopped', exit_code: 3, why: at.why,
-        job: job ? { id: job.id, state: job.state, exit_code: job.exitCode ?? null } : null,
+        job: job ? jobJson(job) : null,
         prediction: job?.expected?.receipt ?? null, receipt: job?.receipt ?? null,
-        blocks: (job?.steps ?? []).map((s, i) => ({ name: s.name, state: s.state, exit_code: s.code ?? null, receipt: ws.blockReceiptOf(job!.id, i) ?? null })),
+        blocks: (job?.steps ?? []).map((s, i) => ({ ...blockJson(s), receipt: ws.blockReceiptOf(job!.id, i) ?? null })),
         receipts: null, lines: printed, at_once: told,
       })}\n`);
     } else {
@@ -291,13 +338,13 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   let chain: ReturnType<typeof readChain> = [];
   try { chain = readChain('runs'); } catch { chain = []; }
   const own = jobId ? blockReceiptsOf(chain, jobId) : new Map();
-  const blocks = (job?.steps ?? []).map((s) => ({ name: s.name, state: s.state, exit_code: s.code ?? null, ...(s.outcome ? { outcome: s.outcome } : {}), receipt: own.get(s.name)?.receipt ?? null }));
+  const blocks = (job?.steps ?? []).map((s) => ({ ...blockJson(s), receipt: own.get(s.name)?.receipt ?? null }));
   const receipts = chain.filter((r) => r.operation_id === h.id).map((r) => ({ id: r.hash.slice(7, 15), kind: r.kind, ...(r.status ? { status: r.status } : {}) }));
   if (a.json) {
     end({
       operation: h.id, joined: h.joined, parent: h.parent, request, project: ws.project.name, ...facts,
       outcome: state, exit_code: code, why: ended.why,
-      job: job ? { id: job.id, state: job.state, exit_code: job.exitCode ?? null } : null,
+      job: job ? jobJson(job) : null,
       prediction: job?.expected?.receipt ?? null, receipt: job?.receipt ?? null, blocks, receipts, lines: printed,
     });
   } else {

@@ -25,6 +25,7 @@ import { freecadFlowSummary } from '../flows/iterate-freecad.js';
 import { aeFlowSummary } from '../flows/iterate-ae.js';
 import { blenderFlowSummary } from '../flows/iterate-blender.js';
 import type { JobRecord } from '../jobs/index.js';
+import { runWord } from '../workflows/run-verdict.js'; // R4 (H107; r25 D3)
 import { NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { readProjectFile, resolveInside, sameFolder } from '../project/index.js';
 import { isRecipeJobId, RECIPE_ID } from '../recipes/index.js';
@@ -297,10 +298,11 @@ function workflowItems(c: RecallContext, out: RecallItem[]): void {
     const block = str(r?.prediction?.block) ?? blockFromLabel;
     const steps = j?.steps?.length ? j.steps : r?.job?.steps ?? [];
     const met = r?.prediction?.met;
-    const state = `${j?.state ?? r?.job?.state ?? 'unknown'}${met === true ? ', prediction met' : met === false ? ', prediction missed' : ''}`;
+    // R4 (H107; r25 D3): a run that made no change says so, as every view does (its job's record keeps upmd's own states)
+    const state = `${(j ? runWord(j) : undefined) ?? r?.job?.state ?? 'unknown'}${met === true ? ', prediction met' : met === false ? ', prediction missed' : ''}`;
     out.push({
       kind: 'workflow', what: 'workflow run', id, when: j?.endedAt ?? j?.startedAt ?? r?.ts, state,
-      line: `${doc ?? '?'} › ${block ?? '?'}${steps.length ? `: ${steps.map((s) => `${s.name} ${s.state}`).join(', ')}` : ''}`,
+      line: `${doc ?? '?'} › ${block ?? '?'}${steps.length ? `: ${steps.map((s) => `${s.name} ${s.outcome === 'no change' ? 'no change' : s.state}`).join(', ')}` : ''}`,
       ...(doc && !doc.startsWith('/') ? { file: doc } : {}),
       seal: r ? { receipt: shortOf(r) } : { note: j && (j.state === 'running' || j.state === 'queued') ? 'running: sealed when it ends' : 'no receipt of this project names this run' },
       text: [id, label, doc, block, j?.state, r?.job?.state, ...steps.map((s) => s.name)].filter(Boolean).join(' '),

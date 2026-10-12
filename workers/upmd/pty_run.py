@@ -9,9 +9,12 @@ runs. Timmy runs `upmd --ci -b <block> -d <dir> <file>` through this wrapper so 
 happen (src/workflows/upmd-live.ts reads them).
 
 - The command runs as the leader of a new session (so of its own process group) with the pty as its controlling
-  terminal and as its stdin, stdout and stderr. The terminal keeps the size a new pty has (none is set), as when
-  upmd 0.2.7's terminal output was observed; TERM is set to xterm-256color only when it is not set at all. Nothing is
-  typed into the terminal, and this process reads nothing from its own stdin.
+  terminal and as its stdin, stdout and stderr. TERM is set to xterm-256color only when it is not set at all. Nothing
+  is typed into the terminal, and this process reads nothing from its own stdin.
+- Round R4 (helper H107; r25 on the operator's Mac, finding D5): the terminal is given a size, ROWS by COLUMNS (200 by
+  1000), before the command starts. A new pty's size is 0 by 0, and upmd's output in a workflow job's log wrapped at
+  about 40 columns, mid-word, with it; a line up to COLUMNS wide now reaches the log whole (upmd 0.2.7's terminal
+  output was first observed on a terminal with no size: tests/fixtures/upmd-0.2.7-pty-third.bin).
 - Every byte the terminal gives is written to stdout unchanged, as it comes. This process's own words go to stderr
   only, each line beginning `pty_run: `, so they never mix with the terminal's bytes.
 - It exits with the command's exit code (128 + n when signal n ended it), 127 when the command did not start, 64 on a
@@ -59,6 +62,7 @@ import os
 import re
 import select
 import signal
+import struct
 import subprocess
 import sys
 import termios
@@ -75,6 +79,9 @@ DRAIN_MAX = 2.0
 POLL = 0.05
 STOPS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 STOP_SCHEMA = 'timmy.pty-stop/1'
+# R4 (H107; r25 D5): the size the terminal is given (a new pty has none: 0 by 0); wide, so a long line is kept whole
+ROWS = 200
+COLUMNS = 1000
 
 
 def say(text):
@@ -533,6 +540,11 @@ def main(argv):
     if 'TERM' not in env:
         env['TERM'] = 'xterm-256color'
     master, slave = os.openpty()
+    try:
+        # R4 (H107; r25 D5): a size of its own, before the command starts (it reads its terminal's size as it starts)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', ROWS, COLUMNS, 0, 0))
+    except (OSError, AttributeError) as e:
+        say('its terminal could not be given a size (%s): it keeps a new terminal\'s, 0 by 0' % (getattr(e, 'strerror', None) or e))
 
     def controlling_terminal():
         # In the child, after setsid(): the pty (its fd 0 now) becomes its controlling terminal. Where that cannot be
