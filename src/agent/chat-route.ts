@@ -133,7 +133,8 @@ export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: strin
  * uses it also names OpenRouter's failure (`cause`).
  */
 export function fallbackRoute(fb: LastResortAnswer): NonNullable<TurnFacts['route']> {
-  return { host: fb.host, endpoint: 'local', tools: 'off', modelResolved: `ollama/${fb.model}`, costBasis: 'local endpoint' };
+  // R4 (H113): its role and OpenRouter's failure on every surface's receipt (the chat session sealed them; the REPL's did not)
+  return { host: fb.host, endpoint: 'local', tools: 'off', modelResolved: `ollama/${fb.model}`, costBasis: 'local endpoint', role: 'last-resort fallback', openrouterFailed: fb.cause };
 }
 
 /** What a local turn is sealed with (src/repl/seal.ts route): `last` is the turn's own report, null when it did not finish. */

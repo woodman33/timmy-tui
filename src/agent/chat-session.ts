@@ -9,11 +9,14 @@
  * - the NEEDS YOU gate (src/repl/approvals.ts gateTools: the same rule as the REPL's, on both routes): a tool that needs a
  *   person waits for the surface's `askPerson`, and a surface that cannot show the box answers 'deny' and says where the
  *   person can decide; a slash command (a line that starts with /) never reaches a model;
- * - the turn itself (the agent's send: src/agent/core.ts), streamed through the surface's hooks, with its receipt: the
- *   project, the prompt and the answer as hashes (never raw), the model asked and the one that answered, the route (via
- *   ollama, the host, tools on or off, the cost's basis), the last-resort fallback when it answered (with OpenRouter's
- *   failure), each tool's outcome and the files the turn wrote, and the cost: what OpenRouter reported, unknown when it did
- *   not report it all, no charge on a local endpoint, absent when no request went out.
+ * - the turn itself. R4 (H113): one turn implementation for every surface: the REPL's own (src/repl/turn.ts runTurn: the
+ *   agent's events, each tool's outcome and its own receipt, describe_image's own charge, the cancel's stage, the cost as
+ *   reported), streamed through the surface's hooks, and sealed by the REPL's own seal (src/repl/seal.ts sealTurn, whose
+ *   subject names the surface: "chat.turn · workbench · 2 steps · qwen3:8b"), into the project's store: the project, the
+ *   prompt and the answer as hashes (never raw), the model asked and the one that answered, the route (via ollama, the host,
+ *   tools on or off, the cost's basis), the last-resort fallback when it answered (with OpenRouter's failure), each tool's
+ *   outcome and the files the turn wrote, and the cost as the turn's receipts seal it (what was reported; cost_measured
+ *   false when not all of it was, never a measured $0); a refused message reaches no turn and has no receipt.
  *
  * No UI here: a surface only draws what it returns. One agent per project in a process: a surface that has an agent already
  * (the monitor's, which also runs its lanes) hands it over (`deps.agent`); otherwise the session makes one for the project and
@@ -34,16 +37,16 @@
  *   // lines: a refusal's or a failure's words (cause and fix), and on an answered turn what must be read beside it (the
  *   // last-resort fallback that answered, tools off for a model that takes none)
  */
-import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type { ChatRouteState, ChatSession, ChatSurface, ChatTurnHooks, ChatTurnResult } from '../contracts/chat-session.js';
 import { gateTools, type ApprovalRequest, type Decision } from '../repl/approvals.js';
-import { failedOutput } from '../repl/agent-bridge.js';
-import { OUTCOME_RULE } from '../repl/seal.js';
+import { sealTurn, type SealedTurn, type TurnFacts } from '../repl/seal.js';
+import type { TurnEvent } from '../repl/transcript.js';
+import { runTurn, type TurnSummary } from '../repl/turn.js';
 import { projectId } from '../project/index.js';
 import { loadConfig } from '../utils/config.js';
 import { modelKeySource } from '../utils/model-key.js';
-import { appendReceipt, type ReceiptInput } from '../utils/receipts.js';
 import { chatRouteNow, fallbackRoute, sealedRoute, type RouteNow } from './chat-route.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
@@ -54,7 +57,10 @@ type Env = Record<string, string | undefined>;
 /** What the session needs of an agent: src/agent/core.ts Agent has all of it. */
 export type SessionAgent = Pick<Agent,
   'send' | 'on' | 'off' | 'getModel' | 'setTools' | 'setInstructions' | 'useLocalChat' | 'localChatRoute' | 'lastLocalTurn'
-  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey'>;
+  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions'>;
+
+/** R4 (H113): seals a turn from its facts (src/repl/seal.ts sealTurn's shape); `dir`: the project's store when it is not this process's */
+export type TurnSealer = (facts: TurnFacts & { model: string }, dir?: string) => SealedTurn;
 
 export interface ChatSessionDeps {
   /** the surface's own agent (the monitor's, which also runs its lanes); else one per project in this process */
@@ -64,10 +70,23 @@ export interface ChatSessionDeps {
   env?: Env;
   /** the tools offered to the model, gated here; default Timmy's default tools and the project's file tools */
   tools?: readonly unknown[];
-  /** seals a turn; default appendReceipt('runs', …) into this process's store; null seals nothing (the caller does) */
-  seal?: ((input: ReceiptInput) => { hash: string }) | null;
-  /** retry 429, 5xx and connection errors (src/agent/core.ts SendOptions.retry); default false */
+  /**
+   * seals a turn; default sealTurn (src/repl/seal.ts), the REPL's own seal, its subject naming the surface, into the project's
+   * store; null seals nothing (the caller does)
+   */
+  seal?: TurnSealer | null;
+  /** retry 429, 5xx and connection errors (src/agent/core.ts SendOptions.retry); default false (the REPL's turn passes true) */
   retry?: boolean;
+}
+
+/**
+ * R4 (H113): the store a project's turn is sealed into: this process's own (undefined) when the process works in the project,
+ * else the project's (src/utils/receipts.ts receiptsDir: its store pin, else its .timmy/receipts), so every surface's turns of a
+ * project, and the event each seal publishes (the companion's mirror reads the project's), are the project's.
+ */
+export function projectStore(root: string, cwd: string = process.cwd()): string | undefined {
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return resolve(p); } };
+  return real(root) === real(cwd) ? undefined : root;
 }
 
 /** What the chat's model is told on every surface: Timmy's rules, the project's tools, and that commands are not sent to it. */
@@ -97,12 +116,11 @@ export function slashRefusal(text: string, surface: ChatSurface): string[] {
 export const NO_REQUEST_COST = 'no request, no cost';
 export const LOCAL_COST = 'no charge (local endpoint)';
 
-const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
-const SYSTEM_PREFIX = /^\s*⚙️?\s*\*\*\[SYSTEM\]\*\*\s*/u;
 const dollars = (n: number): string => (n > 0 && n < 0.0001 ? `$${n.toPrecision(2)}` : `$${n.toFixed(4)}`);
 
 /** An error as the turn's lines: what, its cause, its fix (the agent's "what\nReason: …\nNext: …"). */
 function errorLines(err: unknown): string[] {
+  if (err === undefined || err === null) return ['The turn failed, and no reason came back.'];
   const lines = String((err as Error)?.message ?? err).replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{8,}/g, '[key]').split('\n').map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return ['The turn failed, and no reason came back.'];
   return lines.map((l) => l.replace(/^Reason:\s*/i, 'Cause: ').replace(/^Next:\s*/i, 'Try: '));
@@ -171,7 +189,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     if (agent.hasModelKey()) return;
     try { const key = loadConfig().apiKey; if (key) agent.updateApiKey(key); } catch { /* none readable: the route refuses */ }
   };
-  const seal = deps.seal === undefined ? (input: ReceiptInput) => appendReceipt('runs', input) : deps.seal;
+  // R4 (H113): the REPL's own seal (src/repl/seal.ts), the surface named in its subject
+  const seal: TurnSealer | null = deps.seal === undefined ? (facts, dir) => sealTurn(facts, dir) : deps.seal;
 
   const send = async (text: string, hooks: ChatTurnHooks): Promise<ChatTurnResult> => {
     const typed = text.trim();
@@ -190,118 +209,77 @@ export async function openChatSession(o: { project: { name: string; root: string
     agent.useLocalChat(now.local ?? null);
     const requested = now.local ? now.local.model : agent.openRouterModel();
 
-    // what the turn did, from the agent's own events
-    let streamed = '';
-    let started = false;
-    let costReports = 0;
-    let localReports = 0;
-    let amount = 0;
-    /** every OpenRouter report said it was the whole charge */
-    let complete = true;
-    const notices: string[] = [];
+    // R4 (H113): the turn is the REPL's own (src/repl/turn.ts runTurn): the surface is told the answer so far (the agent's
+    // stream) and each tool as it starts and ends (the turn's own events), and gets what the turn did from its summary
+    const onDelta = (_delta: string, full: string): void => { hooks.onText(full); };
     const names = new Map<string, string>();
-    const outcomes = new Map<string, { name: string; outcome: 'completed' | 'failed' | 'unknown' }>();
-    const on = {
-      'stream:start': () => { started = true; },
-      'stream:delta': (_delta: string, full: string) => { streamed = full; hooks.onText(full); },
-      'cost:update': (cost: number, _total: number, info?: { complete: boolean; basis?: string }) => {
-        costReports++;
-        if (info?.basis === 'local endpoint') localReports++;
-        if (Number.isFinite(cost)) amount += cost;
-        if (info?.complete !== true) complete = false;
+    const sink = {
+      handle: (e: TurnEvent): void => {
+        if (e.type === 'tool-start') { names.set(e.id, e.tool); hooks.onTool?.({ id: e.id, name: e.tool, phase: 'start' }); }
+        else if (e.type === 'tool-end') hooks.onTool?.({ id: e.id, name: names.get(e.id) ?? 'tool', phase: 'end', outcome: e.ok ? 'completed' : 'failed' });
       },
-      'message:user': (m: { role?: string; content?: unknown }) => {
-        if (m?.role === 'assistant' && typeof m.content === 'string') notices.push(m.content.replace(SYSTEM_PREFIX, '').trim());
-      },
-      'item:update': (item: { type?: string; callId?: string; id?: string; name?: string; status?: string; output?: unknown }) => {
-        const id = String(item?.callId || item?.id || '');
-        if (item?.type === 'function_call' && item.status === 'completed' && !outcomes.has(id)) {
-          const name = String(item.name || 'tool');
-          names.set(id, name);
-          outcomes.set(id, { name, outcome: 'unknown' });
-          hooks.onTool?.({ id, name, phase: 'start' });
-        } else if (item?.type === 'function_call_output') {
-          const name = names.get(id) ?? 'tool';
-          const outcome = failedOutput(item.output) ? 'failed' : 'completed';
-          outcomes.set(id, { name, outcome });
-          hooks.onTool?.({ id, name, phase: 'end', outcome });
-        }
-      },
+      endTurn: (): void => undefined,
     };
-    for (const [event, fn] of Object.entries(on)) agent.on(event as never, fn as never);
+    let summary: TurnSummary | null = null;
+    agent.on('stream:delta', onDelta);
     ctx.current = hooks;
     ctx.touched.close(); // nothing from before this turn
-    const t0 = Date.now();
-    let answer = '';
-    let status: ChatTurnResult['status'] = 'answered';
-    let failure: unknown = null;
     try {
-      const opts = { ...(hooks.signal ? { signal: hooks.signal } : {}), ...(deps.retry ? { retry: true } : {}) };
-      answer = Object.keys(opts).length ? await agent.send(typed, opts) : await agent.send(typed);
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError' || hooks.signal?.aborted) status = 'cancelled';
-      else { status = 'failed'; failure = err; }
+      await runTurn(agent, sink as never, typed, Date.now, undefined, hooks.signal, undefined, undefined, {
+        summary: (s) => { summary = s; }, retry: deps.retry ?? false,
+        // a failure that never left this computer (no connection, no address) sent nothing
+        notSent: (err) => neverSent(err),
+      });
     } finally {
       ctx.current = null;
-      for (const [event, fn] of Object.entries(on)) agent.off(event as never, fn as never);
+      agent.off('stream:delta', onDelta);
     }
     const files = ctx.touched.close();
-    const ms = Date.now() - t0;
-    // a request went out: an answer came, a stream started, or a cost came back; a failure that never left this computer
-    // (no connection, no address) did not send one, and an error that says nothing was sent did not either
-    const notSent = failure !== null && ((failure as { sent?: unknown }).sent === false || neverSent(failure) || /nothing was sent/i.test(String((failure as Error)?.message ?? '')));
-    const sent = !notSent && (status === 'answered' || started || costReports > 0);
+    const s = summary as TurnSummary | null;
+    if (!s) return { status: 'failed', text: '', lines: ['The turn ended without saying what it did, so whether anything was sent is not known.'], sent: false, costWords: 'cost unknown' };
+    return finish(s, { requested, local: Boolean(now.local), files });
+  };
+
+  /** The turn's answer in the contract's words, and its receipt: the REPL's seal, with this surface, into the project's store. */
+  const finish = (s: TurnSummary, t: { requested: string; local: boolean; files: TurnFacts['files'] }): ChatTurnResult => {
+    const status: ChatTurnResult['status'] = s.result === 'ok' ? 'answered' : s.result;
+    const sent = s.sent;
     const fb = agent.lastFallback();
     const local = agent.localChatRoute();
     const localTurn = local ? agent.lastLocalTurn() : null;
-    const route = local ? sealedRoute(local, localTurn) : fb ? fallbackRoute(fb) : null;
+    const route = local ? sealedRoute(local, localTurn) : fb ? fallbackRoute(fb) : undefined;
     const model = fb ? `ollama/${fb.model}` : local ? (localTurn?.actualModel || local.model) : agent.getModel();
     // the cost: on the local route, no charge only when every report says this computer's endpoint; on OpenRouter's, what it
     // reported when it reported all of it; after the last-resort fallback, unknown (OpenRouter failed, and no charge came
     // back for its requests); otherwise unknown, with what was reported as a lower bound
     const measured = !sent ? false
-      : now.local ? costReports > 0 && localReports === costReports && amount === 0
-        : !fb && complete && costReports > 0 && localReports === 0;
-    const costWords = !sent ? NO_REQUEST_COST
-      : measured ? (now.local ? LOCAL_COST : `${dollars(amount)} (as OpenRouter reported)`)
-        : amount > 0 ? `cost unknown (at least ${dollars(amount)})` : 'cost unknown';
-
+      : t.local ? s.costReports > 0 && s.localReports === s.costReports && s.spend === 0
+        : !fb && s.allComplete && s.costReports > 0 && s.localReports === 0;
+    // describe_image's own request (src/repl/turn.ts: sealed on its own receipt, never in the turn's) in the REPL's words beside it
+    const paidTool = /\((describe_image [^)]*)\)$/.exec(s.spendWords)?.[1];
+    const costWords = (!sent ? NO_REQUEST_COST
+      : measured ? (t.local ? LOCAL_COST : `${dollars(s.spend)} (as OpenRouter reported)`)
+        : s.spend > 0 ? `cost unknown (at least ${dollars(s.spend)})` : 'cost unknown') + (paidTool ? `; ${paidTool}` : '');
+    const notices = [...s.notices];
     // the receipt: every turn that reached the agent (refused messages reached nothing, and have none)
     let receipt: string | undefined;
     if (seal) {
-      const tools = [...outcomes.values()];
-      const input: ReceiptInput = {
-        kind: 'chat',
-        subject: `chat.turn · ${o.surface}${status === 'answered' ? '' : ` · ${status}`} · ${model}`,
-        policy: 'human-gated',
-        status: status === 'answered' ? 'ok' : status === 'cancelled' ? 'cancelled' : 'failed',
-        project: o.project.name,
-        project_id: projectId(o.project.root),
-        prompt_hash: sha256(typed),
-        response_hash: sha256(status === 'answered' ? answer : streamed),
-        model_requested: requested,
-        ...(sent || status === 'answered' ? { model_resolved: model } : {}),
-        ...(route ? { via: 'ollama', sources: [{
-          kind: 'ollama', host: route.host, endpoint: route.endpoint, tools: route.tools, cost_basis: route.costBasis,
-          ...(fb ? { role: 'last-resort fallback', openrouter_failed: fb.cause } : {}),
-        }] } : {}),
-        ...(tools.length ? { tool_outcomes: tools.map((t) => ({ name: t.name, outcome: t.outcome })), outcome_rule: OUTCOME_RULE } : {}),
-        ...(files.length ? { files } : {}),
-        // absent when no request went out; a lower bound (cost_measured false) when not all of it was reported
-        ...(sent ? { cost_usd: Math.round(amount * 1e6) / 1e6, cost_measured: measured } : {}),
-        ms,
-      };
-      try { receipt = seal(input).hash; } catch (err) { notices.push(`The turn's receipt could not be sealed: ${(err as Error)?.message ?? err}.`); }
+      try {
+        receipt = seal({
+          ...s.facts, model: t.requested, surface: o.surface, project: o.project.name, projectId: projectId(o.project.root),
+          ...(t.files?.length ? { files: t.files } : {}), ...(route ? { route } : {}),
+          ...(sent || status === 'answered' ? { modelResolved: model } : {}),
+        }, projectStore(o.project.root)).hash;
+      } catch (err) { notices.push(`The turn's receipt could not be sealed: ${(err as Error)?.message ?? err}.`); }
     }
-
     const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}) };
-    if (status === 'answered') return { status, text: answer, ...(notices.length ? { lines: notices } : {}), ...base };
+    if (status === 'answered') return { status, text: s.answer, ...(notices.length ? { lines: notices } : {}), ...base };
     if (status === 'cancelled') {
-      return { status, text: streamed, lines: [`Cancelled${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
+      return { status, text: s.streamed, lines: [`Cancelled${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
     }
-    const lines = errorLines(failure);
+    const lines = errorLines(s.error);
     if (!sent && !lines.some((l) => /nothing was sent/i.test(l))) lines.push('Nothing was sent to any model.');
-    return { status, text: streamed, lines: [...notices, ...lines], ...base };
+    return { status, text: s.streamed, lines: [...notices, ...lines], ...base };
   };
 
   return { route: (): ChatRouteState => routeNow().state, send };
