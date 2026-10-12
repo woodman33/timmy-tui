@@ -67,7 +67,7 @@ export function actHelp(): string {
     '  no change (the agent changed nothing): 0 when the last build still matches its recorded inputs, else 4',
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
-    '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
+    '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /studio, /board live, /board off,',
     '  /model, /new, /exit (or /quit), /vox view, /restore, and a /run whose blocks include a destructive shell command',
     '',
     'OPERATIONS',
@@ -135,6 +135,7 @@ export function needsPerson(line: string): string | undefined {
     case 'center': return '/center opens the cockpit in a terminal';
     case 'web': case 'browser': return `/${word} opens a page for you`;
     case 'canvas': return '/canvas starts and opens Timmy Canvas for you';
+    case 'studio': return '/studio starts and opens Timmy Studio (Timmy Canvas) for you'; // R4 (lead): /studio is /canvas open
     case 'board': return /^(live|off)$/.test(args) ? '/board live serves the board for you while the REPL runs' : undefined;
     // R4 (H61): a viewer window on the user's computer is opened only when a person asks for it.
     case 'vox': return /^view\b/.test(args) ? "/vox view opens Rerun's viewer, a window on your computer" : undefined;

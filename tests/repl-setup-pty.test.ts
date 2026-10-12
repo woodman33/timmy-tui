@@ -84,7 +84,7 @@ describe('the REPL and the guided setup (R4 H98)', () => {
       expect(done).toMatch(/✓ Set up: operator Sample · chat: local model only/);
       expect(done).toContain('Back in the REPL.');
       expect(done).toMatch(/identity\s+Sample/);
-      expect(done).toMatch(/model key\s+none · timmy init or OPENROUTER_API_KEY/);
+      expect(done).toMatch(/model key\s+none · \/setup key, timmy init or OPENROUTER_API_KEY/);
       // written once, in the Timmy home, as timmy init writes it
       const setup = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8'));
       expect(setup.by).toBe('the REPL (/setup)');

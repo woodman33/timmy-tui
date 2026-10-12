@@ -39,7 +39,7 @@ describe('timmy act: its arguments, what needs a person, what starts work', () =
 
   it('a command that would ask a person is named; one that starts work is told from one that answers', () => {
     expect(needsPerson('make the tray wider')).toMatch(/chat request/);
-    for (const l of ['/edit notes.md', '/watch', '/center', '/web', '/browser', '/canvas', '/board live', '/model x', '/new', '/exit']) expect(needsPerson(l), l).toBeDefined();
+    for (const l of ['/edit notes.md', '/watch', '/center', '/web', '/browser', '/canvas', '/studio', '/board live', '/model x', '/new', '/exit']) expect(needsPerson(l), l).toBeDefined();
     for (const l of ['/op', '/ops', '/room', '/board', '/jobs', '/iterate tray "x"', '/inspect a.step']) expect(needsPerson(l), l).toBeUndefined();
     for (const l of ['/iterate tray "x"', '/run WORKFLOW.md result', '/inspect a.step', '/agent qwen fix it', '/recipe tray', '/mcp call s t']) expect(startsWork(l), l).toBe(true);
     for (const l of ['/iterate', '/run', '/agent', '/agent last', '/op', '/ops', '/room', '/jobs', '/recipe', '/mcp']) expect(startsWork(l), l).toBe(false);

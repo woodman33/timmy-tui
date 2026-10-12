@@ -108,7 +108,7 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
-      expect(shown).toMatch(/model key\s+none · timmy init or OPENROUTER_API_KEY/);
+      expect(shown).toMatch(/model key\s+none · \/setup key, timmy init or OPENROUTER_API_KEY/);
       expect(shown).toContain('setup check sealed and verified');
       // runs.jsonl also carries the bus's events; receipts are the lines with a prev_hash.
       const chain = readFileSync(`${dir}/store/runs.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string');
