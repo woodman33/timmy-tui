@@ -1551,7 +1551,7 @@ function FleetPane({ lanes, policy, compact, maxRows }: {
   const idw = Math.max(...lanes.map(l => l.id.length), 8);
   const fleet = capRows(lanes, maxRows ?? lanes.length);
   return (
-    <Card title="FLEET" purpose={compact ? undefined : 'absence is dim, not red'} flexGrow={1} overflow={moreLine(fleet.more, 'connectors')}>
+    <Card title="FLEET" purpose={compact ? undefined : 'on PATH: found, not checked'} flexGrow={1} overflow={moreLine(fleet.more, 'connectors')}>
       {fleet.shown.map(l => {
         // FIX 3: policy-followers read "→ <model> (policy)"; a harness scope
         // wins with "(harness)"; "policy unset" is unreachable after first run
