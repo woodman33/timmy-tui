@@ -1,6 +1,7 @@
 /**
  * R4 (H104, second part): the route the companion page's own chat (STREAMDOWN CHAT, POST /chat) takes: the one the setup
- * chose for Timmy's chat, read at every request as the REPL reads it (src/agent/chat-route.ts resolveChatRoute, H103's).
+ * chose for Timmy's chat, read at every request as the REPL reads it (src/agent/chat-route.ts resolveChatRoute, H103's). R4
+ * (H113): on or off, and why, from the one route every surface reads (src/agent/chat-route.ts chatRouteNow).
  *
  *   the setup's chat answer   the page's Send                                                     its label
  *   local, a model chosen     streams that model's answer from the recorded Ollama's /api/chat   "local <model> · Ollama · no tools here"
@@ -22,7 +23,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { localRouteWords, resolveChatRoute } from '../agent/chat-route.js';
+import { chatRouteNow, localRouteWords } from '../agent/chat-route.js';
 import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
@@ -36,11 +37,14 @@ export const OPENROUTER_MODEL = 'qwen/qwen3.8-max';
 /** Where the OpenRouter key was found (never the key). */
 export type KeyFrom = 'environment' | 'timmy-tui.config.json' | 'providers.json' | 'settings';
 
-/** What the page is told of its chat's route (GET /api/chat/route): never a key. */
+/**
+ * What the page is told of its chat's route (GET /api/chat/route): never a key. R4 (H113): `refusal`, when Send is off, is the
+ * one route's own lines (src/agent/chat-route.ts chatRouteNow, the companion's), the same why every surface gives.
+ */
 export type PageRoute =
   | { kind: 'local'; ready: true; label: string; words: string; model: string; host: string; cloud: boolean; loopback: boolean; numCtx?: number }
   | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom }
-  | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null };
+  | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[] };
 
 /** Where chat with Timmy happens, whatever this page can do (the end of every "Send is off" sentence). */
 export const CHAT_HAPPENS = 'Chat with Timmy happens in its terminal: the REPL (timmy) and this monitor (timmy watch); the CHAT MIRROR tab shows it.';
@@ -68,16 +72,22 @@ export function openRouterKey(env: Env, cwd: string): { key: string; from: KeyFr
   return settings ? { key: settings, from: 'settings' } : null;
 }
 
-/** The chat's route now, in the page's words. */
+/**
+ * The chat's route now, in the page's words. R4 (H113): on or off, and why, from the one route every surface reads
+ * (src/agent/chat-route.ts chatRouteNow, as the companion: its key looked for where the REPL looks, from `cwd`); the words are
+ * the page's own, about what its Send does.
+ */
 export function pageRoute(env: Env, cwd: string): PageRoute {
-  const r = resolveChatRoute({ env });
+  const now = chatRouteNow({ env, cwd, surface: 'companion' });
+  const r = now.route;
+  const refusal = [...(now.state.refusal ?? [])];
   if (r.kind === 'local') {
     if ('error' in r.at) {
-      return { kind: 'none', ready: false, chat: 'local', label: 'chat: local · its Ollama address is not usable · Send is off',
+      return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · its Ollama address is not usable · Send is off',
         words: `Send is off: the setup chose the local model for chat, and its Ollama address (${r.host}) is not one Timmy uses: ${r.at.error}. In the REPL, /setup chat asks again. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
     }
-    if (!r.model) {
-      return { kind: 'none', ready: false, chat: 'local', label: 'chat: local · no model chosen · Send is off',
+    if (!r.model || !now.state.ready) {
+      return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · no model chosen · Send is off',
         words: `Send is off: the setup chose the local model for chat, and no model is chosen${r.note ? ` (${r.note})` : ''}. In the REPL, /model lists what ${atWords(r.at)} has and /setup chat keeps one. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
     }
     const where = r.cloud
@@ -90,11 +100,13 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
       words: `Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
     };
   }
-  const key = openRouterKey(env, cwd);
+  // the page's own request needs the key itself (where it was found is said, never the key); the one route found it where
+  // this does (src/utils/model-key.ts and openRouterKey look in the same places, in the same order)
+  const key = now.state.ready ? openRouterKey(env, cwd) : null;
   if (!key) {
     const chat = knownAnswers(readSetupState(env)).chat;
     const chose = chat === 'openrouter' ? 'the setup chose OpenRouter for chat' : 'the setup has not chosen a route for chat';
-    return { kind: 'none', ready: false, chat: chat === 'openrouter' ? 'openrouter' : null, label: 'no chat route here · Send is off',
+    return { kind: 'none', ready: false, chat: chat === 'openrouter' ? 'openrouter' : null, refusal, label: 'no chat route here · Send is off',
       words: `Send is off: ${chose}, and no OpenRouter key is set (not in this companion's environment or .env, a timmy-tui.config.json, the Timmy home's providers.json or the monitor's settings), so this page asks no model. \`timmy init\` keeps a key, or chooses the local model. ${CHAT_HAPPENS}` };
   }
   return {

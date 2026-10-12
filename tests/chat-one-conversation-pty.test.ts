@@ -8,9 +8,11 @@
 // this test's process has a recording fetch (FAKE network: anything else is refused before it leaves). The other surface's
 // running turn is a real hold taken by this live process (src/agent/chat-turn.ts takeTurnHold), as the Workbench takes one.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openChatSession } from '../src/agent/chat-session.js';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
@@ -21,6 +23,7 @@ import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
 
 const TSX = resolve('node_modules/.bin/tsx');
 const CLI = resolve('src/cli.ts');
+const PRELOAD = pathToFileURL(resolve('tests/fixtures/record-fetch-preload.mjs')).href;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const VARS = ['TIMMY_HOME', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'OLLAMA_HOST'] as const;
 const kept = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
@@ -50,7 +53,7 @@ function terminal(dir: string, env: NodeJS.ProcessEnv, label: string) {
 const said = (messages: Array<{ role: string; content: string }>) => messages.filter((m) => m.role !== 'system').map((m) => `${m.role}: ${m.content}`);
 
 describe('the REPL in the project\'s one conversation, in a terminal (R4 H113)', () => {
-  it('refused while another surface\'s turn holds the project; then it reads what the Workbench added, and says so', async () => {
+  it('both routes set up, the header names the local one; refused while another surface\'s turn holds the project; then it reads what the Workbench added, and says so; nothing goes to OpenRouter', async () => {
     const ollama: FakeOllama = await startFakeOllama({
       models: [{ name: 'qwen3:8b' }],
       chat: [
@@ -62,8 +65,15 @@ describe('the REPL in the project\'s one conversation, in a terminal (R4 H113)',
     cleanups.push(() => ollama.close());
     const dir = mkdtempSync(join(tmpdir(), 'chat-one-conv-pty-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    // the project's own store, pinned in its folder: the Workbench's seals (this process) land there, whatever is above it
+    mkdirSync(join(dir, '.timmy'), { recursive: true });
+    writeFileSync(join(dir, '.timmy', 'store-pin'), join(dir, '.timmy', 'receipts'));
     const env = { ...withoutRunner(process.env), HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night' };
     const init = await runAsync(TSX, [CLI, 'init', '--yes', '--operator', 'Sample', '--project', 'demo', '--ollama', ollama.url, '--chat', 'local', '--model', 'qwen3:8b'], { cwd: dir, env, timeout: 50_000 });
+    // R4 (H113, part 4): both routes set up: the local model chosen, and an OpenRouter key (FAKE, made now); the REPL's own
+    // fetch is recorded (FAKE network: anything but the FAKE Ollama is refused before it leaves)
+    const fetchLog = join(dir, 'repl-fetches.jsonl');
+    Object.assign(env, { OPENROUTER_API_KEY: `sk-or-FAKE-${randomBytes(8).toString('hex')}`, NODE_OPTIONS: `--import ${PRELOAD}`, TIMMY_TEST_FETCH_LOG: fetchLog, TIMMY_TEST_FETCH_ALLOW: new URL(ollama.url).port });
     expect(init.status, init.stderr).toBe(0);
     const t = terminal(dir, env, 'oneconv');
     cleanups.push(() => t.close());
@@ -101,6 +111,11 @@ describe('the REPL in the project\'s one conversation, in a terminal (R4 H113)',
     const sealed = readFileSync(join(dir, 'store', 'runs.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { kind?: string; subject?: string; hash?: string }).filter((r) => r.hash && r.kind === 'turn');
     expect(sealed.map((r) => r.subject)).toEqual(['repl · 0 steps', 'repl · 0 steps']);
     expect(net.requests.every((q) => new URL(q.url).port === new URL(ollama.url).port)).toBe(true);
+    // the strict free policy in the REPL itself: with the local model chosen, nothing went to OpenRouter though a key is set
+    const replFetches = readFileSync(fetchLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { url: string });
+    // (the REPL's own local checks, its canvas and receipt pages on 127.0.0.1, are not model requests)
+    expect(replFetches.filter((f) => new URL(f.url).pathname === '/api/chat').map((f) => new URL(f.url).port)).toEqual([new URL(ollama.url).port, new URL(ollama.url).port]);
+    expect(replFetches.filter((f) => new URL(f.url).hostname !== '127.0.0.1' || /openrouter/i.test(f.url))).toEqual([]);
     t.type('/exit');
     await t.waitFor(/EXIT1=0/);
   }, 180_000);

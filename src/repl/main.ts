@@ -9,12 +9,12 @@ import { emitKeypressEvents, type Key } from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
-import { fallbackRoute, localModelCommand, localRouteWords, prepareLocal, resolveChatRoute, sealedRoute, type ChatRoute } from '../agent/chat-route.js';
+import { chatRouteNow, fallbackRoute, localModelCommand, localRouteWords, prepareLocal, refusalSegments, resolveChatRoute, sealedRoute, type ChatRoute, type RouteNow } from '../agent/chat-route.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
 import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
-import { chatRoute, pendingQuestions, readSetupState, setupSummary, type Answers, type QuestionId } from '../setup/questions.js';
+import { pendingQuestions, readSetupState, setupSummary, type Answers, type QuestionId } from '../setup/questions.js';
 import { prettyPath, settingsFile } from '../setup/home.js';
 import { surfacesSegments } from '../setup/surfaces.js';
 import { terminalIO, wrap } from '../setup/terminal.js';
@@ -234,6 +234,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   // setup's chat answer is local, else OpenRouter. `sessionModel`: this REPL's /model on the local route.
   let sessionModel: string | null = null;
   const route = (): ChatRoute => resolveChatRoute({ env: process.env, session: sessionModel });
+  // R4 (H113): the one route of every surface (src/agent/chat-route.ts chatRouteNow), with this REPL's key and models
+  const routeNow = (): RouteNow => chatRouteNow({ env: process.env, session: sessionModel, key: Boolean(config.apiKey), openRouterModel: agent.openRouterModel(), surface: 'repl' });
   const startRoute = route();
   // C-14: in a terminal a missing key does not end the REPL: the first run opens with the setup check,
   // which says what is missing. A pipe or a script still gets the config error (exit 78).
@@ -516,16 +518,14 @@ export async function runRepl(argv: string[]): Promise<number> {
     // R4 (H103): no key matters only on the OpenRouter route (the local model needs none)
     setup, get noKey() { return !config.apiKey && route().kind !== 'local'; }, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
     // R4 (H98): the header names the chat route in effect, and the first screen says what the setup still asks. R4 (H103):
-    // the local route's own words ("chat: local <model> · Ollama")
-    chat: () => { const r = route(); return r.kind === 'local' ? localRouteWords(r) : chatRoute({ key: Boolean(config.apiKey), model: agent.openRouterModel() }); },
-    // R4 (H103): before each message, the route it goes by (the agent takes it up), or why it cannot go (nothing is sent)
+    // the local route's own words ("chat: local <model> · Ollama"). R4 (H113): from the one route every surface reads
+    chat: () => routeNow().state.words,
+    // R4 (H103): before each message, the route it goes by (the agent takes it up), or why it cannot go (nothing is sent).
+    // R4 (H113): the one route's refusal, in the REPL's words (its own /setup key, /setup chat and /model)
     prepareChat: () => {
-      const r = route();
-      if (r.kind !== 'local') { agent.useLocalChat(null); return null; }
-      const ready = prepareLocal(r, theme.glyphs);
-      if ('refusal' in ready) { agent.useLocalChat(null); return ready.refusal; }
-      agent.useLocalChat(ready.route);
-      return null;
+      const now = routeNow();
+      agent.useLocalChat(now.local ?? null);
+      return now.state.ready ? null : refusalSegments(now.state.refusal ?? [], theme.glyphs);
     },
     // R4 (H103): /model on the local route lists what Ollama has, and switches among it for this session
     // (on the OpenRouter route the agent leaves any local route a /setup has just ended, so the plain /model is OpenRouter's)
