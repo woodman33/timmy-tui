@@ -37,9 +37,8 @@ import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { blenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, readNativeResult, sha256File, type NativeJobSpec } from '../native/index.js';
 import { projectId, resolveInside } from '../project/index.js';
 import { DOCTRINE_15, FLOW_SCHEMA, flowFailed, flowMark, outcomeWhy, flowRecordPath, flowWorkDir, newFlowId, NO_CHANGE, noChangeWhy, writeProjectJson } from '../flows/iterate.js';
-import { nativeLastRun } from '../flows/iterate-native.js'; // R4 (H99)
 import {
-  BLEND_READBACK_MAX_OUTPUT, BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, BLEND_READBACK_TIMEOUT_MS, blenderIterateTask, changeText, compareBlendReadback,
+  BLEND_READBACK_MAX_OUTPUT, BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, BLEND_READBACK_TIMEOUT_MS, blenderIterateTask, blenderLastRun, changeText, compareBlendReadback,
   differencesText, DIMENSIONS_SCOPE, dimensionsSummary, dimensionsText, findBeforeRun, judgeScriptChanges, parseBlendReadback, parseSyntaxOutput, reportedByResult,
   SCRIPT_MAX_BYTES, scriptChange, SYNTAX_CHECK_CODE, SYNTAX_TIMEOUT_MS, syntaxText, unseenFolder, type BlendReadback, type BlendReadbackFailure, type BlendVerdict,
   type BlenderFlowRecord, type BlenderFlowStep, type DimensionsBefore, type SyntaxCheck,
@@ -325,7 +324,7 @@ export class BlenderFlows {
     if (seen !== now) return this.end(f, 'stopped', 'checks', `${rel} changed after the agent's run ended (sha256 ${short(now)} now; the agent left ${seen ? short(seen) : 'an unhashed file'}); Blender did not run`);
     // R4 (H99, r24): no change is its own outcome, with what a check of the last /blender run's recorded inputs found.
     if (judged.params === 'unchanged') {
-      const lb = nativeLastRun(f.root, { app: 'blender', appName: 'Blender', input: rel, again: `/blender ${rel}` });
+      const lb = blenderLastRun(f.root, rel); // R4 (H99, the review): a run given arguments of its own is another build
       f.record.last_build = { ...lb, words: this.d.scrub(lb.words, f.root) };
       return this.end(f, NO_CHANGE, 'checks', noChangeWhy('the agent changed nothing', f.record.last_build, kept));
     }
