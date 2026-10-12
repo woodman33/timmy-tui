@@ -26,7 +26,12 @@
  *   state, outcome               the step's state as Timmy read it (completed, failed, stopped, interrupted, running) and
  *                                the block's outcome: completed, failed, interrupted, unknown; R4 (H99) no change, when the
  *                                flows the block ran each made no change (no_change: those flows, the last build's state
- *                                and their words; such a receipt has no status, as an unknown one)
+ *                                and their words; such a receipt has no status, as an unknown one). R4 (H107; r25 D3): a
+ *                                block that made no change has state "no change" too (it kept upmd's "failed" before, which
+ *                                read as the block's own state): upmd's verdict is its own field, `upmd`
+ *   upmd                         R4 (H107): upmd's own verdict on the block, its end line as Timmy read it: { state:
+ *                                completed (exit 0) or failed (any other exit: upmd counts it as failed and stops its chain),
+ *                                exit_code }; null when upmd gave none (a block stopped, interrupted, or running at the end)
  *   interrupted_by, stop_words   what cut it, and the stop's own words when they are known
  *   exit_code                    upmd's word for it ("exited with code N"); null when not seen
  *   started_at, ended_at, ms     when Timmy saw its start and end (a run on a pty only: over a pipe upmd prints both when the
@@ -45,6 +50,7 @@ import path from 'node:path';
 import type { JobStep } from '../jobs/index.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import type { WorkflowBlock } from './upmd.js';
+import type { UpmdVerdict } from './run-verdict.js';
 
 /** The kind of a block's receipt on the runs chain. */
 export const BLOCK_RECEIPT_KIND = 'workflow-block';
@@ -89,6 +95,9 @@ export interface BlockFacts {
   doc_at_end: DocAtEnd;
   state: string;
   outcome: BlockOutcome;
+  /** R4 (H107; r25 D3): upmd's own verdict on the block, kept apart from Timmy's (`outcome`); null when upmd gave none.
+   *  Absent on receipts sealed before. */
+  upmd?: UpmdVerdict | null;
   interrupted_by?: BlockCut;
   stop_words?: string;
   exit_code: number | null;

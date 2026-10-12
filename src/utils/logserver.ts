@@ -702,7 +702,8 @@ function render() {
     if (e !== lastEpoch) { html += '<div class="epoch">EPOCH ' + e + '</div>'; lastEpoch = e; }
     html += '<div class="rc" id="rc-' + esc(r.id) + '"><div class="row1">'
       + '<span class="sub">' + esc(r.subject ?? r.kind) + '</span>'
-      + '<span class="st-' + esc(r.status ?? 'ok') + '">' + esc(r.status ?? 'ok') + '</span>'
+      // R4 (H107): a receipt with no status (a /run or block that made no change, an outcome not known) is not called ok
+      + '<span class="st-' + esc(r.status ?? 'none') + '">' + esc(r.status ?? 'no status') + '</span>'
       + '<span class="meta">' + esc(r.ts ?? '').slice(11, 19) + ' · ' + esc(r.kind) + (r.cost_measured === false ? ' · cost declared-unknown' : (r.cost_usd ? ' · $' + r.cost_usd : '')) + (r.tokens ? ' · ' + r.tokens + 'tok' : '') + '</span>'
       + '<button data-vf="' + attr(r.id) + '">verify</button><span class="vf" id="vf-' + attr(r.id) + '"></span></div>'
       + '<div><span class="hash">hash ' + esc(String(r.hash ?? '').slice(0, 20)) + '…</span> <span class="prev">prev ' + esc(String(r.prev_hash ?? '').slice(0, 20)) + '…</span></div>'

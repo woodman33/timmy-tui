@@ -15,6 +15,7 @@ import type { JobRecord, JobStep } from '../jobs/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { blockCount, blockCountLine } from '../workflows/block-count.js';
+import { noChangeOf, upmdCounted } from '../workflows/run-verdict.js';
 
 type Line = Segment[];
 
@@ -45,18 +46,15 @@ export interface EndLineContext {
   met?: boolean;
 }
 
-/** Why a /run made no change, in a few words: the last build's state first, then what its block did and what upmd did. */
+/** Why a /run made no change, in a few words: the last build's state first, then what its block did and what upmd did.
+ *  R4 (H107; r25 D3): by the one rule every view reads (src/workflows/run-verdict.ts noChangeOf), upmd's word in its words. */
 export function noChangeReason(job: JobRecord): string | undefined {
-  if (job.kind !== 'workflow') return undefined;
-  const still = job.steps.filter((s) => s.outcome === 'no change');
-  if (!still.length) return undefined;
-  const failed = job.steps.filter((s) => s.state === 'failed');
-  const stopped = job.state === 'failed' && failed.length > 0 && failed.every((s) => s.outcome === 'no change');
-  if (!stopped && job.state !== 'completed') return undefined;
-  const first = stopped ? failed[0] : still[0];
-  return stopped
-    ? `${lastBuildWords(first)}: stopped at ${first.name}, which made no change (upmd counted the block as failed: exit ${first.code ?? '?'})`
-    : `${lastBuildWords(first)}: ${still.map((s) => s.name).join(', ')} made no change${still.every((s) => s.current === true) ? ', so the blocks after it ran on that build' : ''}`;
+  const still = noChangeOf(job);
+  if (!still) return undefined;
+  const first = still.at;
+  return still.stopped
+    ? `${lastBuildWords(first)}: stopped at ${first.name}, which made no change (${upmdCounted(first.code)})`
+    : `${lastBuildWords(first)}: ${still.steps.map((s) => s.name).join(', ')} made no change${still.current ? ', so the blocks after it ran on that build' : ''}`;
 }
 
 /**
@@ -65,9 +63,10 @@ export function noChangeReason(job: JobRecord): string | undefined {
  */
 export function noChangeEndLine(job: JobRecord, c: EndLineContext): Line | undefined {
   const reason = noChangeReason(job);
-  if (!reason) return undefined;
-  const stopped = job.state === 'failed';
-  const first = (stopped ? job.steps.find((s) => s.state === 'failed') : job.steps.find((s) => s.outcome === 'no change'))!;
+  const still = noChangeOf(job);
+  if (!reason || !still) return undefined;
+  const stopped = still.stopped;
+  const first = still.at;
   const count = blockCount(job, { ...(c.order ? { order: c.order } : {}) });
   const details = [
     job.label, blockCountLine(count), c.seconds,

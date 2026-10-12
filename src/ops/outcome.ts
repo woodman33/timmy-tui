@@ -15,6 +15,7 @@ import { voxRecordPath } from '../vox/record.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { readNativeRecord } from '../native/index.js';
 import { unrealRunOutcome } from '../native/unreal-readback.js';
+import { noChangeOf, upmdCounted } from '../workflows/run-verdict.js';
 import type { OperationRun, RunOutcome } from './operations.js';
 
 const JOB_ID = /^j[0-9a-f]{6}$/;
@@ -97,21 +98,17 @@ export function voxOutcome(record: unknown): RunOutcome {
 export function jobOutcome(j: JobRecord | undefined): RunOutcome {
   if (!j) return { state: 'unknown', words: 'its job record is not in this Timmy\'s jobs folder' };
   if (j.stale) return { state: 'stopped', words: `${j.state}; its process is gone` };
-  const still = j.kind === 'workflow' ? j.steps.filter((s) => s.outcome === NO_CHANGE) : [];
-  if (still.length) {
-    const named = still.map((s) => s.name).join(', ');
-    const why = still[0].why ? `: ${still[0].why}` : '';
-    if (j.state === 'completed') {
-      const current = still.every((s) => s.current === true);
-      return { state: 'no change', words: `every block exited 0; ${named} made no change${why}`, current };
-    }
+  // R4 (H107; r25 D3): the one reading of a /run that made no change, every view's (src/workflows/run-verdict.ts)
+  const still = noChangeOf(j);
+  if (still) {
+    const named = still.steps.map((s) => s.name).join(', ');
+    const why = still.steps[0].why ? `: ${still.steps[0].why}` : '';
+    if (!still.stopped) return { state: 'no change', words: `every block exited 0; ${named} made no change${why}`, current: still.current };
+    // R4 (H99, the review): upmd's own word for the block is failed (its exit was not 0); Timmy's is no change. That nothing
+    // ran after it is said only as its record shows it (no block recorded after it).
     const failed = j.steps.filter((s) => s.state === 'failed');
-    if (j.state === 'failed' && failed.length && failed.every((s) => s.outcome === NO_CHANGE)) {
-      // R4 (H99, the review): upmd's own word for the block is failed (its exit was not 0); Timmy's is no change. That nothing
-      // ran after it is said only as its record shows it (no block recorded after it).
-      const last = j.steps.indexOf(failed[failed.length - 1]) === j.steps.length - 1;
-      return { state: 'no change', words: `stopped at ${named}, which made no change (upmd counted it as failed: exit ${failed[0].code ?? '?'}${last ? ', and its record shows no block run after it' : ''})${why}`, current: false };
-    }
+    const last = j.steps.indexOf(failed[failed.length - 1]) === j.steps.length - 1;
+    return { state: 'no change', words: `stopped at ${named}, which made no change (${upmdCounted(still.at.code)}${last ? ', and its record shows no block run after it' : ''})${why}`, current: false };
   }
   if (j.state === 'completed') return { state: 'succeeded', words: 'completed' };
   if (j.state === 'cancelled') return { state: 'stopped', words: 'stopped' };

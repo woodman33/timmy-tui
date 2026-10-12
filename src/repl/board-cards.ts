@@ -25,9 +25,9 @@ import path from 'node:path';
 import { listAgentRuns, taskWords, AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
 import { answerLines, hintWords, readMcpCalls, readRouteAnswer, serverSaid } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
-import { jobJudgement } from '../room/judge.js';
 import { lastBuildWords } from './end-lines.js';
 import { blockCount, blockCountLine } from '../workflows/block-count.js';
+import { noChangeOf, upmdCounted } from '../workflows/run-verdict.js'; // R4 (H107; r25 D3)
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
 import { checkCopyOf, deliverable, DOCTRINE_15, EXPORTS, failureFiles, isRecipeJobId, outcomeOf, outDir, PARAMETER_HELP, PARAMETER_NAMES, readCard, readRecipe, RECIPE_ID, type RecipeRead } from '../recipes/index.js';
@@ -420,14 +420,14 @@ export function jobResults(jobs: readonly JobRecord[], chain: readonly Receipt[]
     const met = rec?.prediction?.met;
     // R4 (H99, r24): a run that stopped at a block which made no change says so, as every view does (never "failed")
     // R4 (H99, the review; the lead's decision): and one that completed with such a block, never completed (✓)
-    const unchanged = j.kind === 'workflow' && jobJudgement(j).mark === 'unchanged';
-    const stop = unchanged ? j.steps.find((s) => s.state === 'failed' && s.outcome === 'no change') : undefined;
-    const still = stop ?? (unchanged ? j.steps.find((s) => s.outcome === 'no change') : undefined);
-    if (still) {
-      const named = j.steps.filter((s) => s.outcome === 'no change').map((s) => s.name).join(', ');
-      const reason = stop
-        ? `stopped at ${still.name}: it made no change and ${lastBuildWords(still)} (upmd counted the block as failed: exit ${still.code ?? '?'})`
-        : `${named} made no change and ${lastBuildWords(still)}; every block exited 0${j.steps.filter((s) => s.outcome === 'no change').every((s) => s.current === true) ? ', so the blocks after it ran on that build' : ''}`;
+    // R4 (H107; r25 D3): by the one rule every view reads (src/workflows/run-verdict.ts noChangeOf), upmd's word in its words
+    const nc = noChangeOf(j);
+    const still = nc?.at;
+    if (nc && still) {
+      const named = nc.steps.map((s) => s.name).join(', ');
+      const reason = nc.stopped
+        ? `stopped at ${still.name}: it made no change and ${lastBuildWords(still)} (${upmdCounted(still.code)})`
+        : `${named} made no change and ${lastBuildWords(still)}; every block exited 0${nc.current ? ', so the blocks after it ran on that build' : ''}`;
       return {
         kind: 'job', title: `${j.id} · ${scrub(j.label, j.root)}`, at: j.endedAt ?? j.startedAt,
         status: { word: 'no change', tone: 'neutral', detail: scrub(`${reason}${still.why ? `; ${still.why}` : ''}`, j.root) },

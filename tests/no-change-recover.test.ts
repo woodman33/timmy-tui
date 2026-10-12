@@ -95,7 +95,7 @@ describe.skipIf(!PYTHON3)('a /run whose block made no change, left by a REPL tha
     // recovery's own line for the run: no change, never ✖ or "now says failed" (R4 lead)
     expect(said).toMatch(new RegExp(`${ready.job}[^\\n]*`));
     expect(said).toContain('its job record now says no change');
-    expect(said).toContain('change made no change (upmd counted it as failed)');
+    expect(said).toContain('change made no change (upmd counted it as failed: exit 4)'); // R4 (H107): upmd's word with its exit, as every view says it
     expect(said).not.toMatch(/now says failed/);
     const job = new JobManager({ dir: jobsDir }).get(ready.job)!;
     // its record, as recovery wrote it: change made no change, noted on its step (its state and code stay as upmd gave them)
@@ -105,7 +105,8 @@ describe.skipIf(!PYTHON3)('a /run whose block made no change, left by a REPL tha
     expect(job.steps[0].why).toMatch(new RegExp(`^flow ${flow.id}: the agent changed nothing, so nothing was rebuilt`));
     // the block's receipt recovery sealed says the same
     const receipt = readChain('runs', s.root).find((r) => r.kind === 'workflow-block' && (r as { block?: { run?: string; name?: string } }).block?.run === ready.job) as { block: Record<string, unknown> } | undefined;
-    expect(receipt?.block).toMatchObject({ name: 'change', outcome: 'no change', state: 'failed', exit_code: 4, seen: 'wrapper', no_change: { flows: [flow.id], last_build: 'none', words: job.steps[0].why } });
+    // R4 (H107; r25 D3): the block's state is Timmy's word; upmd's verdict is its own field
+    expect(receipt?.block).toMatchObject({ name: 'change', outcome: 'no change', state: 'no change', upmd: { state: 'failed', exit_code: 4 }, exit_code: 4, seen: 'wrapper', no_change: { flows: [flow.id], last_build: 'none', words: job.steps[0].why } });
     // the run, as every view reads its record: no change (=), never failed (✖); upmd counted the block as failed
     expect(jobOutcome(job)).toMatchObject({ state: 'no change', current: false });
     expect(jobOutcome(job).words).toContain('upmd counted it as failed: exit 4');
@@ -120,7 +121,7 @@ describe.skipIf(!PYTHON3)('a /run whose block made no change, left by a REPL tha
     const at = html.indexOf(`<strong class="label">${ready.job} · `);
     expect(at, 'the run\'s result card').toBeGreaterThan(0);
     const result = html.slice(html.lastIndexOf('<article', at), html.indexOf('</article>', at));
-    expect(result).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change: it made no change and there is no build yet (upmd counted the block as failed: exit 4)');
+    expect(result).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change: it made no change and there is no build yet (upmd counted it as failed: exit 4)');
   }, 180_000);
 });
 

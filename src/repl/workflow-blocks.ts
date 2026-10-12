@@ -25,6 +25,7 @@ import {
 } from '../workflows/block-receipts.js';
 import { stepMs } from '../workflows/run-blocks.js';
 import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
+import { upmdBlockVerdict } from '../workflows/run-verdict.js'; // R4 (H107; r25 D3)
 import { runOf } from './board-workflows.js';
 
 /** R4 (H99): the note a no-change block's step gets: its words, and whether every flow it ran found the last build current. */
@@ -138,7 +139,8 @@ export class BlockSealer {
       run: job.id, doc: run.doc, name: s.name, index: s.index ?? block?.index ?? null,
       code_sha256: block ? codeSha256(block) : null, code_from: block ? CODE_FROM : CODE_UNKNOWN_MISSING,
       doc_sha256: run.docSha256 ?? null, doc_at_end: docAtEnd(run.root, run.doc, run.docSha256),
-      state: s.state, outcome,
+      // R4 (H107; r25 D3): a block that made no change reads "no change" here too; upmd's own verdict is its own field
+      state: outcome === 'no change' ? 'no change' : s.state, outcome, upmd: upmdBlockVerdict(s),
       ...(outcome === 'interrupted' ? { interrupted_by: o.cut ?? 'stop', ...(o.stop ? { stop_words: this.d.scrub(o.stop, run.root).slice(0, 200) } : {}) } : {}),
       exit_code: s.code ?? null,
       started_at: s.startedAt ?? null,
@@ -259,7 +261,7 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord, cut?: LeftCut)
       code_from: block ? CODE_FROM_RECOVERY : then.changed ? CODE_UNKNOWN_CHANGED : CODE_UNKNOWN_MISSING,
       doc_sha256: then.docSha256 ?? null,
       doc_at_end: then.doc && then.docSha256 ? docAtEnd(job.root, then.doc, then.docSha256) : 'unreadable',
-      state: s.state, outcome,
+      state: outcome === 'no change' ? 'no change' : s.state, outcome, upmd: upmdBlockVerdict(s), // R4 (H107)
       // R4 (H88): a run its own Timmy ended at once (a second Ctrl-C) was cut by that stop, in its words
       ...(outcome === 'interrupted' ? (cut ? { interrupted_by: cut.by, ...(cut.words ? { stop_words: d.scrub(cut.words).slice(0, 200) } : {}) } : { interrupted_by: 'repl ended' as const }) : {}),
       exit_code: s.code ?? null, started_at: s.startedAt ?? null, ended_at: s.endedAt ?? null, ms: stepMs(s) ?? null,

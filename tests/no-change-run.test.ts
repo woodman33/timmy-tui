@@ -94,7 +94,8 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     // its block receipt: outcome no change, no status, the flow and the last build's state
     const chain = readChain('runs', root);
     const r2 = blockReceipt(chain, second.job, 'change')!;
-    expect(r2.block).toMatchObject({ outcome: 'no change', state: 'completed', exit_code: 0, no_change: { flows: [flow2.id], last_build: 'current' } });
+    // R4 (H107; r25 D3): the block's state is Timmy's word; upmd's verdict (it exited 0) is its own field
+    expect(r2.block).toMatchObject({ outcome: 'no change', state: 'no change', upmd: { state: 'completed', exit_code: 0 }, exit_code: 0, no_change: { flows: [flow2.id], last_build: 'current' } });
     expect(r2.status).toBeUndefined();
     expect(r2.subject).toBe('workflow · block · WORKFLOW.md › result · change · no change');
     // the REPL's notices: the block, then the run, with the operation
@@ -154,7 +155,7 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     const said3 = notes.join('\n');
     // R4 (H99, the review): its operation first, then why (upmd counted the block as failed; Timmy's word is no change)
     const end3 = notes.find((n) => n.includes(`= ${third.job} no change`))!;
-    expect(end3).toMatch(new RegExp(`^ {2}= ${third.job} no change {2}operation ${third.op} · the last build is stale: stopped at change, which made no change \\(upmd counted the block as failed: exit 4\\) · WORKFLOW\\.md › result · 1 of 3 steps; change no change, exit 4; inspect, result not run · `));
+    expect(end3).toMatch(new RegExp(`^ {2}= ${third.job} no change {2}operation ${third.op} · the last build is stale: stopped at change, which made no change \\(upmd counted it as failed: exit 4\\) · WORKFLOW\\.md › result · 1 of 3 steps; change no change, exit 4; inspect, result not run · `));
     expect(end3).toMatch(/ · change: flow f[0-9a-f]{8}: .*is stale/);
     expect(end3.slice(0, 80)).toContain(`operation ${third.op}`);
     expect(end3.slice(0, 80)).toContain('the last build is stale');
@@ -183,14 +184,14 @@ describe('a satisfied request run again through /run and `timmy act` (FAKE upmd,
     // its result card counts its blocks as /jobs does and says no change, never failed (r24: "0 of 1 steps completed")
     const at3 = html.indexOf(`<strong class="label">${third.job} · `);
     const result3 = html.slice(html.lastIndexOf('<article', at3), html.indexOf('</article>', at3));
-    expect(result3).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change: it made no change and the last build is stale (upmd counted the block as failed: exit 4); flow f');
+    expect(result3).toContain('<div class="rstatus rstatus-neutral"><strong>no change</strong> stopped at change: it made no change and the last build is stale (upmd counted it as failed: exit 4); flow f');
     expect(result3).toContain('workflow · 1 of 3 steps; change no change, exit 4; inspect, result not run');
     const overview = text(await ws.overview('--all'));
     expect(overview).toContain('no change');
     expect(overview).not.toMatch(new RegExp(`${third.job}[^\\n]*failed`));
     // the block receipt of the stale case
     const r3 = blockReceipt(readChain('runs', root), third.job, 'change')!;
-    expect(r3.block).toMatchObject({ outcome: 'no change', state: 'failed', exit_code: 4, no_change: { last_build: 'stale' } });
+    expect(r3.block).toMatchObject({ outcome: 'no change', state: 'no change', upmd: { state: 'failed', exit_code: 4 }, exit_code: 4, no_change: { last_build: 'stale' } }); // R4 (H107)
     expect(r3.status).toBeUndefined();
   }, 300_000);
 });

@@ -26,6 +26,7 @@ import { readNativeRecord } from '../native/index.js';
 import { unrealRunOutcome } from '../native/unreal-readback.js';
 import type { Receipt } from '../utils/receipts.js';
 import { VOX_DIR } from '../vox/record.js';
+import { noChangeOf } from '../workflows/run-verdict.js';
 
 /** The kinds of job, as their judges tell them apart. */
 export type JobKind = 'workflow' | 'preview' | 'recipe' | 'task' | 'agent' | 'native' | 'readback' | 'vox' | 'look';
@@ -277,11 +278,9 @@ export function jobJudgement(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number
   if (!j.stale && LIVE.has(j.state)) return { kind, by: row.by, mark: j.state === 'ready' ? 'ok' : 'running', word: j.state };
   if (row.by === 'exit') {
     // R4 (H99, r24): a /run whose failed blocks each made no change (Timmy's block sealer noted it on their steps) stopped
-    // there with no change: never "failed"
-    const failed = kind === 'workflow' && j.state === 'failed' ? j.steps.filter((s) => s.state === 'failed') : [];
-    if (failed.length && failed.every((s) => s.outcome === 'no change')) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
-    // R4 (H99, the review; the lead's decision): one that completed with a block that made no change is no change, never ✓
-    if (kind === 'workflow' && j.state === 'completed' && j.steps.some((s) => s.outcome === 'no change')) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
+    // there with no change: never "failed"; R4 (H99, the review; the lead's decision): one that completed with a block that
+    // made no change is no change, never ✓. R4 (H107; r25 D3): read by the one rule every view reads (noChangeOf)
+    if (kind === 'workflow' && noChangeOf(j)) return { kind, by: 'exit', mark: 'unchanged', word: 'no change' };
     const mark: JobMark = j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'running';
     return { kind, by: 'exit', mark, word: j.state };
   }

@@ -269,7 +269,8 @@ export function overviewSection(o: Overview, k: Kit, base = '', opts: { canvasLi
   const map = `<figure class="ov-map"><figcaption><strong>${esc(MAP_LABEL)}</strong> ${esc(o.map.words)}</figcaption>${o.map.columns.length ? mapSvg(o) : `<p class="ov-unknown">${esc(o.map.words)}</p>`}</figure>`;
   const when = k.live ? 'read with this board\'s state (the line above says when)' : `as of ${stamp(o.as_of)}`;
   return {
-    toc: `<a href="#overview">Overview <b>${esc(waiting ? `${waiting} waiting on you` : 'nothing waits')}</b></a>`,
+    // R4 (H107; r25 D8): the contents name the section as its heading does (they said "Overview")
+    toc: `<a href="#overview">God's Eye View <b>${esc(waiting ? `${waiting} waiting on you` : 'nothing waits')}</b></a>`,
     html: [
       `<h2 id="overview">God's Eye View <span class="count">${esc(waiting ? `${waiting} waiting on you` : 'nothing waits on you')}</span></h2>`,
       '<section class="overview">',
