@@ -230,7 +230,7 @@ export function noteTurnKey(root: string, key: string, surface: ChatSurface, end
 
 /** What this module reads of an agent's kept conversation (src/agent/core.ts Agent keptConversation, useSessions). */
 interface KeepsConversation {
-  keptConversation?: () => Pick<ConversationManager, 'directory' | 'current' | 'listSessions' | 'load' | 'getHistory'>;
+  keptConversation?: () => Pick<ConversationManager, 'directory' | 'current' | 'chosen' | 'listSessions' | 'load' | 'getHistory'>;
   useSessions?: (dir: string) => { resumed: boolean; messages: number };
 }
 
@@ -249,8 +249,11 @@ const real = (p: string): string => { try { return fs.realpathSync(p); } catch {
 
 /**
  * Makes the agent's conversation the project's kept one, as it is on disk now: the newest conversation in `<root>/.sessions`
- * (another surface's turns included), or one this agent started and has not written yet (the REPL's /new), which is the
- * newest. An agent with no kept conversation (a test's FAKE) is left as it is.
+ * (another surface's turns included), or one a person started on this surface and it has not written yet (the REPL's /new),
+ * which is the newest. The conversation an agent started by itself when it opened (nothing was kept then) is not a choice:
+ * when another surface has written one since, that one is continued (R4 lead: the package rehearsal at 2ba6b73 opened the
+ * Workbench, then a REPL, chatted in the Workbench first, and the REPL's turn began a second conversation). An agent with no
+ * kept conversation (a test's FAKE) is left as it is.
  */
 export function continueConversation(agent: unknown, root: string): Continued {
   // R4 lead: through the agent's public accessor (src/agent/core.ts keptConversation), never its private fields
@@ -267,9 +270,9 @@ export function continueConversation(agent: unknown, root: string): Continued {
   const current = conv.current;
   let newest: string | null = null;
   try { newest = conv.listSessions()[0] ?? null; } catch { newest = null; }
-  // nothing kept on disk, or this agent's own new conversation (started, not written yet): it is the newest
+  // nothing kept on disk, or a new conversation a person started here (/new), not written yet: it is the newest
   if (!newest) return { session: current, messages: held, added: 0, moved: false };
-  if (current && current !== newest && current > newest && !fs.existsSync(path.join(dir, `${current}.jsonl`))) return { session: current, messages: held, added: 0, moved: false };
+  if (current && conv.chosen && current !== newest && current > newest && !fs.existsSync(path.join(dir, `${current}.jsonl`))) return { session: current, messages: held, added: 0, moved: false };
   try {
     const loaded = conv.load(newest).length;
     return { session: newest, messages: loaded, added: current === newest ? Math.max(0, loaded - held) : loaded, moved: false };

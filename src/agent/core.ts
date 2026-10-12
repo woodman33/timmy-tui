@@ -782,15 +782,16 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.conversation.clear();
   }
 
+  /** The REPL's /new: a new conversation a person chose (kept as the project's newest until written; see ConversationManager). */
   startSession(): string {
-    return this.conversation.startNew();
+    return this.conversation.startNew({ chosen: true });
   }
 
   /**
    * R4 lead: the conversation this agent keeps (its folder, the one it holds, the ones on disk, and loading one), for the
    * project's one conversation across surfaces (src/agent/chat-turn.ts continueConversation). Reading and loading only.
    */
-  keptConversation(): Pick<ConversationManager, 'directory' | 'current' | 'listSessions' | 'load' | 'getHistory'> {
+  keptConversation(): Pick<ConversationManager, 'directory' | 'current' | 'chosen' | 'listSessions' | 'load' | 'getHistory'> {
     return this.conversation;
   }
 

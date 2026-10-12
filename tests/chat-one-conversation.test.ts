@@ -8,6 +8,9 @@
 // - A message with a key (the companion's page sends one) is sent once: sent again (a reconnect), from this process or
 //   another, it is refused naming its receipt, and nothing more is sent.
 // - The REPL's /new is kept: a conversation this surface started and has not written yet is the newest.
+// - R4 lead (the package rehearsal at 2ba6b73): two surfaces opened before the project has a conversation, the one opened
+//   first chatting first: the other's turn continues that conversation, never a second one (a conversation an agent started
+//   by itself when it opened is not a /new).
 //
 // Real pieces: the agent (src/agent/core.ts), the turn (src/repl/turn.ts), the conversation files, the hold files and their
 // process proof (ps), signed receipt chains, and the other surface as a real child process (tests/fixtures/chat-surface-
@@ -87,6 +90,17 @@ async function replTurn(agent: Agent, text: string) {
   let continued: Continued | null = null;
   const r = await projectTurn({
     agent, project: { name: 'demo', root: project }, surface: 'repl', text, sink: { handle: () => undefined, endTurn: () => undefined },
+    seal: (f) => sealTurn({ ...f, model: 'qwen3:8b', project: 'demo', projectId: projectId(project) }, projectStore(project)),
+    onContinue: (c) => { continued = c; },
+  });
+  return { r, continued: continued as Continued | null };
+}
+
+/** One turn of the project on a surface, through another agent of this process (opened as that surface opens it). */
+async function turnOn(agent: Agent, surface: 'repl' | 'workbench', text: string) {
+  let continued: Continued | null = null;
+  const r = await projectTurn({
+    agent, project: { name: 'demo', root: project }, surface, text, sink: { handle: () => undefined, endTurn: () => undefined },
     seal: (f) => sealTurn({ ...f, model: 'qwen3:8b', project: 'demo', projectId: projectId(project) }, projectStore(project)),
     onContinue: (c) => { continued = c; },
   });
@@ -203,6 +217,28 @@ describe('one conversation per project, across surfaces and processes (R4 H113, 
     expect(await elsewhere.result()).toMatchObject({ status: 'refused', sent: false, lines: [expect.stringContaining(`(receipt ${first.receipt!.slice(7, 15)})`), 'Nothing was sent to any model.'] });
     expect(ollama!.chats()).toHaveLength(1);
     expect(receipts()).toEqual([{ kind: 'chat', subject: 'chat.turn · companion · 0 steps · qwen3:8b' }]);
+  }, 90_000);
+
+  it('two surfaces opened before the project has a conversation: the one opened first chats first, and the other\'s turn continues that conversation, never a second one', async () => {
+    await local([answer('One.'), answer('Two.'), answer('Three.')]);
+    // both open with nothing kept: each agent starts a conversation by itself (the later one's is newer, and not written)
+    const workbench = replAgent();
+    await sleep(5);
+    const repl = replAgent();
+    expect((await turnOn(workbench, 'workbench', 'first')).r.status).toBe('ok');
+    const second = await turnOn(repl, 'repl', 'second');
+    expect(second.r.status).toBe('ok');
+    // the REPL's turn read the Workbench's: its message and its answer, said as added by another surface
+    expect(second.continued).toMatchObject({ added: 2, messages: 2, moved: false });
+    const third = await turnOn(workbench, 'workbench', 'third');
+    expect(third.continued).toMatchObject({ added: 2, messages: 4, moved: false });
+    const asked = ollama!.chats().map((c) => said(c.messages));
+    expect(asked).toEqual([
+      ['user: first'],
+      ['user: first', 'assistant: One.', 'user: second'],
+      ['user: first', 'assistant: One.', 'user: second', 'assistant: Two.', 'user: third'],
+    ]);
+    expect(conversationFiles()).toHaveLength(1);
   }, 90_000);
 
   it('the REPL\'s /new is kept: the conversation it started and has not written yet is the newest, and the next turn continues it', async () => {

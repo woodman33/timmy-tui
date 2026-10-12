@@ -6,6 +6,7 @@ export class ConversationManager {
   private dir: string;
   private currentSession: string | null = null;
   private messages: Message[] = [];
+  private chosenNew = false;
 
   /**
    * The folder is fixed when the conversation is made (an absolute path), so a later change of working
@@ -27,10 +28,20 @@ export class ConversationManager {
     return this.currentSession;
   }
 
-  startNew(): string {
+  /**
+   * R4 lead (the package rehearsal at 2ba6b73): the conversation this manager holds was started by a person (the REPL's /new),
+   * not by the agent itself when it opened with nothing kept yet. Only a chosen one, not written yet, is kept as the project's
+   * newest (src/agent/chat-turn.ts continueConversation); one an agent started by itself gives way to the project's kept one.
+   */
+  get chosen(): boolean {
+    return this.chosenNew;
+  }
+
+  startNew(o: { chosen?: boolean } = {}): string {
     const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentSession = id;
     this.messages = [];
+    this.chosenNew = o.chosen === true;
     return id;
   }
 
@@ -42,6 +53,7 @@ export class ConversationManager {
     const content = readFileSync(path, 'utf-8');
     this.messages = content.split('\n').filter(Boolean).map(line => JSON.parse(line));
     this.currentSession = id;
+    this.chosenNew = false;
     return this.messages;
   }
 
@@ -67,6 +79,7 @@ export class ConversationManager {
   clear(): void {
     this.messages = [];
     this.currentSession = null;
+    this.chosenNew = false;
   }
 
   listSessions(): string[] {
