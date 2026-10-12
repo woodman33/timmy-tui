@@ -202,7 +202,8 @@ const short = (text, max = 90) => { const chars = Array.from(String(text)); retu
  * (read the drawn cards' detail too), onAnswer(now) (every reading), fast() (read again in 1.5 s, not 5 s), drawable(kind)
  * and placeCard(id, now) (Place card). R4 (H81): read() (the reading to use instead of this panel's own: the drawn cards'
  * reader, which reads the detail only with this page's session). R4 (H100): placeOperation(opId, now) (Place this operation).
- * R4 (H109): read(pinned) reads the project a board is pinned to (its id) when given one.
+ * R4 (H109): read(pinned) reads the project a board is pinned to (its id) when given one; runDetail(opId, projectId), optional,
+ * shows an operation's run detail in the side panel (an operation's group offers Run detail).
  */
 export function createProjectPanel(deps) {
   const root = document.getElementById('project');
@@ -393,6 +394,12 @@ export function createProjectPanel(deps) {
         placeOperation(op.id).then((r) => say(r.words, false, offer(r)), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
       });
       acts.append(put);
+    }
+    // R4 (H109): its run detail (made by Timmy), in the side panel; of the project this board reads (pinned, or the one shown)
+    if (deps.runDetail && OPERATION_ID.test(String(op.id))) {
+      const rd = el('button', 'Run detail', { type: 'button', className: 'pop-rd', title: `Shows the run detail of operation ${op.id} in this panel: its verdict, stage, exits, freshness, acceptance, files, receipts and cost, each with the record it came from` });
+      rd.addEventListener('click', () => { void deps.runDetail(String(op.id), api && api.project ? api.project.id : null); });
+      acts.append(rd);
     }
     acts.append(el('span', `${cards.length} ${cards.length === 1 ? 'card' : 'cards'}, in the order they ran`, { className: 'pop-count' }));
     section.append(acts, Object.assign(el('ol'), { className: 'plist' }));

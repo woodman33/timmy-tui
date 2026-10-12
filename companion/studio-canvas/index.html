@@ -107,6 +107,27 @@
   #side button.pcard-cmd code { font: inherit; }
   #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  /* R4 (H109): an operation's run detail (src/run-detail.js), at the top of the scrolling region: each field, under it the
+     record it came from. Timmy's verdict, the workflow stage, each exit, the freshness and a person's acceptance are rows of
+     their own, never merged; green only for the commands to type. */
+  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #6b6b6b); border-left: 3px solid var(--timmy-accent, #28fe14); border-radius: 4px; background: var(--timmy-raised, #1c1c1c); overflow-wrap: anywhere; }
+  #run-detail[hidden] { display: none; }
+  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #6b6b6b); }
+  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #run-detail .rd-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  #run-detail h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
+  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl { margin: 0; display: grid; gap: 1px; }
+  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl dd { margin: 0 0 4px 8px; }
+  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-cmd { font: inherit; color: var(--timmy-accent, #28fe14); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-said { color: var(--timmy-text, #e8e6e1); }
+  #run-detail .rd-refused { color: var(--timmy-attention, #e5b550); }
+  /* R4 (H109): Run detail beside a drawn card's Details: like Details, it shows and changes nothing (in the side panel) */
+  .tc-foot-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .tc-rd { font: inherit; padding: 0; border: 0; background: none; color: var(--timmy-link); text-decoration: underline; cursor: pointer; }
   /* R4 (H75): whether this page's drawn cards can act (it was opened by Timmy's /canvas open), and Place card. */
   #project-acts { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   #project-acts[data-kind="ok"] { color: var(--timmy-text); }
@@ -183,6 +204,11 @@
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
     <div id="side-scroll">
+      <section id="run-detail" hidden aria-labelledby="run-detail-title">
+        <div class="rd-head"><h2 id="run-detail-title">Run detail</h2><button id="run-detail-again" type="button" title="Reads this run detail from Timmy's records again">Read again</button><button id="run-detail-close" type="button" title="Closes this run detail">Close</button></div>
+        <p id="run-detail-read" class="rd-note"></p>
+        <div id="run-detail-body"></div>
+      </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>

@@ -33,7 +33,11 @@
  *   GET /api/project/active                 nothing more: whether a project is named and a page    the project's name is its content
  *                                           open; its name and id with the token or a session
  *   GET /api/project (?detail=1)            the token or a session                                 the project's cards, and their detail
+ *     R4 (H109) &project=<id>               the token, or a session that reaches that project      a board pinned to a project not shown
+ *                                           (given for it, or followed to it: card-relay.ts)        reads it (read only)
  *   GET /api/project/image                  the token or a session                                 a highlight image of the project
+ *   GET /api/project/run-detail?op=<id>     as GET /api/project (with &project= likewise)          R4 (H109): an operation's run detail
+ *                                                                                                  (src/studio/run-detail-route.ts)
  *   POST /api/project/grant                 the token; no Origin; a project named                  a one-time grant for the page /canvas open opens
  *   POST /api/project/session               this page (Host and Origin exactly this server's);     the page's session (card-relay.ts)
  *                                           a grant, once
@@ -73,6 +77,8 @@ import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOB
 import { isLocalRequest as isLocal } from '../utils/local-request.js';
 // R4 (H109): the canvas follows the active project of its Timmy home (state/active-project.json)
 import { ActiveFollower, activeProjectFile } from './active-follow.js';
+// R4 (H109): an operation's run detail (src/contracts/run-detail.ts), drawn in the canvas page's side panel
+import { mountRunDetailRoute, type RunDetailProducer } from './run-detail-route.js';
 import { timmyHome } from '../setup/home.js';
 import { receiptsDir } from '../utils/receipts.js';
 
@@ -105,6 +111,11 @@ export interface StudioOptions {
   followActive?: boolean;
   followEveryMs?: number;
   followGraceMs?: number;
+  /**
+   * R4 (H109): what makes an operation's run detail (src/contracts/run-detail.ts); absent: src/ops/run-detail.ts's runDetail when
+   * it is in this revision (src/studio/run-detail-route.ts), else the route says it is not built yet. Tests give a FIXTURE.
+   */
+  runDetail?: RunDetailProducer;
 }
 
 /** R4 (H55): the server, with the token its REPL names the active project with. */
@@ -325,6 +336,8 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     ...(follower ? { active: () => follower.active() } : {}),
   });
   mountCardRoutes(app, { link, relay, port: cardWiring.port });
+  // R4 (H109): an operation's run detail, for the canvas page's side panel (the same credentials as the project's cards)
+  mountRunDetailRoute(app, { link, relay, ...(options.runDetail ? { producer: options.runDetail } : {}) });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
   // Checked on every request, so building while Timmy runs needs only a reload.

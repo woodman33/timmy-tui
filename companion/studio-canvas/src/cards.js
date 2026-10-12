@@ -344,7 +344,8 @@ function clock(iso) {
  * The three shape utils and the runtime that feeds and acts for them. `deps`: React, BaseBoxShapeUtil, HTMLContainer, T,
  * atom, useValue, resizeBox (from tldraw); createShapeId; editor() (the live editor); place(editor, size) → where a new card goes;
  * reveal(editor, ids); grant (the one-time code this page was opened with, or null). R4 (H109): say(text) writes the panel's
- * band (what Timmy did on its own, such as the arrows it removed with a deleted card).
+ * band (what Timmy did on its own, such as the arrows it removed with a deleted card); runDetail(op, projectId), optional, shows
+ * an operation's run detail in the side panel (a card's Run detail).
  */
 export function createCards(deps) {
   const { React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox } = deps;
@@ -510,6 +511,20 @@ export function createCards(deps) {
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
   }
   const forget = (url) => { if (url && SAFE.revokeURL) { try { SAFE.apply(SAFE.revokeURL, SAFE.URL, [url]); } catch { /* gone */ } } };
+  /**
+   * R4 (H109): operation `op`'s run detail (src/contracts/run-detail.ts), made by Timmy (never on this page) and read with this
+   * page's session: GET /api/project/run-detail, of project `projectId` when given (a card's own project). { status, ok, body }.
+   * A refusal for the card's own project when it is not the one shown (`other`) never pauses the session; one that ended lets it go.
+   */
+  async function runDetail(op, projectId = null) {
+    if (!OPERATION_ID.test(String(op))) return { status: 400, ok: false, body: { ok: false, error: 'That is not an operation\'s id (o and 8 hex digits).' } };
+    if (!token) return { status: 401, ok: false, body: { ok: false, error: session.get().words } };
+    const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    const r = await request(`/api/project/run-detail?op=${op}${of}`, 'GET', token);
+    const said = r.body || {};
+    if (r.status === 401 && (said.other !== true || said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) noted(r, 'Timmy did not let this page read the run detail.');
+    return r;
+  }
   /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
   function bridgeSocket(url) {
     if (!token || !SAFE.WebSocket) return null;
@@ -810,6 +825,18 @@ export function createCards(deps) {
     return h('p', { className: 'tc-op tc-op-none' }, operationLine(null, op.from));
   }
 
+  /**
+   * R4 (H109): Run detail, beside Details, on a card that names its operation: that operation's run detail (made by Timmy, of the
+   * card's own project) in the side panel. Null when the card names none, or this page cannot show one.
+   */
+  function runDetailButton(op, projectId) {
+    if (!op || typeof op !== 'object' || typeof op.id !== 'string' || !OPERATION_ID.test(op.id) || !deps.runDetail) return null;
+    return h('button', {
+      type: 'button', className: 'tc-rd', onPointerDown: handled, onClick: () => deps.runDetail(op.id, projectId || null),
+      title: `Shows the run detail of operation ${op.id} in Timmy's side panel: its verdict, stage, exits, freshness, acceptance, files, receipts and cost, each with the record it came from`,
+    }, 'Run detail');
+  }
+
   /** R4 (H100): the card's operation in Details: where it was read (or why none), its request and state as its record says, and /op. */
   function opRows(op) {
     if (!op || typeof op !== 'object') return null;
@@ -860,7 +887,10 @@ export function createCards(deps) {
         busy ? h('p', { className: 'tc-answer', role: 'status' }, 'Sent to Timmy; waiting for its answer…') : null,
         said ? h('pre', { className: `tc-answer${said.ok ? '' : ' tc-bad'}`, role: 'status' }, shown) : null,
         h('div', { className: 'tc-foot' },
-          h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
+          // R4 (H109): Details, and Run detail (the operation's run detail in the side panel) beside it
+          h('span', { className: 'tc-foot-acts' },
+            h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
+            mode.withheld ? null : runDetailButton(op, p.projectId)),
           span('tc-read', mode.withheld ? 'its detail withheld here' : follows ? `read from Timmy's records at ${clock(readAt)}` : p.readAt ? `as last read at ${clock(p.readAt)}` : 'never read', { title: follows ? readAt : p.readAt })),
         p.open ? h('div', { className: 'tc-details' }, ...React.Children.toArray([mode.withheld ? null : opRows(op), ...[details].flat()]), said && lines.length > 8 ? h('pre', { className: 'tc-answer' }, said.text) : null) : null));
   }
@@ -1110,6 +1140,8 @@ export function createCards(deps) {
     attach,
     // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
     read,
+    // R4 (H109): an operation's run detail, made by Timmy, read with this page's session (the side panel's Run detail)
+    runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
     setPoll: (f) => { poll = f; },
