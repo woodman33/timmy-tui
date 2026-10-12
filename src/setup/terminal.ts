@@ -1,6 +1,6 @@
 /**
  * The guided setup in a terminal (round R4, H98): `timmy init`, `timmy watch` on a home that is not set up, and the REPL's
- * /setup (which runs `timmy init` in its own terminal) all ask through this one function, in the words of ./questions.ts.
+ * /setup (in the REPL's own terminal, between two prompts) all ask through this one function, in the words of ./questions.ts.
  * It asks only the questions that have no answer yet, shows each preselected answer in [brackets] (Enter takes it), hides
  * a key as it is typed, and writes nothing itself: it returns the answers, and the caller writes them only after the
  * person said yes. Ctrl+C or the end of input stops it, with nothing written. Lines stay within 60 columns (C-14).

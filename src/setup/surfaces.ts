@@ -9,6 +9,7 @@
  * grant only the REPL's own `/canvas open` mints (src/repl/canvas-project.ts), which the board cannot give.
  */
 import type { Kit } from '../repl/board-kit.js';
+import type { Segment } from '../term/theme.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 
 /** The one line (the brief's words). */
@@ -25,6 +26,12 @@ export function surfacesLines(width: number, indent = ''): string[] {
   }
   if (line) out.push(indent + line);
   return out;
+}
+
+/** The same lines for the REPL: each command (/studio, /room, /overview, /board live) strong, the words around it secondary. */
+export function surfacesSegments(width: number, indent = ''): Segment[][] {
+  return surfacesLines(width, indent).map((line) => line.split(/(\/[a-z]+(?: live)?)/).filter(Boolean)
+    .map((text): Segment => ({ text, role: text.startsWith('/') ? 'strong' : 'secondary' })));
 }
 
 /** Why the board's Studio link is a command to copy (one short line on the board). */

@@ -83,9 +83,13 @@ describe('timmy repl', () => {
   // C-14, and the 20:14 order: a first run in a terminal, with no model key and no receipts yet. The
   // REPL opens anyway (only a pipe still exits 78), its prompt empty and a line saying to type /setup;
   // /setup runs the check and seals the first receipt, verified. A message without a key gets the cause
-  // and the fix, and the REPL stays.
+  // and the fix, and the REPL stays. R4 (H98): on a home timmy init has set up (the guided setup's
+  // preselected answers: the local model, so no key); a home without setup gets the guided setup itself
+  // from /setup (tests/repl-setup-pty.test.ts).
   it('a first run opens with an empty prompt and says to type /setup, which seals the first receipt', async () => {
     const { dir, env } = sandbox();
+    const init = await runAsync(TSX, [CLI, 'init', '--yes'], { cwd: dir, env, timeout: CLI_MS });
+    expect(init.status, init.stderr).toBe(0);
     const tenv = { ...env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'first', ...args], { env: tenv, encoding: 'utf8', timeout: TMUX_MS });
     try {
@@ -100,7 +104,7 @@ describe('timmy repl', () => {
       await waitFor(/Enter to send/);
       expect(screen()).not.toContain('Tab completes');
       tmux('send-keys', '-t', 't', '-l', '/setup');
-      await waitFor(/\/setup\s+Check what Timmy needs, and seal it/);
+      await waitFor(/\/setup\s+Guided setup, as timmy init; then the check/);
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
@@ -108,7 +112,7 @@ describe('timmy repl', () => {
       expect(shown).toContain('setup check sealed and verified');
       // runs.jsonl also carries the bus's events; receipts are the lines with a prev_hash.
       const chain = readFileSync(`${dir}/store/runs.jsonl`, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string');
-      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['identity', 'model key']]]);
+      expect(chain.map((r) => [r.kind, r.discrepancies])).toEqual([['check', ['model key']]]);
       tmux('send-keys', '-t', 't', '-l', 'hello');
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/no model key, so Timmy cannot answer/);

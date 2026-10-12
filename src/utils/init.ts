@@ -240,11 +240,11 @@ function writesFor(state: SetupState, repoRoot: string): string[] {
 }
 
 /**
- * R4 (H98): the guided setup in this terminal, as `timmy init` and `timmy watch` run it: asks what has no answer (flags
- * answer too), writes after a yes, prints one line of what the setup chose. 0 set up (or nothing to ask), 1 declined,
- * 130 stopped (Ctrl+C), 2 a refused flag.
+ * R4 (H98): the guided setup in this terminal, as `timmy init`, `timmy watch` and the REPL's /setup run it: asks what has no
+ * answer (flags answer too), writes after a yes, prints one line of what the setup chose, then `next` (where to go from
+ * here; the REPL prints its own). 0 set up (or nothing to ask), 1 declined, 130 stopped (Ctrl+C), 2 a refused flag.
  */
-export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string } = {}): Promise<number> {
+export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string; next?: readonly string[] } = {}): Promise<number> {
   const repoRoot = workspaceRoot();
   const state = readSetupState(process.env, repoRoot);
   if (state.identity.exists && given.identity !== undefined) { io.log(`  ${IDENTITY_KEPT}`); return 2; }
@@ -258,7 +258,7 @@ export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO =
   }
   const asked = await askSetup({ state, given, io, title: o.title ?? (state.identity.exists ? 'TIMMY · guided setup' : 'TIMMY · first run — guided setup'), writes: writesFor(state, repoRoot) });
   if ('stopped' in asked) return asked.stopped === 'interrupted' ? 130 : 1;
-  return applyAndReport(asked.answers, { by, repoRoot, state }, io, o.json === true);
+  return applyAndReport(asked.answers, { by, repoRoot, state }, io, o.json === true, o.next);
 }
 
 /**
@@ -283,27 +283,32 @@ export async function setupBeforeMonitor(args: readonly string[], o: { env?: Nod
 }
 
 /** Writes and reports; a refusal (an unreadable seed, a seed that is not one) in words, exit 1. */
-function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean): number {
+function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean, next?: readonly string[]): number {
   let r: InitResult;
   try { r = applySetup(answers, w); } catch (e) {
     io.log(`  ${e instanceof Error ? e.message : String(e)}`);
     return 1;
   }
-  return report(r, io, json);
+  return report(r, io, json, next);
 }
 
-/** What was written, and the one line of what the setup chose. */
-function report(r: InitResult, io: Pick<SetupIO, 'log'>, json: boolean): number {
+/** After the setup in a terminal: where to go next (the REPL's /setup says its own). */
+const NEXT = [
+  '\n  Next: `timmy doctor`, then `timmy` to open the REPL.',
+  '  In the REPL: Studio /studio · Control Room /room ·',
+  '  God\'s Eye View /overview · all three in your browser:',
+  '  /board live. The monitor: timmy watch.\n',
+];
+
+/** What was written, and the one line of what the setup chose; then `next` (where to go from here). */
+function report(r: InitResult, io: Pick<SetupIO, 'log'>, json: boolean, next: readonly string[] = NEXT): number {
   if (json) { io.log(JSON.stringify(r)); return 0; }
   const after = readSetupState();
   io.log('');
   for (const l of wrap(`✓ Set up: ${setupSummary(after)}.`)) io.log(l);
   io.log(`    identity ${r.operator_id} (${r.identity_source})`);
   for (const w of r.written) io.log(`    wrote ${relPretty(w)}`);
-  io.log('\n  Next: `timmy doctor`, then `timmy` to open the REPL.');
-  io.log('  In the REPL: Studio /studio · Control Room /room ·');
-  io.log('  God\'s Eye View /overview · all three in your browser:');
-  io.log('  /board live. The monitor: timmy watch.\n');
+  for (const l of next) io.log(l);
   return 0;
 }
 
