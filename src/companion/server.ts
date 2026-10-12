@@ -48,6 +48,9 @@
  * it: this monitor's own (`sync`, `agent:delta`, from src/tui/hooks/useCompanionSync.ts) with its words, and each REPL turn
  * as the bus carries it (`receipt.sealed` of kind `turn`: its receipt and step count only; the REPL seals a turn's prompt
  * and answer as hashes, so its words are never on the bus). The welcome says when this companion started (`since`).
+ * R4 (H113): every surface's turn of the project, not the REPL's alone: the terminal Workbench's, a monitor's and a companion
+ * page's turns are the one turn implementation too, sealed into the project (kind `chat`, their subject naming the surface:
+ * src/repl/seal.ts), and the page labels each with its surface, its receipt and its steps.
  *
  * R4 (H104, second part; the operator's direction of 2026-10-11: one project, three connected workspaces):
  *  - the PROJECT: each page shows one (the welcome and `project` messages: its name, its folder from ~, following, pinned or

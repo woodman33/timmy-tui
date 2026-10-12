@@ -181,9 +181,23 @@ try {
 //    only, so their words are never on the bus: the row names the receipt and says the words are in the REPL.
 // Only this session's: the bus's live events (appended after this companion started) and, of the tail it sends on
 // connecting (six hours), what was sealed at or after the start its welcome gives (`since`).
+// R4 (H113): every surface's turns of the project, not the REPL's alone: the Workbench's, a monitor's and a companion page's
+// too (each sealed by the REPL's own seal into the project, its surface named), each labelled with its surface, its receipt
+// and its steps, once (by its receipt's hash), in time order with this monitor's chat.
 let mirrorSince = null;
-const mirrorTurns = new Map(); // this session's REPL turns, by their receipt's hash
+const mirrorTurns = new Map(); // this session's turns of every surface, by their receipt's hash
 const REPL_TURN = /^repl · (cancelled · )?(\d+) steps?$/; // src/repl/seal.ts: the subject of a turn's receipt
+// R4 (H113): one conversation per project. Every surface's turn is the one turn implementation, sealed by src/repl/seal.ts:
+// the REPL's as kind `turn` ("repl · 2 steps"), the other surfaces' as kind `chat`, naming the surface, how it ended when it
+// was not answered, its steps and the model: "chat.turn · workbench · 2 steps · qwen3:8b". A chat receipt in no such words
+// (an older monitor's, the commander's) is not a turn row: its words came with this monitor's sync, if at all.
+const SURFACE_TURN = /^chat\.turn · (monitor|workbench|companion) · (?:(cancelled|failed) · )?(\d+) steps? · /;
+// how each surface is named in the mirror (its label, and where its words are: never on the bus)
+const SURFACES = {
+  monitor: { icon: '◉', name: 'Monitor', where: 'the monitor (<span class="mirror-code">timmy watch</span>)', words: 'Its words are in the monitor\'s chat (this page shows a monitor\'s words above only when that monitor serves it)' },
+  workbench: { icon: '▣', name: 'Workbench', where: 'the Workbench (<span class="mirror-code">timmy workbench</span>)', words: 'Its words are in the Workbench\'s Chat' },
+  companion: { icon: '◇', name: 'Companion', where: 'a companion page', words: 'Its words are on the companion page that sent it' },
+};
 
 // R4 (H104, second part): the project this page shows, as the companion says it (its welcome, then a `project` message when
 // it changes: its id, name, folder from ~, and following, pinned or fixed). The REPL turns shown are that project's (the
@@ -217,11 +231,15 @@ function helloMessage() {
   return pin ? { type: 'hello', pin } : { type: 'hello' };
 }
 
-/** A REPL turn from a bus event, or null: a sealed turn receipt of the runs chain, this session's. */
+/**
+ * A turn of any surface from a bus event, or null: a sealed turn receipt of the runs chain, this session's. The REPL's (kind
+ * turn) by its subject when it can be read, else as a turn that ended; another surface's (kind chat) only in the words
+ * src/repl/seal.ts gives it (R4 H113).
+ */
 function replTurnOf(event, live) {
   if (!event || event.kind !== 'receipt.sealed' || !event.payload || typeof event.payload !== 'object') return null;
   const p = event.payload;
-  if (p.kind !== 'turn' || p.stream !== 'runs') return null;
+  if ((p.kind !== 'turn' && p.kind !== 'chat') || p.stream !== 'runs') return null;
   const hash = String(p.hash || '');
   if (!/^sha256_[0-9a-f]{64}$/.test(hash)) return null;
   const at = Date.parse(event.ts);
@@ -230,11 +248,16 @@ function replTurnOf(event, live) {
     const since = Date.parse(mirrorSince);
     if (!Number.isFinite(since) || at < since) return null;
   }
+  if (p.kind === 'chat') {
+    const s = SURFACE_TURN.exec(String(p.subject || ''));
+    if (!s) return null;
+    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]) };
+  }
   const m = REPL_TURN.exec(String(p.subject || ''));
-  return { hash, at, receipt: hash.slice(7, 15), cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null };
+  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null };
 }
 
-/** Takes the REPL turns among bus events; true when one is new. */
+/** Takes the turns among bus events (every surface's); true when one is new. */
 function takeReplTurns(events, live) {
   let added = false;
   for (const e of events) {
@@ -249,7 +272,27 @@ function mirrorHasSession() {
   return mirrorTurns.size > 0 || (!mirrorRestored && activeChatHistory.length > 0);
 }
 
+/**
+ * R4 (H113): another surface's turn (the monitor's, the Workbench's, a companion page's), as the bus carries it: which surface,
+ * how it ended, its steps and its receipt; never its words (sealed as hashes only).
+ */
+function surfaceTurnHtml(turn) {
+  const s = SURFACES[turn.surface];
+  const time = new Date(turn.at).toLocaleTimeString();
+  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  return `
+      <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}">
+        <div class="log-header repl">
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turn.state)}</span>
+          <span class="log-time">${escapeMirrorText(time)}</span>
+        </div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turn.state)}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+      </div>
+    `;
+}
+
 function replTurnHtml(turn) {
+  if (turn.surface && turn.surface !== 'repl' && SURFACES[turn.surface]) return surfaceTurnHtml(turn);
   const time = new Date(turn.at).toLocaleTimeString();
   const state = turn.cancelled ? 'cancelled' : 'ended';
   const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
@@ -294,6 +337,7 @@ function mirrorEmptyHtml() {
         <ul>
           <li>In this monitor (<span class="mirror-code">timmy watch</span>), type in its chat line: each message and its answer appear here as they are sent.</li>
           <li>In the REPL (<span class="mirror-code">timmy</span>), each turn appears here when it ends, as the receipt Timmy sealed for it. Its words stay in the REPL (a REPL turn's prompt and answer are sealed as hashes only). ${replWhereHtml()}</li>
+          <li>In the Workbench (<span class="mirror-code">timmy workbench</span>), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor's turn is labelled Monitor. Every surface's turns are this project's one conversation, kept in its .sessions.</li>
         </ul>
         <div>STREAMDOWN CHAT is this page's own chat with a model; its ✨ sample is labelled SAMPLE there and is never shown here.</div>
       </div>
