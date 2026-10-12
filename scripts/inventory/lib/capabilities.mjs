@@ -569,7 +569,7 @@ export function capabilityMatrixMd(m, c) {
   p('## Screens', '');
   p('The operator\'s screens (WORKBENCH-SPEC.md and CLAUDE-WORKBENCH-PROMPT.txt in the reference package of 2026-10-11, not in this repository). The terminal Workbench that is to hold them is designed there and not built here: `timmy workbench` exits 69 at this revision. Today each capability is drawn by the renderers listed.', '');
   p('| Screen | Group | Capabilities | Backend: live · tested · implemented · designed · researched | Renderers today | Named for it, not in Timmy |', '|---|---|---|---|---|---|');
-  for (const s of m.screens) p(`| ${s.name} | ${esc(s.group ?? '–')} | ${s.capabilities} | ${LEVELS.slice().reverse().map((l) => s.backend[l]).join(' · ')} | ${esc(s.renderers.join(', ') || '–')} | ${esc(s.notBuilt.join(', ') || '–')} |`);
+  for (const s of m.screens) p(`| ${s.name} | ${esc(s.group ?? '–')} | ${s.capabilities} | ${LEVELS.slice().reverse().map((l) => s.backend[l]).join(' · ')} | ${esc(s.renderers.join('; ') || '–')} | ${esc(s.notBuilt.join('; ') || '–')} |`);
   p('');
   const wb = (c.overlay?.screens ?? []).find((s) => s.workbenchNote)?.workbenchNote;
   if (wb) p(esc(wb), '');
