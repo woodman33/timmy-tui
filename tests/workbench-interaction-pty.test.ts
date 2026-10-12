@@ -56,6 +56,14 @@ const jobsDir = () => join(timmyHome, 'jobs');
 const records = () => (existsSync(jobsDir()) ? readdirSync(jobsDir()) : []).filter((n) => n.endsWith('.json'))
   .map((n) => JSON.parse(readFileSync(join(jobsDir(), n), 'utf8')) as { id: string; label: string; root: string; state: string; pid?: number; operation?: string; error?: string; owner?: { pid: number } });
 const runsOf = (label: string, root = trayA) => records().filter((j) => j.root === root && j.label === label);
+/**
+ * R4 lead (CI at f22e044): an item that fails while `wait` is held must not leave it running into the next items (item 4
+ * then found its operation to pick up, item 5 a run not completed): its finally releases it and gives the run a moment to end.
+ */
+const endHeldWait = async (): Promise<void> => {
+  releaseWait();
+  for (const end = Date.now() + 10_000; runsOf('SLOW.md › wait').some((j) => j.state === 'running') && Date.now() < end;) await sleep(200);
+};
 const opsDir = (root = trayA) => join(root, '.timmy', 'operations');
 const operations = (root = trayA) => (existsSync(opsDir(root)) ? readdirSync(opsDir(root)) : []).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(opsDir(root), n), 'utf8')) as { id: string; request: string; via: string; state: string; ended: string | null });
 const storeLines = () => { const f = join(box, 'store', 'runs.jsonl'); return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).length : 0; };
@@ -327,7 +335,10 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await sleep(300);
       t.tmux('send-keys', '-t', 't:1', 'Enter');
       const second = await t.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+SLOW\\.md › wait[^\\n]*another session`), 10_000, 't:1');
-      expect(second).toMatch(new RegExp(`Activity\\s+\\S* ?1 running`));
+      // R4 lead (CI at f22e044): the frame matched above can be caught while it is still being drawn (its lower rows blank), so
+      // the Activity line is waited for, not read from that same capture
+      expect(second).toMatch(/RUNNING NOW \(1\)/);
+      await t.waitFor(new RegExp(`Activity\\s+\\S* ?1 running`), 5000, 't:1');
       t.tmux('send-keys', '-t', 't:1', 'a');
       await t.waitFor(new RegExp(`${job.id} started: SLOW\\.md › wait`), 5000, 't:1');
       t.capture('wb-dup-160x45-second-workbench', 't:1');
@@ -381,6 +392,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('C-c');
       await t.waitFor(/EXIT=130/, 20_000);
     } finally {
+      await endHeldWait();
       t.close();
     }
   }, 240_000);
@@ -654,6 +666,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('C-c');
       await t.waitFor(/EXIT=130/, 20_000);
     } finally {
+      await endHeldWait();
       t.close();
     }
   }, 240_000);
