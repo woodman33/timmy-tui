@@ -583,7 +583,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await field('verdict')).toBe('completed · FIXTURE: the run made its result from receipt FIXTURE-rc-9');
       expect(await field('cost')).toBe('$0.0123 (reported) from receipt FIXTURE-rc-9');
       expect(await field('acceptance')).toMatch(/^accepted by FIXTURE-operator, .+ from receipt FIXTURE-rc-10$/);
-      expect(await field('family')).toBe('o1a2b3c4d · no children');
+      expect(await field('related')).toBe('o1a2b3c4d · no children');
 
       // an id this project has no record of: the producer's words
       await page.fill('#run-op', 'o99999999');

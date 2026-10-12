@@ -930,7 +930,7 @@ ${d.exits.map((x) => `<li>${e(x.who)}: ${x.code === null || x.code === undefined
   const w = d.worker || {};
   row('worker', 'Worker', [['model', w.model], ['harness', w.harness], ['environment', w.environment]].filter(([, v]) => v).map(([k, v]) => `${e(k)} ${sourced(v)}`).join('; ') || none('not recorded'));
   row('time', 'Time', `started ${when(d.time.startedAt)} · ended ${when(d.time.endedAt)} · elapsed ${elapsed(d.time.elapsedMs)}`);
-  row('family', 'Parent · children', `${d.parent ? opLink(d.parent) : none('no parent')} · ${d.children.length ? d.children.map(opLink).join(' ') : none('no children')}`);
+  row('related', 'Parent · children', `${d.parent ? opLink(d.parent) : none('no parent')} · ${d.children.length ? d.children.map(opLink).join(' ') : none('no children')}`);
   row('cost', 'Cost', d.cost.measured ? `$${e(Number(d.cost.usd).toFixed(4))} (reported)${from(d.cost.from)}` : `unknown: ${e(d.cost.why)}`);
   row('next', 'Next', d.next ? `${e(d.next.words)}${d.next.command ? ` <code>${e(d.next.command)}</code>` : ''}` : none('nothing recorded'));
   row('summary', 'Summary', d.summary && d.summary.path ? `<code>${e(d.summary.path)}</code>` : none('none saved'));
