@@ -32,8 +32,16 @@ const OPERATIONS = pathToFileURL(resolve('src/ops/operations.ts')).href;
 const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
 const CAPTURES = join(tmpdir(), 'timmy-workbench-captures');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// FAKE workflows (this test's): blocks that sleep, and one that prints a line every 200 ms for 6 s
-const SLOW = '# Slow (FAKE workflow, this test)\n\nIts blocks only wait.\n\n```bash [name:wait]\nsleep 10\n```\n\n```bash [name:long]\nsleep 120\n```\n';
+// FAKE workflows (this test's): blocks that wait, and one that prints a line every 200 ms for 6 s. R4 lead (2026-10-12; the
+// full suite at 58ab7c9): `wait` slept 10 s, and under the suite's load a second Workbench took longer than that to start and
+// reach its Control Room, so it found the run already ended (the product said so rightly: "completed · another session"). It
+// now runs until the test releases it (a file outside the project), at most 90 s, so the test's own pace cannot end it early.
+// The block only reads: a block with rm (or sudo, chmod, chown, dd, mkfs) is a destructive shell command and asks first.
+const slow = (release: string): string => `# Slow (FAKE workflow, this test)\n\nIts blocks only wait.\n\n\`\`\`bash [name:wait]\ni=0; while [ ! -f '${release}' ] && [ $i -lt 900 ]; do sleep 0.1; i=$((i+1)); done\n\`\`\`\n\n\`\`\`bash [name:long]\nsleep 120\n\`\`\`\n`;
+/** Holds the next run of `wait` (no release file), before it starts. */
+const holdWait = (): void => { rmSync(join(box, 'release-wait'), { force: true }); };
+/** Ends the running `wait` block (its release file). */
+const releaseWait = (): void => { writeFileSync(join(box, 'release-wait'), ''); };
 const STREAM = '# Stream (FAKE workflow, this test)\n\nIt prints a line every 200 ms for 6 s.\n\n```bash [name:talk]\nfor i in $(seq 1 30); do echo "line $i"; sleep 0.2; done\n```\n';
 
 let box = '';
@@ -201,7 +209,7 @@ beforeAll(async () => {
     expect(made.status, `${made.stdout}\n${made.stderr}`).toBe(0);
   }
   trayA = join(timmyHome, 'projects', 'trayA');
-  writeFileSync(join(trayA, 'SLOW.md'), SLOW);
+  writeFileSync(join(trayA, 'SLOW.md'), slow(join(box, 'release-wait')));
   writeFileSync(join(trayA, 'STREAM.md'), STREAM);
 }, 180_000);
 
@@ -287,6 +295,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ [\s\S]*Activity/);
       await t.find('Workflows');
       await t.waitFor(/trayA \/ Workflows/, 5000);
+      holdWait();
       await selectBlock(t, 'SLOW.md', 'wait');
       await t.keys('Enter');
       await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
@@ -364,6 +373,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.typed('trayA');
       await t.keys('Enter');
       await t.waitFor(/trayA \/ Workflows/, 10_000);
+      releaseWait();
       for (const end = Date.now() + 30_000; runsOf('SLOW.md › wait')[0]?.state === 'running' && Date.now() < end;) await sleep(200);
       expect(runsOf('SLOW.md › wait')).toMatchObject([{ id: job.id, state: 'completed' }]);
       expect(runsOf('SLOW.md › wait', join(timmyHome, 'projects', 'trayB'))).toEqual([]);
@@ -586,6 +596,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
 
       // resized during a run: one frame each time, as wide as the terminal; the run and its Stop as they were
       await t.keys('BTab', 'BTab');
+      holdWait();
       await selectBlock(t, 'SLOW.md', 'wait');
       await t.keys('Enter');
       await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
@@ -605,6 +616,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         expect(rows[0]).toMatch(/^[╭┏]/);
         expect(rows[h - 1]).toMatch(/^[╰┗]/);
       }
+      releaseWait();
       for (const end = Date.now() + 20_000; records().find((j) => j.id === wait.id)?.state === 'running' && Date.now() < end;) await sleep(200);
       expect(records().find((j) => j.id === wait.id)).toMatchObject({ state: 'completed' });
       expect(runsOf('SLOW.md › wait').filter((j) => j.state !== 'completed')).toEqual([]);
