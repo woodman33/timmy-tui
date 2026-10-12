@@ -249,7 +249,9 @@ describe('a run on the live board: the blocks\' states come from the run job\'s 
     expect(sealed[4].child_receipts).toEqual(['00000001', '00000002', '00000003']);
     const after = (await state(port, token)).html;
     expect(nodeState(after, '1')).toMatch(/^✓ completed · exit 0 · (<0\.1 s|\d+\.\d s)$/);
-    expect(nodeState(after, '2')).toMatch(/^✓ completed · exit 0 · (1\.[6-9]|[2-9]\.\d) s$/);
+    // build sleeps 1.6 s; its own time runs from Timmy seeing its start to seeing its end, and under load the start can be
+    // seen a little late (the full suite at 5aa422c measured 1.5 s): a lower bound of 1.3 s keeps the check without the race
+    expect(nodeState(after, '2')).toMatch(/^✓ completed · exit 0 · (1\.[3-9]|[2-9]\.\d) s$/);
     expect(nodeState(after, '3')).toMatch(/^✓ completed · exit 0/);
     expect(after).not.toContain(`data-wf-stop="${job.id}"`);
     const outcome = sealed.find((r) => r.kind === 'workflow')!;
