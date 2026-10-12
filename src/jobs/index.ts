@@ -175,7 +175,15 @@ export interface JobSpec {
   /** Round R4 (H67): kept in the record as JobRecord.expected (what the job was to run, as sealed before it started). */
   expected?: { steps: string[]; receipt?: string };
 }
-export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
+export interface JobManagerOptions {
+  dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date;
+  /**
+   * R4 (H99, the review): the steps a left /run's record is written with when recovery ends it (endLeft) or notes it sealed
+   * (noteAtOnceSealed): its owner's reading of each block that made no change (src/repl/workflow-blocks.ts noteLeftSteps),
+   * noted as its live sealer notes it (noteStep). The steps it gives back are written; when it throws, they are as they were.
+   */
+  noteLeft?: (job: JobRecord) => JobStep[];
+}
 
 const KINDS: ReadonlySet<string> = new Set<JobKind>(['task', 'workflow', 'server']);
 const STATES: ReadonlySet<string> = new Set<JobState>(['queued', 'running', 'ready', 'completed', 'failed', 'cancelled']);
@@ -367,7 +375,17 @@ export class JobManager {
       ...(end.error !== undefined ? { error: end.error } : {}), ...(end.note !== undefined ? { note: end.note } : {}), ...(end.cleanup ? { cleanup: end.cleanup } : {}),
       ...(interrupted ? { interrupted } : {}),
     };
-    return this.persist(ended) ? snapshot(ended) : undefined;
+    // R4 (H99, the review): a block that made no change is noted on its step before the record is written
+    const noted = this.notedLeft(ended);
+    return this.persist(noted) ? snapshot(noted) : undefined;
+  }
+
+  /** R4 (H99, the review): a left /run's record with its owner's notes on its steps (opts.noteLeft), else as it is. */
+  private notedLeft(job: JobRecord): JobRecord {
+    if (job.kind !== 'workflow' || !this.opts.noteLeft) return job;
+    let steps: JobStep[];
+    try { steps = this.opts.noteLeft(snapshot(job)); } catch { return job; }
+    return Array.isArray(steps) && steps.length === job.steps.length && steps.every((s, i) => s.name === job.steps[i].name && s.state === job.steps[i].state) ? { ...job, steps } : job;
   }
 
   /**
@@ -414,7 +432,8 @@ export class JobManager {
     const left = this.readPersisted(id);
     if (!left?.exitedAtOnce || left.exitedAtOnce.sealed) return false;
     const { stale: _stale, ...job } = left;
-    return this.persist({ ...job, exitedAtOnce: { ...left.exitedAtOnce, sealed: true } });
+    // R4 (H99, the review): with its blocks that made no change noted on their steps, as the record of a run recovery ends is
+    return this.persist(this.notedLeft({ ...job, exitedAtOnce: { ...left.exitedAtOnce, sealed: true } }));
   }
 
   /**

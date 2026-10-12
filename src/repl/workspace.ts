@@ -63,7 +63,7 @@ import { findUpmd, findWorkflowDocs, parseWorkflow, upmdRunArgs, upmdVersion } f
 import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
 import { makeRunFolder, starterIn, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67); R4 (H88): starterIn
 // R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
-import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
+import { BlockSealer, noteLeftSteps, sealLeftBlocks } from './workflow-blocks.js';
 import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
 import { RunProgress } from './run-progress.js';
 import { lastBuildWords, noChangeEndLine, opJoint, opLead, opTail } from './end-lines.js';
@@ -380,7 +380,11 @@ export class Workspace {
         : run.kind === 'flow' ? this.flows.active.includes(run.id) : run.kind === 'vox' ? this.vox.runningIn(root).includes(run.id) : false),
       outcome: (run, root) => runOutcome(run, root, this.jobs),
     });
-    this.jobs = new JobManager({ dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job) });
+    this.jobs = new JobManager({
+      dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job),
+      // R4 (H99, the review): a left /run's block that made no change is noted on its step before recovery writes its record
+      noteLeft: (job) => noteLeftSteps({ chain: () => this.chainNow(), scrub: (t) => this.scrub(t, job.root) }, job),
+    });
     this.openhands = new OpenHandsRuns({ glyphs: d.glyphs, notify: (l) => this.d.notify(l), timeOut: (id) => this.jobs.timeOut(id) }); // R4 (H62): its own time limit ends its job
     this.flows = new IterateFlows({
       glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
