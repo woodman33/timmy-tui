@@ -17,6 +17,7 @@ import { blockOutcome, NO_CHANGE_EXIT, noChangeWords } from '../src/workflows/bl
 import { runBlocks } from '../src/workflows/run-blocks.js';
 import { blockCount, blockCountLine } from '../src/workflows/block-count.js';
 import { jobJudgement, markGlyph } from '../src/room/judge.js';
+import { jobBlockLines } from '../src/repl/board-workflows.js';
 import type { JobRecord, JobStep } from '../src/jobs/index.js';
 
 const NOW = () => new Date('2026-10-11T12:00:00Z');
@@ -134,7 +135,10 @@ describe('a /run block whose own flows made no change, and a run that stopped th
     expect(markGlyph(j.mark, { ok: '✓', fail: '✖', bullet: '●' })).toBe('=');
     expect(jobOutcome(job)).toMatchObject({ state: 'no change', current: false });
     // R4 (H99, the review): upmd's word for the block is failed (its exit was not 0); Timmy's is no change, never that the request failed
-    expect(jobOutcome(job).words).toBe('stopped at change, which made no change (upmd counted it as failed: exit 4, so it ran nothing after it): flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    expect(jobOutcome(job).words).toBe('stopped at change, which made no change (upmd counted it as failed: exit 4, and its record shows no block run after it): flow f12345678: the agent changed nothing, so nothing was rebuilt; the last build is stale');
+    // /jobs <id>: the block is = no change, and says upmd counted it as failed; never ✖
+    const shown = jobBlockLines(job, ['change', 'inspect', 'result'], { glyphs: { ok: '✓', fail: '✖', bullet: '●' } }).map((l) => l.map((x) => x.text).join(''));
+    expect(shown).toEqual(['      = change  no change (upmd counted it as failed) · exit 4', '      ● inspect  not run', '      ● result  not run']);
     expect(jobOutcome(job).words).not.toMatch(/request failed|run failed/);
     // a block that failed for another reason beside it: failed, as before
     const both = { ...job, steps: [...steps, { name: 'other', state: 'failed', code: 1 }] } as JobRecord;

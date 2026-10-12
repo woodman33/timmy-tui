@@ -107,8 +107,10 @@ export function jobOutcome(j: JobRecord | undefined): RunOutcome {
     }
     const failed = j.steps.filter((s) => s.state === 'failed');
     if (j.state === 'failed' && failed.length && failed.every((s) => s.outcome === NO_CHANGE)) {
-      // R4 (H99, the review): upmd's own word for the block is failed (its exit was not 0); Timmy's is no change
-      return { state: 'no change', words: `stopped at ${named}, which made no change (upmd counted it as failed: exit ${failed[0].code ?? '?'}, so it ran nothing after it)${why}`, current: false };
+      // R4 (H99, the review): upmd's own word for the block is failed (its exit was not 0); Timmy's is no change. That nothing
+      // ran after it is said only as its record shows it (no block recorded after it).
+      const last = j.steps.indexOf(failed[failed.length - 1]) === j.steps.length - 1;
+      return { state: 'no change', words: `stopped at ${named}, which made no change (upmd counted it as failed: exit ${failed[0].code ?? '?'}${last ? ', and its record shows no block run after it' : ''})${why}`, current: false };
     }
   }
   if (j.state === 'completed') return { state: 'succeeded', words: 'completed' };

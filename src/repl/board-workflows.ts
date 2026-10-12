@@ -874,8 +874,10 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
  */
 export function jobBlockLines(j: JobRecord, order: readonly string[], o: { glyphs: { ok: string; fail: string; bullet: string }; clock?: (i: number) => number | undefined; receipts?: ReadonlyMap<string, BlockReceipt> }): Line[] {
   return runBlocks(j, order, o.clock, o.receipts).map((b): Line => {
-    const mark = b.word === 'completed' ? o.glyphs.ok : b.word === 'failed' ? o.glyphs.fail : o.glyphs.bullet;
-    const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}` : b.word;
+    // R4 (H99, the review): a block that made no change is =, and when upmd counted it as failed (its exit was not 0) it says so
+    const mark = b.word === 'completed' ? o.glyphs.ok : b.word === 'failed' ? o.glyphs.fail : b.word === 'no change' ? NODE_GLYPH['no change'] : o.glyphs.bullet;
+    const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}`
+      : b.word === 'no change' && b.code !== undefined && b.code !== 0 ? 'no change (upmd counted it as failed)' : b.word;
     // R4 (H74): its own receipt, once sealed
     const said = [word, blockDetail(b, { seen: 'long' }), b.receipt ? `receipt ${b.receipt}` : ''].filter(Boolean).join(' · ');
     const role: Segment['role'] = b.word === 'failed' ? 'failure' : b.word === 'interrupted' || b.word === 'stopped' || b.word === 'not seen' ? 'estimate' : 'secondary';
