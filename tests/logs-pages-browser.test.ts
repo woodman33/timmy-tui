@@ -60,13 +60,17 @@ describe.skipIf(!browserPath)('the log companion\'s pages under their policies, 
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
   }, 600_000);
 
+  // R4 (H114; the suite at 86a10be: this hook timed out at 10 s): Timmy's log server is stopped first (it closes every
+  // connection itself and ends at once: tests/suite-causes-teardowns.test.ts), the folder and environment restored, and this
+  // test's own Chromium closed last: Playwright's close waits, with no deadline of its own, for the browser to exit (30 s for
+  // it under a loaded machine), and a hook that outlives its limit no longer leaves this file's folder and environment behind
   afterAll(async () => {
-    await browser?.close();
     await logs?.stop();
     process.chdir(originalCwd);
     for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
-  });
+    await browser?.close();
+  }, 30_000);
 
   async function open(path: string): Promise<{ page: Page; context: BrowserContext; seen: Seen[]; outside: string[]; errors: string[]; dialogs: string[] }> {
     const context = await browser.newContext({ viewport: { width: 1300, height: 900 } });
