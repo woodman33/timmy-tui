@@ -10,8 +10,14 @@
  * licence's source, Python imports against a requirements file, a container's pins, excluded skill material, and the
  * feature ledger joined with an overlay (an unmatched overlay id and a cited file that is missing are both reported).
  *
- * FAKE pieces, labelled: the FIXTURE tree is invented (its packages, its installed tree, its checklist, ledger and overlay
- * all say FIXTURE); no registry, network or git history is involved for it. The repository run reads this checkout as it is.
+ * Round R4 (H106, second part): the capability matrix (capabilities.json, CAPABILITY-MATRIX.md). Every row has every
+ * column; each status is one of the allowed levels; a capability with no operation path is flagged, as is one whose only
+ * path exits 69 and one that names a path the code does not have; the paths `timmy act` derives, refuses or cannot run;
+ * a rehearsal's fact and its open defect; acceptance only as the operator recorded it; no local path; the same bytes twice.
+ *
+ * FAKE pieces, labelled: the FIXTURE tree is invented (its packages, its installed tree, its checklist, ledger and overlay,
+ * its REPL commands, CLI, `timmy act`, rehearsal and acceptance all say FIXTURE); no registry, network or git history is
+ * involved for it. The repository run reads this checkout as it is.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -20,6 +26,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { namesLocalPath } from '../scripts/inventory/lib/common.mjs';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = join(REPO, 'scripts', 'inventory', 'inventory.mjs');
@@ -108,6 +115,54 @@ function makeFixture(root: string, o: { leak?: boolean } = {}): void {
   put(root, 'lanes/x/package-lock.json', json({ name: 'fixture-lane', lockfileVersion: 3, packages: { '': { name: 'fixture-lane', dependencies: { 'lane-dep': '^2.0.0' } }, 'node_modules/lane-dep': { version: '2.1.0', license: 'MIT' } } }));
   put(root, 'lanes/x/index.mjs', `// FIXTURE lane\n${importLine('laneDep', 'lane-dep')}\nexport default laneDep;\n`);
   put(root, '.agents/skills/demo/package.json', json({ name: 'fixture-skill-example', dependencies: { 'skill-only': '1.0.0' } }));
+  // The control paths the matrix reads (FIXTURE): REPL commands, the CLI with one verb that exits 69, and `timmy act`.
+  put(root, 'src/repl/commands.ts', [
+    '// FIXTURE REPL commands',
+    'export const COMMANDS = [',
+    "  { name: 'hello', group: 'work', description: 'FIXTURE: say hello', run: inWorkspace((w, a) => w.hello(a)) },",
+    "  { name: 'wave', group: 'work', description: 'FIXTURE: wave at a person', run: inWorkspace((w, a) => w.wave(a)) },",
+    "  { name: 'setup', group: 'setup', description: 'FIXTURE: the setup', run: (a, ctx) => ctx.setup?.(a) },",
+    '];',
+    '',
+  ].join('\n'));
+  put(root, 'src/ops/act.ts', [
+    '// FIXTURE timmy act',
+    'export function needsPerson(line: string): string | undefined {',
+    "  const [word] = line.slice(1).split(' ');",
+    '  switch (word) {',
+    "    case 'wave': return '/wave needs a person (FIXTURE)';",
+    '    default: return undefined;',
+    '  }',
+    '}',
+    'export function act(ws: unknown, glyphs: unknown): unknown {',
+    '  const ctx: ReplContext = {',
+    '    print: (segs: unknown) => segs,',
+    '    glyphs,',
+    '    workspace: ws,',
+    '  };',
+    '  return ctx;',
+    '}',
+    '',
+  ].join('\n'));
+  put(root, 'src/cli.ts', [
+    '// FIXTURE CLI',
+    'const command = process.argv[2];',
+    "if (command === 'act') { await import('./ops/act.js'); }",
+    "if (command === 'hello') { await import('./hello/cli.js'); }",
+    "if (command === 'later') { await import('./later/cli.js'); }",
+    'function printHelp(): void {',
+    '  console.log(`Commands:',
+    '  act "<slash command>"   FIXTURE: one REPL command, headlessly',
+    '  hello                   FIXTURE: say hello',
+    '  later                   FIXTURE: being built; exits 69 until it is',
+    'Options:',
+    '  --help`);',
+    '}',
+    'printHelp();',
+    '',
+  ].join('\n'));
+  put(root, 'src/hello/cli.ts', '// FIXTURE hello\nexport const hello = 1;\n');
+  put(root, 'src/later/cli.ts', '// FIXTURE: not built in this revision\nexport function run(): number { return 69; }\n');
 
   const leak = o.leak ? ` (kept at ${join(root, 'private', 'notes.txt')})` : '';
   put(root, 'docs/ui-cockpit/FEATURE-CHECKLIST.md', [
@@ -139,6 +194,24 @@ function makeFixture(root: string, o: { leak?: boolean } = {}): void {
     added: [{ id: 'fixture-added', entry: '/fixture', feature: 'FIXTURE added feature', implemented: '✓ (`src/index.ts`)', tested: '–', demonstrated: '–', blocker: '–', evidence: '`src/index.ts`', benefit: 'FIXTURE added benefit', stage: 'preview' }],
     conflicts: [{ what: 'FIXTURE conflict', says: 'FIXTURE says', code: ['src/index.ts', 'src/gone.ts'], resolution: 'FIXTURE resolution' }],
     notReconciled: [{ what: 'FIXTURE gap', why: 'FIXTURE why', next: 'FIXTURE next pass' }],
+    capabilities: [
+      { id: 'fx-hello', screen: 'Chat', feature: 'FIXTURE: say hello', renderers: ['FIXTURE renderer'], inputs: 'FIXTURE in', outputs: 'FIXTURE out', features: ['1-hello-says-hello'], paths: { repl: ['hello'], cli: ['hello'] }, owner: 'FIXTURE owner', weight: 1 },
+      { id: 'fx-nothing', screen: 'REA', feature: 'FIXTURE: read about only', researched: { says: 'FIXTURE: researched only' } },
+      { id: 'fx-later', screen: 'Files', feature: 'FIXTURE: advertised, not built', paths: { repl: ['nosuch'], cli: ['later'] }, code: ['src/later/cli.ts'] },
+      { id: 'fx-setup', screen: 'Connections', feature: 'FIXTURE: the setup', paths: { repl: ['setup'] }, code: ['src/index.ts'], tests: ['tests/a.test.ts'] },
+      { id: 'fx-wave', screen: 'Nowhere', feature: 'FIXTURE: a screen that is not one', paths: { repl: ['wave'] }, code: ['src/index.ts'] },
+    ],
+    rehearsals: [{
+      id: 'r1', revision: 'abc1234', date: '2026-10-01', where: 'FIXTURE Mac', how: 'FIXTURE, scripted', source: 'FIXTURE report',
+      facts: [{ step: 'U1', ran: 'FIXTURE: /hello typed', caps: { 'fx-hello': 'both' }, defects: ['D1'] }],
+      notRun: ['FIXTURE: /wave'], defects: { D1: { says: 'FIXTURE defect', state: 'open', owner: 'FIXTURE owner' } },
+    }],
+    suites: [{ revision: 'abc1234', kind: 'full suite', result: 'FIXTURE: passed', source: 'FIXTURE' }],
+    screens: [{ name: 'Chat', group: 'Create', notBuilt: ['FIXTURE: not built'] }],
+    acceptance: [
+      { capability: 'fx-hello', by: 'operator', date: '2026-10-01', source: 'FIXTURE note (not a real acceptance)', visual: 'accepted (FIXTURE)' },
+      { capability: 'fx-setup', visual: 'accepted' },
+    ],
   }));
 }
 
@@ -147,7 +220,44 @@ interface Bom { bomFormat: string; specVersion: string; serialNumber: string; ve
 
 const read = (dir: string, f: string): string => readFileSync(join(dir, f), 'utf8');
 const prop = (c: Component | undefined, name: string): string | undefined => c?.properties?.find((p) => p.name === `timmy:${name}`)?.value;
-const outputs = (dir: string): Record<string, string> => Object.fromEntries(['INVENTORY.md', 'sbom.json', 'features.json'].map((f) => [f, read(dir, f)]));
+const OUT_FILES = ['CAPABILITY-MATRIX.md', 'INVENTORY.md', 'capabilities.json', 'features.json', 'sbom.json'];
+const outputs = (dir: string): Record<string, string> => Object.fromEntries(OUT_FILES.map((f) => [f, read(dir, f)]));
+
+/** The matrix's row, as capabilities.json writes it. */
+interface Level { level: string; revision: string | null; evidence: string; run?: string; tests?: Array<{ file: string }> }
+interface Path { path: string; from: string; words: string; stub?: boolean; note?: string }
+interface Row {
+  id: string; screen: string; feature: string; provider: string[]; controlPaths: Record<string, Path[]>; operationPath: boolean;
+  notPaths: string[]; namedNotFound: string[]; renderers: string[]; inputs: string; outputs: string; backend: Level; ui: Level;
+  evidenceRevision: { backend: string | null; ui: string | null; codeSinceLive: unknown }; visualAcceptance: string; usabilityAcceptance: string;
+  acceptanceSource?: string; defects: Array<{ id: string; says: string; state: string; owner: string | null }>; blocker: string; owner: string; flags: string[];
+}
+interface Matrix { schema: string; levels: string[]; pathKinds: string[]; screens: Array<{ name: string }>; counts: { capabilities: number; withoutPath: number; accepted: number }; gaps: { top: string[] }; rows: Row[]; problems: string[] }
+const COLUMNS = ['id', 'screen', 'feature', 'provider', 'controlPaths', 'operationPath', 'notPaths', 'namedNotFound', 'renderers', 'inputs', 'outputs',
+  'backend', 'ui', 'evidenceRevision', 'visualAcceptance', 'usabilityAcceptance', 'defects', 'blocker', 'owner', 'flags'];
+const LEVELS = ['researched', 'designed', 'implemented', 'tested here', 'live-qualified on the Mac'];
+const SCREENS = ['Chat', 'Studio', 'VoxVision', '3D Create', 'Motion', 'Workflows', 'Control Room', "God's Eye View", 'REA', 'All tools', 'Connections', 'Files'];
+
+/** Every row has every column; each status is an allowed level with its evidence; a row with no operation path says so. */
+function checkRows(m: Matrix): void {
+  expect(m.schema).toBe('timmy.capability-matrix/1');
+  expect(m.levels).toEqual(LEVELS);
+  for (const r of m.rows) {
+    for (const c of COLUMNS) expect(r, `${r.id} ${c}`).toHaveProperty(c);
+    for (const k of m.pathKinds) expect(Array.isArray(r.controlPaths[k]), `${r.id} ${k}`).toBe(true);
+    for (const s of [r.backend, r.ui]) {
+      expect(LEVELS, r.id).toContain(s.level);
+      expect(typeof s.evidence, r.id).toBe('string');
+      expect(s.evidence.length, r.id).toBeGreaterThan(0);
+    }
+    if (r.backend.level === 'tested here') expect(r.backend.tests?.length, r.id).toBeGreaterThan(0); // "tested here" names the test file
+    if (r.backend.level === 'live-qualified on the Mac') expect(r.backend.run, r.id).toBeTruthy(); // and live names the run
+    expect(r.operationPath, r.id).toBe(m.pathKinds.some((k) => r.controlPaths[k].some((p) => !p.stub)));
+    if (!r.operationPath) expect(r.flags, r.id).toContain('no operation path');
+    expect(typeof r.visualAcceptance).toBe('string');
+    expect(typeof r.usabilityAcceptance).toBe('string');
+  }
+}
 
 /** Every absolute local path this computer could leak, and the home-style patterns, as the generator's own guard knows them. */
 function leaks(text: string, extra: string[]): string[] {
@@ -166,11 +276,12 @@ describe('the inventory generator on a FIXTURE tree', () => {
   const a = run(['--root', root, '--date', '2026-10-01', '--out', outA]);
   const b = run(['--root', root, '--date', '2026-10-01', '--out', outB]);
 
-  it('runs, writes its three files and says what it counted', () => {
+  it('runs, writes its five files and says what it counted', () => {
     expect(a.stderr).toBe('');
     expect(a.status).toBe(0);
     expect(a.stdout).toContain('inventory 2026-10-01: 10 locked npm entries');
-    expect(readdirSync(outA).sort()).toEqual(['INVENTORY.md', 'features.json', 'sbom.json']);
+    expect(readdirSync(outA).sort()).toEqual(OUT_FILES);
+    expect(a.stdout).toContain('5 capabilities (2 without an operation path)');
   });
 
   it('writes valid CycloneDX 1.5 JSON with the given date', () => {
@@ -274,6 +385,66 @@ describe('the inventory generator on a FIXTURE tree', () => {
     expect(md).toContain('Entries that match no file in the tree read (npm pack leaves a missing entry out without a word): `missing-entry`.');
   });
 
+  it('writes the capability matrix: every row has every column, each status an allowed level with its evidence', () => {
+    const m = JSON.parse(read(outA, 'capabilities.json')) as Matrix;
+    checkRows(m);
+    expect(m.rows.map((r) => r.id).sort()).toEqual(['fx-hello', 'fx-later', 'fx-nothing', 'fx-setup', 'fx-wave']);
+    expect(m.counts).toMatchObject({ capabilities: 5, withoutPath: 2, accepted: 1 });
+    expect(m.screens.map((x) => x.name)).toEqual(SCREENS);
+    expect(m.problems).toContain('fx-wave: screen "Nowhere" is not one of the operator\'s screens');
+    const md = read(outA, 'CAPABILITY-MATRIX.md');
+    expect(md.startsWith('# Timmy capability matrix\n')).toBe(true);
+    // normal readers get the short summary first, the full rows after it
+    expect(md.indexOf('## Summary')).toBeGreaterThan(0);
+    expect(md.indexOf('## Summary')).toBeLessThan(md.indexOf('## Every capability'));
+  });
+
+  it('flags a capability with no operation path, one whose only path exits 69, and a path the code does not have', () => {
+    const m = JSON.parse(read(outA, 'capabilities.json')) as Matrix;
+    const nothing = m.rows.find((r) => r.id === 'fx-nothing')!;
+    expect(nothing.operationPath).toBe(false);
+    expect(nothing.flags).toContain('no operation path');
+    expect(nothing.backend).toMatchObject({ level: 'researched', evidence: 'FIXTURE: researched only' });
+    const later = m.rows.find((r) => r.id === 'fx-later')!;
+    expect(later.controlPaths.cli).toEqual([expect.objectContaining({ path: 'timmy later', stub: true })]);
+    expect(later.operationPath).toBe(false); // a verb that exits 69 is not an operation path
+    expect(later.flags).toEqual(expect.arrayContaining(['no operation path', 'a control path exits 69 (not built)', 'a named path is not in the code']));
+    expect(later.namedNotFound).toEqual(['REPL /nosuch']);
+    expect(m.gaps.top.slice(0, 2).sort()).toEqual(['fx-later', 'fx-nothing']);
+    const md = read(outA, 'CAPABILITY-MATRIX.md');
+    expect(md).toMatch(/\| REA \| \[FIXTURE\]\(#fx-nothing\) \| \*\*none\*\* \|/);
+    expect(md).toContain('`timmy later` (exits 69: not built)');
+  });
+
+  it('derives the headless path, and says which `timmy act` refuses or cannot run', () => {
+    const m = JSON.parse(read(outA, 'capabilities.json')) as Matrix;
+    const hello = m.rows.find((r) => r.id === 'fx-hello')!;
+    expect(hello.controlPaths.repl.map((p) => p.path)).toEqual(['/hello']);
+    expect(hello.controlPaths.cli.map((p) => p.path)).toEqual(["timmy act '/hello'", 'timmy hello']);
+    const wave = m.rows.find((r) => r.id === 'fx-wave')!;
+    expect(wave.notPaths).toEqual(['timmy act refuses /wave: /wave needs a person (FIXTURE)']);
+    const setup = m.rows.find((r) => r.id === 'fx-setup')!;
+    expect(setup.controlPaths.cli).toEqual([]);
+    expect(setup.notPaths[0]).toContain("timmy act cannot run /setup: its run needs the REPL's setup");
+    expect(setup.backend.level).toBe('tested here');
+    expect(setup.backend.tests?.map((t) => t.file)).toEqual(['tests/a.test.ts']);
+  });
+
+  it('takes a rehearsal\'s fact as live evidence with its open defect, and acceptance only as the operator recorded it', () => {
+    const m = JSON.parse(read(outA, 'capabilities.json')) as Matrix;
+    const hello = m.rows.find((r) => r.id === 'fx-hello')!;
+    expect(hello.backend).toMatchObject({ level: 'live-qualified on the Mac', revision: 'abc1234', run: 'r1', evidence: 'r1 U1: FIXTURE: /hello typed' });
+    expect(hello.defects).toEqual([{ id: 'r1 D1', says: 'FIXTURE defect', state: 'open', owner: 'FIXTURE owner' }]);
+    expect(hello.flags).toContain('an open defect a Mac run found');
+    expect(hello.visualAcceptance).toBe('accepted (FIXTURE)');
+    expect(hello.usabilityAcceptance).toBe('not reviewed');
+    expect(hello.acceptanceSource).toBe('FIXTURE note (not a real acceptance) (2026-10-01)');
+    // an entry without the operator, a date and a source is not acceptance
+    const setup = m.rows.find((r) => r.id === 'fx-setup')!;
+    expect(setup.visualAcceptance).toBe('not reviewed');
+    expect(m.problems.some((p) => p.startsWith('an acceptance entry without by: operator'))).toBe(true);
+  });
+
   it('writes no absolute local path, and the same bytes for the same inputs and date', () => {
     const one = outputs(outA);
     const two = outputs(outB);
@@ -349,6 +520,18 @@ describe('the inventory generator on this repository', () => {
     }
   });
 
+  it('writes the capability matrix: every row has every column, an allowed level, a screen of the operator\'s', () => {
+    const m = JSON.parse(read(outA, 'capabilities.json')) as Matrix;
+    checkRows(m);
+    expect(m.rows.length).toBeGreaterThan(50);
+    for (const r of m.rows) expect(SCREENS, r.id).toContain(r.screen);
+    // visual and usability acceptance are the operator's alone: as many as the overlay records with by: operator
+    const overlay = JSON.parse(readFileSync(join(REPO, 'docs/ui-cockpit/inventory/overlay.json'), 'utf8')) as { acceptance?: Array<{ by?: string; capability?: string }> };
+    const recorded = new Set((overlay.acceptance ?? []).filter((x) => x.by === 'operator').map((x) => x.capability));
+    for (const r of m.rows) if (!recorded.has(r.id)) expect([r.visualAcceptance, r.usabilityAcceptance], r.id).toEqual(['not reviewed', 'not reviewed']);
+    expect(m.gaps.top.length).toBeLessThanOrEqual(10);
+  });
+
   it('writes no absolute local path, and the same bytes twice', () => {
     expect(b.status).toBe(0);
     const one = outputs(outA);
@@ -359,5 +542,15 @@ describe('the inventory generator on this repository', () => {
       expect(leaks(text, [REPO.replace(/\/$/, ''), realpathSync(REPO), outA, ...target]), name).toEqual([]);
       expect(two[name], name).toBe(text);
     }
+  });
+});
+
+describe('the output guard\'s local paths', () => {
+  it('takes a one-segment system folder only as the start of a path, and any longer path anywhere', () => {
+    expect(namesLocalPath('Codex wrote a patch file under /tmp, which its sandbox allowed', '/tmp')).toBe(false);
+    expect(namesLocalPath('kept in /tmp/inv-fixture-x/notes.txt', '/tmp')).toBe(true);
+    expect(namesLocalPath('the home folder is /root here', '/root')).toBe(false);
+    expect(namesLocalPath('a key in /root/.ssh', '/root')).toBe(true);
+    expect(namesLocalPath('read from /srv/checkout/src', '/srv/checkout')).toBe(true);
   });
 });

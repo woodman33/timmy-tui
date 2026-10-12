@@ -1,38 +1,36 @@
 {
   "schema": "timmy.inventory-overlay/1",
-  "pass": 1,
-  "updated": "2026-10-11",
-  "about": "Hand-kept judgement that no document records, joined by scripts/inventory/inventory.mjs with what it reads from the repository. A feature id is the generator's (section number and a slug of the checklist row); an id that matches no feature is reported in INVENTORY.md. Every statement names where it comes from: the feature checklist, the ledger (CHECKPOINTS.md), a doc, a commit, or the round R4 brief of 2026-10-11 (the operator's hands-on preview of a300851 and the usability gaps a guide listed). Ranges are estimates, never measurements.",
-
+  "pass": 2,
+  "updated": "2026-10-12",
+  "about": "Hand-kept judgement that no document records, joined by scripts/inventory/inventory.mjs with what it reads from the repository. A feature id is the generator's (section number and a slug of the checklist row); an id that matches no feature is reported in INVENTORY.md. Pass 2 (H106, at 876755a) adds the capability matrix: which user-facing capabilities there are (capabilities), the operator's screens (screens), the Mac rehearsals with no ledger row yet (rehearsals: r24 and r25, from the helpers' reports to the lead), the recorded test runs (suites) and acceptance (empty: visual and usability acceptance are the operator's alone, recorded only with by: operator, a date and a source). Every statement names where it comes from: the feature checklist, the ledger (CHECKPOINTS.md), a doc, a commit, a brief of round R4, or a helper's report. Ranges are estimates, never measurements.",
   "stages": [
     {
       "id": "batch",
-      "title": "The current batch (round R4: this round's helpers, H101 to H106, and Codex's REA part A)",
-      "what": "The hands-on preview's gaps still open after the H97 to H100 fixes, the tray template's evidence selection, and this inventory's first pass. H101 rehearses on the Mac without code; H102 to H104 own the fixes (the lead's assignment says which); H106 is this inventory.",
+      "title": "The current round (round R4, after 876755a: H102, H103, H104, H107, H109 and H110, with this matrix, H106)",
+      "what": "The fixes for what r25 found, one run detail and one chat path behind every surface, and the first slice of the terminal Workbench; Codex's REA part A on its own branch. The lead assigned the files (the round's briefs); this overlay names the owner of each open item.",
       "remaining": [
-        "Open gap (2): a chat message does nothing without a paid key; no local chat route is offered.",
-        "Open gap (6): seeing an approval needs a hand-written document.",
-        "Open gap (13): the companion's Chat Mirror is empty and Mermaid labels are tiny.",
-        "The tray-workflow starter's inspect and lesson blocks pick the newest STEP, flow and VoxVision files by timestamp (`ls -t`), which the operator's rules forbid as a way to choose a run's evidence.",
-        "The lead's merge of the round's branches, the full suite, then one scripted Mac run (r24) of the merged head."
+        "r25's defects, each with its owner: D1, D7, D10 and D12 (H103: the monitor's chat sends only on a route the operator chose; its flash line, its chat drawer, one store-pin wording); D2, D3, D4, D5, D6, D8 and D13 (H107: run words that agree everywhere, whole log lines, timmy md from any folder, /lanes' found); D9 (H109: Studio's placed cards); D11 (H104: the companion's icon).",
+        "One run detail (`timmy op`, H102) and one chat session (H103) for every surface: `timmy op` exits 69 at 876755a.",
+        "The terminal Workbench's first slice (H110): `timmy workbench` exits 69 at 876755a.",
+        "The lead's merges and the full suite, then one scripted Mac run (r26) of the merged head."
       ],
       "range": "about one helper round and one Mac run: roughly 2 to 5 hours of wall time",
       "assumptions": [
-        "A helper round here (about four helpers in parallel, then the lead's merges and the full suite) took about 1.5 to 3 hours in round R4 (batches 5 to 9 merged at 04:23, 06:20, 07:59, 09:51 and 11:03 PT on 2026-10-10; ledger rows 155 to 164).",
-        "A scripted Mac run took 0.5 to 2 hours (r23c: 07:52 to 08:32 PT, ledger row 173).",
-        "No failed gate in r24; a failure stops and is reported, then needs its own round."
+        "A helper round here (about four to seven helpers in parallel, then the lead's merges and the full suite) took about 1.5 to 3 hours in round R4 (ledger rows 155 to 164; the journey rounds of 2026-10-11).",
+        "A scripted Mac run took 0.5 to 2 hours (r24: 14:18 to 15:13 PDT; r25: 21:21 to 22:27 PDT on 2026-10-11).",
+        "No failed gate in r26; a failure stops and is reported, then needs its own round."
       ]
     },
     {
       "id": "preview",
       "title": "The hands-on preview (what the operator can try by hand on the local install)",
-      "what": "Everything the checklist marks implemented in sections 1 to 12, as the operator tries the preview of a300851 and its successors. Fixed since a300851 (the brief): two first-run setups, the header naming a paid model, a satisfied rerun read as FAILED, operation ids hard to find, no progress during /run, q meaning two things, cloud-leaning defaults, the companion port, the risky Run, Studio cards placed one by one, long lines cut.",
+      "what": "Everything the checklist marks implemented in sections 1 to 12 and 15, as the operator tries the preview. Since a300851: one guided setup (H98), run clarity (H99), Studio's cards by operation (H100), a run's evidence by operation id and an approval example (H102), a local chat route in the REPL (H103), the Chat Mirror and readable diagrams (H104). r25 ran H98 to H100 on the Mac at 5e5cbb3; H102 to H104 have not run on the Mac.",
       "remaining": [
-        "Whatever r24 and the operator's next try find.",
-        "The features below whose code changed after their newest demonstration (\"Code since\"): each needs its demonstration again on the current revision before it is called demonstrated there.",
+        "r26 on the Mac: the REPL's local chat route, APPROVAL.md, `timmy evidence`, the Chat Mirror and the diagrams, and again each item r25 found open.",
+        "The features whose code changed after their newest demonstration (\"Code since\"): each needs its demonstration again on the current revision before it is called demonstrated there.",
         "The features never demonstrated for real (the ledger's \"no\" rows), each a scripted Mac run."
       ],
-      "range": "one to three helper rounds after the current batch (about half a day to a day and a half), plus a Mac run per round",
+      "range": "one to three helper rounds after the current one (about half a day to a day and a half), plus a Mac run per round",
       "assumptions": [
         "The next try finds fewer than about ten gaps, each a bounded helper task.",
         "The preview stays local: no publish, tag or deployment (HOLD)."
@@ -43,7 +41,7 @@
       "title": "The REA first slice (Inspect app through rea-agents 6.4.0)",
       "what": "Part A (Codex, on its own branch): qualify the pinned `rea-agents` 6.4.0 CLI and its MCP server on the Mac against an owned fixture, and build a standalone adapter core in `src/rea/` with fixture tests, an opt-in live test and `docs/ui-cockpit/REA.md`. Part B (the lead): wire \"Inspect app\" as a Timmy job with a board result card.",
       "remaining": [
-        "Part A: in flight; nothing of it is in this tree (src/rea/** is absent here).",
+        "Part A: on Codex's own branch (r4/rea-core-codex); nothing of it is in this tree (src/rea/** is absent here).",
         "Part B: not started.",
         "A scripted Mac run of Inspect app through the installed package."
       ],
@@ -61,10 +59,9 @@
         "npm publish: HOLD until the operator lifts it.",
         "The @opentui/core engines decision (pin it, or change the engines field): a registry install takes a newer 0.5.x than the lockfile's 0.5.10, and 0.5.17 declares node >= 26.4.",
         "A commercial tldraw licence before anything with the canvas is published (TLDRAW.md decision 1); four locked tldraw packages declare \"SEE LICENSE IN LICENSE.md\".",
-        "A chat route a tester can use without the operator's paid key (open gap (2)), or a guided key of their own.",
-        "Timmy Connect qualified on real computers: slice 1 is tested against FAKE OpenSSH programs only; its real-OpenSSH test is to run on the Mac (r24); no Windows computer has been available.",
-        "Timmy Cloud with a real provider: slice 1 runs against a SIMULATED provider only; any live account access, purchase, DNS change or machine service change needs the operator's authorization, with a plan, its cost and its rollback first.",
-        "Packages imported but not declared (INVENTORY.md: Findings): `@modelcontextprotocol/sdk` carries Timmy's own MCP route 2 yet resolves only through a transitive copy."
+        "A chat a tester can use without the operator's paid key: the REPL's local route is built (H103) and has not run on the Mac; the monitor's chat sends a message on the OpenRouter path even with no key (r25 D1, suspected).",
+        "Timmy Connect on real computers: slice 1 is tested against FAKE OpenSSH programs, and its real-OpenSSH test passed 6 of 6 on the Mac in r24 against an sshd it started on 127.0.0.1; no other computer has been reached, and no Windows computer has been available.",
+        "Timmy Cloud with a real provider: slice 1 runs against a SIMULATED provider only; any live account access, purchase, DNS change or machine service change needs the operator's authorization, with a plan, its cost and its rollback first."
       ],
       "range": "several days to a few weeks: roughly 3 to 10 helper rounds, gated on the operator's decisions",
       "assumptions": [
@@ -80,8 +77,8 @@
       "remaining": [
         "UI and agent flows in isolated Vercel or Cloudflare sandboxes (REPLAY-02 was blocked when the Vercel connector refused sandbox creation; ledger notes of 2026-10-07).",
         "Native apps on each operating system they are claimed for: every native demonstration so far is on the operator's Mac; Windows routes (After Effects' -r, the Windows OpenSSH shapes) never ran on Windows; CadQuery on the operator's Windows computers waits for those computers to be awake.",
-        "A packed install of this revision on each platform (the check passed on the Mac: ledger row 173).",
-        "The CadQuery recipe's native qualification (`qualify.ts`, both widths and the negative controls), kept as a separate gate and not run in R3 or R4.",
+        "A packed install of this revision on each platform (the check passed on the Mac: 55 of 55 checks at a300851 in r24, 56 of 56 at 5e5cbb3 in r25).",
+        "The CadQuery recipe's native qualification (`qualify.ts`, both widths and the negative controls): its record (docs/orders/spatial-t5k1) covers earlier sources, and it was not run again in R3 or R4.",
         "Fonts and themes per terminal (Monaspace Argon's rendering is unknown: no ledger row shows it)."
       ],
       "range": "unknown until the platforms are chosen; each platform needs at least one preparation round and one frozen qualification run",
@@ -106,32 +103,31 @@
       ]
     }
   ],
-
   "features": {
     "3-one-receipt-per-block-needs-you-before": {
-      "stage": "batch",
+      "stage": "preview",
       "benefit": "A risky workflow block waits for the person's yes in the REPL, and every block leaves a receipt of its own.",
-      "gap": "Open gap (6) of the hands-on preview: seeing an approval needs a hand-written document.",
-      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
-      "next": "A way to see an approval without writing a document (this round), then r24."
+      "gap": "Gap (6) is answered by APPROVAL.md (H102, the next checklist row but one), which shipped after r25 and has not run on the Mac.",
+      "owner": "the lead (r26)",
+      "next": "r26: `/run APPROVAL.md tidy`, y, then n; the board's Run on it refused; `timmy md APPROVAL.md tidy` at a terminal."
     },
     "4-the-browser-companion": {
       "stage": "batch",
       "benefit": "A browser view of the monitor and logs on this computer only, or on a trusted local network when asked.",
-      "gap": "Open gap (13): the Chat Mirror is empty and Mermaid labels are tiny. The checklist's open item (code from public CDNs) is answered in code since H92 (dec6d4e, a page that loads nothing from the internet under a strict policy) and H95 (08ac65e, its chat with Streamdown bundled locally); neither has run on the Mac.",
-      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
-      "next": "Fix (13) this round; r24 opens the page from the installed package and checks that nothing loads from another host."
+      "gap": "r25: one console 404 the page does not request (D11, most likely the favicon); it shows the folder the monitor started in, not the active project, and its chat goes only to OpenRouter.",
+      "owner": "H104 (second part: the active project, the chosen chat route, D11)",
+      "next": "H104's second part, then r26 opens the page from the installed package and counts its requests and console errors."
     },
     "3-the-tray-workflow-starter-workflow-md": {
-      "stage": "batch",
+      "stage": "preview",
       "benefit": "One request carried end to end: a local agent's change, a rebuild and readback, a VoxVision inspection, the operation's card and a draft lesson.",
-      "gap": "Its inspect and lesson blocks choose files with `ls -t` (templates/tray-workflow/WORKFLOW.md lines 31, 54 and 55): the newest STEP, flow and VoxVision files by timestamp, which the operator's rules forbid as a way to choose a run's evidence.",
-      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
-      "next": "Blocks that name this operation's own records instead (this round), then r24 runs the starter from the installed package."
+      "gap": "Its blocks find this run's evidence by operation id since 34af086 (H102), which has not run on the Mac (r24 and r25 ran the `ls -t` blocks of their revisions); a no-change run's lesson sentence claims a readback that did not run (H102's second part).",
+      "owner": "H102 (second part: the lesson sentence, `timmy evidence stl`)",
+      "next": "r26: `/run WORKFLOW.md lesson` twice (the second a no change), then `timmy evidence step --operation <first id>` names only the first run's STEP."
     },
     "5-iterate-tray-instruction-the-agent-may": {
       "benefit": "Change a CAD part in words: a local, free agent edits only the parameter file, and the rebuilt STEP is measured again outside the agent.",
-      "next": "Run it again on the current revision (its own files changed after the newest demonstration), as part of the tray workflow in r24."
+      "next": "It ran in r24 and r25 inside the tray workflow's change block (through timmy act); typed as /iterate tray it last ran in r19 and r20 (rows 158 and 162)."
     },
     "3-run-file-block-through-upmd": {
       "benefit": "Run a named block of a Markdown workflow as a job, with its prediction sealed before and its outcome after."
@@ -183,8 +179,8 @@
     },
     "8-two-mcp-to-cli-routes-mcporter-s-cli": {
       "benefit": "Two independent ways to reach any MCP server from the command line (AGENTS.md section 8 asks for at least two).",
-      "gap": "Route 2 (Timmy's own CLI on the MCP SDK) imports @modelcontextprotocol/sdk, which package.json does not declare: it resolves to 1.30.0 only through another package's dependency. Both routes share that library (the checklist says so).",
-      "next": "Declare @modelcontextprotocol/sdk at the version the routes were tested with (the lead's decision; package.json is the lead's)."
+      "gap": "Both routes share the MCP SDK library (the checklist says so); package.json declares it since 7366c7c.",
+      "next": "None until something changes."
     },
     "11-npm-publish": {
       "stage": "beta",
@@ -196,8 +192,12 @@
       "owner": "the lead (a decision: pin @opentui/core or change the engines field), then the operator",
       "next": "Decide the engines question, then run the packed-install check again."
     },
-    "11-runtime-asset-lookup": { "stage": "platform" },
-    "12-monaspace-argon": { "stage": "platform" },
+    "11-runtime-asset-lookup": {
+      "stage": "platform"
+    },
+    "12-monaspace-argon": {
+      "stage": "platform"
+    },
     "13-cadquery-on-the-operator-s-windows-pcs": {
       "stage": "platform",
       "owner": "the operator: wake the Windows computers and say which is which",
@@ -207,7 +207,9 @@
       "stage": "preview",
       "gap": "The engine-shelf lane stays partial; the native route /unreal is the demonstrated one (section 5, row 166)."
     },
-    "13-rerun-viewer": { "stage": "preview" },
+    "13-rerun-viewer": {
+      "stage": "preview"
+    },
     "13-houdini": {
       "stage": "research",
       "owner": "the operator: a Houdini licence from the Houdini Launcher"
@@ -217,18 +219,29 @@
       "owner": "the operator: open a document in the Spline editor and enable its AI bridge",
       "next": "One successful Spline MCP call, recorded with its receipt."
     },
-    "13-roboflow": { "stage": "research", "owner": "the operator: ROBOFLOW_API_KEY" },
-    "13-taskforge-api": { "stage": "research", "owner": "the operator: TASKFORGE_API_URL to its API" },
-    "13-agentpass": { "stage": "research", "owner": "the operator: AGENTPASS_REPO_PATH to its checkout" },
+    "13-roboflow": {
+      "stage": "research",
+      "owner": "the operator: ROBOFLOW_API_KEY"
+    },
+    "13-taskforge-api": {
+      "stage": "research",
+      "owner": "the operator: TASKFORGE_API_URL to its API"
+    },
+    "13-agentpass": {
+      "stage": "research",
+      "owner": "the operator: AGENTPASS_REPO_PATH to its checkout"
+    },
     "13-timmy-connect-the-operator-s-computers": {
       "stage": "beta",
-      "gap": "The checklist row predates slice 1: see the added row connect-slice-1, built by H90 and tested against FAKE OpenSSH programs.",
-      "next": "The lead updates this row (and CONNECT-AND-CLOUD.md's matrix) from TIMMY-CONNECT.md."
+      "gap": "Slice 1 is built and tested against FAKE OpenSSH programs; the real-OpenSSH test passed on the Mac in r24 on 127.0.0.1 only; no other computer reached, no Windows.",
+      "owner": "the operator (approval before SSH to a computer of theirs), then the lead",
+      "next": "The operator approves SSH to one named computer (the plan is in CONNECT-AND-CLOUD.md), then one device added, probed and used for one remote job."
     },
     "13-timmy-cloud-hosting-for-timmy-pro": {
       "stage": "beta",
-      "gap": "The checklist row predates slice 1: see the added rows cloud-backend-slice-1 and cloud-client, run against a SIMULATED provider only.",
-      "next": "The lead updates this row (and CONNECT-AND-CLOUD.md's matrix) from TIMMY-CLOUD.md."
+      "gap": "The backend and the client run against a SIMULATED provider only; no backend is deployed.",
+      "owner": "the operator (authorization), then the lead",
+      "next": "The live plan's first step (a read of the provider account), once approved."
     },
     "13-openrig": {
       "stage": "research",
@@ -239,151 +252,92 @@
     "12-the-monitor-s-focus-in-green": {
       "owner": "the operator (a change to the visual law, DESIGN.md)"
     },
-    "5-filesystem-observation-for-the-other": { "stage": "research" }
-  },
-
-  "added": [
-    {
-      "id": "chat-repl",
-      "entry": "a message typed in the REPL (timmy)",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
+    "5-filesystem-observation-for-the-other": {
+      "stage": "research"
+    },
+    "3-run-clarity-no-change-is-an-outcome-of": {
       "stage": "batch",
-      "feature": "Chat in the REPL: a message to Timmy's agent, which answers and calls its tools (asking first for the risky ones), each turn sealed with its cost as reported",
-      "planned": "✓ (the R1 plan's REPL)",
-      "implemented": "✓ (OpenRouter through `@openrouter/sdk` 0.12.35's callModel loop, AGENTS.md section 8): `src/repl/turn.ts`, `src/agent/core.ts`, `src/agent/providers.ts`, `src/utils/model-key.ts`",
-      "tested": "✓ (`tests/repl-turn.test.ts`, `tests/turn-cost-unknown.test.ts`, `tests/turn-tool-receipts.test.ts`, `tests/providers.test.ts`; with stand-in model clients, not traced in detail by this pass)",
-      "demonstrated": "✓ rows 65 and 71 (LIVE-01 on the Mac: a real model and tool turn, a cancel and another turn, through OpenRouter, paid within its cap; the recheck at `f785be8`)",
-      "blocker": "a paid model key: no local chat route is offered (open gap (2))",
-      "evidence": "`src/repl/turn.ts`; `tests/repl-turn.test.ts`",
+      "benefit": "A rerun that changes nothing says so in every view, a long /run says how it goes, and an operation is found by its id.",
+      "gap": "r25: the board's Jobs section says COMPLETED for a no-change run (D2); a stale build reads no change at the end but change failed in the progress line and failed in its receipts (D3); upmd's output in job logs wraps at about 40 columns (D5); \"s\" alone on a line at 80 columns (D6).",
+      "owner": "H107",
+      "next": "H107's fixes, then r26 runs the satisfied, stale and current cases again."
+    },
+    "7-timmy-studio-s-cards-by-operation-each": {
+      "stage": "batch",
+      "benefit": "One request's cards land on the canvas together, in the order they ran.",
+      "gap": "r25 D9: the placed cards stay selected (the next drag moves them all), a deleted card leaves its arrow, the params card shows today's values.",
+      "owner": "H109",
+      "next": "H109's fixes, then r26 places an operation, drags one card, deletes another and reads the params card."
+    },
+    "15-the-repl-s-chat-on-a-local-model-with": {
+      "stage": "preview",
+      "benefit": "Talk to Timmy and use its tools with no paid key, on a model already on this computer.",
+      "gap": "Tested only against a FAKE Ollama; not run on the Mac; the monitor's chat does not take the route (r25 D1, suspected).",
+      "owner": "H103 (second part: one chat path for every surface)",
+      "next": "r26: the setup's chat question lists the Mac's models; a turn, a read-only tool, NEEDS YOU denied then allowed, Ollama stopped (no other model tried)."
+    },
+    "15-chat-in-the-repl-on-openrouter-a": {
+      "stage": "preview",
       "benefit": "Ask Timmy for anything in words and watch it use its tools, with every turn's receipt and cost kept.",
-      "gap": "Open gap (2) of the hands-on preview: a chat message does nothing without a paid key; no local chat route is offered.",
-      "owner": "this round's helpers (H102 to H104; the lead's assignment says which)",
-      "next": "Offer a local chat route (this round), then r24 tries it with the Mac's local model."
+      "gap": "No paid turn since rows 124 and 125 (R1); the code has changed a great deal since.",
+      "owner": "the operator (a paid key, within a recorded cap), then the lead",
+      "next": "One paid turn within the lead's recorded cap, when the operator gives a key."
     },
-    {
-      "id": "setup-guided",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
-      "stage": "preview",
-      "feature": "One guided setup: `timmy init`, `timmy watch`'s FIRST RUN and the REPL's `/setup` ask one set of questions, each once; providers.json is the one place for the model key; the identity read hidden and checked",
-      "planned": "✓ (the hands-on preview's gap: two first-run setups)",
-      "implemented": "✓ (`cbffa88`, `c6402b7`, `377bf41`, `91c5221`, R4 H98): `src/setup/questions.ts`, `src/setup/terminal.ts`, `src/setup/surfaces.ts`, `src/setup/home.ts`, `src/setup/identity.ts`, `src/setup/companion-port.ts`",
-      "tested": "✓ (`tests/setup-guided.test.ts`, `tests/repl-setup.test.ts`, `tests/repl-setup-pty.test.ts`, `tests/setup-watch-pty.test.ts`, `tests/monitor-first-run-keys-pty.test.ts`; terminals in a PTY)",
-      "demonstrated": "– (built after the operator's try of `a300851`; r24 is its first Mac run)",
-      "blocker": "–",
-      "evidence": "`src/setup/questions.ts`",
+    "15-one-guided-setup-timmy-init-timmy-watch": {
+      "stage": "batch",
       "benefit": "A first run asks each setup question once, whichever way the person starts Timmy.",
-      "gap": "Not yet run on the Mac.",
-      "next": "r24: a fresh sandbox user through timmy init, timmy watch and /setup."
+      "gap": "r25: the monitor's flash line is cut (D7), its chat drawer is drawn over HOME (D10), the store-pin path has two wordings (D12).",
+      "owner": "H103 (second part)",
+      "next": "H103's fixes, then r26 runs init, watch and /setup on a blank home again."
     },
-    {
-      "id": "run-clarity",
-      "entry": "/run <file> <block>",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
+    "4-the-companion-s-chat-mirror-and": {
       "stage": "preview",
-      "feature": "Run clarity: \"no change\" as its own outcome end to end (never succeeded, never failed), operation ids kept whole and easy to find, `/run` progress lines read from its own records, a risky Run shown disabled with why",
-      "planned": "✓ (the hands-on preview's gaps: a satisfied rerun read as FAILED, operation ids hard to find, no progress during /run, the risky Run)",
-      "implemented": "✓ (`701f8c3`, `2d8e637`, `b2f6100`, `c9b9fc5`, `e13e51d`, `084be42`, `2faa621`, R4 H99): `src/repl/run-progress.ts`, `src/ops/outcome.ts`, `src/room/judge.ts`, `src/repl/end-lines.ts`, `src/workflows/run-blocks.ts`",
-      "tested": "✓ (`tests/no-change.test.ts`, `tests/no-change-run.test.ts`, `tests/no-change-recover.test.ts`, `tests/no-change-args.test.ts`, `tests/run-progress.test.ts`)",
-      "demonstrated": "– (r24 is its first Mac run)",
-      "blocker": "–",
-      "evidence": "`src/repl/run-progress.ts`",
-      "benefit": "A rerun that changes nothing says so, a long /run says how it goes, and an operation can be found by its id everywhere.",
-      "gap": "Not yet run on the Mac.",
-      "next": "r24: the tray workflow run twice (the second a \"no change\"), with its progress lines and operation id."
+      "benefit": "The browser shows the session's chat as receipts, and diagrams a person can read.",
+      "gap": "A view only: chat happens in the REPL or the monitor; a REPL turn appears only from the folder the companion follows; not run on the Mac.",
+      "owner": "H104 (second part: the active project)",
+      "next": "r26: a REPL turn in the followed folder appears as its receipt; the ✨ sample's labels at 1440 and 390."
     },
-    {
-      "id": "studio-operations",
-      "entry": "/canvas open, then Place this operation",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
+    "3-timmy-evidence-flow-step-vox-inside-a": {
       "stage": "preview",
-      "feature": "Timmy Studio's cards by operation: each card names its operation, the Project panel groups cards by operation, and Place this operation places one operation's cards together",
-      "planned": "✓ (the hands-on preview's gap: Studio cards placed one by one)",
-      "implemented": "✓ (`1234b3a`, `b1e6786`, R4 H100): `companion/studio-canvas/src/operations.js`, `src/studio/project-cards.ts`",
-      "tested": "✓ (`tests/studio-operations.test.ts`, `tests/studio-operation-browser.test.ts`, `tests/canvas-operations-model.test.ts`; a real headless Chromium; FIXTURE records)",
-      "demonstrated": "– (r24 is its first Mac run)",
-      "blocker": "a commercial tldraw licence before anything with the canvas is published (TLDRAW.md decision 1)",
-      "evidence": "`companion/studio-canvas/src/operations.js`",
-      "benefit": "One request's cards land on the canvas together instead of one at a time.",
-      "gap": "Not yet run on the Mac.",
-      "next": "r24: /canvas open on the tray workflow's project, then Place this operation."
+      "benefit": "A workflow block takes this run's own files, never another run's newer ones.",
+      "owner": "H102 (second part: `timmy evidence stl`, `flow --outcome`)",
+      "next": "r26: touch an older run's STEP; `timmy evidence step --operation <id>` still names this run's."
     },
+    "3-the-tray-template-s-approval-example": {
+      "stage": "preview",
+      "benefit": "See an approval without writing a document: one harmless block that needs a person.",
+      "next": "r26: `/run APPROVAL.md tidy`, y then n; the board's Run disabled with why."
+    },
+    "10-the-dated-inventory-node-scripts": {
+      "stage": "preview",
+      "benefit": "One dated, regenerable account of what Timmy is made of and what each capability can really do.",
+      "owner": "H106",
+      "next": "Run it again after the lead's merges, and on the Mac's Node 24."
+    }
+  },
+  "added": [
     {
       "id": "gods-eye-view-slice-2",
       "entry": "/overview",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
+      "section": "Built since the checklist's sections (added by the overlay)",
+      "sectionNumber": 16,
       "stage": "beta",
       "feature": "God's Eye View slice 2 (`timmy.overview/2`): Devices, Hosting and provider Costs sections, new kinds of Needs you, and dependency edges, from Timmy Connect's and Timmy Cloud's records",
       "planned": "✓ (CONNECT-AND-CLOUD.md's God's Eye View rows)",
       "implemented": "✓ (`ff243a3`, R4 H93): `src/overview/remote.ts`, `src/overview/sources.ts`, `src/overview/sections.ts`",
       "tested": "✓ (`tests/overview-remote.test.ts`: devices written by Timmy Connect's own functions with FAKE OpenSSH programs; orders through the real backend process with its SIMULATED provider; a real headless Chromium)",
-      "demonstrated": "– (no Mac run; no real device or provider record exists yet)",
+      "demonstrated": "– (no Mac run of its data paths; r24 U3 at a300851 showed the board's Devices and Hosting cards in their not-set-up state only)",
       "blocker": "real Connect and Cloud records (both slices are offline or simulated)",
       "evidence": "`src/overview/remote.ts`",
       "benefit": "Devices, hosting and provider costs beside the project's own work, each in steps rather than one word.",
       "gap": "Shown only from simulated or test records.",
-      "next": "After Connect's first real device (r24's real-OpenSSH test), check the Devices section against it."
-    },
-    {
-      "id": "connect-slice-1",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
-      "stage": "beta",
-      "feature": "Timmy Connect, slice 1: the operator's own computers over SSH (`timmy connect`, `/connect`): device records without secrets, host keys pinned only when a person confirms the fingerprint, probes, remote jobs reconciled before any retry, cancellation said exactly, results fetched with sha256 checked, Windows command shapes",
-      "planned": "✓ (the owner's order of 2026-10-10 19:38 PT; CONNECT-AND-CLOUD.md)",
-      "implemented": "✓ (`24cf7c4`, `05105d8`, `e18a6a8`, R4 H90): `src/connect/commands.ts`, `src/connect/ssh.ts`, `src/connect/jobs.ts`, `src/connect/hostkeys.ts`, `src/connect/remote-windows.ts`, `docs/ui-cockpit/TIMMY-CONNECT.md`",
-      "tested": "✓ fakes (FAKE ssh, ssh-keygen, ssh-keyscan and tailscale programs: `tests/connect-ssh.test.ts`, `tests/connect-records.test.ts`, `tests/connect-windows.test.ts`, `tests/connect-ids.test.ts`); the real-OpenSSH test (`tests/connect-real-ssh.test.ts`) skips where ssh and sshd are absent and was skipped where it was built",
-      "demonstrated": "– (no real computer contacted; TIMMY-CONNECT.md: the real-OpenSSH test is to run on the Mac in r24; no Windows computer was available)",
-      "blocker": "the operator's approval before any live step; a Windows computer awake with OpenSSH Server for the Windows shapes",
-      "evidence": "`src/connect/commands.ts`; `tests/connect-ssh.test.ts`",
-      "benefit": "Run and follow jobs on the operator's other computers, with every host key and remote state said exactly.",
-      "gap": "Tested against FAKE programs only; never run against a real computer; the Windows shapes never ran on Windows.",
-      "next": "r24: the real-OpenSSH test on the Mac; then one approved device, probed and used for one remote job."
-    },
-    {
-      "id": "cloud-backend-slice-1",
-      "entry": "the backend's HTTP API (services/cloud/main.ts)",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
-      "stage": "beta",
-      "feature": "Timmy Cloud's backend, slice 1 (`services/cloud`, outside the npm package): customers, the Pro entitlement and ownership, spending limits and approvals, orders as durable steps with write-ahead provider calls and reconcile, cancellation said exactly, retention when Pro is cancelled, a local HTTP API",
-      "planned": "✓ (the owner's order of 2026-10-10 19:38 PT; CONNECT-AND-CLOUD.md)",
-      "implemented": "✓ (`9c1749e`, `9baa270`, `c02c42e`, R4 H91): `services/cloud/engine.ts`, `services/cloud/reducer.ts`, `services/cloud/http.ts`, `services/cloud/simulated-provider.ts`, `docs/ui-cockpit/TIMMY-CLOUD.md`",
-      "tested": "✓ against a SIMULATED provider only (`tests/cloud-model.test.ts`, `tests/cloud-api.test.ts`, `tests/cloud-reconcile.test.ts`, `tests/cloud-crash.test.ts`, `tests/cloud-process.test.ts`, `tests/cloud-redaction.test.ts`, `tests/cloud-review-fixes.test.ts`)",
-      "demonstrated": "– (no real provider called; nothing bought, registered, deployed or deleted anywhere real)",
-      "blocker": "the operator's authorization before any live account access, purchase, DNS change or machine service change; a host for the backend and a secret store",
-      "evidence": "`services/cloud/engine.ts`; `tests/cloud-model.test.ts`",
-      "benefit": "Hosting for Timmy Pro customers whose agency credentials never leave a backend the operator runs.",
-      "gap": "Simulated only; the private provider adapter is outside this repository and was not read.",
-      "owner": "the operator (authorization), then the lead",
-      "next": "The live plan's first step (a read of the provider account), once approved."
-    },
-    {
-      "id": "cloud-client",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
-      "stage": "beta",
-      "feature": "Timmy Cloud's client: `timmy cloud use|status` and `/cloud` read the backend's answers for the active customer",
-      "planned": "✓ (CONNECT-AND-CLOUD.md)",
-      "implemented": "✓ (`496a833`, `7936a4b`, R4 H93): `src/cloud/cli.ts`, `src/cloud/commands.ts`, `src/cloud/read.ts`, `src/cloud/token.ts`",
-      "tested": "✓ (`tests/cloud-client-backend.test.ts`; against the backend with its SIMULATED provider)",
-      "demonstrated": "– (no backend is deployed)",
-      "blocker": "a running backend (the row above)",
-      "evidence": "`src/cloud/cli.ts`",
-      "benefit": "The person sees their hosting orders and their states from the terminal.",
-      "gap": "Exercised only against the simulated backend.",
-      "owner": "the lead, after the backend's live plan",
-      "next": "With the backend's first approved live step."
+      "next": "After the operator approves SSH to one computer of theirs, check the Devices section against it; Hosting and Costs against a backend run by hand (simulated)."
     },
     {
       "id": "rea-first-slice",
       "entry": "Inspect app (part B, not built)",
-      "section": "Built or open since the checklist was last updated (added by the overlay)",
-      "sectionNumber": 15,
+      "section": "Built since the checklist's sections (added by the overlay)",
+      "sectionNumber": 16,
       "stage": "rea",
       "feature": "REA, first slice: \"Inspect app\" on rea-agents 6.4.0 (part A: qualify the pinned CLI and its MCP server and build an adapter core; part B: the Timmy job and its board result card)",
       "planned": "✓ (the Codex brief of 2026-10-11)",
@@ -398,46 +352,84 @@
       "next": "Review and merge part A; then part B as one helper round and a Mac run."
     }
   ],
-
   "conflicts": [
     {
-      "what": "The feature checklist is older than the code",
-      "says": "FEATURE-CHECKLIST.md was last updated at 39295fc; 80 commits since (to 5e5cbb3) built Timmy Connect slice 1, Timmy Cloud's backend and client, God's Eye View slice 2, the local companion page, the guided setup, run clarity and Studio cards by operation. Its Timmy Connect and Timmy Cloud rows still say \"– (researched only, read only)\".",
-      "code": ["src/connect", "services/cloud", "src/cloud", "src/setup"],
-      "resolution": "This inventory adds those rows from the overlay; updating the checklist is the lead's."
+      "what": "Mac rehearsals without ledger rows",
+      "says": "r24 (a300851, helper H96) and r25 (5e5cbb3, helper H101) ran on the operator's Mac on 2026-10-11, and CHECKPOINTS.md's last row is 173: neither has a ledger row. The checklist and the capability matrix cite them from the helpers' reports, as this overlay records them (rehearsals).",
+      "code": [
+        "docs/ui-cockpit/CHECKPOINTS.md"
+      ],
+      "resolution": "The lead writes rows 174 and after (CHECKPOINTS.md is the lead's)."
     },
     {
-      "what": "The Connect and Cloud capability matrix",
-      "says": "CONNECT-AND-CLOUD.md (status 2026-10-11, written before the slices merged) marks every Connect and Cloud capability \"–\" under Implemented; TIMMY-CONNECT.md and TIMMY-CLOUD.md (H90, H91) say implemented and tested against FAKE OpenSSH programs and a SIMULATED provider.",
-      "code": ["src/connect/ssh.ts", "services/cloud/engine.ts"],
-      "resolution": "Both are true of their dates; the matrix is the lead's to update (TIMMY-CONNECT.md says so)."
+      "what": "The tools ladder's demonstrations table stops at r21",
+      "says": "src/capabilities/demonstrations.ts lists the Mac demonstrations of r19, r19o, r20 and r21 (rows 158 to 163); what r22 to r25 ran is not in it, so `/tools` names none of it.",
+      "code": [
+        "src/capabilities/demonstrations.ts"
+      ],
+      "resolution": "The lead's (src/capabilities is shared): add rows once the ledger has them."
     },
     {
-      "what": "The companion's open item",
-      "says": "The checklist's companion row says the page loads code from public CDNs (row 173); H92 (dec6d4e) made it load nothing from the internet under a strict policy and H95 (08ac65e) bundled its chat locally; no Mac run has checked the new page.",
-      "code": ["scripts/companion-web-build.mjs", "src/companion/island"],
-      "resolution": "Open until r24 runs the page from the installed package."
+      "what": "Documents older than r24",
+      "says": "TIMMY-CONNECT.md says the real-OpenSSH test \"is to run on the Mac (r24)\"; r24 ran it: 6 of 6, against an sshd it started on 127.0.0.1. GODS-EYE-VIEW.md says slice 2 has not run on the Mac, which stays true of its data paths (r24 showed its cards empty).",
+      "code": [
+        "docs/ui-cockpit/TIMMY-CONNECT.md",
+        "docs/ui-cockpit/GODS-EYE-VIEW.md"
+      ],
+      "resolution": "Their owners update them; CONNECT-AND-CLOUD.md's matrix says it (H106)."
+    },
+    {
+      "what": "Verbs `timmy --help` lists that exit 69",
+      "says": "`timmy workbench` and `timmy op` are listed in `timmy --help` and dispatched by src/cli.ts to modules that say they are not built and exit 69 at 876755a.",
+      "code": [
+        "src/workbench/cli.ts",
+        "src/ops/op-cli.ts"
+      ],
+      "resolution": "H110 (the Workbench) and H102 (`timmy op`) replace the stubs this round."
+    },
+    {
+      "what": "The monitor's two command lists",
+      "says": "The older monitor's command registry (src/utils/slash-commands.ts, with /storyboard in its help) is dispatched only by the v1 shell (TIMMY_SHELL=v1); the default monitor's chat line handles /setup, /studio and /model test and sends any other text to the agent, even with no key (r25 D1, read in the code).",
+      "code": [
+        "src/utils/slash-commands.ts",
+        "src/tui/components/ShellV2.tsx"
+      ],
+      "resolution": "H103's second part decides what the monitor dispatches (one chat path)."
+    },
+    {
+      "what": "The REPL row of /tools with a local chat",
+      "says": "With the setup's chat set to the local model, the chat works with no key (H103), while /tools' REPL row still says \"no model key\" (src/capabilities/index.ts, H103's own report).",
+      "code": [
+        "src/capabilities/index.ts"
+      ],
+      "resolution": "H103's second part (the REPL /tools row says the route)."
+    },
+    {
+      "what": "`timmy setup` is not the guided setup",
+      "says": "`timmy setup` (in `timmy --help`: \"Initialize directory and template folder structure\") makes skills/, souls/, context/, porter-packs/, receipts/, .timmy/, auth/ and mcp-cli/ in the folder it runs in; the guided setup is `timmy init` and the REPL's `/setup`.",
+      "code": [
+        "src/cli.ts"
+      ],
+      "resolution": "The lead's (src/cli.ts is shared): retire or rename the older verb, or say in its help line that it is not the setup."
     },
     {
       "what": "Engine lanes' recorded \"installed\" flags",
       "says": "lanes/engines/*/env-lock.json record what one machine had when each was captured (most on 2026-09-07, Blender 5.1.1 among them); the ledger's newest Blender runs name Blender 5.2.2 LTS (rows 148 and 151).",
-      "code": ["lanes/engines/blender/env-lock.json"],
+      "code": [
+        "lanes/engines/blender/env-lock.json"
+      ],
       "resolution": "Kept as history (the Programs table shows them as recorded observations); a current state comes from timmy tools on each machine."
     },
     {
       "what": "Unreal in two sections",
       "says": "The checklist's section 13 calls Unreal \"partial: an engine-shelf lane\", while section 5 records /unreal demonstrated (row 166).",
-      "code": ["lanes/engines/unreal", "src/native/unreal.ts"],
+      "code": [
+        "lanes/engines/unreal",
+        "src/native/unreal.ts"
+      ],
       "resolution": "Both hold for different surfaces (the engine lane and the native route); listed as they are."
-    },
-    {
-      "what": "Timmy's second MCP route and its library",
-      "says": "The checklist counts Timmy's own CLI on the MCP SDK as the second MCP-to-CLI route (AGENTS.md section 8 asks for two); package.json does not declare @modelcontextprotocol/sdk, which resolves only through a transitive copy (1.30.0 in the lockfile).",
-      "code": ["src/connectors/mcp-sdk-cli.ts"],
-      "resolution": "A decision for the lead (package.json is the lead's): declare it at the tested version."
     }
   ],
-
   "notReconciled": [
     {
       "what": "The operator's private tool register",
@@ -446,7 +438,7 @@
     },
     {
       "what": "Installed programs on the operator's computers and in CI",
-      "why": "This pass runs nothing: every program and app is named in code only, its version unknown. The engine lanes' env-lock files are one machine's history.",
+      "why": "This pass runs nothing: every program and app is named in code only, its version unknown here. The rehearsals name the versions they saw (r24 and r25: upmd 0.2.7, Qwen Code 0.22.2, the local model qwen3.8:27b-mlx, OpenSSH 10.3p1, Node 24.14.1, npm 11.11.0, Google Chrome 154); the engine lanes' env-lock files are one machine's history.",
       "next": "timmy tools --json on each machine (the Mac through a sandbox user, CI in a workflow step), kept as dated evidence and joined by row id."
     },
     {
@@ -476,18 +468,3216 @@
     },
     {
       "what": "Feature judgement for most rows",
-      "why": "User benefit, owner and next task were written for the features this round touches and the headline ones; the rest say \"not assessed in this pass\", with a generated gap and next step labelled generated.",
+      "why": "Pass 2 judged the capabilities (the matrix) and the features this round touches; the rest of the features say \"not assessed in this pass\", with a generated gap and next step labelled generated.",
       "next": "Extend overlay.json section by section, starting with the preview stage."
     },
     {
       "what": "Work after this tree",
-      "why": "REA part A (Codex's branch), this round's other branches and any ledger row after 173 are not in the tree read.",
+      "why": "This round's other branches (H102, H103, H104, H107, H109, H110), Codex's REA part A and any ledger row after 173 are not in the tree read.",
       "next": "Run the generator again after the lead's merges (node scripts/inventory/inventory.mjs --date <day>)."
+    },
+    {
+      "what": "Advertised paths the matrix has no row for",
+      "why": "The matrix covers the capabilities the overlay names; the REPL commands, CLI verbs, agent and MCP tools and /tools rows no row claims are listed at its end, not assessed (among them the older `timmy` verbs and the v1 monitor's commands).",
+      "next": "Add a row for each that is user-facing, or record why it is not."
+    },
+    {
+      "what": "UI tests, by name",
+      "why": "A test counts as a UI test when its file name says it drives a surface (-browser, -pty, or repl-, board-, studio-, canvas-, companion-, monitor-, ui-, local-servers-, room-, overview-, logs-); a test that drives a surface but is named otherwise is not counted.",
+      "next": "Read each capability's tests for what they drive."
     },
     {
       "what": "This pass's own platform",
       "why": "The generator and its tests ran in a Linux development container on Node 22.22.0; the package asks Node >= 24.",
       "next": "Run it on the Mac's Node 24 in r24 and compare the output."
+    }
+  ],
+  "screens": [
+    {
+      "name": "Chat",
+      "group": "Create",
+      "notBuilt": []
+    },
+    {
+      "name": "Studio",
+      "group": "Create",
+      "notBuilt": []
+    },
+    {
+      "name": "VoxVision",
+      "group": "Create",
+      "notBuilt": [
+        "track",
+        "reconstruct (both named as outcomes in WORKBENCH-SPEC.md)"
+      ]
+    },
+    {
+      "name": "3D Create",
+      "group": "Create",
+      "notBuilt": [
+        "build123d",
+        "Plasticity",
+        "Unity, Godot, USD stages",
+        "Spline V2, Hana, Omma",
+        "NVIDIA Cosmos, Tripo (checklist section 14)"
+      ]
+    },
+    {
+      "name": "Motion",
+      "group": "Create",
+      "notBuilt": [
+        "Remotion",
+        "HyperFrames",
+        "Rive (WORKBENCH-SPEC.md; checklist section 14)"
+      ]
+    },
+    {
+      "name": "Workflows",
+      "group": "Operate",
+      "notBuilt": []
+    },
+    {
+      "name": "Control Room",
+      "group": "Operate",
+      "notBuilt": []
+    },
+    {
+      "name": "God's Eye View",
+      "group": "Operate",
+      "notBuilt": []
+    },
+    {
+      "name": "REA",
+      "group": "Operate",
+      "notBuilt": []
+    },
+    {
+      "name": "All tools",
+      "group": "Library",
+      "notBuilt": [
+        "OpenHands SDK, JBang",
+        "writing: Neovim, LaTeX, Fountain/FDX (checklist section 14)"
+      ]
+    },
+    {
+      "name": "Connections",
+      "group": "Library",
+      "notBuilt": [
+        "OpenRig (excluded by the owner, 2026-10-11)"
+      ]
+    },
+    {
+      "name": "Files",
+      "group": "Library",
+      "notBuilt": [],
+      "workbenchNote": "The terminal Workbench that is to hold these screens (the operator's primary operating space, in five zones) is designed in WORKBENCH-SPEC.md, in the operator's reference package of 2026-10-11 (not in this repository); `timmy workbench` exits 69 at 876755a, and helper H110 builds its first slice this round. Until it lands, each capability is drawn by the renderers its row names: the REPL, the live board, Timmy Studio, the companion page or the monitor."
+    }
+  ],
+  "rehearsals": [
+    {
+      "id": "r24",
+      "revision": "a300851",
+      "date": "2026-10-11",
+      "where": "macOS (the operator's Mac): a sandbox user, the package installed from a300851",
+      "how": "scripted (tmux keys, headless Chrome); 14:18 to 15:13 PDT; FAKE lane programs first on PATH; no model key set",
+      "by": "helper H96",
+      "source": "helper H96's report to the lead (r24, 2026-10-11); no ledger row yet",
+      "facts": [
+        {
+          "step": "E",
+          "ran": "the packed-install check (scripts/packed-install-check.mjs) from the installed package: 55 of 55 checks; its 12 browser workflows in Google Chrome 154 made 71 of 71 requests to Timmy's own servers (the companion page, its chat sample and a chat send to a FAKE upstream, the logs pages)",
+          "caps": {
+            "packaged-install": "both",
+            "companion-page": "backend",
+            "logs-pages": "backend",
+            "companion-chat": "context"
+          }
+        },
+        {
+          "step": "U1",
+          "ran": "`timmy` (the REPL's first screen) and `/setup` as it was at a300851 (the setup check: \"run timmy init\")",
+          "caps": {
+            "setup-guided": "context"
+          },
+          "defects": [
+            "D7"
+          ]
+        },
+        {
+          "step": "U2",
+          "ran": "`/project new tray24 --from tray-workflow`: three files, byte-identical to the template",
+          "caps": {
+            "project-files": "both",
+            "tray-workflow-starter": "both"
+          }
+        },
+        {
+          "step": "U3",
+          "ran": "`/workflows`, `/workflows WORKFLOW.md`; `/board live` in headless Chrome: God's Eye View (its Devices and Hosting cards not set up), the Control Room and WORKFLOW.md's card (change → inspect → result → lesson)",
+          "caps": {
+            "workflows-list": "both",
+            "project-board": "both",
+            "gods-eye-view": "both",
+            "control-room": "ui",
+            "workflow-cards": "both",
+            "gods-eye-view-remote": "context"
+          }
+        },
+        {
+          "step": "U4a",
+          "ran": "a chat message typed in the REPL with no model key: \"no model key, so Timmy cannot answer\"; no request was sent",
+          "caps": {
+            "chat-openrouter": "context"
+          }
+        },
+        {
+          "step": "U4b",
+          "ran": "`/run WORKFLOW.md result`: 3 of 3 blocks, 220 s, prediction met, operation o9170961c; the change block's Qwen Code 0.22.2 on the local qwen3.8:27b-mlx made the width 140 → 150, the CadQuery rebuild took 14 s and the STEP readback 1.5 s, VoxVision record v8450642f; 11 receipts",
+          "caps": {
+            "workflow-run": "both",
+            "tray-workflow-starter": "both",
+            "iterate-tray": "backend",
+            "agent-qwen": "backend",
+            "cad-recipe-tray": "backend",
+            "vox-inspect-measure": "backend",
+            "operations": "backend"
+          }
+        },
+        {
+          "step": "U4c",
+          "ran": "the board's Run up to here on the request U4b had satisfied: it ran, and read as FAILED after 67 s",
+          "result": "FAIL",
+          "caps": {
+            "workflow-run": "ui",
+            "project-board": "context"
+          },
+          "defects": {
+            "workflow-run": [
+              "D3"
+            ]
+          }
+        },
+        {
+          "step": "U4d",
+          "ran": "TIDY.md's destructive block: the REPL's NEEDS YOU box, y allowed once (the job completed); `timmy md` answered n: exit 2, nothing ran; `timmy act`: refused, exit 2; the board's Run refused and listed it in Waiting on you",
+          "caps": {
+            "workflow-approval": "both",
+            "decisions": "both",
+            "operations": "context"
+          }
+        },
+        {
+          "step": "U4e",
+          "ran": "the board's command typed in the REPL, y: the waiting item cleared; `/decisions` then said nothing waits",
+          "caps": {
+            "decisions": "both",
+            "workflow-approval": "both"
+          }
+        },
+        {
+          "step": "U5",
+          "ran": "`/op <id>` (the full card), `/ops`, `/jobs` and `/jobs <id>`, `/review` and `/review <id>` (the width's diff and its /restore line), `/results`, `/vox`; `timmy verify`: ok, 20 receipts",
+          "caps": {
+            "operations": "ui",
+            "jobs-stop-recover": "ui",
+            "review-restore": "ui",
+            "vox-inspect-measure": "ui",
+            "receipts": "both"
+          },
+          "defects": {
+            "jobs-stop-recover": [
+              "D2"
+            ]
+          }
+        },
+        {
+          "step": "U5",
+          "ran": "the board's Results, Jobs, Flows and VoxVision sections in headless Chrome (8 result cards)",
+          "caps": {
+            "project-board": "ui"
+          },
+          "defects": [
+            "D4",
+            "D5"
+          ]
+        },
+        {
+          "step": "U6",
+          "ran": "`/canvas`, `/canvas open` (the page: 71 requests, all to 127.0.0.1); the Project panel's five groups; Place card on three cards; Open on the board (the token handoff)",
+          "caps": {
+            "studio-open": "both",
+            "studio-cards": "both"
+          },
+          "defects": {
+            "studio-open": [
+              "D6"
+            ],
+            "studio-cards": [
+              "D6"
+            ]
+          }
+        },
+        {
+          "step": "U6",
+          "ran": "`/room`, `/room <job>` and `/room <flow>` name operation o9170961c; the board's Control Room shows it",
+          "caps": {
+            "control-room": "both",
+            "operations": "ui"
+          }
+        },
+        {
+          "step": "U6",
+          "ran": "`/overview` (its Apps row cut at \"operation…\") and `/overview --all` (the operation named seven times)",
+          "caps": {
+            "gods-eye-view": "both"
+          }
+        },
+        {
+          "step": "U7",
+          "ran": "`timmy watch` on a blank home: exit 78; `timmy init`; the monitor's FIRST RUN; HOME; q (the pairing card); Ctrl+C: 130",
+          "caps": {
+            "monitor": "both",
+            "setup-guided": "context"
+          },
+          "defects": {
+            "monitor": [
+              "D7"
+            ]
+          }
+        },
+        {
+          "step": "U7",
+          "ran": "the companion page (on 127.0.0.1:3001 although TIMMY_COMPANION_PORT was set): 7 tabs; the ✨ sample (no model asked); every request to 127.0.0.1; 2 Slate 3D 404s",
+          "caps": {
+            "companion-page": "both"
+          },
+          "defects": [
+            "D1"
+          ]
+        },
+        {
+          "step": "U7",
+          "ran": "`timmy logs` on 127.0.0.1:4406; Ctrl+C: 130",
+          "caps": {
+            "logs-pages": "both"
+          }
+        },
+        {
+          "step": "K",
+          "ran": "tests/connect-real-ssh.test.ts with OpenSSH_10.3p1 against an sshd the test started on 127.0.0.1: 6 of 6 (host keys pinned only on a confirmed fingerprint, a changed key refused, a detached job reconciled, a stop confirmed and one refused, a fetch with sha256 checked); ~/.ssh unchanged; no other computer",
+          "result": "partial",
+          "caps": {
+            "connect": "backend"
+          }
+        }
+      ],
+      "notRun": [
+        "`/vox view` (it opens a Rerun window on the Mac)",
+        "`/restore`",
+        "`/stop`",
+        "the board's VoxVision actions (Inspect, Measure, Compare, View in Rerun), Save and Rebuild, and Edit blocks",
+        "a chat message with a model key (none was set)",
+        "the monitor's [c] chat, [v] verify and [s] seal",
+        "`timmy watch --lanes`",
+        "the companion's Send (it would spend OpenRouter credits)"
+      ],
+      "defects": {
+        "D1": {
+          "says": "`timmy watch` ignored TIMMY_COMPANION_PORT (its companion listened on 3001)",
+          "state": "changed since",
+          "owner": "H98 (r25 U2d saw the port taken)"
+        },
+        "D2": {
+          "says": "a workflow block's output in `/jobs <id>` was captured at about 40 columns, losing the starts of lines",
+          "state": "open",
+          "owner": "H107 (r25 D5)"
+        },
+        "D3": {
+          "says": "a request already satisfied failed as a workflow (the board's Run up to here after a success)",
+          "state": "changed since",
+          "owner": "H99 (r25 U6: \"no change\")"
+        },
+        "D4": {
+          "says": "a Results card said \"0 of 1 steps completed\" where /jobs said 1 of 3",
+          "state": "changed since",
+          "owner": "H99 (bf0be6d)"
+        },
+        "D5": {
+          "says": "the JOB badge squashed on result cards whose title wraps",
+          "state": "changed since",
+          "owner": "H99 (bf0be6d)"
+        },
+        "D6": {
+          "says": "Studio's \"Placed card\" note overlapped the panel's buttons",
+          "state": "changed since",
+          "owner": "H100"
+        },
+        "D7": {
+          "says": "the REPL and the monitor named claude-opus-4.7 with no model key",
+          "state": "changed since",
+          "owner": "H98 (r25: \"chat: no model key\")"
+        }
+      }
+    },
+    {
+      "id": "r25",
+      "revision": "5e5cbb3",
+      "date": "2026-10-11",
+      "where": "macOS (the operator's Mac): a sandbox user, the package installed from 5e5cbb3",
+      "how": "scripted (tmux keys, headless Chrome through CDP); 21:21 to 22:27 PDT; FAKE lane programs on PATH; no paid model call and no real model key; the only model used was the local qwen3.8:27b-mlx",
+      "by": "helper H101",
+      "source": "helper H101's report to the lead (r25, 2026-10-11); no ledger row yet",
+      "facts": [
+        {
+          "step": "E",
+          "ran": "the packed-install check from the installed package: 56 of 56 checks (tarball sha256 b2fe778a…); its 12 browser workflows in Google Chrome made 71 of 71 requests to Timmy's own servers (the companion page, its chat sample and a chat send to a FAKE upstream, the logs pages)",
+          "caps": {
+            "packaged-install": "both",
+            "companion-page": "backend",
+            "logs-pages": "backend",
+            "companion-chat": "context"
+          }
+        },
+        {
+          "step": "U1",
+          "ran": "`timmy init`: five questions, the chat set to the local model (no key); again: nothing asked, nothing changed; a bad key file refused; a 64-hex seed pasted hidden and imported",
+          "caps": {
+            "setup-guided": "both"
+          }
+        },
+        {
+          "step": "U2",
+          "ran": "`timmy watch --companion-port 4422`: HOME in 1.2 s; q shows the companion's address; the companion on 4423 when 4422 was taken; on a blank home the guided setup in place, then HOME; with no terminal, exit 78",
+          "caps": {
+            "monitor": "both",
+            "setup-guided": "both",
+            "companion-page": "context"
+          },
+          "defects": {
+            "monitor": [
+              "D12"
+            ],
+            "setup-guided": [
+              "D12"
+            ]
+          }
+        },
+        {
+          "step": "U2",
+          "ran": "the monitor's chat drawer (c) said \"No model key: nothing is sent to a model\"; no message was sent in it",
+          "caps": {
+            "chat-monitor": "context"
+          },
+          "defects": [
+            "D1",
+            "D10"
+          ]
+        },
+        {
+          "step": "U2",
+          "ran": "the monitor's chat line answered `/studio` and `/setup` with what to type in a terminal (no model asked); the words cut at the terminal's width",
+          "caps": {
+            "monitor": "ui"
+          },
+          "defects": [
+            "D7"
+          ]
+        },
+        {
+          "step": "U2f",
+          "ran": "a direct call of the packaged /storyboard handler (not a path a person has): its preview server on 127.0.0.1:4273 only; a request with a foreign Host refused with 403",
+          "caps": {
+            "storyboard": "context"
+          }
+        },
+        {
+          "step": "U3",
+          "ran": "the REPL on a blank home: `/setup` stopped, then answered (a setup check receipt); `/help` (the surfaces first); `/setup key` with a FAKE key (hidden, stored 0600, never printed; no connection made), and again: \"Nothing was changed\"",
+          "caps": {
+            "setup-guided": "both",
+            "chat-openrouter": "context"
+          }
+        },
+        {
+          "step": "U3",
+          "ran": "`/lanes`: the six lane programs, FAKE stand-ins on the preview's PATH, listed as found (not checked)",
+          "caps": {
+            "monitor-lanes": "ui"
+          },
+          "defects": [
+            "D13"
+          ]
+        },
+        {
+          "step": "U4",
+          "ran": "`/project new tray25 --from tray-workflow`; `/workflows WORKFLOW.md` (upmd 0.2.7); `/board live`: its surfaces links land on the Control Room and God's Eye View; `/studio` (Studio's page with its grant: 71 requests, all to 127.0.0.1)",
+          "caps": {
+            "project-files": "both",
+            "tray-workflow-starter": "both",
+            "workflows-list": "both",
+            "project-board": "both",
+            "control-room": "ui",
+            "gods-eye-view": "ui",
+            "studio-open": "both"
+          }
+        },
+        {
+          "step": "U5",
+          "ran": "`/run WORKFLOW.md result` in an 80-column window: progress about every 15 s; the change block's local agent on qwen3.8:27b-mlx made the width 140 → 150, then a real CadQuery rebuild and STEP readback and VoxVision; 3 of 3 blocks, 5 min 16 s, prediction met, operation o0a9ed5a0; 11 receipts",
+          "caps": {
+            "workflow-run": "both",
+            "tray-workflow-starter": "both",
+            "iterate-tray": "backend",
+            "agent-qwen": "backend",
+            "cad-recipe-tray": "backend",
+            "vox-inspect-measure": "backend",
+            "operations": "backend"
+          },
+          "defects": {
+            "workflow-run": [
+              "D6"
+            ]
+          }
+        },
+        {
+          "step": "U6",
+          "ran": "the board's Run up to here on the satisfied request: no change in 51 s; FAILED appears 0 times in /jobs, /op, /room, /overview --all and the board's Workflows, Results, Flows and Room sections",
+          "caps": {
+            "workflow-run": "ui",
+            "project-board": "ui",
+            "jobs-stop-recover": "both",
+            "gods-eye-view": "both",
+            "operations": "both",
+            "control-room": "both"
+          },
+          "defects": {
+            "workflow-run": [
+              "D2"
+            ],
+            "project-board": [
+              "D2",
+              "D8"
+            ],
+            "gods-eye-view": [
+              "D8"
+            ]
+          }
+        },
+        {
+          "step": "U6b",
+          "ran": "`timmy act '/iterate tray \"make the tray 150 mm wide\"' --project <project> --wait`: exit 0, no change",
+          "caps": {
+            "operations": "backend",
+            "iterate-tray": "context"
+          },
+          "defects": {
+            "operations": [
+              "D4"
+            ]
+          }
+        },
+        {
+          "step": "U7",
+          "ran": "real upmd 0.2.7 on a stale build (the change block exits 4): the run stops; its end line and /jobs say no change, its block line and receipts say failed",
+          "result": "partial",
+          "caps": {
+            "workflow-run": "both",
+            "jobs-stop-recover": "context"
+          },
+          "defects": {
+            "workflow-run": [
+              "D3",
+              "D5"
+            ],
+            "jobs-stop-recover": [
+              "D5"
+            ]
+          }
+        },
+        {
+          "step": "U7",
+          "ran": "`timmy md WORKFLOW.md result --json`: from the launcher's folder refused (\"WORKFLOW.md does not exist\", exit 2); from the project, exit 4 with the same blocks",
+          "caps": {
+            "workflow-run": "context"
+          },
+          "defects": [
+            "D4"
+          ]
+        },
+        {
+          "step": "U7",
+          "ran": "`/recipe tray`: 30 of 30 geometry checks passed, bounds 160 × 80 × 30 mm; then `/run WORKFLOW.md result`: no change (the current case)",
+          "caps": {
+            "cad-recipe-tray": "both",
+            "workflow-run": "both"
+          }
+        },
+        {
+          "step": "U8",
+          "ran": "`/run TIDY.md tidy`: the NEEDS YOU box; nothing ran while it waited; y allowed once (the job completed, 3 receipts); the board's Run on it disabled with the reason, at 1440 and 390 wide",
+          "caps": {
+            "workflow-approval": "both",
+            "project-board": "context"
+          }
+        },
+        {
+          "step": "U9",
+          "ran": "Studio (`/studio`): By kind and By operation; Place this operation placed 3 cards and 2 arrows in run order; a second press added nothing and left a dragged card and a deleted one as the person left them",
+          "caps": {
+            "studio-operations": "both"
+          },
+          "defects": [
+            "D9"
+          ]
+        },
+        {
+          "step": "U10",
+          "ran": "the companion page from `timmy watch` (q gives its address): connected; STREAMDOWN CHAT's ✨ Try it streamed the page's own sample, marked SAMPLE on the message, the answer, the receipt card and the approval card; 44 requests, all to 127.0.0.1; Send left disabled (never pressed)",
+          "caps": {
+            "companion-page": "both",
+            "companion-chat": "context"
+          },
+          "defects": {
+            "companion-page": [
+              "D11"
+            ]
+          }
+        }
+      ],
+      "notRun": [
+        "the monitor's chat with a message (`/storyboard`: D1, suspected)",
+        "`timmy logs`",
+        "a chat message in the REPL (none was sent, before or after the FAKE key)",
+        "the monitor's FIRST RUN splash (unreachable through the launcher)",
+        "`timmy act` without `--project` (D4)",
+        "the companion's Send (E's \"chat send (FAKE upstream)\" row covers its code)",
+        "`timmy watch --lanes`"
+      ],
+      "defects": {
+        "D1": {
+          "says": "the monitor's chat sends text other than /setup, /studio and /model test to the agent even with no key (OpenRouter with an empty key, then a local model nobody chose), while its drawer says nothing is sent; /storyboard is not dispatched there",
+          "state": "suspected",
+          "owner": "H103"
+        },
+        "D2": {
+          "says": "the live board's Jobs section lists a no-change run as COMPLETED while every other view says no change",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D3": {
+          "says": "a stale build (the change block exits 4) is \"no change\" in the end line and /jobs, but \"change failed\" in the block line and \"failed\" in the block and workflow receipts",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D4": {
+          "says": "the preview launcher starts every command in its own work folder: `timmy md WORKFLOW.md result` cannot name a project's workflow (md has no --project), and `timmy act` without --project acts on that folder",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D5": {
+          "says": "upmd's output in workflow job logs wraps at about 40 columns, mid-word",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D6": {
+          "says": "at 80 columns a progress line breaks \"run 1 s\" with \"s\" alone on a line",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D7": {
+          "says": "the monitor's flash line is cut at the terminal's width (/studio's and /setup's words lose their ends)",
+          "state": "open",
+          "owner": "H103"
+        },
+        "D8": {
+          "says": "the board's table of contents says \"Overview\" while its section heading says \"God's Eye View\"",
+          "state": "open",
+          "owner": "H107"
+        },
+        "D9": {
+          "says": "cards placed by Place this operation stay selected (the next drag moves them all); a deleted card leaves its arrow; the params card shows today's values, not the ones that operation used",
+          "state": "open",
+          "owner": "H109"
+        },
+        "D10": {
+          "says": "the monitor's chat drawer is drawn over HOME without clearing the cells beside it",
+          "state": "open",
+          "owner": "H103"
+        },
+        "D11": {
+          "says": "the companion page logs one 404 it does not request (most likely Chrome's /favicon.ico: the page declares no icon)",
+          "state": "suspected",
+          "owner": "H104"
+        },
+        "D12": {
+          "says": "the exit-78 text says \"<repo>/.timmy/store-pin\" while the setup's Proceed screen says \"~/work/.timmy/store-pin\"",
+          "state": "open",
+          "owner": "H103"
+        },
+        "D13": {
+          "says": "/lanes says \"unreal-mcp Unreal MCP · found (not checked)\" only because mcporter, its command, is on PATH as a package dependency",
+          "state": "open",
+          "owner": "H107"
+        }
+      }
+    }
+  ],
+  "suites": [
+    {
+      "revision": "5e5cbb3",
+      "kind": "full suite",
+      "result": "479 test files passed, 9 skipped; 4,410 tests passed, 68 skipped, 0 failed; CI passed",
+      "source": "the lead's run at the round's base"
+    },
+    {
+      "revision": "34af086",
+      "kind": "helper run",
+      "files": [
+        "tests/ops-evidence.test.ts",
+        "tests/ops-template.test.ts",
+        "tests/tray-approval.test.ts"
+      ],
+      "result": "29 tests passed (12, 9 and 8)",
+      "source": "H102's report"
+    },
+    {
+      "revision": "4bffb78",
+      "kind": "helper run",
+      "files": [
+        "tests/local-chat.test.ts",
+        "tests/chat-route.test.ts",
+        "tests/repl-local-chat-pty.test.ts"
+      ],
+      "result": "30 files, 294 tests passed, 0 failed (these three among them)",
+      "source": "H103's report"
+    },
+    {
+      "revision": "81243fe",
+      "kind": "helper run",
+      "files": [
+        "tests/companion-canvas.test.ts",
+        "tests/companion-client.test.ts",
+        "tests/companion-failures.test.ts",
+        "tests/companion-page-browser.test.ts",
+        "tests/companion-page-probe.test.ts",
+        "tests/companion-web-assets.test.ts",
+        "tests/companion-web-build.test.ts",
+        "tests/local-servers-browser.test.ts",
+        "tests/local-servers-words.test.ts",
+        "tests/local-servers.test.ts",
+        "tests/logs-pages-browser.test.ts",
+        "tests/runtime-pages.test.ts",
+        "tests/ui-monitor-companion-pty.test.ts",
+        "tests/companion-sync.test.tsx",
+        "tests/companion-owner.test.tsx"
+      ],
+      "result": "15 files, 107 tests passed, 0 failed",
+      "source": "H104's report"
+    },
+    {
+      "revision": "87ae7e9",
+      "kind": "helper run",
+      "files": [
+        "tests/inventory-generate.test.ts"
+      ],
+      "result": "12 tests passed",
+      "source": "H106's own run (the first part)"
+    }
+  ],
+  "acceptance": [],
+  "capabilities": [
+    {
+      "id": "chat-openrouter",
+      "screen": "Chat",
+      "weight": 7,
+      "feature": "Chat with Timmy in the REPL on OpenRouter: the model answers and uses Timmy's tools, each turn with its receipt and the cost OpenRouter reports",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "OpenRouter (paid: the operator's key)"
+      ],
+      "registry": [
+        "repl",
+        "openrouter"
+      ],
+      "inputs": "a message typed at the REPL prompt; a paid OpenRouter key (`timmy init`, `/setup key` or OPENROUTER_API_KEY); the model `/model` names",
+      "outputs": "the answer and each tool call in the scrollback; a turn receipt with the cost OpenRouter reported (null when none came back)",
+      "features": [
+        "15-chat-in-the-repl-on-openrouter-a"
+      ],
+      "paths": {
+        "repl": [
+          "setup key",
+          "model <id>",
+          "new"
+        ],
+        "cli": [
+          "repl"
+        ],
+        "monitor": [
+          "/model test"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a message typed at the REPL prompt (`timmy`, or `timmy repl`)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "owner": "the operator (a paid key, within the lead's recorded cap), then the lead",
+      "blocker": "a paid OpenRouter key; a paid turn only with the operator and within the lead's recorded cap",
+      "notes": "r24 (U4a) and r25 (U3) ran with no key or a FAKE key: no chat message reached a model; the last paid turns are ledger rows 124 and 125 (round R1)."
+    },
+    {
+      "id": "chat-local",
+      "screen": "Chat",
+      "weight": 10,
+      "feature": "Chat with Timmy in the REPL on a local model (Ollama) the setup chose, with no paid key, labelled and never switched silently",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Ollama on this computer (a model already pulled)"
+      ],
+      "registry": [
+        "ollama",
+        "repl"
+      ],
+      "inputs": "a message typed at the REPL prompt; the setup's chat answer (`timmy init` or `/setup chat`: one model Ollama lists)",
+      "outputs": "the answer and each tool call in the scrollback, labelled with the local model; a turn receipt (no cost: no paid request)",
+      "features": [
+        "15-the-repl-s-chat-on-a-local-model-with"
+      ],
+      "paths": {
+        "repl": [
+          "setup chat"
+        ],
+        "cli": [
+          "repl"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a message typed at the REPL prompt, the chat set to the local model",
+          "file": "src/agent/chat-route.ts",
+          "has": "resolveChatRoute"
+        }
+      ],
+      "owner": "H103 (second part: one chat path for every surface)",
+      "blocker": "a local Ollama model on the computer; not run on the Mac (r26)"
+    },
+    {
+      "id": "chat-monitor",
+      "screen": "Chat",
+      "weight": 9,
+      "feature": "Chat in the monitor (`timmy watch`, c): its chat drawer",
+      "renderers": [
+        "the monitor (full-screen terminal)"
+      ],
+      "providers": [
+        "OpenRouter, then a local Ollama model as its last resort (read in the code: r25 D1)"
+      ],
+      "registry": [
+        "monitor"
+      ],
+      "inputs": "text typed in the monitor's chat drawer",
+      "outputs": "the agent's answer in the drawer; the drawer's own words with no key",
+      "tests": [
+        "tests/monitor-chat-words.test.tsx",
+        "tests/monitor-commander-route.test.tsx"
+      ],
+      "testsWith": "no model asked: the drawer's words with no key, and a FAKE commander for its commander route",
+      "code": [
+        "src/tui/components/ShellV2.tsx",
+        "src/tui/provider-status.ts"
+      ],
+      "described": [
+        {
+          "kind": "monitor",
+          "say": "c on HOME opens the chat drawer; text that is not /setup, /studio or /model test goes to the agent",
+          "file": "src/tui/components/ShellV2.tsx",
+          "has": "chat.send("
+        }
+      ],
+      "owner": "H103 (second part: the monitor sends only on the route the operator chose)",
+      "blocker": "r25 D1 (suspected): with no key its text still goes to the agent; fix first, then a Mac run",
+      "notes": "No checklist row (section 15 says why). The monitor's /setup and /studio only say what to type in a terminal; they are not paths of the setup or of Studio."
+    },
+    {
+      "id": "companion-chat",
+      "screen": "Chat",
+      "weight": 4,
+      "feature": "The companion page's own chat (STREAMDOWN CHAT, Send): a message streamed from OpenRouter with the operator's key",
+      "renderers": [
+        "the companion page (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "OpenRouter (paid: the operator's key, read by the companion)"
+      ],
+      "inputs": "a message typed in the page; the page's token; OPENROUTER_API_KEY",
+      "outputs": "the streamed answer (Markdown, code, diagrams) in the page",
+      "tests": [
+        {
+          "file": "tests/local-servers.test.ts",
+          "has": "/chat"
+        },
+        {
+          "file": "tests/companion-page-browser.test.ts",
+          "has": "FAKE"
+        }
+      ],
+      "testsWith": "a FAKE upstream in place of OpenRouter",
+      "code": [
+        "src/companion/server.ts"
+      ],
+      "paths": {
+        "companion": [
+          "⚡ STREAMDOWN CHAT",
+          "Send ⚡",
+          "POST /chat"
+        ]
+      },
+      "owner": "H104 (second part: the chosen chat route)",
+      "blocker": "its chat goes only to OpenRouter (H104's report); Send was never pressed on the Mac (it spends credits)",
+      "notes": "Separate from the REPL's chat: it neither uses the local route nor shares the REPL's session."
+    },
+    {
+      "id": "chat-mirror",
+      "screen": "Chat",
+      "weight": 7,
+      "viewer": true,
+      "viewOf": [
+        "chat-openrouter",
+        "chat-local"
+      ],
+      "feature": "The companion's Chat Mirror: the REPL session's chat turns shown as receipts, with an honest empty state, and readable diagrams",
+      "renderers": [
+        "the companion page (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the turn receipts of the folder the companion follows",
+      "outputs": "the turns as receipt cards in the page; nothing sent from it",
+      "features": [
+        "4-the-companion-s-chat-mirror-and"
+      ],
+      "paths": {
+        "companion": [
+          "💬 CHAT MIRROR"
+        ]
+      },
+      "owner": "H104 (second part: the active project)",
+      "notes": "A view only: a person chats in the REPL or the monitor, not here."
+    },
+    {
+      "id": "studio-open",
+      "screen": "Studio",
+      "weight": 8,
+      "feature": "Open Timmy Studio (the tldraw canvas) on the REPL's project: `/studio`, `/canvas open`, with its one-time grant",
+      "renderers": [
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "tldraw 5.5.2 (unlicensed: fine locally; a commercial licence before anything is published)"
+      ],
+      "registry": [
+        "canvas"
+      ],
+      "inputs": "the REPL's active project",
+      "outputs": "the canvas page with its Project panel (workflows, parameters, flows, VoxVision records, the Control Room)",
+      "features": [
+        "4-timmy-canvas",
+        "7-timmy-canvas-on-the-repl-s-project-the",
+        "7-the-canvas-page-s-project-panel-the"
+      ],
+      "paths": {
+        "repl": [
+          "studio",
+          "canvas open",
+          "canvas"
+        ],
+        "cli": [
+          "studio"
+        ],
+        "studio": [
+          "Open",
+          "Save"
+        ]
+      },
+      "owner": "H109 (Studio, this round)"
+    },
+    {
+      "id": "studio-cards",
+      "screen": "Studio",
+      "weight": 6,
+      "feature": "Cards on the canvas: a workflow's, a parameter's or a result's card placed from the Project panel, with its buttons run by the REPL that holds the project",
+      "renderers": [
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [],
+      "registry": [
+        "canvas"
+      ],
+      "inputs": "the project's records (workflows, parameters, flows, VoxVision records)",
+      "outputs": "cards on the canvas; a card's button runs the board's own action in the REPL",
+      "features": [
+        "7-canvas-workflow-parameter-and-result"
+      ],
+      "paths": {
+        "studio": [
+          "Place card",
+          "Place on canvas",
+          "Open on the board",
+          "Refresh placed cards",
+          "card:run",
+          "card:rebuild",
+          "card:set-params",
+          "card:set-scad-params"
+        ],
+        "agent": [
+          "canvas_place_project_card"
+        ]
+      },
+      "owner": "H109 (Studio, this round)"
+    },
+    {
+      "id": "studio-operations",
+      "screen": "Studio",
+      "weight": 7,
+      "feature": "Studio's cards by operation: one request's cards placed together, in the order they ran (By operation, Place this operation)",
+      "renderers": [
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the project's operations and their records",
+      "outputs": "3 cards and 2 arrows for a three-block run, left to right",
+      "features": [
+        "7-timmy-studio-s-cards-by-operation-each"
+      ],
+      "paths": {
+        "studio": [
+          "By kind",
+          "By operation",
+          "Place this operation"
+        ]
+      },
+      "owner": "H109"
+    },
+    {
+      "id": "studio-agent-drawing",
+      "screen": "Studio",
+      "weight": 5,
+      "feature": "The agent draws on the open canvas: shapes, text and edits through its canvas tools, each saved as a revision with a receipt",
+      "renderers": [
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "tldraw (in the open page)"
+      ],
+      "registry": [
+        "canvas-tools"
+      ],
+      "inputs": "a request in the REPL's chat; an open canvas page",
+      "outputs": "shapes on the canvas; the canvas revision and the turn's receipt",
+      "tests": [
+        "tests/studio-tools.test.ts",
+        "tests/studio-canvas-browser.test.ts",
+        "tests/repl-approvals.test.ts"
+      ],
+      "code": [
+        "src/agent/canvas-tools.ts"
+      ],
+      "paths": {
+        "agent": [
+          "canvas_api",
+          "canvas_exec",
+          "canvas_read"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a request typed in the REPL's chat: the agent calls canvas_exec (NEEDS YOU asks before a risky tool)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "ledgerRows": [
+        {
+          "row": 71,
+          "ran": "the LIVE-01 recheck: a chat turn drew a rectangle on the canvas through a canvas tool, approved once, saved at revision 1 (receipt 8870a8bf), with a real model",
+          "scope": "both"
+        }
+      ],
+      "owner": "unassigned (the lead assigns)",
+      "blocker": "a working chat route (a key or the local model) and an open canvas page"
+    },
+    {
+      "id": "vox-inspect-measure",
+      "screen": "VoxVision",
+      "weight": 7,
+      "feature": "Inspect and measure a file: what it is by its bytes, its facts and labelled measured values (STEP, STL, images, video, .blend, spatial files)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "OCP (STEP readback)",
+        "Timmy's STL reader",
+        "OpenCV (images: the Look worker)",
+        "ffprobe (video)",
+        "Blender (.blend)"
+      ],
+      "registry": [
+        "vox:step",
+        "vox:stl",
+        "vox:look",
+        "vox:video",
+        "vox:blend",
+        "vox:spatial",
+        "vox:geo"
+      ],
+      "inputs": "a file in the project",
+      "outputs": "a VoxVision record (results/vox/<id>.json) with units and its source; an SVG for a bounding box",
+      "features": [
+        "6-timmy-voxvision-inspect-file-and",
+        "6-voxvision-s-status-words-and-frames",
+        "7-the-board-s-voxvision-section"
+      ],
+      "paths": {
+        "repl": [
+          "inspect <file>",
+          "measure <file>",
+          "vox"
+        ],
+        "cli": [
+          "evidence vox"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "vox-detect",
+      "screen": "VoxVision",
+      "weight": 5,
+      "feature": "Detect QR codes, ArUco markers and a colour in an image or a video",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "OpenCV (the Look worker)"
+      ],
+      "registry": [
+        "vox:look"
+      ],
+      "inputs": "an image or a video in the project; what to detect",
+      "outputs": "a VoxVision record of what was found, with frames for a video",
+      "features": [
+        "6-detect-image-video-qr-aruco-color-r-g-b"
+      ],
+      "tests": [
+        {
+          "file": "tests/vox-actions.test.ts",
+          "has": "/detect"
+        },
+        {
+          "file": "tests/vox-look-real.test.ts",
+          "has": "detect"
+        }
+      ],
+      "code": [
+        "src/vox/tools.ts",
+        "workers/look/look.py"
+      ],
+      "paths": {
+        "repl": [
+          "detect <file> [qr] [aruco] [color r,g,b]"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "vox-compare",
+      "screen": "VoxVision",
+      "weight": 5,
+      "feature": "Compare two files of one kind side by side (images, STL)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "OpenCV (images)",
+        "Timmy's STL reader"
+      ],
+      "registry": [
+        "vox:look",
+        "vox:stl"
+      ],
+      "inputs": "two files of one kind",
+      "outputs": "a VoxVision record of both, side by side, with \"estimated\" where units are not declared",
+      "features": [
+        "6-compare-a-b-images-side-by-side-with"
+      ],
+      "tests": [
+        {
+          "file": "tests/vox-actions.test.ts",
+          "has": "/compare"
+        }
+      ],
+      "code": [
+        "src/vox/tools.ts",
+        "workers/look/look.py"
+      ],
+      "paths": {
+        "repl": [
+          "compare <a> <b>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "vox-view-rerun",
+      "screen": "VoxVision",
+      "weight": 5,
+      "feature": "View a VoxVision record in the person's own Rerun viewer (`/vox view <record> rerun`)",
+      "renderers": [
+        "Rerun's viewer (a window on the computer)"
+      ],
+      "providers": [
+        "Rerun (the rerun-sdk the person installed)"
+      ],
+      "registry": [
+        "vox:rerun"
+      ],
+      "inputs": "a VoxVision record",
+      "outputs": "the record's files in a Rerun window; a STEP record refused",
+      "features": [
+        "6-vox-view-record-rerun",
+        "13-rerun-viewer"
+      ],
+      "paths": {
+        "repl": [
+          "vox view <record> rerun"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "vox-viser-fiftyone",
+      "screen": "VoxVision",
+      "weight": 6,
+      "feature": "Viser as the 3D view and FiftyOne as the scoreboard of VoxVision records",
+      "renderers": [],
+      "providers": [
+        "Viser (pip install viser)",
+        "FiftyOne"
+      ],
+      "registry": [
+        "vox:viser",
+        "vox:fiftyone"
+      ],
+      "inputs": "VoxVision records (meshes, point clouds, camera frames; datasets)",
+      "outputs": "nothing: no code starts either",
+      "researched": {
+        "file": "docs/ui-cockpit/COMMAND-CENTER-PLAN.md",
+        "says": "proposed in the plan (F-6, the vision observatory): Viser as the 3D view, FiftyOne as the scoreboard; /vox lists both as \"needs setup\" and nothing here starts either (src/capabilities/plans.ts)"
+      },
+      "owner": "unassigned (the lead assigns)",
+      "blocker": "not built: a viewer layer for each, and a path to start it"
+    },
+    {
+      "id": "observe-look",
+      "screen": "VoxVision",
+      "weight": 6,
+      "feature": "Observe an image: OpenCV's measurements, a model's interpretation kept apart from them, and a question qualified with evidence",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "OpenCV (the Look worker)",
+        "a vision model (OpenRouter, paid) for the interpretation"
+      ],
+      "registry": [
+        "look"
+      ],
+      "inputs": "an image in the project; an optional question",
+      "outputs": "measurements, the model's interpretation labelled as its, the cost reported; a qualified answer citing observed handles",
+      "features": [
+        "6-look-worker-opencv-measurements",
+        "6-a-model-s-interpretation-as-a-separate",
+        "6-a-text-only-model-refused-with-image",
+        "6-cost-accounting",
+        "6-evidence-protocol-observed-handles-cite",
+        "6-observation-check-only-sealed-unchanged",
+        "6-observe-image-qualify-question-an"
+      ],
+      "paths": {
+        "repl": [
+          "observe <image> [--qualify] [question]"
+        ],
+        "agent": [
+          "observe_image",
+          "describe_image"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "mission-map",
+      "screen": "VoxVision",
+      "weight": 2,
+      "feature": "The Mission Map (`timmy map`): the vision server's page on 127.0.0.1:4336",
+      "renderers": [
+        "the system browser (127.0.0.1:4336)",
+        "carbonyl in the terminal (`/web map`)"
+      ],
+      "providers": [],
+      "registry": [
+        "mission-map"
+      ],
+      "inputs": "the vision server's records",
+      "outputs": "its page; its status and events",
+      "tests": [
+        "tests/vision-server.test.ts"
+      ],
+      "code": [
+        "src/vision/server.ts",
+        "src/vision/cli.ts"
+      ],
+      "paths": {
+        "cli": [
+          "map",
+          "map --port <n>"
+        ],
+        "repl": [
+          "web map"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)",
+      "notes": "Older than round R4; not assessed beyond its paths and its test."
+    },
+    {
+      "id": "vision-adapters",
+      "screen": "VoxVision",
+      "weight": 3,
+      "feature": "Vision adapters (Viser, FiftyOne, Depth Anything, SAM): which are found here; a probe run qualifies one",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "each adapter's own runtime"
+      ],
+      "registry": [
+        "adapters"
+      ],
+      "inputs": "the computer",
+      "outputs": "each adapter found or not; nothing qualified until a probe runs",
+      "features": [
+        "13-vision-adapters"
+      ],
+      "paths": {
+        "cli": [
+          "vision integrations list"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "roboflow",
+      "screen": "VoxVision",
+      "weight": 3,
+      "feature": "Roboflow detection on an image (a hosted model)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Roboflow (an API key)"
+      ],
+      "registry": [
+        "vox:roboflow"
+      ],
+      "inputs": "an image; a Roboflow project and version; ROBOFLOW_API_KEY",
+      "outputs": "detections in a VoxVision record",
+      "features": [
+        "13-roboflow"
+      ],
+      "paths": {
+        "repl": [
+          "detect <image> roboflow <project>/<version>"
+        ],
+        "cli": [
+          "vision"
+        ],
+        "mcp": [
+          "timmy_roboflow_run"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)",
+      "blocker": "a Roboflow key (ROBOFLOW_API_KEY)"
+    },
+    {
+      "id": "spatial-review",
+      "screen": "VoxVision",
+      "weight": 3,
+      "feature": "A local model's review of a spatial file (Ollama), kept apart from what was measured",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Ollama (a local model)"
+      ],
+      "registry": [
+        "spatial-review"
+      ],
+      "inputs": "a spatial model file; a local model",
+      "outputs": "the local model's review, labelled as its own",
+      "tests": [
+        "tests/spatial-local-model-review.test.ts"
+      ],
+      "testsWith": "a FAKE local model server",
+      "code": [
+        "src/agent/spatial-model-tools.ts"
+      ],
+      "paths": {
+        "agent": [
+          "list_local_spatial_models",
+          "review_spatial_with_local_model",
+          "read_spatial_model_context"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a request typed in the REPL's chat: the agent calls review_spatial_with_local_model (NEEDS YOU asks before a risky tool)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "cad-recipe-tray",
+      "screen": "3D Create",
+      "weight": 8,
+      "feature": "The CadQuery tray recipe: build the part from its parameters, read the STEP back and check its geometry, as a durable job",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "CadQuery 2.8 (Python)",
+        "OCP (the readback)"
+      ],
+      "registry": [
+        "recipe-tray"
+      ],
+      "inputs": "recipes/tray.params.json (width, depth, height, wall)",
+      "outputs": "out/recipes/<id>/: the STEP, five STL files, report.json; a build and a readback receipt",
+      "features": [
+        "5-cadquery-recipe-enclosure-tray-1-cli",
+        "5-recipe-in-the-repl-as-a-durable-job",
+        "7-board-parameter-card-the-tray-recipe-s"
+      ],
+      "paths": {
+        "repl": [
+          "recipe tray"
+        ],
+        "cli": [
+          "recipe"
+        ],
+        "board": [
+          "set-params"
+        ],
+        "agent": [
+          "run_recipe"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "iterate-tray",
+      "screen": "3D Create",
+      "weight": 8,
+      "feature": "Change the tray in words: a local code agent edits only its parameter file, then the part is rebuilt and measured outside the agent",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "Qwen Code or Codex on a local model",
+        "CadQuery",
+        "OCP"
+      ],
+      "inputs": "an instruction in words; the tray project",
+      "outputs": "the edited parameter file, a rebuild and its readback, a flow record judged against the request",
+      "features": [
+        "5-iterate-what-every-target-shares",
+        "5-iterate-tray-instruction-the-agent-may",
+        "1-retrieval-before-tasks-the-checked"
+      ],
+      "paths": {
+        "repl": [
+          "iterate tray \"<instruction>\""
+        ],
+        "agent": [
+          "iterate_recipe"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "openscad",
+      "screen": "3D Create",
+      "weight": 6,
+      "feature": "OpenSCAD: render a model to STL with name=value parameters, read the STL back, edit it in words",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "OpenSCAD (installed by the person)"
+      ],
+      "registry": [
+        "openscad"
+      ],
+      "inputs": "a .scad model; name=value parameters",
+      "outputs": "an STL (and a PNG), Timmy's own readback of it, a receipt",
+      "features": [
+        "5-openscad-scad-model-scad-name-value-png",
+        "5-timmy-s-own-stl-readback",
+        "5-openscad-parameters-name-value-words",
+        "5-run-native-app-openscad",
+        "5-tools-row-openscad",
+        "5-iterate-scad-model-scad-instruction",
+        "1-starter-scad-starter",
+        "3-the-openscad-parameter-card-of-a"
+      ],
+      "paths": {
+        "repl": [
+          "scad <model.scad> [name=value ...]",
+          "iterate scad <model.scad> \"<instruction>\""
+        ],
+        "board": [
+          "set-scad-params"
+        ],
+        "agent": [
+          "run_native",
+          "iterate_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "freecad",
+      "screen": "3D Create",
+      "weight": 5,
+      "feature": "FreeCAD: run a project's FreeCAD Python as a judged job, read the STEP back, edit it in words",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "FreeCAD (freecadcmd, installed by the person)"
+      ],
+      "registry": [
+        "freecad"
+      ],
+      "inputs": "a FreeCAD Python script; its arguments",
+      "outputs": "the model's files, a readback judged against the request, a receipt",
+      "features": [
+        "5-freecad-freecad-script-py-args-through",
+        "5-freecad-readback-run-file-step-a-judged",
+        "5-iterate-freecad-script-py-instruction",
+        "1-starter-freecad-starter"
+      ],
+      "paths": {
+        "repl": [
+          "freecad <script.py> [args]",
+          "freecad readback",
+          "iterate freecad <script.py> \"<instruction>\""
+        ],
+        "agent": [
+          "run_native",
+          "iterate_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "blender",
+      "screen": "3D Create",
+      "weight": 5,
+      "feature": "Blender: run a project's Blender Python headless as a job, read the result back, edit it in words",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Blender (installed by the person)"
+      ],
+      "registry": [
+        "blender"
+      ],
+      "inputs": "a Blender Python script",
+      "outputs": "the .blend and renders, Blender's own readback, a receipt",
+      "features": [
+        "5-blender-blender-script-py-blender-s-own",
+        "5-iterate-blender-script-py-instruction",
+        "1-starter-blender-starter"
+      ],
+      "paths": {
+        "repl": [
+          "blender <script.py>",
+          "iterate blender <script.py> \"<instruction>\""
+        ],
+        "agent": [
+          "run_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "cinema4d",
+      "screen": "3D Create",
+      "weight": 4,
+      "feature": "Cinema 4D: run a project's Cinema 4D Python through c4dpy as a job",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Cinema 4D's c4dpy (a licence)"
+      ],
+      "registry": [
+        "c4dpy"
+      ],
+      "inputs": "a Cinema 4D Python script",
+      "outputs": "the scene's files and a receipt",
+      "features": [
+        "5-cinema-4d-c4d-script-py-through-c4dpy",
+        "1-starter-c4d-starter"
+      ],
+      "paths": {
+        "repl": [
+          "c4d <script.py>"
+        ],
+        "agent": [
+          "run_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "unreal",
+      "screen": "3D Create",
+      "weight": 5,
+      "feature": "Unreal Engine: run a project's Python headless (UnrealEditor-Cmd) as a judged job, each saved level read back by a second Unreal process",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Unreal Engine 5.8 (installed by the person)"
+      ],
+      "registry": [
+        "unreal"
+      ],
+      "inputs": "a .uproject and a Python script",
+      "outputs": "the saved levels, their readback, a judged result and a receipt",
+      "features": [
+        "5-unreal-engine-unreal-project-uproject",
+        "13-unreal"
+      ],
+      "paths": {
+        "repl": [
+          "unreal <project.uproject> <script.py>"
+        ],
+        "agent": [
+          "run_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "houdini",
+      "screen": "3D Create",
+      "weight": 3,
+      "feature": "Houdini through the engine shelf: an environment lock and templates; no workspace command",
+      "renderers": [
+        "the terminal (JSON lines)"
+      ],
+      "providers": [
+        "Houdini's hython (a licence from the Houdini Launcher)"
+      ],
+      "inputs": "an engine workflow and a project",
+      "outputs": "its outputs and a receipt, once hython runs",
+      "features": [
+        "13-houdini"
+      ],
+      "paths": {
+        "cli": [
+          "engine run houdini <workflow> --project <dir>"
+        ]
+      },
+      "code": [
+        "lanes/engines/houdini"
+      ],
+      "owner": "the operator (a Houdini licence), then the lead",
+      "notes": "Row 139: hython 22.0.429 said no licence could be found."
+    },
+    {
+      "id": "spline",
+      "screen": "3D Create",
+      "weight": 3,
+      "feature": "Spline through its MCP server: list its tools and call one, through /mcp",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Spline's own MCP server (the operator configured it)",
+        "the Spline editor with its AI bridge on"
+      ],
+      "registry": [
+        "mcp-cli"
+      ],
+      "inputs": "an open Spline document with its AI bridge on; a tool and its JSON arguments",
+      "outputs": "the server's answer, its own error text when it fails, a receipt",
+      "features": [
+        "13-spline-driven-parametrically"
+      ],
+      "paths": {
+        "repl": [
+          "mcp tools <server>",
+          "mcp call <server> <tool> <json>"
+        ]
+      },
+      "owner": "the operator (open a document in the Spline editor, its AI bridge on)"
+    },
+    {
+      "id": "after-effects",
+      "screen": "Motion",
+      "weight": 6,
+      "feature": "After Effects: author and edit a project from ExtendScript, inspect an .aep, render with aerender, edit it in words",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "After Effects' own window (authoring)"
+      ],
+      "providers": [
+        "Adobe After Effects (a licence)",
+        "aerender"
+      ],
+      "registry": [
+        "aerender",
+        "afterfx"
+      ],
+      "inputs": "an ExtendScript (.jsx) or an .aep, a composition, an output module",
+      "outputs": "the .aep, the rendered video, its readback (ffprobe), receipts",
+      "features": [
+        "5-after-effects-ae-aep-comp-out-om",
+        "5-after-effects-authoring-and-editing-ae",
+        "5-ae-inspect-aep-after-effects-reads-a",
+        "5-iterate-ae-script-jsx-instruction-comp",
+        "1-starter-ae-starter"
+      ],
+      "paths": {
+        "repl": [
+          "ae author <script.jsx>",
+          "ae inspect <aep>",
+          "ae <aep> <comp> <out>",
+          "iterate ae <script.jsx> \"<instruction>\""
+        ],
+        "agent": [
+          "run_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "storyboard",
+      "screen": "Motion",
+      "weight": 2,
+      "feature": "A HyperFrames storyboard of an idea, served for preview on 127.0.0.1 (the older monitor's /storyboard)",
+      "renderers": [
+        "the system browser (127.0.0.1:4273)"
+      ],
+      "providers": [
+        "HyperFrames templates"
+      ],
+      "inputs": "an idea in words",
+      "outputs": "a storyboard folder and its preview address",
+      "tests": [
+        "tests/monitor-storyboard.test.ts",
+        "tests/visual-tools.test.ts"
+      ],
+      "code": [
+        "src/utils/slash-commands.ts",
+        "src/utils/visual-tools.ts"
+      ],
+      "paths": {
+        "monitor": [
+          "v1:/storyboard"
+        ]
+      },
+      "uiTests": [],
+      "owner": "H103 (second part decides what the monitor dispatches)",
+      "blocker": "the default monitor does not dispatch it (r25 D1); only the v1 monitor (TIMMY_SHELL=v1) does",
+      "notes": "tests/monitor-storyboard.test.ts calls the handler directly, so it does not cover the monitor (r25's report)."
+    },
+    {
+      "id": "workflows-list",
+      "screen": "Workflows",
+      "weight": 5,
+      "feature": "List a project's workflow documents (upmd) and their blocks, with the next command to run",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "upmd 0.2.7 (installed by the person)"
+      ],
+      "registry": [
+        "workflows"
+      ],
+      "inputs": "the project's Markdown files",
+      "outputs": "each workflow, its named blocks, its sha256 and upmd's version",
+      "features": [
+        "3-workflows"
+      ],
+      "paths": {
+        "repl": [
+          "workflows",
+          "workflows <file>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "workflow-run",
+      "screen": "Workflows",
+      "weight": 9,
+      "feature": "Run a workflow block: a prediction first, live block states, a receipt per block, the end line, no change said as no change",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)",
+        "JSON on stdout (--json)"
+      ],
+      "providers": [
+        "upmd 0.2.7"
+      ],
+      "inputs": "a workflow document and a block",
+      "outputs": "a job, an operation, block and workflow receipts, the prediction met or not",
+      "features": [
+        "3-run-file-block-through-upmd",
+        "3-live-block-states-run-runs-upmd-on-a",
+        "3-run-clarity-no-change-is-an-outcome-of",
+        "2-a-run-job-left-by-a-repl-that-ended"
+      ],
+      "paths": {
+        "repl": [
+          "run <file> <block>"
+        ],
+        "cli": [
+          "md <workflow.md> [<block>]"
+        ]
+      },
+      "owner": "H107 (run words that agree everywhere)"
+    },
+    {
+      "id": "workflow-approval",
+      "screen": "Workflows",
+      "weight": 7,
+      "feature": "NEEDS YOU before a risky workflow block: a person allows it once or denies it; the board refuses it and lists it in Waiting on you",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "a block that runs a destructive shell command (APPROVAL.md in the tray template)",
+      "outputs": "y: the block runs once, with receipts; n: nothing runs, nothing is sealed",
+      "features": [
+        "3-one-receipt-per-block-needs-you-before",
+        "3-the-tray-template-s-approval-example"
+      ],
+      "paths": {
+        "repl": [
+          "run APPROVAL.md tidy"
+        ],
+        "cli": [
+          "md APPROVAL.md tidy"
+        ]
+      },
+      "refuses": [
+        {
+          "kind": "cli",
+          "path": "timmy act '/run APPROVAL.md tidy'",
+          "why": "its block is a destructive shell command, which needs a person (r24 U4d: exit 2, nothing ran)"
+        },
+        {
+          "kind": "board",
+          "path": "action run",
+          "why": "the board cannot show the NEEDS YOU box: its Run is disabled with the reason, and a Run sent anyway is refused and listed in Waiting on you (r24 U4d, r25 U8)"
+        },
+        {
+          "kind": "studio",
+          "path": "card action run",
+          "why": "a card's Run is the board's own action, refused as the board's is"
+        }
+      ],
+      "owner": "the lead (r26)"
+    },
+    {
+      "id": "workflow-cards",
+      "screen": "Workflows",
+      "weight": 5,
+      "feature": "A workflow's card on the live board: its blocks as a graph, each block's command and Run, the workflow's text edited and saved",
+      "renderers": [
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the project's workflow documents",
+      "outputs": "the card; an edit saved with an edit receipt; a Run that types the block's /run",
+      "features": [
+        "3-timmy-workflows-one-connected-card-per",
+        "7-workflow-cards-as-node-graphs",
+        "7-flow-cards-that-survive-malformed"
+      ],
+      "paths": {
+        "repl": [
+          "board live"
+        ],
+        "board": [
+          "save-workflow"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "run-evidence",
+      "screen": "Workflows",
+      "weight": 8,
+      "feature": "`timmy evidence flow|step|vox`: a workflow block takes this run's own flow record, STEP or VoxVision record, by its operation's id, never by time",
+      "renderers": [
+        "the terminal (a path, or JSON)"
+      ],
+      "providers": [],
+      "inputs": "a block's operation id (TIMMY_OPERATION)",
+      "outputs": "the path of this run's record or STEP, its seal and bytes checked",
+      "features": [
+        "3-timmy-evidence-flow-step-vox-inside-a"
+      ],
+      "paths": {
+        "cli": [
+          "evidence flow",
+          "evidence step",
+          "evidence vox"
+        ]
+      },
+      "owner": "H102 (second part: `timmy evidence stl`, `flow --outcome`)"
+    },
+    {
+      "id": "tray-workflow-starter",
+      "screen": "Workflows",
+      "weight": 8,
+      "feature": "The tray-workflow starter: one request carried end to end (a local agent's change, a rebuild and readback, VoxVision, the operation's card, a draft lesson)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "Timmy Studio (tldraw in the browser, 127.0.0.1)"
+      ],
+      "providers": [
+        "Qwen Code on a local model",
+        "CadQuery",
+        "OCP",
+        "upmd"
+      ],
+      "inputs": "`/project new <name> --from tray-workflow`; WORKFLOW.md's blocks",
+      "outputs": "the tray changed and checked; 11 receipts for a three-block run",
+      "features": [
+        "3-the-tray-workflow-starter-workflow-md"
+      ],
+      "paths": {
+        "repl": [
+          "project new <name> --from tray-workflow",
+          "run WORKFLOW.md result"
+        ]
+      },
+      "owner": "H102 (second part: the lesson sentence)"
+    },
+    {
+      "id": "control-room",
+      "screen": "Control Room",
+      "weight": 6,
+      "feature": "The Control Room: the project's runs, their costs and tools; a run of this REPL stopped from the board",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the project's jobs, flows, agent runs and operations",
+      "outputs": "each run with its operation, cost (reported or unknown) and the command that opens it",
+      "features": [
+        "7-timmy-control-room",
+        "7-the-control-room-s-stop-on-board-live",
+        "7-the-control-room-lists-an-agent-run-s",
+        "7-operation-cards-atop-the-control-room"
+      ],
+      "paths": {
+        "repl": [
+          "room",
+          "room <id>",
+          "stop <id>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "jobs-stop-recover",
+      "screen": "Control Room",
+      "weight": 5,
+      "feature": "Jobs: list them, stop one or all (SIGTERM, then SIGKILL), time limits, and recovery of what an ended session left running",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [],
+      "inputs": "a job id",
+      "outputs": "the job's state, its output tail and receipt; a stopped or recovered job",
+      "features": [
+        "2-jobs-jobs-id",
+        "2-stop-id-stop-all",
+        "2-stop-escalation-sigterm-sigkill",
+        "2-time-limits",
+        "2-recovery-after-a-restart",
+        "2-a-flow-step-s-job-left-behind-by-a-repl",
+        "2-a-code-agent-s-run-record-left-by-a",
+        "2-job-receipts",
+        "2-a-job-stops-when-its-program-waits-for",
+        "2-command-output-limit",
+        "2-one-flow-start-at-a-time-per-project-of"
+      ],
+      "paths": {
+        "repl": [
+          "jobs",
+          "jobs <id>",
+          "stop <id>",
+          "recover"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "decisions",
+      "screen": "Control Room",
+      "weight": 6,
+      "feature": "What waits on a person: what, why, and what to type (Waiting on you)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the project's refused and waiting requests",
+      "outputs": "each item with its reason and the command that settles it",
+      "features": [
+        "7-waiting-on-you-the-decisions-waiting-on"
+      ],
+      "paths": {
+        "repl": [
+          "decisions"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "operations",
+      "screen": "Control Room",
+      "weight": 9,
+      "feature": "Operations: one request in full (what was asked, what ran, what it made, its receipts), run headlessly with `timmy act`; `timmy op` for the one run detail",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)",
+        "JSON on stdout (--json)"
+      ],
+      "providers": [],
+      "inputs": "a REPL command, or an operation id",
+      "outputs": "the operation record (.timmy/operations/<id>.json), its card, its outcome",
+      "features": [
+        "2-operations-one-request",
+        "2-timmy-act-slash-command-wait-json",
+        "2-a-flow-hold-that-other-timmy-processes"
+      ],
+      "paths": {
+        "repl": [
+          "op [<id>]",
+          "ops"
+        ],
+        "cli": [
+          "act \"<slash command>\" --wait",
+          "op <id>"
+        ]
+      },
+      "owner": "H102 (`timmy op`: one run detail for every surface)"
+    },
+    {
+      "id": "agent-qwen",
+      "screen": "Control Room",
+      "weight": 6,
+      "feature": "A code agent as a job: Qwen Code on a local model (`/agent qwen <task>`)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Qwen Code 0.22 (installed by the person)",
+        "a local model through Ollama"
+      ],
+      "registry": [
+        "qwen-code"
+      ],
+      "inputs": "a task in words; the project",
+      "outputs": "the agent's changes, its run record and final message, a receipt; cost none on a local endpoint",
+      "features": [
+        "9-launch-a-code-agent-from-the-repl",
+        "9-harness-rows-in-tools"
+      ],
+      "paths": {
+        "repl": [
+          "agent qwen <task>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "agent-codex-local",
+      "screen": "Control Room",
+      "weight": 4,
+      "feature": "Codex on a local model as a job (`/agent codex --local <task>`)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Codex (installed by the person)",
+        "a local model"
+      ],
+      "registry": [
+        "codex-local"
+      ],
+      "inputs": "a task in words",
+      "outputs": "the agent's changes and run record, a receipt",
+      "features": [
+        "9-codex-with-a-local-model"
+      ],
+      "paths": {
+        "repl": [
+          "agent codex --local <task>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "agent-openhands",
+      "screen": "Control Room",
+      "weight": 4,
+      "feature": "OpenHands on a local model in Timmy's container (`/agent openhands --local <task>`)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "OpenHands (its SDK in a container)",
+        "Docker or OrbStack",
+        "a local model"
+      ],
+      "registry": [
+        "openhands"
+      ],
+      "inputs": "a task in words",
+      "outputs": "the agent's changes, its event stream and run record, a receipt",
+      "features": [
+        "9-openhands-agent-openhands-local-task"
+      ],
+      "paths": {
+        "repl": [
+          "agent openhands --local <task>"
+        ],
+        "mcp": [
+          "timmy_openhands_run"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "agent-paid",
+      "screen": "Control Room",
+      "weight": 3,
+      "feature": "Paid code agents as jobs: Claude Code, Codex and OpenCode on their own accounts (`/agent claude|codex|opencode <task>`)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Claude Code",
+        "Codex",
+        "OpenCode (each its own paid account)"
+      ],
+      "registry": [
+        "claude-code",
+        "codex",
+        "opencode"
+      ],
+      "inputs": "a task in words; the agent's own sign-in",
+      "outputs": "the agent's changes and run record; its cost when the agent reports one",
+      "tests": [
+        {
+          "file": "tests/code-agent.test.ts",
+          "has": "claude"
+        }
+      ],
+      "testsWith": "FAKE agent programs",
+      "code": [
+        "src/code-agents/index.ts"
+      ],
+      "paths": {
+        "repl": [
+          "agent claude <task>",
+          "agent codex <task>",
+          "agent opencode <task>"
+        ]
+      },
+      "owner": "the operator (accounts and a cap), then the lead",
+      "blocker": "each agent's own paid account; no paid run without the operator"
+    },
+    {
+      "id": "monitor",
+      "screen": "Control Room",
+      "weight": 6,
+      "feature": "The full-screen monitor (`timmy watch`): HOME, the chain and bus, the companion's address with its token, setup in place on a blank home",
+      "renderers": [
+        "the monitor (full-screen terminal)"
+      ],
+      "providers": [],
+      "registry": [
+        "monitor"
+      ],
+      "inputs": "Timmy's home and its receipts",
+      "outputs": "the monitor's tabs; the companion on 127.0.0.1 (or the network with --lan)",
+      "tests": [
+        "tests/ui-monitor-pty.test.ts",
+        "tests/ui-monitor-first-run.test.ts",
+        "tests/repl-watch-launch.test.ts",
+        "tests/setup-watch-pty.test.ts"
+      ],
+      "code": [
+        "src/repl/watch-launch.ts",
+        "src/tui/components/ShellV2.tsx"
+      ],
+      "paths": {
+        "repl": [
+          "watch"
+        ],
+        "cli": [
+          "watch",
+          "watch --companion-port <n>",
+          "watch --lan"
+        ]
+      },
+      "owner": "H103 (second part: the monitor's chat and words)"
+    },
+    {
+      "id": "monitor-lanes",
+      "screen": "Control Room",
+      "weight": 4,
+      "feature": "The lanes: which agent lane programs are found on PATH (`/lanes`), and the monitor's lane panes (`timmy watch --lanes`)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the monitor (full-screen terminal)"
+      ],
+      "providers": [
+        "each lane's own program (opencode, hermes, pi, jcode, minds, openhands)"
+      ],
+      "registry": [
+        "lanes"
+      ],
+      "inputs": "PATH",
+      "outputs": "each lane found or not (none run); the panes",
+      "features": [
+        "2-the-monitor-s-lanes"
+      ],
+      "paths": {
+        "repl": [
+          "lanes"
+        ],
+        "cli": [
+          "watch --lanes"
+        ]
+      },
+      "owner": "H107 (r25 D13)"
+    },
+    {
+      "id": "companion-page",
+      "screen": "Control Room",
+      "weight": 6,
+      "viewer": true,
+      "viewOf": [
+        "monitor",
+        "receipts"
+      ],
+      "feature": "The browser companion: the monitor's logs, proof, workspace and canvas state in a page on 127.0.0.1, with a token per start",
+      "renderers": [
+        "the companion page (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the monitor's event bus and receipts (the folder the monitor started in)",
+      "outputs": "the page's tabs (Chat Mirror, Streamdown chat, Workspace, Logs, Proof, Canvas, Slate 3D)",
+      "features": [
+        "4-the-browser-companion"
+      ],
+      "paths": {
+        "companion": [
+          "GET /",
+          "📊 LOGS",
+          "🧾 PROOF",
+          "⚡ WORKSPACE",
+          "🎨 CANVAS"
+        ]
+      },
+      "owner": "H104 (second part: the active project, the chosen chat route, D11)",
+      "notes": "A view of the monitor: it shows the folder the monitor started in, not the active project (H104's report); its own actions are copy buttons and its chat."
+    },
+    {
+      "id": "logs-pages",
+      "screen": "Control Room",
+      "weight": 3,
+      "feature": "`timmy logs`: the event bus, the receipt chain and its verification as pages on 127.0.0.1",
+      "renderers": [
+        "browser pages on 127.0.0.1"
+      ],
+      "providers": [],
+      "inputs": "Timmy's event bus and receipt chain",
+      "outputs": "the logs pages (/, /mission, /browser, /chat)",
+      "tests": [
+        "tests/logserver.test.ts",
+        "tests/logs-pages-browser.test.ts",
+        "tests/logserver-failures.test.ts"
+      ],
+      "code": [
+        "src/utils/logserver.ts"
+      ],
+      "paths": {
+        "cli": [
+          "logs"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "cockpit",
+      "screen": "Control Room",
+      "weight": 2,
+      "feature": "The cockpit (`timmy center`): the REPL, the monitor and the events as tabs in zellij or tmux",
+      "renderers": [
+        "zellij or tmux tabs"
+      ],
+      "providers": [
+        "zellij or tmux (installed by the person)"
+      ],
+      "registry": [
+        "cockpit"
+      ],
+      "inputs": "the terminal",
+      "outputs": "tabs: the REPL, the monitor, the event stream",
+      "tests": [
+        "tests/repl-center.test.ts"
+      ],
+      "code": [
+        "src/repl/center.ts"
+      ],
+      "paths": {
+        "repl": [
+          "center"
+        ],
+        "cli": [
+          "center"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "gods-eye-view",
+      "screen": "God's Eye View",
+      "weight": 6,
+      "feature": "God's Eye View: the project at a glance (needs you, agents, workflows, apps and artifacts, spatial records, history, costs, receipts), each item with its source and the command that opens it",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the records the Control Room, Workflows and VoxVision keep",
+      "outputs": "the overview; `--all` for every row",
+      "features": [
+        "7-god-s-eye-view-one-overview-of-the"
+      ],
+      "paths": {
+        "repl": [
+          "overview",
+          "overview --all"
+        ]
+      },
+      "owner": "H107 (r25 D8)"
+    },
+    {
+      "id": "gods-eye-view-remote",
+      "screen": "God's Eye View",
+      "weight": 5,
+      "feature": "God's Eye View's devices, hosting and provider costs, from Timmy Connect's and Timmy Cloud's records",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [
+        "Timmy Connect's device records",
+        "Timmy Cloud's backend (SIMULATED provider)"
+      ],
+      "inputs": "Connect's devices.json; the Cloud client's last answer",
+      "outputs": "Devices, Hosting and Costs sections; new kinds of Needs you",
+      "features": [
+        "gods-eye-view-slice-2"
+      ],
+      "tests": [
+        "tests/overview-remote.test.ts"
+      ],
+      "paths": {
+        "repl": [
+          "overview"
+        ]
+      },
+      "owner": "the operator (approval of SSH to a computer of theirs), then the lead"
+    },
+    {
+      "id": "project-board",
+      "screen": "God's Eye View",
+      "weight": 6,
+      "feature": "The project's board: a snapshot, or live on 127.0.0.1 with a token, its sections acting through the REPL (Run, Stop, edits) and its file routes guarded",
+      "renderers": [
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the project's records",
+      "outputs": "the board page; each action typed in the REPL as the person would",
+      "features": [
+        "7-board-snapshot-a-read-only-html-board",
+        "7-board-live-the-board-on-127-0-0-1-with",
+        "7-the-live-board-s-routes-file-serves-a",
+        "7-result-cards-one-shape-for-recipe-jobs"
+      ],
+      "paths": {
+        "repl": [
+          "board",
+          "board live",
+          "board off"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "rea-inspect-app",
+      "screen": "REA",
+      "weight": 8,
+      "feature": "REA \"Inspect app\": what an application does, from rea-agents 6.4.0, with the evidence kept raw and re-checkable",
+      "renderers": [],
+      "providers": [
+        "rea-agents 6.4.0 (pinned; not installed here)"
+      ],
+      "inputs": "an application to inspect",
+      "outputs": "findings with their evidence (designed: a Timmy job and a board result card)",
+      "features": [
+        "rea-first-slice"
+      ],
+      "designed": {
+        "says": "the brief for Codex's part A (2026-10-11, kept by the lead): qualify the pinned CLI and its MCP server and build an adapter core; part B: a Timmy job and a board result card. Part A is on Codex's own branch (src/rea/**), not in this tree; part B is not started"
+      },
+      "owner": "Codex (part A); the lead (part B)",
+      "blocker": "part A to land, with rea-agents 6.4.0 qualified on the Mac"
+    },
+    {
+      "id": "tools-ladder",
+      "screen": "All tools",
+      "weight": 6,
+      "feature": "What works here, checked live: one row per surface, model, agent tool and other agent, each on its rung (proposed, built, reachable, installed, exercised)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "JSON on stdout (--json)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "the computer (PATH, keys, local servers)",
+      "outputs": "each row's rung and what it needs; its agent tools",
+      "features": [
+        "10-tools-and-timmy-tools-one-row-per",
+        "10-each-tools-row-s-agent-tools-in-the",
+        "10-the-rungs-as-built-reachable-installed",
+        "10-the-plan-s-ladder-proposed-installed",
+        "5-native-runs-recorded-per-app-tools"
+      ],
+      "paths": {
+        "repl": [
+          "tools",
+          "tools all"
+        ],
+        "cli": [
+          "tools",
+          "tools all --json",
+          "doctor"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "mcp-client",
+      "screen": "All tools",
+      "weight": 6,
+      "feature": "Any MCP server from Timmy: the configured servers, their tools, a call with its record and receipt, through two independent routes (MCPorter's CLI and the MCP SDK)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "MCPorter (a package dependency)",
+        "@modelcontextprotocol/sdk"
+      ],
+      "registry": [
+        "mcp-cli",
+        "mcp-cli:mcporter",
+        "mcp-cli:sdk"
+      ],
+      "inputs": "a server name, a tool and its JSON arguments",
+      "outputs": "the server's answer (or its own error text), a call record and receipt; URLs only in their safe form",
+      "features": [
+        "8-two-mcp-to-cli-routes-mcporter-s-cli",
+        "8-mcp-servers-the-configured-servers-by",
+        "8-mcp-servers-check",
+        "8-mcp-tools-mcp-call-since-4c40038",
+        "8-agent-mcp-tools",
+        "8-mcp-call-records-and-receipts-each-mcp",
+        "8-the-server-s-own-error-text-an-error",
+        "8-json-arguments-taken-raw-mcp-call-takes",
+        "8-safe-urls-a-server-s-url-shown-and-kept",
+        "8-annotations-mcp-tools-shows-a-server-s"
+      ],
+      "paths": {
+        "repl": [
+          "mcp",
+          "mcp servers",
+          "mcp tools <server>",
+          "mcp call <server> <tool> <json>"
+        ],
+        "agent": [
+          "list_mcp_tools",
+          "list_mcp_command_tools",
+          "call_mcp_tool"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "mcp-server",
+      "screen": "All tools",
+      "weight": 3,
+      "feature": "Timmy's own MCP server (`timmy mcp serve`): its tools for any MCP client over stdio (receipts, events, lanes, runs, the judge loop)",
+      "renderers": [
+        "an MCP client of the person's choice"
+      ],
+      "providers": [
+        "@modelcontextprotocol/sdk"
+      ],
+      "inputs": "an MCP client's tool calls",
+      "outputs": "the tools' answers; receipts where a tool seals one",
+      "tests": [
+        "tests/mcp-judge.test.ts",
+        "tests/forge-mcp-dispatch.test.ts",
+        {
+          "file": "tests/mcp-cli.test.ts",
+          "has": "src/mcp/server.ts"
+        }
+      ],
+      "testsWith": "some tools against stand-ins (the judge loop with a mocked model)",
+      "code": [
+        "src/mcp/server.ts"
+      ],
+      "paths": {
+        "cli": [
+          "mcp serve"
+        ],
+        "mcp": [
+          "timmy_list_lanes",
+          "timmy_receipt_verify",
+          "timmy_events_tail",
+          "timmy_judge_loop",
+          "timmy_llm_call"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)",
+      "notes": "Its 26 tools are older than round R4; most are not assessed here (the end of this page lists them)."
+    },
+    {
+      "id": "web-views",
+      "screen": "All tools",
+      "weight": 3,
+      "feature": "Open a local page in the terminal (carbonyl in a zellij floating pane) or the system browser: `/web`, `/web map`, `/web studio`",
+      "renderers": [
+        "carbonyl in the terminal",
+        "the system browser"
+      ],
+      "providers": [
+        "carbonyl (installed by the person)",
+        "zellij"
+      ],
+      "registry": [
+        "web"
+      ],
+      "inputs": "a local address, a receipt, map or studio",
+      "outputs": "the page, in the terminal or the browser",
+      "features": [
+        "4-web",
+        "4-carbonyl-in-a-zellij-floating-pane-or-a"
+      ],
+      "paths": {
+        "repl": [
+          "web <local url>",
+          "web map"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "browser-agent",
+      "screen": "All tools",
+      "weight": 3,
+      "feature": "Timmy's Browser: a page opened for the person, and the agent's browser tools (launch, snapshot, click, screenshot)",
+      "renderers": [
+        "Chrome through CDP"
+      ],
+      "providers": [
+        "a Chrome or Chromium on the computer"
+      ],
+      "registry": [
+        "browser"
+      ],
+      "inputs": "an address; the agent's request",
+      "outputs": "the page; snapshots and screenshots for the agent",
+      "features": [
+        "4-browser"
+      ],
+      "tests": [
+        {
+          "file": "tests/agent-tools-honest.test.ts",
+          "has": "browser_"
+        }
+      ],
+      "paths": {
+        "repl": [
+          "browser <url>"
+        ],
+        "agent": [
+          "browser_launch_cdp",
+          "browser_get_snapshot",
+          "browser_click_element",
+          "browser_take_screenshot"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "preview",
+      "screen": "All tools",
+      "weight": 4,
+      "feature": "Preview the project: a built folder served, or its dev script run, opened in Browser",
+      "renderers": [
+        "the system browser or Browser"
+      ],
+      "providers": [
+        "the project's own dev server (Vite and others)"
+      ],
+      "inputs": "the project's built folder or its dev script",
+      "outputs": "a local address that serves it; a job",
+      "features": [
+        "4-preview-of-a-built-folder",
+        "4-preview-of-a-dev-script",
+        "4-a-vite-dev-script",
+        "4-preview-command-url"
+      ],
+      "paths": {
+        "repl": [
+          "preview",
+          "preview <command> --url <url>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "illustrator",
+      "screen": "All tools",
+      "weight": 4,
+      "feature": "Adobe Illustrator: author, edit and inspect artwork from ExtendScript; its SVG read back by Timmy",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "Illustrator's own window"
+      ],
+      "providers": [
+        "Adobe Illustrator (a licence)"
+      ],
+      "registry": [
+        "illustrator"
+      ],
+      "inputs": "an ExtendScript (.jsx)",
+      "outputs": "the document, its SVG and Timmy's reading of it, a receipt",
+      "features": [
+        "5-adobe-illustrator-illustrator-author"
+      ],
+      "paths": {
+        "repl": [
+          "illustrator author <script.jsx>"
+        ],
+        "agent": [
+          "run_native"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "load-test",
+      "screen": "All tools",
+      "weight": 2,
+      "feature": "A load test of a local endpoint (the agent runs oha)",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "oha (installed by the person)"
+      ],
+      "registry": [
+        "stress"
+      ],
+      "inputs": "an address and a duration",
+      "outputs": "oha's numbers, or why it could not run (never a simulated result)",
+      "tests": [
+        {
+          "file": "tests/agent-tools-honest.test.ts",
+          "has": "stress_test_endpoint"
+        }
+      ],
+      "code": [
+        "src/agent/tools.ts"
+      ],
+      "paths": {
+        "agent": [
+          "stress_test_endpoint"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a request typed in the REPL's chat: the agent calls stress_test_endpoint (NEEDS YOU asks before a risky tool)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "setup-guided",
+      "screen": "Connections",
+      "weight": 8,
+      "feature": "One guided setup (`timmy init`, `timmy watch`, `/setup`): each question asked once, whichever way Timmy starts; secrets hidden and stored 0600",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the monitor (full-screen terminal)",
+        "the terminal"
+      ],
+      "providers": [],
+      "inputs": "the operator's name, an identity (new, or a key file or seed pasted hidden), the Ollama host, the chat's route, the first project",
+      "outputs": "identity.json, identity.seed (0600), providers.json (0600), setup.json; a setup check receipt",
+      "features": [
+        "15-one-guided-setup-timmy-init-timmy-watch"
+      ],
+      "paths": {
+        "repl": [
+          "setup",
+          "setup chat",
+          "setup key"
+        ],
+        "cli": [
+          "init"
+        ]
+      },
+      "described": [
+        {
+          "kind": "monitor",
+          "say": "`timmy watch` asks the setup questions that have no answer first, in its own terminal",
+          "file": "src/utils/init.ts",
+          "has": "guidedSetup('timmy watch'"
+        }
+      ],
+      "owner": "H103 (second part: D7, D10, D12)"
+    },
+    {
+      "id": "theme",
+      "screen": "Connections",
+      "weight": 3,
+      "feature": "Timmy Homebrew, the default look: the palette, theme files for each terminal, a macOS Terminal profile, Monaspace Argon",
+      "renderers": [
+        "the terminal",
+        "the board, Studio and the receipt page"
+      ],
+      "providers": [
+        "Monaspace Argon (a font the person installs)"
+      ],
+      "inputs": "the terminal",
+      "outputs": "theme files installed for the terminal; the palettes shown",
+      "features": [
+        "12-timmy-homebrew-the-default-look-palette",
+        "12-zellij-timmy-homebrew",
+        "12-monaspace-argon",
+        "12-the-monitor-s-focus-in-green"
+      ],
+      "paths": {
+        "repl": [
+          "theme"
+        ],
+        "cli": [
+          "theme install"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "packaged-install",
+      "screen": "Connections",
+      "weight": 5,
+      "feature": "Install Timmy from its packed tarball on Node 24: the starters, workers and recipe runtime inside the package; the install checked",
+      "renderers": [
+        "the terminal"
+      ],
+      "providers": [
+        "npm 11",
+        "Node 24"
+      ],
+      "inputs": "the packed .tgz",
+      "outputs": "`timmy` on PATH; the packed-install check's result (scripts/packed-install-check.mjs)",
+      "features": [
+        "11-a-clean-packed-install-on-node-24",
+        "11-starters-and-the-look-cinema-4d-and",
+        "11-the-round-r4-starters-and-workers-in",
+        "11-runtime-asset-lookup",
+        "11-the-recipe-runtime-in-the-package"
+      ],
+      "described": [
+        {
+          "kind": "cli",
+          "say": "`npm install --global <the packed .tgz>` (npm's own command), then `timmy --version`",
+          "file": "scripts/packed-install-check.mjs",
+          "has": "npm"
+        }
+      ],
+      "owner": "the lead",
+      "blocker": "npm publish is on HOLD (the operator)"
+    },
+    {
+      "id": "connect",
+      "screen": "Connections",
+      "weight": 6,
+      "feature": "Timmy Connect: the operator's computers over SSH (device records without secrets, host keys pinned on a confirmed fingerprint, probes, remote jobs reconciled before any retry, results fetched with sha256 checked); Tailscale read only",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the terminal"
+      ],
+      "providers": [
+        "OpenSSH (ssh, ssh-keygen, ssh-keyscan)",
+        "Tailscale (read only)",
+        "Microsoft OpenSSH Server (command shapes only)"
+      ],
+      "inputs": "a computer's address and user, a key file named (never copied), a fingerprint a person confirms",
+      "outputs": "devices.json (0600), host keys in Timmy's own known-hosts file, job records, fetched files",
+      "features": [
+        "13-timmy-connect-the-operator-s-computers"
+      ],
+      "tests": [
+        "tests/connect-records.test.ts",
+        "tests/connect-windows.test.ts",
+        "tests/connect-ids.test.ts"
+      ],
+      "paths": {
+        "repl": [
+          "connect add <name> <user@host>",
+          "connect probe <name>",
+          "connect run <name> <command>"
+        ],
+        "cli": [
+          "connect add",
+          "connect probe",
+          "connect run",
+          "connect status",
+          "connect stop",
+          "connect fetch",
+          "connect tailnet"
+        ]
+      },
+      "owner": "the operator (approval of SSH to a named computer), then the lead"
+    },
+    {
+      "id": "cloud-backend",
+      "screen": "Connections",
+      "weight": 5,
+      "feature": "Timmy Cloud's backend, slice 1: customers, the Pro entitlement, limits and approvals, orders as durable steps reconciled with the provider, cancellation said exactly, retention",
+      "renderers": [
+        "its HTTP API on 127.0.0.1"
+      ],
+      "providers": [
+        "a SIMULATED provider (no real provider is called)"
+      ],
+      "inputs": "the operator's token (its sha256), the agency credential (TIMMY_CLOUD_AGENCY_TOKEN or a 0600 file)",
+      "outputs": "its state, events and answers; nothing bought, provisioned or deleted",
+      "features": [
+        "13-timmy-cloud-hosting-for-timmy-pro"
+      ],
+      "tests": [
+        "tests/cloud-model.test.ts",
+        "tests/cloud-api.test.ts"
+      ],
+      "described": [
+        {
+          "kind": "cli",
+          "say": "`node --import tsx services/cloud/main.ts --data <folder> --provider-url <the simulated provider>`, started by the operator (outside the npm package)",
+          "file": "services/cloud/main.ts",
+          "has": "node --import tsx services/cloud/main.ts"
+        }
+      ],
+      "owner": "the operator (authorization for any live step), then the lead",
+      "blocker": "simulated only: any account read, purchase, DNS change or service change needs the operator's authorization, with a plan, its cost and its rollback"
+    },
+    {
+      "id": "cloud-client",
+      "screen": "Connections",
+      "weight": 5,
+      "feature": "Timmy Cloud's client: `timmy cloud use|status` and `/cloud` read the backend's overview and orders with the operator's token file (never printed); it changes nothing",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the terminal"
+      ],
+      "providers": [
+        "Timmy Cloud's backend"
+      ],
+      "inputs": "the backend's address and the operator's token file (0600)",
+      "outputs": "the backend's overview and orders, as read",
+      "tests": [
+        "tests/cloud-client-backend.test.ts"
+      ],
+      "testsWith": "the real backend process with its SIMULATED provider",
+      "code": [
+        "src/cloud/cli.ts",
+        "src/cloud/repl.ts"
+      ],
+      "paths": {
+        "repl": [
+          "cloud",
+          "cloud status"
+        ],
+        "cli": [
+          "cloud use",
+          "cloud status"
+        ]
+      },
+      "owner": "the lead",
+      "blocker": "no backend is deployed; not run on the Mac"
+    },
+    {
+      "id": "agentpass",
+      "screen": "Connections",
+      "weight": 3,
+      "feature": "AgentPass: a /tools row and an engine-shelf lane; the service lives outside this repository",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "AgentPass (the operator's own service, outside this repository)"
+      ],
+      "registry": [
+        "agentpass"
+      ],
+      "inputs": "AGENTPASS_REPO_PATH: its checkout",
+      "outputs": "the /tools row's rung; the lane's answer",
+      "features": [
+        "13-agentpass"
+      ],
+      "paths": {
+        "cli": [
+          "engine run agentpass <workflow> --project <dir>"
+        ]
+      },
+      "owner": "the operator (its checkout), then the lead",
+      "notes": "No REPL tool (the checklist)."
+    },
+    {
+      "id": "taskforge",
+      "screen": "Connections",
+      "weight": 3,
+      "feature": "TaskForge: a /tools row with a live health check and an engine-shelf lane",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "TaskForge Labs' API (the operator's)"
+      ],
+      "registry": [
+        "taskforge"
+      ],
+      "inputs": "TASKFORGE_API_URL",
+      "outputs": "the health check's answer; the lane's",
+      "features": [
+        "13-taskforge-api"
+      ],
+      "paths": {
+        "cli": [
+          "engine run taskforge <workflow> --project <dir>"
+        ]
+      },
+      "owner": "the operator (its address), then the lead",
+      "notes": "No REPL tool (the checklist)."
+    },
+    {
+      "id": "agent-integrations",
+      "screen": "Connections",
+      "weight": 2,
+      "feature": "The agent's other service tools: Trigger.dev jobs, Composio connections, a Durable Object pulse, feature flags, card listings, a Daytona workspace command",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [
+        "Trigger.dev",
+        "Composio",
+        "Cloudflare (a Durable Object; Flagship)",
+        "a listing service",
+        "Daytona"
+      ],
+      "registry": [
+        "trigger",
+        "composio",
+        "pulse",
+        "flag",
+        "listing",
+        "workspace"
+      ],
+      "inputs": "each service's key or address",
+      "outputs": "each service's answer, or the setting it needs (never a made-up id)",
+      "tests": [
+        "tests/agent-tools-honest.test.ts"
+      ],
+      "testsWith": "stand-in servers and missing keys (no service is contacted)",
+      "code": [
+        "src/agent/tools.ts"
+      ],
+      "paths": {
+        "agent": [
+          "trigger_background_workflow",
+          "manage_composio_integrations",
+          "cloudflare_send_durable_pulse",
+          "cloudflare_get_feature_flag",
+          "list_card",
+          "run_in_daytona_workspace"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a request typed in the REPL's chat: the agent calls these tools (NEEDS YOU asks before a risky tool)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "owner": "unassigned (the lead assigns)",
+      "blocker": "each service's own key or address"
+    },
+    {
+      "id": "project-files",
+      "screen": "Files",
+      "weight": 6,
+      "feature": "Projects and their files: new from a starter, switch, list; files by role; open, edit in the person's editor; add into refs/",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [],
+      "inputs": "a project name, a starter, a file",
+      "outputs": "the project folder; file listings; a file shown or copied into refs/",
+      "features": [
+        "1-project",
+        "1-files-by-role",
+        "1-open-file",
+        "1-edit-file",
+        "1-add-file-into-refs",
+        "1-file-kinds-by-bytes-or-name",
+        "1-starter-web-starter"
+      ],
+      "paths": {
+        "repl": [
+          "project new <name> --from <starter>",
+          "project list",
+          "files",
+          "open <file>",
+          "edit <file>",
+          "add <file…>"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "agent-project-tools",
+      "screen": "Files",
+      "weight": 4,
+      "feature": "The agent's project tools: list, read and write (asks first) the project's files; recall its records by words",
+      "renderers": [
+        "the REPL (terminal scrollback)"
+      ],
+      "providers": [],
+      "registry": [
+        "project-files",
+        "builtin"
+      ],
+      "inputs": "a request in the REPL's chat",
+      "outputs": "files listed, read or written (NEEDS YOU before a write); receipts",
+      "features": [
+        "1-agent-project-tools"
+      ],
+      "paths": {
+        "agent": [
+          "list_project_files",
+          "read_project_file",
+          "write_project_file",
+          "recall_project_work",
+          "get_current_time",
+          "calculate",
+          "get_system_info",
+          "get_env"
+        ]
+      },
+      "described": [
+        {
+          "kind": "repl",
+          "say": "a request typed in the REPL's chat: the agent calls list_project_files (NEEDS YOU asks before a risky tool)",
+          "file": "src/agent/core.ts",
+          "has": "async send(content: string"
+        }
+      ],
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "drop",
+      "screen": "Files",
+      "weight": 3,
+      "feature": "`timmy drop`: files into the hot-drop lanes, copied, matched by a rule and sealed",
+      "renderers": [
+        "the terminal"
+      ],
+      "providers": [],
+      "inputs": "files or folders; a lane",
+      "outputs": "the copies in the lane, matched and sealed; a receipt",
+      "features": [
+        "1-timmy-drop"
+      ],
+      "paths": {
+        "cli": [
+          "drop <file|folder>…"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "lessons-memory",
+      "screen": "Files",
+      "weight": 5,
+      "feature": "Timmy Memory: find retained work by words, lessons with evidence (add, check, eval, retire), lessons as agent context (no model trained)",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "words; a lesson and the record or receipt that backs it",
+      "outputs": "matches with their sources; lessons with their evidence; the board's memory section",
+      "features": [
+        "1-timmy-memory-recall-words-all-finds-the",
+        "1-lessons-with-evidence-lesson-add-text",
+        "1-lesson-eval-id-runs-of-the-lesson-s",
+        "7-the-board-s-memory-section"
+      ],
+      "paths": {
+        "repl": [
+          "recall <words>",
+          "lesson add \"<text>\" --from <record>",
+          "lesson check <id>",
+          "lessons"
+        ],
+        "agent": [
+          "recall_project_work"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "review-restore",
+      "screen": "Files",
+      "weight": 5,
+      "feature": "Results and review: what each operation changed (sha256 before and after, checked now), and a kept version restored by a person",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the live board (a browser page on 127.0.0.1)"
+      ],
+      "providers": [],
+      "inputs": "an operation id; a file and its kept version",
+      "outputs": "the changes with their diffs; the file restored (human-gated)",
+      "features": [
+        "7-results-and-review-review-op-and-the",
+        "2-results"
+      ],
+      "paths": {
+        "repl": [
+          "review [<op>]",
+          "restore <file> --from <kept>",
+          "results"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
+    },
+    {
+      "id": "receipts",
+      "screen": "Files",
+      "weight": 4,
+      "feature": "Receipts: the chain verified, then the latest",
+      "renderers": [
+        "the REPL (terminal scrollback)",
+        "the terminal"
+      ],
+      "providers": [],
+      "registry": [
+        "receipts"
+      ],
+      "inputs": "Timmy's receipt chain",
+      "outputs": "ok or BROKEN with why; the latest receipts",
+      "tests": [
+        "tests/receipt.test.ts"
+      ],
+      "code": [
+        "src/utils/receipts.ts",
+        "src/repl/follow.ts"
+      ],
+      "paths": {
+        "repl": [
+          "receipts"
+        ],
+        "cli": [
+          "receipts",
+          "receipts --follow",
+          "verify"
+        ]
+      },
+      "owner": "unassigned (the lead assigns)"
     }
   ]
 }

@@ -220,11 +220,22 @@ function ledgerEntry(row, ctx) {
   const notDemonstrated = /^(–|-|—)/.test(row.demonstrated.trim());
   const demoRows = notDemonstrated ? [] : namedRows;
   // A backticked hex word is a commit only when git knows it as one (an 8-hex receipt id looks the same); without git,
-  // only the 7-character form this repository uses for commits is taken.
+  // only the 7-character form this repository uses for commits is taken. A revision the cell names as a fix that has not
+  // run ("fixed in `x`", "came in `x`", "since `x`", "shipped after `x`") is not a demonstrated revision.
   const isRev = (r) => (gi ? gi.isCommit(r) : r.length === 7);
-  const demoRevs = notDemonstrated ? [] : uniq([...[...row.demonstrated.matchAll(REV)].map((m) => m[1]), ...demoRows.map((n) => ledger.get(n)?.rev).filter(Boolean)]).filter(isRev);
+  const NOT_RUN_BEFORE = /(?:fixed(?:\s+since)?\s+in|came\s+in|says\s+exercised\s+at|since|shipped\s+after|added\s+after|after\s+r\d+'s\s+revision)\s*\(?$/;
+  const cellRevs = [...row.demonstrated.matchAll(REV)].filter((m) => !NOT_RUN_BEFORE.test(row.demonstrated.slice(Math.max(0, m.index - 40), m.index).trimEnd())).map((m) => m[1]);
+  // The Mac rehearsals the overlay records (r24, r25) that the cell names: their revision and place, as a ledger row's. A
+  // rehearsal named after a negation in its own clause ("no chat message was sent in r24 or r25") demonstrated nothing.
+  const NEGATED = /\b(?:no|not|neither|nor|never|none)\b/i;
+  const namedAsRun = (id) => row.demonstrated.split(/;|:|\.\s/).some((seg) => {
+    const m = new RegExp(`\\b${id}\\b`).exec(seg);
+    return Boolean(m) && !NEGATED.test(seg.slice(0, m.index));
+  });
+  const rehearsals = notDemonstrated ? [] : (ctx.rehearsals ?? []).filter((r) => r?.id && namedAsRun(r.id));
+  const demoRevs = notDemonstrated ? [] : uniq([...cellRevs, ...demoRows.map((n) => ledger.get(n)?.rev).filter(Boolean), ...rehearsals.map((r) => r.revision).filter(Boolean)]).filter(isRev);
   const implRevs = uniq([...row.implemented.matchAll(REV)].map((m) => m[1])).filter(isRev);
-  const where = uniq(demoRows.map((n) => ledger.get(n)?.where ?? 'unknown (row not in the ledger)'));
+  const where = uniq([...demoRows.map((n) => ledger.get(n)?.where ?? 'unknown (row not in the ledger)'), ...rehearsals.map(() => "macOS (the operator's Mac)")]);
   const demonstrated = MARK(row.demonstrated);
   // A file many features cite (src/repl/workspace.ts, src/cli.ts …) changes with almost every commit: the check uses the
   // feature's own files when it cites any, and says when it could only use shared ones.
@@ -258,6 +269,7 @@ function ledgerEntry(row, ctx) {
     scripted: /scripted/i.test(row.demonstrated),
     demonstrationRows: demoRows,
     rowsNamed: namedRows,
+    rehearsalsNamed: rehearsals.map((r) => r.id),
     demonstrationRevisions: demoRevs.map((r) => ({ rev: r, date: gi ? gi.dateOf(r) : null })),
     demonstratedWhere: where,
     demonstrationProviders: providersIn(row.demonstrated),
@@ -289,7 +301,7 @@ export function buildLedger(root, files, facts, overlay) {
     for (const p of citedPaths(`${r.implemented} ${r.evidence} ${r.feature}`)) if (IMPL_PREFIX.test(p)) cites.set(p, (cites.get(p) ?? 0) + 1);
   }
   const shared = new Set([...cites].filter(([, n]) => n > SHARED_CITES).map(([p]) => p));
-  const ctx = { fileSet, files, ledger, gi, shared };
+  const ctx = { fileSet, files, ledger, gi, shared, rehearsals: Array.isArray(overlay?.rehearsals) ? overlay.rehearsals : [] };
   const used = new Set();
   const idFor = (row) => {
     const base = `${row.section.n}-${slug(row.feature.replace(/\(.*$/, ''), 40)}`;
@@ -300,7 +312,7 @@ export function buildLedger(root, files, facts, overlay) {
   };
   const entries = parsed.rows.map((row) => ({ id: idFor(row), source: 'docs/ui-cockpit/FEATURE-CHECKLIST.md', ...ledgerEntry(row, ctx) }));
   for (const a of overlay?.added ?? []) {
-    const row = { section: { n: a.sectionNumber ?? 15, title: a.section ?? 'Built since the checklist was last updated' }, feature: a.feature ?? a.id, planned: a.planned ?? 'unknown', implemented: a.implemented ?? 'unknown', tested: a.tested ?? 'unknown', demonstrated: a.demonstrated ?? 'unknown', blocker: a.blocker ?? 'unknown', evidence: a.evidence ?? '' };
+    const row = { section: { n: a.sectionNumber ?? 16, title: a.section ?? 'Built since the checklist was last updated' }, feature: a.feature ?? a.id, planned: a.planned ?? 'unknown', implemented: a.implemented ?? 'unknown', tested: a.tested ?? 'unknown', demonstrated: a.demonstrated ?? 'unknown', blocker: a.blocker ?? 'unknown', evidence: a.evidence ?? '' };
     used.add(a.id);
     const entry = ledgerEntry(row, ctx);
     entries.push({ id: a.id, source: 'docs/ui-cockpit/inventory/overlay.json (added: not yet a checklist row)', ...entry, entry: a.entry ?? entry.entry });
@@ -317,7 +329,7 @@ export function buildLedger(root, files, facts, overlay) {
     e.next = j.next ?? null;
     e.assessed = Boolean(judged[e.id] || (overlay?.added ?? []).some((a) => a.id === e.id));
   }
-  return { checklist: parsed.meta, checklistFound: Boolean(checklistText), ledgerFound: Boolean(ledgerText), ledgerRows: ledger.size, ledgerLast: ledger.size ? Math.max(...ledger.keys()) : null, entries, unmatched, git: Boolean(gi), shared: sortStrings([...shared]) };
+  return { checklist: parsed.meta, checklistFound: Boolean(checklistText), ledgerFound: Boolean(ledgerText), ledgerRows: ledger.size, ledgerLast: ledger.size ? Math.max(...ledger.keys()) : null, entries, unmatched, git: Boolean(gi), gi, rows: ledger, shared: sortStrings([...shared]) };
 }
 
 /** The stage a feature belongs to when the overlay says none: by its section and its state. */

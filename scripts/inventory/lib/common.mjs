@@ -40,7 +40,7 @@ export function git(root, args, { maxBuffer = 64 * 1024 * 1024 } = {}) {
 }
 
 /** The generator's own outputs: a change to them is not a change to what it reads. */
-export const OUTPUTS = ['docs/ui-cockpit/INVENTORY.md', 'docs/ui-cockpit/inventory/sbom.json', 'docs/ui-cockpit/inventory/features.json'];
+export const OUTPUTS = ['docs/ui-cockpit/INVENTORY.md', 'docs/ui-cockpit/inventory/sbom.json', 'docs/ui-cockpit/inventory/features.json', 'docs/ui-cockpit/CAPABILITY-MATRIX.md', 'docs/ui-cockpit/inventory/capabilities.json'];
 
 /** The work tree's own facts, or null when the root is not the top of a git work tree. */
 export function gitFacts(root) {
@@ -196,6 +196,15 @@ export function scrubText(s) {
 }
 
 /**
+ * Whether a text names a local path: a path of one segment (a system folder such as /tmp or /root, the temporary folder or
+ * home folder on some computers) only as the start of a longer path ("/tmp/…"); the words "a write under /tmp" name no
+ * computer's own folder. A longer path anywhere.
+ */
+export function namesLocalPath(text, p) {
+  return /^\/[^/]+$/.test(p) ? text.includes(`${p}/`) : text.includes(p);
+}
+
+/**
  * The output's last guard: no absolute local path of this computer and no home-style path anywhere. Returns the problems
  * found (empty when clean); the caller writes nothing when there are any.
  */
@@ -209,7 +218,7 @@ export function absolutePathProblems(text, root, extra = []) {
   try { add(realpathSync(tmpdir())); } catch { /* gone */ }
   for (const p of extra) add(p);
   const problems = [];
-  for (const p of literal) if (text.includes(p)) problems.push(`contains the local path ${p.length} characters long (one of: the root, the home folder, the temporary folder, an installed tree)`);
+  for (const p of literal) if (namesLocalPath(text, p)) problems.push(`contains the local path ${p.length} characters long (one of: the root, the home folder, the temporary folder, an installed tree)`);
   const patterns = [/\/Users\/[A-Za-z0-9._-]+/, /\/home\/[A-Za-z0-9._-]+/, /\/root\//, /[A-Za-z]:\\Users\\/, /\/private\/var\/folders\//];
   for (const re of patterns) {
     const m = re.exec(text);
