@@ -27,7 +27,10 @@ import { locateGenAgent, buildGenAgentArgs, launchDetached } from './genbridge.j
 import { BRAND } from './brand.js';
 import { loadTemplate, listTemplates } from './templates.js';
 import { renderStudioComposition } from './studio-composition.js';
-import { writeDashboard, ensureDashServer, dashUrl, probeUrl, whenDashNotFine } from './dash.js';
+import { writeDashboard, ensureDashServer, dashUrl, probeUrl, whenDashNotFine, DASH_PORT } from './dash.js';
+// R4 (H98): the storyboard is served by Timmy's own dashboard server (127.0.0.1 only); /studio and /setup say exactly how
+import { studioAddress } from './dash-server.js';
+import { MONITOR_SETUP_WORDS, MONITOR_STUDIO_WORDS } from '../setup/surfaces.js';
 import { aggregateGenerations, parseCostFromLog } from './generations.js';
 import { loadOrgConfig, exportSession } from './sessionstore.js';
 import { initProject, listProjects, readProject, saveProject, addGenToProject, addRefToProject, renderProjectSite, addCastToProject, castPromptBlock, renderBlockingSvg, renderRightsLog } from './projects.js';
@@ -611,9 +614,30 @@ export default function DemoDashboard() {
     }
   },
   {
+    // R4 (H98): `/studio` is Timmy Studio (Timmy Canvas, the tldraw workspace), as in the REPL; the monitor cannot give its page
+    // the one-time grant the REPL's /canvas open mints, so it says exactly how. The HyperFrames storyboard it used to make is
+    // /storyboard now.
     command: '/studio',
-    description: 'TIMMY Studios — seed a HyperFrames composition from a Slate template, preview in carbonyl',
-    usage: '/studio [--template <name>] <idea>',
+    description: 'Timmy Studio (the tldraw workspace): opens from the REPL with /studio; a storyboard is /storyboard',
+    usage: '/studio',
+    execute: (args) => (args.trim()
+      ? `${MONITOR_STUDIO_WORDS}\n• /studio <idea> made a HyperFrames storyboard; that is /storyboard ${args.trim()} now.`
+      : MONITOR_STUDIO_WORDS)
+  },
+  {
+    // R4 (H98): the guided setup asks in a terminal (src/setup): the monitor says how
+    command: '/setup',
+    description: 'The guided setup (timmy init asks what has no answer)',
+    usage: '/setup',
+    execute: () => MONITOR_SETUP_WORDS
+  },
+  {
+    // R4 (H98): the HyperFrames storyboard (the old /studio <idea>), its preview served by Timmy's own dashboard server on
+    // 127.0.0.1 only (src/utils/dash-server.ts: this folder's studio/ and nothing else of it). It was `python3 -m
+    // http.server`, which listens on every network address of the computer.
+    command: '/storyboard',
+    description: `${BRAND.studios} storyboard — seed a HyperFrames composition from a Slate template, preview on 127.0.0.1`,
+    usage: '/storyboard [--template <name>] <idea>',
     execute: (args, agent, state) => {
       let restArgs = args.trim();
       let templateName = 'storyboard';
@@ -623,9 +647,10 @@ export default function DemoDashboard() {
         restArgs = tMatch[2].trim();
       }
       const brief = restArgs;
-      if (!brief) return 'Usage: /studio [--template <name>] <idea>  — templates live in studio/templates/ (any agent may author one)';
+      if (!brief) return 'Usage: /storyboard [--template <name>] <idea>  — templates live in studio/templates/ (any agent may author one)';
+      const cwd = process.cwd();
       const slugId = brief.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled';
-      const dir = join(process.cwd(), 'studio', slugId);
+      const dir = join(cwd, 'studio', slugId);
       mkdirSync(dir, { recursive: true });
       const compId = `timmy-${slugId}`;
       const template = loadTemplate(templateName, brief);
@@ -637,15 +662,11 @@ export default function DemoDashboard() {
         `# ${BRAND.studios} storyboard — ${slugId}\n\nBrief: ${brief}\nTemplate: ${template.name} (${template.source})\n\n` +
         beats.map(b => `- ${b.at}s–${b.at + b.dur}s [${b.label}] ${b.text}`).join('\n') +
         `\n\nRender: \`npx hyperframes render studio/${slugId}\`\n`, 'utf8');
-      const port = 4173 + (crypto.createHash('sha256').update(slugId).digest().readUInt16BE(0) % 100);
-      try {
-        const child = spawn('python3', ['-m', 'http.server', String(port), '--directory', dir], { detached: true, stdio: 'ignore' });
-        child.unref();
-      } catch {
-        // preview server is best-effort
-      }
-      const url = `http://localhost:${port}/`;
-      let lane = 'carbonyl not on PATH — open the preview URL in the companion or any browser (github.com/fathyb/carbonyl)';
+      // Timmy's dashboard server, on 127.0.0.1 only; what it could not do is said once it has tried
+      const dash = ensureDashServer(cwd);
+      if (agent?.emit) whenDashNotFine(dash, (words) => agent.emit('message:user' as any, { role: 'assistant', content: `⚙️ **[SYSTEM]** dashboard server: ${words}`, timestamp: Date.now() }));
+      const url = `http://127.0.0.1:${DASH_PORT}${studioAddress(cwd, join(dir, 'index.html')) ?? `/studio/${slugId}/index.html`}`;
+      let lane = 'carbonyl not on PATH — open the preview URL in the companion or any browser on this computer (github.com/fathyb/carbonyl)';
       try {
         execSync('command -v carbonyl', { stdio: 'ignore' });
         if (agent && agent.addBrowserPane) {
@@ -657,8 +678,8 @@ export default function DemoDashboard() {
       }
       if (agent && agent.emit) {
         agent.emit('run.created', {
-          runId: `run_studio_${Date.now().toString(36)}`,
-          source: 'timmy-studio',
+          runId: `run_storyboard_${Date.now().toString(36)}`,
+          source: 'timmy-storyboard',
           prompt_hash: 'sha256_' + crypto.createHash('sha256').update(brief).digest('hex'),
           timestamp: Date.now()
         });
@@ -668,11 +689,11 @@ export default function DemoDashboard() {
       if (state && state.send) {
         state.send(`🎬 ${BRAND.studios.toUpperCase()} brief: "${brief}" (template: ${template.name}). Propose a tighter beat sheet for this template's beats (seconds + on-screen text, ${total}s total).`);
       }
-      return `🎬 ${BRAND.studios.toUpperCase()} — "${brief}"\n` +
+      return `🎬 ${BRAND.studios.toUpperCase()} STORYBOARD — "${brief}"\n` +
              `• composition: studio/${slugId}/index.html (${total}s · ${beats.length} beats)\n` +
              `• template:    ${BRAND.slate} "${template.name}" (${template.source}) — author new ones in studio/templates/\n` +
              `• storyboard:  studio/${slugId}/STORYBOARD.md\n` +
-             `• preview:     ${url}\n` +
+             `• preview:     ${url} (server ${dash.words})\n` +
              `• lane:        ${lane}\n` +
              `• render:      npx hyperframes render studio/${slugId}\n` +
              `• receipt:     not created by this seed; run event emitted when an agent is attached`;
@@ -901,7 +922,7 @@ export default function DemoDashboard() {
       if (!name) {
         return `📐 ${BRAND.slate.toUpperCase()} TEMPLATES: ${all.join(', ') || '(none yet)'}\n` +
                `• schema: {"name","total","beats":[{"at","dur","label","text"}]} — "{brief}" interpolates\n` +
-               `• any agent authors one per workflow: write studio/templates/<name>.json, then /studio --template <name> <idea>`;
+               `• any agent authors one per workflow: write studio/templates/<name>.json, then /storyboard --template <name> <idea>`;
       }
       const t = loadTemplate(name, '{brief}');
       return `📐 ${BRAND.slate} template "${t.name}" (${t.source}, ${t.total}s)\n` +
@@ -1100,7 +1121,7 @@ export default function DemoDashboard() {
       const [sub, name] = args.trim().split(/\s+/);
       if (sub === 'install' && name) {
         const p = installMarketTemplate(name);
-        return p ? `🏪 installed → ${p}\n• use it: /studio --template ${name} <idea> · or Enter on it in SLATE` : `× not in the market — /market lists what's available`;
+        return p ? `🏪 installed → ${p}\n• use it: /storyboard --template ${name} <idea> · or Enter on it in SLATE` : `× not in the market — /market lists what's available`;
       }
       const rows = listMarket();
       return `🏪 TEMPLATE MARKET — ${rows.filter(r => r.installed).length}/${rows.length} installed\n` +
@@ -1529,7 +1550,9 @@ export default function DemoDashboard() {
              `${boldMagenta}● HARNESS, STUDIOS & STATS${reset}\n` +
              `  /refine <k> <t> :: <c> — Small evidence-backed harness update (sealed)\n` +
              `  /harness [kind] — Inspect continual-harness state & refinements\n` +
-             `  /studio <idea>  — Seed HyperFrames comp + carbonyl preview lane\n` +
+             `  /storyboard <i> — HyperFrames storyboard, preview on 127.0.0.1\n` +
+             `  /studio         — Timmy Studio: opens from the REPL (/studio there)\n` +
+             `  /setup          — The guided setup: timmy init, in a terminal\n` +
              `  /stats          — Session analytics from our own logs\n\n` +
              `${boldMagenta}🎬 GENERATION FABRIC (recursive · async)${reset}\n` +
              `  /providers [k]  — Fleet registry (openrouter/venice/wavespeed/local/cloud)\n` +

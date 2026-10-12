@@ -7,13 +7,13 @@ import { visibleWidth } from '../src/term/width.js';
 // a hint that names a range or a pair ("[1-6]", "[j/k]") is not a single key and does nothing.
 // The lines are a real capture of the monitor's home screen at 100 columns.
 const FRAME = [
-  'TIMMY   1 HOME  2 3 4 5 6  chain ● 1 · 04022004  bus ■  drops 3  model claude-sonnet-4.5',
+  'TIMMY   1 HOME  2 3 4 5 6  chain ● 1 · 04022004  bus ■  drops 3  chat: claude-sonnet-4.5 · OpenRouter',
   '─'.repeat(100),
   '╭───────────────────────────────────────────────────────────╮  ╭───────────────────────────────────╮',
   '│ ◇ YOUR JOURNEY                                            │  │ ◇ LATEST RECEIPT                  │',
   '│ no operator seal yet — [s] seals your first               │  │ historical record · inspect its   │',
-  '│ ○ companion  pair a phone · [q] shows QR                  │',
-  ' NORMAL  HOME   [1-6] tab  [Enter] open  [v] verify  [q] QR  [s] seal  [c] chat  chain ● 1  bus ■',
+  '│ ○ companion  [q] its address · a phone: timmy watch --lan│',
+  ' NORMAL  HOME   [1-6] tab  [Enter] open  [q] address  [c] chat  [v] verify  [s] seal  chain ● 1  bus ■',
   '  │ [Enter] Begin setup · [q] Quit',
 ];
 /** The 1-based column of the first cell of `needle` on `line` (cells, not string indexes). */
@@ -46,7 +46,7 @@ describe('the key a click lands on', () => {
       .toEqual(['Enter', 'Enter', 'v', null, null, null]);
   });
   it('hints inside cards count, measured in cells (the em dash and box lines before them)', () => {
-    expect([keyAt(FRAME, col(FRAME[4], '[s]'), 5), keyAt(FRAME, col(FRAME[4], 'first'), 5), keyAt(FRAME, col(FRAME[4], 'historical'), 5), keyAt(FRAME, col(FRAME[5], 'shows QR', 6), 6)])
+    expect([keyAt(FRAME, col(FRAME[4], '[s]'), 5), keyAt(FRAME, col(FRAME[4], 'first'), 5), keyAt(FRAME, col(FRAME[4], 'historical'), 5), keyAt(FRAME, col(FRAME[5], 'its address', 4), 6)])
       .toEqual(['s', 's', null, 'q']);
   });
   it('a label ends at a middle dot, so two hints on one line stay apart', () => {

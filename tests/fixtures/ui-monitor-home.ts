@@ -46,6 +46,10 @@ export function monitorHome(kind: HomeKind, opts: { git?: boolean } = {}): Monit
   };
   execFileSync(process.execPath, ['--import', LOADER, CLI, 'init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo'], { cwd: repo, env, stdio: 'ignore' });
   if (kind === 'initialized') writeFileSync(join(config, 'timmy-tui-nodejs', 'config.json'), '{"onboarded": true}');
+  // R4 (H98): `timmy init --yes` now answers every setup question, and a monitor on such a home opens on HOME. A first-run
+  // home is one an older `timmy init` left: its identity, providers and project, and no setup.json, so the chat and logs
+  // questions have no answer and the monitor's FIRST RUN asks them.
+  else rmSync(join(home, 'timmy', 'setup.json'), { force: true });
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'pty', ...args], { env, encoding: 'utf8' });
   const waitFor = async (re: RegExp, ms = 45_000, target = 't'): Promise<RegExpMatchArray> => {
     let screen = '';

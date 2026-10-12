@@ -480,7 +480,17 @@ if (command === 'watch') {
   // a monitor that cannot start is 69, never 0.
   // Its own arguments go on to the monitor (`timmy watch --no-companion`; row 52).
   const { monitorLaunch, runMonitor } = await import('./repl/watch-launch.js');
-  process.exit(await runMonitor(monitorLaunch(import.meta.url, undefined, undefined, cleanArgs.slice(1))));
+  // R4 (H98): TIMMY_COMPANION_PORT is honoured as --companion-port is (a flag given wins; r24 found it ignored), and a value
+  // that is not a port is refused before anything starts.
+  const { companionPortArgs } = await import('./setup/companion-port.js');
+  const pass = companionPortArgs(cleanArgs.slice(1), process.env);
+  if ('error' in pass) { console.error(`timmy watch: ${pass.error}`); process.exit(2); }
+  // R4 (H98): a home without setup gets the one guided setup here, in this terminal, before the monitor starts; without a
+  // terminal the monitor still says what is missing and exits 78.
+  const { setupBeforeMonitor } = await import('./utils/init.js');
+  const stopped = await setupBeforeMonitor(args);
+  if (stopped !== null) process.exit(stopped);
+  process.exit(await runMonitor(monitorLaunch(import.meta.url, undefined, undefined, pass.args)));
 }
 
 if (command === 'chat') {

@@ -207,7 +207,8 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
   };
 
   if (showOnboard) {
-    return <Onboarding agent={agent} onDone={() => setShowOnboard(false)} onQuit={leave} />;
+    // R4 (H98): the same questions as `timmy init` (only those without an answer), then this legacy shell's teach steps
+    return <Onboarding agent={agent} teach by="the monitor" onDone={() => setShowOnboard(false)} onQuit={leave} />;
   }
 
   return (

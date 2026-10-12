@@ -40,6 +40,10 @@ import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js
 import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
 import { probeDockerServerVersion } from '../../utils/docker-server.js';
 import { keyAt, lastFrame, parseMouse } from '../mouse.js';
+// R4 (H98): the chat route in the top line, the companion's port when it is not the one asked for, the monitor's /setup and /studio
+import { chatRoute } from '../../setup/questions.js';
+import { askedCompanionPort, companionPortNote, companionPortShort } from '../../setup/companion-port.js';
+import { MONITOR_SETUP_WORDS, MONITOR_STUDIO_WORDS } from '../../setup/surfaces.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -99,7 +103,7 @@ const NOOP_AGENT = {
   conversation: { getHistory: () => [] }, totalCost: 0,
 } as unknown as Agent;
 
-export function ShellV2({ width = 120, agent, config, companionSync = true }: { width?: number; agent?: Agent; config?: unknown; companionSync?: boolean }) {
+export function ShellV2({ width = 120, agent, config, companionSync = true, intro }: { width?: number; agent?: Agent; config?: unknown; companionSync?: boolean; intro?: string }) {
   const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
   const effectiveAgent = agent ?? lazyAgent;
   const firstChatText = useRef<string | null>(null);
@@ -156,7 +160,28 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   const [busLive, setBusLive] = useState(false);
   const [activity, setActivity] = useState<BusRow[]>([]);
   const [docker, setDocker] = useState<boolean | null>(null);
-  const [flash, setFlash] = useState('');
+  // R4 (H98): the first line after a setup: what it chose (src/tui/shell-entry.tsx monitorStart)
+  const [flash, setFlash] = useState(intro ?? '');
+  // R4 (H98): the companion's port when it is not the one asked for (--companion-port, TIMMY_COMPANION_PORT, else 3001), and
+  // whether its pairing card draws a QR code (only with --lan; otherwise it shows the address)
+  const [companionNote, setCompanionNote] = useState<{ full: string; short: string } | null>(null);
+  const [companionQr, setCompanionQr] = useState(false);
+  useEffect(() => {
+    const asked = askedCompanionPort(process.argv.slice(2), process.env);
+    const look = (): boolean => {
+      const srv = (global as any).companionServer as { port?: number; url?: string; lanUrls?: string[]; host?: string } | undefined;
+      if (!srv) return false;
+      const full = companionPortNote(asked, srv.port);
+      setCompanionNote(full ? { full, short: companionPortShort(asked, srv.port)! } : null);
+      setCompanionQr(Boolean(companionPairing(srv)?.qr));
+      return true;
+    };
+    if (look()) return;
+    // the bundled fast path starts the companion after the first frame
+    let tries = 0;
+    const t = setInterval(() => { if (look() || ++tries > 60) clearInterval(t); }, 500);
+    return () => clearInterval(t);
+  }, []);
   const [visualToolsOpen, setVisualToolsOpen] = useState(false);
   const [visualRun, setVisualRun] = useState<VisualToolRunState>({ status: 'idle' });
   const [visualResults, setVisualResults] = useState<Partial<Record<VisualOperation, VisualToolRunState>>>({});
@@ -530,6 +555,9 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         // token present, the turn runs THERE (think over the ws); the reply
         // seals chat.turn. Without a token the sovereign local path runs.
         const text0 = chatText.trim();
+        // R4 (H98): the top line names /setup; Timmy Studio is /studio in the REPL: here both say exactly how
+        if (/^\/setup(\s|$)/.test(text0)) { setFlash(MONITOR_SETUP_WORDS); return; }
+        if (/^\/studio(\s|$)/.test(text0)) { setFlash(MONITOR_STUDIO_WORDS); return; }
         if (text0 === MODEL_TEST) {
           if (effectiveAgent) void runModelCheck(effectiveAgent);
           else if (config) { firstChatText.current = MODEL_TEST; startLazyAgent(); setFlash('Checking the model…'); }
@@ -591,10 +619,14 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
       if (a === 'open-qr') {
         // R4 (H84): the companion this process started (its token is shown only here, where the operator started it);
         // a QR code only for its network address (--lan). Without one here, the log companion's address as before.
+        // R4 (H98): a QR code is drawn only for an address a phone can open (--lan), and the card says when the companion
+        // took another port than the one asked for; with no companion here, it says so (no QR of this computer's address)
         const pair = companionPairing((global as any).companionServer);
-        setPairLines(pair ? pair.lines : [`http://localhost:${COMPANION_PORT()}`]);
-        if (pair && !pair.qr) setQrText('');
-        else qr.generate(pair?.qr ?? `http://localhost:${COMPANION_PORT()}`, { small: true }, t => setQrText(t));
+        setPairLines(pair
+          ? [...(companionNote ? [companionNote.full] : []), ...pair.lines]
+          : ['No browser companion runs in this monitor (it was started with --no-companion).', 'Log companion: `timmy logs` prints and opens its address with its token.']);
+        if (pair?.qr) qr.generate(pair.qr, { small: true }, t => setQrText(t));
+        else setQrText('');
       }
     }
   });
@@ -870,16 +902,21 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
           const dropsSeg = `  drops ${drops}`;
           // FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
           // orange slot stays empty and says so, in dim mono.
-          const modelSeg = allClear ? '  nothing needs you' : `  model ${headModel}`;
+          // R4 (H98): the chat route in effect, never a paid model's name that will not be used (no key: says so)
+          const keyNow = effectiveAgent ? effectiveAgent.hasModelKey?.() !== false : Boolean((config as { apiKey?: string } | undefined)?.apiKey);
+          const chatSeg = `  ${chatRoute({ key: keyNow, model: headModel, short: true })}`;
+          const clearSeg = allClear ? ['  nothing needs you'] : [];
           const tabFull = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1} ${t}`));
           const tabColl = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1}`));
           const fixed = 7;
           let tabs = tabFull;
-          let segs = [chainSeg, busSeg, dropsSeg, modelSeg];
+          let segs = [chainSeg, busSeg, dropsSeg, ...clearSeg, chatSeg];
           const tot = (): number => fixed + tabs.join('').length + segs.join('').length;
           if (tot() > width) tabs = tabColl;
-          if (tot() > width) segs = [chainSeg, busSeg, modelSeg];
-          if (tot() > width) segs = [chainSeg, busSeg];
+          // the chat route stays longest: the drops, then "nothing needs you", then the bus go first
+          if (tot() > width) segs = [chainSeg, busSeg, ...clearSeg, chatSeg];
+          if (tot() > width) segs = [chainSeg, busSeg, chatSeg];
+          if (tot() > width) segs = [chainSeg, chatSeg];
           if (tot() > width) segs = [chainSeg];
           return (
             <>
@@ -910,7 +947,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
             <HomePane
               recs={recs} chain={chain} busLive={busLive} docker={docker}
               fleet={fleet} costToday={costToday} costTodayUnknown={costTodayUnknown} model={policyModel} harness={harness} flash={flash}
-              pendingEscrows={pendingEscrows} compact={compact}
+              pendingEscrows={pendingEscrows} compact={compact} companionNote={companionNote?.short ?? null} companionQr={companionQr}
             />
           )}
           {s.tab === 'RUN' && (
@@ -1045,10 +1082,13 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
             <FoldedNote folded={plans.run.rail.folded} />
           </Box>
         )}
+        {/* R4 (H98): as wide as the terminal, its lines wrapped: at left 20 its address (with the token) and its notes made
+            the frame wider than a 100-column terminal, and the screen stream draws no frame wider than the terminal, so q
+            showed nothing */}
         {s.overlay === 'qr' && (
-          <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
+          <Box position="absolute" top={2} left={1} width={Math.max(40, width - 2)} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={theme.textPrimary}>COMPANION PAIR</Text>
-            {pairLines.map((l, i) => <Text key={`p${i}`} color={theme.textPrimary}>{l}</Text>)}
+            {pairLines.map((l, i) => <Text key={`p${i}`} color={theme.textPrimary} wrap="wrap">{l}</Text>)}
             {qrText ? qrText.split('\n').map((l, i) => <Text key={i} color={theme.textPrimary}>{l}</Text>) : null}
             <Text color={theme.textMuted}>[Esc] close</Text>
           </Box>
@@ -1136,7 +1176,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
       {s.overlay === 'whichkey' && (
         <Box position="absolute" top={2} left={0}><WhichKeyOverlay mode={s.mode} tab={s.tab} width={width} /></Box>
       )}
-      {assembled && !visualToolsOpen && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainEvidence={chainEv} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
+      {assembled && !visualToolsOpen && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainEvidence={chainEv} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} qLabel={companionQr ? 'QR' : 'address'} />}
     </Box>
   );
 }
@@ -1149,9 +1189,13 @@ function HomePane(props: {
   recs: Receipt[]; chain: { ok: boolean; count: number }; busLive: boolean; docker: boolean | null;
   fleet: number; costToday: number; costTodayUnknown: number; model: string; harness: string; flash: string;
   pendingEscrows: Escrow[]; compact: boolean;
+  /** R4 (H98): the companion took another port than the one asked for (src/setup/companion-port.ts) */
+  companionNote?: string | null;
+  /** R4 (H98): q draws a QR code (--lan); otherwise it shows the address */
+  companionQr?: boolean;
 }) {
   const [integrations] = useState(() => integrationCatalog());
-  const rows = journeyRows(props.recs);
+  const rows = journeyRows(props.recs, { companionQr: props.companionQr === true });
   const done = rows.filter(r => r.state === 'done').length;
   const escrowOrange = props.pendingEscrows.length > 0;
   return (
@@ -1185,13 +1229,15 @@ function HomePane(props: {
       <Box height={1} />
       <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is hollow (□ ○), never red'} flexGrow={1}>
         <Text wrap="truncate">
-          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} available`}</Text>
+          {/* R4 (H98): a lane program found on PATH has not been run: found (not checked), never "available" */}
+          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} found (not checked)`}</Text>
           <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
           <Text color={PAL.textMuted}>{`  ${props.docker ? LIVE.on : LIVE.off} docker ${props.docker ? 'on' : 'off'}`}</Text>
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">
           {`recorded cost $${props.costToday.toFixed(2)}${props.costTodayUnknown ? ` (+${props.costTodayUnknown} declared-unknown)` : ''} · model policy: ${props.model} · harness: ${props.harness}`}
         </Text>
+        {props.companionNote ? <Text color={PAL.textPrimary} wrap="truncate">{`${props.companionNote} [q] its address`}</Text> : null}
         <IntegrationStatus entries={integrations} compact={props.compact} muted={PAL === DIM} />
       </Card>
     </Box>

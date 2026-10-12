@@ -261,6 +261,27 @@ export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO =
   return applyAndReport(asked.answers, { by, repoRoot, state }, io, o.json === true);
 }
 
+/**
+ * R4 (H98): before `timmy watch` starts the monitor. A home with questions still unanswered gets the guided setup here, in
+ * this terminal (the same as `timmy init`), so the monitor never sends the operator to another command. Returns null to go
+ * on to the monitor, or the exit status: 130 stopped with Ctrl+C, 1 a no at the end (nothing written; the monitor does not
+ * start). Nothing is asked without a terminal (the monitor then says what is missing and exits 78, as before), under CI or
+ * TIMMY_SKIP_INIT (the monitor's own guard skips there too), for the monitor's help or headless mode, or once the monitor's
+ * own FIRST RUN finished on a home with an identity (its answers were taken there).
+ */
+export async function setupBeforeMonitor(args: readonly string[], o: { env?: NodeJS.ProcessEnv; tty?: boolean; io?: SetupIO } = {}): Promise<number | null> {
+  const env = o.env ?? process.env;
+  const tty = o.tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (!tty || env.CI || env.TIMMY_SKIP_INIT || args.some((a) => a === '-h' || a === '--help' || a === '--headless')) return null;
+  const s = readSetupState(env);
+  if ((s.identity.exists && s.onboarded) || !pendingQuestions(s).length) return null;
+  const io = o.io ?? terminalIO();
+  const code = await guidedSetup('timmy watch', {}, io, { title: s.identity.exists ? 'TIMMY · guided setup (timmy watch)' : 'TIMMY · first run — guided setup (timmy watch)' });
+  if (code === 0) return null;
+  if (code !== 130) io.log('  The monitor did not start. timmy watch asks again; timmy init asks the same questions.');
+  return code;
+}
+
 /** Writes and reports; a refusal (an unreadable seed, a seed that is not one) in words, exit 1. */
 function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean): number {
   let r: InitResult;

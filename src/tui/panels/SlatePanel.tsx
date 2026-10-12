@@ -207,7 +207,7 @@ export function SlatePanel({ agent, zone = 0, setZone, setModalInput, inputLocke
               {tmpl.beats.map((b, i) => (
                 <Text key={i} color={theme.textSecondary} wrap="truncate">• {b.at}s–{b.at + b.dur}s [{b.label}] {b.text}</Text>
               ))}
-              <Text color={theme.textSecondary}>use with /studio --template {tmpl.name} &lt;idea&gt;</Text>
+              <Text color={theme.textSecondary}>use with /storyboard --template {tmpl.name} &lt;idea&gt;</Text>
               <Text color={theme.textSecondary}>[v] opens your tldraw Slate canvas (TIMMY_SLATE_URL)</Text>
             </>
           )}

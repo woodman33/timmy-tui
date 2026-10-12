@@ -3,6 +3,16 @@ import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
 import { redactTelemetryPayload, safeStringify } from '../../utils/redact.js';
 import { edgeUrlOrNull, isPlaceholder, operatorLabel } from '../../utils/edge-host.js';
+import { knownAnswers, readSetupState } from '../../setup/questions.js';
+
+/**
+ * R4 (H98): the setup's logs answer (src/setup): only "also your Cloudflare worker" (cloud) sends run events to the edge
+ * host; "this computer only", the preselected answer, or no answer yet sends nothing there (the worker is opt-in). An
+ * explicit TIMMY_TELEMETRY_URL is still the operator's own choice for this run.
+ */
+export function logsGoToWorker(): boolean {
+  try { return knownAnswers(readSetupState()).logs === 'cloud'; } catch { return false; }
+}
 import type {
   TelemetryStatus,
   TelemetryPriority,
@@ -84,12 +94,16 @@ export function useTelemetryBridge({
   useEffect(() => { receiptUrlRef.current = activeReceiptUrl; }, [activeReceiptUrl]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
+  // R4 (H98): read once per monitor: whether the setup sends run events to the worker
+  const toWorker = useRef<boolean | null>(null);
   // Resolve telemetry endpoint URL by priority (hosts-j4t1: the edge host is
   // a config read; an inert placeholder in a stored manifest re-resolves here)
   const resolveEndpoint = (): string => {
     if (config.telemetryUrl && !isPlaceholder(config.telemetryUrl)) return config.telemetryUrl;
     if (process.env.TIMMY_TELEMETRY_URL === 'off') return '';
     if (process.env.TIMMY_TELEMETRY_URL && !isPlaceholder(process.env.TIMMY_TELEMETRY_URL)) return process.env.TIMMY_TELEMETRY_URL;
+    if (toWorker.current === null) toWorker.current = logsGoToWorker();
+    if (!toWorker.current) return '';
     return edgeUrlOrNull() ?? '';
   };
 

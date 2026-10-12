@@ -108,7 +108,8 @@ const MODES: ShellKey[] = [mod('i', 'insert (cmd line)'), mod(':', 'command'), m
 const SEAL: ShellKey[] = [seal('s', 'seal…'), seal('S', 'seal review note')];
 
 export const KEYMAP_SHELL: Record<`${ShellMode}:${ShellTab}`, ShellKey[]> = {
-  'NORMAL:HOME': [...NAV, act('v', 'verify chain'), act('q', 'companion QR'), act('d', 'run doctor'), ...MODES, ...SEAL],
+  // R4 (H98): q on HOME shows the companion's address (with its token); its QR code only with --lan
+  'NORMAL:HOME': [...NAV, act('v', 'verify chain'), act('q', 'companion address (QR with --lan)'), act('d', 'run doctor'), ...MODES, ...SEAL],
   'NORMAL:RUN': [...NAV, act('a', 'approve'), act('r', 'refuse (needs reason)'), act('n', 'new run'), ...MODES, ...SEAL],
   'NORMAL:CHAIN': [...NAV, act('v', 'verify from here'), act('o', 'open in companion'), act('y', 'copy hash'), ...MODES, ...SEAL],
   'NORMAL:LIBRARY': [...NAV, act('V', 'visual tools'), act('h', 'set for harness'), act('p', 'pin'), act('n', 'edit note'), ...MODES, ...SEAL],
@@ -134,21 +135,25 @@ export const footerHintsShell = (mode: ShellMode, tab: ShellTab): string =>
 // SPEC §02 — the footer is ONE line; the full keymap lives in which-key (?).
 // This is the curated short set per tab, not a second source of truth: every
 // key named here exists in KEYMAP_SHELL for the same (mode, tab).
+// R4 (H98): HOME's q first, so its one meaning stays in the footer at 80 columns; its word is what it shows (address, or QR
+// with --lan: footerHintsShellShort's `q`)
 const FOOTER_ACTS: Record<ShellTab, string> = {
-  HOME: '[v] verify  [q] QR  [s] seal',
+  HOME: '[q] address  [v] verify  [s] seal',
   RUN: '[a] approve  [r] refuse  [s] seal',
   CHAIN: '[v] verify  [o] open  [y] copy  [s] seal',
   LIBRARY: '[V] visual tools  [h] harness  [p] pin  [n] note  [f] files  [s] seal',
   CHAT: '[Esc] leave  [s] seal',
   COMMAND: '[w] swarm [h] hands [l] launch [X] kill [H] harness [m] model',
 };
-export const footerHintsShellShort = (mode: ShellMode, tab: ShellTab): string =>
-  mode === 'NORMAL'
-    ? tab === 'CHAT'
-      // FIX 3: on CHAT, Enter means send — one hint, from the keymap
-      ? `[${TAB_KEYS}] tab  [Enter] send  ${FOOTER_ACTS[tab]}  [?] keys`
-      : `[${TAB_KEYS}] tab  [Enter] open  ${FOOTER_ACTS[tab]}  [c] chat  [?] keys`
-    : footerHintsShell(mode, tab);
+export const footerHintsShellShort = (mode: ShellMode, tab: ShellTab, o: { q?: 'address' | 'QR' } = {}): string => {
+  if (mode !== 'NORMAL') return footerHintsShell(mode, tab);
+  // FIX 3: on CHAT, Enter means send — one hint, from the keymap
+  if (tab === 'CHAT') return `[${TAB_KEYS}] tab  [Enter] send  ${FOOTER_ACTS.CHAT}  [?] keys`;
+  // R4 (H98): on HOME, q's one meaning and chat come first, so both stay in the footer at 80 and 100 columns (the footer
+  // drops whole hints from the right); q's word is what it shows: the companion's address, or its QR code with --lan
+  if (tab === 'HOME') return `[${TAB_KEYS}] tab  [Enter] open  [q] ${o.q ?? 'address'}  [c] chat  [v] verify  [s] seal  [?] keys`;
+  return `[${TAB_KEYS}] tab  [Enter] open  ${FOOTER_ACTS[tab]}  [c] chat  [?] keys`;
+};
 export const whichKeyGroupsShell = (mode: ShellMode, tab: ShellTab): { group: KeyGroup; entries: ShellKey[] }[] => {
   const order: KeyGroup[] = ['NAVIGATE', 'ACT', 'MODES', 'SEAL'];
   const ks = shellKeys(mode, tab);

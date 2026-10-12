@@ -5,6 +5,8 @@
 // all on that screen. Now Enter begins the setup, q and Esc leave (the monitor ends, 0, and the terminal comes back as it
 // was), and Ctrl+C ends it with 130.
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createServer, type AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { LOADER, MONITOR, monitorHome } from './fixtures/ui-monitor-home.js';
@@ -33,7 +35,8 @@ async function firstRunAnd(key: 'Enter' | 'C-j' | 'q' | 'Escape' | 'C-c') {
     const raw = /-icanon/.test(execFileSync('sh', ['-c', `stty -a < '${tty}'`], { encoding: 'utf8' }));
     h.tmux('send-keys', '-t', 't', key);
     if (key === 'Enter' || key === 'C-j') {
-      await h.waitFor(/PICK A BRAIN/, 10_000);
+      // R4 (H98): the first question without an answer (an older init's home: the chat model), the local model preselected
+      await h.waitFor(/Chat model[\s\S]*▸ \[l\] local model only/, 10_000);
       return { key, raw, acted: 'setup began' };
     }
     const exit = Number((await h.waitFor(/EXIT=(\d+)/, 15_000))[1]);
@@ -63,3 +66,51 @@ describe('the monitor\'s FIRST RUN screen in a PTY (R4 H87)', () => {
     expect(await firstRunAnd('C-c')).toEqual({ key: 'C-c', raw: true, exit: 130, tty: 'same', alternate: '0' });
   }, 90_000);
 });
+
+// R4 (H98): the FIRST RUN asks only what the home has no answer for (here the chat model and the logs, as after an older
+// `timmy init`), in the words `timmy init` uses, the local model and local-only logs preselected; it saves the answers in
+// the Timmy home and opens HOME on the same screen with one line of what was chosen. On HOME, q has one meaning, shown in the
+// footer: the companion's address (a QR code only with --lan), and the pairing card shows the address, no QR code.
+describe('the monitor\'s FIRST RUN, answered (R4 H98)', () => {
+  it('asks the two questions, saves them in the Timmy home, opens HOME with one line; q on HOME shows the address', async () => {
+    const h = monitorHome('first-run', { git: true });
+    const script = `sleep 0.5; ${process.execPath} --import ${LOADER} ${MONITOR} --companion-port ${await freePort()}; echo EXIT=$?; sleep 60`;
+    try {
+      h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '40', '-c', h.repo, 'bash', '--norc', '-c', script);
+      const [splash] = await h.waitFor(/2 setup questions have no answer yet: Chat model, Logs and run events\./);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/question 1 of 2[\s\S]*Chat model[\s\S]*▸ \[l\] local model only[\s\S]*◇ \[o\] OpenRouter: a paid cloud service/);
+      // q is not quit here: nothing happens, the question stays
+      h.tmux('send-keys', '-t', 't', 'q');
+      await sleep(400);
+      const stayed = /Chat model/.test(h.tmux('capture-pane', '-p', '-t', 't'));
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/question 2 of 2[\s\S]*Logs and run events[\s\S]*▸ \[l\] this computer only/);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/Save these answers\?/);
+      h.tmux('send-keys', '-t', 't', 'Enter');
+      await h.waitFor(/YOUR JOURNEY/);
+      const home = h.tmux('capture-pane', '-p', '-t', 't');
+      h.tmux('send-keys', '-t', 't', 'q');
+      await h.waitFor(/COMPANION PAIR/);
+      const card = h.tmux('capture-pane', '-p', '-t', 't');
+      h.tmux('send-keys', '-t', 't', 'C-c');
+      const exit = Number((await h.waitFor(/EXIT=(\d+)/, 15_000))[1]);
+      const rec = JSON.parse(readFileSync(join(h.env.TIMMY_HOME!, 'setup.json'), 'utf8'));
+      expect({
+        splash: Boolean(splash), stayed, exit,
+        line: /Set up here: chat local model \(no key\) · logs this computer only · project demo/.test(home),
+        top: /chat: no model key · \/setup/.test(home.split('\n')[0]),
+        footer: /\[q\] address/.test(home), journey: /\[q\] its address · a phone: timmy watch --lan/.test(home), lanes: /found \(not checked\)/.test(home),
+        cardAddress: /http:\/\/127\.0\.0\.1:\d+\/#t=[0-9a-f]+/.test(card), qrDrawn: /[▀▄█]{6,}/.test(card),
+        saved: [rec.by, rec.answers.chat, rec.answers.logs],
+      }).toEqual({
+        splash: true, stayed: true, exit: 130, line: true, top: true, footer: true, journey: true, lanes: true,
+        cardAddress: true, qrDrawn: false, saved: ['the monitor', 'local', 'local'],
+      });
+    } finally {
+      await h.dispose();
+    }
+  }, 120_000);
+});
+

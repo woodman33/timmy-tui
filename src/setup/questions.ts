@@ -253,7 +253,7 @@ export const QUESTIONS: readonly Question[] = [
     read: (t) => {
       const v = t.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
       if (!v) return { ok: true, value: '' };
-      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?$/i.test(v)) return { ok: false, why: 'A host name, like timmy.example.workers.dev.' };
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?$/i.test(v)) return { ok: false, why: 'A host name, like worker.example.com.' };
       return { ok: true, value: v };
     },
   },
@@ -336,6 +336,18 @@ export function setupSummary(s: SetupState): string {
     `logs: ${logsWords(k.logs, s)}`,
     `project ${k.project ?? 'not answered yet'}`,
   ].join(' · ');
+}
+
+/**
+ * The monitor's one line of what the setup chose: the chat and the logs first (a narrow terminal cuts the end of a line),
+ * then the project and the operator.
+ */
+export function setupLine(s: SetupState): string {
+  const k = knownAnswers(s);
+  const key = s.providers.key || s.settingsKey;
+  const chat = k.chat === 'openrouter' ? `OpenRouter, paid (key ${key ? 'set' : 'not set'})` : k.chat === 'local' ? 'local model (no key)' : 'not answered yet';
+  const logs = k.logs === 'cloud' ? (s.edgeHost ? `also your worker ${s.edgeHost} (cloud)` : 'also your worker (no host yet)') : k.logs === 'local' ? 'this computer only' : 'not answered yet';
+  return `chat ${chat} · logs ${logs} · project ${k.project ?? 'not answered yet'} · operator ${k.operator ?? 'not answered yet'}`;
 }
 
 /** Who answered last, in words ("timmy init"), from setup.json; null when no answer was recorded there. */
