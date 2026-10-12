@@ -42,7 +42,7 @@ export const STUDIO_BOARD_WHY = 'type it in the REPL: the board cannot give Timm
 export const MONITOR_STUDIO_WORDS = 'Timmy Studio: in a terminal, run timmy and type /studio (the same as /canvas open). Only the REPL can give its page the one-time grant it needs; the monitor cannot.';
 
 /** The monitor's answer to /setup: the guided setup asks in a terminal. */
-export const MONITOR_SETUP_WORDS = 'Setup: leave the monitor (Ctrl+C) and run timmy init: it asks only what has no answer. A model key: timmy init --chat openrouter (OpenRouter is paid; it asks for the key, hidden).';
+export const MONITOR_SETUP_WORDS = 'Setup: leave the monitor (Ctrl+C) and run timmy init: it asks only what has no answer. The local model: timmy init --chat local --model <name> (free, no key). A model key: timmy init --chat openrouter (OpenRouter is paid; it asks for the key, hidden).';
 
 /** The board's top: three links. A section the board does not show is its typed command to copy instead. */
 export function surfacesHtml(k: Kit, have: { room: boolean; overview: boolean }): string {

@@ -44,6 +44,18 @@ vi.mock('../src/agent/core.js', async () => {
     agent.runStartupHealthCheck = vi.fn();
     agent.clearHistory = vi.fn();
     agent.setModel = vi.fn();
+    // R4 (H103): what the shared chat session (src/agent/chat-session.ts) asks of the monitor's agent: its tools and
+    // instructions, the route (OpenRouter here: a key), and what answered
+    agent.setTools = vi.fn();
+    agent.setInstructions = vi.fn();
+    agent.useLocalChat = vi.fn();
+    agent.localChatRoute = () => null;
+    agent.lastLocalTurn = () => null;
+    agent.lastFallback = () => null;
+    agent.hasModelKey = () => true;
+    agent.isRunning = () => false;
+    agent.openRouterModel = () => 'fixture/sovereign';
+    agent.updateApiKey = vi.fn();
     agent.send = vi.fn(async (text: string) => {
       agent.emit('message:user', { role: 'user', content: text });
       agent.totalCost += 0.125;

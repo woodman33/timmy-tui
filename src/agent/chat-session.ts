@@ -138,7 +138,7 @@ export async function openChatSession(o: { project: { name: string; root: string
   agent.setInstructions(chatInstructions(o.surface));
 
   const keyFound = (): boolean => agent.hasModelKey() || modelKeySource(env) !== null;
-  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: agent.openRouterModel() });
+  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: agent.openRouterModel(), surface: o.surface });
   /** a key the setup stored since the agent started (the route is read at every message, the key with it) */
   const refreshKey = (): void => {
     if (agent.hasModelKey()) return;

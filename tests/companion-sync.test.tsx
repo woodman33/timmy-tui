@@ -41,6 +41,9 @@ function fixtureAgent() {
     getModel: () => 'fixture/offline', conversation: { getHistory: () => history },
     tmuxSessions: [{ id: 'synthetic-session' }], totalCost: 0,
     send: vi.fn(async () => null), clearHistory: vi.fn(), setModel: vi.fn(),
+    // R4 (H103): what the shared chat session (src/agent/chat-session.ts) asks of the monitor's agent; it has a key
+    setTools: vi.fn(), setInstructions: vi.fn(), useLocalChat: vi.fn(), localChatRoute: () => null, lastLocalTurn: () => null,
+    lastFallback: () => null, hasModelKey: () => true, isRunning: () => false, openRouterModel: () => 'fixture/offline', updateApiKey: vi.fn(),
   }) as unknown as Agent & EventEmitter;
 }
 function Harness(props: Parameters<typeof useCompanionSync>[0]) {
@@ -162,14 +165,16 @@ describe('companion synchronization lifecycle', () => {
 
   it('attaches listeners before the lazy agent emits its first user message and reply', async () => {
     server.lastHistory = history;
-    const view = render(<ShellV2 width={120} config={{ onboarded: true }} />);
+    // R4 (H103): with a (FAKE) key, so the message has a route; with none, the monitor sends nothing and starts no agent
+    const view = render(<ShellV2 width={120} config={{ onboarded: true, apiKey: 'FAKE-key-of-this-test' }} />);
     await vi.waitFor(() => expect(view.lastFrame()).toContain('YOUR JOURNEY'));
     view.stdin.write('c');
     await vi.waitFor(() => expect(view.lastFrame()).toContain('SOVEREIGN CHAT'));
     view.stdin.write('Synthetic first request');
     await vi.waitFor(() => expect(view.lastFrame()).toContain('Synthetic first request'));
     view.stdin.write('\r');
-    await vi.waitFor(() => expect(server.lastHistory?.map((m: Message) => m.content)).toEqual(['Synthetic local question', 'Synthetic first request', 'Synthetic first reply']));
+    // R4 (H103): the turn goes through the chat session, whose module loads with the lazy agent's (allow for it)
+    await vi.waitFor(() => expect(server.lastHistory?.map((m: Message) => m.content)).toEqual(['Synthetic local question', 'Synthetic first request', 'Synthetic first reply']), { timeout: 15_000 });
     const snapshots = server.sendUpdate.mock.calls.filter(([type]: [string]) => type === 'sync').map(([, data]: [string, Message[]]) => data);
     expect(snapshots.length).toBeGreaterThan(0);
     expect(snapshots.every((messages: Message[]) => messages[0]?.content === 'Synthetic local question')).toBe(true);

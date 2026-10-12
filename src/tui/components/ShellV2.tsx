@@ -44,6 +44,14 @@ import { keyAt, lastFrame, parseMouse } from '../mouse.js';
 import { chatRoute } from '../../setup/questions.js';
 import { askedCompanionPort, companionPortNote, companionPortShort } from '../../setup/companion-port.js';
 import { MONITOR_SETUP_WORDS, MONITOR_STUDIO_WORDS } from '../../setup/surfaces.js';
+// R4 (H103): the monitor's chat goes through the one chat session (src/agent/chat-session.ts): the route the setup chose, or
+// the refusal and nothing sent; its tools behind the NEEDS YOU box; its commands never sent (src/tui/monitor-chat.ts)
+import { chatRouteNow, type RouteNow } from '../../agent/chat-route.js';
+import type { ChatSession } from '../../contracts/chat-session.js';
+import type { ApprovalRequest, Decision } from '../../repl/approvals.js';
+import { readActiveProject } from '../../project/index.js';
+import { modelKeySource } from '../../utils/model-key.js';
+import { MODEL_TEST, MONITOR_UNKNOWN_WORDS, drawerRows, drawerStatus, flashRows, monitorSlash, needsYouRows, turnFlash, type Tone } from '../monitor-chat.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -81,6 +89,14 @@ const DIM: typeof theme = {
   refuse: theme.textMuted, predict: theme.textMuted, generated: theme.textMuted, sealDim: theme.textMuted,
 };
 let PAL: typeof theme = theme;
+/**
+ * R4 (H103): the chat drawer's and the NEEDS YOU box's colours, from the law's tokens: a refusal or a failure red (refusals
+ * red only), what is read (the title, the answer, the line typed, the box's question) white, the rest the secondary grey.
+ */
+const toneColor = (tone: Tone): string =>
+  tone === 'error' ? theme.danger
+    : tone === 'title' || tone === 'needs' || tone === 'input' || tone === 'ai' ? theme.textPrimary
+      : tone === 'keys' || tone === 'blank' ? theme.textMuted : theme.textSecondary;
 
 // C1b-2: the state chooses the colour — this is the ONLY projection of an
 // evidence state onto a palette (PAL in the panes, theme in the header)
@@ -94,8 +110,8 @@ const POLICIES = ['open', 'tailnet', 'closed'];
 
 // SPEC §01/§02 — the sovereign chat drawer. Without a live agent (direct
 // ShellV2 renders in tests) a noop agent keeps the hook contract intact.
-/** R4 (H87): the chat drawer's one explicit model check (one small request; with no key, nothing is sent). */
-const MODEL_TEST = '/model test';
+// R4 (H87): `/model test`, the chat drawer's one explicit model check (one small request; with no key, nothing is sent):
+// MODEL_TEST, now in src/tui/monitor-chat.ts with the monitor's other commands.
 
 const NOOP_AGENT = {
   on: () => undefined, off: () => undefined, send: async () => null,
@@ -113,6 +129,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
   const startLazyAgent = (): void => {
     if (agentStarting.current || !config) return;
     agentStarting.current = true;
+    // R4 (H103): the chat session's module loads beside the agent's, so the first message does not wait for it
+    void import('../../agent/chat-session.js').catch(() => undefined);
     void import('../../agent/core.js').then(m => setLazyAgent(m.createAgent(config as never, laneOptions(config))));
   };
   useEffect(() => {
@@ -123,11 +141,106 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
   // Standalone shells own their mirror; the full App owns its run metadata
   // and opts its nested shell out to avoid duplicate broadcasts/listeners.
   useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.mirrorHistory, enabled: companionSync && Boolean(effectiveAgent) });
-  // R4 (H87): the explicit check, when the operator types `/model test` in the chat: never at start
-  const runModelCheck = async (ag: Agent): Promise<void> => {
+  // R4 (H103, D1): the chat's route, from the setup (src/agent/chat-route.ts): read again every 2 s (the poll below), and
+  // before every message. A key: the agent's, the monitor's config's, or one the setup stored since the monitor started.
+  const [routeTick, setRouteTick] = useState(0);
+  const keyFound = (): boolean => {
+    if (effectiveAgent ? effectiveAgent.hasModelKey?.() !== false : Boolean((config as { apiKey?: string } | undefined)?.apiKey)) return true;
+    try { return modelKeySource() !== null; } catch { return false; }
+  };
+  const routeNow = (model: string): RouteNow | null => {
+    try {
+      const now = chatRouteNow({ env: process.env, key: keyFound(), openRouterModel: model, short: true, surface: 'monitor' });
+      // the monitor's own way to the fix: its /setup says where the setup asks (the REPL's /model and /setup chat are not here)
+      return { ...now, state: { ...now.state, words: now.state.words.replace(/ · \/(model|setup chat)$/, ' · /setup') } };
+    } catch { return null; }
+  };
+  // R4 (H103): the one chat session (src/agent/chat-session.ts), on this monitor's own agent (which also runs its lanes),
+  // for the active project; opened again when another surface has chosen another project
+  const sessionRef = useRef<{ root: string; session: ChatSession } | null>(null);
+  const sessionFor = async (ag: Agent): Promise<ChatSession> => {
+    const p = readActiveProject();
+    if (sessionRef.current?.root === p.root) return sessionRef.current.session;
+    const m = await import('../../agent/chat-session.js');
+    const session = await m.openChatSession({ project: { name: p.name, root: p.root }, surface: 'monitor' }, { agent: ag, ...(config ? { config: config as { apiKey?: string; model?: string } } : {}) });
+    sessionRef.current = { root: p.root, session };
+    return session;
+  };
+  // R4 (H103, D1d): NEEDS YOU in the monitor: a tool that needs a person waits for its answer in the box below (y once, a this
+  // session, n, Esc or Enter deny), as the REPL asks; nothing it asks runs unanswered
+  const needsRef = useRef<{ req: ApprovalRequest; resolve: (d: Decision) => void; at: number } | null>(null);
+  const [needsYou, setNeedsYou] = useState<ApprovalRequest | null>(null);
+  const askInMonitor = (req: ApprovalRequest): Promise<Decision> => new Promise<Decision>((resolve) => {
+    needsRef.current = { req, resolve, at: Date.now() };
+    setNeedsYou(req);
+  });
+  // what the last message got instead of a turn, or beside it: a refusal, a failure, the fallback that answered, a storyboard
+  const [chatNotes, setChatNotes] = useState<string[]>([]);
+  const chatBusy = useRef(false);
+  const sendChat = async (ag: Agent, text: string): Promise<void> => {
+    if (chatBusy.current) { setFlash('A chat turn is running: this message was not sent. Send it again when that turn ends.'); return; }
+    chatBusy.current = true;
+    setChatNotes([]);
+    try {
+      const session = await sessionFor(ag);
+      const before = session.route();
+      if (before.ready) setFlash(`chat → ${before.words.replace(/^chat: /, '')}`);
+      const r = await session.send(text, { onText: () => undefined, askPerson: askInMonitor });
+      setChatNotes(r.lines ?? []);
+      setFlash(turnFlash(r));
+    } catch (err) {
+      setFlash(`The chat could not start: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}. Nothing was sent to any model.`);
+    } finally {
+      chatBusy.current = false;
+      setRouteTick((t) => t + 1);
+    }
+  };
+  // R4 (H87): the explicit check, when the operator types `/model test` in the chat: never at start. R4 (H103): on the local
+  // route it asks that Ollama about the model (its /api/show: nothing is generated); on OpenRouter's, one small request.
+  const runModelCheck = async (ag: Agent | null): Promise<void> => {
+    const now = routeNow(ag?.getModel?.() ?? '');
+    if (now?.route.kind === 'local') {
+      const r = now.route;
+      if (!now.state.ready || !r.model || 'error' in r.at) {
+        setFlash(`Model check: ${(now.state.refusal?.[0] ?? 'the local route is not ready.').replace(/^Error:\s*/, '')} Nothing was sent.`);
+        return;
+      }
+      setFlash(`Checking the model: one request to ${r.at.host}'s /api/show (nothing is generated)…`);
+      const { showModel } = await import('../../agent/local-chat.js');
+      try {
+        const shown = await showModel(r.at, r.model, undefined, 5000);
+        const tools = shown.capabilities === null ? 'Ollama does not say whether it takes tool calls' : shown.capabilities.includes('tools') ? 'it takes tool calls' : 'it takes no tool calls';
+        setFlash(`Model check: Ollama at ${r.at.host} has ${r.model}${shown.remote ? `, cloud-backed (${shown.remote})` : ''}; ${tools}. Nothing was generated.`);
+      } catch (err) {
+        setFlash(`Model check failed: ${err instanceof Error ? err.message.split('\n').join(' ') : String(err)}`);
+      }
+      return;
+    }
+    if (!ag) return;
     setFlash(ag.hasModelKey?.() === false ? NO_MODEL_KEY : 'Checking the model: one small request to OpenRouter…');
     const r = await ag.testModelHealth(ag.getModel());
-    setFlash(r.ok ? `Model check: ${r.provider ?? 'it'} answered${typeof r.latency === 'number' ? ` in ${r.latency} ms` : ''}${r.error ? ` (${r.error})` : ''}.` : `Model check failed: ${r.error ?? 'no answer'}.`);
+    // OpenRouter did not answer and the probe found this computer's Ollama: that is not an answer, and says so
+    const fellBack = r.ok && !r.provider && /; Ollama fallback ready$/.test(r.error ?? '');
+    setFlash(fellBack ? `Model check: ${(r.error ?? '').replace(/; Ollama fallback ready$/, '')}; this computer's Ollama is reachable, the last-resort fallback.`
+      : r.ok ? `Model check: ${r.provider ?? 'OpenRouter'} answered${typeof r.latency === 'number' ? ` in ${r.latency} ms` : ''}.` : `Model check failed: ${r.error ?? 'no answer'}.`);
+  };
+  // R4 (H103, D1e): /storyboard <idea>, as src/utils/slash-commands.ts makes it (its preview on 127.0.0.1:4273 only), in this
+  // monitor's folder. No model is asked: the storyboard's own hook only says what its preview server could not do.
+  const runStoryboard = async (text: string): Promise<void> => {
+    setFlash('Storyboard: writing its files, then its preview on 127.0.0.1…');
+    try {
+      const { handleSlashCommand } = await import('../../utils/slash-commands.js');
+      const said = (m?: { content?: unknown }): string => String(m?.content ?? '').replace(/^\s*⚙️?\s*\*\*\[SYSTEM\]\*\*\s*/u, '');
+      const reporter = { emit: (event: string, m?: { content?: unknown }) => { if (event === 'message:user') { const t = said(m); setChatNotes((n) => [...n, t]); setFlash(t); } } };
+      const out = String(handleSlashCommand(text, reporter, {}) ?? '');
+      // the monitor opens no browser pane: its line says so (the shared words assume one when carbonyl is installed)
+      const lines = out.split('\n').filter(Boolean).map((l) => (/^•\s*lane:/.test(l) ? '• lane:        none here (the monitor opens no browser pane): open the preview in a browser on this computer' : l));
+      setChatNotes(lines);
+      const preview = lines.find((l) => /^•\s*preview:/.test(l))?.replace(/^•\s*preview:\s*/, '');
+      setFlash(preview ? `Storyboard written under ${process.cwd()}/studio: preview ${preview}. No model was asked.` : lines[0] ?? 'Storyboard: nothing came back.');
+    } catch (err) {
+      setFlash(`Storyboard failed: ${err instanceof Error ? err.message : String(err)}. No model was asked.`);
+    }
   };
   useEffect(() => {
     if (!effectiveAgent || firstChatText.current === null) return;
@@ -135,7 +248,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
     firstChatText.current = null;
     // useAgent and companion listeners attach before a lazy agent's first send.
     if (text === MODEL_TEST) void runModelCheck(effectiveAgent);
-    else void chat.send(text);
+    else void sendChat(effectiveAgent, text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveAgent, chat.send]);
   const [s, setS] = useState<ShellState>(initialShell);
@@ -297,7 +410,9 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
         if (rep.ok) {
           appendReceipt('runs', {
             kind: 'chat', subject: `chat.turn · commander`, policy: 'human-gated', status: 'ok',
-            cost_usd: Number(rep.usd ?? 0), model_resolved: String(profile.commander.model),
+            // R4 (H103): the cost the commander reported, else unknown (never an invented 0)
+            ...(typeof rep.usd === 'number' && Number.isFinite(rep.usd) ? { cost_usd: rep.usd } : { cost_measured: false }),
+            model_resolved: String(profile.commander.model),
             sources: [{ role: 'user', text: asked }, { role: 'answer', text: String(rep.answer ?? '').slice(0, 400) }],
           });
           refresh();
@@ -318,6 +433,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
     const poll = setInterval(() => {
       tick += 1;
       setCommanderOnline(cc.online);
+      // R4 (H103): the chat's route is read again (a setup in another terminal shows at once in the top line)
+      setRouteTick((t) => t + 1);
       setWarPanes(warroom.panes());
       try {
         const chainNow = readChain('runs');
@@ -355,6 +472,21 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
     // C-11: Ctrl+C ends the monitor with 130 (cancelled), in every mode and overlay; the terminal
     // session (cli.tsx) gives the screen back on exit.
     if (key.ctrl && input === 'c') process.exit(130);
+    // R4 (H103, D1d): the NEEDS YOU box owns the keys while it waits: y allows once, a for this session (when offered), n,
+    // Esc or Enter deny. Keys in its first 300 ms are type-ahead and do nothing; a paste is never an answer: it denies.
+    const pending = needsRef.current;
+    if (pending) {
+      const pasted = input.length > 1 && !key.return;
+      if (!pasted && Date.now() - pending.at < 300) return;
+      const k = key.return ? 'enter' : key.escape ? 'escape' : input.toLowerCase();
+      const decision: Decision | null = pasted ? 'deny' : k === 'y' ? 'once' : k === 'a' && pending.req.session !== false ? 'session' : k === 'n' || k === 'escape' || k === 'enter' ? 'deny' : null;
+      if (!decision) return;
+      needsRef.current = null;
+      setNeedsYou(null);
+      pending.resolve(decision);
+      setFlash(decision === 'deny' ? `${pending.req.tool}: denied, so it did not run.` : `${pending.req.tool}: allowed ${decision === 'once' ? 'once' : 'for this session'}.`);
+      return;
+    }
     if (visualToolsOpen) return;
     // Arrow events navigate HANDS; they are never printable text in a buffer.
     const state = sRef.current;
@@ -555,14 +687,21 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
         // token present, the turn runs THERE (think over the ws); the reply
         // seals chat.turn. Without a token the sovereign local path runs.
         const text0 = chatText.trim();
-        // R4 (H98): the top line names /setup; Timmy Studio is /studio in the REPL: here both say exactly how
-        if (/^\/setup(\s|$)/.test(text0)) { setFlash(MONITOR_SETUP_WORDS); return; }
-        if (/^\/studio(\s|$)/.test(text0)) { setFlash(MONITOR_STUDIO_WORDS); return; }
-        if (text0 === MODEL_TEST) {
-          if (effectiveAgent) void runModelCheck(effectiveAgent);
+        // R4 (H103, D1e): a command (a line that starts with /) never reaches a model. The monitor runs /setup and /studio
+        // (R4 H98: where each happens, in words), /model test and /storyboard <idea>; any other is the REPL's, and says so.
+        const slash = monitorSlash(text0);
+        // a command's answer is said in the drawer, whole, and on the flash line
+        const answer = (words: string): void => { setChatNotes([words]); setFlash(words); };
+        if (slash === 'setup') { answer(MONITOR_SETUP_WORDS); return; }
+        if (slash === 'studio') { answer(MONITOR_STUDIO_WORDS); return; }
+        if (slash === 'model-test') {
+          if (routeNow('')?.route.kind === 'local') void runModelCheck(effectiveAgent ?? null);
+          else if (effectiveAgent) void runModelCheck(effectiveAgent);
           else if (config) { firstChatText.current = MODEL_TEST; startLazyAgent(); setFlash('Checking the model…'); }
           return;
         }
+        if (slash === 'storyboard') { void runStoryboard(text0); return; }
+        if (slash === 'unknown') { answer(MONITOR_UNKNOWN_WORDS); return; }
         const token = edgeToken();
         if (ccRef.current?.online && token) {
           const id = `chat-${Date.now().toString(36)}`;
@@ -575,24 +714,28 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
           return;
         }
         if (ccRef.current?.online && !token) setFlash('commander online · no TIMMY_EDGE_TOKEN — local sovereign');
+        // R4 (H103, D1a): the route the setup chose comes first. With none ready (no key and no local route, or the local route
+        // without a model), the drawer says why and nothing is sent: no agent starts for it, no request goes to OpenRouter or
+        // to an Ollama. Before, the text went to the agent anyway: an empty-key request to OpenRouter, then the last-resort
+        // fallback (a local model nobody chose), while the drawer said nothing was sent.
+        const now = routeNow(String(replModel));
+        if (now && !now.state.ready) {
+          setChatNotes(now.state.refusal ?? []);
+          setFlash(`Not sent: ${(now.state.refusal?.[0] ?? 'the chat has no route to a model.').replace(/^Error:\s*/, '')}`);
+          setRouteTick((t) => t + 1);
+          return;
+        }
         // BOOT: the agent graph lazy-loads on first chat send
         if (!effectiveAgent && config) {
-          firstChatText.current = chatText.trim();
+          firstChatText.current = text0;
           startLazyAgent();
           setFlash('sovereign chat warming…');
           return;
         }
-        const model = chat.model || policy.default || '—';
-        const costBefore = Number((effectiveAgent as unknown as { totalCost?: number })?.totalCost ?? 0);
-        setFlash(`sovereign chat → ${model}`);
-        void (async () => {
-          await chat.send(chatText.trim());
-          const costAfter = Number((effectiveAgent as unknown as { totalCost?: number })?.totalCost ?? 0);
-          appendReceipt('runs', {
-            kind: 'chat', subject: `chat.turn · ${model}`, policy: 'human-gated', status: 'ok',
-            cost_usd: Math.max(0, Math.round((costAfter - costBefore) * 1e6) / 1e6), model_resolved: model,
-          });
-        })();
+        // R4 (H103): the turn is the chat session's (src/agent/chat-session.ts): it seals the turn's receipt (chat.turn), with
+        // the cost OpenRouter reported, unknown, or no charge on a local endpoint; never an invented 0
+        if (effectiveAgent) void sendChat(effectiveAgent, text0);
+        else setFlash('No chat here: this monitor was started without an agent configuration. Nothing was sent to any model.');
       }
       if (a === 'doctor-now') {
         const c = spawn('npx', ['tsx', 'scripts/timmy-doctor.ts'], { stdio: 'ignore', detached: true });
@@ -639,7 +782,6 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
   // (terminal rows minus header 2 · flash 1 · footer 1) is split across each
   // column's cards by the solver (src/tui/utils/rows.ts); every list renders at
   // most its cap and SAYS what it hides. P = purpose row · G = gap row.
-  const bodyRows = Math.max(10, (process.stdout.rows ?? 32) - 4);
   // BOOT: lane probes are cold spawnSync execs — never in the first render path
   const [lanes, setLanes] = useState<{ id: string; label: string; available: boolean; install?: string; model?: string }[]>([]);
   useEffect(() => { setLanes(listLanes()); }, []);
@@ -661,12 +803,33 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
     }
     try { return loadConfig().model || '—'; } catch { return '—'; }
   }, [recs]);
+  // R4 (H103, D1a): the chat's route now (read again every 2 s and after each message): the top line and the drawer say it.
+  // R4 (H98, journey-2): with the commander connected and an operator token present, chat-send sends the turn there.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const routeState = useMemo(() => routeNow(String(replModel)), [routeTick, replModel, effectiveAgent, config]);
+  const commanderModel = commanderOnline && edgeToken() ? String(profile.commander.model) : null;
   const policyModel = policy.default ?? 'unset';
   const harness = lanes.find(l => l.available)?.id ?? '—';
   const fleet = lanes.filter(l => l.available).length;
   const last = recs[recs.length - 1] ?? null;
   const pendingEscrows = escrows.filter(e => e.state === 'armed');
   const allClear = journeyDoneCount(recs) === 7 && pendingEscrows.length === 0 && chain.ok && busLive;
+  // R4 (H103, D7): the flash wraps (it was cut at the terminal's edge: /studio's and /setup's words lost their ends), and the
+  // body gives it the rows it takes beyond its one: every tab's plan shrinks by them. HOME's left column does not shrink
+  // (its journey and its STATUS card), so on HOME the flash takes the rows HOME leaves, and HOME gives up the gap between its
+  // cards when the flash needs one more; a flash longer still ends with … (the drawer keeps a command's whole answer).
+  const termRows = process.stdout.rows ?? 32;
+  const homeRows = ((): number => {
+    const steps = journeyRows(recs, { companionQr }).length;
+    const journey = 2 + 1 + (compact ? 0 : 1) + 1 + (pendingEscrows.length > 0 ? 1 : 0) + steps + (journeyDoneCount(recs) >= steps ? 1 : 0);
+    const status = 2 + 1 + (compact ? 0 : 1) + 1 + 2 + (companionNote ? 1 : 0) + (compact ? 1 : 3);
+    return journey + 1 + status;
+  })();
+  const flashWanted = flash ? wrapText(flash, width).length : 0;
+  const homeRoom = termRows - 3 - homeRows;
+  const homeTight = s.tab === 'HOME' && !visualToolsOpen && flashWanted > Math.max(1, homeRoom);
+  const flashLines = flashRows(flash, width, s.tab === 'HOME' && !visualToolsOpen ? Math.max(1, homeRoom + (homeTight ? 1 : 0)) : Math.max(3, Math.floor(termRows / 3)));
+  const bodyRows = Math.max(10, termRows - 3 - Math.max(1, flashLines.length));
   // C1b-2: per-receipt coverage from the one verify fact — a receipt is checked
   // iff a receipted verify names a head at or after it; the chain's own state is
   // × broken · ● built · ✓ checked · ◌ stale (receipts appended since the verify)
@@ -902,12 +1065,12 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
           const dropsSeg = `  drops ${drops}`;
           // FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
           // orange slot stays empty and says so, in dim mono.
-          // R4 (H98): the chat route in effect, never a paid model's name that will not be used (no key: says so)
-          const keyNow = effectiveAgent ? effectiveAgent.hasModelKey?.() !== false : Boolean((config as { apiKey?: string } | undefined)?.apiKey);
+          // R4 (H98): the chat route in effect, never a paid model's name that will not be used (no key: says so). R4 (H103):
+          // the setup's route (src/agent/chat-route.ts): the local one in its own words ("chat: local <model> · Ollama")
+          const keyNow = keyFound();
           // R4 (H98, journey-2): with the commander connected and an operator token present, chat-send sends the turn there:
           // the top line names that route (the token is looked up only while the commander is connected)
-          const viaCommander = commanderOnline && edgeToken() ? String(profile.commander.model) : null;
-          const chatSeg = `  ${chatRoute({ key: keyNow, model: headModel, short: true, commander: viaCommander })}`;
+          const chatSeg = `  ${commanderModel || !routeState ? chatRoute({ key: keyNow, model: headModel, short: true, commander: commanderModel }) : routeState.state.words}`;
           const clearSeg = allClear ? ['  nothing needs you'] : [];
           const tabFull = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1} ${t}`));
           const tabColl = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1}`));
@@ -950,7 +1113,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
             <HomePane
               recs={recs} chain={chain} busLive={busLive} docker={docker}
               fleet={fleet} costToday={costToday} costTodayUnknown={costTodayUnknown} model={policyModel} harness={harness} flash={flash}
-              pendingEscrows={pendingEscrows} compact={compact} companionNote={companionNote?.short ?? null} companionQr={companionQr}
+              pendingEscrows={pendingEscrows} compact={compact} companionNote={companionNote?.short ?? null} companionQr={companionQr} tight={homeTight}
             />
           )}
           {s.tab === 'RUN' && (
@@ -1149,31 +1312,40 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
         )}
         {/* SPEC §01/§02 — sovereign chat drawer: opaque which-key-style panel
             over the dimmed screen; CHAT mode owns every key but Esc */}
-        {s.mode === 'CHAT' && (
-          <Box position="absolute" top={2} left={10} width={Math.min(100, width - 20)} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
-            <Text bold color={theme.textPrimary}>{`SOVEREIGN CHAT · ${chat.model || policy.default || '—'}`}</Text>
-            {/* R4 (H87): what is known of the provider: no key, not checked (and how), or what the operator's check found */}
-            <Text color={theme.textSecondary} wrap="wrap">{providerStatusWords({
-              hasKey: effectiveAgent ? effectiveAgent.hasModelKey?.() : Boolean((config as { apiKey?: string } | undefined)?.apiKey),
+        {/* R4 (H103, D10): a full-width band, so no cell beside it keeps what was drawn under it (at left 10 and 20 columns
+            narrower than the terminal, HOME's words showed on both sides of it). Its rows are wrapped, never cut: the
+            route's status, the latest messages (a notice the agent gave, the last-resort fallback's included, in full), the
+            answer streaming now, and what the last message got instead of a turn. */}
+        {s.mode === 'CHAT' && (() => {
+          const rows = drawerRows({
+            width: Math.max(20, width - 4), max: Math.max(8, bodyRows - 2),
+            title: `SOVEREIGN CHAT · ${commanderModel ? `${commanderModel.split('/').pop()} · commander` : routeState ? routeState.state.words.replace(/^chat: /, '') : (chat.model || policy.default || '—')}`,
+            // R4 (H87): what is known of the provider: no key, not checked (and how), or what the operator's check found;
+            // R4 (H103): on the local route, that route (or why it is not ready); with no route at all, why nothing is sent
+            status: drawerStatus(commanderModel ? null : routeState, providerStatusWords({
+              hasKey: keyFound(),
               status: chat.modelHealthStatus,
               error: (effectiveAgent as unknown as { lastHealthError?: string } | undefined)?.lastHealthError,
-            })}</Text>
-            {chat.messages.slice(-6).map((m, i) => (
-              <Text key={i} color={m.role === 'user' ? theme.textSecondary : theme.textMuted} wrap="truncate">
-                {`${m.role === 'user' ? 'you:' : 'ai:  '} ${String(m.content).slice(0, 90)}`}
-              </Text>
-            ))}
-            {chat.isStreaming ? <Text color={theme.textMuted} wrap="truncate">{`${chat.streamingText.slice(0, 90)}…`}</Text> : null}
-            {chat.error ? <Text color={theme.danger} wrap="truncate">{String(chat.error.message).slice(0, 90)}</Text> : null}
-            <Box height={1} />
-            <Text color={theme.textPrimary}>{`> ${s.input}`}</Text>
-            <Text color={theme.textMuted}>[Enter] send · [Esc] leave · digits are text</Text>
+            })),
+            messages: chat.messages.slice(-12), streaming: chat.isStreaming ? chat.streamingText : '', notes: chatNotes,
+            error: chat.error ? String(chat.error.message) : null, input: s.input,
+          });
+          return (
+            <Box position="absolute" top={2} left={0} width={width} backgroundColor={theme.surfaceRaised} paddingX={2} flexDirection="column">
+              {rows.map((r, i) => <Text key={`d${i}`} bold={r.tone === 'title'} color={toneColor(r.tone)}>{r.text || ' '}</Text>)}
+            </Box>
+          );
+        })()}
+        {/* R4 (H103, D1d): NEEDS YOU, over everything while it waits: the monitor asks, as the REPL does */}
+        {needsYou && (
+          <Box position="absolute" top={0} left={0} width={width} backgroundColor={theme.surfaceRaised} paddingX={2} flexDirection="column">
+            {needsYouRows(needsYou, Math.max(20, width - 4)).map((r, i) => <Text key={`n${i}`} bold={r.tone === 'needs'} color={toneColor(r.tone)}>{r.text || ' '}</Text>)}
           </Box>
         )}
       </Box>}
       {/* action feedback is global, not a HOME-only line: picker writes from
-          LIBRARY/RUN must be visible where they happen */}
-      {flash ? <Text color={theme.textPrimary} wrap="truncate">{flash}</Text> : null}
+          LIBRARY/RUN must be visible where they happen. R4 (H103, D7): wrapped, whole words, never cut at the edge */}
+      {flashLines.map((line, i) => <Text key={`flash${i}`} color={theme.textPrimary}>{line}</Text>)}
       {/* C5: the key sheet floats over the body (it used to flow below it and
           push the footer past the last row at 80x24) */}
       {s.overlay === 'whichkey' && (
@@ -1196,6 +1368,8 @@ function HomePane(props: {
   companionNote?: string | null;
   /** R4 (H98): q draws a QR code (--lan); otherwise it shows the address */
   companionQr?: boolean;
+  /** R4 (H103, D7): the flash needs the gap row between the cards (a long flash on a short terminal) */
+  tight?: boolean;
 }) {
   const [integrations] = useState(() => integrationCatalog());
   const rows = journeyRows(props.recs, { companionQr: props.companionQr === true });
@@ -1229,7 +1403,7 @@ function HomePane(props: {
         ))}
         {done === rows.length && <Text color={PAL.seal}>journey complete · {done}/{rows.length} sealed</Text>}
       </Card>
-      <Box height={1} />
+      {props.tight ? null : <Box height={1} />}
       <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is hollow (□ ○), never red'} flexGrow={1}>
         <Text wrap="truncate">
           {/* R4 (H98): a lane program found on PATH has not been run: found (not checked), never "available" */}
@@ -1608,10 +1782,11 @@ function ChatPane({ recs, maxTurns, compact, covered }: { recs: Receipt[]; maxTu
       <Card title="CHAT · sovereign" purpose={compact ? undefined : 'transcript rises from the bottom'} flexGrow={1} overflow={moreLine(all.length - turns.length, 'earlier turns')}>
         {turns.length === 0 ? <Text color={PAL.textMuted}>no turns yet — type to talk to the commander-backed chat</Text> : turns.map(r => {
           const src = Array.isArray(r.sources) ? r.sources as { role?: string; text?: string }[] : [];
-          const you = src.find(x => x.role === 'user')?.text ?? '';
+          const you = src.find(x => x.role === 'user')?.text;
           return (
             <Box key={r.id} flexDirection="column">
-              <Text color={PAL.textPrimary} wrap="truncate">{`you: ${you.slice(0, 100)}`}</Text>
+              {/* R4 (H103): a turn of the chat session keeps its prompt as a hash only (receipt v2.1: nothing raw is sealed) */}
+              <Text color={PAL.textPrimary} wrap="truncate">{you !== undefined ? `you: ${you.slice(0, 100)}` : `you: (kept as its hash, ${String(r.prompt_hash ?? '').slice(0, 8) || 'none'})`}</Text>
               <Text color={PAL.textSecondary} wrap="truncate">{`${String(r.subject).replace('chat.turn · ', 'answer · ').slice(0, 100)}`}</Text>
               <Text wrap="truncate">
                 <Text bold={covered(r)} color={covered(r) ? PAL.seal : PAL.structure}>{covered(r) ? '✓' : '●'}</Text>

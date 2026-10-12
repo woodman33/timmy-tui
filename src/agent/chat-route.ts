@@ -12,7 +12,7 @@ import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, olla
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
 import type { LastResortAnswer } from './core.js';
-import type { ChatRouteState } from '../contracts/chat-session.js';
+import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { Segment } from '../term/theme.js';
 import type { TurnFacts } from '../repl/seal.js';
 
@@ -110,14 +110,18 @@ export interface RouteNow {
  * OpenRouter route's model, named in its words; `short`: the model's last part only (the monitor's narrow top line).
  * Reads the setup's files only: no request to anything.
  */
-export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: string | null; key: boolean; openRouterModel?: string | null; short?: boolean }): RouteNow {
+export function chatRouteNow(o: { env?: Env; state?: SetupState; session?: string | null; key: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
   const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
   if (route.kind === 'local') {
     const words = localRouteWords(route);
     const ready = prepareLocal(route, { fail: '' });
-    return 'route' in ready
-      ? { route, state: { kind: 'local', words, ready: true }, local: ready.route }
-      : { route, state: { kind: 'local', words, ready: false, refusal: plainLines(ready.refusal) } };
+    if ('route' in ready) return { route, state: { kind: 'local', words, ready: true }, local: ready.route };
+    // the fix in the words of the surface: the REPL's own commands there, a command any terminal runs elsewhere
+    const away = (o.surface ?? 'repl') !== 'repl';
+    const refusal = plainLines(ready.refusal).map((l) => (!away || !/^Try:/.test(l) ? l
+      : 'error' in route.at ? 'Try: timmy init --chat local --ollama <host> (in a terminal), or /setup chat in the REPL'
+        : 'Try: timmy init --chat local --model <name> (in a terminal: Timmy checks that Ollama lists it), or /model in the REPL'));
+    return { route, state: { kind: 'local', words, ready: false, refusal } };
   }
   if (o.key) return { route, state: { kind: 'openrouter', words: chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }), ready: true } };
   return { route, state: { kind: 'none', words: chatRoute({ key: false }), ready: false, refusal: [...NO_ROUTE_REFUSAL] } };

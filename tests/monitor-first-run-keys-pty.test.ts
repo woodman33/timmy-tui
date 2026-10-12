@@ -110,7 +110,8 @@ describe('the monitor\'s FIRST RUN, answered (R4 H98)', () => {
       expect({
         splash: Boolean(splash), stayed, exit,
         line: /Set up here: chat local model \(no key\) · logs this computer only · project demo/.test(home),
-        top: /chat: no model key · \/setup/.test(home.split('\n')[0]),
+        // R4 (H103): the top line says the route the setup chose (the local model, none chosen yet), not "no model key"
+        top: /chat: local · no model chosen · \/setup/.test(home.split('\n')[0]),
         footer: /\[q\] address/.test(home), journey: /\[q\] its address · a phone: timmy watch --lan/.test(home), lanes: /found \(not checked\)/.test(home),
         cardAddress: /http:\/\/127\.0\.0\.1:\d+\/#t=[0-9a-f]+/.test(card), qrDrawn: /[▀▄█]{6,}/.test(card),
         saved: [rec.by, rec.answers.chat],
