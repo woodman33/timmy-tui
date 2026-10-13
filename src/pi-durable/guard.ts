@@ -14,11 +14,11 @@
  */
 import type { HookSpec, PiContext } from './adapter/pi-api.js';
 import { effectKey, type EffectLedger, type EffectRecord } from './effects.js';
-import { trialTarget, writeTarget } from './slow-tools.js';
+import { fileTarget, trialTarget } from './slow-tools.js';
 
 /** The tools whose calls are effects, each with its target: a canonical project path, or the run's trial copy. */
 export const EFFECT_TOOLS: Readonly<Record<string, (root: string, args: Record<string, unknown>, run: string) => string | undefined>> = Object.freeze({
-  slow_write: (root: string, args: Record<string, unknown>) => { const t = writeTarget(root, args); return 'error' in t ? undefined : t.target; },
+  slow_write: (root: string, args: Record<string, unknown>) => { const t = fileTarget(root, args); return 'error' in t ? undefined : t.target; },
   trial_shell: (_root: string, _args: Record<string, unknown>, run: string) => trialTarget(run),
 });
 

@@ -1,15 +1,23 @@
 /**
  * Pi Durable, slice S1 (R4 H118): where the Pi worker keeps what it owns, for one project. Everything is under
- * <project>/.timmy/pi/ (Timmy's per-project folder, never committed), except the socket, which lives in $TMPDIR with a
- * short name because macOS caps a socket path at 104 bytes (plan b.1.5).
+ * <project>/.timmy/private/pi/ (Timmy's per-project folder, never committed), except the socket, which lives in $TMPDIR
+ * with a short name because macOS caps a socket path at 104 bytes (plan b.1.5).
+ *
+ * .timmy/private is the part of the project Timmy's own file tools, reads and listings never reach (privatePath in
+ * src/project), so no agent can read the worker's token into a model's context or rewrite its effect ledger (fix S1 of
+ * H119's review: it was .timmy/pi/, which they reached). Pi's own file tools refuse all of .timmy/ (slow-tools.ts).
  */
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { projectId } from '../project/index.js';
 
+/** The worker's folder, project-relative (worker.token, worker.json, the store, the ledger, runs/, starts.jsonl, trial copies). */
+export const PI_DIR_REL = '.timmy/private/pi';
 /** The store, as worker.json and hello name it: project-relative, never a home path. */
-export const STORE_REL = '.timmy/pi/store.sqlite';
+export const STORE_REL = `${PI_DIR_REL}/store.sqlite`;
+/** The worker's log, project-relative (the supervisor appends its output there). */
+export const LOG_REL = `${PI_DIR_REL}/worker.log`;
 
 export interface PiPaths {
   readonly root: string;
@@ -30,7 +38,7 @@ export interface PiPaths {
 export function piPaths(root: string): PiPaths {
   const abs = resolve(root);
   const id = projectId(abs);
-  const dir = join(abs, '.timmy', 'pi');
+  const dir = join(abs, ...PI_DIR_REL.split('/'));
   return {
     root: abs,
     projectId: id,

@@ -1,5 +1,6 @@
 /**
- * Pi Durable, slice S1 (R4 H118): the store, <project>/.timmy/pi/store.sqlite, opened only by the Pi worker (plan b.1.3).
+ * Pi Durable, slice S1 (R4 H118): the store, <project>/.timmy/private/pi/store.sqlite, opened only by the Pi worker
+ * (plan b.1.3).
  *
  * pi-durable has no cross-process lock (its README: "one process owns a storage at a time"), and H115's spike C showed
  * what a second opener does to a live store: it turned the owner's running task back to pending, and one that also

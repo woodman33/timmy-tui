@@ -1,10 +1,11 @@
 /**
- * Pi Durable, slice S1 (R4 H118): the worker's own record of each delegated run, <project>/.timmy/pi/runs/<run>.json
- * (0600, temp file and rename; the worker is the single writer). It names the run's conversation, request id and
- * submission in the store, the key it was delegated with, and what Timmy knows that Pi does not: a stop someone asked
- * for, a pause and why, an interruption, NEEDS YOU items, and cost words. It is readable while the worker is down.
- * (S2 replaces it with the code-agent run records, .timmy/agents/<run>/; the store's own run index, a session document
- * written in the conversation's creating commit, stays the authority for which conversation a run has.)
+ * Pi Durable, slice S1 (R4 H118): the worker's own record of each delegated run,
+ * <project>/.timmy/private/pi/runs/<run>.json (0600, temp file and rename; the worker is the single writer). It names
+ * the run's conversation, request id and submission in the store, the key it was delegated with, and what Timmy knows
+ * that Pi does not: a stop someone asked for, a pause and why, an interruption, NEEDS YOU items, and cost words. It is
+ * readable while the worker is down. (S2 replaces it with the code-agent run records, .timmy/agents/<run>/; the store's
+ * own run index, a session document written in the conversation's creating commit, stays the authority for which
+ * conversation a run has.)
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

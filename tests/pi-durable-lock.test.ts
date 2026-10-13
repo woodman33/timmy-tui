@@ -65,7 +65,7 @@ describe.skipIf(!INSTALLED)(`the Pi worker's store lock (plan i.8, spike I)${INS
     expect(sock.mode & 0o777).toBe(0o600);
     expect(owner.socket).toBe(p.socket);
     expect(owner.socket.endsWith(`timmy-pi-${p.projectId.slice(0, 12)}.sock`)).toBe(true);
-    expect(owner).toMatchObject({ schema: 'timmy.pi-worker/1', project_id: p.projectId, store: '.timmy/pi/store.sqlite', scheduling: 'running', setting: { on_exit: 'pause' } });
+    expect(owner).toMatchObject({ schema: 'timmy.pi-worker/1', project_id: p.projectId, store: '.timmy/private/pi/store.sqlite', scheduling: 'running', setting: { on_exit: 'pause' } });
     expect(owner.token_sha256).toMatch(/^[0-9a-f]{64}$/);
     await expect(PiClient.connect(owner.socket, { token: 'not the token' })).rejects.toThrow('say hello with the worker token first');
     // the worker filters node:sqlite's experimental-feature warning (Node 22 prints one when it loads)
@@ -130,7 +130,7 @@ describe.skipIf(!INSTALLED)(`the Pi worker's store lock (plan i.8, spike I)${INS
       process.kill(pid, 'SIGCONT');
     }
     expect(refused).toBeInstanceOf(PiNeedsYou);
-    expect((refused as PiNeedsYou).words).toBe(`NEEDS YOU: the Pi store .timmy/pi/store.sqlite is held by pid ${pid} (alive), which did not answer hello within 1500 ms; a second worker cannot open it ("database is locked"). It may be stopped or hung: Timmy does not kill it by itself.`);
+    expect((refused as PiNeedsYou).words).toBe(`NEEDS YOU: the Pi store .timmy/private/pi/store.sqlite is held by pid ${pid} (alive), which did not answer hello within 1500 ms; a second worker cannot open it ("database is locked"). It may be stopped or hung: Timmy does not kill it by itself.`);
     // both extra starts lost the race (exit 3), so neither counts against the start budget
     await until('both lost starts to be recorded', () => readFileSync(piPaths(root).starts, 'utf8').split('"lost_race":true').length - 1 === 2, 15_000);
     expect(startsInWindow(piPaths(root), START_BUDGET.windowMs).map((x) => x.pid)).toEqual([pid]);

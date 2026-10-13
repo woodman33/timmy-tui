@@ -2,8 +2,9 @@
  * Pi Durable S1 (R4 H118), plan i.1: termination and restart. REAL: Pi worker processes (detached, started by the
  * supervisor), SIGKILL from this test at a chosen point, pi-durable 1.1.0's SQLite store and recovery, the effect
  * ledger and its reconciliation, the guard, project files. FAKE: the model (pi-ai's scripted faux provider, one script
- * per run: no request leaves the machine; its requests are logged to .timmy/pi/faux-calls.jsonl) and the fixture
- * projects. The kill window is a tool's `delay_ms` (S1's fixture tools) or a slow FAKE stream (tokens_per_second).
+ * per run: no request leaves the machine; its requests are logged to .timmy/private/pi/faux-calls.jsonl) and the
+ * fixture projects. The kill window is a tool's `delay_ms` (S1's fixture tools) or a slow FAKE stream
+ * (tokens_per_second).
  *
  * Each case reproduces one of H115's spike runs, now through Timmy's worker:
  * (a) SIGKILL during a safe read: it reruns by itself after the restart: 2 reads, one result (spike B).

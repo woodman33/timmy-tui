@@ -1,18 +1,18 @@
 /**
  * Pi Durable, slice S1 (R4 H118): how any Timmy process gets the project's Pi worker (plan b.1.6, b.2).
  *
- * `ensureWorker(root)`: read worker.json; when its writer is alive (the writerState proof: pid AND process start) and its
- * hello answers with this project's id and store, attach. Otherwise start `node <worker entry> --project <root>`
- * DETACHED (its own process group, its output appended to .timmy/pi/worker.log) and wait up to 10 s for its hello. A
- * started worker that exits 3 found the store owned (another starter won the race): attach to that owner. The SQLite
- * lock is the guarantee that one store never has two workers; worker.json is only the directory.
+ * `ensureWorker(root)`: read worker.json; when its writer is alive (the writerState proof: pid AND process start) and
+ * its hello answers with this project's id and store, attach. Otherwise start `node <worker entry> --project <root>`
+ * DETACHED (its own process group, its output appended to .timmy/private/pi/worker.log) and wait up to 10 s for its
+ * hello. A started worker that exits 3 found the store owned (another starter won the race): attach to that owner. The
+ * SQLite lock is the guarantee that one store never has two workers; worker.json is only the directory.
  *
  * The start budget (plan b.2: a budget for restarting a worker that keeps dying): at most 3 starts per 10 minutes per
- * project that did not end cleanly, counted in .timmy/pi/starts.jsonl. A start that lost the race (exit 3) does not
- * count, nor one whose worker exited cleanly (exit 0, which the worker records there itself), so Timmy sessions that
- * come and go are never refused. A bad line is skipped, never the whole budget. Past it nothing is started: a NEEDS
- * YOU with the last lines of worker.log (`PiNeedsYou`). A store held by a live owner that does not answer is refused
- * with words naming it; Timmy never kills it by itself.
+ * project that did not end cleanly, counted in .timmy/private/pi/starts.jsonl. A start that lost the race (exit 3) does
+ * not count, nor one whose worker exited cleanly (exit 0, which the worker records there itself), so Timmy sessions
+ * that come and go are never refused. A bad line is skipped, never the whole budget. Past it nothing is started: a
+ * NEEDS YOU with the last lines of worker.log (`PiNeedsYou`). A store held by a live owner that does not answer is
+ * refused with words naming it; Timmy never kills it by itself.
  *
  * `recoverOnStart(root)` is the start-up rule of b.2: the worker is started again only when there is persisted pending
  * work, the setting allows it ("free local work only", the default, or "never"), and the budget holds; it then resumes
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { THIS_PROCESS } from '../ops/process-proof.js';
 import { freeRoute } from './cost.js';
 import { ownerState, readOwner, readToken, sha256Hex } from './owner.js';
-import { piPaths, STORE_REL, type PiPaths } from './paths.js';
+import { LOG_REL, piPaths, STORE_REL, type PiPaths } from './paths.js';
 import { PiClient, type OnExit, type ResumeResult } from './protocol.js';
 import { listRuns } from './runs.js';
 
@@ -176,7 +176,7 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
     const used = startsInWindow(paths, budget.windowMs);
     if (used.length >= budget.limit) {
       const log = logTail(paths);
-      throw new PiNeedsYou(`NEEDS YOU: the Pi worker was started ${used.length} times in the last ${Math.round(budget.windowMs / 60_000)} minutes without ending cleanly (pids ${used.map((u) => u.pid).join(', ')}); it is not started again by itself. The end of its log (.timmy/pi/worker.log):\n${log}`, log);
+      throw new PiNeedsYou(`NEEDS YOU: the Pi worker was started ${used.length} times in the last ${Math.round(budget.windowMs / 60_000)} minutes without ending cleanly (pids ${used.map((u) => u.pid).join(', ')}); it is not started again by itself. The end of its log (${LOG_REL}):\n${log}`, log);
     }
     const started = startWorker(paths, opts);
     spawned = started.pid;

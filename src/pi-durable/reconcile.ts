@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EffectLedger, EffectRecord } from './effects.js';
-import { fileSha256, fileTail, writeTarget } from './slow-tools.js';
+import { fileSha256, fileTail, fileTarget } from './slow-tools.js';
 
 export interface Reconciled { readonly key: string; readonly run: string; readonly state: 'ended' | 'unknown'; readonly outcome: string }
 
@@ -46,7 +46,7 @@ function readBack(r: EffectRecord, root: string): { state: 'ended' | 'unknown'; 
     };
   }
   if (r.tool !== 'slow_write') return { state: 'unknown', outcome: `no reconciler for ${r.tool}: NEEDS YOU` };
-  const t = writeTarget(root, { path: r.target });
+  const t = fileTarget(root, { path: r.target });
   if ('error' in t) return { state: 'unknown', outcome: `the target cannot be read back (${t.error}): NEEDS YOU` };
   const sha = fileSha256(t.path);
   if (sha === r.new_sha256) return { state: 'ended', outcome: 'observed after a restart: the file has the new bytes (the write happened)', readback: { sha256: sha } };

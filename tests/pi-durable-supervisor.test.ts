@@ -2,10 +2,10 @@
  * Pi Durable S1 (R4 H118), plan b.2 and b.3: the supervisor's start budget, what Timmy's exit does to the worker, the
  * worker's idle exit, and Timmy's start-up recovery. REAL: Pi worker processes started detached by the supervisor,
  * SIGKILL, leases (the worker's authenticated socket connections), a separate client process that attaches and is
- * killed (a crashed Timmy), worker.log, .timmy/pi/starts.jsonl, the run records, pi-durable 1.1.0's store. FAKE: the
- * model (pi-ai's scripted faux provider), the fixture projects, and the "Timmy" processes (this test and its child).
- * Timings are shortened through the worker's own options (--lease-grace-ms, --idle-ms); the defaults are 15 s and
- * 10 minutes.
+ * killed (a crashed Timmy), worker.log, .timmy/private/pi/starts.jsonl, the run records, pi-durable 1.1.0's store.
+ * FAKE: the model (pi-ai's scripted faux provider), the fixture projects, and the "Timmy" processes (this test and its
+ * child). Timings are shortened through the worker's own options (--lease-grace-ms, --idle-ms); the defaults are 15 s
+ * and 10 minutes.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -129,7 +129,7 @@ describe.skipIf(!INSTALLED)(`the supervisor and the worker's life (plan b.2, b.3
     await until('the read to be running', () => reads(root, d.run).length === 1);
     // a second "Timmy" process: attaches with the token, says hello, and stays
     const script = "const net=require('net'),fs=require('fs'),p=require('path');const r=process.argv[1];"
-      + "const o=JSON.parse(fs.readFileSync(p.join(r,'.timmy/pi/worker.json'),'utf8'));const t=fs.readFileSync(p.join(r,'.timmy/pi/worker.token'),'utf8').trim();"
+      + "const o=JSON.parse(fs.readFileSync(p.join(r,'.timmy/private/pi/worker.json'),'utf8'));const t=fs.readFileSync(p.join(r,'.timmy/private/pi/worker.token'),'utf8').trim();"
       + "const s=net.createConnection(o.socket,()=>s.write(JSON.stringify({id:1,method:'hello',params:{token:t,pid:process.pid,surface:'fake-timmy'}})+'\\n'));"
       + "s.on('data',(d)=>{if(String(d).includes('\"ok\":true'))process.stdout.write('attached\\n');});setInterval(()=>{},1000);";
     const child = spawn(process.execPath, ['-e', script, root], { stdio: ['ignore', 'pipe', 'inherit'] });

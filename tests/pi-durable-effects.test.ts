@@ -1,10 +1,10 @@
 /**
  * Pi Durable S1 (R4 H118), plan i.3: interrupted side effects. REAL: Pi worker processes started by the supervisor,
  * SIGKILL, pi-durable 1.1.0's recovery ("interrupted and may have partially run"), the effect ledger
- * (.timmy/pi/effects.jsonl), the reconciler, the guard hooks and the host abort, project files and their sha256. FAKE:
- * the model (pi-ai's scripted faux provider; this script repeats a refused call as H115's looping model did, spike A1)
- * and the fixture projects. The reconciler's three outcomes are also checked in this process, on a ledger written by
- * hand (no worker).
+ * (.timmy/private/pi/effects.jsonl), the reconciler, the guard hooks and the host abort, project files and their
+ * sha256. FAKE: the model (pi-ai's scripted faux provider; this script repeats a refused call as H115's looping model
+ * did, spike A1) and the fixture projects. The reconciler's three outcomes are also checked in this process, on a
+ * ledger written by hand (no worker).
  *
  * - A compare-and-set write killed after the write and before `ended` reconciles by sha256 to `ended (observed)`.
  * - The model repeating an interrupted write whose outcome is unknown (the file now has neither the old nor the new
@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { EffectLedger, effectKey } from '../src/pi-durable/effects.js';
+import { piPaths } from '../src/pi-durable/paths.js';
 import { reconcileOpen } from '../src/pi-durable/reconcile.js';
 import { alive, anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, track, until } from './helpers/pi-durable.js';
 
@@ -35,7 +36,7 @@ describe('the reconciler, on a ledger written by hand (no worker, no model)', ()
   it('ends an effect observed written, ends one observed not written, and marks unknown one with third bytes', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-durable-reconcile-'));
     dirs.push(root);
-    const ledger = new EffectLedger(join(root, '.timmy', 'pi', 'effects.jsonl'));
+    const ledger = new EffectLedger(piPaths(root).effects);
     const open = (target: string, run: string) => ledger.append({ key: effectKey('slow_write', target, run), run, tool: 'slow_write', target, state: 'started', expected_sha256: sha('old'), new_sha256: sha('new'), by: 'tool' });
     writeFileSync(join(root, 'written.txt'), 'new');
     writeFileSync(join(root, 'unwritten.txt'), 'old');
@@ -140,7 +141,7 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     a.client.close();
     await killWorker(root);
     expect(effects(root, d.run).map((e) => e.state)).toEqual(['started']);
-    expect(effects(root, d.run)[0]).toMatchObject({ key: `trial_shell:.timmy/pi/${d.run}/trial:${d.run}`, argv });
+    expect(effects(root, d.run)[0]).toMatchObject({ key: `trial_shell:.timmy/private/pi/${d.run}/trial:${d.run}`, argv });
 
     const b = await start(root, { worker: { trialShell: true } });
     const after = effects(root, d.run);
@@ -201,7 +202,7 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     expect(end.status).toBe('needs you');
     expect(end.entries.filter((e) => e.kind === 'pi.tool-result').map((e) => e.text)).toEqual([
       expect.stringMatching(/Tool trial_shell was interrupted and may have partially run/),
-      expect.stringMatching(/Tool call blocked: NEEDS YOU: an earlier trial_shell of \.timmy\/pi\/[0-9a-f]{8}\/trial in this run is of unknown outcome/),
+      expect.stringMatching(/Tool call blocked: NEEDS YOU: an earlier trial_shell of \.timmy\/private\/pi\/[0-9a-f]{8}\/trial in this run is of unknown outcome/),
     ]);
     const final = effects(root, run);
     expect(final.filter((e) => e.state === 'started')).toHaveLength(1); // the command ran once

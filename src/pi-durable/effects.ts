@@ -1,9 +1,10 @@
 /**
- * Pi Durable, slice S1 (R4 H118): the effect ledger, <project>/.timmy/pi/effects.jsonl (plan e.3.1). Append-only; the
- * worker is its single writer (it holds the store's lock, so there is one worker per project). One line per state:
- * `started` is written BEFORE the effect, `ended` after it with a readback of what is actually there, and `unknown` when
- * a reconciliation could not tell. The key is the tool plus its TARGET (a canonical project path) plus the run, not the
- * raw arguments, so a call whose arguments changed slightly still meets the earlier record (risk k.16).
+ * Pi Durable, slice S1 (R4 H118): the effect ledger, <project>/.timmy/private/pi/effects.jsonl (plan e.3.1).
+ * Append-only; the worker is its single writer (it holds the store's lock, so there is one worker per project). One
+ * line per state: `started` is written BEFORE the effect, `ended` after it with a readback of what is actually there,
+ * and `unknown` when a reconciliation could not tell. The key is the tool plus its TARGET (a canonical project path)
+ * plus the run, not the raw arguments, so a call whose arguments changed slightly still meets the earlier record (risk
+ * k.16).
  *
  * Pi's own words ("interrupted", "aborted") are not evidence of what happened (spike D2: Pi said aborted, the work had
  * finished); this ledger and its readbacks are what Timmy reports.

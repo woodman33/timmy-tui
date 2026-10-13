@@ -1,10 +1,10 @@
 /**
- * Pi Durable, slice S1 (R4 H118): the owner record, <project>/.timmy/pi/worker.json (plan b.1.4). It is how any Timmy
- * process finds the project's Pi worker: its pid and process start (the writerState proof src/ops/process-proof.ts gives
- * recovery: a pid alone is never enough, pids are reused), its socket, and the sha256 of the token a client presents.
- * The token itself is in worker.token beside it. Both are 0600 and written through a temp file and a rename, so a reader
- * sees the old record or the new one, never half of one. Only the worker writes them, and only after it holds the store's
- * lock; it removes them when it exits cleanly.
+ * Pi Durable, slice S1 (R4 H118): the owner record, <project>/.timmy/private/pi/worker.json (plan b.1.4). It is how any
+ * Timmy process finds the project's Pi worker: its pid and process start (the writerState proof
+ * src/ops/process-proof.ts gives recovery: a pid alone is never enough, pids are reused), its socket, and the sha256 of
+ * the token a client presents. The token itself is in worker.token beside it. Both are 0600 and written through a temp
+ * file and a rename, so a reader sees the old record or the new one, never half of one. Only the worker writes them,
+ * and only after it holds the store's lock; it removes them when it exits cleanly.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
