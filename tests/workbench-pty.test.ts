@@ -47,6 +47,36 @@ const widest = (s: string) => Math.max(...s.split('\n').map((l) => [...l].length
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
   const screen = () => tmux('capture-pane', '-p', '-t', 't');
+  // R4 lead (full suite 35, at bfb7fe5: slice B's `a` did not expand Activity in 30 s, while the Workbench went on drawing;
+  // the cause was not found, and loaded reruns and the next full suite passed): a wait that times out also says what the
+  // terminal and its processes were doing, so a recurrence names its cause. tmux's flags for the pane; the bytes typed into
+  // the pane's terminal that no process has read yet (FIONREAD: 1 for a key that never reached the Workbench); and each
+  // process in the pane, with its state (and, on Linux, what it waits in).
+  const diagnose = (): string => {
+    const out: string[] = [];
+    try {
+      const [pid, tty, mode, inputOff, dead] = tmux('display', '-p', '-t', 't', '#{pane_pid} #{pane_tty} #{pane_in_mode} #{pane_input_off} #{pane_dead}').trim().split(' ');
+      out.push(`the pane: shell pid ${pid}, terminal ${tty}, in a tmux mode ${mode}, input off ${inputOff}, dead ${dead}`);
+      try {
+        const unread = execFileSync('python3', ['-c', 'import fcntl,os,struct,sys,termios\nfd=os.open(sys.argv[1],os.O_RDONLY|os.O_NOCTTY|os.O_NONBLOCK)\nprint(struct.unpack("i",fcntl.ioctl(fd,termios.FIONREAD,b"\\0"*4))[0])', tty], { encoding: 'utf8', timeout: 5000 }).trim();
+        out.push(`bytes typed into ${tty} and not read yet: ${unread}`);
+      } catch (e) { out.push(`bytes not read yet: unknown (${String((e as Error).message).split('\n')[0]})`); }
+      const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,stat=,etime=,args='], { encoding: 'utf8', timeout: 5000 }).split('\n').map((l) => l.trim()).filter(Boolean);
+      const inPane = new Set([pid]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const r of rows) { const [p, pp] = r.split(/\s+/); if (inPane.has(pp) && !inPane.has(p)) { inPane.add(p); grew = true; } }
+      }
+      for (const r of rows) {
+        const p = r.split(/\s+/)[0];
+        if (!inPane.has(p)) continue;
+        let wchan = '';
+        try { wchan = ` (waits in ${readFileSync(`/proc/${p}/wchan`, 'utf8').trim() || 'nothing'})`; } catch { /* not Linux, or it has ended */ }
+        out.push(`  ${r.slice(0, 200)}${wchan}`);
+      }
+    } catch (e) { out.push(`no diagnosis: ${String((e as Error).message).split('\n')[0]}`); }
+    return out.join('\n');
+  };
   const waitFor = async (re: RegExp, ms = 30_000): Promise<string> => {
     let s = '';
     for (const end = Date.now() + ms; Date.now() < end;) {
@@ -54,7 +84,7 @@ function terminal(label: string) {
       if (re.test(s)) return s;
       await sleep(100);
     }
-    throw new Error(`timed out waiting for ${re}:\n${s}`);
+    throw new Error(`timed out waiting for ${re}:\n${s}\n${diagnose()}`);
   };
   const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
   const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
