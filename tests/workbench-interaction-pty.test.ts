@@ -54,8 +54,19 @@ const servers: string[] = [];
 const cli = (args: string[], timeout = 60_000) => runAsync(process.execPath, ['--import', LOADER, CLI, ...args], { cwd: repo, env, timeout });
 const jobsDir = () => join(timmyHome, 'jobs');
 const records = () => (existsSync(jobsDir()) ? readdirSync(jobsDir()) : []).filter((n) => n.endsWith('.json'))
-  .map((n) => JSON.parse(readFileSync(join(jobsDir(), n), 'utf8')) as { id: string; label: string; root: string; state: string; pid?: number; operation?: string; error?: string; owner?: { pid: number } });
+  .map((n) => JSON.parse(readFileSync(join(jobsDir(), n), 'utf8')) as { id: string; label: string; root: string; state: string; pid?: number; operation?: string; error?: string; owner?: { pid: number }; steps?: Array<{ name: string; state: string }> });
 const runsOf = (label: string, root = trayA) => records().filter((j) => j.root === root && j.label === label);
+/**
+ * R4 lead (full suite 38): a run's block has started once its job record lists the step (src/jobs JobStep, taken from upmd's
+ * start line). "Stop current" names the job as soon as it runs, which can be before that: a Workbench killed in between left
+ * a record of 0 of 1 step, as it should, where this test expected 1 of 1. The stop and the kill now come after the start.
+ */
+const blockStarted = async (id: string): Promise<void> => {
+  for (const end = Date.now() + 15_000; Date.now() < end; await sleep(100)) {
+    if ((records().find((j) => j.id === id)?.steps ?? []).length > 0) return;
+  }
+  throw new Error(`the block of job ${id} did not start in 15 s`);
+};
 /**
  * R4 lead (CI at f22e044): an item that fails while `wait` is held must not leave it running into the next items (item 4
  * then found its operation to pick up, item 5 a run not completed): its finally releases it and gives the run a moment to end.
@@ -415,6 +426,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
       [quit] = runsOf('SLOW.md › long');
+      await blockStarted(quit.id);
       await t.keys('C-c');
       const asked = await t.waitFor(/Quit the Workbench\?/, 5000);
       expect(asked).toContain(`${quit.id} SLOW.md › long`);
@@ -450,6 +462,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await k.keys('Enter');
       await k.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
       killed = runsOf('SLOW.md › long').find((j) => j.state === 'running')!;
+      await blockStarted(killed.id);
       process.kill(k.pid(), 'SIGKILL');
       await k.waitFor(/EXIT=137/, 10_000);
     } finally {
