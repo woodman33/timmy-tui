@@ -46,7 +46,8 @@ export interface RunFile {
   cost_unknown?: string | null;
   /** each re-submission with the same request id at a Resume, and whether the store returned the same submission (`first`: none existed yet) */
   resubmitted?: { readonly at: string; readonly submission: number; readonly same: boolean; readonly first?: true }[];
-  ended?: { readonly status: RunWords; readonly reason?: string; readonly at: string } | null;
+  /** how the run ended; `why`: Timmy's words when its end is not just its submission's (fixes S5, S7) */
+  ended?: { readonly status: RunWords; readonly reason?: string; readonly why?: string; readonly at: string } | null;
 }
 
 export const runPath = (paths: PiPaths, run: string): string => join(paths.runs, `${run}.json`);

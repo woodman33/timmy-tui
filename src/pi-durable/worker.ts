@@ -247,6 +247,7 @@ class Worker {
       this.log(`opened ${STORE_REL}: no live work`);
     }
     for (const r of listRuns(this.paths)) if (!r.ended && r.conversation !== undefined) await this.attachEvents(r.run);
+    if (this.scheduling === 'running') await this.recoverUnended('when the worker started'); // fix S5 (when paused: at Resume)
     const token = newToken();
     this.server = await serve(this.paths.socket, sha256Hex(token), (m, p, peer) => this.handle(m, p, peer), () => this.hello(), {
       opened: (peer, end) => {
@@ -487,10 +488,46 @@ class Worker {
     void (async () => {
       try {
         const sub = await this.harness.submission(id, this.C);
-        const settled = sub ? await sub.wait(this.C) : undefined;
+        if (!sub) {
+          this.patchRun(run, (x) => { if (!x.ended && lastSubmission(x) === id) x.ended = { status: 'unknown', why: `its submission ${id} is not in the store: how it ended cannot be read`, at: new Date().toISOString() }; });
+          return;
+        }
+        const settled = await sub.wait(this.C);
         if (settled) this.recordEnd(run, settled);
       } catch { /* the Harness closed (a pause or the exit): the run is recorded paused instead */ } finally { this.following.delete(tag); }
     })();
+  }
+
+  /**
+   * Fix S5 of H119's review: whenever scheduling starts (the worker's start with nothing live, and Resume), no run is left
+   * unended. A run whose newest submission exists is followed (one that settled before its end was written is recorded
+   * at once). One that never submitted its task (a kill between its record and its conversation or submission, or a
+   * placement that threw) is placed again by its request id, which pi-durable dedupes; when that fails and the store
+   * has no submission of it, it is ended with words. One whose stop was asked before it submitted is ended cancelled.
+   */
+  private async recoverUnended(when: string): Promise<void> {
+    for (const r of listRuns(this.paths)) {
+      if (r.ended) continue;
+      if (lastSubmission(r) !== undefined) { this.follow(r.run); continue; }
+      const at = new Date().toISOString();
+      if (r.stop_requested) {
+        this.patchRun(r.run, (x) => { x.ended = { status: 'cancelled', why: `a stop was asked by ${r.stop_requested?.by ?? 'a client'} before its task was submitted: nothing of it ran`, at }; });
+        continue;
+      }
+      try {
+        this.registerFaux(r);
+        const placed = await this.place(r) as { submission: number };
+        this.patchRun(r.run, (x) => { x.resubmitted = [...(x.resubmitted ?? []), { at, submission: placed.submission, same: false, first: true }]; });
+        this.log(`run ${r.run} had never submitted its task: placed again ${when} (submission ${placed.submission})`);
+      } catch (e) {
+        const words = e instanceof Error ? e.message : String(e);
+        const fresh = readRun(this.paths, r.run) ?? r;
+        const sub = await this.submissionOf(fresh).catch(() => undefined);
+        if (sub) { this.follow(r.run); continue; } // it was submitted after all: its end is followed
+        this.patchRun(r.run, (x) => { if (!x.ended) x.ended = { status: 'failed', why: `its task could not be placed again ${when}: ${words}; nothing of it ran`, at }; });
+        this.log(`run ${r.run} could not be placed again ${when}: ${words}`);
+      }
+    }
   }
 
   private async liveRuns(): Promise<RunFile[]> {
@@ -726,6 +763,7 @@ class Worker {
       resumed.push({ run: r.run, submission: sub.id, same, ...(first ? { first: true as const } : {}) });
       this.follow(r.run);
     }
+    await this.recoverUnended('at Resume'); // fix S5: a run with no conversation yet is placed too
     this.log(`resumed: scheduling runs (${resumed.length} re-acquired by request id)`);
     return { scheduling: 'running', resumed };
   }

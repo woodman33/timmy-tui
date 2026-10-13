@@ -102,7 +102,8 @@ export interface StatusResult {
   readonly cost: CostWords;
   readonly resubmitted: { readonly submission: number; readonly same: boolean; readonly first?: true }[];
   readonly messages: { readonly n: number; readonly key?: string; readonly mode: 'steer' | 'followUp'; readonly submission: number }[];
-  readonly ended: { readonly status: RunWords; readonly reason?: string; readonly at: string } | null;
+  /** how the run ended; `why`: Timmy's words when its end is not just its submission's */
+  readonly ended: { readonly status: RunWords; readonly reason?: string; readonly why?: string; readonly at: string } | null;
   readonly model: string;
 }
 export interface ListResult { readonly scheduling: 'paused' | 'running'; readonly runs: { readonly run: string; readonly key: string | null; readonly status: RunWords; readonly created: string }[] }
