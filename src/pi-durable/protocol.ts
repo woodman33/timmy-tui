@@ -130,6 +130,15 @@ export type Response = { readonly id: number; readonly ok: true; readonly result
 /** One authenticated connection: a lease. */
 export interface Peer { readonly id: number; readonly pid?: number; readonly started?: string; readonly surface?: string; readonly since: number }
 export type Handler = (method: Method, params: Record<string, unknown>, peer: Peer) => Promise<unknown>;
+/** The worker's listening socket and every connection it accepted. */
+export interface PiServer {
+  readonly server: Server;
+  /** From now on a hello is answered with these words and its connection is ended (the worker is shutting down). */
+  refuse(words: string): void;
+  /** Stops listening, ends every connection (said hello or not) and waits for them at most `ms`. */
+  close(ms: number): Promise<'closed' | 'timed out'>;
+}
+
 export interface LeaseHooks {
   /** a connection said hello with the token: a lease begins (`end()` closes it) */
   opened(peer: Peer, end: () => void): void;
@@ -156,11 +165,15 @@ function lines(socket: Socket, onLine: (line: string) => void): void {
 }
 
 /** Listens on the socket path (a stale file there is removed first: the caller holds the store's lock). */
-export async function serve(socketPath: string, tokenSha256Hex: string, handler: Handler, hello: (peer: Peer) => HelloResult, leases?: LeaseHooks): Promise<Server> {
+export async function serve(socketPath: string, tokenSha256Hex: string, handler: Handler, hello: (peer: Peer) => HelloResult, leases?: LeaseHooks): Promise<PiServer> {
   rmSync(socketPath, { force: true });
   const expected = Buffer.from(tokenSha256Hex, 'hex');
   let nextPeer = 1;
+  let refusal: string | undefined;
+  const sockets = new Set<Socket>();
   const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => { sockets.delete(socket); });
     let peer: Peer | undefined;
     const send = (r: Response): void => { if (!socket.destroyed) socket.write(`${JSON.stringify(r)}\n`); };
     lines(socket, (line) => {
@@ -169,6 +182,7 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
       const id = typeof req.id === 'number' ? req.id : -1;
       const params = (req.params && typeof req.params === 'object' ? req.params : {}) as Record<string, unknown>;
       if (!peer) {
+        if (refusal !== undefined) { send({ id, ok: false, error: refusal }); socket.end(); return; }
         const token = typeof params.token === 'string' ? params.token : '';
         if (req.method !== 'hello' || expected.length !== 32 || !timingSafeEqual(sha(token), expected)) {
           send({ id, ok: false, error: 'say hello with the worker token first' });
@@ -203,7 +217,17 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
     });
   } finally { process.umask(was); }
   chmodSync(socketPath, 0o600);
-  return server;
+  return {
+    server,
+    refuse: (words) => { refusal = words; },
+    close: (ms) => new Promise((done) => {
+      let finished = false;
+      const finish = (how: 'closed' | 'timed out'): void => { if (!finished) { finished = true; clearTimeout(timer); done(how); } };
+      const timer = setTimeout(() => finish('timed out'), ms);
+      server.close(() => finish('closed'));
+      for (const s of sockets) s.destroy();
+    }),
+  };
 }
 
 /** One connection to a worker, after a successful hello. */

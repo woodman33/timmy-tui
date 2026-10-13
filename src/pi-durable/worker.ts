@@ -33,7 +33,6 @@
  */
 import { appendFileSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import type { Server } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
@@ -47,7 +46,7 @@ import { newToken, ownerState, publishOwner, readOwner, sha256Hex, updateOwner, 
 import { defaultWorkerDir, piPaths, STORE_REL, type PiPaths } from './paths.js';
 import { checkPins } from './pins.js';
 import {
-  PROTOCOL_VERSION, serve, type AnswerDecision, type AnswerResult, type EventsResult, type HelloResult, type MessageResult, type Method,
+  PROTOCOL_VERSION, serve, type AnswerDecision, type PiServer, type AnswerResult, type EventsResult, type HelloResult, type MessageResult, type Method,
   type OnExit, type Peer, type RunWords, type StatusResult, type StopResult, type TranscriptEntry, type TranscriptResult, type WorkerSetting,
 } from './protocol.js';
 import { reconcileOpen } from './reconcile.js';
@@ -66,6 +65,9 @@ export const TICK_MS = 250;
 export const MAX_EVENTS_WAIT_MS = 25_000;
 /** A single event bigger than this is kept as its type and size only. */
 export const MAX_EVENT_BYTES = 16_384;
+/** At its exit the worker ends every connection and waits for them this long at most (fix S3). */
+export const CLOSE_WAIT_MS = 2000;
+export const SHUTTING_DOWN = 'the Pi worker is shutting down: attach again in a moment (a new worker starts when one is needed)';
 
 /**
  * Node 22 prints an ExperimentalWarning when node:sqlite loads. The worker drops that one warning (every other warning
@@ -146,7 +148,7 @@ class Worker {
   private locked!: LockedStorage;
   private models!: ReturnType<PiApi['models']>;
   private registry: unknown;
-  private server?: Server;
+  private server?: PiServer;
   private ledger: EffectLedger;
   scheduling: 'paused' | 'running' = 'paused';
   private closing = false;
@@ -751,6 +753,7 @@ class Worker {
   async shutdown(why: string): Promise<void> {
     if (this.closing) return;
     this.closing = true;
+    this.server?.refuse(SHUTTING_DOWN); // no new lease from here on (fix S3)
     if (this.timer) clearInterval(this.timer);
     this.log(`shutting down (${why}): pause on exit`);
     let live: RunFile[] = [];
@@ -760,7 +763,8 @@ class Worker {
     const at = new Date().toISOString();
     for (const r of live) this.patchRun(r.run, (x) => { if (!x.paused && !x.interrupted) x.paused = { why: `Timmy exited (${why})`, at }; });
     for (const waiting of this.eventWaiters.values()) for (const w of waiting) w();
-    await new Promise<void>((done) => { if (this.server) this.server.close(() => done()); else done(); for (const { end } of this.leases.values()) end(); });
+    const closed = this.server ? await this.server.close(CLOSE_WAIT_MS) : 'closed';
+    if (closed === 'timed out') this.log(`its connections did not close within ${CLOSE_WAIT_MS} ms: exiting anyway`);
     rmSync(this.paths.socket, { force: true });
     withdrawOwner(this.paths);
     try { await this.locked.closeConnection(); } catch (e) { this.log(`closing the store: ${String(e)}`); }
