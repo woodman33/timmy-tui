@@ -31,7 +31,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { resolveInside } from '../project/index.js';
 import type { PiApi, PiContext, ToolResult, ToolSpec } from './adapter/pi-api.js';
 import { argsSha256, effectKey, type EffectLedger } from './effects.js';
@@ -94,9 +94,27 @@ const timmyRefused = (shown: string): { error: string } => ({
 });
 
 /**
+ * A path's real file relative to the project's real folder: links resolved and, where the system keeps it so (macOS's
+ * usual file system), the case and form of each name as stored on disk; a part that does not exist yet is kept as asked.
+ */
+function realRelative(realRoot: string, path: string): string {
+  const tail: string[] = [];
+  let probe = path;
+  for (;;) {
+    try { return relative(realRoot, join(realpathSync.native(probe), ...tail)).split(sep).join('/'); } catch { /* not there yet: climb */ }
+    const parent = dirname(probe);
+    if (parent === probe) return relative(realRoot, path).split(sep).join('/');
+    tail.unshift(basename(probe));
+    probe = parent;
+  }
+}
+
+/**
  * The file a Pi file tool's call names: inside the project (src/project's resolveInside: links resolved, private files
  * refused) and never inside .timmy/ (fix S1), by the name asked for, by its spelling and by the file a link leads to.
- * `target` is the canonical project-relative path, `path` the resolved file the tool acts on; or an error.
+ * `target` is the real file relative to the project's real folder (fix S6 of H119's review: a link alias, a dotted
+ * spelling, a linked folder or, on macOS, a case variant used to key apart, so a write of unknown outcome could be done
+ * again under another name without a person); `path` is the resolved file the tool acts on. Or an error.
  */
 export function fileTarget(root: string, args: Record<string, unknown>): { target: string; path: string } | { error: string } {
   const asked = String(args.path ?? '').trim();
@@ -107,10 +125,11 @@ export function fileTarget(root: string, args: Record<string, unknown>): { targe
   if ('error' in at) return { error: at.error };
   if (inTimmyFolder(at.rel)) return timmyRefused(at.rel);
   let real: string;
-  try { real = relative(realpathSync(root), at.path).split(sep).join('/'); } catch { return { error: 'the project folder is gone' }; }
+  try { real = realRelative(realpathSync.native(root), at.path); } catch { return { error: 'the project folder is gone' }; }
   if (inTimmyFolder(real)) return timmyRefused(`${at.rel} (it leads to ${real})`);
-  if (!at.rel) return { error: 'name a file inside the project, not the project folder itself' };
-  return { target: at.rel, path: at.path };
+  if (!at.rel || !real) return { error: 'name a file inside the project, not the project folder itself' };
+  if (real === '..' || real.startsWith('../')) return { error: `${at.rel} leads outside the project` };
+  return { target: real, path: at.path };
 }
 
 export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {

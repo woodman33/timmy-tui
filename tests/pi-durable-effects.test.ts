@@ -18,12 +18,16 @@
  *   gets SIGTERM): the tool itself records `unknown` with a NEEDS YOU, never `ended`, so at Resume the repeat is refused
  *   and the command never runs a second time without a person (fix B1 of H119's review: it was recorded `ended`, and
  *   the repeat ran).
+ * - An effect's key names the real file, relative to the project's real folder (fix S6 of H119's review): a link alias,
+ *   a dotted spelling or a linked folder keys as the file it leads to, so the FAKE model's repeat of a write of unknown
+ *   outcome under another name is refused too (it went through before, and wrote the file again without a person).
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { EffectLedger, effectKey } from '../src/pi-durable/effects.js';
+import { EFFECT_TOOLS } from '../src/pi-durable/guard.js';
 import { piPaths } from '../src/pi-durable/paths.js';
 import { reconcileOpen } from '../src/pi-durable/reconcile.js';
 import { alive, anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, track, until } from './helpers/pi-durable.js';
@@ -55,6 +59,25 @@ describe('the reconciler, on a ledger written by hand (no worker, no model)', ()
     expect(ledger.unreconciled(effectKey('slow_write', 'written.txt', 'aaaaaaaa'))).toBeUndefined();
     // a second pass finds nothing open: reconciliation appends once
     expect(reconcileOpen(ledger, root)).toEqual([]);
+  });
+
+  it('an effect\'s key names the real file: a link alias, a dotted spelling, a linked folder and a linked project folder key as what they lead to (S6)', () => {
+    const real = mkdtempSync(join(tmpdir(), 'pi-durable-keys-'));
+    const outside = mkdtempSync(join(tmpdir(), 'pi-durable-keys-link-'));
+    dirs.push(real, outside);
+    writeFileSync(join(real, 'a.txt'), 'x');
+    symlinkSync('a.txt', join(real, 'alias.txt'));
+    mkdirSync(join(real, 'real-folder'));
+    symlinkSync('real-folder', join(real, 'folder-link'));
+    const rootLink = join(outside, 'project-link');
+    symlinkSync(real, rootLink);
+    const keyOf = (root: string, path: string): string | undefined => EFFECT_TOOLS.slow_write(root, { path }, 'aaaaaaaa');
+    expect(keyOf(real, 'a.txt')).toBe('a.txt');
+    expect(keyOf(real, 'alias.txt')).toBe('a.txt');
+    expect(keyOf(real, './x/../alias.txt')).toBe('a.txt');
+    expect(keyOf(real, 'folder-link/new.txt')).toBe('real-folder/new.txt');
+    expect(keyOf(rootLink, 'alias.txt')).toBe('a.txt');
+    expect(keyOf(rootLink, 'folder-link/new.txt')).toBe('real-folder/new.txt');
   });
 });
 
@@ -121,6 +144,38 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     expect(end.needs_you.at(-1)?.why).toMatch(/^NEEDS YOU: an earlier slow_write of a\.txt in this run is of unknown outcome/);
     await sleep(500);
     expect(fauxCalls(root, d.run).slice(callsBefore)).toHaveLength(1);
+    await b.client.request('shutdown');
+    b.client.close();
+  });
+
+  it('the model repeating a write of unknown outcome under a link alias is refused as the same effect: the file is not written again (S6)', async () => {
+    const root = project('effects-alias', { 'a.txt': 'old bytes' });
+    symlinkSync('a.txt', join(root, 'alias.txt'));
+    const a = await start(root);
+    // its repeat names the same file by its alias, with the compare-and-set hash of the bytes the file will have then
+    const d = await delegate(a.client, {
+      first: { tool: 'slow_write', args: { path: 'a.txt', content: 'new bytes', expected_sha256: sha('old bytes'), delay_ms: 15_000 } },
+      after_interrupted: { tool: 'slow_write', args: { path: 'alias.txt', content: 'alias bytes', expected_sha256: sha('third bytes') } },
+      after_blocked: { text: 'Stopped: the earlier write needs a person (FAKE answer).' },
+    });
+    await until('the write, before its end', () => effects(root, d.run).some((e) => e.state === 'started') && readFileSync(join(root, 'a.txt'), 'utf8') === 'new bytes');
+    a.client.close();
+    await killWorker(root);
+    writeFileSync(join(root, 'a.txt'), 'third bytes'); // neither the old nor the new bytes: unknown at the restart
+
+    const b = await start(root);
+    expect(effects(root, d.run).map((e) => `${e.state}/${e.by}`)).toEqual(['started/tool', 'unknown/reconcile']);
+    await b.client.request('resume');
+    const end = await ended(b.client, d.run);
+    expect(end.status).toBe('needs you');
+    const results = end.entries.filter((e) => e.kind === 'pi.tool-result').map((e) => e.text);
+    expect(results).toEqual([
+      expect.stringMatching(/Tool slow_write was interrupted and may have partially run/),
+      expect.stringMatching(/Tool call blocked: NEEDS YOU: an earlier slow_write of a\.txt in this run is of unknown outcome/),
+    ]);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('third bytes'); // not written again under its alias
+    expect(effects(root, d.run).filter((e) => e.state === 'started')).toHaveLength(1);
+    expect(effects(root).map((e) => e.key)).toEqual([`slow_write:a.txt:${d.run}`, `slow_write:a.txt:${d.run}`]);
     await b.client.request('shutdown');
     b.client.close();
   });
