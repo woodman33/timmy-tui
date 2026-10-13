@@ -46,7 +46,7 @@ import { newToken, ownerState, publishOwner, readOwner, sha256Hex, updateOwner, 
 import { defaultWorkerDir, piPaths, STORE_REL, type PiPaths } from './paths.js';
 import { checkPins } from './pins.js';
 import {
-  MAX_ARGUMENT_CHARS, MAX_EVENTS_WAIT_MS, MAX_TEXT_CHARS, MAX_TOOL_CALLS, MIN_PAGE_BYTES, PAGE_BYTES, PROTOCOL_VERSION, serve, STATUS_EFFECTS_BYTES,
+  MAX_ARGUMENT_CHARS, MAX_EVENTS_WAIT_MS, MAX_TEXT_CHARS, MAX_TOOL_CALLS, MIN_PAGE_BYTES, PAGE_BYTES, PROTOCOL_VERSION, serve, SHUTTING_DOWN, STATUS_EFFECTS_BYTES,
   type AnswerDecision, type AnswerResult, type EventsResult, type HelloResult, type MessageResult, type Method, type OnExit, type Peer, type PiServer,
   type RunWords, type StatusResult, type StopResult, type TranscriptEntry, type TranscriptResult, type WorkerSetting,
 } from './protocol.js';
@@ -66,7 +66,6 @@ export const TICK_MS = 250;
 export const MAX_EVENT_BYTES = 16_384;
 /** At its exit the worker ends every connection and waits for them this long at most (fix S3). */
 export const CLOSE_WAIT_MS = 2000;
-export const SHUTTING_DOWN = 'the Pi worker is shutting down: attach again in a moment (a new worker starts when one is needed)';
 
 /**
  * Node 22 prints an ExperimentalWarning when node:sqlite loads. The worker drops that one warning (every other warning

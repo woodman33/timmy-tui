@@ -23,7 +23,7 @@ import { PiClient, PROTOCOL_VERSION, serve, type HelloResult } from '../src/pi-d
 import { readRun } from '../src/pi-durable/runs.js';
 import { attachWorker, ensureWorker, PiNeedsYou, recoverOnStart, startsInWindow, START_BUDGET } from '../src/pi-durable/supervisor.js';
 import { DEFAULT_SETTING } from '../src/pi-durable/worker.js';
-import { alive, anyAlive, cleanup, delegate, ended, INSTALLED, killWorker, project, reads, SKIP_WHY, start, status, track, until } from './helpers/pi-durable.js';
+import { alive, anyAlive, cleanup, delegate, effects, ended, INSTALLED, killWorker, project, reads, sha, SKIP_WHY, start, status, track, until } from './helpers/pi-durable.js';
 
 vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
 afterAll(() => { cleanup(); });
@@ -214,6 +214,24 @@ describe.skipIf(!INSTALLED)(`the supervisor and the worker's life (plan b.2, b.3
     for (const k of ['PATH', 'HOME', 'TMPDIR', 'TERM', 'LC_ALL', 'TIMMY_PI_LOCK_WAIT_MS']) expect(names).toContain(k);
     await a.client.request('shutdown');
     a.client.close();
+  });
+
+  it('a start while the worker is shutting down waits for it to exit, then starts a new one (not "may be stopped or hung")', async () => {
+    const root = project('sup-shutting-down', { 'a.txt': 'old bytes' });
+    const a = await start(root);
+    const old = a.client.hello.pid;
+    // a write that ignores its abort signal holds the worker's exit for about 10 s
+    const d = await delegate(a.client, { first: { tool: 'slow_write', args: { path: 'a.txt', content: 'new bytes', expected_sha256: sha('old bytes'), delay_ms: 10_000, ignore_abort: true } } });
+    await until('the deaf write to be running', () => effects(root, d.run).some((e) => e.state === 'started'));
+    await a.client.request('shutdown');
+    a.client.close();
+    const b = await start(root, { waitMs: 3000 }); // shorter than the shutdown: each start that tried the lock lost the race
+    expect(b.how).toBe('started');
+    expect(b.client.hello.pid).not.toBe(old);
+    expect(alive(old)).toBe(false);
+    expect(log(root)).toMatch(new RegExp(`pi-worker pid ${old}: exited cleanly`));
+    await b.client.request('shutdown');
+    b.client.close();
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, idle, or killed by the test on purpose)', async () => {

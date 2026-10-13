@@ -36,6 +36,8 @@ export const PAGE_BYTES = 256 * 1024;
 export const MIN_PAGE_BYTES = 16 * 1024;
 /** The longest an `events` call waits for a new event. */
 export const MAX_EVENTS_WAIT_MS = 25_000;
+/** A worker's answer to hello while it shuts down (fix S3); the supervisor recognises it and waits for the exit. */
+export const SHUTTING_DOWN = 'the Pi worker is shutting down: attach again in a moment (a new worker starts when one is needed)';
 /** In a transcript entry: its text, its error and each tool call's arguments (as JSON) are cut to these lengths, with words. */
 export const MAX_TEXT_CHARS = 4000;
 export const MAX_ARGUMENT_CHARS = 2000;

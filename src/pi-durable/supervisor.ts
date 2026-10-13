@@ -28,10 +28,12 @@ import { THIS_PROCESS } from '../ops/process-proof.js';
 import { freeRoute } from './cost.js';
 import { ownerState, readOwner, readToken, sha256Hex } from './owner.js';
 import { LOG_REL, piPaths, STORE_REL, type PiPaths } from './paths.js';
-import { PiClient, PROTOCOL_VERSION, type OnExit, type ResumeResult } from './protocol.js';
+import { PiClient, PROTOCOL_VERSION, SHUTTING_DOWN, type OnExit, type ResumeResult } from './protocol.js';
 import { listRuns } from './runs.js';
 
 export const START_WAIT_MS = 10_000;
+/** How long a start waits for a worker that answered "shutting down" to exit (a tool that ignores its stop holds it). */
+export const SHUTDOWN_WAIT_MS = 30_000;
 export const START_BUDGET = Object.freeze({ limit: 3, windowMs: 10 * 60_000 });
 /**
  * The worker's environment is built from this allowlist (fix S9 of H119's review): the parent's PATH, HOME, TMPDIR,
@@ -57,6 +59,8 @@ export interface EnsureOptions {
   readonly waitMs?: number;
   /** how long one hello may take (default 5 s) */
   readonly helloTimeoutMs?: number;
+  /** how long to wait for a worker that is shutting down to exit before starting one (default 30 s) */
+  readonly shutdownWaitMs?: number;
   readonly env?: NodeJS.ProcessEnv;
   /** who is asking, sent in hello */
   readonly surface?: string;
@@ -81,9 +85,21 @@ export class PiNeedsYou extends Error {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const pidAlive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+
+/** Waits up to `ms` for a worker that answered "shutting down" to be gone: its record withdrawn and its process ended. */
+async function untilGone(paths: PiPaths, pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const o = readOwner(paths);
+    if ((!o || o.pid !== pid) && !pidAlive(pid)) return true;
+    if (Date.now() > deadline) return false;
+    await sleep(100);
+  }
+}
 
 /** Why attaching failed, when a caller must tell it apart from "no worker answers" (ensureWorker does). */
-export type AttachProblem = 'protocol';
+export type AttachProblem = 'protocol' | 'shutting down';
 
 /**
  * Attaches to the project's live worker, or answers why not (never starts one). A worker that speaks another protocol
@@ -102,7 +118,11 @@ export async function attachWorker(root: string, surface = 'timmy', helloTimeout
   let client: PiClient;
   try {
     client = await PiClient.connect(owner.socket, { token, pid: THIS_PROCESS.pid, started: THIS_PROCESS.started, surface }, helloTimeoutMs);
-  } catch (e) { return { error: `the Pi worker (pid ${owner.pid}) did not answer hello: ${e instanceof Error ? e.message : String(e)}` }; }
+  } catch (e) {
+    const words = e instanceof Error ? e.message : String(e);
+    if (words === SHUTTING_DOWN) return { kind: 'shutting down', error: `the Pi worker (pid ${owner.pid}) is shutting down` };
+    return { error: `the Pi worker (pid ${owner.pid}) did not answer hello: ${words}` };
+  }
   if (client.hello.protocol !== PROTOCOL_VERSION) {
     client.close();
     return { kind: 'protocol', error: `the Pi worker of this project (pid ${owner.pid}) speaks protocol ${String(client.hello.protocol)}, and this Timmy speaks protocol ${PROTOCOL_VERSION}: it was started by another Timmy build. This Timmy does not use it or stop it: let it exit (it does once no Timmy is attached to it) or stop it from its own build, then try again` };
@@ -194,6 +214,17 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
   const first = await attachWorker(root, surface, helloMs);
   if (first instanceof PiClient) return { client: first, how: 'attached' };
   if (first.kind === 'protocol') throw new PiNeedsYou(`NEEDS YOU: ${first.error}`, logTail(paths)); // nothing is started beside it
+  if (first.kind === 'shutting down') {
+    // a worker on its way out still holds the store: a start now would lose the lock race; wait for it to be gone
+    const owner = readOwner(paths);
+    const waitFor = opts.shutdownWaitMs ?? SHUTDOWN_WAIT_MS;
+    if (owner && !(await untilGone(paths, owner.pid, waitFor))) {
+      throw new PiNeedsYou(`NEEDS YOU: the Pi worker (pid ${owner.pid}) is still shutting down after ${Math.round(waitFor / 1000)} s: a tool that ignores its stop signal can hold it, and Timmy does not kill it by itself. Try again when it has exited.`, logTail(paths));
+    }
+    const again = await attachWorker(root, surface, helloMs); // another Timmy may have started one meanwhile
+    if (again instanceof PiClient) return { client: again, how: 'attached' };
+    if (again.kind === 'protocol') throw new PiNeedsYou(`NEEDS YOU: ${again.error}`, logTail(paths));
+  }
   const waitMs = opts.waitMs ?? START_WAIT_MS;
   const budget = opts.budget ?? START_BUDGET;
   let lastExit: number | null | undefined;
