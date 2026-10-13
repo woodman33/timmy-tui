@@ -769,6 +769,8 @@ class Worker {
     withdrawOwner(this.paths);
     try { await this.locked.closeConnection(); } catch (e) { this.log(`closing the store: ${String(e)}`); }
     this.log(`exited cleanly; ${live.length} live run(s) recorded paused`);
+    // the start budget counts only starts that did not end cleanly (fix S4): this one did
+    try { appendFileSync(this.paths.starts, `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid, clean_exit: true })}\n`, { mode: 0o600 }); } catch { /* then this start counts */ }
     process.exit(EXIT.OK);
   }
 }

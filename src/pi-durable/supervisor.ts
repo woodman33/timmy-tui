@@ -7,10 +7,12 @@
  * started worker that exits 3 found the store owned (another starter won the race): attach to that owner. The SQLite
  * lock is the guarantee that one store never has two workers; worker.json is only the directory.
  *
- * The start budget (plan b.2): at most 3 starts per 10 minutes per project, counted in .timmy/pi/starts.jsonl (a start
- * that lost the race, exit 3, does not count). Past it nothing is started: a NEEDS YOU with the last lines of
- * worker.log (`PiNeedsYou`). A store held by a live owner that does not answer is refused with words naming it; Timmy
- * never kills it by itself.
+ * The start budget (plan b.2: a budget for restarting a worker that keeps dying): at most 3 starts per 10 minutes per
+ * project that did not end cleanly, counted in .timmy/pi/starts.jsonl. A start that lost the race (exit 3) does not
+ * count, nor one whose worker exited cleanly (exit 0, which the worker records there itself), so Timmy sessions that
+ * come and go are never refused. A bad line is skipped, never the whole budget. Past it nothing is started: a NEEDS
+ * YOU with the last lines of worker.log (`PiNeedsYou`). A store held by a live owner that does not answer is refused
+ * with words naming it; Timmy never kills it by itself.
  *
  * `recoverOnStart(root)` is the start-up rule of b.2: the worker is started again only when there is persisted pending
  * work, the setting allows it ("free local work only", the default, or "never"), and the budget holds; it then resumes
@@ -102,14 +104,26 @@ export function logTail(paths: PiPaths, n = 12): string {
   try { return readFileSync(paths.log, 'utf8').trimEnd().split('\n').slice(-n).join('\n'); } catch { return '(no worker log)'; }
 }
 
-interface StartLine { at: string; pid: number; by_pid?: number; surface?: string; lost_race?: true }
+interface StartLine { at: string; pid: number; by_pid?: number; surface?: string; lost_race?: true; clean_exit?: true }
 
-/** The starts that count against the budget in its window: every start, less those that lost the race (exit 3). */
+/**
+ * The starts that count against the budget in its window: every start, less those that lost the race (exit 3) and
+ * those whose worker exited cleanly (a later line of the same pid says so). A line that does not parse is skipped.
+ */
 export function startsInWindow(paths: PiPaths, windowMs: number, now = Date.now()): { pid: number; at: string }[] {
-  let lines: StartLine[] = [];
-  try { lines = readFileSync(paths.starts, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as StartLine); } catch { lines = []; }
-  const lost = new Set(lines.filter((l) => l.lost_race).map((l) => l.pid));
-  return lines.filter((l) => !l.lost_race && !lost.has(l.pid) && now - Date.parse(l.at) < windowMs).map((l) => ({ pid: l.pid, at: l.at }));
+  let text = '';
+  try { text = readFileSync(paths.starts, 'utf8'); } catch { text = ''; }
+  const lines: StartLine[] = [];
+  for (const l of text.split('\n')) {
+    if (!l.trim()) continue;
+    try {
+      const x = JSON.parse(l) as StartLine;
+      if (x && typeof x.pid === 'number' && typeof x.at === 'string' && !Number.isNaN(Date.parse(x.at))) lines.push(x);
+    } catch { /* a line cut by a crash: skipped, the rest still counts */ }
+  }
+  const ended = lines.filter((l) => l.lost_race || l.clean_exit);
+  const endedLater = (s: StartLine): boolean => ended.some((e) => e.pid === s.pid && Date.parse(e.at) >= Date.parse(s.at));
+  return lines.filter((l) => !l.lost_race && !l.clean_exit && !endedLater(l) && now - Date.parse(l.at) < windowMs).map((l) => ({ pid: l.pid, at: l.at }));
 }
 
 const recordStart = (paths: PiPaths, line: StartLine): void => {
@@ -162,7 +176,7 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
     const used = startsInWindow(paths, budget.windowMs);
     if (used.length >= budget.limit) {
       const log = logTail(paths);
-      throw new PiNeedsYou(`NEEDS YOU: the Pi worker was started ${used.length} times in the last ${Math.round(budget.windowMs / 60_000)} minutes (pids ${used.map((u) => u.pid).join(', ')}); it is not started again by itself. The end of its log (.timmy/pi/worker.log):\n${log}`, log);
+      throw new PiNeedsYou(`NEEDS YOU: the Pi worker was started ${used.length} times in the last ${Math.round(budget.windowMs / 60_000)} minutes without ending cleanly (pids ${used.map((u) => u.pid).join(', ')}); it is not started again by itself. The end of its log (.timmy/pi/worker.log):\n${log}`, log);
     }
     const started = startWorker(paths, opts);
     spawned = started.pid;

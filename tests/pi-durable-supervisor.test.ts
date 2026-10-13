@@ -8,7 +8,7 @@
  * 10 minutes.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readOwner } from '../src/pi-durable/owner.js';
 import { piPaths } from '../src/pi-durable/paths.js';
@@ -38,11 +38,51 @@ describe.skipIf(!INSTALLED)(`the supervisor and the worker's life (plan b.2, b.3
     try { await start(root); } catch (e) { refused = e; }
     expect(refused).toBeInstanceOf(PiNeedsYou);
     const words = (refused as PiNeedsYou).words;
-    expect(words).toMatch(new RegExp(`^NEEDS YOU: the Pi worker was started 3 times in the last 10 minutes \\(pids ${pids.join(', ')}\\); it is not started again by itself\\. The end of its log`));
+    expect(words).toMatch(new RegExp(`^NEEDS YOU: the Pi worker was started 3 times in the last 10 minutes without ending cleanly \\(pids ${pids.join(', ')}\\); it is not started again by itself\\. The end of its log`));
     expect((refused as PiNeedsYou).log).toMatch(/pi-worker pid \d+: ready on its socket/);
     expect(startsInWindow(piPaths(root), START_BUDGET.windowMs)).toHaveLength(3); // the refusal started nothing
     expect(readOwner(piPaths(root))?.pid).toBe(pids[2]); // the last (killed) worker's record, never withdrawn by a SIGKILL,
     expect(alive(pids[2])).toBe(false); // names a process that is gone
+  });
+
+  it('the budget counts only starts that did not end cleanly: four Timmy sessions within minutes, each worker exiting cleanly, start a fifth (S4)', async () => {
+    const root = project('sup-budget-clean');
+    const clean: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = await start(root); // before the fix, the fourth was refused: "started 3 times in the last 10 minutes"
+      const pid = a.client.hello.pid;
+      clean.push(pid);
+      await a.client.request('shutdown');
+      a.client.close();
+      await until('the worker to exit', () => !alive(pid), 30_000, 50);
+    }
+    const lines = readFileSync(piPaths(root).starts, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { pid: number; clean_exit?: true });
+    expect(lines.filter((l) => l.clean_exit).map((l) => l.pid)).toEqual(clean); // written by each worker itself
+    expect(startsInWindow(piPaths(root), START_BUDGET.windowMs)).toEqual([]);
+    const fifth = await start(root);
+    expect(fifth.how).toBe('started');
+    expect(startsInWindow(piPaths(root), START_BUDGET.windowMs).map((x) => x.pid)).toEqual([fifth.client.hello.pid]);
+    await fifth.client.request('shutdown');
+    fifth.client.close();
+  });
+
+  it('one bad line in starts.jsonl is skipped, not the whole budget; lost races, clean exits and old starts do not count (S4)', () => {
+    const root = project('sup-budget-lines');
+    const p = piPaths(root);
+    mkdirSync(p.dir, { recursive: true });
+    const now = Date.now();
+    const at = (ago: number): string => new Date(now - ago).toISOString();
+    const lines = [
+      { at: at(1000), pid: 101 },
+      { at: at(2000), pid: 102 },
+      'a line cut by a crash {"at":',
+      { at: at(3000), pid: 103 },
+      { at: at(4000), pid: 104 }, { at: at(3900), pid: 104, lost_race: true },
+      { at: at(5000), pid: 105 }, { at: at(500), pid: 105, clean_exit: true },
+      { at: at(700_000), pid: 106 },
+    ];
+    writeFileSync(p.starts, `${lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n')}\n`);
+    expect(startsInWindow(p, START_BUDGET.windowMs, now).map((x) => x.pid)).toEqual([101, 102, 103]);
   });
 
   it('a start that lost the race (exit 3) does not count against the budget', async () => {
