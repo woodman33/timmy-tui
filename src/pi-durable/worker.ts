@@ -770,7 +770,11 @@ class Worker {
 
   // ── answer, message ───────────────────────────────────────────────────────────────────────────
 
-  /** A NEEDS YOU decision (plan e.3.5): the first answer wins and is recorded; only it moves the effect on. */
+  /**
+   * A NEEDS YOU decision (plan e.3.5): the first answer wins and is recorded; only it moves the effect on. A run that
+   * ended waiting for it is recorded `cancelled` once nothing of it is open, with words saying who answered what and
+   * how it continues (fix S7 of H119's review: it kept saying "needs you").
+   */
   private async answer(params: Record<string, unknown>, peer: Peer): Promise<AnswerResult> {
     const run = String(params.run ?? '');
     const key = String(params.key ?? '');
@@ -795,13 +799,28 @@ class Worker {
           by: 'operator',
         });
       }
-      // the run's refusal hold lifts: a later message (or Resume) may continue it
+      // the hold on the run's model requests lifts. A paused run continues at Resume; a run that ended at this NEEDS YOU
+      // does not continue by itself (Resume leaves ended runs alone): a message continues it
       if (r.conversation !== undefined) this.refusedConversations.delete(r.conversation);
-    } else {
+    } else if (!r.ended) {
       stop = await this.stop(run, peer);
     }
     const at = new Date().toISOString();
-    this.patchRun(run, (x) => { x.needs_you = (x.needs_you ?? []).map((n) => (n.key === key && !n.answered ? { ...n, answered: { decision, by, at } } : n)); });
+    this.patchRun(run, (x) => {
+      x.needs_you = (x.needs_you ?? []).map((n) => (n.key === key && !n.answered ? { ...n, answered: { decision, by, at } } : n));
+      if (x.ended?.status === 'needs you' && !(openNeedsYou(x) ?? []).length) {
+        x.ended = {
+          ...x.ended, status: 'cancelled',
+          why: decision === 'stop' ? `stopped by ${by} answering its NEEDS YOU (${key}) at ${at}`
+            : `stopped at a NEEDS YOU (${key}); answered ${decision} by ${by} at ${at}: a message continues the run${decision === 'retry' ? ', and the refused call may run once more' : ''}`,
+        };
+        if (decision === 'stop' && !x.stop_requested) x.stop_requested = { by, at };
+      }
+    });
+    if (decision === 'stop' && r.ended) {
+      const now = readRun(this.paths, run);
+      stop = { run, result: `the run had ended at its NEEDS YOU: recorded ${now?.ended?.status ?? r.ended.status}`, status: now?.ended?.status ?? r.ended.status };
+    }
     this.log(`answered NEEDS YOU of run ${run} (${key}): ${decision} by ${by}`);
     return { ok: true, run, key, decision, ledger, ...(stop ? { stop } : {}) };
   }
@@ -819,6 +838,9 @@ class Worker {
     if (key !== undefined && !/^[A-Za-z0-9._:-]{1,128}$/.test(key)) return { ok: false, refused: 'a key is 1 to 128 letters, digits and . _ : -' };
     const used = key === undefined ? undefined : (r.messages ?? []).find((m) => m.key === key);
     if (used) return { ok: false, refused: `the key ${key} was already used: message ${used.n} of Pi run ${run} (submission ${used.submission})`, n: used.n, submission: used.submission };
+    // fix S7: a run waiting for a person takes no message (it was held by the guard and failed some 30 s later)
+    const open = openNeedsYou(r) ?? [];
+    if (open.length) return { ok: false, refused: `run ${run} waits for a person: its NEEDS YOU (${open[0].key}) is open: answer it first (accept, retry or stop)` };
     if (this.closing) return { ok: false, refused: 'the Pi worker is shutting down' };
     if (this.scheduling === 'paused') return { ok: false, refused: 'the Pi worker is paused: Resume it first' };
     if (r.conversation === undefined) return { ok: false, refused: `run ${run} has no conversation yet` };

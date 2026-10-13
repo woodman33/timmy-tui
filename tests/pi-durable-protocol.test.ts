@@ -4,6 +4,10 @@
  * pi-durable 1.1.0's agent events (watchEvents), its store and transcript, SIGKILL, the effect ledger and the guard.
  * FAKE: the model (pi-ai's scripted faux provider), the fixture projects. (hello, delegate, status, list, stop, pause,
  * resume and shutdown are exercised by the other pi-durable test files; events, answer, message and transcript here.)
+ *
+ * Fix S7 of H119's review: a run that ended at a NEEDS YOU kept saying "needs you" after the answer (answer() never
+ * touched its recorded end), and a message to it was accepted, then failed some 30 s later (the guard's hold). Now the
+ * answer records how the run stands, with words, and such a message is refused at once, with words.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -195,6 +199,52 @@ describe.skipIf(!INSTALLED)(`the worker protocol's round trips (plan b.1.5)${INS
     expect(end.status).toBe('cancelled');
     expect(fauxCalls(root, run)).toHaveLength(calls);
     expect(effects(root, run).at(-1)?.state).toBe('unknown');
+    await client.request('shutdown');
+    client.close();
+  });
+
+  /** A run whose write was interrupted, found with third bytes, and whose repeat was refused at Resume: ended "needs you". */
+  async function endedNeedsYou(name: string): Promise<{ root: string; client: PiClient; run: string; key: string }> {
+    const n = await needsYou(name);
+    await n.client.request('resume');
+    const end = await ended(n.client, n.run);
+    expect(end.status).toBe('needs you');
+    expect(end.needs_you.map((x) => x.key)).toEqual([n.key, n.key]); // the reconcile's unknown, then the refusal
+    return n;
+  }
+
+  it('a run ended at a NEEDS YOU: a message is refused at once, with words; answer accept records it cancelled with words; a message then continues it (S7)', async () => {
+    const { root, client, run, key } = await endedNeedsYou('proto-s7-accept');
+    const before = await status(client, run);
+    const t0 = Date.now();
+    const refused = await client.request<MessageResult>('message', { run, text: 'Go on (FAKE follow-up)', mode: 'followUp' });
+    expect(refused).toEqual({ ok: false, refused: `run ${run} waits for a person: its NEEDS YOU (${key}) is open: answer it first (accept, retry or stop)` });
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect((await status(client, run)).submissions).toEqual(before.submissions); // nothing was submitted
+    const ans = await client.request<AnswerResult>('answer', { run, key, decision: 'accept' });
+    expect(ans).toMatchObject({ ok: true, decision: 'accept', ledger: { state: 'ended', by: 'operator' } });
+    const after = await status(client, run) as Awaited<ReturnType<typeof status>> & { ended: { status: string; why?: string } };
+    expect(after.status).toBe('cancelled');
+    expect(after.ended.why).toMatch(new RegExp(`^stopped at a NEEDS YOU \\(${key}\\); answered accept by test at \\S+: a message continues the run$`));
+    expect(after.needs_you.every((x) => x.answered?.decision === 'accept')).toBe(true);
+    // a message now continues the run: the FAKE model's write reaches the compare-and-set, which refuses (third bytes)
+    const m = await client.request<MessageResult>('message', { run, text: 'Go on (FAKE follow-up)', mode: 'followUp' });
+    expect(m.ok).toBe(true);
+    const end = await ended(client, run);
+    expect(end.status).toBe('completed');
+    expect(end.entries.filter((e) => e.kind === 'pi.tool-result').map((e) => e.text).at(-1)).toMatch(/refused \(compare-and-set\): a\.txt has sha256/);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('third bytes');
+    await client.request('shutdown');
+    client.close();
+  });
+
+  it('answer stop on a run ended at a NEEDS YOU: it is recorded cancelled, with words saying who stopped it (S7)', async () => {
+    const { client, run, key } = await endedNeedsYou('proto-s7-stop');
+    const ans = await client.request<AnswerResult>('answer', { run, key, decision: 'stop' });
+    expect(ans).toMatchObject({ ok: true, decision: 'stop', stop: { run, status: 'cancelled' } });
+    const after = await status(client, run) as Awaited<ReturnType<typeof status>> & { ended: { status: string; why?: string } };
+    expect(after.status).toBe('cancelled');
+    expect(after.ended.why).toMatch(new RegExp(`^stopped by test answering its NEEDS YOU \\(${key}\\) at \\S+$`));
     await client.request('shutdown');
     client.close();
   });
