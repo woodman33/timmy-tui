@@ -21,6 +21,12 @@ We welcome early open-source contributions to TIMMY! Follow this guide to set up
    npm test
    ```
 
+   A test file that keeps running for more than 5 minutes is named in the output, with the processes under vitest
+   (`tests/stuck-file-reporter.ts`; `TIMMY_TEST_STUCK_MS` changes the limit). To find tests that block a worker's event
+   loop, run with `TIMMY_TEST_HEARTBEAT=/tmp/heartbeat.jsonl`: every stall over 1 s is logged with its file and tests
+   (`tests/heartbeat-setup.ts`). A stall of 60 s or more makes vitest report `Timeout calling "onTaskUpdate"`; await a
+   child process (`tests/helpers/run-async.ts`) instead of `spawnSync`/`execSync` when it takes more than a moment.
+
 ## Development Guidelines
 
 - **Preserve Local-First Design**: Do not add telemetry, remote phone-home hooks, or credentials trackers. All credentials must remain completely local.

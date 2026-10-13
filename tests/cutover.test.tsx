@@ -3,14 +3,15 @@
 // nav globals are v1-only (digit-shadowing dead at the root). FIX 3 policy
 // seed, STEP 8 chat.turn seal and FIX 1 row budget assert on direct ShellV2
 // renders (App-level mounts are probe-slow in CI-less environments).
-import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi, onTestFinished } from 'vitest';
 import React from 'react';
 import { cleanup, render } from 'ink-testing-library';
 import { EventEmitter } from 'node:events';
 import { App } from '../src/tui/app.js';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
-import { readChain } from '../src/utils/receipts.js';
-import { readPolicy } from '../src/harness/policy.js';
+import { readChain, appendReceipt } from '../src/utils/receipts.js';
+import { readPolicy, setModel, policyPath } from '../src/harness/policy.js';
+import { rmSync } from 'fs';
 import { dirname, join } from 'path';
 import { createAgent } from '../src/agent/core.js';
 
@@ -43,6 +44,18 @@ vi.mock('../src/agent/core.js', async () => {
     agent.runStartupHealthCheck = vi.fn();
     agent.clearHistory = vi.fn();
     agent.setModel = vi.fn();
+    // R4 (H103): what the shared chat session (src/agent/chat-session.ts) asks of the monitor's agent: its tools and
+    // instructions, the route (OpenRouter here: a key), and what answered
+    agent.setTools = vi.fn();
+    agent.setInstructions = vi.fn();
+    agent.useLocalChat = vi.fn();
+    agent.localChatRoute = () => null;
+    agent.lastLocalTurn = () => null;
+    agent.lastFallback = () => null;
+    agent.hasModelKey = () => true;
+    agent.isRunning = () => false;
+    agent.openRouterModel = () => 'fixture/sovereign';
+    agent.updateApiKey = vi.fn();
     agent.send = vi.fn(async (text: string) => {
       agent.emit('message:user', { role: 'user', content: text });
       agent.totalCost += 0.125;
@@ -146,15 +159,37 @@ describe('cutover: v2 default vs v1 legacy at the root', { timeout: 150000 }, ()
 });
 
 describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
-  it('FIX 3: first run seeds the policy default and seals model.policy', async () => {
+  it('opening the monitor writes no model policy and seals no receipt', async () => {
+    // R1 (2026-10-08): the monitor used to seed a default policy and seal model.policy on open,
+    // a side effect the person never asked for. Opening it now only reads.
     const view = render(React.createElement(ShellV2, { width: 120 }));
     await until(view, x => x.includes('YOUR JOURNEY'));
+    await sleep(1500);
     const pdir = dirname(process.env.TIMMY_STORE as string);
-    const t0 = Date.now();
-    while (!readPolicy(pdir).default && Date.now() - t0 < 10000) await sleep(100);
-    expect(readPolicy(pdir).default).toBeTruthy();
-    expect(readChain('runs').some(r => String(r.subject).startsWith('model.policy'))).toBe(true);
+    expect(readPolicy(pdir).default).toBeFalsy();
+    expect(readChain('runs').some(r => String(r.subject).startsWith('model.policy'))).toBe(false);
     view.unmount();
+  });
+
+  // R4 (H98): the top line names the chat route in effect: with a model key, the model the REPL last ran (not the model
+  // policy); with none, that there is no key, never a paid model's name that will not be used. The key is a FAKE string.
+  it('the header names the model the REPL last ran, not the model policy, when a key will be used; without a key it says so', async () => {
+    setModel('fixture/policy-model', null);
+    appendReceipt('runs', { kind: 'turn', subject: 'repl · 1 step', policy: 'human-gated', status: 'ok', model_requested: 'anthropic/claude-haiku-4.5' });
+    try {
+      const view = render(React.createElement(ShellV2, { width: 160, config: { apiKey: 'FAKE-key-for-the-header-test' } }));
+      const f = await until(view, x => x.includes('YOUR JOURNEY'));
+      expect(f.split('\n')[0]).toContain('chat: claude-haiku-4.5 · OpenRouter');
+      expect(f.split('\n')[0]).not.toContain('policy-model');
+      view.unmount();
+      const none = render(React.createElement(ShellV2, { width: 160, config: { apiKey: '' } }));
+      const g = await until(none, x => x.includes('YOUR JOURNEY'));
+      expect(g.split('\n')[0]).toContain('chat: no model key · /setup');
+      expect(g.split('\n')[0]).not.toContain('claude-haiku-4.5');
+      none.unmount();
+    } finally {
+      rmSync(policyPath(), { force: true });
+    }
   });
 
   it('STEP 8: chat drawer opens with [c]; Enter seals chat.turn with model + cost', async () => {
@@ -179,6 +214,9 @@ describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
   });
 
   it('FIX 1: MODELS rows carry no ellipsis and fit the 74-col column', async () => {
+    // The (policy) suffix needs a policy; opening the monitor no longer seeds one (R1), so set it here.
+    setModel('qwen/qwen3-coder', null);
+    onTestFinished(() => rmSync(policyPath(), { force: true }));
     const view = render(React.createElement(ShellV2, { width: 120 }));
     await until(view, x => x.includes('YOUR JOURNEY'));
     view.stdin.write('4');

@@ -37,19 +37,32 @@ export function cancelOutcome(at: CancelStage, tools: ToolOutcome[]): string {
 /** Where to get help, under every error (playbook §16.5). */
 export const HELP_ROW = '    Help: /help, or timmy repl --help';
 
+/** One row of a turn's "where to inspect" block (round R1): a label, words, and an address to open. */
+export interface InspectRow {
+  label: string;
+  text: string;
+  /** Printed after the words (once, when it is the words), and linked where the terminal can (OSC 8). */
+  url?: string;
+  /** How else to get there, in words. */
+  hint?: string;
+}
+
 export type TurnEvent =
-  | { type: 'prompt'; text: string; cwd: string; echoed?: boolean }
+  | { type: 'prompt'; text: string; cwd: string; echoed?: boolean; model?: string }
   | { type: 'thinking' }
   | { type: 'text'; id: string; text: string }
   | { type: 'lanes'; lanes: Lane[] }
   | { type: 'tool-start'; id: string; tool: string; args: Record<string, unknown> }
   | { type: 'tool-end'; id: string; ok: boolean; preview?: string; diff?: string }
-  | { type: 'receipt'; id: string; verified: boolean | 'broken'; lanes: number; steps: number; spend: string; seconds: number; url?: string; cancelled?: boolean }
+  | { type: 'receipt'; id: string; verified: boolean | 'broken'; lanes: number; steps: number; spend: string; seconds: number; url?: string; cancelled?: boolean; model?: string }
   | { type: 'error'; message: string; cause?: string; fix?: string }
-  | { type: 'footer'; steps: number; spend: string; seconds: number }
+  | { type: 'footer'; steps: number; spend: string; seconds: number; model?: string }
+  | { type: 'inspect'; rows: InspectRow[] }
   | { type: 'cancelling' }
+  /** Round R1 (the Mac run): the turn ended, not cancelled, with calls that never answered (a step or spend limit). */
+  | { type: 'unfinished'; count: number }
   | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
-  | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string }
+  | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string; session?: false }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
 
 interface Step {
@@ -151,7 +164,7 @@ export class Transcript {
     if (e.type !== 'text' || e.id !== this.textId) this.stopSpinner();
     switch (e.type) {
       case 'prompt':
-        return this.prompt(e.text, e.cwd, e.echoed);
+        return this.prompt(e.text, e.model ? `${e.cwd} ${this.g.sep} ${e.model}` : e.cwd, e.echoed);
       case 'thinking':
         return this.startSpinner('Working');
       case 'text':
@@ -167,7 +180,9 @@ export class Transcript {
       case 'error':
         return this.error(e.message, e.cause, e.fix);
       case 'footer':
-        return this.footer(e.steps, e.spend, e.seconds);
+        return this.footer(e.steps, e.spend, e.seconds, e.model);
+      case 'inspect':
+        return this.inspect(e.rows);
       case 'cancelling':
         // A stream that ignores the cancel keeps drawing; the note keeps the way out visible.
         this.cancelNote = this.cancelLine();
@@ -188,6 +203,16 @@ export class Transcript {
         this.blank();
         // What the tools did, said with the cancel (third order, checkpoint 1): a cancel never undoes.
         const said = e.at ? `Cancelled. ${cancelOutcome(e.at, e.tools ?? [])}` : 'Cancelled.';
+        const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
+        return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
+      }
+      case 'unfinished': {
+        this.flushText();
+        // A call the turn never heard back from is not done: it says so, like a cancelled one.
+        for (const s of this.group) if (s.state === 'running') s.state = 'stopped';
+        this.flushGroup();
+        const n = e.count === 1 ? '1 call' : `${e.count} calls`;
+        const said = `The turn ended at its step or spend limit before ${n} answered, so ${e.count === 1 ? 'it' : 'they'} may not have run. Send another message to go on.`;
         const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
         return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
       }
@@ -217,9 +242,9 @@ export class Transcript {
     }
     if (this.theme.tint) {
       const row = (s: string): string => `\x1b[${this.theme.tint}m\x1b[K${s}\x1b[49m`;
-      this.commit([row(''), row(` ${this.g.prompt} ${shown}`), row('')], ['', shown, '']);
+      this.commit([row(''), row(` ${this.line([{ text: this.g.prompt, role: 'accent' }])} ${shown}`), row('')], ['', shown, '']);
     } else {
-      this.commit([this.line([{ text: `${this.g.prompt} ${shown}`, role: 'strong' }])], [shown]);
+      this.commit([this.line([{ text: this.g.prompt, role: 'accent' }, { text: ` ${shown}`, role: 'strong' }])], [shown]);
     }
     this.commit([this.line([{ text: `  ${this.cut(cwd, this.opts.columns - 2)}`, role: 'secondary' }])], [cwd]);
   }
@@ -411,13 +436,21 @@ export class Transcript {
     const g = this.g;
     const steps = this.group;
     const label = steps[0].label;
-    const failed = steps.some((s) => s.state === 'failed');
+    const failedCount = steps.filter((s) => s.state === 'failed').length;
+    const failed = failedCount > 0;
     const glyph = failed ? g.fail : label.risk === 'network' ? g.ai : g.bullet;
     const role: Role = failed ? 'failure' : RISK_ROLE[label.risk];
     // While a step runs (or was stopped by a cancel) the head says what it is doing, never that it is done.
     const live = steps.some((s) => s.state === 'running' || s.state === 'stopped');
-    const head = `${glyph} ${live ? label.present : label.verb}`;
-    const subject = steps.length === 1 ? label.arg : `${steps.length} ${plural(label.noun, steps.length)}`;
+    // A failed step's head says it failed in words, not only by the glyph, and never "Ran": a run that
+    // failed may not have started (round R1 review). The step's own answer below says which.
+    const ended = failed && !live;
+    // A step the operator denied never started: it says so plainly ("Not run"), not "failed".
+    const denied = steps.length === 1 && (steps[0].approval === 'deny' || steps[0].approval === 'no-terminal');
+    const head = ended ? `${glyph} ${denied ? 'Not run' : label.failed}:` : `${glyph} ${live ? label.present : label.verb}`;
+    const subject = steps.length === 1
+      ? label.arg
+      : ended ? `${failedCount} of ${steps.length} ${plural(label.noun, steps.length)}` : `${steps.length} ${plural(label.noun, steps.length)}`;
     const room = this.opts.columns - visibleWidth(head) - 1;
     const shownSubject = this.cut(subject, room);
     const tail = shownSubject ? ` ${shownSubject}` : '';
@@ -451,16 +484,20 @@ export class Transcript {
         if (diffLines.length > DIFF_LINES) push([{ text: `    ${g.ellipsis} ${diffLines.length - DIFF_LINES} more lines`, role: 'secondary' }]);
       } else if (s.preview) {
         push(fit(`  ${g.branchEnd} `, s.preview));
+      } else if (s.state === 'stopped') {
+        // It never answered: whether it ran is not known (round R1, the Mac run).
+        push(fit(`  ${g.branchEnd} `, 'outcome unknown'));
       }
     } else {
-      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg, s.state === 'stopped' ? 'outcome unknown' : s.preview)));
+      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg,
+        s.state === 'stopped' ? 'outcome unknown' : s.state === 'failed' ? `failed${s.preview ? `: ${s.preview}` : ''}` : s.preview)));
     }
     return { lines, plain };
   }
 
   // ── NEEDS YOU ─────────────────────────────────────────────────────────────
   /** The box shows below the open step only while it waits; the answer is kept under the step. */
-  private needsYou(req: { tool: string; reason: string; summary: string; detail?: string }): void {
+  private needsYou(req: { tool: string; reason: string; summary: string; detail?: string; session?: false }): void {
     const group = this.group.length ? this.groupLines().lines : [];
     // The whole box stays on screen: the region holds rows minus one lines, and the step above it, a
     // blank and the box's six fixed rows come first; the code gets what is left (at least three rows).
@@ -509,19 +546,53 @@ export class Transcript {
           ? [{ text: name(g.fail), role: 'failure' }, { text: ' chain broken' }]
           : [{ text: name(g.bullet), role: 'strong' }, { text: ' signed, not verified yet', role: 'secondary' }];
     // A REPL turn has no lanes (C-8): a lane count of 0 is left out rather than printed.
-    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`, ...(e.cancelled ? ['cancelled'] : [])].join(` ${g.sep} `);
+    // Round R1: and which model answered (after a fallback, the one that actually did); a cancel stays last.
+    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`, ...(e.model ? [e.model] : []), ...(e.cancelled ? ['cancelled'] : [])].join(` ${g.sep} `);
     this.commit([this.line(head), this.line([{ text: `  ${this.cut(facts, this.opts.columns - 2)}`, role: 'secondary' }])], [
       head.map((s) => s.text).join(''),
       facts,
     ]);
   }
 
-  private footer(steps: number, spend: string, seconds: number): void {
+  private footer(steps: number, spend: string, seconds: number, model?: string): void {
     this.flushText();
     this.flushGroup();
     this.blank();
-    const facts = [`${steps} ${plural('step', steps)}`, spend, `${seconds.toFixed(1)}s`].join(` ${this.g.sep} `);
+    const facts = [`${steps} ${plural('step', steps)}`, spend, `${seconds.toFixed(1)}s`, ...(model ? [model] : [])].join(` ${this.g.sep} `);
     this.commit([this.line([{ text: `  ${this.cut(facts, this.opts.columns - 2)}`, role: 'secondary' }])], [facts]);
+  }
+
+  /**
+   * Round R1: where to inspect what the turn did, one row each: a label, the words, the address in
+   * plain text (linked where the terminal can, and never only linked: a terminal without OSC 8 would
+   * show nothing), and how else to get there. A row that does not fit drops its hint, then is cut.
+   */
+  private inspect(rows: InspectRow[]): void {
+    this.flushText();
+    this.flushGroup();
+    if (!rows.length) return;
+    const sep = ` ${this.g.sep} `;
+    const width = Math.max(10, rows.reduce((n, r) => Math.max(n, visibleWidth(r.label)), 0) + 2);
+    const lines: string[] = [];
+    const plain: string[] = [];
+    for (const r of rows) {
+      const head = `  ${r.label}${' '.repeat(Math.max(1, width - visibleWidth(r.label) - 2))} `;
+      const urlPart = r.url && r.url !== r.text ? r.url : '';
+      const fits = (parts: string[]): boolean => visibleWidth(head + parts.filter(Boolean).join(sep)) <= this.opts.columns;
+      let hint = r.hint ?? '';
+      if (!fits([r.text, urlPart, hint])) hint = '';
+      const text = fits([r.text, urlPart]) ? r.text : this.cut(r.text, Math.max(4, this.opts.columns - visibleWidth(head) - (urlPart ? visibleWidth(urlPart) + sep.length : 0)));
+      const link = (u: string): string => (this.theme.caps.cursor ? hyperlink(u, u, true) : u);
+      const segments: Segment[] = [
+        { text: head, role: 'secondary' },
+        { text: r.url && r.url === r.text ? link(text) : text },
+        ...(urlPart && fits([text, urlPart]) ? [{ text: sep, role: 'secondary' as Role }, { text: link(urlPart) }] : []),
+        ...(hint ? [{ text: `${sep}${hint}`, role: 'secondary' as Role }] : []),
+      ];
+      lines.push(this.line(segments));
+      plain.push(segments.map((x) => x.text).join(''));
+    }
+    this.commit(lines, plain);
   }
 
   private error(message: string, cause?: string, fix?: string): void {

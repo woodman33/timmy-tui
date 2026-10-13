@@ -6,11 +6,23 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { zellijSocketDir } from './lane-server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * R4 (H87): like TmuxManager, only when the operator asks for lanes (`timmy watch --lanes` with TIMMY_MULTIPLEXER=zellij),
+ * and then apart from the operator's own zellij sessions: every zellij command runs with a socket folder of Timmy's own
+ * (ZELLIJ_SOCKET_DIR, src/agent/lane-server.ts), cleanup ends only the sessions this process made (never
+ * `kill-all-sessions`), and the layout is written in that folder, never in the operator's ~/.config/zellij.
+ */
 export class ZellijManager implements MultiplexerManager {
   private agent: Agent;
+  /** R4 (H87): this process's own socket folder, and the environment every zellij command runs with. */
+  private readonly socketDir = zellijSocketDir();
+  private readonly env: NodeJS.ProcessEnv = { ...process.env, ZELLIJ_SOCKET_DIR: zellijSocketDir() };
+  /** R4 (H87): the sessions this process made: the only ones it ever ends. */
+  private readonly made = new Set<string>();
   private pollInterval: NodeJS.Timeout | null = null;
   private lastOutputs: Map<string, string[]> = new Map();
   private activeCommands: Map<string, {
@@ -46,8 +58,8 @@ export class ZellijManager implements MultiplexerManager {
   }
 
   /**
-   * Ensure layout-timmy.kdl is registered in ~/.config/zellij/layouts/, where
-   * zellij actually looks for named layouts (it cannot load layouts from a repo).
+   * Writes layout-timmy.kdl into this process's own folder (R4 H87: never into the operator's ~/.config/zellij) and uses it
+   * by its path. Its console pane runs no program (the copy has no `command`): a lane starts what the words name, no more.
    *
    * If WASM plugins are missing, writes a minimal layout variant without them,
    * so the demo still runs on a fresh zellij install. All calls have timeouts
@@ -56,7 +68,7 @@ export class ZellijManager implements MultiplexerManager {
   ensureLayoutAndPlugins(): void {
     try {
       const home = os.homedir();
-      const zellijLayoutsDir = path.join(home, '.config', 'zellij', 'layouts');
+      const zellijLayoutsDir = path.join(this.socketDir, 'layouts');
       // Zellij 0.44+ uses Application Support directory for plugins on macOS
       const zellijPluginsDir = path.join(home, 'Library', 'Application Support', 'org.Zellij-Contributors.Zellij', 'plugins');
       const legacyPluginsDir = path.join(home, '.config', 'zellij', 'plugins');
@@ -100,7 +112,7 @@ export class ZellijManager implements MultiplexerManager {
         fs.mkdirSync(zellijLayoutsDir, { recursive: true });
       }
 
-      let kdlContent = fs.readFileSync(sourceKdl, 'utf8');
+      let kdlContent = fs.readFileSync(sourceKdl, 'utf8').replace(/^\s*(command|args)\s+"[^"\n]*"\s*$/gm, '');
       const layoutName = pluginsMissing ? 'layout-timmy-minimal' : 'layout-timmy';
       if (pluginsMissing) {
         // Strip plugin panes so the layout parses without WASM files
@@ -113,23 +125,18 @@ export class ZellijManager implements MultiplexerManager {
 
       const targetPath = path.join(zellijLayoutsDir, `${layoutName}.kdl`);
       fs.writeFileSync(targetPath, kdlContent, 'utf8');
-      this._resolvedLayoutName = layoutName;
+      this._resolvedLayoutName = targetPath;
     } catch (e) {
       console.warn('[TIMMY] zellij layout install failed, falling back to defaults:', e);
       this._resolvedLayoutName = '';
     }
   }
 
+  /** R4 (H87): ends the sessions this process made, in its own socket folder; never `kill-all-sessions`, never another session. */
   cleanupOrphaned() {
-    try {
-      // `zellij kill-all-sessions -y` hangs when no sessions exist in some versions.
-      // Probe first with list-sessions; skip kill if empty.
-      const out = execSync('zellij list-sessions 2>/dev/null', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }) || '';
-      const active = out.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('No'));
-      if (active.length === 0) return;
-      execSync('zellij kill-all-sessions -y', { stdio: 'ignore', timeout: 3000 });
-    } catch {
-      // Ignore if no zellij sessions are running or zellij is missing
+    for (const s of [...this.made]) {
+      try { execFileSync('zellij', ['kill-session', s], { stdio: 'ignore', timeout: 3000, env: this.env }); } catch { /* already gone */ }
+      this.made.delete(s);
     }
   }
 
@@ -140,9 +147,13 @@ export class ZellijManager implements MultiplexerManager {
     // `script` (BSD) to allocate a pseudo-tty so the server doesn't panic
     // with "could not enable raw mode: Device not configured".
     const scriptWrap = (cmd: string) => `script -q /dev/null ${cmd}`;
+    const quoted = (p: string): string => `'${p.replace(/'/g, `'\\''`)}'`;
+    // A session of this name in this process's own socket folder can only be this process's: counted as made before the
+    // attempt, so one left behind by a spawn that timed out is ended too.
+    this.made.add(sName);
     if (layout) {
       try {
-        execSync(scriptWrap(`zellij -s ${sName} options --default-layout ${layout} -d`), { stdio: 'ignore', timeout: 5000 });
+        execSync(scriptWrap(`zellij -s ${sName} options --default-layout ${quoted(layout)} -d`), { stdio: 'ignore', timeout: 5000, env: this.env });
         this.lastOutputs.set(id, []);
         return;
       } catch {
@@ -150,7 +161,7 @@ export class ZellijManager implements MultiplexerManager {
       }
     }
     try {
-      execSync(scriptWrap(`zellij -s ${sName} -d`), { stdio: 'ignore', timeout: 5000 });
+      execSync(scriptWrap(`zellij -s ${sName} -d`), { stdio: 'ignore', timeout: 5000, env: this.env });
       this.lastOutputs.set(id, []);
     } catch {
       // Spawn failed — likely no TTY (headless driver). Surface a clear status.
@@ -162,7 +173,8 @@ export class ZellijManager implements MultiplexerManager {
   killSession(id: string) {
     const sName = `ortui-${id}`;
     try {
-      execSync(`zellij kill-session ${sName}`, { stdio: 'ignore', timeout: 3000 });
+      execFileSync('zellij', ['kill-session', sName], { stdio: 'ignore', timeout: 3000, env: this.env });
+      this.made.delete(sName);
       this.lastOutputs.delete(id);
     } catch {}
   }
@@ -181,7 +193,7 @@ export class ZellijManager implements MultiplexerManager {
       ];
     }
     try {
-      const output = execSync(`zellij -s ${sName} action dump-screen`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 });
+      const output = execFileSync('zellij', ['-s', sName, 'action', 'dump-screen'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, env: this.env });
       return output.split('\n').filter(Boolean);
     } catch {
       return [
@@ -254,9 +266,10 @@ export class ZellijManager implements MultiplexerManager {
         timestamp: startedAt
       });
 
-      // Send input keys into Zellij session
-      const escaped = wrappedCommand.replace(/"/g, '\\"');
-      execSync(`zellij -s ${sName} action write-chars "${escaped}\n"`, { stdio: 'ignore', timeout: 3000 });
+      // Send input keys into Zellij session. R4 lead (2026-10-12, the dispatch audit): as one argument, never through a shell of
+      // Timmy's own. Before, execSync with only " escaped ran $(...), `...` and $VAR of the approved command in Timmy's
+      // process, outside the pane, and a \" in it ended the quoting (tests/dispatch-shell-paths.test.ts).
+      execFileSync('zellij', ['-s', sName, 'action', 'write-chars', `${wrappedCommand}\n`], { stdio: 'ignore', timeout: 3000, env: this.env });
     } catch {}
   }
 
@@ -331,5 +344,7 @@ export class ZellijManager implements MultiplexerManager {
       clearInterval(this.pollInterval);
     }
     this.cleanupOrphaned();
+    // R4 (H87): the layout this process wrote in its own folder goes with it
+    try { fs.rmSync(path.join(this.socketDir, 'layouts'), { recursive: true, force: true }); } catch { /* nothing written */ }
   }
 }

@@ -1,11 +1,18 @@
 // warroom-t3b1: profile roundtrip, tmux war room lifecycle + activity resize,
 // CHAT tab transcript, COMMAND tab commander + harness panes.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import * as warroom from '../src/harness/warroom.js';
+import { guardRealHome, ownHome } from './fixtures/home-guard.js';
+
+// R4 (H59): the profile round trip writes <home>/timmy/projects/<name>/profile.cue (src/harness/warroom.ts reads the home
+// folder itself), so it runs with its own temporary HOME and TIMMY_HOME; it had left roundtrip-test under the test machine's
+// own home. Nothing here may change the real home's timmy folders (tests/fixtures/home-guard.ts reads them before and after).
+const realHome = guardRealHome();
+afterAll(() => { expect(realHome.check(), 'changed under the real home\'s timmy folders while these tests ran').toEqual([]); });
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(view: ReturnType<typeof render>, pred: (f: string) => boolean, ms = 15000): Promise<string> {
@@ -22,16 +29,26 @@ beforeEach(() => { warroom.killWar(); });
 
 describe('warroom', () => {
   it('profile save/load roundtrip', () => {
-    const p: warroom.WarProfile = {
-      name: 'roundtrip-test',
-      harnesses: [{ id: 'jcode', model: null, weight: 2 }, { id: 'pi', model: 'qwen/qwen3-coder', weight: 1 }],
-      commander: { model: 'openrouter/auto', ws: null },
-    };
-    const f = warroom.saveProfile(p);
-    const loaded = warroom.loadProfile('roundtrip-test');
-    expect(loaded?.harnesses.length).toBe(2);
-    expect(loaded?.harnesses[1].model).toBe('qwen/qwen3-coder');
-    expect(f).toContain('profile.cue');
+    const own = ownHome('warroom-home-');
+    const was = { HOME: process.env.HOME, TIMMY_HOME: process.env.TIMMY_HOME };
+    process.env.HOME = own.HOME;
+    process.env.TIMMY_HOME = own.TIMMY_HOME;
+    try {
+      const p: warroom.WarProfile = {
+        name: 'roundtrip-test',
+        harnesses: [{ id: 'jcode', model: null, weight: 2 }, { id: 'pi', model: 'qwen/qwen3-coder', weight: 1 }],
+        commander: { model: 'openrouter/auto', ws: null },
+      };
+      const f = warroom.saveProfile(p);
+      const loaded = warroom.loadProfile('roundtrip-test');
+      expect(loaded?.harnesses.length).toBe(2);
+      expect(loaded?.harnesses[1].model).toBe('qwen/qwen3-coder');
+      expect(f).toContain('profile.cue');
+      expect(f.startsWith(own.HOME)).toBe(true);
+    } finally {
+      for (const [k, v] of Object.entries(was)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      own.remove();
+    }
   });
 
   it('war room starts tmux panes; activity weight resizes', () => {

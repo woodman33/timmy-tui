@@ -13,8 +13,11 @@ export interface AgentEvents {
   'error': (error: Error) => void;
   'thinking:start': () => void;
   'thinking:end': () => void;
-  /** `info.complete` false: the cost is a lower bound (a cancel, or a response with no charge reported). */
-  'cost:update': (cost: number, totalCost: number, info?: { complete: boolean }) => void;
+  /**
+   * `info.complete` false: the cost is a lower bound (a cancel, or a response with no charge reported). R4 (H103): `basis`
+   * 'local endpoint': the chat's local route (src/agent/local-chat.ts) on this computer's Ollama, no charge.
+   */
+  'cost:update': (cost: number, totalCost: number, info?: { complete: boolean; basis?: 'local endpoint' }) => void;
   'model:switch': (model: string) => void;
   'tmux.command.sent': (data: { runId: string; sessionId: string; sessionName: string; command: string; cwd?: string; timestamp: string }) => void;
   'command.finished': (data: { runId: string; sessionId: string; sessionName: string; commandId: string; command: string; cwd: string; exitCode: number; success: boolean; timestamp: string }) => void;

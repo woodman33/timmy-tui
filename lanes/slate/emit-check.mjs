@@ -5,7 +5,7 @@
 // per click, a dispatch.created for the stored plan, and no launch of it.
 // Seals slate.emit with the plan hash and the verdict.
 //   node lanes/slate/emit-check.mjs [--capsule p6.capsule] [--no-seal]
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -29,9 +29,12 @@ const gatewayUp = await fetch(`${GATEWAY}/health`).then((r) => r.ok).catch(() =>
 console.log(`controller gateway ${GATEWAY}: ${gatewayUp ? 'up' : 'DOWN (emit will report not_configured)'}`);
 const before = BUS_FILES.map((f) => busLines(f).length);
 
+// R4 (H84): the companion answers this lane's viewer only with its token: made here, given to the server in its
+// environment (never on a command line), and to the viewer in its address's fragment (never on the bus or in a seal).
+const TOKEN = randomBytes(32).toString('hex');
 buildSlate();
 // detached so the whole group (npx → tsx → server) dies with one signal
-const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}))`], { cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO }, stdio: 'ignore', detached: true });
+const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}, { token: process.env.SLATE_COMPANION_TOKEN }))`], { cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO, SLATE_COMPANION_TOKEN: TOKEN }, stdio: 'ignore', detached: true });
 const stopServer = () => { try { process.kill(-server.pid, 'SIGTERM'); } catch { try { server.kill('SIGTERM'); } catch { /* gone */ } } };
 const base = `http://127.0.0.1:${PORT}`;
 for (let i = 0; i < 120; i++) { try { if ((await fetch(`${base}/slate3d/manifest.json`)).ok) break; } catch { /* wait */ } await new Promise((r) => setTimeout(r, 500)); }
@@ -41,7 +44,7 @@ try {
   const { chromium } = await import(join(ROOT, 'vault-custody', 'node_modules', 'playwright', 'index.mjs'));
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  await page.goto(`${base}/slate3d/?board=ledger&still=1&source=ws&open=${encodeURIComponent(CAPSULE)}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}/slate3d/?board=ledger&still=1&source=ws&open=${encodeURIComponent(CAPSULE)}#t=${TOKEN}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => !document.getElementById('capsule-panel').hidden, null, { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(1500);
   const panelOpen = await page.evaluate(() => !document.getElementById('capsule-panel').hidden);

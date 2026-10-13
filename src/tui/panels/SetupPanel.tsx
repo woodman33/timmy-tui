@@ -43,7 +43,7 @@ export function SetupPanel({ agent }: SetupPanelProps) {
       }
 
       try {
-        // Save the key the user typed, on purpose, in the settings file (0600)
+        // Save the key the user typed, on purpose, in providers.json in the Timmy home (0600)
         saveApiKey(trimmedKey);
 
         // Dynamically update the active agent client

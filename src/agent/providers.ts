@@ -1,11 +1,40 @@
 // OpenRouter is primary. The fallback accepts only installed local Ollama
 // weights: a localhost endpoint can also advertise cloud-backed models.
+import { cloudModelTag, validOllamaModelName } from '../setup/ollama-models.js';
 
 export interface OllamaProbeResult {
   ok: boolean;
   models: string[];
   latencyMs?: number;
+  /**
+   * R4 (H82; the review of 6fb765a..4338fdb, finding 2): the address asked and what came back, told apart. `ok: false`
+   * alone lumped together no answer, an answer that is not Ollama's, only cloud models, and models whose /api/show check
+   * did not finish within the probe's time: the /tools row said "not installed" while Ollama answered (r22).
+   */
+  base?: string;
+  answer?: OllamaAnswer;
 }
+
+/** What GET /api/tags (and each local model's /api/show) gave. */
+export type OllamaAnswer =
+  /** nothing was asked: the address (OLLAMA_HOST) is not one the probe may ask, or its time is not a valid one */
+  | { state: 'not asked'; why: string }
+  /** nothing answered within the probe's time, or the connection was refused */
+  | { state: 'no answer'; why: string }
+  /**
+   * R4 (H88; the Mac run r23): the request never left this computer: Node's fetch refused it itself, before any connection
+   * (`why`: its own words, such as "bad port" for OLLAMA_HOST=127.0.0.1:9, a port fetch never asks). Nothing was asked, so
+   * nothing can have answered.
+   */
+  | { state: 'not sent'; why: string }
+  /** something answered, and its answer is not Ollama's list of models (an HTTP error, another body, too long a list) */
+  | { state: 'unreadable'; why: string }
+  /**
+   * Ollama listed `listed` models: `cloud` of them cloud models (never used as local ones); of the local ones, `checked`
+   * passed the /api/show check, `failed` did not (its answer did not establish local completion weights), and `late` were
+   * not checked within `deadlineMs`, the probe's one deadline for the list and every check.
+   */
+  | { state: 'listed'; listed: number; cloud: number; checked: number; failed: number; late: number; deadlineMs: number };
 
 export interface LocalOllamaModelInfo {
   name: string;
@@ -24,9 +53,10 @@ function deadline(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(timeoutMs);
 }
 
-/** Resolve a local client endpoint without permitting credentials or redirects. */
+/** Resolve a local client endpoint without permitting credentials or redirects. R4 (H82): 127.0.0.1 by default, the address
+ *  Ollama listens on (localhost may be tried as ::1 first). */
 export function getLocalOllamaBaseUrl(base?: string): string {
-  const configured = base ?? process.env.OLLAMA_HOST ?? 'http://localhost:11434';
+  const configured = base ?? process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
   const url = new URL(configured.includes('://') ? configured : `http://${configured}`);
   if (!['http:', 'https:'].includes(url.protocol) ||
       !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
@@ -36,13 +66,14 @@ export function getLocalOllamaBaseUrl(base?: string): string {
   return url.origin;
 }
 
+// R4 (H103): one rule for each, kept with the chat's model list (src/setup/ollama-models.ts: the setup imports nothing outside
+// its folder), the same regular expressions as were here.
 function cloudTag(model: string): boolean {
-  return /(?:^|[:/_-])cloud(?:$|[:/_-])/i.test(model);
+  return cloudModelTag(model);
 }
 
 function validModelName(model: string): boolean {
-  return typeof model === 'string' && model.length > 0 && model.length <= 512 &&
-    !/[\s\x00-\x1f\x7f]/.test(model);
+  return validOllamaModelName(model);
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -91,29 +122,62 @@ export async function assertLocalOllamaModel(
   };
 }
 
+/** Why a request got no answer, in a few words: its time ran out, or the error's own code (ECONNREFUSED). */
+function noAnswerWhy(err: unknown, signal: AbortSignal, timeoutMs: number): string {
+  if (signal.aborted) return `no answer within ${timeoutMs / 1000} s`;
+  const cause = (err as { cause?: { code?: unknown } } | undefined)?.cause;
+  const code = typeof cause?.code === 'string' ? cause.code : (err as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' && /^[A-Z_]{3,40}$/.test(code) ? `the connection failed (${code})` : 'the request failed';
+}
+
+/**
+ * R4 (H88; r23): why a request that failed never left this computer, or undefined when it may have: fetch's own refusal has a
+ * cause with no error code and no system call (undici's "bad port"); a connection that was tried has both (ECONNREFUSED).
+ */
+function notSentWhy(err: unknown, signal: AbortSignal): string | undefined {
+  if (signal.aborted) return undefined;
+  const cause = (err as { cause?: { code?: unknown; syscall?: unknown; message?: unknown } } | undefined)?.cause;
+  if (!cause || typeof cause !== 'object' || cause.code !== undefined || cause.syscall !== undefined) return undefined;
+  const said = typeof cause.message === 'string' ? cause.message.trim().slice(0, 120) : '';
+  return said ? `Node's fetch refused it before it left this computer (${said})` : undefined;
+}
+
 /** Only verified local completion models are reported as fallback candidates. */
 export async function probeOllama(timeoutMs = 1500): Promise<OllamaProbeResult> {
-  try {
-    const start = Date.now();
-    const signal = deadline(timeoutMs);
-    const base = getLocalOllamaBaseUrl();
-    const response = await fetch(`${base}/api/tags`, { signal, redirect: 'error' });
-    if (!response.ok) return { ok: false, models: [] };
-    const data = record(await response.json());
-    if (!Array.isArray(data.models) || data.models.length > 256) return { ok: false, models: [] };
-    const candidates = [...new Set(data.models.map(value => record(value).name)
-      .filter((name): name is string => typeof name === 'string' && validModelName(name) && !cloudTag(name)))];
-    const checked = await Promise.all(candidates.map(async model => {
-      try {
-        await assertLocalOllamaModel(model, timeoutMs, { baseUrl: base, signal });
-        return model;
-      } catch { return null; }
-    }));
-    const models = checked.filter((model): model is string => model !== null);
-    return { ok: models.length > 0, models, latencyMs: Date.now() - start };
-  } catch {
-    return { ok: false, models: [] };
+  let base: string;
+  let signal: AbortSignal;
+  try { base = getLocalOllamaBaseUrl(); signal = deadline(timeoutMs); } catch (err) {
+    return { ok: false, models: [], answer: { state: 'not asked', why: err instanceof Error ? err.message : String(err) } };
   }
+  const start = Date.now();
+  let response: Response;
+  try { response = await fetch(`${base}/api/tags`, { signal, redirect: 'error' }); } catch (err) {
+    // R4 (H88; r23): a request fetch refused itself was never sent: said so, never "nothing answered"
+    const unsent = notSentWhy(err, signal);
+    return { ok: false, models: [], base, answer: unsent ? { state: 'not sent', why: unsent } : { state: 'no answer', why: noAnswerWhy(err, signal, timeoutMs) } };
+  }
+  const unreadable = (why: string): OllamaProbeResult => ({ ok: false, models: [], base, answer: { state: 'unreadable', why } });
+  if (!response.ok) { try { await response.body?.cancel(); } catch { /* nothing to read */ } return unreadable(`HTTP ${response.status}`); }
+  let data: Record<string, unknown>;
+  try { data = record(await response.json()); } catch (err) {
+    return signal.aborted ? { ok: false, models: [], base, answer: { state: 'no answer', why: noAnswerWhy(err, signal, timeoutMs) } } : unreadable('its answer is not JSON');
+  }
+  if (!Array.isArray(data.models)) return unreadable('its answer has no list of models');
+  if (data.models.length > 256) return unreadable(`it lists ${data.models.length} models, more than the 256 Timmy reads`);
+  const names = [...new Set(data.models.map(value => record(value).name).filter((name): name is string => typeof name === 'string' && validModelName(name)))];
+  const candidates = names.filter((name) => !cloudTag(name));
+  const outcomes = await Promise.all(candidates.map(async (model): Promise<'checked' | 'failed' | 'late'> => {
+    try {
+      await assertLocalOllamaModel(model, timeoutMs, { baseUrl: base, signal });
+      return 'checked';
+    } catch { return signal.aborted ? 'late' : 'failed'; }
+  }));
+  const models = candidates.filter((_, i) => outcomes[i] === 'checked');
+  const count = (o: string): number => outcomes.filter((x) => x === o).length;
+  return {
+    ok: models.length > 0, models, latencyMs: Date.now() - start, base,
+    answer: { state: 'listed', listed: data.models.length, cloud: names.length - candidates.length, checked: models.length, failed: count('failed'), late: count('late'), deadlineMs: timeoutMs },
+  };
 }
 
 /** Input should come from probeOllama; completion rechecks metadata before use. */

@@ -28,6 +28,14 @@ export interface PromptDeps {
   commands?: readonly MenuCommand[];
   /** Ctrl+G: hands the input to the editor and returns what was saved, or null to keep it (C-10). */
   openEditor?: (text: string) => string | null;
+  /**
+   * R4 lead (2026-10-12; found by tests/chat-one-conversation-pty.test.ts under load): leave the terminal raw when the prompt
+   * ends, for a caller that reads keys raw again at once (the REPL's loop: a chat turn's Ctrl+C watcher, then the next prompt).
+   * Keys typed while the terminal is cooked are echoed by it and their Enter becomes a line feed (ICRNL), which this editor
+   * takes for Ctrl+J, a new line: a "/exit" typed as a turn ended stayed in the next prompt, unsent. The caller turns raw off
+   * itself where a cooked terminal is wanted (before a slash command, which may hand the terminal to another program).
+   */
+  keepRaw?: boolean;
 }
 
 export function readPrompt(d: PromptDeps): Promise<PromptResult> {
@@ -91,7 +99,7 @@ export function readBlockPrompt(d: PromptDeps): Promise<PromptResult> {
       stdout.off('resize', draw);
       region.set([]);
       if (kept.length) region.commit(kept);
-      session.setRaw(false);
+      if (!d.keepRaw) session.setRaw(false);
       stdin.pause();
       resolve(result);
     };

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFi
 import { join, extname, basename } from 'path';
 import { execFileSync } from 'child_process';
 import { readProject, projectDir } from './projects.js';
+import { laneTmux } from '../agent/lane-server.js';
 
 // TIMMY project tree — the ICEBERG applied per project. Tiny index on top
 // (PROJECT.md, always loaded first), deep organized vault below. Everything
@@ -80,7 +81,8 @@ export function syncLaneLogs(name: string, lanes: { id: string; name: string }[]
   let n = 0;
   for (const l of lanes) {
     try {
-      const out = execFileSync('tmux', ['capture-pane', '-pt', `ortui-${l.id}`, '-S', '-200'], { encoding: 'utf8', stdio: 'pipe' });
+      // R4 (H87): the lanes live on Timmy's own tmux server (src/agent/lane-server.ts), never the default one
+      const out = execFileSync('tmux', laneTmux('capture-pane', '-pt', `ortui-${l.id}`, '-S', '-200'), { encoding: 'utf8', stdio: 'pipe' });
       writeFileSync(join(p, 'logs', 'lanes', `${l.name.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.log`), out, 'utf8');
       n++;
     } catch { /* lane not alive */ }

@@ -9,7 +9,7 @@ import { truncateVisible } from '../utils/text.js';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import crypto from 'crypto';
-import { exec } from 'child_process';
+import { copyToClipboard, openExternal } from '../../utils/external-open.js';
 
 interface PorterPanelProps {
   agent: any;
@@ -127,13 +127,13 @@ export function PorterPanel({ agent, setInspector, focusArea = 'stage' }: Porter
 
         const btn = resultButtons[activeBtnIdx];
         if (btn === 'Open Folder') {
-          exec(`open "${slugDir}"`, {}, () => {});
+          openExternal(slugDir); // R4 lead: as an argument, never a shell string
           setInputCmd(`/porter open-folder mcp-cli/${slug}/`);
         } else if (btn === 'Open README') {
-          exec(`open -t "${join(slugDir, 'README.md')}"`, {}, () => {});
+          openExternal(join(slugDir, 'README.md'), { textEditor: true });
           setInputCmd(`/porter open-file mcp-cli/${slug}/README.md`);
         } else if (btn === 'Copy Path') {
-          exec(`echo "${slugDir}" | pbcopy`, {}, () => {});
+          copyToClipboard(slugDir);
           setInputCmd(`/porter copy-path mcp-cli/${slug}/`);
         } else if (btn === 'Go to Workspace') {
           agent.emit('mode:change', 'lanes');

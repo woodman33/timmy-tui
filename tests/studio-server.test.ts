@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type Server } from 'node:http';
@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { studioConfig, TLDRAW_VERSION } from '../src/studio/config.js';
-import { ensureStudioServer, startStudioServer } from '../src/studio/server.js';
+import { ensureStudioServer, startStudioServer, type StudioServer } from '../src/studio/server.js';
 
 // F-4, slice 1: Timmy's canvas (companion/studio-canvas) on one pinned tldraw, licensed from
 // TLDRAW_LICENSE_KEY at run time: the same name as the operator's GitHub Actions secret, which a
@@ -27,11 +27,17 @@ describe('studio config', () => {
 
 describe('the studio server', () => {
   let server: Server | undefined;
+  // R4 (H97): these servers name no Timmy home (env {}), so they keep the canvas under <home>/timmy/canvas and read it
+  // there: each test with a temporary HOME of its own, never the account's (the page still says ~/timmy/canvas)
+  let was: string | undefined;
+  let home = '';
+  beforeEach(() => { was = process.env.HOME; home = mkdtempSync(join(tmpdir(), 'studio-server-home-')); process.env.HOME = home; });
+  afterEach(() => { if (was === undefined) delete process.env.HOME; else process.env.HOME = was; rmSync(home, { recursive: true, force: true }); });
   afterEach(() => new Promise<void>((done) => (server ? server.close(() => done()) : done())));
   const port = (): number => (server!.address() as AddressInfo).port;
-  const get = (path: string, host?: string) =>
+  const get = (path: string, host?: string, auth?: string) =>
     new Promise<{ status: number; body: string; headers: Record<string, unknown> }>((resolve, reject) => {
-      const req = request({ hostname: '127.0.0.1', port: port(), path, headers: host ? { Host: host } : {} }, (res) => {
+      const req = request({ hostname: '127.0.0.1', port: port(), path, headers: { ...(host ? { Host: host } : {}), ...(auth ? { Authorization: `Bearer ${auth}` } : {}) } }, (res) => {
         let body = '';
         res.on('data', (c) => { body += String(c); });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
@@ -46,10 +52,14 @@ describe('the studio server', () => {
   });
   it('hands the page its license, its tldraw version and where it saves the canvas, never cached', async () => {
     server = await startStudioServer(0, { env: { TLDRAW_LICENSE_KEY: KEY } });
-    const r = await get('/studio-config.json');
+    // R4 (H83): the license key only with a credential (the REPL's token here; a page's session in tests/studio-canvas-auth.test.ts)
+    const r = await get('/studio-config.json', undefined, (server as StudioServer).projectToken);
     expect(r.status).toBe(200);
     expect(r.headers['cache-control']).toBe('no-store');
     expect(JSON.parse(r.body)).toEqual({ licenseKey: KEY, tldrawVersion: TLDRAW_VERSION, canvasDir: '~/timmy/canvas' });
+    const open = await get('/studio-config.json');
+    expect(JSON.parse(open.body)).toEqual({ licenseKey: null, tldrawVersion: TLDRAW_VERSION, canvasDir: '~/timmy/canvas' });
+    expect(open.body).not.toContain(KEY);
   });
   it('answers only requests addressed to this machine (a rebound DNS name gets 403, not the key)', async () => {
     server = await startStudioServer(0, { env: { TLDRAW_LICENSE_KEY: KEY } });
@@ -98,7 +108,9 @@ describe('the studio server', () => {
     }
   });
   it("the page's code: the license passed to <Tldraw>, the editor handed to Timmy, and the bundle's tldraw checked against the pin", () => {
-    expect(pageCode).toContain("fetch('/studio-config.json'");
+    // R4 (H83): the settings are read with the page's session (./cards.js makes the request; canvas.js never holds the session)
+    expect(pageCode).toContain('await cards.config()');
+    expect(readFileSync('companion/studio-canvas/src/cards.js', 'utf8')).toContain("request('/studio-config.json', 'GET', token)");
     expect(pageCode).toMatch(/licenseKey: config\.licenseKey/);
     expect(pageCode).toContain('window.timmyCanvas');
     expect(pageCode).toContain('config.tldrawVersion !== BUILT_WITH');
@@ -118,7 +130,7 @@ describe('the studio server', () => {
 // Fourth order, step 5: the canvas is saved by Timmy in its home (canvas/canvas.json) and opened
 // from there, so it reopens where it was and every surface reads the same document and revision.
 describe('the canvas file through the server', () => {
-  let server: Server | undefined;
+  let server: StudioServer | undefined;
   let home = '';
   afterEach(async () => {
     await new Promise<void>((done) => (server ? server.close(() => done()) : done()));
@@ -129,9 +141,10 @@ describe('the canvas file through the server', () => {
     home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
     server = await startStudioServer(0, { env: { TIMMY_HOME: home }, ...options });
   };
+  // R4 (H83): as Timmy's REPL calls these routes, with the server's token (a page with its session: tests/studio-canvas-auth.test.ts)
   const call = async (method: string, path: string, body?: unknown, contentType = 'application/json') => {
     const r = await fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}${path}`, {
-      method, headers: body === undefined ? {} : { 'Content-Type': contentType }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+      method, headers: { Authorization: `Bearer ${server!.projectToken}`, ...(body === undefined ? {} : { 'Content-Type': contentType }) }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
     });
     return { status: r.status, cache: r.headers.get('cache-control'), body: await r.json() as Record<string, unknown> };
   };
@@ -205,12 +218,16 @@ describe('the canvas file through the server', () => {
 
 describe('/web studio in the REPL', () => {
   it('starts Timmy Canvas inside the REPL when nothing serves it, and uses the one already running when the port is taken', async () => {
-    const first = await ensureStudioServer(0, { env: {} });
-    expect(first.state).toBe('started');
-    const port = ((first as { server: Server }).server.address() as AddressInfo).port;
-    const second = await ensureStudioServer(port, { env: {} });
-    expect(second).toEqual({ state: 'already-running' });
-    await new Promise<void>((done) => (first as { server: Server }).server.close(() => done()));
+    // R4 (H97): a Timmy home of its own (with env {} it read the account's canvas folder)
+    const home = mkdtempSync(join(tmpdir(), 'studio-web-home-'));
+    try {
+      const first = await ensureStudioServer(0, { env: { TIMMY_HOME: home } });
+      expect(first.state).toBe('started');
+      const port = ((first as { server: Server }).server.address() as AddressInfo).port;
+      const second = await ensureStudioServer(port, { env: { TIMMY_HOME: home } });
+      expect(second).toEqual({ state: 'already-running' });
+      await new Promise<void>((done) => (first as { server: Server }).server.close(() => done()));
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 

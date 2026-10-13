@@ -17,8 +17,12 @@ import { MultiplexerManager } from './multiplexer.js';
 import { ZellijManager } from './zellij.js';
 import { RmuxManager } from './rmux.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.js';
+import { laneServerArgs, laneWatchdog, lanesWords, type LaneMultiplexer } from './lane-server.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
-import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
+import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
+import { probeOllama, pickOllamaModel, ollamaChatCompletion, getLocalOllamaBaseUrl } from './providers.js';
+import { modelCheckUrl } from './model-check.js';
+import { runLocalTurn, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
 
 export interface SendOptions {
   /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
@@ -27,9 +31,45 @@ export interface SendOptions {
   retry?: boolean;
 }
 
+/**
+ * R4 (H103, D1): a message with no route to a model: off the chat's local route with no model key, Agent.send refuses it
+ * before anything else (before the conversation takes it, before any request): never a request to OpenRouter with an empty
+ * key, and never the last-resort fallback (a local model nobody chose). `sent` is false: nothing left this process.
+ */
+export class NoModelKeyError extends Error {
+  readonly sent = false as const;
+  constructor() {
+    super([
+      'No model key, so nothing was sent to any model.',
+      'Reason: the chat is set to OpenRouter (the setup did not choose the local model), and no OPENROUTER_API_KEY is set or stored.',
+      'Next: timmy init --chat openrouter (it asks for the key, hidden), or the local model: timmy init --chat local --model <name>.',
+    ].join('\n'));
+    this.name = 'NoModelKeyError';
+  }
+}
+
+/** R4 (H103, D1c): a turn the last-resort fallback answered: this computer's Ollama, its model, and why OpenRouter did not. */
+export interface LastResortAnswer {
+  /** the Ollama model that answered (local weights: pickOllamaModel never picks a cloud-backed one) */
+  model: string;
+  /** the Ollama it asked: this computer's (getLocalOllamaBaseUrl takes a loopback address only) */
+  host: string;
+  /** OpenRouter's failure, in a line */
+  cause: string;
+}
+
+/** A cause in one bounded line (the notice and the receipt quote it). */
+const oneLine = (s: unknown, max = 160): string => {
+  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+};
+
 export interface AgentOptions {
-  /** Which multiplexer runs background lanes; 'none' starts no sessions (the inline REPL). */
-  multiplexer?: 'tmux' | 'zellij' | 'rmux' | 'none';
+  /**
+   * Which multiplexer runs background lanes. R4 (H87): 'none' unless a caller passes the operator's choice (the monitor's
+   * `--lanes`, src/agent/lane-server.ts): no lane session and no lane program starts for anyone who did not ask.
+   */
+  multiplexer?: LaneMultiplexer;
 }
 
 /** No background lanes: every call is a no-op. */
@@ -57,48 +97,51 @@ class TmuxManager implements MultiplexerManager {
     startedAt: string;
   }> = new Map();
 
+  /** R4 (H87): this process's own tmux server (`-L timmy-lanes-<pid>`, no configuration of the operator's), never the default one. */
+  private readonly server = laneServerArgs();
+  /** R4 (H87): the sessions this process made there: the only ones it ever ends. */
+  private readonly made = new Set<string>();
+  private watched = false;
+
   constructor(agent: Agent) {
     this.agent = agent;
   }
 
   init() {
-    this.cleanupOrphaned();
-    // Pre-spawn standard sessions on startup
+    // Pre-spawn standard sessions on startup (on this process's own server: nothing of anyone else's is there to clean up)
     for (const session of this.agent.tmuxSessions) {
       this.spawnSession(session.id);
     }
+    if (this.made.size > 0 && this.agent.logsEnabled !== false) tuiLogger.info(`[lanes.started] ${lanesWords('tmux')}`);
     // Start non-blocking polling thread
     const pollMs = process.env.TIMMY_TMUX_POLL_MS ? parseInt(process.env.TIMMY_TMUX_POLL_MS, 10) : 500;
     this.pollInterval = setInterval(() => this.poll(), pollMs);
   }
 
+  /** R4 (H87): ends the sessions this process made, on its own server; never another session, never another server. */
   cleanupOrphaned() {
-    try {
-      const list = execFileSync('tmux', ['list-sessions', '-F', '#S'], { encoding: 'utf8', stdio: 'pipe' });
-      const sessions = list.split('\n').map(s => s.trim()).filter(s => s.startsWith('ortui-'));
-      for (const s of sessions) {
-        execFileSync('tmux', ['kill-session', '-t', s], { stdio: 'ignore' });
-      }
-    } catch {
-      // Ignore if no sessions are running or tmux is missing
+    for (const s of [...this.made]) {
+      try { execFileSync('tmux', [...this.server, 'kill-session', '-t', s], { stdio: 'ignore' }); } catch { /* already gone */ }
+      this.made.delete(s);
     }
   }
 
   spawnSession(id: string) {
     const sName = `ortui-${id}`;
     try {
-      execFileSync('tmux', ['new-session', '-d', '-s', sName], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'new-session', '-d', '-s', sName], { stdio: 'ignore' });
+      this.made.add(sName);
       this.lastOutputs.set(id, []);
+      // R4 (H87): once, a watchdog on the server ends it when this process is gone (a monitor killed with no exit handler)
+      if (!this.watched) {
+        this.watched = true;
+        try { execFileSync('tmux', laneWatchdog('tmux'), { stdio: 'ignore' }); } catch { /* the exit handler still ends them */ }
+      }
 
       const runnerKey = DEFAULT_LANE_BINDINGS[id];
 
-      // Generate dynamic AgentPass credentials
-      const jti = `ap_${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 8)}`;
-      const visa = `visa_${Math.random().toString(36).substring(2, 8)}`;
-      const hash = `hash_${Math.random().toString(36).substring(2, 8)}`;
-
-      const startup = laneStartupScript(runnerKey, jti, visa, hash);
-      execFileSync('tmux', ['send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
+      const startup = laneStartupScript(runnerKey);
+      execFileSync('tmux', [...this.server, 'send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
     } catch {
       // Ignore errors
     }
@@ -107,7 +150,8 @@ class TmuxManager implements MultiplexerManager {
   killSession(id: string) {
     const sName = `ortui-${id}`;
     try {
-      execFileSync('tmux', ['kill-session', '-t', sName], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'kill-session', '-t', sName], { stdio: 'ignore' });
+      this.made.delete(sName);
       this.lastOutputs.delete(id);
     } catch {}
   }
@@ -115,7 +159,7 @@ class TmuxManager implements MultiplexerManager {
   getCwd(id: string): string {
     const sName = `ortui-${id}`;
     try {
-      return execFileSync('tmux', ['display-message', '-p', '-t', sName, '-F', '#{pane_current_path}'], { encoding: 'utf8', stdio: 'pipe' }).trim();
+      return execFileSync('tmux', [...this.server, 'display-message', '-p', '-t', sName, '-F', '#{pane_current_path}'], { encoding: 'utf8', stdio: 'pipe' }).trim();
     } catch {
       return process.cwd();
     }
@@ -124,7 +168,7 @@ class TmuxManager implements MultiplexerManager {
   capturePane(id: string): string[] {
     const sName = `ortui-${id}`;
     try {
-      const output = execFileSync('tmux', ['capture-pane', '-pt', sName], { encoding: 'utf8', stdio: 'pipe' });
+      const output = execFileSync('tmux', [...this.server, 'capture-pane', '-pt', sName], { encoding: 'utf8', stdio: 'pipe' });
       const lines = output.split('\n');
       while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
         lines.pop();
@@ -212,7 +256,7 @@ class TmuxManager implements MultiplexerManager {
       });
 
       // Send to tmux session using exact parameter array argument preservation
-      execFileSync('tmux', ['send-keys', '-t', sName, wrappedCommand, 'C-m'], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'send-keys', '-t', sName, wrappedCommand, 'C-m'], { stdio: 'ignore' });
       setTimeout(() => this.pollSession(id), 50);
     } catch {}
   }
@@ -308,6 +352,8 @@ export class Agent extends EventEmitter<AgentEvents> {
   private tools: ReturnType<typeof tool>[];
   private running = false;
   private tmuxMgr: MultiplexerManager;
+  /** R4 (H87): which multiplexer runs this agent's lanes; 'none' (the default) runs none. */
+  public readonly multiplexer: LaneMultiplexer;
 
   public currentRunId = 'default-local-run';
   public lastBlockedCommands: Map<string, string> = new Map();
@@ -319,46 +365,22 @@ export class Agent extends EventEmitter<AgentEvents> {
   /** Human-readable reason for the last health-check failure, shown in the UI. */
   public lastHealthError: string | undefined;
 
-  // Persistent workspace chamber contexts (logs)
-  public workspaceContexts: Record<string, string[]> = {
-    'opencode': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.'
-    ],
-    'hermes': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '🧠 [hermes] literature search -> mapped 14 active ontology records.'
-    ],
-    'pi': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783'
-    ],
-    'openrouter': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.'
-    ]
-  };
+  // Persistent workspace chamber contexts (logs). Round R1: they start empty and hold only what a
+  // pane actually printed; the seeded "verified" lines, which no run wrote, are gone (AGENTS.md §4).
+  public workspaceContexts: Record<string, string[]> = { opencode: [], hermes: [], pi: [], openrouter: [] };
 
-  // Unified active workspace VM thread logs relayed to Proof page
-  public relayedVmLogs: string[] = [
-    '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-    '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.',
-    '🧠 [hermes] literature search -> mapped 14 active ontology records.',
-    '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783',
-    '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.',
-    '☁️ [sqlite-d1] Push evidence transaction completed -> CF Durable Object database.',
-    '🔐 [EMBASSY] Tamper-evident manifest seal armed: sha256_82f1a8c9b20d3f82',
-    '✓ ALL AGENT CHECKS PASSED. CONFORMANCE: 100%'
-  ];
+  // Unified active workspace VM thread logs relayed to Proof page: lines the panes actually printed.
+  public relayedVmLogs: string[] = [];
 
-  // TMUX Cluster & Background Workspace Session Tracker
-  public tmuxSessions = [
-    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b', memory: '14.8 MB', cost: 0.0020 },
-    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b', memory: '12.1 MB', cost: 0.0034 },
-    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3', memory: '22.4 MB', cost: 0.0015 },
-    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3', memory: '8.2 MB', cost: 0.0015 },
-    { id: '5', name: 'jcode', model: 'jcode/default', memory: '0.0 MB', cost: 0.0000 },
-    { id: '6', name: 'Minds CLI', model: 'animoca/builder', memory: '0.0 MB', cost: 0.0000 }
+  // TMUX Cluster & Background Workspace Session Tracker. Round R1 review: no memory or cost figures;
+  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4).
+  public tmuxSessions: Array<{ id: string; name: string; model: string }> = [
+    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
+    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
+    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3' },
+    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3' },
+    { id: '5', name: 'jcode', model: 'jcode/default' },
+    { id: '6', name: 'Minds CLI', model: 'animoca/builder' }
   ];
   public showTmuxDropdown = false;
 
@@ -369,9 +391,10 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.config = config;
     this.tools = [...defaultTools];
 
-    // Initialize multiplexer background manager (tmux, zellij, or rmux). 'none' (the inline REPL)
-    // starts no lane sessions.
-    const mux = options.multiplexer || process.env.TIMMY_MULTIPLEXER || 'tmux';
+    // Initialize multiplexer background manager (tmux, zellij, or rmux). R4 (H87): 'none' unless the caller passes the
+    // operator's choice (`timmy watch --lanes`): no lane session and no lane program for anyone who did not ask.
+    const mux: LaneMultiplexer = options.multiplexer ?? 'none';
+    this.multiplexer = mux;
     if (mux === 'none') {
       this.tmuxMgr = new NoMultiplexer();
     } else if (mux === 'zellij') {
@@ -436,13 +459,7 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   addTmuxSession(name: string, model: string): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name,
-      model,
-      memory: `${(Math.random() * 20 + 10).toFixed(1)} MB`,
-      cost: 0.0000
-    });
+    this.tmuxSessions.push({ id, name, model });
     this.tmuxMgr.spawnSession(id);
     if (this.logsEnabled !== false) tuiLogger.info(`[lane.spawned] ${JSON.stringify({ id, name, model })}`);
     this.emit('tmux:update');
@@ -455,16 +472,18 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   addBrowserPane(url: string = 'https://localhost:3001'): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name: `Browser: ${url}`,
-      model: 'carbonyl/chromium-109',
-      memory: '0.0 MB',
-      cost: 0.0000
-    });
+    // Round R4 (review M4): a link that carries a secret (the live board's token) is typed as a private launch
+    // page, so the token is in neither send-keys' arguments, the pane shell's history, nor this lane's name or log.
+    let page: string | null = url;
+    if (carriesSecret(url)) { try { page = writeLaunchPage(url).href; } catch { page = null; } }
+    const shown = shownAddress(url);
+    const word = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+    this.tmuxSessions.push({ id, name: `Browser: ${shown}`, model: 'carbonyl/chromium-109' });
     this.tmuxMgr.spawnSession(id);
-    this.tmuxMgr.sendCommand(id, `if command -v carbonyl >/dev/null 2>&1; then carbonyl "${url}"; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
-    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url })}`);
+    this.tmuxMgr.sendCommand(id, page === null
+      ? `printf '[Browser] Not opened: the private page that keeps the token of this link off command lines could not be written.\\n'`
+      : `if command -v carbonyl >/dev/null 2>&1; then carbonyl ${word(page)}; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
+    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url: shown })}`);
     this.emit('tmux:update');
   }
 
@@ -518,11 +537,43 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.config.instructions = instructions;
   }
 
-  getModel(): string {
+  /**
+   * R4 (H103): the chat's local route (src/agent/local-chat.ts): while one is set, every turn is answered by that Ollama and
+   * model, never by OpenRouter or another model; null (the default) is the OpenRouter route, as before.
+   */
+  private localChat: (LocalChatRoute & { numCtx?: number }) | null = null;
+  /** R4 (H103): what the last turn on the local route reported (null: none yet, or it did not finish). */
+  private lastLocal: LocalTurnResult | null = null;
+
+  useLocalChat(route: (LocalChatRoute & { numCtx?: number }) | null): void {
+    this.localChat = route ? { ...route } : null;
+  }
+
+  localChatRoute(): (LocalChatRoute & { numCtx?: number }) | null {
+    return this.localChat ? { ...this.localChat } : null;
+  }
+
+  lastLocalTurn(): LocalTurnResult | null {
+    return this.lastLocal;
+  }
+
+  /** R4 (H103): the OpenRouter route's model, whichever route answers the chat (/observe and describe_image ask OpenRouter). */
+  openRouterModel(): string {
     return this.config.model;
   }
 
+  getModel(): string {
+    return this.localChat ? this.localChat.model : this.config.model;
+  }
+
   setModel(model: string): void {
+    // R4 (H103): on the local route the model is the local one (the REPL's /model checks it against Ollama's list first)
+    if (this.localChat) {
+      this.localChat = { ...this.localChat, model };
+      this.logModelEvent('model.selected', { model, route: 'ollama' });
+      this.emit('model:switch', model);
+      return;
+    }
     this.config.model = model;
     this.modelHealthStatus = 'UNTESTED';
     this.logModelEvent('model.selected', { model });
@@ -583,12 +634,13 @@ export class Agent extends EventEmitter<AgentEvents> {
   }> {
     const apiKey = this.config.apiKey;
     if (!apiKey) {
-      // No more silent early-return: surface the missing-key failure in logs + UI
+      // R4 (H87): no key, no request at all (never a placeholder key): the words say there is no model key
+      const error = 'No model key, so nothing was sent: add one with `timmy init --tui` (or OPENROUTER_API_KEY)';
       this.modelHealthStatus = 'ERROR';
-      this.lastHealthError = 'API key is missing (set OPENROUTER_API_KEY in .env)';
+      this.lastHealthError = error;
       this.emit('model:health', 'ERROR');
-      this.logModelEvent('model.test.failed', { modelId, error: 'API key is missing' });
-      return { ok: false, error: 'API key is missing' };
+      this.logModelEvent('model.test.failed', { modelId, error: 'no model key; nothing sent' });
+      return { ok: false, error };
     }
     const start = Date.now();
     try {
@@ -596,7 +648,8 @@ export class Agent extends EventEmitter<AgentEvents> {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
       
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      // R4 (H87): OpenRouter, or a test's FAKE on 127.0.0.1 (TIMMY_MODEL_CHECK_URL, src/agent/model-check.ts)
+      const response = await fetch(modelCheckUrl(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -661,14 +714,31 @@ export class Agent extends EventEmitter<AgentEvents> {
     }
   }
 
-  /** Run once on TUI mount so Provider Status reflects reality immediately. */
-  public runStartupHealthCheck(): void {
-    void this.testModelHealth(this.config.model);
+  // R4 (H87): no start-up check. runStartupHealthCheck (called on every mount of an agent in the monitor) is gone: a
+  // monitor that starts asks nothing of a model and its provider status says "not checked"; testModelHealth above is the
+  // explicit check, one small request, when the operator asks for it (`/model test`).
+
+  /** R4 (H87): whether this agent has a model key (with none, nothing is sent to a model by a check). */
+  public hasModelKey(): boolean {
+    return Boolean(this.config.apiKey);
+  }
+
+  /** R4 (H103, D1c): what the last turn's last-resort fallback was, when it answered (null: it did not answer that turn). */
+  private lastResort: LastResortAnswer | null = null;
+
+  /** R4 (H103, D1c): the last turn was answered by the last-resort fallback: which local model, where, and why (else null). */
+  lastFallback(): LastResortAnswer | null {
+    return this.lastResort ? { ...this.lastResort } : null;
   }
 
   /**
-   * tryOllamaLastResort — when every OpenRouter candidate fails, answer via
-   * local Ollama instead of throwing. Returns null if Ollama is unreachable.
+   * tryOllamaLastResort — when every OpenRouter candidate fails (with a key: without one, send refuses before any request),
+   * answer via this computer's Ollama instead of throwing. Returns null if Ollama is unreachable or lists no local model.
+   * R4 (H103, D1c): only a model with local weights on a loopback Ollama (pickOllamaModel and assertLocalOllamaModel refuse
+   * cloud-backed ones); its answer is said where the person reads it, before the answer, in the words "OpenRouter failed:
+   * <cause>; answered by local <model> on this computer's Ollama, the last-resort fallback" (the REPL's transcript and the
+   * monitor show that notice), its text as a message item (the REPL shows text from those), no charge on that local endpoint,
+   * and lastFallback() says it for the turn's receipt.
    */
   private async tryOllamaLastResort(
     history: { role: string; content: string }[],
@@ -683,7 +753,18 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('stream:start');
       const text = await ollamaChatCompletion(model, history);
       if (!text) return null;
+      const cause = oneLine(redactString(String(reason)), 240);
+      let host = probe.base ?? '';
+      try { host = new URL(getLocalOllamaBaseUrl(probe.base)).host; } catch { /* the probe's own words */ }
+      this.lastResort = { model, host, cause };
+      this.emit('message:user', {
+        role: 'assistant',
+        content: `⚙️ **[SYSTEM]** OpenRouter failed: ${cause}; answered by local ${model} on this computer's Ollama, the last-resort fallback.`,
+        timestamp: Date.now(),
+      });
+      this.emit('item:update', { type: 'message', id: `last-resort-${Date.now().toString(36)}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text }] });
       this.emit('stream:delta', text, text);
+      this.emit('cost:update', 0, 0, { complete: true, basis: 'local endpoint' });
       this.modelHealthStatus = 'FALLBACK READY';
       this.activeProvider = 'ollama';
       this.emit('model:health', 'FALLBACK READY');
@@ -701,8 +782,33 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.conversation.clear();
   }
 
+  /** The REPL's /new: a new conversation a person chose (kept as the project's newest until written; see ConversationManager). */
   startSession(): string {
-    return this.conversation.startNew();
+    return this.conversation.startNew({ chosen: true });
+  }
+
+  /**
+   * R4 lead: the conversation this agent keeps (its folder, the one it holds, the ones on disk, and loading one), for the
+   * project's one conversation across surfaces (src/agent/chat-turn.ts continueConversation). Reading and loading only.
+   */
+  keptConversation(): Pick<ConversationManager, 'directory' | 'current' | 'chosen' | 'listSessions' | 'load' | 'getHistory'> {
+    return this.conversation;
+  }
+
+  /**
+   * R1 workspace direction: keep the conversation in another folder (the active project's .sessions), so
+   * each project carries its own context. Its latest conversation is resumed, else a new one starts.
+   */
+  useSessions(dir: string): { resumed: boolean; messages: number } {
+    this.conversation = new ConversationManager(dir);
+    const sessions = this.conversation.listSessions();
+    if (sessions.length > 0) {
+      try {
+        return { resumed: true, messages: this.conversation.load(sessions[0]).length };
+      } catch { /* an unreadable file: a new conversation instead */ }
+    }
+    this.conversation.startNew();
+    return { resumed: false, messages: 0 };
   }
 
   isRunning(): boolean {
@@ -711,7 +817,16 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   async send(content: string, opts: SendOptions = {}): Promise<string> {
     if (this.running) throw new Error('Agent is already processing a message');
+    // R4 (H103, D1): off the local route with no model key, nothing is sent: refused before the conversation takes the
+    // message and before any request (never OpenRouter with an empty key, never the last-resort fallback). Every surface's
+    // own check comes first (the REPL's, the chat session's); this one holds for any caller that has none.
+    if (!this.localChat && !this.config.apiKey) {
+      const refused = new NoModelKeyError();
+      this.emit('error', refused);
+      throw refused;
+    }
     this.running = true;
+    this.lastResort = null;
     // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
     const requestOptions = opts.signal || opts.retry
       ? {
@@ -760,6 +875,33 @@ export class Agent extends EventEmitter<AgentEvents> {
         role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
       }));
+
+      // R4 (H103): the local route: the Ollama the setup recorded answers (src/agent/local-chat.ts), with the same tools and
+      // gates; never OpenRouter, never another model. A cancel leaves the same record as below (its calls and text).
+      if (this.localChat) {
+        this.lastLocal = null;
+        const local = await runLocalTurn({
+          route: this.localChat, instructions: this.config.instructions, history, tools: this.tools,
+          maxSteps: this.config.maxSteps || 10, signal: opts.signal, ...(this.localChat.numCtx ? { numCtx: this.localChat.numCtx } : {}),
+          hooks: {
+            emit: (event, ...args) => void (this.emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
+            call: (id, name, args) => void calls.set(id, { name, args }),
+            output: (id, name, output, late) => {
+              const seen = calls.get(id);
+              if (seen) Object.assign(seen, { output, late });
+              else calls.set(id, { name, args: '', output, late });
+            },
+            text: (full) => { streamed = full; },
+          },
+        });
+        this.lastLocal = local;
+        this.activeProvider = 'ollama';
+        this.emit('stream:end', local.fullText);
+        const answer: Message = { role: 'assistant', content: local.fullText, timestamp: Date.now() };
+        this.conversation.appendMessage(answer);
+        this.emit('message:assistant', answer);
+        return local.fullText;
+      }
 
       const runCompletionWithModel = async (modelId: string, isFallback = false) => {
         const result = this.client.callModel({
@@ -952,14 +1094,10 @@ export class Agent extends EventEmitter<AgentEvents> {
             this.emit('model:switch', fallbackModel);
           } catch (fallbackErr: any) {
             if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
-            const ollamaResult = await this.tryOllamaLastResort(history, `${sanitizedErr} / ${fallbackErr.message}`);
+            // R4 (H103, D1c): the notice is the fallback's own, said before its answer (tryOllamaLastResort)
+            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`);
             if (ollamaResult) {
               executionResult = ollamaResult;
-              this.emit('message:user', {
-                role: 'assistant',
-                content: `⚙️ **[SYSTEM]** OpenRouter unreachable. Answered via local Ollama (\`${ollamaResult.actualModel}\`).`,
-                timestamp: Date.now()
-              });
             } else {
               const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.\n\nFallback failed for ${fallbackModel} too: ${fallbackErr.message}`;
               const error = new Error(finalErr);
@@ -968,14 +1106,9 @@ export class Agent extends EventEmitter<AgentEvents> {
             }
           }
         } else {
-          const ollamaResult = await this.tryOllamaLastResort(history, sanitizedErr);
+          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`);
           if (ollamaResult) {
             executionResult = ollamaResult;
-            this.emit('message:user', {
-              role: 'assistant',
-              content: `⚙️ **[SYSTEM]** OpenRouter unreachable. Answered via local Ollama (\`${ollamaResult.actualModel}\`).`,
-              timestamp: Date.now()
-            });
           } else {
             const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.`;
             const error = new Error(finalErr);

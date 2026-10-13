@@ -1,0 +1,8 @@
+{
+  "level": "/Game/Timmy/TimmyGrid",
+  "count": 9,
+  "columns": 3,
+  "spacing_cm": 150,
+  "size_cm": 100,
+  "mesh": "/Engine/BasicShapes/Cube.Cube"
+}

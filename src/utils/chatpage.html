@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta charset="utf-8"><title>TIMMY /chat</title>
-<style>
+<style nonce="__TIMMY_NONCE__">
 body{margin:0;background:#000000;color:#FFFFFF;font:14px/1.5 ui-monospace,Menlo,monospace;display:flex;flex-direction:column;height:100vh}
 header{padding:6px 12px;color:#8A8A8A;border-bottom:1px solid #3A3A3A}
 header b{color:#FFFFFF}
@@ -14,47 +14,17 @@ main{display:flex;flex:1;min-height:0}
 .assistant h1,.assistant h2,.assistant h3{color:#FFFFFF}
 .sealed{color:#8A8A8A}.sealed b{color:#33FF66;font-weight:600}
 .drop{margin-bottom:8px}.drop .s{color:#8A8A8A}.drop .h{color:#33FF66}.drop .m{color:#8A8A8A}
-#empty{color:#8A8A8A;font-weight:400}
+#empty,.absent{color:#8A8A8A;font-weight:400}
+header a{color:#FFFFFF}
+#timmy-token-note{margin:8px 12px;padding:8px 12px;border:1px solid #FFFFFF;border-radius:6px;color:#FFFFFF}
 </style></head><body>
-<header><b>PROMPT</b> ─ PLAN ─ LANES ─ RECEIPTS ─ PROOF · mirror of the TUI counterflow chat · full inspection at /</header>
+<header><b>PROMPT</b> ─ PLAN ─ LANES ─ RECEIPTS ─ PROOF · mirror of the TUI counterflow chat · full inspection at <a data-timmy-page="/">/</a></header>
+<p id="timmy-token-note" role="alert" hidden></p>
 <main><div id="left"><h1 id="empty">no conversation yet — type a mission in the TUI</h1></div><div id="right"></div></main>
-<script type="module">
-import React from 'https://esm.sh/react@18.3.1';
-import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
-import { Streamdown } from 'https://esm.sh/streamdown?deps=react@18.3.1';
-var h = React.createElement;
-var left = document.getElementById('left');
-var right = document.getElementById('right');
-function Left(props) {
-  var turns = props.turns;
-  if (!turns.length) return h('h1', { id: 'empty' }, 'no conversation yet — type a mission in the TUI');
-  return h('div', null, turns.map(function (t, i) {
-    if (t.role === 'user') return h('div', { className: 'user', key: i }, t.content);
-    return h('div', { className: 'assistant', key: i },
-      h(Streamdown, { mode: 'static' }, t.content),
-      t.seal ? h('div', { className: 'sealed' }, '● sealed ', h('b', null, t.seal)) : null);
-  }));
-}
-var root = createRoot(left);
-var turns = [];
-var drops = [];
-function drawLeft() { root.render(h(Left, { turns: turns })); }
-function drawRight() {
-  right.innerHTML = '';
-  drops.slice(-9).forEach(function (d) {
-    var e = document.createElement('div');
-    e.className = 'drop';
-    var s = document.createElement('div'); s.className = 's'; s.textContent = d.subject;
-    var hh = document.createElement('div'); hh.className = 'h'; hh.textContent = d.hash;
-    var m = document.createElement('div'); m.className = 'm'; m.textContent = '· ' + d.kind + ' · ' + d.ts;
-    e.appendChild(s); e.appendChild(hh); e.appendChild(m);
-    right.appendChild(e);
-  });
-}
-var es = new EventSource('/chat/events');
-es.onmessage = function (ev) {
-  var o = JSON.parse(ev.data);
-  if (o.t === 'turns') { turns = o.turns; drawLeft(); }
-  else if (o.t === 'receipt') { drops.push(o); drawRight(); }
-};
-</script></body></html>
+<!-- R4 (H84): the page's token (from its fragment, kept in memory) and its requests with it: its own token script.
+     R4 (H95): served by the log companion (/chat/page.js) and the Streamdown island from the companion's own build
+     (/web/island/logs-chat.js: React and Streamdown 2.5.0, bundled on this computer); they were inline and from a public CDN. The
+     page runs under script-src 'self'; its style block carries the answer's nonce. -->
+<script src="/chat/page.js"></script>
+<script type="module" src="/web/island/logs-chat.js"></script>
+</body></html>

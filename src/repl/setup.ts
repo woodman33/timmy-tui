@@ -13,8 +13,13 @@ export interface SetupFacts {
   operator: string | null;
   /** A model key is set. */
   key: boolean;
+  /**
+   * R4 (H103): the chat's local route in words ("local qwen3:8b · Ollama"), when the setup chose the local model: that chat
+   * needs no key, so the check names the route instead of a missing key; `ready` false: no model chosen yet (a gap of its own).
+   */
+  local?: { words: string; ready: boolean };
   /** Timmy's palette in use (TIMMY_PALETTE or measured), or null when it is not or is unknown. */
-  palette: 'night' | 'day' | null;
+  palette: 'homebrew' | 'night' | 'day' | null;
   /** Where the theme files are; the palette offer points there. */
   themes: string;
 }
@@ -26,7 +31,7 @@ export interface SetupResult {
 
 type Verify = (stream: string, dir?: string) => Pick<VerifyResult, 'ok' | 'count' | 'reason'>;
 
-const PALETTES = { night: 'Timmy Night', day: 'Timmy Day' } as const;
+const PALETTES = { homebrew: 'Timmy Homebrew', night: 'Timmy Night', day: 'Timmy Day' } as const;
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify: Verify = verifyChain): SetupResult {
@@ -39,7 +44,9 @@ export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify:
   const dot = ` ${g.sep} `; // the middle dot, or its ASCII stand-in
   const lines: Segment[][] = [[{ text: '  SETUP CHECK', role: 'strong' }]];
   lines.push(facts.operator ? ok('identity', facts.operator) : lack('identity', `none yet${dot}run timmy init`));
-  lines.push(facts.key ? ok('model key', 'set') : lack('model key', `none${dot}timmy init or OPENROUTER_API_KEY`));
+  lines.push(facts.local
+    ? (facts.local.ready ? ok('chat', `${facts.local.words} (no key needed)`) : lack('chat', facts.local.words))
+    : facts.key ? ok('model key', 'set') : lack('model key', `none${dot}/setup key or OPENROUTER_API_KEY`));
   const before = verify('runs', dir);
   lines.push(
     !before.ok ? lack('receipts', `chain broken${dot}/receipts says where`)
@@ -49,7 +56,7 @@ export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify:
   if (facts.palette) lines.push(ok('palette', PALETTES[facts.palette]));
   else {
     missing.push('palette');
-    lines.push([{ text: '  ' }, { text: `${g.warn} ${'palette'.padEnd(10)}`, role: 'estimate' }, { text: ' not Timmy Night or Day' }]);
+    lines.push([{ text: '  ' }, { text: `${g.warn} ${'palette'.padEnd(10)}`, role: 'estimate' }, { text: ' not Timmy Homebrew, Night or Day' }]);
     lines.push([{ text: `    ${'install'.padEnd(9)}`, role: 'secondary' }, { text: 'timmy theme install', role: 'strong' }]);
   }
   const subject = `setup · ${missing.length ? `missing ${missing.join(', ')}` : 'ready'}`;

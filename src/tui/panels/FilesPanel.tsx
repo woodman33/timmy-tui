@@ -5,7 +5,7 @@ import { theme } from '../theme.js';
 import { Card, SectionRule, BudgetList, KeyHint } from '../ui/index.js';
 import { existsSync, readdirSync, statSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, basename, relative } from 'path';
-import { exec } from 'child_process';
+import { copyToClipboard, openExternal } from '../../utils/external-open.js';
 
 interface FilesPanelProps {
   agent: any;
@@ -387,13 +387,13 @@ export function FilesPanel({ agent, setInspector, focusArea = 'stage' }: FilesPa
         } else if (act === 'Open File' || act === 'Open README') {
           const fileToOpen = isMcpCli ? join(selectedFile?.path, 'README.md') : selectedFile?.path;
           setOutputLog(`✓ Opening README/file in basic text editor...`);
-          exec(`open -t "${fileToOpen}"`, {}, () => {});
+          if (fileToOpen) openExternal(fileToOpen, { textEditor: true }); // R4 lead: as an argument, never a shell string
         } else if (act === 'Copy Path') {
-          exec(`echo "${selectedFile?.path}" | pbcopy`, {}, () => {});
+          if (selectedFile?.path) copyToClipboard(selectedFile.path);
           setOutputLog(`✓ Copied absolute path: ${selectedFile?.path}`);
         } else if (act === 'Open Folder') {
           setOutputLog(`✓ Opening folder: ${selectedFile?.path}`);
-          exec(`open "${selectedFile?.path}"`, {}, () => {});
+          if (selectedFile?.path) openExternal(selectedFile.path);
         } else if (act === 'Inspect Metadata') {
           setOutputLog(`✓ Verified secure. Integrity check sha256_e288 passes.`);
         }

@@ -21,7 +21,7 @@ describe('a signal mid-turn leaves the shell on a clean line', { timeout: 60_000
       const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'sig', ...args], { env, encoding: 'utf8' });
       try {
         tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '24', '-c', dir, 'bash', '--norc', '-c',
-          `S0=$(stty -g); ${process.execPath} --import ${LOADER} ${BIN} repl --demo-loader; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
+          `S0=$(stty -g); ${process.execPath} --import ${LOADER} ${BIN} repl --demo-loader; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same || echo TTY=changed; sleep 60`);
         const screen = () => tmux('capture-pane', '-p', '-t', 't');
         const waitFor = async (re: RegExp) => {
           for (let i = 0; i < 400; i++) { if (re.test(screen())) return; await sleep(50); }
@@ -32,7 +32,9 @@ describe('a signal mid-turn leaves the shell on a clean line', { timeout: 60_000
         const shell = tmux('display', '-p', '-t', 't', '#{pane_pid}').trim();
         const bin = Number(execFileSync('pgrep', ['-P', shell], { encoding: 'utf8' }).trim().split('\n')[0]);
         process.kill(bin, sig);
-        await waitFor(/EXIT=\d+/);
+        // R4 lead (suite 33): the shell prints its TTY line after `stty -g` runs, a moment after EXIT; under a loaded suite the
+        // screen was read in between (EXIT=129 shown, no TTY line yet). The TTY line, same or changed, is waited for.
+        await waitFor(/EXIT=\d+[\s\S]*TTY=(same|changed)/);
         const shown = screen();
         expect(shown).toMatch(new RegExp(`^EXIT=${status}$`, 'm'));
         expect(shown).not.toMatch(/Working.*EXIT=/);

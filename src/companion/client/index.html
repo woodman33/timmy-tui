@@ -3,686 +3,263 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="x-dns-prefetch-control" content="off">
   <title>TIMMY Browser Companion</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Inter:wght@300;400;600;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-  <!-- Tailwind Play CDN: runtime-compiles the Tailwind utility classes emitted by
-       Streamdown's components (no build step on this page). Preflight is disabled
-       so the runtime CSS reset never touches the existing companion styles. -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    if (window.tailwind) {
-      tailwind.config = {
-        darkMode: 'class',
-        corePlugins: { preflight: false }
-      };
-    }
-  </script>
-  <style>
-    :root {
-      --primary-h: 38;    /* Amber */
-      --secondary-h: 234; /* Indigo/Purple */
-      --success-h: 122;   /* Emerald */
-
-      --primary-hsl: hsl(var(--primary-h), 80%, 60%);
-      --secondary-hsl: hsl(var(--secondary-h), 80%, 60%);
-      --success-hsl: hsl(var(--success-h), 80%, 60%);
-
-      --primary-glow: hsla(var(--primary-h), 80%, 60%, 0.15);
-      --secondary-glow: hsla(var(--secondary-h), 80%, 60%, 0.15);
-      --success-glow: hsla(var(--success-h), 80%, 60%, 0.15);
-
-      --bg-base: #07090e;
-      --bg-card: rgba(13, 17, 23, 0.75);
-      --border-color: #21262d;
-      --text-main: #e6edf3;
-      --text-muted: #8b949e;
-      --font-outfit: 'Outfit', sans-serif;
-      --font-inter: 'Inter', sans-serif;
-      --font-fira: 'Fira Code', monospace;
-    }
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    html, body { 
-      height: 100%; 
-      background: var(--bg-base); 
-      color: var(--text-main); 
-      font-family: var(--font-inter);
-      overflow: hidden;
-      transition: background 0.5s ease;
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding: 24px;
-      position: relative;
-    }
-
-    body::before {
-      content: '';
-      position: absolute;
-      top: -10%;
-      left: -10%;
-      width: 40%;
-      height: 40%;
-      background: radial-gradient(circle, var(--secondary-glow) 0%, transparent 70%);
-      filter: blur(80px);
-      z-index: 0;
-      pointer-events: none;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-      flex-shrink: 0;
-      z-index: 10;
-    }
-
-    h1 {
-      font-family: var(--font-outfit);
-      font-weight: 800;
-      font-size: 24px;
-      letter-spacing: -0.03em;
-      background: linear-gradient(135deg, var(--text-main), var(--secondary-hsl));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    #status {
-      font-family: var(--font-fira);
-      font-size: 11px;
-      color: var(--text-muted);
-      border: 1px solid var(--border-color);
-      padding: 6px 14px;
-      border-radius: 20px;
-      background: rgba(22, 27, 34, 0.6);
-      backdrop-filter: blur(12px);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--text-muted);
-      display: inline-block;
-    }
-
-    .main-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 20px;
-      flex-grow: 1;
-      height: calc(100vh - 130px);
-      min-height: 0;
-      z-index: 10;
-    }
-
-    .right-col {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      min-height: 0;
-    }
-
-    .glass-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      position: relative;
-      transition: border-color 0.3s ease, box-shadow 0.3s ease;
-      backdrop-filter: blur(12px);
-    }
-
-    .card-header {
-      padding: 16px 20px;
-      background: rgba(22, 27, 34, 0.8);
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-shrink: 0;
-    }
-
-    .card-title {
-      font-family: var(--font-outfit);
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .tab-bar {
-      display: flex; 
-      gap: 12px; 
-      margin-bottom: 12px; 
-      flex-shrink: 0; 
-      background: rgba(22, 27, 34, 0.6); 
-      padding: 6px; 
-      border-radius: 12px; 
-      border: 1px solid var(--border-color);
-    }
-
-    .tab-btn {
-      flex-grow: 1;
-      background: rgba(22, 27, 34, 0.4);
-      border: 1px solid var(--border-color);
-      color: var(--text-muted);
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-family: var(--font-outfit);
-      font-weight: 800;
-      font-size: 12px;
-      letter-spacing: 0.05em;
-      cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-    
-    .tab-btn:hover {
-      background: rgba(255, 255, 255, 0.05);
-      border-color: #30363d;
-      color: var(--text-main);
-    }
-
-    .tab-btn.active {
-      color: var(--text-main) !important;
-      background: var(--secondary-hsl) !important;
-      border-color: var(--secondary-hsl) !important;
-      box-shadow: 0 0 20px hsla(var(--secondary-h), 80%, 60%, 0.35);
-    }
-
-    .tab-panel {
-      display: none;
-      height: 100%;
-      width: 100%;
-      min-height: 0;
-    }
-
-    .tab-panel.active {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      flex-grow: 1;
-    }
-
-    #tab-chat.active {
-      display: flex;
-      flex-direction: row;
-      gap: 20px;
-    }
-
-    #console-logs,
-    #logs-list,
-    #saved-chats-list {
-      flex-grow: 1;
-      padding: 20px;
-      overflow-y: auto;
-      font-family: var(--font-fira);
-      font-size: 13px;
-      line-height: 1.6;
-      background: #06090e;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    /* Style scrollbars universally */
-    #console-logs::-webkit-scrollbar,
-    #logs-list::-webkit-scrollbar,
-    #saved-chats-list::-webkit-scrollbar,
-    #workspace-card::-webkit-scrollbar,
-    #proof-card::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    #console-logs::-webkit-scrollbar-track,
-    #logs-list::-webkit-scrollbar-track,
-    #saved-chats-list::-webkit-scrollbar-track,
-    #workspace-card::-webkit-scrollbar-track,
-    #proof-card::-webkit-scrollbar-track {
-      background: rgba(13, 17, 23, 0.4);
-    }
-    #console-logs::-webkit-scrollbar-thumb,
-    #logs-list::-webkit-scrollbar-thumb,
-    #saved-chats-list::-webkit-scrollbar-thumb,
-    #workspace-card::-webkit-scrollbar-thumb,
-    #proof-card::-webkit-scrollbar-thumb {
-      background: #30363d;
-      border-radius: 3px;
-    }
-    #console-logs::-webkit-scrollbar-thumb:hover,
-    #logs-list::-webkit-scrollbar-thumb:hover,
-    #saved-chats-list::-webkit-scrollbar-thumb:hover,
-    #workspace-card::-webkit-scrollbar-thumb:hover,
-    #proof-card::-webkit-scrollbar-thumb:hover {
-      background: var(--secondary-hsl);
-    }
-
-    .log-msg {
-      border-left: 3px solid var(--border-color);
-      padding-left: 12px;
-      animation: fadeIn 0.2s ease;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(2px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .log-msg.user { border-color: var(--primary-hsl); }
-    .log-msg.assistant { border-color: var(--secondary-hsl); }
-    .log-msg.system { border-color: var(--success-hsl); background: rgba(63, 185, 80, 0.02); padding: 8px 12px; border-radius: 0 8px 8px 0; }
-
-    .log-header {
-      font-weight: 700;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 2px;
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .log-header.user { color: var(--primary-hsl); }
-    .log-header.assistant { color: var(--secondary-hsl); }
-    .log-header.system { color: var(--success-hsl); }
-
-    .log-time {
-      font-weight: 400;
-      color: #484f58;
-      font-size: 10px;
-    }
-
-    .log-content {
-      color: var(--text-main);
-      white-space: pre-wrap;
-    }
-
-    .code-box {
-      background: #0f141c;
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 12px;
-      font-family: var(--font-fira);
-      font-size: 12px;
-      margin-top: 8px;
-      color: var(--success-hsl);
-      overflow-x: auto;
-    }
-
-    .badge-planned {
-      background: rgba(110, 118, 129, 0.15);
-      border: 1px solid #30363d;
-      color: var(--text-muted);
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 10px;
-      letter-spacing: 0.05em;
-    }
-
-    .btn-action {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-    .btn-action:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: var(--secondary-hsl);
-      box-shadow: 0 0 10px rgba(94, 106, 210, 0.2);
-    }
-    .btn-action.success {
-      color: var(--success-hsl);
-      border-color: rgba(63, 185, 80, 0.3);
-    }
-    .btn-action.success:hover {
-      background: rgba(63, 185, 80, 0.1);
-      border-color: var(--success-hsl);
-      box-shadow: 0 0 10px rgba(63, 185, 80, 0.2);
-    }
-    .btn-action.danger {
-      color: #ff7b72;
-      border-color: rgba(248, 81, 73, 0.3);
-    }
-    .btn-action.danger:hover {
-      background: rgba(248, 81, 73, 0.1);
-      border-color: #f85149;
-      box-shadow: 0 0 10px rgba(248, 81, 73, 0.2);
-    }
-
-    /* ---------- ⚡ Streamdown Chat (TMX P3) ---------- */
-
-    #streamdown-root {
-      flex-grow: 1;
-      min-height: 0;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      background: #06090e;
-
-      /* shadcn/ui tokens consumed by Streamdown internals (dark theme) */
-      --background: 222 47% 4%;
-      --foreground: 213 31% 91%;
-      --card: 222 47% 6%;
-      --card-foreground: 213 31% 91%;
-      --popover: 222 47% 6%;
-      --popover-foreground: 213 31% 91%;
-      --primary: 253 100% 77%;
-      --primary-foreground: 240 10% 4%;
-      --secondary: 217 33% 17%;
-      --secondary-foreground: 210 40% 98%;
-      --muted: 217 33% 17%;
-      --muted-foreground: 215 20% 65%;
-      --accent: 253 40% 20%;
-      --accent-foreground: 253 100% 85%;
-      --destructive: 0 63% 45%;
-      --destructive-foreground: 210 40% 98%;
-      --border: 215 14% 22%;
-      --input: 215 14% 22%;
-      --ring: 253 100% 77%;
-      --radius: 0.6rem;
-    }
-
-    #streamdown-root::-webkit-scrollbar,
-    #streamdown-root *::-webkit-scrollbar { width: 6px; height: 6px; }
-    #streamdown-root::-webkit-scrollbar-track,
-    #streamdown-root *::-webkit-scrollbar-track { background: rgba(13, 17, 23, 0.4); }
-    #streamdown-root::-webkit-scrollbar-thumb,
-    #streamdown-root *::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
-    #streamdown-root::-webkit-scrollbar-thumb:hover,
-    #streamdown-root *::-webkit-scrollbar-thumb:hover { background: #a98bff; }
-
-    /* Markdown fallback styling — guarantees a dark, on-brand look even where
-       Streamdown's Tailwind utilities have not been compiled yet. Elements are
-       targeted through Streamdown's stable data attributes. */
-    .sd-island { color: var(--text-main); font-size: 14px; line-height: 1.65; font-family: var(--font-inter); min-width: 0; }
-    .sd-island [data-streamdown="heading-1"] { font-family: var(--font-outfit); font-size: 22px; font-weight: 800; margin: 16px 0 8px; color: #ffffff; letter-spacing: -0.01em; }
-    .sd-island [data-streamdown="heading-2"] { font-family: var(--font-outfit); font-size: 18px; font-weight: 800; margin: 14px 0 6px; color: #a98bff; }
-    .sd-island [data-streamdown="heading-3"] { font-family: var(--font-outfit); font-size: 15px; font-weight: 700; margin: 12px 0 6px; color: var(--text-main); }
-    .sd-island [data-streamdown="heading-4"],
-    .sd-island [data-streamdown="heading-5"],
-    .sd-island [data-streamdown="heading-6"] { font-family: var(--font-outfit); font-size: 13px; font-weight: 700; margin: 10px 0 4px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    .sd-island p { margin: 6px 0; }
-    .sd-island [data-streamdown="strong"] { color: #ffffff; font-weight: 700; }
-    .sd-island [data-streamdown="unordered-list"],
-    .sd-island [data-streamdown="ordered-list"] { margin: 6px 0 6px 22px; display: flex; flex-direction: column; gap: 3px; }
-    .sd-island [data-streamdown="inline-code"] { font-family: var(--font-fira); font-size: 12px; background: #161b22; border: 1px solid #30363d; color: #a98bff; padding: 1px 6px; border-radius: 5px; }
-    .sd-island [data-streamdown="code-block"] { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; margin: 10px 0; overflow-x: auto; font-family: var(--font-fira); font-size: 12px; }
-    .sd-island [data-streamdown="code-block"] pre { margin: 0; padding: 12px; overflow-x: auto; background: transparent !important; }
-    .sd-island .shiki { background: transparent !important; margin: 0 !important; }
-    .sd-island [data-streamdown="mermaid-block"] { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 12px; margin: 10px 0; overflow-x: auto; }
-    .sd-island [data-streamdown="blockquote"] { border-left: 3px solid #a98bff; padding: 4px 12px; color: var(--text-muted); margin: 8px 0; background: rgba(169, 139, 255, 0.05); border-radius: 0 8px 8px 0; }
-    .sd-island [data-streamdown="table-wrapper"] { overflow-x: auto; margin: 10px 0; border: 1px solid #30363d; border-radius: 8px; }
-    .sd-island [data-streamdown="table"] { border-collapse: collapse; font-size: 12px; width: 100%; }
-    .sd-island [data-streamdown="table-header-cell"] { background: rgba(169, 139, 255, 0.08); font-weight: 700; }
-    .sd-island [data-streamdown="table-header-cell"],
-    .sd-island [data-streamdown="table-cell"] { border: 1px solid #30363d; padding: 6px 10px; }
-    .sd-island [data-streamdown="link"] { color: #79c0ff; text-decoration: none; }
-    .sd-island [data-streamdown="link"]:hover { text-decoration: underline; }
-    .sd-island [data-streamdown="horizontal-rule"] { border: none; border-top: 1px solid #30363d; margin: 14px 0; }
-  </style>
+  <!-- R4 (H92, H95): everything this page uses is served by the companion on this computer (src/companion/page.ts): its own
+       style sheet with its own design (as it was at b69ab12) and its three fonts; Streamdown's style sheet and the Tailwind
+       classes it emits, precompiled; its scripts below. No inline script, style or handler (the page's
+       Content-Security-Policy allows none), and nothing from any other site. In b69ab12's order: the Tailwind classes first
+       (its Play CDN script stood before the page's style block), the page's own sheet, then Streamdown's (linked last). -->
+  <!-- R4 (H104, r25's D11): the page's icon, the companion's own (with none declared the browser asked for /favicon.ico: a 404) -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/web/styles/tailwind.css">
+  <link rel="stylesheet" href="/companion.css">
+  <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body>
   <header>
     <h1>🛡️ TIMMY OS Companion</h1>
-    <div style="display: flex; align-items: center; gap: 16px;">
+    <div class="header-right">
+      <!-- R4 (H104, second part): the project this page shows (the active one, followed; or pinned on this page; or fixed by
+           TIMMY_REPO), as the companion says it; its Pin keeps this page on it. The script fills it when the companion answers. -->
+      <div id="project" class="project-bar" data-mode="unknown" role="status" aria-live="polite">
+        <span class="project-label">PROJECT</span>
+        <strong id="project-name">not known yet</strong>
+        <span id="project-pin-mark" class="project-pin" hidden>📌 PINNED</span>
+        <span id="project-mode" class="project-mode">asking the companion</span>
+        <button type="button" id="project-pin" class="btn-action tiny project-pin-btn" data-action="pin-project" disabled>📌 Pin: keep this page on this project</button>
+      </div>
       <div id="status" role="status" aria-live="polite">
-        <span class="status-dot"></span>
+        <span class="status-dot" data-state="connecting"></span>
         <span id="status-text">COMPANION SOCKET · CONNECTING</span>
       </div>
     </div>
   </header>
 
-  <div class="explainer-bar" style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; z-index: 10;">
+  <!-- R4 (H84): shown when the page has no token, or its token is not this companion's: what to do, in words. -->
+  <div id="token-note" class="token-note" role="alert" hidden></div>
+
+  <div class="explainer-bar">
+    <!-- R4 (H104, second part): which folder this page reads (the shown project's event bus and receipts) -->
+    <span id="project-folder" class="project-folder">Project folder: not known yet (the companion says which when it answers).</span>
     TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
   </div>
 
   <div class="main-grid">
     <div class="right-col">
-      <!-- Tab Deck Navigation -->
-      <div class="tab-bar">
-        <button class="tab-btn active" id="btn-chat" onclick="switchTab('chat')">💬 CHAT MIRROR</button>
-        <button class="tab-btn" id="btn-workspace" onclick="switchTab('workspace')">⚡ WORKSPACE</button>
-        <button class="tab-btn" id="btn-logs" onclick="switchTab('logs')">📊 LOGS</button>
-        <button class="tab-btn" id="btn-proof" onclick="switchTab('proof')">🧾 PROOF</button>
-        <button class="tab-btn" id="btn-streamdown" onclick="switchTab('streamdown')">⚡ STREAMDOWN CHAT</button>
-        <button class="tab-btn" id="btn-canvas" onclick="switchTab('canvas')">🎨 CANVAS</button>
-        <button class="tab-btn" id="btn-slate3d" onclick="switchTab('slate3d')">◈ SLATE 3D</button>
+      <!-- Tab Deck Navigation (wired by the page's script: data-tab) -->
+      <div class="tab-bar" role="tablist" aria-label="Companion views">
+        <button type="button" class="tab-btn active" id="btn-chat" data-tab="chat" role="tab" aria-selected="true" aria-controls="tab-chat">💬 CHAT MIRROR</button>
+        <button type="button" class="tab-btn" id="btn-workspace" data-tab="workspace" role="tab" aria-selected="false" aria-controls="tab-workspace">⚡ WORKSPACE</button>
+        <button type="button" class="tab-btn" id="btn-logs" data-tab="logs" role="tab" aria-selected="false" aria-controls="tab-logs">📊 LOGS</button>
+        <button type="button" class="tab-btn" id="btn-proof" data-tab="proof" role="tab" aria-selected="false" aria-controls="tab-proof">🧾 PROOF</button>
+        <button type="button" class="tab-btn" id="btn-streamdown" data-tab="streamdown" role="tab" aria-selected="false" aria-controls="tab-streamdown">⚡ STREAMDOWN CHAT</button>
+        <button type="button" class="tab-btn" id="btn-canvas" data-tab="canvas" role="tab" aria-selected="false" aria-controls="tab-canvas">🎨 CANVAS</button>
+        <button type="button" class="tab-btn" id="btn-slate3d" data-tab="slate3d" role="tab" aria-selected="false" aria-controls="tab-slate3d">◈ SLATE 3D</button>
+        <button type="button" class="tab-btn" id="btn-run" data-tab="run" role="tab" aria-selected="false" aria-controls="tab-run">🧭 RUN DETAIL</button>
       </div>
 
       <!-- Tab Panel 1: Chat Mirror -->
-      <div id="tab-chat" class="tab-panel active">
-        
+      <div id="tab-chat" class="tab-panel active" role="tabpanel" aria-labelledby="btn-chat">
+
         <!-- Left Side: Chat Card -->
-        <div id="console-card" class="glass-card" style="flex: 2; flex-basis: 0; min-width: 0; height: 100%;">
-          <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <div class="card-title" style="color: var(--secondary-hsl)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-hsl)" stroke-width="2.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <div id="console-card" class="glass-card">
+          <div class="card-header wrap">
+            <div class="row-10">
+              <div class="card-title c-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-hsl)" stroke-width="2.5" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                 Chat Mirror
               </div>
-              <span id="mirror-status" style="font-family: var(--font-fira); font-size: 10px; font-weight: bold; padding: 2px 8px; border-radius: 8px; transition: all 0.2s ease;">Local chat mirror: WAITING</span>
+              <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
             </div>
 
             <!-- Chat controls bar -->
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn-action success" onclick="saveCurrentChat()">💾 Save Chat</button>
-              <button class="btn-action" onclick="downloadCurrentChat()">📥 Download</button>
-              <button class="btn-action danger" onclick="deleteCurrentChat()">🗑️ Delete Local</button>
-              <span class="badge-planned" style="border-color: rgba(255,255,255,0.1); color: var(--text-muted);">Cloudflare Backup: PLANNED</span>
+            <div class="row-8">
+              <button type="button" class="btn-action success" data-action="save-chat">💾 Save Chat</button>
+              <button type="button" class="btn-action" data-action="download-chat">📥 Download</button>
+              <button type="button" class="btn-action danger" data-action="delete-chat">🗑️ Delete Local</button>
+              <span class="badge-planned soft">Cloudflare Backup: PLANNED</span>
             </div>
           </div>
 
           <!-- Bounded scroll container -->
           <div id="console-logs">
-            <div style="color: var(--text-muted); font-family: var(--font-fira); text-align: center; margin-top: 40px; font-size: 13px;">
-              Waiting for session chat streams...
-            </div>
+            <div class="mirror-empty">Waiting for session chat streams...</div>
           </div>
         </div>
 
         <!-- Right Side: Saved Sessions Drawer -->
-        <div id="saved-chats-card" class="glass-card" style="width: 320px; flex-shrink: 0; height: 100%; display: flex; flex-direction: column;">
+        <div id="saved-chats-card" class="glass-card">
           <div class="card-header">
-            <div class="card-title" style="color: var(--primary-hsl)">
+            <div class="card-title c-primary">
               📂 Saved Sessions
             </div>
           </div>
-          
+
           <div id="saved-chats-list">
-            <div style="color: var(--text-muted); text-align: center; font-size: 12px; margin-top: 20px; font-style: italic;">
-              Saved chats will appear here after you press Save Chat.
-            </div>
+            <div class="saved-empty">Saved chats will appear here after you press Save Chat.</div>
           </div>
         </div>
 
       </div>
 
-      <!-- Tab Panel 2: Workspace -->
-      <div id="tab-workspace" class="tab-panel">
-        <div id="workspace-card" class="glass-card" style="flex-grow: 1; padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-family: var(--font-outfit); font-size: 16px; font-weight: 800; color: var(--secondary-hsl); text-transform: uppercase; letter-spacing: 0.05em;">📟 TIMMY Workspace</h3>
-            <span class="status-badge running" style="background: rgba(63, 185, 80, 0.1); color: var(--success-hsl); border: 1px solid rgba(63, 185, 80, 0.2); padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: bold;">READY</span>
+      <!-- Tab Panel 2: Workspace (where work happens; this page checks none of it) -->
+      <div id="tab-workspace" class="tab-panel" role="tabpanel" aria-labelledby="btn-workspace">
+        <div id="workspace-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-secondary">📟 TIMMY Workspace</h3>
+            <span class="status-badge unchecked">NOT CHECKED FROM THIS PAGE</span>
           </div>
-          
-          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
-            Choose where work happens. Carbonyl renders a real browser in a terminal pane. Browser Companion mirrors TIMMY. tmux is fallback persistence.
+
+          <p class="ws-intro">
+            Choose where work happens. Carbonyl renders a real browser in a terminal pane. Browser Companion mirrors TIMMY. tmux is fallback persistence. This page checks none of them: each card says what it is and gives its command.
           </p>
 
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 8px;">
+          <div class="ws-grid">
             <!-- Card 1: Carbonyl In-Pane Browser -->
-            <div style="background: #06090e; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; transition: all 0.2s ease;">
+            <div class="ws-card">
               <div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <strong style="color: #a98bff; font-size: 14px; font-family: var(--font-outfit);">Carbonyl Browser</strong>
-                  <span style="font-size: 10px; font-weight: bold; color: var(--success-hsl);">[ READY ]</span>
+                <div class="row-between">
+                  <strong class="ws-name c-violet">Carbonyl Browser</strong>
+                  <span class="ws-state">[ NOT CHECKED HERE ]</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Purpose: In-pane Chromium browser lane</div>
-                <p style="font-size: 12px; color: var(--text-main); margin-top: 8px; line-height: 1.4;">Renders this companion UI (real Chromium: JS, WebGL, video) headlessly inside a multiplexer pane.</p>
+                <div class="ws-purpose">Purpose: In-pane Chromium browser lane</div>
+                <p class="ws-desc">Renders this companion UI (real Chromium: JS, WebGL, video) headlessly inside a multiplexer pane. The command opens this page's address without its token, so the page shows nothing until it has one: open the address with its token from <code>timmy watch</code> (q on HOME) instead.</p>
               </div>
-              <div style="margin-top: 12px;">
-                <button class="btn-action" style="width: 100%; justify-content: center; font-size: 11px; padding: 8px; border-color: #a98bff; color: #a98bff;" onclick="navigator.clipboard.writeText('carbonyl http://localhost:3001'); alert('Launch command copied! Run it in any tmux/rmux/zellij pane.')">Copy Launch Command</button>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide violet" data-copy-carbonyl>Copy Launch Command</button>
               </div>
             </div>
 
             <!-- Card 2: Browser Companion -->
-            <div style="background: #06090e; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; transition: all 0.2s ease;">
+            <div class="ws-card">
               <div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <strong style="color: var(--secondary-hsl); font-size: 14px; font-family: var(--font-outfit);">Browser Companion</strong>
-                  <span style="font-size: 10px; font-weight: bold; color: var(--success-hsl);">[ RUNNING ]</span>
+                <div class="row-between">
+                  <strong class="ws-name c-secondary">Browser Companion</strong>
+                  <span class="ws-state">[ THIS PAGE ]</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Purpose: Browser mirror</div>
-                <p style="font-size: 12px; color: var(--text-main); margin-top: 8px; line-height: 1.4;">Mirrors chat, logs, workspace status, and receipts.</p>
+                <div class="ws-purpose">Purpose: Browser mirror</div>
+                <p class="ws-desc">Mirrors chat, logs, workspace status, and receipts.</p>
               </div>
-              <div style="margin-top: 12px;">
-                <button class="btn-action" style="width: 100%; justify-content: center; font-size: 11px; padding: 8px; border-color: var(--secondary-hsl); color: var(--secondary-hsl);" disabled>Open Browser (Active)</button>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide secondary" disabled>Open Browser (Active)</button>
               </div>
             </div>
 
             <!-- Card 3: tmux Fallback -->
-            <div style="background: #06090e; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; transition: all 0.2s ease;">
+            <div class="ws-card">
               <div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <strong style="color: var(--primary-hsl); font-size: 14px; font-family: var(--font-outfit);">tmux Fallback</strong>
-                  <span style="font-size: 10px; font-weight: bold; color: var(--primary-hsl);">[ READY ]</span>
+                <div class="row-between">
+                  <strong class="ws-name c-primary">tmux Fallback</strong>
+                  <span class="ws-state">[ NOT CHECKED HERE ]</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Purpose: terminal persistence</div>
-                <p style="font-size: 12px; color: var(--text-main); margin-top: 8px; line-height: 1.4;">tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
+                <div class="ws-purpose">Purpose: terminal persistence</div>
+                <p class="ws-desc">tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
               </div>
-              <div style="margin-top: 12px;">
-                <button class="btn-action" style="width: 100%; justify-content: center; font-size: 11px; padding: 8px; border-color: var(--primary-hsl); color: var(--primary-hsl);" onclick="navigator.clipboard.writeText('tmux attach -t timmy-run'); alert('Attach command copied!')">Copy Attach Command</button>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide primary" data-copy="tmux attach -t timmy-run">Copy Attach Command</button>
               </div>
             </div>
           </div>
 
-          <div style="background: #06090e; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; font-family: var(--font-fira); font-size: 12px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
-            <div style="color: var(--primary-hsl); font-weight: bold;">📟 Fallback persistence attach specifications:</div>
+          <div class="ws-spec">
+            <div class="ws-spec-title">📟 Fallback persistence attach specifications:</div>
             <div>• To attach to the persistent fallback tmux session, run:</div>
-            <div style="background: #0f141c; border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 6px; color: var(--primary-hsl); font-weight: bold; width: fit-content; margin-left: 12px;">tmux attach -t timmy-run</div>
-            <div style="margin-top: 8px; color: var(--text-muted); font-style: italic;">Use carbonyl for in-pane browsing, tmux for fallback terminal persistence.</div>
+            <div class="ws-cmd">tmux attach -t timmy-run</div>
+            <div class="ws-foot">Use carbonyl for in-pane browsing, tmux for fallback terminal persistence.</div>
           </div>
         </div>
       </div>
 
-      <!-- Tab Panel 3: Logs -->
-      <div id="tab-logs" class="tab-panel">
-        <div id="logs-card" class="glass-card" style="flex-grow: 1;">
+      <!-- Tab Panel 3: Logs (what reached this page over its socket) -->
+      <div id="tab-logs" class="tab-panel" role="tabpanel" aria-labelledby="btn-logs">
+        <div id="logs-card" class="glass-card">
           <div class="card-header">
-            <div class="card-title" style="color: var(--primary-hsl)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hsl)" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <div class="card-title c-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hsl)" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
               Live Telemetry Log Event Tail
             </div>
-            <span class="status-badge running" style="background: rgba(218, 115, 0, 0.1); color: var(--primary-hsl); border: 1px solid rgba(218, 115, 0, 0.2); padding: 2px 8px; border-radius: 10px; font-size: 9px;">STREAMING</span>
+            <span class="status-badge amber">STREAMING</span>
           </div>
           <div id="logs-list">
-            <div style="color: var(--text-muted);">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
+            <div class="log-line muted">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
           </div>
         </div>
       </div>
 
-      <!-- Tab Panel 4: Proof -->
-      <div id="tab-proof" class="tab-panel">
-        <div id="proof-card" class="glass-card" style="flex-grow: 1; padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-family: var(--font-outfit); font-size: 16px; font-weight: 800; color: #58a6ff; text-transform: uppercase; letter-spacing: 0.05em;">🧾 Latest Sealed TIMMY Receipt</h3>
-            <span class="status-badge running" style="background: rgba(88, 166, 255, 0.1); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.2); padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: bold;">VERIFIED</span>
+      <!-- Tab Panel 4: Proof (the latest receipt as it reached this page; the page checks nothing) -->
+      <div id="tab-proof" class="tab-panel" role="tabpanel" aria-labelledby="btn-proof">
+        <div id="proof-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-blue">🧾 Latest receipt this page received</h3>
+            <span class="status-badge blue">AS RECEIVED · NOT CHECKED HERE</span>
           </div>
 
-          <div style="background: #06090e; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; font-family: var(--font-fira); font-size: 13px;">
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">Run ID:</span>
-              <strong style="color: #79c0ff;" id="proof-run-id">run_proof_1780384589840</strong>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">Prompt:</span>
-              <span style="color: #ffffff;" id="proof-prompt">Verify workspace integrity and compile components</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">Agent:</span>
-              <span style="color: #d2a8ff;" id="proof-agent">agent.quartermaster</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">Tools:</span>
-              <span style="color: #f5b545;" id="proof-tools">fs.read, fs.write, cmd.exec</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">What changed:</span>
-              <span style="color: #a78bfa;" id="proof-changed">Verified 0 leaks, built TUI, ran doctor checks</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 6px;">
-              <span style="color: var(--text-muted);">Manifest hash:</span>
-              <strong style="color: var(--success-hsl);" id="proof-hash">sha256_7b72e084a1a512d410ab88c08b69e198ecda2ac3fcb9f7bfca6e9d214fd15adb</strong>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span style="color: var(--text-muted);">Receipt file:</span>
-              <span style="color: var(--text-muted); font-size: 11px;" id="proof-path">.runs/run_proof_1780384589840.agentrun/manifest.json</span>
-            </div>
+          <div class="proof-box">
+            <div class="proof-row"><span class="proof-label">Run ID:</span><strong id="proof-run-id">none received yet</strong></div>
+            <div class="proof-row"><span class="proof-label">Prompt:</span><span id="proof-prompt">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Agent:</span><span id="proof-agent">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Tools:</span><span id="proof-tools">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">What changed:</span><span id="proof-changed">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Manifest hash:</span><strong id="proof-hash">none received yet</strong></div>
+            <div class="proof-row"><span class="proof-label">Receipt file:</span><span id="proof-path">none received yet</span></div>
           </div>
-          
-          <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5; font-style: italic;">
-            Guarantees: sealed receipts are tamper-evident, hash-bound verifiable proofs generated locally by the AgentPass OS engine.
+
+          <div class="proof-note">
+            This page shows a receipt as Timmy's terminal sent it, or a run id and a sha256 the chat mirror named; it checks nothing itself. Timmy seals receipts on this computer, and <code>timmy verify</code> checks their chain.
           </div>
         </div>
       </div>
 
-      <!-- Tab Panel 5: Streamdown Chat (TMX P3) -->
-      <div id="tab-slate3d" class="tab-panel">
-        <!-- Slate 3D: the mission board as a scene, lane pods lit from the bus (companion/slate3d) -->
-        <iframe id="slate3d-frame" title="Slate 3D" src="/slate3d/?board=ledger" loading="lazy" style="width:100%;height:100%;border:0;background:#0A1628;display:block"></iframe>
+      <!-- Slate 3D: the mission board as a scene, lane pods lit from the bus (companion/slate3d). R4 (H84, H92): its address
+           is set by the script when the tab is first opened, with the page's token in its fragment (Slate 3D asks for it too). -->
+      <div id="tab-slate3d" class="tab-panel" role="tabpanel" aria-labelledby="btn-slate3d">
+        <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
       </div>
-      <div id="tab-canvas" class="tab-panel">
-        <div class="glass-card" style="flex-grow: 1; padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;">
-          <h3 style="font-family: var(--font-outfit); font-size: 16px; font-weight: 800; color: #e6edf3; text-transform: uppercase; letter-spacing: 0.05em;">🎨 Timmy Canvas</h3>
-          <div id="canvas-summary" style="font-family: var(--font-fira); font-size: 13px; line-height: 1.6; color: #e6edf3;">Reading the canvas…</div>
+
+      <!-- R4 (H104, second part): one operation's run detail, opened by its operation id: this page's address /run/<id> (from
+           the terminal Workbench's Activity or a Timmy Studio card), or the box below. Drawn from Timmy's records as its
+           producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing. -->
+      <div id="tab-run" class="tab-panel" role="tabpanel" aria-labelledby="btn-run">
+        <div id="run-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-blue">🧭 Run detail</h3>
+            <span class="status-badge blue">FROM TIMMY'S RECORDS · NOT CHECKED HERE</span>
+          </div>
+          <form id="run-form" class="run-form" autocomplete="off">
+            <label for="run-op" class="run-label">Operation id</label>
+            <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
+            <button type="submit" id="run-open" class="btn-action success">Open its run detail</button>
+          </form>
+          <p id="run-hint" class="run-hint">An operation id is o and 8 hex digits, as Timmy prints it. This page's address for one is <code>/run/&lt;operation id&gt;</code> on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.</p>
+          <div id="run-detail" class="run-detail" aria-live="polite">
+            <p class="run-empty">No run detail opened yet.</p>
+          </div>
         </div>
       </div>
 
-      <div id="tab-streamdown" class="tab-panel">
-        <div class="glass-card" style="flex-grow: 1; border-color: #30363d;">
+      <!-- Canvas: Timmy Canvas's revision and jobs, read with the token -->
+      <div id="tab-canvas" class="tab-panel" role="tabpanel" aria-labelledby="btn-canvas">
+        <div class="glass-card canvas-card">
+          <h3 class="panel-title c-main">🎨 Timmy Canvas</h3>
+          <div id="canvas-summary">Reading the canvas…</div>
+        </div>
+      </div>
+
+      <!-- Tab Panel 5: Streamdown Chat (TMX P3): POST /chat, streamed, drawn by Streamdown (the island: /web/island/companion-chat.js) -->
+      <div id="tab-streamdown" class="tab-panel" role="tabpanel" aria-labelledby="btn-streamdown">
+        <div class="glass-card sd-card">
           <div class="card-header">
-            <div class="card-title" style="color: #a98bff;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a98bff" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <div class="card-title c-violet">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a98bff" stroke-width="2.5" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               Streamdown Chat
-              <span class="badge-planned" style="border-color: rgba(169, 139, 255, 0.45); color: #a98bff;">TMX P3</span>
+              <span class="badge-planned violet">TMX P3</span>
             </div>
-            <span style="font-family: var(--font-fira); font-size: 10px; color: var(--text-muted);">POST /chat → SSE → live React components</span>
+            <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
+            <span class="sd-route" id="sd-route">POST /chat → the chat's route (asking the companion) → SSE → live React components</span>
           </div>
-          <!-- React island mount point (no build step; ESM via esm.sh) -->
+          <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
           <div id="streamdown-root" class="dark"></div>
         </div>
       </div>
@@ -690,992 +267,7 @@
     </div>
   </div>
 
-  <script>
-    const statusEl = document.getElementById('status-text');
-    const consoleLogs = document.getElementById('console-logs');
-    const logsList = document.getElementById('logs-list');
-    
-    // Proof labels
-    const pRunId = document.getElementById('proof-run-id');
-    const pPrompt = document.getElementById('proof-prompt');
-    const pAgent = document.getElementById('proof-agent');
-    const pTools = document.getElementById('proof-tools');
-    const pChanged = document.getElementById('proof-changed');
-    const pHash = document.getElementById('proof-hash');
-    const pPath = document.getElementById('proof-path');
-
-    let wsConnection = null;
-    let activeChatHistory = [];
-    let isViewingSaved = false;
-    let loadedChatId = null;
-
-    const mirrorStatusEl = document.getElementById('mirror-status');
-
-    function updateMirrorStatus(status) {
-      if (mirrorStatusEl) {
-        mirrorStatusEl.textContent = `Local chat mirror: ${status}`;
-        if (status === 'LIVE') {
-          mirrorStatusEl.style.background = 'rgba(63, 185, 80, 0.15)';
-          mirrorStatusEl.style.color = 'var(--success-hsl)';
-          mirrorStatusEl.style.borderColor = 'rgba(63, 185, 80, 0.3)';
-        } else if (status === 'RESTORED') {
-          mirrorStatusEl.style.background = 'rgba(218, 115, 0, 0.15)';
-          mirrorStatusEl.style.color = 'var(--primary-hsl)';
-          mirrorStatusEl.style.borderColor = 'rgba(218, 115, 0, 0.3)';
-        } else if (status === 'SAVED') {
-          mirrorStatusEl.style.background = 'rgba(88, 166, 255, 0.15)';
-          mirrorStatusEl.style.color = '#79c0ff';
-          mirrorStatusEl.style.borderColor = 'rgba(88, 166, 255, 0.3)';
-        } else {
-          mirrorStatusEl.style.background = 'rgba(255, 255, 255, 0.05)';
-          mirrorStatusEl.style.color = 'var(--text-muted)';
-          mirrorStatusEl.style.borderColor = 'var(--border-color)';
-        }
-      }
-    }
-
-    // Load active mirror and saved sessions from localStorage
-    try {
-      const activeCache = localStorage.getItem('timmy.chat.active');
-      if (activeCache) {
-        activeChatHistory = JSON.parse(activeCache);
-        updateMirrorStatus('RESTORED');
-      } else {
-        updateMirrorStatus('WAITING');
-      }
-    } catch (e) {
-      activeChatHistory = [];
-      updateMirrorStatus('WAITING');
-    }
-
-    function saveActiveChat() {
-      try {
-        localStorage.setItem('timmy.chat.active', JSON.stringify(activeChatHistory));
-      } catch (e) {
-        console.error('LocalStorage sync error:', e);
-      }
-    }
-
-    function getSavedChats() {
-      try {
-        const raw = localStorage.getItem('timmy.chat.sessions');
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    }
-
-    function saveSavedChats(chats) {
-      try {
-        localStorage.setItem('timmy.chat.sessions', JSON.stringify(chats));
-      } catch (e) {
-        console.error('LocalStorage save error:', e);
-      }
-    }
-
-    // Save current active chat session
-    function saveCurrentChat() {
-      const history = activeChatHistory;
-      if (history.length === 0) {
-        alert("Cannot save empty chat session.");
-        return;
-      }
-
-      const chats = getSavedChats();
-      const firstPromptMsg = history.find(m => m.role === 'user');
-      const firstPrompt = firstPromptMsg ? firstPromptMsg.content : "Empty Chat";
-      
-      const newChat = {
-        id: `chat_${Date.now()}`,
-        timestamp: new Date().toLocaleString(),
-        firstPrompt: firstPrompt.length > 50 ? firstPrompt.substring(0, 50) + '...' : firstPrompt,
-        messagesCount: history.length,
-        messages: history
-      };
-
-      // Check if we have already saved this state
-      const alreadySaved = chats.find(c => c.messages.length === history.length && c.messages[c.messages.length - 1]?.content === history[history.length - 1]?.content);
-      if (alreadySaved) {
-        updateMirrorStatus('SAVED');
-        setTimeout(() => updateMirrorStatus('LIVE'), 2000);
-        return;
-      }
-
-      chats.unshift(newChat);
-      saveSavedChats(chats);
-      renderSavedChatsList();
-      updateMirrorStatus('SAVED');
-      setTimeout(() => updateMirrorStatus(activeChatHistory.length > 0 ? 'LIVE' : 'WAITING'), 2000);
-      appendToLocalLogs('SUCCESS', `Saved current chat session locally: ${newChat.id}`);
-    }
-
-    // Download current chat as JSON
-    function downloadCurrentChat() {
-      const history = isViewingSaved 
-        ? getSavedChats().find(c => c.id === loadedChatId)?.messages 
-        : activeChatHistory;
-
-      if (!history || history.length === 0) {
-        alert("No chat data available to download.");
-        return;
-      }
-
-      try {
-        const jsonStr = JSON.stringify(history, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `timmy-chat-${Date.now()}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        appendToLocalLogs('SUCCESS', 'Exported session chat messages as JSON successfully.');
-      } catch (err) {
-        alert("Export failed: " + err.message);
-      }
-    }
-
-    // Delete current local active browser copy
-    function deleteCurrentChat() {
-      if (confirm("Delete local browser copy? Terminal session and receipts are not deleted.")) {
-        activeChatHistory = [];
-        saveActiveChat();
-        renderConsoleLogs([]);
-        updateMirrorStatus('WAITING');
-        appendToLocalLogs('WARN', 'Cleared browser-local mirror memory cache.');
-      }
-    }
-
-    // Load saved chat into viewer
-    function loadSavedChat(chatId) {
-      const chats = getSavedChats();
-      const chat = chats.find(c => c.id === chatId);
-      if (!chat) return;
-
-      isViewingSaved = true;
-      loadedChatId = chatId;
-      
-      renderConsoleLogs(chat.messages);
-      
-      const banner = document.createElement('div');
-      banner.id = 'saved-chat-banner';
-      banner.style.cssText = 'background: rgba(218, 115, 0, 0.15); border: 1px solid var(--primary-hsl); padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; font-family: var(--font-inter);';
-      banner.innerHTML = `
-        <span>📂 Viewing Saved Session from <strong>${escapeMirrorText(chat.timestamp)}</strong></span>
-        <button class="btn-action success" onclick="exitSavedChatViewer()">Back to Live Mirror</button>
-      `;
-      
-      const logsContainer = document.getElementById('console-logs');
-      if (logsContainer.firstChild) {
-        logsContainer.insertBefore(banner, logsContainer.firstChild);
-      } else {
-        logsContainer.appendChild(banner);
-      }
-      
-      appendToLocalLogs('INFO', `Loaded saved session: ${chatId}`);
-    }
-
-    function exitSavedChatViewer() {
-      isViewingSaved = false;
-      loadedChatId = null;
-      renderConsoleLogs(activeChatHistory);
-      appendToLocalLogs('INFO', 'Returned to real-time live terminal mirror.');
-    }
-
-    function downloadSavedChat(chatId) {
-      const chats = getSavedChats();
-      const chat = chats.find(c => c.id === chatId);
-      if (!chat) return;
-
-      try {
-        const jsonStr = JSON.stringify(chat.messages, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `timmy-saved-chat-${chatId}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert("Export failed: " + err.message);
-      }
-    }
-
-    function deleteSavedChat(chatId) {
-      if (confirm("Delete this saved chat session from browser local storage?")) {
-        let chats = getSavedChats();
-        chats = chats.filter(c => c.id !== chatId);
-        saveSavedChats(chats);
-        renderSavedChatsList();
-        
-        if (isViewingSaved && loadedChatId === chatId) {
-          exitSavedChatViewer();
-        }
-        appendToLocalLogs('WARN', `Deleted saved chat: ${chatId}`);
-      }
-    }
-
-    function renderSavedChatsList() {
-      const listEl = document.getElementById('saved-chats-list');
-      const chats = getSavedChats();
-      
-      if (chats.length === 0) {
-        listEl.innerHTML = `
-          <div style="color: var(--text-muted); text-align: center; font-size: 12px; margin-top: 20px; font-style: italic;">
-            Saved chats will appear here after you press Save Chat.
-          </div>
-        `;
-        return;
-      }
-
-      listEl.innerHTML = chats.slice(0, 5).map(c => {
-        // Encode the ID for its JS-string context as well as the HTML attribute.
-        // Prompt and metadata remain text; stored chat bytes stay unchanged.
-        const id = encodeURIComponent(String(c.id)).replace(/'/g, '%27');
-        return `
-        <div style="background: rgba(22, 27, 34, 0.6); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-muted);">
-            <span>${escapeMirrorText(c.timestamp)}</span>
-            <span style="color: var(--secondary-hsl); font-weight: bold;">${escapeMirrorText(c.messagesCount)} msgs</span>
-          </div>
-          <div style="font-size: 11px; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            "${escapeMirrorText(c.firstPrompt)}"
-          </div>
-          <div style="display: flex; gap: 6px; margin-top: 4px;">
-            <button class="btn-action success" style="padding: 2px 6px; font-size: 9px;" onclick="loadSavedChat(decodeURIComponent('${id}'))">Load</button>
-            <button class="btn-action" style="padding: 2px 6px; font-size: 9px;" onclick="downloadSavedChat(decodeURIComponent('${id}'))">Download</button>
-            <button class="btn-action danger" style="padding: 2px 6px; font-size: 9px;" onclick="deleteSavedChat(decodeURIComponent('${id}'))">Delete</button>
-          </div>
-        </div>
-      `;
-      }).join('');
-    }
-
-    function escapeMirrorText(value) {
-      return String(value).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    }
-
-    function appendToLocalLogs(level, msg) {
-      const timeStr = new Date().toLocaleTimeString();
-      let color = 'var(--text-muted)';
-      if (level === 'ERROR') color = '#ff7b72; font-weight: bold;';
-      else if (level === 'WARN') color = 'var(--primary-hsl);';
-      else if (level === 'SUCCESS') color = 'var(--success-hsl);';
-
-      logsList.innerHTML += `
-        <div style="margin-bottom: 4px;">
-          <span style="color: #484f58;">[${timeStr}]</span> 
-          <span style="color: ${color}">[${escapeMirrorText(level.toUpperCase())}]</span>
-          <span>${escapeMirrorText(msg)}</span>
-        </div>
-      `;
-      logsList.scrollTop = logsList.scrollHeight;
-    }
-
-    function connect() {
-      const socketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${socketProtocol}//${location.host}`);
-      wsConnection = ws;
-
-      ws.onopen = () => {
-        statusEl.textContent = 'COMPANION SOCKET · CONNECTED';
-        document.querySelector('.status-dot').style.background = 'var(--text-main)';
-        document.querySelector('.status-dot').style.boxShadow = 'none';
-        appendToLocalLogs('INFO', 'Companion WebSocket connected.');
-        
-        ws.send(JSON.stringify({ type: 'hello' }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          appendToLocalLogs('INFO', `Received WebSocket packet type: ${msg.type}`);
-          
-          if (msg.type === 'state' || msg.type === 'welcome') {
-            appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
-          } else if (msg.type === 'sync') {
-            // Live broadcasts use data; the hello/reconnect snapshot uses history.
-            const history = msg.data ?? msg.history;
-            if (!Array.isArray(history) || !history.every(m => m && typeof m.role === 'string' && typeof m.content === 'string')) {
-              throw new Error('Invalid chat sync: expected messages with role and text content');
-            }
-            activeChatHistory = history;
-            saveActiveChat();
-            if (!isViewingSaved) {
-              renderConsoleLogs(activeChatHistory);
-            }
-            updateMirrorStatus(activeChatHistory.length > 0 ? 'LIVE' : 'WAITING');
-          } else if (msg.type === 'tmux') {
-            appendToLocalLogs('INFO', `Tmux cluster sync updated. Panels active: ${msg.data?.length || 0}`);
-          } else if (msg.type === 'tmux:line') {
-            appendToLocalLogs('INFO', `tmux pane trace: ${msg.data.line.substring(0, 40)}...`);
-          } else if (msg.type === 'agent:tool') {
-            appendToLocalLogs('WARN', `Agent tool-call gate triggered: ${msg.data.name}`);
-            // Notification only: the terminal's canonical mirror snapshot
-            // includes this tool row. Never synthesize or merge a second copy.
-          } else if (msg.type === 'agent:delta') {
-            // Exit saved chat view to show live sync
-            if (isViewingSaved) {
-              exitSavedChatViewer();
-            }
-            updateMirrorStatus('LIVE');
-
-            let lastMsg = activeChatHistory[activeChatHistory.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
-              lastMsg.content = msg.data.fullText || (lastMsg.content + msg.data.delta);
-            } else {
-              activeChatHistory.push({
-                role: 'assistant',
-                content: msg.data.fullText || msg.data.delta,
-                timestamp: Date.now(),
-                streaming: true
-              });
-            }
-            saveActiveChat();
-            if (!isViewingSaved) {
-              renderConsoleLogs(activeChatHistory);
-            }
-          } else if (msg.type === 'receipt' || (msg.data && msg.data.manifestHash)) {
-            const r = msg.data;
-            if (r) {
-              pRunId.textContent = r.runId || pRunId.textContent;
-              pPrompt.textContent = r.prompt || pPrompt.textContent;
-              pAgent.textContent = r.agent || pAgent.textContent;
-              pTools.textContent = r.tools || pTools.textContent;
-              pChanged.textContent = r.changed || pChanged.textContent;
-              pHash.textContent = r.manifestHash || pHash.textContent;
-              pPath.textContent = r.receiptPath || pPath.textContent;
-              appendToLocalLogs('SUCCESS', `Sealed TIMMY Receipt committed to index: ${r.manifestHash}`);
-            }
-          }
-        } catch (e) {
-          console.error('Parse error:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        statusEl.textContent = 'COMPANION SOCKET · RECONNECTING';
-        document.querySelector('.status-dot').style.background = '#ff7b72';
-        document.querySelector('.status-dot').style.boxShadow = '0 0 10px #ff7b72';
-        appendToLocalLogs('ERROR', 'WebSocket connection lost. Retrying in 2s...');
-        if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
-        setTimeout(connect, 2000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-    }
-
-    function renderConsoleLogs(history) {
-      if (history.length === 0) {
-        consoleLogs.innerHTML = `
-          <div style="color: var(--text-muted); font-family: var(--font-fira); text-align: center; margin-top: 40px; font-size: 13px;">
-            Waiting for session chat streams...
-          </div>
-        `;
-        return;
-      }
-
-      consoleLogs.innerHTML = history.map(msg => {
-        const timeStr = new Date(msg.timestamp || Date.now()).toLocaleTimeString();
-        
-        if (msg.role === 'system' && msg.isTool) {
-          try {
-            const delimiter = 'with arguments:';
-            const index = msg.content.indexOf(delimiter);
-            if (index < 0) throw new Error('Missing tool arguments delimiter');
-            const name = msg.content.slice(0, index).replace('Swarm Orchestrator Tool Call:', '').trim();
-            const args = JSON.parse(msg.content.slice(index + delimiter.length).trim());
-            return `
-              <div class="log-msg system">
-                <div class="log-header system">
-                  <span>⚙️ Swarm Orchestrator Tool Call</span>
-                  <span class="log-time">${timeStr}</span>
-                </div>
-                <div class="log-content">
-                  Calling tool <code style="color: var(--primary-hsl);">${escapeMirrorText(name)}</code> with arguments:
-                  <pre class="code-box">${escapeMirrorText(JSON.stringify(args, null, 2))}</pre>
-                </div>
-              </div>
-            `;
-          } catch (e) {
-            // Fallback to normal rendering if parsing fails
-          }
-        }
-
-        let formatted = msg.content || '';
-        formatted = formatted
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-
-        formatted = formatted.replace(/`(.*?)`/g, '<span style="color:var(--secondary-hsl); background:#161b22; padding:2px 6px; border-radius:4px;">$1</span>');
-        formatted = formatted.replace(/```([\s\S]*?)```/g, '<div class="code-box">$1</div>');
-
-        let msgClass = msg.role === 'user' ? 'user' : 'assistant';
-        let displayRole = msg.role === 'user' ? '▶ You' : '◀ TIMMY Agent';
-
-        if (msg.content && msg.content.includes('[SYSTEM]')) {
-          msgClass = 'system';
-          displayRole = '⚙️ Telemetry System Logs';
-          formatted = formatted.replace('⚙️ **[SYSTEM]**', '').trim();
-        }
-
-        return `
-          <div class="log-msg ${msgClass}">
-            <div class="log-header ${msgClass}">
-              <span>${displayRole}</span>
-              <span class="log-time">${timeStr}</span>
-            </div>
-            <div class="log-content">${formatted}</div>
-          </div>
-        `;
-      }).join('');
-      
-      consoleLogs.scrollTop = consoleLogs.scrollHeight;
-
-      const receiptMsg = history.slice().reverse().find(m => m.content && (m.content.includes('run_proof') || m.content.includes('sha256_')));
-      if (receiptMsg) {
-        const text = receiptMsg.content;
-        const hashMatch = text.match(/sha256_[0-9a-fA-F]+/);
-        const runIdMatch = text.match(/run_[a-zA-Z0-9_]+/);
-        if (hashMatch) pHash.textContent = hashMatch[0];
-        if (runIdMatch) {
-          pRunId.textContent = runIdMatch[0];
-          pPath.textContent = `.runs/${runIdMatch[0]}.agentrun/manifest.json`;
-        }
-      }
-    }
-
-    // GSAP Tab Deck Controller
-    // Timmy Canvas tab (fourth order, step 5): the canvas's revision, source revision and jobs, as the
-    // canvas page and `timmy receipts` show them. Links go to this computer's 127.0.0.1 only when this
-    // page is open on that computer; from a phone the address is said instead.
-    function canvasEsc(t) {
-      return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-    }
-    function canvasSummaryHtml(s, hostname) {
-      const here = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(hostname);
-      const base = String(s.open || 'http://127.0.0.1:4337/');
-      const link = (href, text) => here ? `<a href="${canvasEsc(href)}" target="_blank" rel="noopener" style="color:#79c0ff">${canvasEsc(text)}</a>` : canvasEsc(text);
-      const head = s.unreadable
-        ? '<p>The saved canvas could not be read. Open the canvas on the computer that runs Timmy: it keeps the file aside and starts blank.</p>'
-        : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(new Date(s.savedAt).toLocaleString())}` : ''}</p>`;
-      const jobs = (s.jobs || []).map((j) => `<li style="margin:4px 0">${j.ok ? '<span style="color:#3fb950;font-weight:700">✓ done</span>' : '<span style="color:#f85149;font-weight:700">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
-      const open = here ? `<p>${link(base, 'Open Timmy Canvas')}</p>` : `<p>Open ${canvasEsc(base)} on the computer that runs Timmy.</p>`;
-      return head + (jobs ? `<ol style="list-style:none;padding:0;margin:0">${jobs}</ol>` : '<p>No canvas jobs yet.</p>') + open;
-    }
-    async function refreshCanvas() {
-      const box = document.getElementById('canvas-summary');
-      if (!box) return;
-      try {
-        const s = await (await fetch('/api/canvas', { cache: 'no-store' })).json();
-        box.innerHTML = canvasSummaryHtml(s, location.hostname);
-      } catch {
-        box.textContent = 'Timmy could not be reached to read the canvas.';
-      }
-    }
-    // end Timmy Canvas tab
-    setInterval(() => { if (document.getElementById('tab-canvas')?.classList.contains('active')) refreshCanvas(); }, 5000);
-
-    function switchTab(tabId) {
-      if (tabId === 'canvas') refreshCanvas();
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      const btnMap = {
-        'chat': 'chat',
-        'workspace': 'workspace',
-        'logs': 'logs',
-        'proof': 'proof',
-        'streamdown': 'streamdown',
-        'slate3d': 'slate3d'
-      };
-      const activeBtn = document.getElementById(`btn-${btnMap[tabId] || tabId}`);
-      if (activeBtn) activeBtn.classList.add('active');
-
-      const activePanel = document.querySelector('.tab-panel.active');
-      const targetPanel = document.getElementById(`tab-${tabId}`);
-
-      if (activePanel === targetPanel) return;
-
-      if (activePanel) {
-        gsap.to(activePanel, {
-          opacity: 0,
-          duration: 0.15,
-          ease: 'power2.in',
-          onComplete: () => {
-            activePanel.classList.remove('active');
-            targetPanel.classList.add('active');
-            
-            gsap.fromTo(targetPanel, 
-              { opacity: 0 },
-              { opacity: 1, duration: 0.25, ease: 'power2.out' }
-            );
-          }
-        });
-      } else {
-        targetPanel.classList.add('active');
-        gsap.fromTo(targetPanel, 
-          { opacity: 0 },
-          { opacity: 1, duration: 0.25, ease: 'power2.out' }
-        );
-      }
-    }
-
-    // Initial load
-    renderSavedChatsList();
-    
-    if (activeChatHistory.length > 0) {
-      renderConsoleLogs(activeChatHistory);
-    } else {
-      const saved = getSavedChats();
-      if (saved.length > 0) {
-        loadSavedChat(saved[0].id);
-      } else {
-        renderConsoleLogs([]);
-      }
-    }
-    
-    connect();
-  </script>
-
-  <!-- ⚡ STREAMDOWN CHAT (TMX P3) — no-build React island.
-       react@18 + react-dom@18/client + streamdown + plugins load as ESM from
-       esm.sh; the importmap pins a single shared React instance. -->
-  <script type="importmap">
-  {
-    "imports": {
-      "react": "https://esm.sh/react@18.3.1",
-      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-      "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
-      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
-      "streamdown": "https://esm.sh/streamdown@2.5.0?external=react,react-dom",
-      "@streamdown/code": "https://esm.sh/@streamdown/code@1.1.1?external=react",
-      "@streamdown/mermaid": "https://esm.sh/@streamdown/mermaid@1.0.2?external=react"
-    }
-  }
-  </script>
-  <!-- Streamdown's own stylesheet (streaming animation keyframes) -->
-  <link rel="stylesheet" href="https://unpkg.com/streamdown@2.5.0/styles.css">
-
-  <script type="module">
-    import React from 'react';
-    import { createRoot } from 'react-dom/client';
-    import { Streamdown } from 'streamdown';
-    import { code } from '@streamdown/code';
-    import { mermaid } from '@streamdown/mermaid';
-
-    const h = React.createElement;
-    const { useState, useRef, useEffect } = React;
-
-    const MODEL = 'qwen/qwen3.8-max';
-
-    const chip = {
-      fontFamily: 'var(--font-fira)', fontSize: 10, fontWeight: 700,
-      border: '1px solid #30363d', color: 'var(--text-muted)',
-      padding: '3px 10px', borderRadius: 12, letterSpacing: '0.04em', whiteSpace: 'nowrap'
-    };
-    const btnPrimary = {
-      background: '#a98bff', border: '1px solid #a98bff', color: '#0b0d12',
-      borderRadius: 10, padding: '10px 18px', fontWeight: 800, fontSize: 12,
-      cursor: 'pointer', letterSpacing: '0.03em', whiteSpace: 'nowrap'
-    };
-    const btnGhost = {
-      background: 'rgba(169, 139, 255, 0.08)', border: '1px solid rgba(169, 139, 255, 0.45)',
-      color: '#a98bff', borderRadius: 10, padding: '10px 14px', fontWeight: 700,
-      fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap'
-    };
-
-    /* ---------- TMX custom components (allowlisted tags) ---------- */
-
-    // <receipt id="..." sha="..."> — sealed proof card with a Verify button
-    function ReceiptCard(props) {
-      const [verified, setVerified] = useState(false);
-      const id = props.id || 'unknown-run';
-      const sha = props.sha || 'pending-hash';
-      return h('div', {
-        style: {
-          background: 'rgba(169, 139, 255, 0.06)', border: '1px solid rgba(169, 139, 255, 0.45)',
-          borderRadius: 12, padding: '12px 14px', margin: '10px 0',
-          fontFamily: 'var(--font-fira)', fontSize: 12
-        }
-      },
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 } },
-          h('strong', { style: { color: '#a98bff', letterSpacing: '0.06em' } }, '🧾 SEALED RECEIPT'),
-          h('span', {
-            style: { fontWeight: 700, color: verified ? 'var(--success-hsl)' : 'var(--text-muted)' }
-          }, verified ? 'VERIFIED ✓' : 'UNVERIFIED')
-        ),
-        h('div', { style: { marginTop: 8, color: 'var(--text-muted)' } },
-          'Run ID: ', h('span', { style: { color: '#79c0ff' } }, id)),
-        h('div', { style: { marginTop: 4, color: 'var(--text-muted)', wordBreak: 'break-all' } },
-          'SHA-256: ', h('span', { style: { color: 'var(--success-hsl)' } }, sha)),
-        props.children
-          ? h('div', { style: { marginTop: 8, color: 'var(--text-main)', fontFamily: 'var(--font-inter)', fontSize: 13 } }, props.children)
-          : null,
-        h('button', {
-          onClick: () => setVerified(true),
-          disabled: verified,
-          style: {
-            marginTop: 10,
-            background: verified ? 'rgba(63, 185, 80, 0.12)' : 'rgba(169, 139, 255, 0.15)',
-            color: verified ? 'var(--success-hsl)' : '#a98bff',
-            border: '1px solid ' + (verified ? 'rgba(63, 185, 80, 0.5)' : '#a98bff'),
-            borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700,
-            cursor: verified ? 'default' : 'pointer', letterSpacing: '0.05em'
-          }
-        }, verified ? 'VERIFIED ✓' : 'Verify')
-      );
-    }
-
-    // <approval command="..."> — command gate with Grant / Deny inline state
-    function ApprovalCard(props) {
-      const [status, setStatus] = useState('pending'); // pending | granted | denied
-      const command = props.command || '(no command provided)';
-      const decided = status !== 'pending';
-      const accent = status === 'granted' ? 'rgba(63, 185, 80, 0.6)'
-        : status === 'denied' ? 'rgba(248, 81, 73, 0.6)' : '#30363d';
-      return h('div', {
-        style: {
-          background: '#0d1117', border: '1px solid ' + accent, borderRadius: 12,
-          padding: '12px 14px', margin: '10px 0', fontFamily: 'var(--font-fira)', fontSize: 12,
-          transition: 'border-color 0.2s ease'
-        }
-      },
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 } },
-          h('strong', { style: { color: '#f5b545', letterSpacing: '0.06em' } }, '🔐 APPROVAL GATE'),
-          h('span', {
-            style: {
-              fontWeight: 700,
-              color: status === 'granted' ? 'var(--success-hsl)' : status === 'denied' ? '#ff7b72' : 'var(--text-muted)'
-            }
-          }, status === 'granted' ? 'GRANTED ✓' : status === 'denied' ? 'DENIED ✕' : 'AWAITING OPERATOR')
-        ),
-        h('pre', {
-          style: {
-            margin: '10px 0 0', background: '#06090e', border: '1px solid #30363d',
-            borderRadius: 8, padding: '8px 10px', color: '#e6edf3', overflowX: 'auto',
-            fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all'
-          }
-        }, '$ ', command),
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 10 } },
-          h('button', {
-            onClick: () => setStatus('granted'), disabled: decided,
-            style: {
-              background: status === 'granted' ? 'rgba(63, 185, 80, 0.15)' : 'rgba(63, 185, 80, 0.05)',
-              border: '1px solid rgba(63, 185, 80, 0.5)', color: 'var(--success-hsl)',
-              borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700,
-              cursor: decided ? 'default' : 'pointer', opacity: decided && status !== 'granted' ? 0.4 : 1
-            }
-          }, 'Grant'),
-          h('button', {
-            onClick: () => setStatus('denied'), disabled: decided,
-            style: {
-              background: status === 'denied' ? 'rgba(248, 81, 73, 0.15)' : 'rgba(248, 81, 73, 0.05)',
-              border: '1px solid rgba(248, 81, 73, 0.5)', color: '#ff7b72',
-              borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700,
-              cursor: decided ? 'default' : 'pointer', opacity: decided && status !== 'denied' ? 0.4 : 1
-            }
-          }, 'Deny')
-        )
-      );
-    }
-
-    const sdComponents = { receipt: ReceiptCard, approval: ApprovalCard };
-    const sdAllowedTags = { receipt: ['id', 'sha'], approval: ['command'] };
-
-    function Markdown(props) {
-      return h(Streamdown, {
-        plugins: { code, mermaid },
-        allowedTags: sdAllowedTags,
-        components: sdComponents,
-        isAnimating: !!props.animating,
-        caret: props.animating ? 'block' : undefined,
-        linkSafety: { enabled: false }, // local companion; skip the external-link modal
-        className: 'sd-island'
-      }, props.text || '');
-    }
-
-    /* ---------- Sample payload for the ✨ Try it hint button ---------- */
-
-    const SAMPLE = [
-      '## ⚡ TMX P3 — streaming markdown surface',
-      '',
-      'This payload was injected locally and rendered live by **Streamdown** — no model round-trip.',
-      'The allowlisted custom tags below mount real, interactive React components:',
-      '',
-      '<receipt id="run_tmx_demo_001" sha="sha256_7f3c9a1e4b2d8c5f0a6e1d9b7c3f2a8e4d6b1c9f3a7e5d2b8c4f0a6e1d9b3c7f">Sealed by the AgentPass OS engine — tamper-evident, hash-bound proof.</receipt>',
-      '',
-      '<approval command="npm run build && npm test"></approval>',
-      '',
-      'Plugins work too — syntax highlighting and diagrams:',
-      '',
-      '```ts',
-      'export function sealReceipt(runId: string): string {',
-      '  const payload = JSON.stringify({ runId, sealedAt: Date.now() });',
-      '  return `sha256_${sha256(payload)}`;',
-      '}',
-      '```',
-      '',
-      '```mermaid',
-      'graph LR',
-      '  A[User Prompt] --> B[POST /chat SSE]',
-      '  B --> C[Streamdown Parser]',
-      '  C --> D[receipt Card]',
-      '  C --> E[approval Gate]',
-      '  C --> F[Mermaid Diagram]',
-      '```'
-    ].join('\n');
-
-    /* ---------- SSE parsing ---------- */
-
-    function parseSseEvent(raw) {
-      let event = 'message';
-      const dataLines = [];
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
-      }
-      if (dataLines.length === 0) return null;
-      const data = dataLines.join('\n');
-      let json = null;
-      try { json = JSON.parse(data); } catch { /* raw text payload */ }
-      return { event, data, json };
-    }
-
-    /* ---------- App ---------- */
-
-    function App() {
-      const [messages, setMessages] = useState([]); // { role: 'user' | 'assistant', content }
-      const [input, setInput] = useState('');
-      const [streaming, setStreaming] = useState(false);
-      const [error, setError] = useState(null);
-      const [tokens, setTokens] = useState(0);
-      const [usage, setUsage] = useState(null);
-      const scrollRef = useRef(null);
-      const demoTimer = useRef(null);
-
-      useEffect(() => {
-        const el = scrollRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      }, [messages, streaming, error]);
-
-      useEffect(() => () => {
-        if (demoTimer.current) clearInterval(demoTimer.current);
-      }, []);
-
-      const replaceLastAssistant = (text) => {
-        setMessages((prev) => {
-          const next = prev.slice();
-          for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].role === 'assistant') {
-              next[i] = { role: 'assistant', content: text };
-              break;
-            }
-          }
-          return next;
-        });
-      };
-
-      async function send() {
-        const text = input.trim();
-        if (!text || streaming) return;
-        setError(null); setUsage(null); setTokens(0);
-
-        const convo = messages.concat([{ role: 'user', content: text }]);
-        setMessages(convo.concat([{ role: 'assistant', content: '' }]));
-        setInput('');
-        setStreaming(true);
-
-        const controller = new AbortController();
-        let acc = '';
-        try {
-          const res = await fetch('/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: convo.map((m) => ({ role: m.role, content: m.content })) }),
-            signal: controller.signal
-          });
-          if (!res.ok || !res.body) throw new Error('Companion /chat responded HTTP ' + res.status);
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
-          for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            buf += decoder.decode(chunk.value, { stream: true });
-            let sep;
-            while ((sep = buf.indexOf('\n\n')) !== -1) {
-              const raw = buf.slice(0, sep);
-              buf = buf.slice(sep + 2);
-              const evt = parseSseEvent(raw);
-              if (!evt) continue;
-              if (evt.event === 'delta') {
-                const piece = typeof evt.json === 'string' ? evt.json : evt.data;
-                acc += piece;
-                replaceLastAssistant(acc);
-                setTokens(Math.max(1, Math.ceil(acc.length / 4))); // live ~4 chars/token estimate
-              } else if (evt.event === 'usage') {
-                setUsage(evt.json);
-              } else if (evt.event === 'error') {
-                setError((evt.json && evt.json.error) || evt.data);
-              } else if (evt.event === 'done') {
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          if (!err || err.name !== 'AbortError') setError((err && err.message) || String(err));
-        } finally {
-          setStreaming(false);
-        }
-      }
-
-      function tryIt() {
-        if (streaming) return;
-        setError(null); setUsage(null); setTokens(0);
-        setMessages((prev) => prev.concat([
-          { role: 'user', content: '✨ Inject TMX demo payload (receipt + approval + code fence + mermaid)' },
-          { role: 'assistant', content: '' }
-        ]));
-        setStreaming(true);
-        let i = 0;
-        const CHUNK = 5;
-        demoTimer.current = setInterval(() => {
-          i += CHUNK;
-          const slice = SAMPLE.slice(0, i);
-          replaceLastAssistant(slice);
-          setTokens(Math.max(1, Math.ceil(slice.length / 4)));
-          if (i >= SAMPLE.length) {
-            clearInterval(demoTimer.current);
-            demoTimer.current = null;
-            setStreaming(false);
-          }
-        }, 16);
-      }
-
-      const measured = usage && (usage.total_tokens || usage.completion_tokens);
-      const tokenLabel = streaming
-        ? '◉ ~' + tokens + ' tokens (streaming)'
-        : measured
-          ? '◉ ' + measured + ' tokens (measured)'
-          : '◉ ~' + tokens + ' tokens';
-
-      return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, flexGrow: 1 } },
-        // Meta bar: model, status, live token counter
-        h('div', {
-          style: {
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
-            padding: '10px 20px', borderBottom: '1px solid #30363d',
-            background: 'rgba(22, 27, 34, 0.5)', flexShrink: 0, flexWrap: 'wrap'
-          }
-        },
-          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
-            h('span', { style: chip }, MODEL),
-            h('span', {
-              style: Object.assign({}, chip, {
-                color: streaming ? '#a98bff' : 'var(--text-muted)',
-                borderColor: streaming ? '#a98bff' : '#30363d'
-              })
-            }, streaming ? 'STREAMING…' : 'IDLE')
-          ),
-          h('span', {
-            style: {
-              fontFamily: 'var(--font-fira)', fontSize: 11, fontWeight: 700,
-              color: streaming ? '#a98bff' : 'var(--text-muted)'
-            }
-          }, tokenLabel)
-        ),
-
-        // Message scroll area
-        h('div', {
-          ref: scrollRef,
-          style: {
-            flexGrow: 1, minHeight: 0, overflowY: 'auto', padding: '18px 20px',
-            display: 'flex', flexDirection: 'column', gap: 14, background: '#06090e'
-          }
-        },
-          messages.length === 0
-            ? h('div', {
-                style: {
-                  color: 'var(--text-muted)', fontFamily: 'var(--font-fira)',
-                  textAlign: 'center', marginTop: 48, fontSize: 13, lineHeight: 1.8
-                }
-              },
-              'Send a message to stream ', MODEL, ' through Streamdown,',
-              h('br'),
-              'or press ✨ Try it to inject the TMX demo payload.')
-            : messages.map((m, i) => m.role === 'user'
-              ? h('div', {
-                  key: i,
-                  style: {
-                    alignSelf: 'flex-end', maxWidth: '80%',
-                    background: 'rgba(169, 139, 255, 0.1)', border: '1px solid rgba(169, 139, 255, 0.4)',
-                    color: 'var(--text-main)', padding: '8px 12px',
-                    borderRadius: '12px 12px 2px 12px', fontSize: 13, whiteSpace: 'pre-wrap'
-                  }
-                }, m.content)
-              : h('div', { key: i, style: { alignSelf: 'stretch', minWidth: 0 } },
-                  h(Markdown, {
-                    text: m.content,
-                    animating: streaming && i === messages.length - 1
-                  })
-                )
-            ),
-          error
-            ? h('div', {
-                style: {
-                  border: '1px solid rgba(248, 81, 73, 0.5)', background: 'rgba(248, 81, 73, 0.08)',
-                  color: '#ff7b72', borderRadius: 10, padding: '10px 12px',
-                  fontFamily: 'var(--font-fira)', fontSize: 12, whiteSpace: 'pre-wrap'
-                }
-              }, '⚠ ', error)
-            : null
-        ),
-
-        // Input bar
-        h('div', {
-          style: {
-            display: 'flex', gap: 8, padding: '12px 20px',
-            borderTop: '1px solid #30363d', background: 'rgba(22, 27, 34, 0.5)', flexShrink: 0
-          }
-        },
-          h('input', {
-            value: input,
-            placeholder: 'Message ' + MODEL + ' … (streams back as SSE)',
-            disabled: streaming,
-            onChange: (e) => setInput(e.target.value),
-            onKeyDown: (e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-            },
-            style: {
-              flexGrow: 1, minWidth: 0, background: '#06090e', border: '1px solid #30363d',
-              color: 'var(--text-main)', borderRadius: 10, padding: '10px 14px',
-              fontSize: 13, fontFamily: 'var(--font-inter)', outline: 'none'
-            }
-          }),
-          h('button', { onClick: tryIt, disabled: streaming, style: btnGhost }, '✨ Try it'),
-          h('button', {
-            onClick: send,
-            disabled: streaming || !input.trim(),
-            style: Object.assign({}, btnPrimary, {
-              opacity: (streaming || !input.trim()) ? 0.5 : 1,
-              cursor: (streaming || !input.trim()) ? 'default' : 'pointer'
-            })
-          }, streaming ? 'Streaming…' : 'Send ⚡')
-        )
-      );
-    }
-
-    const rootEl = document.getElementById('streamdown-root');
-    if (rootEl) {
-      createRoot(rootEl).render(h(App));
-    }
-  </script>
+  <script src="/companion.js"></script>
+  <script type="module" src="/web/island/companion-chat.js"></script>
 </body>
 </html>

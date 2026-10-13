@@ -26,6 +26,11 @@ export function useFocus(): FocusApi {
   return api;
 }
 
+/** R4 (H98): the focus stack when there is one (the v1 App); null where a screen runs on its own (the monitor's setup). */
+export function useFocusOptional(): FocusApi | null {
+  return useContext(FocusContext);
+}
+
 export function FocusProvider({ children }: { children: React.ReactNode }) {
   const [stack, setStack] = useState<string[]>(['nav']);
   const handlers = useRef(new Map<string, KeyHandler>());

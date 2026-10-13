@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { glyphSet } from '../src/term/glyphs.js';
-import { COMMANDS, runSlash, type ReplContext, type ThemeInfo } from '../src/repl/commands.js';
+import { COMMANDS, runSlash, type ReplContext, type ThemeInfo, GROUPS, GROUP_LABEL } from '../src/repl/commands.js';
+import { needsPerson } from '../src/ops/act.js';
+import { SURFACES_LINE } from '../src/setup/surfaces.js';
 
 // Slash commands come from one registry, run locally, and never reach the model (playbook §17.7).
 const NIGHT_INFO: ThemeInfo = {
@@ -25,10 +27,14 @@ const ctx = (info: ThemeInfo = NIGHT_INFO) => {
 };
 
 describe('slash commands', () => {
-  it('builds /help from the registry, name then description', () => {
+  it('builds /help from the registry in sections (work, look, setup, session), name then description', () => {
     const { c, printed } = ctx();
     expect(runSlash('/help', c)).toBe('handled');
-    expect(printed).toEqual(COMMANDS.map((cmd) => `  /${cmd.name.padEnd(11)} ${cmd.description}`));
+    // R4 (H98): the three surfaces first, in one line wrapped within 60 columns (never cut)
+    const top = ['  Studio /studio · Control Room /room', '  God\'s Eye View /overview', '  the board in your browser: /board live'];
+    expect(top.map((l) => l.trim()).join(' · ')).toBe(SURFACES_LINE);
+    expect(printed).toEqual([...top, ...GROUPS.flatMap((g) => [`  ${GROUP_LABEL[g]}`, ...COMMANDS.filter((cmd) => cmd.group === g).map((cmd) => `  /${cmd.name.padEnd(11)} ${cmd.description}`)])]);
+    expect(COMMANDS.every((cmd) => GROUPS.includes(cmd.group))).toBe(true);
   });
   it('answers an unknown command locally and suggests the nearest one', () => {
     const { c, printed } = ctx();
@@ -47,10 +53,43 @@ describe('slash commands', () => {
   });
   // C-10: /lanes and /center from the same registry (the plan's /lanes and /cockpit; the verb is
   // `timmy center`, row 11's ruling). A missing lane says how to install it, in words, not color.
-  it('/lanes lists every lane, ready or not, and how to install a missing one', () => {
+  // R4 (H98): a lane's program on PATH is found, not checked (it used to say "ready": nothing here ran it)
+  it('/lanes lists every lane, found or not, and how to install a missing one', () => {
     const { c, printed } = ctx();
     runSlash('/lanes', c);
-    expect(printed).toEqual(['  * openhands  OpenHands - ready', '    pi         Pi - not installed: npm i -g pi-agent']);
+    expect(printed).toEqual(['  * openhands  OpenHands - found (not checked)', '    pi         Pi - not installed: npm i -g pi-agent']);
+    expect(printed.join('\n')).not.toMatch(/\bready\b|available/);
+  });
+  // R4 (H98): Timmy Studio is Timmy Canvas: /studio takes /canvas open's own path (a FAKE canvas view records what it is asked)
+  it('/studio opens Timmy Studio by /canvas open\'s path; /canvas stays', async () => {
+    const { c, printed } = ctx();
+    const asked: string[] = [];
+    const canvas = async (args: string) => { asked.push(args); return [[{ text: `  canvas ${args || '(state)'}` }]]; };
+    await runSlash('/canvas open', { ...c, canvas });
+    await runSlash('/studio', { ...c, canvas });
+    await runSlash('/studio open', { ...c, canvas });
+    await runSlash('/canvas', { ...c, canvas });
+    expect(asked).toEqual(['open', 'open', 'open', '']);
+    expect(printed).toEqual(['  canvas open', '  Timmy Studio (Timmy Canvas), as /canvas open:', '  canvas open', '  Timmy Studio (Timmy Canvas), as /canvas open:', '  canvas open', '  canvas (state)']);
+    printed.length = 0;
+    runSlash('/studio a tray', { ...c, canvas });
+    expect(asked).toHaveLength(4);
+    expect(printed).toEqual(['  Usage: /studio (opens Timmy Studio, as /canvas open; /canvas: its state)']);
+    printed.length = 0;
+    await runSlash('/studio', c);
+    expect(printed).toEqual(['  Timmy Studio (Timmy Canvas) is not available here.']);
+  });
+  // R4 (H98): /setup hands its words to the setup (/setup key), and waits for the guided setup when it asks (a FAKE setup)
+  it('/setup passes its words on, and prints what a setup that waits returns', async () => {
+    const { c, printed } = ctx();
+    const asked: string[] = [];
+    const setup = async (args: string) => { asked.push(args); return [[{ text: `  set up ${args || '(all)'}` }]]; };
+    const ran = runSlash('/setup key', { ...c, setup });
+    expect(ran).toBeInstanceOf(Promise);
+    expect(await ran).toBe('handled');
+    await runSlash('/setup', { ...c, setup });
+    expect(asked).toEqual(['key', '']);
+    expect(printed).toEqual(['  set up key', '  set up (all)']);
   });
   it('/center opens the cockpit and says where', () => {
     const { c, printed } = ctx();
@@ -66,6 +105,15 @@ describe('slash commands', () => {
     expect([state.model, state.sessions]).toEqual(['openai/gpt-5.5', 1]);
     expect(runSlash('/exit', c)).toBe('exit');
   });
+  it('R4 (H88; r23): /quit is /exit, and /help says so (it was unknown, and suggested /edit)', () => {
+    const { c, printed } = ctx();
+    expect(runSlash('/quit', c)).toBe('exit');
+    expect(printed).toEqual([]);
+    const help: string[] = [];
+    runSlash('/help', { ...c, print: (seg) => help.push(seg.map((x) => x.text).join('')) });
+    expect(help).toContain('  /exit        Quit Timmy (/quit does the same)');
+    expect(needsPerson('/quit')).toBe('/quit ends the REPL');
+  });
 });
 
 describe('cockpit commands', () => {
@@ -76,7 +124,7 @@ describe('cockpit commands', () => {
       '  Palette    TIMMY_PALETTE=night',
       '  Measured   ground #000000 - secondary white (37) - input tint 48;2;31;31;31',
       '  Meanings   verified green - estimate yellow - failure red - model violet',
-      '  Themes     /pkg/assets/themes (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)',
+      '  Themes     /pkg/assets/themes (Homebrew, Night, Day: timmy theme install)',
     ]);
   });
   // Fourth order, step 2 (readability): a meaning with no color here is named, with why, and the fallback
@@ -94,7 +142,7 @@ describe('cockpit commands', () => {
     runSlash('/theme', c);
     expect(printed.slice(2, 4)).toEqual([
       '  Meanings   no color: the terminal did not say its background, so marks and words carry them',
-      '  For color  timmy theme install, then TIMMY_PALETTE=night or day',
+      '  For color  timmy theme install, then TIMMY_PALETTE=homebrew (or night, day)',
     ]);
   });
   it('/theme says when color is off altogether', () => {

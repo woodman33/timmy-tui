@@ -31,7 +31,18 @@ describe('Timmy Canvas loads nothing from another host', () => {
   it("the page's code imports packages, never an address", () => {
     const code = readFileSync(join(page, 'src', 'canvas.js'), 'utf8');
     const imports = [...code.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css']);
+    // R4 (H55): and the page's own Project panel, a file beside it that imports nothing.
+    // R4 (H75): and the drawn cards, a file beside it that imports nothing either (canvas.js hands it React and tldraw).
+    // R4 (H109): and the side panel's Run detail, a file beside it that imports nothing.
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js']);
+    // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing
+    for (const file of ['project.js', 'cards.js', 'operations.js', 'run-detail.js']) {
+      const own = readFileSync(join(page, 'src', file), 'utf8');
+      const sources = [...own.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);
+      expect(sources, file).toEqual(file === 'operations.js' || file === 'run-detail.js' ? [] : ['./operations.js']);
+      expect([...own.matchAll(/^import\b/gm)].length, `${file}: every import is one of those`).toBe(sources.length);
+      expect(own, file).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
+    }
   });
   it('pins tldraw and its assets at the version Timmy names, as build-time dependencies only', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, Record<string, string>>;

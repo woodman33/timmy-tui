@@ -4,7 +4,7 @@ import { useFocus, panelMayAct } from '../hooks/useKeyDispatcher.js';
 import { theme } from '../theme.js';
 import { Card, SectionRule, Metric, HashChip, Pill } from '../ui/index.js';
 import { edgeUrlOrNull, inertEdgeUrl } from '../../utils/edge-host.js';
-import { exec } from 'child_process';
+import { copyToClipboard, openExternal } from '../../utils/external-open.js';
 import { getResponsiveLayout } from '../utils/responsive.js';
 
 interface ModelExplorerPanelProps {
@@ -109,10 +109,10 @@ export function ModelExplorerPanel({ agent, setInspector, focusArea = 'stage' }:
 
       if (btn.key === 'open') {
         setOutputLog(`✓ Opened receipt file: ${latestReceipt.receiptPath}`);
-        exec(`open "${latestReceipt.receiptPath}" 2>/dev/null || true`, {}, () => {});
+        openExternal(latestReceipt.receiptPath); // R4 lead: as an argument, never a shell string
       } else if (btn.key === 'copy') {
         setOutputLog(`✓ Manifest hash copied/displayed: ${latestReceipt.manifestHash}`);
-        exec(`echo "${latestReceipt.manifestHash}" | pbcopy 2>/dev/null || true`, {}, () => {});
+        copyToClipboard(latestReceipt.manifestHash);
         setCopiedFlash(true);
         setTimeout(() => setCopiedFlash(false), 1500);
       } else if (btn.key === 'toggle_raw') {

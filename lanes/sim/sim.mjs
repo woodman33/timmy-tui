@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // THE SHIP v0 — story simulator (mindship-v5c2 step 6).
 //
-//   timmy sim run    --board companion/boards/ship.story.json [--turns N] [--sim-model m] [--actor-model m | --free]
+//   timmy sim run    --board companion/boards/ship.story.json [--turns N] [--sim-model m] [--actor-model m]
+//                    [--free --sim-model <a free model, its id ending in :free>]
 //                    [--layers all|L1] [--project ship] [--dry] [--no-seal]
 //   timmy sim replay <run-id | path/to/run.jsonl> [--store <root receipts dir>]
 //   timmy sim export [--out lanes/sim/datasets/behavior-v0.jsonl] [--no-seal]
@@ -10,6 +11,11 @@
 // Rules the lane enforces:
 //   · the SIMULATOR model narrates and referees; it is never an actor, and it
 //     must differ from every actor model (refused otherwise)
+//   · R4 (H103): --free is a strict free-model policy for the whole run: the
+//     actors AND the simulator on free models (openrouter/free, or an id ending
+//     in :free); a model whose price is not known to be zero is refused before
+//     anything is sent, never called. The run's header and footer say both
+//     models and the policy
 //   · every turn seals ONE sim.turn receipt in the root store carrying
 //     asked / known / did / stakes / model (hashes + previews; the texts live
 //     in the run's JSONL beside the receipts index)
@@ -137,6 +143,8 @@ function askedFor(ch, known) {
 
 /** structured-outputs + response-healing-plugin: the referee's JSON is a contract, healed server-side when malformed (firstJson stays as the last resort). */
 const REFEREE_CONTRACT = { response_format: { type: 'json_object' }, plugins: [{ id: 'response-healing' }] };
+/** R4 (H103): under --free, no plugin: its price is not known here, and --free sends nothing whose price is not known (firstJson reads the JSON, and an unparsed answer is kept as narration). */
+const REFEREE_FREE = { response_format: { type: 'json_object' } };
 
 function refereePrompt(board, world, ch, did) {
   return [
@@ -176,7 +184,7 @@ async function runLayer(ctx, board, layerId, order, turns, opening, parent) {
     const actor = DRY ? dryActor(ch, world) : await openrouter(models.actor, [{ role: 'system', content: 'You play one character in a story simulation. Stay in character.' }, { role: 'user', content: asked }], 300);
     const did = actor.content.trim();
     const stakesBefore = stakesMap(world);
-    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700, REFEREE_CONTRACT);
+    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700, ctx.referee);
     const outcome = firstJson(ref.content) ?? { narration: ref.content.slice(0, 300), unparsed: true };
     applyOutcome(world, outcome);
     const stakesAfter = stakesMap(world);
@@ -214,20 +222,40 @@ async function run() {
   const boardText = readFileSync(boardPath, 'utf8');
   const board = JSON.parse(boardText);
   if (board.kind !== 'story') { console.error(`board kind must be story, got ${board.kind}`); process.exit(2); }
-  // free-models-router: --free puts the actors on openrouter/free (the $0 tier) for rehearsal runs; the simulator stays paid
-  const models = { sim: flag('--sim-model', board.simulator?.model ?? 'x-ai/grok-4.6'), actor: has('--free') ? 'openrouter/free' : flag('--actor-model', board.actors?.model ?? 'google/gemini-3.7-flash') };
+  // free-models-router. R4 (H103): --free is a strict free-model policy for the whole run, the simulator's included (it put
+  // only the actors on openrouter/free and left the simulator on a paid model): the actors on openrouter/free (or a :free
+  // model), the simulator on a free model of its own, which --sim-model names; a model not known to be free is refused here,
+  // before anything is sent, never called. Without --free the board's models (paid) as before.
+  const FREE = has('--free');
+  const freeModel = (m) => m === 'openrouter/free' || /^[\w.-]+\/[\w.:-]+:free$/.test(m);
+  const refuse = (words) => { console.error(`refusing: ${words} Nothing was sent to any model.`); process.exit(3); };
+  let models;
+  if (FREE) {
+    const actor = flag('--actor-model', 'openrouter/free');
+    const sim = flag('--sim-model');
+    if (!freeModel(actor)) refuse(`--free: the actor model ${actor} is not a free one (openrouter/free, or an id ending in :free).`);
+    if (!sim) refuse('--free covers the simulator too: give it a free model of its own with --sim-model <id ending in :free>, different from the actors\' ' + actor + '.');
+    if (!freeModel(sim)) refuse(`--free: the simulator model ${sim} is not a free one (an id ending in :free), so it may be paid.`);
+    models = { sim, actor };
+  } else {
+    models = { sim: flag('--sim-model', board.simulator?.model ?? 'x-ai/grok-4.6'), actor: flag('--actor-model', board.actors?.model ?? 'google/gemini-3.7-flash') };
+  }
   if (models.sim === models.actor) { console.error(`refusing: simulator model (${models.sim}) must differ from the actor model`); process.exit(3); }
+  // what the run says of its models: the ones that answer (dry/… in a scripted run), the ones the flags chose, and the policy
+  const policy = FREE ? 'free models only' : 'paid models allowed';
+  const said = { models: DRY ? { sim: 'dry/sim', actor: 'dry/actor' } : models, chosen: models, policy };
   const turns = Number(flag('--turns', board.seed.max_turns ?? 4));
   const runId = `sim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   mkdirSync(RUNS, { recursive: true });
   const file = join(RUNS, `${runId}.jsonl`);
   const store = rootStore();
-  const ctx = { models, runId, file, store, boardSha: sha(boardText), turnCounter: 1, noSeal: has('--no-seal'), layers: flag('--layers', 'all') };
-  writeFileSync(file, JSON.stringify({ header: true, run: runId, board: boardPath.replace(ROOT + '/', ''), board_sha256: ctx.boardSha, name: board.name, layers: board.layers.map((l) => l.id), models: DRY ? { sim: 'dry/sim', actor: 'dry/actor' } : models, dry: DRY, started: new Date().toISOString(), store }) + '\n');
-  console.error(`run ${runId} · ${board.name} · sim ${DRY ? 'dry/sim' : models.sim} · actors ${DRY ? 'dry/actor' : models.actor}`);
+  const ctx = { models, runId, file, store, boardSha: sha(boardText), turnCounter: 1, noSeal: has('--no-seal'), layers: flag('--layers', 'all'), referee: FREE ? REFEREE_FREE : REFEREE_CONTRACT };
+  writeFileSync(file, JSON.stringify({ header: true, run: runId, board: boardPath.replace(ROOT + '/', ''), board_sha256: ctx.boardSha, name: board.name, layers: board.layers.map((l) => l.id), ...said, dry: DRY, started: new Date().toISOString(), store }) + '\n');
+  const named = (who) => (DRY ? `dry/${who} (a live run: ${models[who]})` : models[who]);
+  console.error(`run ${runId} · ${board.name} · ${policy} · sim ${named('sim')} · actors ${named('actor')}`);
   const sealed = await runLayer(ctx, board, 'L1', board.seed.turn_order, turns, board.seed.opening, null);
   const usd = sealed.reduce((a, s) => a + s.usd, 0);
-  const summary = { run: runId, file: file.replace(ROOT + '/', ''), turns: sealed.length, layers: [...new Set(sealed.map((s) => s.layer))], usd: Number(usd.toFixed(6)), receipts: sealed.map((s) => s.receipt), nested_cite: sealed.find((s) => s.layer !== 'L1')?.parent_turn ?? null, models: DRY ? { sim: 'dry/sim', actor: 'dry/actor' } : models, dry: DRY };
+  const summary = { run: runId, file: file.replace(ROOT + '/', ''), turns: sealed.length, layers: [...new Set(sealed.map((s) => s.layer))], usd: Number(usd.toFixed(6)), receipts: sealed.map((s) => s.receipt), nested_cite: sealed.find((s) => s.layer !== 'L1')?.parent_turn ?? null, ...said, dry: DRY };
   appendFileSync(file, JSON.stringify({ footer: true, ...summary, finished: new Date().toISOString() }) + '\n');
   const project = flag('--project');
   if (project) {

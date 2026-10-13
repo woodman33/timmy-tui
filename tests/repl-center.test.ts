@@ -43,6 +43,19 @@ describe('timmy center routes', () => {
     expect(p.layout).toContain('"Monitor" "/usr/bin/node" "--import" "tsx" "/pkg/src/cli.ts" "watch"');
     expect(p.layout).toContain('"Events" "/usr/bin/node" "--import" "tsx" "/pkg/src/cli.ts" "events" "--follow" "--human"');
   });
+  it('picks Timmy Homebrew under TIMMY_PALETTE=homebrew, and follows the terminal to Day in light mode', () => {
+    const p = planCenter(inputs({ env: { TIMMY_PALETTE: 'homebrew' } }));
+    expect(seq(p.args, ['--theme', 'timmy-homebrew'])).toBe(true);
+    expect(seq(p.args, ['--theme-dark', 'timmy-homebrew', '--theme-light', 'timmy-day'])).toBe(true);
+    // On a zellij too old for dark and light switching the theme stays fixed.
+    const old = planCenter(inputs({ env: { TIMMY_PALETTE: 'homebrew' }, zellijVersion: [0, 43, 1] }));
+    expect(seq(old.args, ['--theme', 'timmy-homebrew'])).toBe(true);
+    expect(old.args).not.toContain('--theme-dark');
+    // The other palettes are as they were.
+    expect(seq(planCenter(inputs({ env: { TIMMY_PALETTE: 'night' } })).args, ['--theme', 'timmy-night'])).toBe(true);
+    expect(seq(planCenter(inputs({ env: { TIMMY_PALETTE: 'day' } })).args, ['--theme', 'timmy-day'])).toBe(true);
+    expect(seq(planCenter(inputs({ env: {} })).args, ['--theme', 'timmy-night'])).toBe(true);
+  });
   it('keeps a fixed Timmy theme on a zellij too old for dark and light switching (before 0.44.2)', () => {
     const args = planCenter(inputs({ zellijVersion: [0, 43, 1] })).args;
     expect(args).toContain('--theme');

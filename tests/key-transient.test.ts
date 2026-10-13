@@ -6,7 +6,7 @@
 // already existed with wider permissions. A synthetic key is made at run time and never printed.
 import { describe, expect, it, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -86,15 +86,25 @@ describe('the environment model key stays transient', () => {
     expect(mode(h.settings)).toBe('600');
   });
 
-  it('saves a key on purpose only through saveApiKey, 0600, over a file that was 0644', () => {
+  // R4 (H98, journey-2): one place holds the key: saveApiKey keeps it in providers.json (the Timmy home's, 0600) and takes
+  // a key an older version left in the settings file out of it; loadConfig then uses the new one.
+  it('saves a key on purpose only through saveApiKey: in providers.json 0600 (over a file that was 0644), never the settings', () => {
     const h = home();
     const typed = synthetic();
+    const old = synthetic();
     mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
-    writeFileSync(h.settings, JSON.stringify({ model: 'x/y' }), { mode: 0o644 });
+    writeFileSync(h.settings, JSON.stringify({ model: 'x/y', apiKey: old }), { mode: 0o644 });
     chmodSync(h.settings, 0o644);
-    const seen = probe(h, typed, ['save-api-key']);
-    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', exists: true, holds: true, mode: '600' });
-    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ model: 'x/y', apiKey: typed });
+    const providers = join(h.root, 'home', 'timmy', 'providers.json');
+    mkdirSync(join(h.root, 'home', 'timmy'), { recursive: true });
+    writeFileSync(providers, JSON.stringify({ ollama_host: 'http://127.0.0.1:11434' }), { mode: 0o644 });
+    chmodSync(providers, 0o644);
+    const seen = probe(h, typed, ['save-api-key', 'load']);
+    expect(seen.find((s) => s.step === 'save-api-key')).toMatchObject({ exists: true, holds: false, mode: '600' });
+    expect(seen.find((s) => s.step === 'load')?.used).toBe(true);
+    expect(JSON.parse(readFileSync(providers, 'utf8'))).toEqual({ ollama_host: 'http://127.0.0.1:11434', openrouter_api_key: typed });
+    expect(mode(providers)).toBe('600');
+    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ model: 'x/y', apiKey: '' });
   });
 
   // The review (row 104, finding 4): conf rewrites the file only when its contents change, and under SNAP or
@@ -112,14 +122,19 @@ describe('the environment model key stays transient', () => {
     expect(readFileSync(h.settings, 'utf8')).toBe(bytes);
   });
 
-  it('keeps a deliberate save 0600 when conf falls back to a plain write (SNAP)', () => {
+  it('keeps the files of a deliberate save 0600 when conf falls back to a plain write (SNAP)', () => {
     const h = home();
     const typed = synthetic();
+    const old = synthetic();
     mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
-    writeFileSync(h.settings, JSON.stringify({ apiKey: '', ...FULL }, null, '\t'), { mode: 0o644 });
+    writeFileSync(h.settings, JSON.stringify({ apiKey: old, ...FULL }, null, '\t'), { mode: 0o644 });
     chmodSync(h.settings, 0o644);
     const seen = probe(h, typed, ['save-api-key'], { SNAP: '/snap/node/1' });
-    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', holds: true, mode: '600' });
+    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', holds: false, mode: '600' });
+    expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ apiKey: '' });
+    const providers = join(h.root, 'home', 'timmy', 'providers.json');
+    expect(JSON.parse(readFileSync(providers, 'utf8'))).toEqual({ openrouter_api_key: typed });
+    expect(mode(providers)).toBe('600');
   });
 
   it('writes a fresh settings file 0600 even with no key anywhere', () => {
@@ -134,17 +149,23 @@ describe("timmy init's private files are private", () => {
   const before = Object.fromEntries(vars.map((v) => [v, process.env[v]]));
   afterEach(() => { for (const v of vars) { if (before[v] === undefined) delete process.env[v]; else process.env[v] = before[v]; } });
 
-  it('rewrites providers.json and identity.seed 0600 when they already existed 0644', () => {
+  // R4 (H98): an identity.seed left without its identity.json is the home's key: kept byte for byte (never replaced) and
+  // narrowed to 0600; providers.json is rewritten 0600 as before. The seed is a key made by this test at run time.
+  it('rewrites providers.json 0600 and narrows a kept identity.seed to 0600 when they already existed 0644', () => {
     const h = home();
     const key = synthetic();
     const timmy = join(h.root, 'home', 'timmy');
     mkdirSync(timmy, { recursive: true });
-    for (const f of ['providers.json', 'identity.seed']) { writeFileSync(join(timmy, f), 'old\n', { mode: 0o644 }); chmodSync(join(timmy, f), 0o644); }
+    const seed = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string;
+    writeFileSync(join(timmy, 'providers.json'), 'old\n', { mode: 0o644 });
+    writeFileSync(join(timmy, 'identity.seed'), seed, { mode: 0o644 });
+    for (const f of ['providers.json', 'identity.seed']) chmodSync(join(timmy, f), 0o644);
     process.env.TIMMY_HOME = timmy;
     process.env.TIMMY_PRIVATE_DIR = join(h.root, 'work', '.timmy', 'private');
     process.env.TIMMY_REPO_ROOT = join(h.root, 'work');
-    applyInit({ operator: 'tester', project: 'p', seed: 'generate', openrouter: key }, join(h.root, 'work'));
+    const r = applyInit({ operator: 'tester', project: 'p', openrouter: key }, join(h.root, 'work'));
     expect(readFileSync(join(timmy, 'providers.json'), 'utf8').includes(key)).toBe(true);
+    expect({ kept: readFileSync(join(timmy, 'identity.seed'), 'utf8') === seed, source: r.identity_source }).toEqual({ kept: true, source: 'kept' });
     expect(['providers.json', 'identity.seed'].map((f) => [f, mode(join(timmy, f))])).toEqual([['providers.json', '600'], ['identity.seed', '600']]);
     expect(existsSync(join(h.root, 'work', '.timmy', 'private', 'config.json'))).toBe(true);
     expect(mode(join(h.root, 'work', '.timmy', 'private', 'config.json'))).toBe('600');

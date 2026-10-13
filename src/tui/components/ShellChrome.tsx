@@ -22,8 +22,10 @@ export function modeBadgeStyle(mode: ShellMode): { inverse: true; bold: boolean 
   return { inverse: true, bold: mode !== 'NORMAL' };
 }
 
-export function ShellFooter({ mode, tab, chainOk, chainEvidence, chainCount, busLive, width = 120, model }: {
+export function ShellFooter({ mode, tab, chainOk, chainEvidence, chainCount, busLive, width = 120, model, qLabel }: {
   mode: ShellMode; tab: ShellTab; chainOk: boolean; chainEvidence?: EvidenceState | 'refused'; chainCount: number; busLive: boolean; width?: number; model?: string;
+  /** R4 (H98): what q on HOME shows: the companion's address, or its QR code (with --lan) */
+  qLabel?: 'address' | 'QR';
 }) {
   const badge = modeBadgeStyle(mode);
   const badgeSeg = ` ${mode} `;
@@ -35,7 +37,7 @@ export function ShellFooter({ mode, tab, chainOk, chainEvidence, chainCount, bus
   const chainSeg = `  chain ${evidenceGlyph(ev)} ${chainCount}`;
   const busSeg = `  bus ${busLive ? LIVE.on : LIVE.off}`;
   const budget = width - (badgeSeg.length + tabSeg.length + chainSeg.length + busSeg.length);
-  const tokens = footerHintsShellShort(mode, tab).split('  ');
+  const tokens = footerHintsShellShort(mode, tab, { q: qLabel }).split('  ');
   const kept: string[] = [];
   let used = 0;
   for (const t of tokens) {

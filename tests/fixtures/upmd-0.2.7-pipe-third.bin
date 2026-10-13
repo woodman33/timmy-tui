@@ -1,0 +1,9 @@
+==> first [block 1]
+first says hello
+first done
+<== first exited with code 0
+Block 2 failed - stopping dependency chain
+==> second [block 2]
+second starts
+second fails
+<== second exited with code 3

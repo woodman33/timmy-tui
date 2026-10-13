@@ -1,0 +1,5 @@
+/* Timmy Homebrew (src/theme/tokens.ts): black ground, off-white text, Homebrew green for the one accent. */
+:root { color-scheme: dark; }
+body { margin: 0; padding: 3rem 1.5rem; background: #000000; color: #E8E6E1; font: 16px/1.6 "Monaspace Argon", ui-monospace, Menlo, monospace; }
+h1 { margin: 0 0 1rem; color: #28FE14; font-weight: 600; }
+p { color: #BDBDB8; }

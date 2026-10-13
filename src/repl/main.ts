@@ -2,41 +2,63 @@
  * `timmy repl`: the inline REPL (DESIGN.md §10 B1). One turn, one column: the block input, then the
  * agent's turn rendered inline, then the input again. `--demo` drives the same renderer with a script.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { emitKeypressEvents, type Key } from 'node:readline';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
+import { chatRouteNow, fallbackRoute, localModelCommand, localRouteWords, prepareLocal, refusalSegments, resolveChatRoute, sealedRoute, type ChatRoute, type RouteNow } from '../agent/chat-route.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
-import { readChain, verifyChain } from '../utils/receipts.js';
-import { identityPath } from '../utils/init.js';
+import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
+import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
+import { pendingQuestions, readSetupState, setupSummary, type Answers, type QuestionId } from '../setup/questions.js';
+import { prettyPath, settingsFile } from '../setup/home.js';
+import { surfacesSegments } from '../setup/surfaces.js';
+import { terminalIO, wrap } from '../setup/terminal.js';
 import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
 import { editExternally } from './external-editor.js';
 import { listLanes } from '../utils/dispatch.js';
-import { currentCapabilities, type TerminalCapabilities } from '../term/capabilities.js';
+import { currentCapabilities, liveSize, type TerminalCapabilities } from '../term/capabilities.js';
 import { LiveRegion } from '../term/live-region.js';
-import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
+import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
-import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
+import { buildTheme, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
+import { wrapSegments } from './notice-wrap.js';
 import { DEMO_LOADER, DEMO_TURN, type DemoStep } from './demo.js';
 import { hyperlink, OSC133 } from '../term/marks.js';
-import { gateTools, readDecision } from './approvals.js';
+import { gateTools, readDecision, type ApprovalRequest, type Decision } from './approvals.js';
 import { COMMANDS, runSlash, type ReceiptsView, type ReplContext, type ThemeInfo } from './commands.js';
 import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
-import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
-import { Transcript } from './transcript.js';
+import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './turn.js';
+import { projectTurn } from '../agent/chat-turn.js';
+import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
-import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
-import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../agent/canvas-tools.js';
-import { STUDIO_PORT } from '../studio/config.js';
-import { ensureStudioServer } from '../studio/server.js';
+import { openWebView, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasAuth, type CanvasJobResult } from '../agent/canvas-tools.js';
+import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
+import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
+import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
+import { createNativeTools, type NativeToolOptions } from '../agent/native-tools.js';
+import { createRecipeTools, type RecipeToolOptions } from '../agent/recipe-tools.js';
+import { createIterateTools, type IterateToolOptions } from '../agent/iterate-tools.js';
+import { folderProject, projectId } from '../project/index.js';
+import { Workspace } from './workspace.js';
+import { studioBaseUrl, studioPort } from '../studio/config.js';
+import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
+import { studioHealth } from '../studio/health.js';
+import { canvasView } from './canvas-view.js';
+// Round R4 (H55): the canvas shows this REPL's project (named to it), and /canvas and the board say whether it does.
+import { CanvasProject } from './canvas-project.js';
+import { capabilities } from '../capabilities/index.js';
+import { liveDeps } from '../capabilities/live.js';
+import { toolsView } from '../capabilities/render.js';
 
 export interface ReplFlags {
   demo?: boolean;
@@ -120,19 +142,59 @@ export const REPL_INSTRUCTIONS = [
   'Verify with tools before you report a result, and say plainly what you could not verify.',
   'Finish the task instead of asking whether to continue.',
   'Never claim a receipt, a signature or a verification that a tool did not return.',
+  'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
+  'Images in the project (files the operator added with /add are under refs/): observe_image measures them with OpenCV (numbers, not what they show); describe_image asks an image-capable model, costs money and asks first; report its answer as the model\'s claim.',
+  'run_native starts Cinema 4D (c4dpy, a Python script), After Effects (aerender renders an existing project; afterfx runs a .jsx inside After Effects, whose window opens, to author a new project, edit a new version of one or inspect one), Blender (its own Python, headless: an editable .blend and a render), OpenSCAD (openscad: a .scad model exported to a binary STL with -D parameters, the STL read back by Timmy\'s own reader) or FreeCAD (freecadcmd, headless: a part saved as an editable .FCStd and exported as STEP) as a background job and returns its id at once: it is not finished when you get the id; it is judged by its own result file (OpenSCAD: its exit, the STL it writes and that readback), never by its exit code alone.',
+  // R4 (H64): app illustrator (src/native/illustrator.ts), said as carefully as afterfx.
+  'run_native with app illustrator runs a .jsx inside Adobe Illustrator through osascript on macOS (its window opens; macOS may ask the operator to allow Automation, which stays the operator\'s): mode author draws on a new document saved as out/illustrator/<name>-v<N>.ai with SVG and PDF exports, edit saves the next version of one, inspect has Illustrator read one back; it is asked every time, returns a job id at once, and nothing is made until the job is judged; Timmy then reads the SVG export itself and compares it with Illustrator\'s report.',
+  'run_recipe starts the CadQuery enclosure-tray recipe (enclosure.tray/1, millimetres) as a durable background job and returns its job id and UUID at once: it is not built when you get them; its exports reach out/recipes/ only after its signed result verifies.',
+  'iterate_recipe has a local, free code agent change the tray\'s parameter file from an instruction, then rebuilds and reads the STEP back; it returns a flow id at once: nothing is rebuilt or measured when you get it.',
+  // R4 (H40): iterate_native (src/agent/iterate-tools.ts), said with the same care as iterate_recipe.
+  'iterate_native does the same for an OpenSCAD model (app openscad: the agent may change only the values in the model\'s <model>.params.json; OpenSCAD then exports an STL that Timmy reads back) or a FreeCAD script (app freecad: the agent may change only that script; FreeCAD then runs it and its STEP is read back); it returns a flow id at once: nothing is built or measured when you get it.',
+  'MCP servers: list_mcp_tools shows the routes and the servers configured on this machine without starting any; list_mcp_command_tools lists one server\'s tools (a configured one by its exact name, or a command) and asks first; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
 const tildify = (path: string): string => {
   const home = homedir();
-  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  // The working folder is a real path, so a home reached through a link (macOS /tmp) is matched by its real path too.
+  let real = home;
+  try {
+    real = realpathSync(home);
+  } catch {
+    // An unreadable home: compare with it as given.
+  }
+  const base = [home, real].find((h) => path === h || path.startsWith(`${h}/`));
+  return base ? `~${path.slice(base.length)}` : path;
 };
+
+/**
+ * R4 (H40): the agent's MCP tools in the REPL work in the active project (asked at each call, so /project moves them)
+ * and put its name on each call's record and receipt (src/agent/mcp-tools.ts); their seal is that file's default, the
+ * runs chain through appendReceipt, as the REPL's own.
+ */
+export function replMcpOptions(active: () => { root: string; project: { name: string } }): McpToolOptions {
+  return { cwd: () => active().root, project: () => active().project.name };
+}
 
 /**
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob): typeof defaultTools {
-  return [...defaultTools, ...createCanvasTools({ job })];
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions; recipe?: RecipeToolOptions; iterate?: IterateToolOptions; canvas?: () => CanvasAuth | null } = {}): typeof defaultTools {
+  // The project tools' typed schemas are narrower than the shared tool list's element type.
+  const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
+  // Round R2: images (OpenCV measurements; an image-capable model), MCP servers through two command-line
+  // routes, and native apps (Cinema 4D, After Effects) as background jobs.
+  const looks = createVisionTools(more.vision ?? { root: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const mcp = createMcpTools(more.mcp ?? { cwd: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const native = more.native ? createNativeTools(more.native) as unknown as typeof defaultTools : [];
+  // Round R3: the CadQuery enclosure-tray recipe as a durable job (run_recipe; the REPL's /recipe tray).
+  const recipe = more.recipe ? createRecipeTools(more.recipe) as unknown as typeof defaultTools : [];
+  // Round R4: /iterate as a tool (iterate_recipe), asked each time.
+  const iterate = more.iterate ? createIterateTools(more.iterate) as unknown as typeof defaultTools : [];
+  // R4 (H83): the canvas calls carry this REPL's token and holder id (more.canvas), or the canvas refuses them.
+  return [...defaultTools, ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -156,7 +218,9 @@ export async function runRepl(argv: string[]): Promise<number> {
   session.beforeRestore(() => region.close());
   // Into a pipe, stdout carries only the answer; steps, footers and errors go to stderr (§16.7).
   const log = process.stdout.isTTY ? undefined : new LiveRegion({ out: process.stderr, err: process.stderr }, { live: false });
-  const transcript = new Transcript(theme, region, { columns: caps.columns, rows: caps.rows, err: process.stderr, log });
+  // r21 (ledger row 163): the width and height as they are now, not as they were at the start.
+  const size = liveSize(process.stdout, caps);
+  const transcript = new Transcript(theme, region, { get columns() { return size.columns; }, get rows() { return size.rows; }, err: process.stderr, log });
   if (flags.demo || flags.demoLoader) {
     if (caps.animate) session.hideCursor();
     await play(transcript, flags.demoLoader ? DEMO_LOADER : DEMO_TURN);
@@ -166,13 +230,30 @@ export async function runRepl(argv: string[]): Promise<number> {
 
   const config = loadConfig();
   const interactive = caps.interactive && region.live && !caps.plain;
+  // R4 (H103): the chat's route, from the setup at every message (src/agent/chat-route.ts): the local model (Ollama) when the
+  // setup's chat answer is local, else OpenRouter. `sessionModel`: this REPL's /model on the local route.
+  let sessionModel: string | null = null;
+  const route = (): ChatRoute => resolveChatRoute({ env: process.env, session: sessionModel });
+  // R4 (H113): the one route of every surface (src/agent/chat-route.ts chatRouteNow), with this REPL's key and models
+  const routeNow = (): RouteNow => chatRouteNow({ env: process.env, session: sessionModel, key: Boolean(config.apiKey), openRouterModel: agent.openRouterModel(), surface: 'repl' });
+  const startRoute = route();
   // C-14: in a terminal a missing key does not end the REPL: the first run opens with the setup check,
   // which says what is missing. A pipe or a script still gets the config error (exit 78).
-  if (!config.apiKey && !interactive) {
+  if (!config.apiKey && !interactive && startRoute.kind !== 'local') {
     const fail = serialize([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }], theme);
-    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init, or export OPENROUTER_API_KEY=<your key>\n    Help: timmy repl --help\n`);
+    // R4 (H103): the local model needs no key; this chat is OpenRouter's (paid) because the setup did not choose the local one
+    process.stderr.write(`  ${fail} no model key, so Timmy cannot answer.\n    Cause: the chat is set to OpenRouter (or not set up), OPENROUTER_API_KEY is not set and timmy init stored no key.\n    Try: timmy init --chat openrouter (it asks for the key, hidden), or the local model: /setup chat in a terminal\n    Help: timmy repl --help\n`);
     session.restore();
     return EXIT.config;
+  }
+  // R4 (H103): the local route without a model, or with an address Timmy does not use: the same error, before any message
+  if (!interactive && startRoute.kind === 'local') {
+    const ready = prepareLocal(startRoute, theme.glyphs);
+    if ('refusal' in ready) {
+      process.stderr.write(`${ready.refusal.map((row) => `  ${serialize(row, theme)}`).join('\n')}\n    Or: TIMMY_CHAT_MODEL=<model> for this run\n`);
+      session.restore();
+      return EXIT.config;
+    }
   }
   const agent = createAgent(
     { apiKey: config.apiKey ?? '', model: config.model, instructions: REPL_INSTRUCTIONS, maxSteps: 10, maxCost: 1 },
@@ -180,19 +261,37 @@ export async function runRepl(argv: string[]): Promise<number> {
   );
   const approval = { active: false };
   const canvasJob = new CanvasTurnJob();
+  // R1 workspace direction: the files each turn wrote in the project, for its receipt.
+  const projectFiles = new ProjectTurnFiles();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
+  // R4 (H74): the same box asks before a /run whose blocks include a risky one (the Workspace's askPerson, at a terminal only).
+  const askNeedsYou = async (req: ApprovalRequest): Promise<Decision> => {
+    if (!interactive) {
+      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
+      return 'deny';
+    }
+    transcript.handle({ type: 'needs-you', ...req });
+    approval.active = true;
+    const decision = await readDecision(process.stdin, session, { session: req.session !== false }).finally(() => { approval.active = false; });
+    transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
+    return decision;
+  };
   agent.setTools(
-    gateTools(replTools(canvasJob), async (req) => {
-      if (!interactive) {
-        transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
-        return 'deny';
-      }
-      transcript.handle({ type: 'needs-you', ...req });
-      approval.active = true;
-      const decision = await readDecision(process.stdin, session).finally(() => { approval.active = false; });
-      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
-      return decision;
-    }),
+    gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
+      vision: {
+        // R4 (H103): describe_image asks OpenRouter, so its model is OpenRouter's whichever route answers the chat
+        root: () => workspace.root, model: () => agent.openRouterModel(),
+        observe: async (rel, question, model, opts) => { const s = await workspace.observeFile(rel, question, model, opts); return s.ok ? s.done : s; },
+      },
+      // R4 (H40): the active project's name on each call_mcp_tool record (read when the call runs; workspace is made below).
+      mcp: replMcpOptions(() => workspace),
+      native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },
+      recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
+      // iterate_recipe gives its instruction; iterate_native (R4, H33) its target, file and instruction.
+      iterate: { start: (request) => workspace.iterateForTool(request) },
+      // R4 (H83): the canvas tools' credential, asked at each call (canvasProject is made below, before any turn runs).
+      canvas: () => canvasProject.credentials(),
+    }), askNeedsYou),
   );
   const themeInfo = (): ThemeInfo => {
     const named = namedPalette(process.env.TIMMY_PALETTE);
@@ -240,44 +339,236 @@ export async function runRepl(argv: string[]): Promise<number> {
   };
   // /web studio: Timmy Canvas runs inside this REPL unless another Timmy already serves it. listen()
   // binds at once, so the viewer's first request waits in the socket's queue, never on a closed port.
-  let studio: Promise<unknown> | null = null;
-  const openWeb = (target: string, allowRemote: boolean): string => {
-    // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
-    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-    const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote });
-    if (plan.route === 'link') return `Open ${caps.cursor ? hyperlink(plan.url, plan.url, true) : plan.url} in your browser.`;
-    if (plan.route === 'refused' || !plan.command) return plan.note;
-    if (plan.route === 'tmux') {
-      // display-popup waits until the page closes; run it beside the REPL so the REPL is not held.
-      const child = spawn(plan.command, plan.args, { stdio: 'ignore', detached: true });
-      child.on('error', () => {});
-      child.unref();
-      return plan.note;
-    }
-    const r = spawnSync(plan.command, plan.args, { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
-    const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
-    return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
+  // Round R1: one address (TIMMY_STUDIO_URL, else TIMMY_STUDIO_PORT, else 4337). An address set by
+  // TIMMY_STUDIO_URL is someone else's to serve; only a server this REPL started is kept for reuse.
+  const external = Boolean(process.env.TIMMY_STUDIO_URL?.trim());
+  let owned: Promise<EnsureResult> | null = null;
+  // R4 (H55): the token of the canvas server this REPL started (it names this REPL's project there), and the link itself.
+  let ownToken: string | null = null;
+  const canvasProject = new CanvasProject({
+    base: () => studioBaseUrl(process.env), env: process.env,
+    project: () => workspace.project, projectId: (root) => projectId(root),
+    jobsDir: join(timmyHome(), 'jobs'), receipts: () => receiptsDir(),
+    board: () => workspace.liveBoard?.address ?? null, ownToken: () => ownToken,
+    // R4 (H75): the canvas's drawn cards act through this REPL, by the live board's own path.
+    act: (envelope) => workspace.canvasAct(envelope),
+  });
+  const ensureCanvas = (): Promise<EnsureResult> | null => {
+    if (external) return null;
+    owned ??= ensureStudioServer(studioPort(process.env), { env: process.env, projectTokenFile: true }).then((r) => {
+      if (r.state !== 'started') owned = null;
+      else {
+        // R4 (H55): this REPL's own canvas, as it starts, shows this REPL's project.
+        ownToken = r.server.projectToken;
+        void canvasProject.handOff().then(() => canvasProject.check());
+      }
+      return r;
+    });
+    return owned;
   };
-  const setup = (): Segment[][] => setupCheck({
+  // Round R4 (review M4): `secret` (the live board's address) keeps the address off every command line.
+  const openWeb = (target: string, allowRemote: boolean, secret = false): string => {
+    // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
+    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) void ensureCanvas();
+    return openWebView(
+      { url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote, secret },
+      { show: (url) => (caps.cursor ? hyperlink(url, url, true) : url) },
+    );
+  };
+  // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
+  // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
+  // prompt (the live region redraws what is being typed below them).
+  // R4 (H98, journey-2): a notice wider than the terminal wraps (a hanging indent), never cut: its id and reason stay whole
+  const notify = (segments: Segment[]): void => void region.commit(wrapSegments(segments, size.columns).map((row) => serialize(row, theme)));
+  const editFile = (path: string): void => {
+    const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim();
+    spawnSync('sh', ['-c', `${command} "$1"`, 'timmy-editor', path], { stdio: 'inherit' });
+  };
+  const workspace = new Workspace({
+    glyphs: theme.glyphs,
+    env: process.env,
+    onPath: (cmd) => realOnPath(cmd, process.env),
+    notify,
+    openWeb: (url, opts) => openWeb(url, false, opts?.secret === true),
+    link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
+    seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
+    jobsDir: join(timmyHome(), 'jobs'),
+    // Round R2: /observe asks the model the REPL is using whether it takes images, and uses it when it does. R4 (H103): the
+    // OpenRouter model (/observe asks OpenRouter), not a local route's Ollama model, which OpenRouter does not know.
+    model: () => agent.openRouterModel(),
+    edit: editFile,
+    tildify,
+    // Round R4 (H32): at a terminal, what an ended session left in the project is picked up as the REPL starts; a pipe never adopts it.
+    recoverAtStart: caps.interactive,
+    // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
+    onSwitch: (p) => {
+      const c = agent.useSessions(join(p.root, '.sessions'));
+      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project.
+      if (canvasProject.follows) void canvasProject.handOff();
+      return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
+    },
+    // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
+    canvas: () => canvasProject.boardLine(),
+    onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
+    // R4 (H74): a /run whose blocks include a risky one asks in this terminal's NEEDS YOU box; in a pipe it is refused
+    ...(interactive ? { askPerson: askNeedsYou } : {}),
+  }, folderProject(process.cwd()));
+  canvasProject.start();
+  // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
+  session.beforeRestore(() => workspace.killNow());
+  // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
+  const canvas = (args: string): Promise<Segment[][]> => canvasView(args, {
+    base: studioBaseUrl(process.env),
+    ensure: async () => {
+      const r = ensureCanvas();
+      if (!r) return null;
+      const done = await r;
+      return done.state === 'failed' ? { state: 'failed', error: done.error } : { state: done.state };
+    },
+    // R4 (H83): with the token, so the latest job is told
+    health: (base) => studioHealth(base, 1000, canvasProject.tokenNow()),
+    // R4 (H75): the page opens with this REPL's one-time grant in its fragment (a secret: never on a command line), so its cards can act.
+    open: () => { const t = canvasProject.openTarget(); return openWeb(t.target, false, t.secret); },
+    glyphs: theme.glyphs,
+    // R4 (H55): /canvas names the project the canvas shows; /canvas open names this REPL's project to it first.
+    project: { handOff: () => canvasProject.handOff({ grant: true }), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
+  });
+  // Round R1: /tools, every capability on the ladder, from live checks that write nothing. R4 (H76): /tools <name>, one
+  // row in full (each rung's evidence and its demonstrations on the Mac), looked for among every row.
+  const tools = async (args: string): Promise<Segment[][]> => {
+    // R4 (H81): the project's own records are read in the REPL's project now (it follows /project), never process.cwd()
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.openRouterModel(), projectRoot: workspace.root }), { all: args.trim() !== '' });
+    return toolsView(rows, args, theme.glyphs, size.columns);
+  };
+  let lastCanvas: CanvasJobResult[] = [];
+  let lastLinks: Array<Promise<{ job: string; ok: boolean }>> = [];
+  const inspect: NonNullable<TurnInspect['inspect']> = async (sealed) => {
+    const base = studioBaseUrl(process.env);
+    const started = await (ensureCanvas() ?? Promise.resolve(null));
+    const health = await studioHealth(base, 800);
+    const serving = health.state === 'running';
+    const jobs = lastCanvas;
+    const links = await Promise.all(lastLinks);
+    lastCanvas = [];
+    lastLinks = [];
+    const rows: InspectRow[] = [];
+    for (const c of jobs) {
+      // A job of lookups only changed nothing, so there is nothing of it to inspect (round R1).
+      if (c.changed === false && c.ok !== false) continue;
+      const linked = links.find((l) => l.job === c.job)?.ok;
+      const page = serving && health.pageConnected ? 'open in your browser' : '/canvas open';
+      const failed = c.ok === false ? ', failed: nothing kept' : '';
+      rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}${failed}`, url: `${base}/`, hint: linked === false ? 'not linked to its receipt on the board' : page });
+    }
+    if (sealed) {
+      const url = receiptUrl(sealed.id);
+      // The link must open this receipt: a Timmy Canvas serving another Timmy home answers, but has no
+      // such page (round R1 review). One local request with a short timeout.
+      const served = serving && (await pageAnswers(url, 800));
+      rows.push(served
+        ? { label: 'Receipt', text: url, url, hint: 'or timmy receipts' }
+        : { label: 'Receipt', text: 'timmy receipts', hint: serving ? 'the canvas here does not serve this receipt' : started?.state === 'failed' ? `no receipt page: ${started.error}` : 'the receipt page is not served' });
+    }
+    return rows;
+  };
+  const where = async (): Promise<Segment[]> => {
+    const base = studioBaseUrl(process.env);
+    const h = await studioHealth(base, 500);
+    const store = receiptsDir();
+    const rel = relative(process.cwd(), store);
+    const shownStore = rel && !rel.startsWith('..') ? rel : tildify(store);
+    const sep = ` ${theme.glyphs.sep} `;
+    const canvasNow = h.state === 'running'
+      ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}`
+      : h.state === 'other' ? `canvas port in use by another program (/canvas)` : 'canvas not running (/canvas)';
+    return [{ text: `  project ${workspace.project.name}${sep}${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
+  };
+  const check = (): Segment[][] => setupCheck({
     operator: readOperator(),
     key: Boolean(config.apiKey),
+    // R4 (H103): a chat on the local model needs no key: the check names that route (and a model not chosen yet) instead
+    ...((r) => (r.kind === 'local' ? { local: { words: localRouteWords(r).replace(/^chat: /, ''), ready: Boolean(r.model) && !('error' in r.at) } } : {}))(route()),
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
-  return replLoop({
+  // R4 (H98): /setup is the one guided setup (`timmy init`'s questions and files), asked here in this terminal while a question
+  // has no answer; then the setup check (C-14), sealed. Without a terminal it says the exact command.
+  const setup = (args: string): Promise<Segment[][]> => replSetup(args, {
+    tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    check,
+    // a key the setup stored is the chat's from now on (the header said "no model key · /setup")
+    keyChanged: () => {
+      const key = loadConfig().apiKey;
+      if (!key || key === config.apiKey) return false;
+      config.apiKey = key;
+      agent.updateApiKey(key);
+      return true;
+    },
+    // R4 (H103): a chat answer given now replaces this session's /model: the route from the next message, in words
+    chatChanged: () => {
+      sessionModel = null;
+      const r = route();
+      return r.kind === 'local' ? `The chat from your next message: ${localRouteWords(r).replace(/^chat: /, '')}.` : null;
+    },
+    // the REPL's own prompt turns bracketed paste back on; the setup's prompts read a key typed or pasted without it
+    beforeAsk: () => void (process.stdout.isTTY && process.stdout.write('\x1b[?2004l')),
+  });
+  const code = await replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter,
+    // R4 (H103): no key matters only on the OpenRouter route (the local model needs none)
+    setup, get noKey() { return !config.apiKey && route().kind !== 'local'; }, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
+    // R4 (H98): the header names the chat route in effect, and the first screen says what the setup still asks. R4 (H103):
+    // the local route's own words ("chat: local <model> · Ollama"). R4 (H113): from the one route every surface reads
+    chat: () => routeNow().state.words,
+    // R4 (H103): before each message, the route it goes by (the agent takes it up), or why it cannot go (nothing is sent).
+    // R4 (H113): the one route's refusal, in the REPL's words (its own /setup key, /setup chat and /model)
+    prepareChat: () => {
+      const now = routeNow();
+      agent.useLocalChat(now.local ?? null);
+      return now.state.ready ? null : refusalSegments(now.state.refusal ?? [], theme.glyphs);
+    },
+    // R4 (H103): /model on the local route lists what Ollama has, and switches among it for this session
+    // (on the OpenRouter route the agent leaves any local route a /setup has just ended, so the plain /model is OpenRouter's)
+    chatModel: (args) => {
+      const r = route();
+      if (r.kind !== 'local') { agent.useLocalChat(null); return null; }
+      return localModelCommand(args, r, { set: (m) => { sessionModel = m; }, glyphs: theme.glyphs });
+    },
+    setupState: () => { const s = readSetupState(); return { pending: pendingQuestions(s).length, blank: !s.identity.exists }; },
+    // R4 (H113): each chat turn continues the active project's one conversation, shared with the other surfaces
+    project: () => ({ name: workspace.project.name, root: workspace.root }),
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
-      const canvas = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas.length ? { canvas } : {}) });
-      studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-      for (const c of canvas) void linkCanvasReceipt(c.job, sealed.id);
+      const jobs = canvasJob.close();
+      // R4 (H103): a turn on the local route seals where it went (via ollama, its host, tools on or off, the cost's basis);
+      // R4 lead (H103's open item): so does a turn the last-resort fallback answered after OpenRouter failed
+      const local = agent.localChatRoute();
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}), ...(local ? { route: sealedRoute(local, agent.lastLocalTurn()) } : agent.lastFallback() ? { route: fallbackRoute(agent.lastFallback()!) } : {}) });
+      void ensureCanvas();
+      // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
+      lastCanvas = jobs;
+      // R4 (H83): the link is a write, with the canvas server's token
+      lastLinks = jobs.map((c) => linkCanvasReceipt(c.job, sealed.id, undefined, canvasProject.tokenNow()).then((ok) => ({ job: c.job, ok })));
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });
+  // The REPL is ending: the jobs it started (preview servers included) stop with it.
+  canvasProject.stop();
+  await workspace.close();
+  return code;
+}
+
+/** Whether a GET of `url` answers 2xx within `timeoutMs` (a local page, so the wait is short). */
+async function pageAnswers(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** The operator named in identity.json, or null on a blank slate (or an unreadable file). */
@@ -290,11 +581,88 @@ function readOperator(): string | null {
   }
 }
 
-/** Timmy Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
-export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'night' | 'day' | null {
+export interface ReplSetupDeps {
+  /** A terminal both ways: the setup's questions can be asked here. */
+  tty: boolean;
+  /** The setup check (C-14), sealed as a receipt; its lines. */
+  check: () => Segment[][];
+  /** Takes up a key the setup stored; true when the chat has a new one. */
+  keyChanged?: () => boolean;
+  /** R4 (H103): after a setup that asked the chat question: the route from the next message, in words (null: nothing to say). */
+  chatChanged?: () => string | null;
+  /** Just before the questions (the REPL turns bracketed paste off). */
+  beforeAsk?: () => void;
+  /** Where the questions are asked and answered (tests give their own); the terminal's by default. */
+  io?: Parameters<typeof guidedSetup>[2];
+}
+
+/**
+ * R4 (H98): the REPL's /setup. `/setup` asks every setup question that has no answer yet, here, through the same guided setup
+ * as `timmy init` (`timmy init`'s words, files and setup.json, recorded as set up by "the REPL (/setup)"); `/setup key` asks
+ * for an OpenRouter key for the chat (paid, opt-in), and replaces a stored one after a yes (journey-2: it said a key was
+ * "already stored in the Timmy home", naming the wrong place, and could not replace it). Then the setup check, sealed.
+ * Stopped or declined: nothing was written, and no check is sealed. Without a terminal, the exact command to run instead
+ * (never one with a key in its arguments), then the check.
+ */
+export async function replSetup(args: string, d: ReplSetupDeps): Promise<Segment[][]> {
+  const words = args.trim();
+  const quiet = (text: string): Segment[] => [{ text, role: 'secondary' }];
+  if (words && words !== 'key' && words !== 'chat') return [quiet('  Usage: /setup       the guided setup, then the check'), quiet('         /setup chat  the chat\'s model: one Ollama lists, or OpenRouter'), quiet('         /setup key   an OpenRouter key for the chat (paid)')];
+  const keyMode = words === 'key';
+  // R4 (H103): /setup chat asks the chat question again, here, with the models Ollama lists (the local route's model)
+  const chatMode = words === 'chat';
+  const given: Answers = keyMode ? { chat: 'openrouter' } : {};
+  const state = readSetupState();
+  // the key's one place is providers.json; a key the monitor's old FIRST RUN kept in its settings moves there at the setup
+  const stored = state.providers.key ? `${prettyPath(join(state.home, 'providers.json'))}` : state.settingsKey ? `the monitor's settings (${prettyPath(settingsFile())})` : null;
+  const force: QuestionId[] = keyMode && stored ? ['key'] : chatMode ? ['chat'] : [];
+  const pending = pendingQuestions(state, given, force);
+  const out: Segment[][] = [];
+  let asked = false;
+  // every line within 60 columns (C-14)
+  const say = (text: string): void => { for (const l of wrap(text, 60, '  ')) out.push(quiet(l)); };
+  if (keyMode && state.envKey) say('OPENROUTER_API_KEY is set in this environment: the chat uses it while it is set, whatever is stored.');
+  if (pending.length || keyMode) {
+    if (!d.tty) {
+      if (keyMode) say('In a terminal: /setup key here, or timmy init --chat openrouter (it asks for the key, hidden; OpenRouter is paid).');
+      else if (chatMode) say('In a terminal: /setup chat here (it lists the models Ollama has), or timmy init --chat local|openrouter.');
+      else {
+        out.push(quiet(`  ${pending.length === 1 ? 'One setup question has' : `${pending.length} setup questions have`} no answer yet.`));
+        out.push(quiet(`  In a terminal, run timmy init: it asks only ${pending.length === 1 ? 'that' : 'those'}.`));
+      }
+    } else {
+      d.beforeAsk?.();
+      const io = d.io ?? terminalIO();
+      if (keyMode && stored) {
+        // a yes before a stored key is replaced
+        io.log('');
+        for (const l of wrap(`A model key is stored in ${stored}.`, 60, '  ')) io.log(l);
+        const yes = await (io.question ?? terminalIO().question!)('  Replace it? [y/N] ');
+        if (yes === null || !/^y(es)?$/i.test(yes.trim())) return [quiet('  Nothing was changed: the stored key stays.')];
+      }
+      const title = `TIMMY · ${state.identity.exists ? '' : 'first run — '}guided setup (/setup in the REPL)`;
+      const code = await guidedSetup('the REPL (/setup)', given, io, { title, next: [], force });
+      if (code !== 0) return [quiet('  Back in the REPL; /setup asks again.')];
+      asked = true;
+      out.push(quiet('  Back in the REPL.'));
+      if (d.keyChanged?.() === true) say(state.envKey ? 'The key is stored; the chat uses OPENROUTER_API_KEY while it is set.' : 'The chat uses the stored key from your next message.');
+      // R4 (H103): the chat question was asked: the route it gives, from the next message
+      const chatNow = pending.some((q) => q.id === 'chat') ? d.chatChanged?.() : null;
+      if (chatNow) say(chatNow);
+    }
+  }
+  out.push(...d.check());
+  // what the setup chose (the guided setup has just said it)
+  const now = readSetupState();
+  if (!asked && !pendingQuestions(now).length) say(`Set up: ${setupSummary(now)}.`);
+  return out;
+}
+
+/** Timmy Homebrew, Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
+export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'homebrew' | 'night' | 'day' | null {
   const named = (env.TIMMY_PALETTE ?? '').toLowerCase();
-  if (namedPalette(named)) return named as 'night' | 'day';
-  for (const [name, p] of [['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
+  if (namedPalette(named)) return named as 'homebrew' | 'night' | 'day';
+  for (const [name, p] of [['homebrew', TIMMY_HOMEBREW], ['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
     const ref = measuredFromPalette(p);
     const same = (a: string | null | undefined, b: string | null | undefined): boolean => Boolean(a) && a?.toUpperCase() === b?.toUpperCase();
     if (same(measured.background, ref.background) && [7, 8].every((n) => same(measured.slots[n], ref.slots[n]))) return name;
@@ -323,10 +691,21 @@ export interface ReplDeps {
   receipts?: () => ReceiptsView;
   openWatch?: () => string;
   openWeb?: (target: string, allowRemote: boolean) => string;
-  /** The setup check (C-14). */
-  setup?: () => Segment[][];
-  /** No model key: messages get the cause and the fix instead of a turn (C-14). */
+  /** The setup check (C-14); R4 (H98): after the guided setup while a question has no answer (/setup key: a model key). */
+  setup?: (args: string) => Segment[][] | Promise<Segment[][]>;
+  /** No model key: messages get the cause and the fix instead of a turn (C-14). Read at each message (/setup can add one). */
   noKey?: boolean;
+  /** R4 (H98): the chat route in effect, for the header ("chat: no model key · /setup"); absent: the model's name. */
+  chat?: () => string;
+  /**
+   * R4 (H103): called before each message: sets the route the agent answers it by (the setup's, read now) and returns null,
+   * or returns the lines the message gets instead of a turn (the local route without a model): nothing is sent then.
+   */
+  prepareChat?: () => Segment[][] | null;
+  /** R4 (H103): /model on the chat's local route (Ollama's models); null on the OpenRouter route (the plain /model). */
+  chatModel?: (args: string) => Promise<Segment[][]> | null;
+  /** R4 (H98): how many setup questions have no answer yet, and whether there is no identity (a first run). */
+  setupState?: () => { pending: number; blank: boolean };
   /** No receipts yet: the first prompt holds the setup check, ready for Enter (C-14). */
   firstRun?: boolean;
   /** Seals each finished turn as a receipt (C-8); without it a turn closes with its footer. */
@@ -334,10 +713,24 @@ export interface ReplDeps {
   /** /lanes and /center (C-10). */
   lanes?: ReplContext['lanes'];
   openCenter?: () => string;
+  /** Round R1: /canvas; where each turn's result, preview and receipt are; where this REPL works. */
+  canvas?: ReplContext['canvas'];
+  inspect?: TurnInspect['inspect'];
+  where?: () => Promise<Segment[]>;
+  /** Round R1: /tools, what works here. */
+  tools?: ReplContext['tools'];
+  /** R1 workspace direction: the active project and its files, workflows, jobs, preview and results. */
+  workspace?: ReplContext['workspace'];
+  /**
+   * R4 (H113): the active project, whose one conversation each chat turn continues (src/agent/chat-turn.ts projectTurn): one
+   * turn at a time across every surface, the conversation as it is on disk now, the surface on the receipt. Absent: the turn
+   * alone (src/repl/turn.ts runTurn), as before.
+   */
+  project?: () => { name: string; root: string };
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
-function watchCtrlC(stdin: NodeJS.ReadStream, session: TerminalSession, onCtrlC: () => void): () => void {
+export function watchCtrlC(stdin: NodeJS.ReadStream, session: Pick<TerminalSession, 'setRaw'>, onCtrlC: () => void): (o?: { keepRaw?: boolean }) => void {
   emitKeypressEvents(stdin);
   session.setRaw(true);
   const onKey = (_s: string | undefined, key: Key = {}): void => {
@@ -345,9 +738,11 @@ function watchCtrlC(stdin: NodeJS.ReadStream, session: TerminalSession, onCtrlC:
   };
   stdin.on('keypress', onKey);
   stdin.resume();
-  return () => {
+  // R4 lead: `keepRaw` when the next prompt follows at once (the REPL's loop): what is typed between the turn's end and the
+  // prompt waits raw (src/repl/input.ts PromptDeps.keepRaw: in a cooked terminal its Enter became a new line in the prompt)
+  return (o = {}) => {
     stdin.off('keypress', onKey);
-    session.setRaw(false);
+    if (!o.keepRaw) session.setRaw(false);
     stdin.pause();
   };
 }
@@ -359,13 +754,27 @@ const MENU = COMMANDS.map(({ name, description }) => ({ name, description }));
 export async function replLoop(d: ReplDeps): Promise<number> {
   const { agent, caps, theme, region, transcript, session } = d;
   const interactive = caps.interactive && region.live && !caps.plain;
-  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
+  // r21 (ledger row 163): its own lines too fit the width the terminal has now. R4 (H98, journey-2): wrapped onto
+  // indented continuation rows (src/repl/notice-wrap.ts), no longer cut: a cut lost the ids and reasons at the end.
+  const size = liveSize(process.stdout, caps);
+  const say = (segments: Segment[]): void => void region.commit(wrapSegments(segments, size.columns).map((row) => serialize(row, theme)));
   if (interactive) {
-    say([{ text: 'TIMMY', role: 'strong' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
-    say([{ text: 'Type a message to start. /help for commands, /exit to quit.', role: 'secondary' }]);
-    // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
-    // /exit into /setup/exit (the 20:14 order).
-    if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs.', role: 'secondary' }]);
+    say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${d.chat ? d.chat() : agent.getModel()}`, role: 'secondary' }]);
+    // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
+    if (d.where) {
+      const line = await Promise.race([d.where(), sleep(1500).then(() => null)]).catch(() => null);
+      if (line) say(line);
+    }
+    say([{ text: `Type a message to start. ${d.tools ? '/tools shows what works here, ' : ''}/help for commands, /exit to quit.`, role: 'secondary' }]);
+    // R4 (H98): Timmy's three surfaces, in one line (wrapped within the terminal; never cut)
+    for (const line of surfacesSegments(size.columns)) say(line);
+    // A first run offers the setup and leaves the prompt empty: a prefilled /setup turned a typed /exit into /setup/exit
+    // (the 20:14 order). R4 (H98): while a setup question has no answer, /setup asks it here (the guided setup, as timmy init).
+    const left = d.setup ? d.setupState?.() : undefined;
+    const typeSetup = (before: string, after: string): void => say([{ text: before, role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: after, role: 'secondary' }]);
+    if (left?.blank) typeSetup('First run: type ', ' for the guided setup (as timmy init).');
+    else if (left?.pending) typeSetup(`Setup: ${left.pending === 1 ? 'one question has' : `${left.pending} questions have`} no answer; `, ' asks.');
+    else if (d.firstRun && d.setup) typeSetup('First run: type ', ' to check what Timmy needs.');
     region.commit(['']);
   }
   const marks = d.stdout.isTTY === true;
@@ -375,7 +784,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   const editor = new LineEditor();
   let status: number = EXIT.ok;
   for (;;) {
-    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text) });
+    // R4 lead: the terminal stays raw from the prompt into a chat turn and back (keepRaw: keys typed in between keep their
+    // Enter); a slash command gets it cooked, as before
+    const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text), keepRaw: interactive });
     if (r.kind === 'cancel') {
       session.restore();
       return EXIT.cancelled;
@@ -385,20 +796,34 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter };
-      if (runSlash(text, ctx) === 'exit') break;
+      // a slash command may hand the terminal to another program (an editor, the monitor, a web view): cooked, as before
+      if (interactive) session.setRaw(false);
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace, columns: () => size.columns, chatModel: d.chatModel };
+      // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
+      const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
+      if ((await (d.workspace?.operate ? d.workspace.operate(text, 'repl', slash) : slash())) === 'exit') break;
+      region.commit(['']);
+      continue;
+    }
+    // R4 (H103): the route this message goes by, from the setup now; the local route without a model sends nothing
+    const refusal = d.prepareChat?.() ?? null;
+    if (refusal) {
+      for (const row of refusal) say(row);
+      if (!interactive) status = EXIT.failure;
       region.commit(['']);
       continue;
     }
     if (d.noKey) {
       say([{ text: `${theme.glyphs.fail} Error:`, role: 'failure' }, { text: ' no model key, so Timmy cannot answer.' }]);
-      say([{ text: '  Cause: no OPENROUTER_API_KEY, and init stored none.', role: 'secondary' }]);
-      say([{ text: '  Try: timmy init, or export OPENROUTER_API_KEY', role: 'secondary' }]);
+      say([{ text: '  Cause: no OPENROUTER_API_KEY, and the setup stored none.', role: 'secondary' }]);
+      // journey-2: /setup key asks for the key hidden (never a command with the key in its arguments). R4 (H103): this chat
+      // is OpenRouter's because the setup did not choose the local model, which needs no key (/setup chat chooses it)
+      say([{ text: '  Try: /setup key (it asks for the key, hidden), or the local model: /setup chat', role: 'secondary' }]);
       say([{ text: '  Help: /help, or timmy repl --help', role: 'secondary' }]);
       region.commit(['']);
       continue;
     }
-    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true });
+    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true, model: agent.getModel() });
     const controller = new AbortController();
     const abandon: TurnAbandon = {};
     // First Ctrl+C cancels the turn; a second, while that cancel has not landed, quits (exit 130),
@@ -417,9 +842,26 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon);
-    stopWatching();
-    if (!interactive && result === 'failed') status = EXIT.failure;
+    // Round R4 (H51): a turn is one operation too: the runs its tools start and its receipt carry its id. R4 (H113): the
+    // project's turn (one turn at a time across surfaces, its kept conversation continued, the surface on the receipt); a turn
+    // another surface is running refuses this one, and nothing is sent
+    const turn = async (): Promise<Awaited<ReturnType<typeof runTurn>> | 'refused'> => {
+      if (!d.project) return runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+      const r = await projectTurn({
+        agent, project: d.project(), surface: 'repl', text, sink: transcript, marks: turnMarks, signal: controller.signal, abandon, more: { inspect: d.inspect },
+        ...(d.seal ? { seal: d.seal } : {}),
+        onContinue: (c) => { if (c.added > 0) say([{ text: `  The conversation continues: ${c.added} ${c.added === 1 ? 'message' : 'messages'} another surface added to this project's conversation since this REPL last sent (kept in .sessions).`, role: 'secondary' }]); },
+      });
+      if (r.status !== 'refused') return r.status;
+      say([{ text: `${theme.glyphs.fail} `, role: 'failure' }, { text: r.lines[0] ?? 'Not sent.' }]);
+      for (const line of r.lines.slice(1)) say([{ text: `  ${line}`, role: 'secondary' }]);
+      transcript.endTurn();
+      return 'refused';
+    };
+    const result = await (d.workspace?.operate ? d.workspace.operate(text, 'repl', turn) : turn());
+    // the next prompt follows at once: the terminal stays raw until it reads the keys typed meanwhile
+    stopWatching({ keepRaw: interactive });
+    if (!interactive && (result === 'failed' || result === 'refused')) status = EXIT.failure;
     if (interactive) region.commit(['']);
   }
   session.restore();

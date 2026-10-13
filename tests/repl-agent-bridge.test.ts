@@ -36,6 +36,43 @@ describe('bridgeAgent', () => {
       { type: 'error', message: 'OpenRouter request failed for m.', cause: '429 Too Many Requests.', fix: 'choose another model: /model <id>' },
     ]);
   });
+  it('marks a step failed when its own result says so: success false, ok false, or the SDK\'s error shape (round R1)', () => {
+    const agent = new EventEmitter();
+    const events: TurnEvent[] = [];
+    bridgeAgent(agent, (e) => events.push(e));
+    const outputs: Array<[unknown, boolean]> = [
+      ['{"success":false,"jobId":"","message":"Not triggered"}', false],
+      [{ success: false, message: 'no' }, false],
+      ['{"ok":false,"error":"No canvas is open."}', false],
+      ['{"error":"The operator denied get_env; it did not run."}', false],
+      ['{"success":true,"error":"a warning only"}', true],
+      ['{"ok":true,"result":1}', true],
+      ['{"time":"23:48"}', true],
+      ['plain text answer', true],
+      ['[1,2]', true],
+    ];
+    outputs.forEach(([output], i) => agent.emit('item:update', { type: 'function_call_output', callId: `c${i}`, output }));
+    expect(events.map((e) => (e as { ok?: boolean }).ok)).toEqual(outputs.map(([, ok]) => ok));
+    // The step shows the tool's own words, not its JSON.
+    expect(events.map((e) => (e as { preview?: string }).preview).slice(0, 4)).toEqual(['Not triggered', 'no', 'No canvas is open.', 'The operator denied get_env; it did not run.']);
+    expect((events[6] as { preview?: string }).preview).toBe('{"time":"23:48"}');
+  });
+  it('says when a failed canvas call kept nothing, and when the page had to start again (round R1)', () => {
+    const agent = new EventEmitter();
+    const events: TurnEvent[] = [];
+    bridgeAgent(agent, (e) => events.push(e));
+    const outputs = [
+      { ok: false, jobId: 'draw', revision: 3, rolledBack: true, error: 'Error: stop here' },
+      { ok: false, jobId: 'draw', revision: 5, rolledBack: true, restarted: true, error: 'ValidationError: At shape(type = text).props.text: Unexpected property' },
+      { ok: false, jobId: 'draw', error: 'Timmy Canvas is not running.' },
+    ];
+    outputs.forEach((output, i) => agent.emit('item:update', { type: 'function_call_output', callId: `k${i}`, output: JSON.stringify(output) }));
+    expect(events.map((e) => (e as { preview?: string }).preview)).toEqual([
+      'Timmy Canvas job draw, revision 3, nothing kept: Error: stop here',
+      'Timmy Canvas job draw, revision 5, nothing kept, page restarted: ValidationError: At shape(type = text).props.text: Unexpected property',
+      'Timmy Canvas job draw: Timmy Canvas is not running.',
+    ]);
+  });
   it('shows an error once even when the agent emits it twice, and keeps model-fallback notices', () => {
     const agent = new EventEmitter();
     const events: TurnEvent[] = [];
@@ -57,7 +94,7 @@ describe('bridgeAgent', () => {
     agent.emit('error', new Error('OpenRouter request failed for m.\nReason: Missing Authentication header.\nNext: choose another model or run /model fallback.'));
     agent.emit('error', new Error('OpenRouter request failed for m.\nReason: model not found.\nNext: choose another model or run /model fallback.'));
     expect(events.map((e) => (e as { fix?: string }).fix)).toEqual([
-      'timmy init, or export OPENROUTER_API_KEY=<your key>',
+      '/setup key (it asks for the key, hidden), or timmy init --chat openrouter',
       'choose another model: /model <id>',
     ]);
   });
@@ -101,9 +138,14 @@ describe("createAgent(config, { multiplexer: 'none' })", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   };
-  it('starts no tmux sessions (negative control: the default starts them)', () => {
+  // R4 (H87): the default is none too (lanes start only when the operator asks, `timmy watch --lanes`); the negative control
+  // asks for tmux, and then every call is on Timmy's own server.
+  it('starts no tmux sessions, nor does the default (negative control: tmux asked for starts them, on Timmy\'s own server)', () => {
     expect(run(", { multiplexer: 'none' }")).toBe('');
-    expect(run('')).toContain('new-session');
+    expect(run('')).toBe('');
+    const asked = run(", { multiplexer: 'tmux' }");
+    expect(asked).toContain('new-session');
+    expect(asked.split('\n').filter(Boolean).every((l) => /^-L timmy-lanes-\d+ -f \/dev\/null /.test(l))).toBe(true);
   });
 });
 

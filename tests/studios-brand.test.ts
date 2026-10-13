@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, existsSync, readFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { BRAND } from '../src/utils/brand.js';
@@ -12,6 +12,8 @@ let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'timmy-studios-'));
 });
+// R4 (H97): each test's folder is removed after it
+afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe('brand system', () => {
   it('centralizes product names so a rename is one file', () => {
@@ -49,8 +51,10 @@ describe('Studios dashboard', () => {
     const html = renderDashboardHtml(dir);
     expect(html).toContain('TIMMY Studios');
     expect(html).toContain('TIMMY Slate');
-    expect(html).toContain('/.timmy/generations.json');
-    expect(html).toContain('/.timmy/runs/events.jsonl');
+    // R4 (H97): its records come from its server's own routes (src/utils/dash-server.ts), never from .timmy/ itself
+    expect(html).toContain('/data/generations.json');
+    expect(html).toContain('/data/events.jsonl');
+    expect(html).not.toMatch(/fetch\('\/\.timmy\//);
     expect(html).toContain('nano-banana-2');
     expect(html).toContain('setInterval(refresh,5000)');
   });

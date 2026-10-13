@@ -8,6 +8,7 @@ import { KeyHintBar } from '../components/KeyHintBar.js';
 import { Card, BudgetList, EmptyState } from '../ui/index.js';
 import { stripAnsi } from '../utils/text.js';
 import { theme } from '../theme.js';
+import { laneTmux, lanesWords } from '../../agent/lane-server.js';
 
 interface BrowsePanelProps {
   agent: Agent;
@@ -33,6 +34,7 @@ export function BrowsePanel({ agent, zone = 0, setZone, setModalInput, inputLock
   const [cmdDraft, setCmdDraft] = useState('');
   const [noCarb, setNoCarb] = useState(false);
   const [carbHint, setCarbHint] = useState(false);
+  const [lanesHint, setLanesHint] = useState(false);
   const focused = React.useContext(PaneFocusContext);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function BrowsePanel({ agent, zone = 0, setZone, setModalInput, inputLock
       const s = current[Math.min(idx, Math.max(0, current.length - 1))];
       if (!s) { setCapture([]); return; }
       try {
-        const out = execFileSync('tmux', ['capture-pane', '-pt', `ortui-${s.id}`], { encoding: 'utf8', stdio: 'pipe' });
+        const out = execFileSync('tmux', laneTmux('capture-pane', '-pt', `ortui-${s.id}`), { encoding: 'utf8', stdio: 'pipe' });
         setCapture(out.split('\n').map(stripAnsi).slice(-20));
       } catch { setCapture(['[pane not running]']); }
     };
@@ -96,6 +98,8 @@ export function BrowsePanel({ agent, zone = 0, setZone, setModalInput, inputLock
     if (key.rightArrow) { setZone?.(Math.min(1, zone + 1)); return; }
     const c = char.toLowerCase();
     if (c === 'n') {
+      // R4 (H87): a browser pane is a lane: none starts unless the monitor was asked for the lanes (`timmy watch --lanes`)
+      if ((agent.multiplexer ?? 'none') === 'none') { setLanesHint(true); return; }
       if (noCarb) { setCarbHint(true); return; }
       setCarbHint(false);
       setSpawning(true);
@@ -114,6 +118,7 @@ export function BrowsePanel({ agent, zone = 0, setZone, setModalInput, inputLock
       pill={{ kind: lanes.length ? 'accent' : 'muted', label: `${lanes.length} browser pane${lanes.length === 1 ? '' : 's'}` }}
       flexGrow={1}
     >
+      {lanesHint && <Text color={theme.textSecondary} wrap="wrap">{lanesWords('none')}</Text>}
       {carbHint && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color={theme.textMuted}>carbonyl (chromium-in-terminal) not found on PATH</Text>

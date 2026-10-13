@@ -1,0 +1,14 @@
+# Timmy Homebrew for WezTerm (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+[colors]
+foreground = "#e8e6e1"
+background = "#000000"
+cursor_bg = "#38fe27"
+cursor_fg = "#000000"
+cursor_border = "#38fe27"
+selection_bg = "#14451b"
+selection_fg = "#e8e6e1"
+ansi = ["#1c1c1c", "#ff5f56", "#28fe14", "#e5b550", "#6ca8ff", "#b58cff", "#5cc8d6", "#bdbdb8"]
+brights = ["#6b6b6b", "#ff8a80", "#7dff6e", "#ffd479", "#9cc3ff", "#d0b3ff", "#8ee3ec", "#ffffff"]
+
+[metadata]
+name = "Timmy Homebrew"

@@ -2,7 +2,7 @@
 // Equip riders; don't ride: this PREPARES, ARMS and LAUNCHES work into
 // existing harness lanes (LANE_RUNNERS + tmux vocabulary). It is not a second
 // scheduler; the later tldraw Mission Map compiles into these same calls.
-import { accessSync, constants, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from 'fs';
+import { accessSync, constants, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'fs';
 import { delimiter, join, dirname, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { tmpdir } from 'os';
@@ -14,6 +14,25 @@ import { captureEnvLock, type EnvLock } from './envlock.js';
 import { harnessFields } from '../harness/policy.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
+
+// R4 lead (2026-10-12): shellWord lives in its own module (src/agent/lanes.ts uses it too); still exported from here.
+import { shellWord } from './shell-word.js';
+export { shellWord };
+
+/**
+ * R4 lead (2026-10-12; found by H115 reading the Pi lane): a lane's one-shot command with its task in it, as the pane's shell
+ * gets it. Before, only " was escaped in the objective, so $(...), `...`, $VAR and \ in it (a dropped file's name, a page's
+ * request, a phrase) ran as shell code in the lane's pane. Where the template quotes its task ("{task}": a prompt), the task is
+ * one shell word holding the objective exactly; where it takes the task as words (paths and flags: `hyperframes render
+ * {task}`), each word is quoted so: words, never shell code.
+ */
+export function laneCommand(template: string, objective: string): string {
+  if (template.includes('"{task}"')) return template.replace('"{task}"', () => shellWord(objective));
+  const words = objective.trim().split(/\s+/).filter(Boolean).map(shellWord).join(' ');
+  return template.replace('{task}', () => words);
+}
+import { mcporterLaneServer, mcporterServerConfigured } from '../connectors/mcp-configured.js'; // R4 (H107; r25 D13)
+import { keySet } from './keys.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
 import { openHandsPreflight, runOpenHandsTask } from './openhands-adapter.js';
 import { dockerReady } from './doctor.js';
@@ -78,11 +97,17 @@ export function validatePlanCue(plan: unknown, dir?: string): { ok: boolean; not
   if (cueBin.status !== 0) return { ok: false, error_class: 'not_configured', note: 'cue binary missing (brew install cue)' };
   // schema lives in the repo, independent of the data dir
   const schema = fileURLToPath(new URL('../../schemas/dispatch.cue', import.meta.url));
-  const tmp = join(mkdtempSync(join(tmpdir(), 'timmy-cue-')), 'plan.json');
-  writeFileSync(tmp, JSON.stringify(plan));
-  const r = spawnSync('cue', ['vet', '-d', '#Plan', schema, tmp], { encoding: 'utf8' });
-  if (r.status !== 0) return { ok: false, error_class: 'schema', note: (r.stderr || r.stdout || 'cue vet failed').slice(0, 400) };
-  return { ok: true };
+  const folder = mkdtempSync(join(tmpdir(), 'timmy-cue-'));
+  // Round R4 (H29): the folder is removed whatever the check finds (thousands had piled up in the temp folder).
+  try {
+    const tmp = join(folder, 'plan.json');
+    writeFileSync(tmp, JSON.stringify(plan));
+    const r = spawnSync('cue', ['vet', '-d', '#Plan', schema, tmp], { encoding: 'utf8' });
+    if (r.status !== 0) return { ok: false, error_class: 'schema', note: (r.stderr || r.stdout || 'cue vet failed').slice(0, 400) };
+    return { ok: true };
+  } finally {
+    try { rmSync(folder, { recursive: true, force: true }); } catch { /* left behind: the check's outcome stands */ }
+  }
 }
 
 /** Whether `cmd` is an executable on PATH. No shell: Node 24 warns (DEP0190) on a shell with arguments. */
@@ -92,11 +117,30 @@ function onPath(cmd: string): boolean {
   });
 }
 
-export function listLanes(): { id: string; label: string; available: boolean; install?: string; model?: string }[] {
-  return Object.entries(LANE_RUNNERS).map(([id, r]) => ({
-    id, label: r.label, available: onPath(r.cmd),
-    install: r.install, model: r.model
-  }));
+// R1 lanes honesty: a lane is ready only when everything it runs on is here. An API lane runs on
+// curl AND its key (a placeholder counts as missing; the key's name is returned, never its value),
+// and hyperframes runs through npx, which alone only means the package could be fetched.
+const LANE_COMMAND: Record<string, string> = { hyperframes: 'hyperframes' };
+const LANE_INSTALL: Record<string, string> = { hyperframes: 'npm install -g hyperframes' };
+
+/** R4 (H107; r25 D13): an MCP-backed lane's server: whether its program is on PATH and its server configured for Timmy. */
+export interface LaneMcp { server: string; program: string; found: boolean; configured: boolean; where?: string; checked: string[]; unreadable?: string[] }
+
+export function listLanes(env: NodeJS.ProcessEnv = process.env, o: { cwd?: string } = {}): { id: string; label: string; available: boolean; install?: string; model?: string; key?: string; mcp?: LaneMcp }[] {
+  return Object.entries(LANE_RUNNERS).map(([id, r]) => {
+    const found = onPath(LANE_COMMAND[id] ?? r.cmd);
+    // R4 (H107; r25 D13): a lane that runs `mcporter call <server>.…` is ready only when that server is configured for Timmy
+    // (MCPorter's config files, read; nothing is run or contacted): mcporter on PATH alone said "found" on the Mac
+    const server = mcporterLaneServer(r);
+    const mcp: LaneMcp | undefined = server ? { server, program: r.cmd, found, ...mcporterServerConfigured(server, { env, ...(o.cwd ? { cwd: o.cwd } : {}) }) } : undefined;
+    return {
+      id, label: r.label,
+      available: found && (!r.key || keySet(env[r.key])) && (!mcp || mcp.configured),
+      install: LANE_INSTALL[id] ?? r.install, model: r.model,
+      ...(r.key ? { key: r.key } : {}),
+      ...(mcp ? { mcp } : {}),
+    };
+  });
 }
 
 // V-01 rung 2 (v0.7.6): the cone selects token-budgeted L0/L1/L2 slices; this
@@ -236,8 +280,8 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
   }
   const runner = LANE_RUNNERS[s.plan.harnesses[0]];
   const session = `timmy-dp-${s.id}`;
-  const task = s.plan.objective.replace(/"/g, '\\"');
-  const cmd = (runner.task ?? `${runner.cmd} "{task}"`).replace('{task}', task);
+  // R4 lead (H115's finding): the objective reaches the shell as text, never as shell code (laneCommand)
+  const cmd = laneCommand(runner.task ?? `${runner.cmd} "{task}"`, s.plan.objective);
   tmux(['kill-session', '-t', session]);
   const ns = tmux(['new-session', '-d', '-s', session, '-c', iso.workdir!]);
   if (ns.status !== 0) {
@@ -249,7 +293,7 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
   // real harness (tests, demos). Isolation + approval gates still apply.
   const launchCmd = process.env.TIMMY_DISPATCH_DRYRUN === '1'
     ? `echo TIMMY_DISPATCH_DRYRUN ${s.id}; sleep 30`
-    : `cd ${JSON.stringify(iso.workdir)} && ${cmd}`;
+    : `cd ${shellWord(iso.workdir!)} && ${cmd}`;
   tmux(['send-keys', '-t', session, launchCmd, 'Enter']);
   s.session = session;
   s.lifecycle = 'running';

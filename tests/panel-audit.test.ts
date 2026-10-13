@@ -2,11 +2,15 @@
 // resolver; vitest's vite resolver cannot load mcporter's SDK path). This
 // test shells out and asserts every panel RENDERED (no CRASHED).
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'child_process';
+import { runAsync } from './helpers/run-async.js';
 
 describe('panel mount audit', () => {
-  it('every panel mounts without crashing', () => {
-    const out = execSync('npx tsx scripts/audit-panels.tsx', { encoding: 'utf8', timeout: 180000 });
+  it('every panel mounts without crashing', async () => {
+    // Awaited, not execSync: the audit takes 9-15 s and a synchronous run holds the worker's event loop all that time,
+    // which vitest's worker RPC and its own test timeout both need (R4 H31). A non-zero exit still fails here, as execSync threw.
+    const run = await runAsync('npx', ['tsx', 'scripts/audit-panels.tsx'], { timeout: 180000 });
+    expect(run.status, run.stderr).toBe(0);
+    const out = run.stdout;
     const line = out.split('\n').find(l => l.startsWith('PANEL_AUDIT'));
     expect(line).toBeTruthy();
     const results = JSON.parse(line!.slice('PANEL_AUDIT '.length)) as Record<string, string>;

@@ -1,0 +1,10 @@
+{
+  "schema": "timmy.recipe-params/1",
+  "recipe": "enclosure.tray/1",
+  "parameters": {
+    "width": 140,
+    "wall": 3,
+    "supportOffset": 10,
+    "bore": 3
+  }
+}

@@ -3,6 +3,16 @@ import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
 import { redactTelemetryPayload, safeStringify } from '../../utils/redact.js';
 import { edgeUrlOrNull, isPlaceholder, operatorLabel } from '../../utils/edge-host.js';
+
+/**
+ * R4 (H98, journey-2): run events go to a worker only when the operator names one for this run (TIMMY_TELEMETRY_URL, or the
+ * config's telemetryUrl). This bridge runs only in the legacy v1 shell (TIMMY_SHELL=v1); the monitor and the REPL send no
+ * run events anywhere, so the setup no longer offers "also your worker" (it promised a send that never happened there),
+ * and a configured edge host alone sends nothing.
+ */
+export function logsGoToWorker(): boolean {
+  return false;
+}
 import type {
   TelemetryStatus,
   TelemetryPriority,
@@ -84,12 +94,16 @@ export function useTelemetryBridge({
   useEffect(() => { receiptUrlRef.current = activeReceiptUrl; }, [activeReceiptUrl]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
+  // R4 (H98): read once per monitor: whether run events go to the edge host without an explicit address (they do not)
+  const toWorker = useRef<boolean | null>(null);
   // Resolve telemetry endpoint URL by priority (hosts-j4t1: the edge host is
   // a config read; an inert placeholder in a stored manifest re-resolves here)
   const resolveEndpoint = (): string => {
     if (config.telemetryUrl && !isPlaceholder(config.telemetryUrl)) return config.telemetryUrl;
     if (process.env.TIMMY_TELEMETRY_URL === 'off') return '';
     if (process.env.TIMMY_TELEMETRY_URL && !isPlaceholder(process.env.TIMMY_TELEMETRY_URL)) return process.env.TIMMY_TELEMETRY_URL;
+    if (toWorker.current === null) toWorker.current = logsGoToWorker();
+    if (!toWorker.current) return '';
     return edgeUrlOrNull() ?? '';
   };
 

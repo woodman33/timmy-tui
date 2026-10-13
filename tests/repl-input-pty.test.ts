@@ -1,8 +1,9 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ptyEnv } from './fixtures/repl-pty-env.js';
+import { runAsync } from './helpers/run-async.js';
 
 // The block input in a real PTY (tmux): typing, Ctrl+J, bracketed paste, CJK with backspace, and the
 // piped case (`echo hi | timmy`): plain input, no raw mode, no terminal queries (playbook §17.2, §17.9).
@@ -58,11 +59,13 @@ describe('block input in a real PTY', () => {
 });
 
 describe('piped input (echo hi | timmy)', () => {
-  it('reads plain input with no raw mode and no terminal queries', () => {
+  it('reads plain input with no raw mode and no terminal queries', async () => {
     const dir = mkdtempSync('/tmp/ti-');
     try {
       const log = join(dir, 'writes.log');
-      const r = spawnSync(TSX, [FIXTURE], { input: 'hi\n', encoding: 'utf8', env: { ...process.env, FIXTURE_WRITE_LOG: log, TIMMY_PALETTE: '' } });
+      // Awaited with a limit, not spawnSync with none: under load this tsx run held the worker's event loop for 23 s, and
+      // a run that never ended would have hung the worker past vitest's own test timeout (R4 H31).
+      const r = await runAsync(TSX, [FIXTURE], { input: 'hi\n', env: { ...process.env, FIXTURE_WRITE_LOG: log, TIMMY_PALETTE: '' }, timeout: 50_000 });
       expect(r.stdout).toContain('RESULT={"kind":"submit","text":"hi"}');
       const writes = readFileSync(log, 'utf8');
       expect(writes).not.toContain('\x1b]11;?');

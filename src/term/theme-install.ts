@@ -1,6 +1,6 @@
 /**
- * `timmy theme install` (C-10, moved from C-2): Timmy Night and Day go where your terminal looks for
- * themes, as new files only. It never edits a config file (it prints the one line to add) and never
+ * `timmy theme install` (C-10, moved from C-2): Timmy Homebrew (the default since round R1), Night and
+ * Day go where your terminal looks for themes, as new files only. It never edits a config file (it prints the one line to add) and never
  * replaces a file of yours that differs. iTerm2 imports a theme by opening it, so for iTerm2 it only
  * says how. The files are the generated ones in assets/themes (src/term/theme-files.ts).
  */
@@ -8,8 +8,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TYPE } from '../theme/tokens.js';
 
-export const TERMINAL_APPS = ['ghostty', 'kitty', 'alacritty', 'wezterm', 'iterm2', 'zellij'] as const;
+export const TERMINAL_APPS = ['terminal', 'ghostty', 'kitty', 'alacritty', 'wezterm', 'iterm2', 'zellij'] as const;
 export type TerminalApp = (typeof TERMINAL_APPS)[number];
 
 /** The terminal this runs in, from its own variables. Inside zellij, zellij draws the colors. */
@@ -19,6 +20,7 @@ export function detectTerminal(env: Record<string, string | undefined>): Termina
   if (program === 'ghostty') return 'ghostty';
   if (program === 'iTerm.app') return 'iterm2';
   if (program === 'WezTerm') return 'wezterm';
+  if (program === 'Apple_Terminal') return 'terminal';
   if (env.TERM === 'xterm-kitty' || env.KITTY_WINDOW_ID) return 'kitty';
   if (env.ALACRITTY_WINDOW_ID || env.ALACRITTY_SOCKET || env.ALACRITTY_LOG) return 'alacritty';
   return null;
@@ -31,29 +33,65 @@ export interface InstallPlan {
   then: string[];
 }
 
+type Variant = 'homebrew' | 'night' | 'day';
+const VARIANTS: readonly Variant[] = ['homebrew', 'night', 'day'];
+const Title = (v: Variant): string => `Timmy ${v[0].toUpperCase()}${v.slice(1)}`;
+
+/**
+ * The font (round R1): a terminal draws Timmy in its own font, so Timmy cannot set it. These are the
+ * lines that set Monaspace Argon at a comfortable size; any monospace font works without them.
+ */
+export function fontLines(app: TerminalApp): string[] {
+  const size = TYPE.terminalSize;
+  const install = `Font: Monaspace Argon (${TYPE.install}); any monospace font works without it.`;
+  switch (app) {
+    case 'terminal':
+      return [install, `  The profile already asks for it, at ${size} points.`];
+    case 'ghostty':
+      return [install, '  Add to ~/.config/ghostty/config:', `  font-family = "${TYPE.family}"`, `  font-size = ${size}`];
+    case 'kitty':
+      return [install, '  Add to ~/.config/kitty/kitty.conf:', `  font_family ${TYPE.family}`, `  font_size ${size}.0`];
+    case 'alacritty':
+      return [install, '  Add to ~/.config/alacritty/alacritty.toml:', '  [font]', `  normal = { family = "${TYPE.family}" }`, `  size = ${size}`];
+    case 'wezterm':
+      return [install, '  Add to ~/.config/wezterm/wezterm.lua:', `  config.font = wezterm.font('${TYPE.family}')`, `  config.font_size = ${size}`];
+    case 'iterm2':
+      return [install, `  Then Settings > Profiles > Text > Font: ${TYPE.family}, ${size}.`];
+    case 'zellij':
+      return [install, '  zellij draws in the font of the terminal it runs in: set it there.'];
+  }
+}
+
 export function planThemeInstall(app: TerminalApp, home: string, assets: string): InstallPlan {
   const cfg = (...p: string[]) => join(home, '.config', ...p);
-  const both = (folder: string, name: (v: 'night' | 'day') => string, to: (v: 'night' | 'day') => string) =>
-    (['night', 'day'] as const).map((v) => ({ from: join(assets, folder, name(v)), to: to(v) }));
+  const each = (folder: string, name: (v: Variant) => string, to: (v: Variant) => string) =>
+    VARIANTS.map((v) => ({ from: join(assets, folder, name(v)), to: to(v) }));
+  const plan = (files: InstallPlan['files'], then: string[]): InstallPlan => ({ app, files, then: [...then, ...fontLines(app)] });
   switch (app) {
+    case 'terminal':
+      return plan([], [
+        'macOS Terminal imports a profile when you open it:',
+        `  open "${join(assets, 'terminal', 'Timmy Homebrew.terminal')}"`,
+        'then choose Timmy Homebrew in Terminal > Settings > Profiles and click Default.',
+      ]);
     case 'ghostty':
-      return { app, files: both('ghostty', (v) => `timmy-${v}`, (v) => cfg('ghostty', 'themes', `timmy-${v}`)),
-        then: ['Add to ~/.config/ghostty/config:', '  theme = light:timmy-day,dark:timmy-night'] };
+      return plan(each('ghostty', (v) => `timmy-${v}`, (v) => cfg('ghostty', 'themes', `timmy-${v}`)),
+        ['Add to ~/.config/ghostty/config:', '  theme = timmy-homebrew', '  (or, to follow light and dark: theme = light:timmy-day,dark:timmy-night)']);
     case 'kitty':
-      return { app, files: both('kitty', (v) => `timmy-${v}.conf`, (v) => cfg('kitty', 'themes', `timmy-${v}.conf`)),
-        then: ['Add to ~/.config/kitty/kitty.conf:', '  include themes/timmy-night.conf'] };
+      return plan(each('kitty', (v) => `timmy-${v}.conf`, (v) => cfg('kitty', 'themes', `timmy-${v}.conf`)),
+        ['Add to ~/.config/kitty/kitty.conf:', '  include themes/timmy-homebrew.conf']);
     case 'alacritty':
-      return { app, files: both('alacritty', (v) => `timmy-${v}.toml`, (v) => cfg('alacritty', 'themes', `timmy-${v}.toml`)),
-        then: ['Add under [general] in ~/.config/alacritty/alacritty.toml:', '  import = ["~/.config/alacritty/themes/timmy-night.toml"]'] };
+      return plan(each('alacritty', (v) => `timmy-${v}.toml`, (v) => cfg('alacritty', 'themes', `timmy-${v}.toml`)),
+        ['Add under [general] in ~/.config/alacritty/alacritty.toml:', '  import = ["~/.config/alacritty/themes/timmy-homebrew.toml"]']);
     case 'wezterm':
-      return { app, files: both('wezterm', (v) => `Timmy ${v === 'night' ? 'Night' : 'Day'}.toml`, (v) => cfg('wezterm', 'colors', `Timmy ${v === 'night' ? 'Night' : 'Day'}.toml`)),
-        then: ['Add to ~/.config/wezterm/wezterm.lua:', "  config.color_scheme = 'Timmy Night'"] };
+      return plan(each('wezterm', (v) => `${Title(v)}.toml`, (v) => cfg('wezterm', 'colors', `${Title(v)}.toml`)),
+        ['Add to ~/.config/wezterm/wezterm.lua:', "  config.color_scheme = 'Timmy Homebrew'", "  (Timmy Night and Timmy Day are there too)"]);
     case 'zellij':
-      return { app, files: [{ from: join(assets, 'zellij', 'timmy.kdl'), to: cfg('zellij', 'themes', 'timmy.kdl') }],
-        then: ['Add to ~/.config/zellij/config.kdl:', '  theme "timmy-night"'] };
+      return plan([{ from: join(assets, 'zellij', 'timmy.kdl'), to: cfg('zellij', 'themes', 'timmy.kdl') }],
+        ['Add to ~/.config/zellij/config.kdl:', '  theme "timmy-homebrew"', '  (timmy-night and timmy-day are in the same file; timmy center picks the theme itself)']);
     case 'iterm2':
-      return { app, files: [],
-        then: ['iTerm2 imports a theme when you open it:', `  open "${join(assets, 'iterm2', 'Timmy Night.itermcolors')}"`, 'then choose Timmy Night in Settings > Profiles > Colors > Color Presets.'] };
+      return plan([],
+        ['iTerm2 imports a theme when you open it:', `  open "${join(assets, 'iterm2', 'Timmy Homebrew.itermcolors')}"`, 'then choose Timmy Homebrew in Settings > Profiles > Colors > Color Presets.', `  (Timmy Night and Day: ${join(assets, 'iterm2')})`]);
   }
 }
 
@@ -88,7 +126,7 @@ export function themesDir(): string {
   return candidates.find((p) => existsSync(p)) ?? candidates[0];
 }
 
-const NAMES: Record<TerminalApp, string> = { ghostty: 'Ghostty', kitty: 'kitty', alacritty: 'Alacritty', wezterm: 'WezTerm', iterm2: 'iTerm2', zellij: 'zellij' };
+const NAMES: Record<TerminalApp, string> = { terminal: 'macOS Terminal', ghostty: 'Ghostty', kitty: 'kitty', alacritty: 'Alacritty', wezterm: 'WezTerm', iterm2: 'iTerm2', zellij: 'zellij' };
 
 /**
  * `timmy theme` and `timmy theme install [--terminal <app>] [--dry-run] [--json | --quiet]`. Returns the
@@ -103,11 +141,12 @@ export function themeMain(
 ): number {
   if (args.includes('--help') || args.includes('-h')) {
     for (const line of [
-      'timmy theme: Timmy Night and Day for your terminal.',
+      'timmy theme: Timmy Homebrew (the default), Night and Day for your terminal, and the font.',
       '',
       'Usage: timmy theme [install] [--terminal <app>] [--dry-run] [--json | --quiet]',
       '  (no verb)          say which terminal Timmy detected and where the themes are',
-      '  install            copy both palettes into the terminal\'s theme folder, as new files only',
+      '  install            copy the palettes into the terminal\'s theme folder, as new files only,',
+      '                     and say the lines that pick Timmy Homebrew and Monaspace Argon',
       `  --terminal <app>   ${TERMINAL_APPS.join(', ')}`,
       '  --dry-run          say what would be written, write nothing',
       '  --json             one JSON envelope; --quiet: only the paths written',
@@ -141,7 +180,8 @@ export function themeMain(
       return 0;
     }
     out(`Terminal: ${app ? NAMES[app] : 'not one Timmy knows'}${env.TIMMY_PALETTE ? ` · TIMMY_PALETTE=${env.TIMMY_PALETTE}` : ''}`);
-    out(`Themes: ${tilde(themesDir())} (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)`);
+    out(`Themes: ${tilde(themesDir())} (macOS Terminal, Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)`);
+    out(`Font: Monaspace Argon (${TYPE.install}); any monospace font works without it`);
     out(app ? 'Install: timmy theme install' : `Install: timmy theme install --terminal <${TERMINAL_APPS.join('|')}>`);
     return 0;
   }
@@ -158,7 +198,7 @@ export function themeMain(
     for (const p of r.written) out(p);
     return code;
   }
-  out(`${dryRun ? 'Would install' : 'Installed'} Timmy Night and Day for ${NAMES[app]}:`);
+  out(plan.files.length ? `${dryRun ? 'Would install' : 'Installed'} Timmy Homebrew, Night and Day for ${NAMES[app]}:` : `Timmy Homebrew for ${NAMES[app]}:`);
   for (const p of r.written) out(`  ${dryRun ? 'would write' : 'wrote'} ${tilde(p)}`);
   for (const p of r.same) out(`  already there ${tilde(p)}`);
   for (const p of r.conflicts) out(`  kept yours (it differs) ${tilde(p)}`);

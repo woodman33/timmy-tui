@@ -57,7 +57,8 @@ export const JOURNEY: JourneyStep[] = [
     fact: (r, chain) => (r.status === 'failed' || r.status === 'denied' ? r.subject : `chain ok · ${chain.length}`)
   },
   {
-    id: 'companion', verb: 'companion', hint: 'pair a phone · [q] shows QR',
+    // R4 (H98): q shows the companion's address; a QR code only with --lan (src/tui/components/ShellV2.tsx companionQr)
+    id: 'companion', verb: 'companion', hint: '[q] its address · a phone: timmy watch --lan',
     proof: r => /companion/.test(r.subject),
     fact: r => r.subject
   },
@@ -77,9 +78,13 @@ export interface JourneyRow {
   fact: string;
 }
 
-export function journeyRows(chain: Receipt[]): JourneyRow[] {
+/** R4 (H98): the companion step's hint names what q draws: its QR code with --lan, else its address. */
+const COMPANION_QR_HINT = 'pair a phone · [q] shows its QR code';
+
+export function journeyRows(chain: Receipt[], o: { companionQr?: boolean } = {}): JourneyRow[] {
   let nextAssigned = false;
-  return JOURNEY.map(step => {
+  return JOURNEY.map(base => {
+    const step = base.id === 'companion' && o.companionQr ? { ...base, hint: COMPANION_QR_HINT } : base;
     const r = chain.find(step.proof) ?? null;
     let state: JourneyRow['state'] = r ? 'done' : 'todo';
     if (!r && !nextAssigned) { state = 'next'; nextAssigned = true; }

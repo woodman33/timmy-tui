@@ -77,7 +77,7 @@ describe('the jobs ledger', () => {
     docs.recordJob('turn-1a2b', { ok: true, revision: 3, sourceRevision: sha(SNAP) });
     docs.recordJob('turn-1a2b', { ok: true, revision: 6, sourceRevision: sha({ a: 1 }) });
     docs.linkReceipt('turn-1a2b', '0f3c9a12');
-    expect(docs.jobs()).toEqual([{ id: 'turn-1a2b', ok: true, calls: 2, revision: 6, sourceRevision: sha({ a: 1 }), at: expect.any(String), receipt: '0f3c9a12' }]);
+    expect(docs.jobs()).toEqual([{ id: 'turn-1a2b', ok: true, calls: 2, failed: 0, revision: 6, sourceRevision: sha({ a: 1 }), at: expect.any(String), receipt: '0f3c9a12' }]);
     expect(new CanvasDocuments(dir).jobs()).toHaveLength(1);
   });
   it('a failed call marks the job failed; newest jobs first; job IDs and receipt IDs are checked', () => {

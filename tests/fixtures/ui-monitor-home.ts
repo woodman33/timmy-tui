@@ -13,7 +13,8 @@ import { withoutCI } from './repl-pty-env.js';
 export const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 export const MONITOR = resolve('cli.tsx');
 export const CLI = resolve('src/cli.ts');
-const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'];
+// R4 (H98): with the test file's own settings folder (TIMMY_SETTINGS_DIR): the monitor here keeps its settings in XDG_CONFIG_HOME
+const XDG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'TIMMY_SETTINGS_DIR'];
 
 export type HomeKind = 'initialized' | 'first-run';
 
@@ -46,6 +47,10 @@ export function monitorHome(kind: HomeKind, opts: { git?: boolean } = {}): Monit
   };
   execFileSync(process.execPath, ['--import', LOADER, CLI, 'init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo'], { cwd: repo, env, stdio: 'ignore' });
   if (kind === 'initialized') writeFileSync(join(config, 'timmy-tui-nodejs', 'config.json'), '{"onboarded": true}');
+  // R4 (H98): `timmy init --yes` now answers every setup question, and a monitor on such a home opens on HOME. A first-run
+  // home is one an older `timmy init` left: its identity, providers and project, and no setup.json, so the chat and logs
+  // questions have no answer and the monitor's FIRST RUN asks them.
+  else rmSync(join(home, 'timmy', 'setup.json'), { force: true });
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'pty', ...args], { env, encoding: 'utf8' });
   const waitFor = async (re: RegExp, ms = 45_000, target = 't'): Promise<RegExpMatchArray> => {
     let screen = '';

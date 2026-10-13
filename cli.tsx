@@ -19,6 +19,7 @@ import { BootFrame } from './src/tui/ui/BootFrame.js';
 import { screenStream } from './src/term/screen-stream.js';
 import { currentCapabilities } from './src/term/capabilities.js';
 import { measureTerminal } from './src/term/probe.js';
+import { LANES_OPTION_WORDS, laneMultiplexer } from './src/agent/lane-server.js';
 
 import { existsSync, readFileSync } from 'fs';
 
@@ -85,6 +86,10 @@ program
   .option('--headless', 'Run without TUI (headless agent)')
   .option('--companion-port <port>', 'Companion window port', '3001')
   .option('--no-companion', 'Disable companion window')
+  // R4 (H84): the companion is this computer's only unless the operator asks for the local network, for a phone
+  .option('--lan', 'Also serve the companion on your local network (plain HTTP; its QR code holds its token): only on a network you trust')
+  // R4 (H87): no lane program and no tmux session start unless the operator asks for them here (src/agent/lane-server.ts)
+  .option('--lanes', LANES_OPTION_WORDS)
   .option('--max-steps <n>', 'Max agentic loop iterations', '10')
   .option('--max-cost <n>', 'Max cost per session in USD', '1.0')
   .option('--debug', 'Enable debug logging')
@@ -96,9 +101,9 @@ const opts = program.opts();
 const config = loadConfig();
 const hasKey = !!config.apiKey;
 
-// Build agent config
+// Build agent config. R4 (H87): no placeholder key: with no model key the agent has none, says so, and asks nothing of a model.
 const agentConfig: AgentConfig = {
-  apiKey: config.apiKey || 'setup_placeholder',
+  apiKey: config.apiKey || '',
   model: opts.model || config.model,
   instructions: `You are the central intelligent orchestrator running inside the state-of-the-art TIMMY Agent Ops Console (built by the TIMMY projectiam Meldman). You are an expert systems engineer and coding agent.
 
@@ -175,7 +180,8 @@ if (opts.headless) {
   const mode = hasKey ? ((opts.mode as Mode) || 'brief') : 'brief';
 
   // v1.0.1: the first-run gate must not re-show once completed (config passthrough)
-  Object.assign(agentConfig, { onboarded: (config as any).onboarded === true });
+  // R4 (H87): the lanes only when asked (--lanes), carried to every agent the monitor makes (src/agent/lane-server.ts laneOptions)
+  Object.assign(agentConfig, { onboarded: (config as any).onboarded === true, lanes: laneMultiplexer(opts.lanes === true, process.env) });
 
   // Start companion server after first paint to avoid EADDRINUSE conflicts
   // Fourth order, step 2 (row 52): its notes go where its URL and QR code go, the companion's log, while
@@ -191,11 +197,11 @@ if (opts.headless) {
 
     for (const port of candidatePorts) {
       try {
-        const server = await (await import('./src/companion/server.js')).startCompanionServer(port);
+        // R4 (H84): on 127.0.0.1 with a token made now; with --lan, on the local network too
+        const server = await (await import('./src/companion/server.js')).startCompanionServer(port, { lan: opts.lan === true });
         (global as any).companionServer = server;
-        const url = `http://localhost:${server.port}`;
         if (port !== preferredPort) companionNote('info', `Companion port ${preferredPort} busy; using ${server.port}.`);
-        (await import('./src/companion/qr.js')).showCompanionQR(url);
+        (await import('./src/companion/qr.js')).showCompanionQR(server);
         companionStarted = true;
         break;
       } catch (err: any) {
