@@ -14,6 +14,10 @@
  *   its ledger entry stays `started` through the kill; the restart makes it `unknown` (NEEDS YOU, with the command and
  *   its output so far), never `ended`; the FAKE model's repeat is refused and the run stops there. S6 replaces the
  *   empty trial folder with a disposable copy of the project.
+ * - The same command stopped by a pause or by Timmy's exit (pi-durable's Harness.close aborts the call; the command
+ *   gets SIGTERM): the tool itself records `unknown` with a NEEDS YOU, never `ended`, so at Resume the repeat is refused
+ *   and the command never runs a second time without a person (fix B1 of H119's review: it was recorded `ended`, and
+ *   the repeat ran).
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -161,6 +165,79 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     await b.client.request('shutdown');
     b.client.close();
     if (alive(childPid)) process.kill(childPid, 'SIGKILL'); // the command the test caused, by its pid
+  });
+
+  /** A run whose trial_shell command is running (it printed, and would print again after 8 s). */
+  async function shellRunning(name: string): Promise<{ root: string; a: Awaited<ReturnType<typeof start>>; run: string; out: string; childPid: number }> {
+    const root = project(name);
+    const a = await start(root, { worker: { trialShell: true } });
+    const argv = [process.execPath, '-e', "process.stdout.write('partial output\\n'); setTimeout(() => process.stdout.write('late output\\n'), 8000)"];
+    const d = await delegate(a.client, { first: { tool: 'trial_shell', args: { argv } }, after_interrupted: 'repeat', after_blocked: 'repeat' });
+    expect(d.ok).toBe(true);
+    const out = await until('the command to have printed', () => {
+      const e = effects(root, d.run).find((x) => x.state === 'started');
+      return e?.output && existsSync(join(root, e.output)) && readFileSync(join(root, e.output), 'utf8').includes('partial output') ? join(root, e.output) : undefined;
+    });
+    const childPid = Number.parseInt(readFileSync(`${out}.pid`, 'utf8'), 10);
+    track(childPid);
+    return { root, a, run: d.run, out, childPid };
+  }
+
+  /** The stopped command's ledger: `started`, then the tool's own `unknown` with the exit, the output's sha256 and its tail. */
+  function expectUnknownByTool(root: string, run: string, out: string): string {
+    const ledger = effects(root, run);
+    expect(ledger.map((e) => `${e.state}/${e.by}`)).toEqual(['started/tool', 'unknown/tool']);
+    expect(ledger[1].outcome).toMatch(/^stopped by its abort signal \(ended by SIGTERM\): what the command did cannot be read back: NEEDS YOU\. The command: /);
+    expect(ledger[1].outcome).toContain('partial output');
+    expect(ledger[1].readback).toEqual({ sha256: sha(readFileSync(out)) });
+    expect(ledger[1].exit).toBeNull();
+    return ledger[0].key;
+  }
+
+  /** At Resume: the FAKE model's repeat is refused, the run stops at that refusal, and the command ran once, never ended. */
+  async function expectRepeatRefused(client: Awaited<ReturnType<typeof start>>['client'], root: string, run: string): Promise<void> {
+    await client.request('resume');
+    const end = await ended(client, run);
+    expect(end.status).toBe('needs you');
+    expect(end.entries.filter((e) => e.kind === 'pi.tool-result').map((e) => e.text)).toEqual([
+      expect.stringMatching(/Tool trial_shell was interrupted and may have partially run/),
+      expect.stringMatching(/Tool call blocked: NEEDS YOU: an earlier trial_shell of \.timmy\/pi\/[0-9a-f]{8}\/trial in this run is of unknown outcome/),
+    ]);
+    const final = effects(root, run);
+    expect(final.filter((e) => e.state === 'started')).toHaveLength(1); // the command ran once
+    expect(final.some((e) => e.state === 'ended')).toBe(false); // never ended
+  }
+
+  it('a trial shell stopped by a pause: the tool records unknown with a NEEDS YOU, not ended; at Resume the repeat is refused and the command never runs again (B1)', async () => {
+    const { root, a, run, out, childPid } = await shellRunning('effects-shell-pause');
+    expect(await a.client.request<{ scheduling: string; runs: string[] }>('pause')).toEqual({ scheduling: 'paused', runs: [run] });
+    expect(alive(childPid)).toBe(false); // the abort ended the command (SIGTERM)
+    const key = expectUnknownByTool(root, run, out);
+    const paused = await status(a.client, run);
+    expect(paused.needs_you.map((n) => n.key)).toEqual([key]);
+    expect(paused.needs_you[0].why).toMatch(/^stopped by its abort signal \(ended by SIGTERM\): what the command did cannot be read back: NEEDS YOU/);
+    await expectRepeatRefused(a.client, root, run);
+    await a.client.request('shutdown');
+    a.client.close();
+  });
+
+  it('a trial shell stopped by Timmy\'s exit (shutdown, pause on exit): the tool records unknown with a NEEDS YOU; the next worker refuses the repeat (B1)', async () => {
+    const { root, a, run, out, childPid } = await shellRunning('effects-shell-exit');
+    const pid = a.client.hello.pid;
+    await a.client.request('shutdown');
+    a.client.close();
+    await until('the worker to exit', () => !alive(pid), 30_000, 50);
+    expect(alive(childPid)).toBe(false);
+    const key = expectUnknownByTool(root, run, out);
+    const b = await start(root, { worker: { trialShell: true } });
+    expect(b.client.hello.scheduling).toBe('paused');
+    expect(effects(root, run)).toHaveLength(2); // nothing to reconcile: the tool's own record is already unknown
+    const paused = await status(b.client, run);
+    expect(paused.status).toBe('paused');
+    expect(paused.needs_you.map((n) => n.key)).toEqual([key]);
+    await expectRepeatRefused(b.client, root, run);
+    await b.client.request('shutdown');
+    b.client.close();
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {

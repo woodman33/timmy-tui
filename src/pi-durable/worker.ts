@@ -193,7 +193,7 @@ class Worker {
     this.models = this.pi.models();
     for (const run of listRuns(this.paths)) this.registerFaux(run);
     const host = { root: this.paths.root, ledger: this.ledger, runOf: (c: number) => this.convToRun.get(c) };
-    this.registry = this.pi.registry('timmy-pi-s1', slowTools(this.pi, { ...host, readsLog: join(this.paths.dir, 'reads.jsonl'), trialShell: this.setting.trial_shell }), guardHooks({
+    this.registry = this.pi.registry('timmy-pi-s1', slowTools(this.pi, { ...host, readsLog: join(this.paths.dir, 'reads.jsonl'), trialShell: this.setting.trial_shell, needsYou: (run, key, why) => this.addNeedsYou(run, key, why) }), guardHooks({
       ...host,
       refused: (run, conversationId, key, _open, words) => this.onRefused(run, conversationId, key, words),
       wasRefused: (c) => this.refusedConversations.has(c),

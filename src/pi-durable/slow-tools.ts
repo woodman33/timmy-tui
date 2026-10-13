@@ -18,7 +18,9 @@
  *   the trial folder; no keys). `replay: "unsafe"`: an unreconcilable effect, never retried by itself. Its key is the run's
  *   trial copy, so after one interrupted command every later command of that run waits for a person. It writes `started`
  *   before the process starts and `ended` with the exit status and the output's sha256 after it ends; its output goes
- *   straight to a file (.timmy/pi/<run>/trial-<call>.out), so a kill keeps what it printed, and its pid beside it.
+ *   straight to a file (.timmy/pi/<run>/trial-<call>.out), so a kill keeps what it printed, and its pid beside it. A
+ *   command stopped by its abort signal (a Stop, a pause, Timmy's exit: pi-durable's Harness.close aborts every call in
+ *   flight) is recorded `unknown` with a NEEDS YOU, never `ended`: what it did cannot be read back (fix B1).
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -37,6 +39,8 @@ export interface ToolHost {
   readonly readsLog: string;
   /** whether trial_shell is offered (the worker's --allow-trial-shell) */
   readonly trialShell?: boolean;
+  /** records a NEEDS YOU on the run (an effect a tool cannot read back) */
+  needsYou?(run: string, key: string, why: string): void;
   /** the Timmy run of a Pi conversation */
   runOf(conversationId: number): string | undefined;
 }
@@ -188,8 +192,16 @@ export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {
       } finally { closeSync(fd); }
       const readback = { sha256: fileSha256(outAbs) };
       const how = exit.error ? `could not start: ${exit.error}` : exit.code !== null ? `exited ${exit.code}` : `ended by ${exit.signal}`;
-      host.ledger.append({ ...base, state: 'ended', exit: exit.code, outcome: aborted ? `stopped by its abort signal (${how})` : how, readback });
-      if (aborted) throw new Error(`trial_shell stopped by its abort signal (${how})`);
+      if (aborted) {
+        // stopped mid-command: what it did to the trial copy cannot be read back, so its outcome is unknown (plan e.2),
+        // and only a person moves it on; the guard refuses every later command of the run until then
+        const tail = fileTail(outAbs, 400);
+        const why = `stopped by its abort signal (${how}): what the command did cannot be read back: NEEDS YOU. The command: ${JSON.stringify(argv)}. Its output so far (${tail.bytes} bytes${tail.bytes > 400 ? ', its end' : ''}): ${JSON.stringify(tail.text)}`;
+        host.ledger.append({ ...base, state: 'unknown', exit: exit.code, outcome: why, readback });
+        host.needsYou?.(run, key, why);
+        throw new Error(`trial_shell stopped by its abort signal (${how}); its outcome is unknown: NEEDS YOU`);
+      }
+      host.ledger.append({ ...base, state: 'ended', exit: exit.code, outcome: how, readback });
       const tail = fileTail(outAbs, MAX_TRIAL_OUTPUT);
       return text(`${how}; output ${statSize(outAbs)} bytes${tail.bytes > MAX_TRIAL_OUTPUT ? ' (its end)' : ''}:\n${tail.text}`, exit.code !== 0);
     },
