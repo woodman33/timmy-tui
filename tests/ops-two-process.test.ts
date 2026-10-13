@@ -49,7 +49,7 @@ describe('one project, two Timmy processes: the one-flow rule and the board\'s 4
     const other = act(kit, s, ['/iterate scad box.scad "FAKE: SLEEP, then make it wider"', '--wait']);
     const [, op] = await other.waitFor(/operation (o[0-9a-f]{8})/);
     const [, flow] = await other.waitFor(/\b(f[0-9a-f]{8})\b/);
-    // Its hold, named by its flow, its operation and its process (the node process tsx runs, not tsx itself).
+    // Its hold, named by its flow, its operation and its process (the process that runs act).
     await until(() => holdFiles(s.root).length === 1 && JSON.parse(fs.readFileSync(path.join(s.root, HOLDS_DIR, holdFiles(s.root)[0]), 'utf8')).flow === flow, 20_000, 'the hold naming the flow');
     const hold = JSON.parse(fs.readFileSync(path.join(s.root, HOLDS_DIR, holdFiles(s.root)[0]), 'utf8')) as { schema: string; kind: string; flow: string; operation: string; owner: { pid: number; started: string } };
     expect(hold).toMatchObject({ schema: HOLD_SCHEMA, kind: 'scad', flow, operation: op });

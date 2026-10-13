@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { vi } from 'vitest';
 import { folderProject } from '../../src/project/index.js';
 import { Workspace } from '../../src/repl/workspace.js';
@@ -24,6 +25,8 @@ export const REPO = path.resolve(__dirname, '..', '..');
 export const FIXTURES = path.join(REPO, 'tests', 'fixtures');
 export const TSX = path.join(REPO, 'node_modules', '.bin', 'tsx');
 export const CLI = path.join(REPO, 'src', 'cli.ts');
+/** tsx's loader, for `node --import` (the dev path that runs the CLI in one process, as tests/workbench-pty.test.ts runs it). */
+export const LOADER = pathToFileURL(path.join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href;
 export const FAKE_AGENT = path.join(FIXTURES, 'fake-code-agent.mjs');
 export const FAKE_UPMD = path.join(FIXTURES, 'fake-upmd.mjs');
 export const FAKE_OPENSCAD = path.join(FIXTURES, 'fake-openscad.mjs');
@@ -76,7 +79,12 @@ export function sandbox(kit: OpsKit, prefix = 'ops-'): Sandbox {
   const bin = path.join(base, 'bin');
   for (const d of [root, home, bin]) fs.mkdirSync(d, { recursive: true });
   for (const f of ['box.scad', 'box.params.json']) fs.copyFileSync(path.join(SCAD_STARTER, f), path.join(root, f));
-  fs.writeFileSync(path.join(bin, 'timmy'), `#!/bin/sh\nexec "${TSX}" "${CLI}" "$@"\n`, { mode: 0o755 });
+  // R4 lead (full suite 36): `timmy` is the CLI in one node process (tsx's loader), not the tsx command. The tsx command
+  // runs the CLI in a child and relays a signal it gets: it gives that child 30 ms to say it got the signal, else it sends
+  // the child SIGKILL and exits 143. On a loaded machine `timmy act`'s SIGTERM then ended as 143 with nothing stopped or
+  // recorded (tests/ops-two-process.test.ts, full suite 36), which tested tsx's relay, not act's stop path. A signal to this
+  // process now reaches act itself, as it reaches the installed command.
+  fs.writeFileSync(path.join(bin, 'timmy'), `#!/bin/sh\nexec "${process.execPath}" --import "${LOADER}" "${CLI}" "$@"\n`, { mode: 0o755 });
   fs.copyFileSync(FAKE_OPENSCAD, path.join(bin, 'openscad'));
   fs.chmodSync(path.join(bin, 'openscad'), 0o755);
   const env: NodeJS.ProcessEnv = {
