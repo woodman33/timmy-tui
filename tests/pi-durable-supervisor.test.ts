@@ -7,14 +7,21 @@
  * child). Timings are shortened through the worker's own options (--lease-grace-ms, --idle-ms); the defaults are 15 s
  * and 10 minutes. The worker's environment is read from /proc (Linux) and holds only the allowlist (fix S9 of H119's
  * review: it was the parent's environment less 12 key names, while pi-ai reads some 40).
+ *
+ * Attaching checks the protocol version (fix N2 of H119's second review): a FAKE worker in this process (the protocol's
+ * real server, with an owner record naming this process) answers hello with version 1, as a worker started by an
+ * older build would. It is refused with words, and nothing is started. Before, it was used unnoticed.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { readOwner } from '../src/pi-durable/owner.js';
-import { piPaths } from '../src/pi-durable/paths.js';
+import { THIS_PROCESS } from '../src/ops/process-proof.js';
+import { publishOwner, readOwner, sha256Hex, withdrawOwner } from '../src/pi-durable/owner.js';
+import { piPaths, STORE_REL } from '../src/pi-durable/paths.js';
+import { PiClient, PROTOCOL_VERSION, serve, type HelloResult } from '../src/pi-durable/protocol.js';
 import { readRun } from '../src/pi-durable/runs.js';
-import { PiNeedsYou, recoverOnStart, startsInWindow, START_BUDGET } from '../src/pi-durable/supervisor.js';
+import { attachWorker, ensureWorker, PiNeedsYou, recoverOnStart, startsInWindow, START_BUDGET } from '../src/pi-durable/supervisor.js';
+import { DEFAULT_SETTING } from '../src/pi-durable/worker.js';
 import { alive, anyAlive, cleanup, delegate, ended, INSTALLED, killWorker, project, reads, SKIP_WHY, start, status, track, until } from './helpers/pi-durable.js';
 
 vi.setConfig({ testTimeout: 180_000 }); // worker starts and restarts, under a loaded suite
@@ -211,5 +218,30 @@ describe.skipIf(!INSTALLED)(`the supervisor and the worker's life (plan b.2, b.3
     await until('every worker to have exited', () => anyAlive().length === 0, 30_000);
     expect(anyAlive()).toEqual([]);
     cleanup();
+  });
+});
+
+describe('attaching checks the protocol version (N2), with a FAKE worker in this process', () => {
+  it('a worker that speaks another protocol version is refused with words saying which and what to do; nothing is started', async () => {
+    const root = project('sup-protocol');
+    const p = piPaths(root);
+    const token = 'FAKE-token-of-a-worker-from-another-build';
+    const hello = (): HelloResult => ({
+      protocol: 1, project_id: p.projectId, store: STORE_REL, pid: THIS_PROCESS.pid, started: THIS_PROCESS.started,
+      pins: {}, node: process.version, scheduling: 'running', setting: DEFAULT_SETTING, leases: 1,
+    });
+    const server = await serve(p.socket, sha256Hex(token), async () => ({}), hello);
+    publishOwner(p, token, { project_id: p.projectId, store: STORE_REL, socket: p.socket, pins: {}, node: process.version, scheduling: 'running', setting: DEFAULT_SETTING });
+    const words = `the Pi worker of this project (pid ${THIS_PROCESS.pid}) speaks protocol 1, and this Timmy speaks protocol ${PROTOCOL_VERSION}: it was started by another Timmy build. This Timmy does not use it or stop it: let it exit (it does once no Timmy is attached to it) or stop it from its own build, then try again`;
+    try {
+      const attached = await attachWorker(root, 'test');
+      if (attached instanceof PiClient) attached.close();
+      expect(attached instanceof PiClient ? { protocol: attached.hello.protocol, attached: true } : attached).toEqual({ kind: 'protocol', error: words });
+      await expect(ensureWorker(root, { surface: 'test', waitMs: 5000 })).rejects.toThrow(`NEEDS YOU: ${words}`);
+      expect(startsInWindow(p, START_BUDGET.windowMs)).toEqual([]); // nothing was started
+    } finally {
+      await server.close(2000);
+      withdrawOwner(p);
+    }
   });
 });

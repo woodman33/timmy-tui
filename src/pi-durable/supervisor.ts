@@ -28,7 +28,7 @@ import { THIS_PROCESS } from '../ops/process-proof.js';
 import { freeRoute } from './cost.js';
 import { ownerState, readOwner, readToken, sha256Hex } from './owner.js';
 import { LOG_REL, piPaths, STORE_REL, type PiPaths } from './paths.js';
-import { PiClient, type OnExit, type ResumeResult } from './protocol.js';
+import { PiClient, PROTOCOL_VERSION, type OnExit, type ResumeResult } from './protocol.js';
 import { listRuns } from './runs.js';
 
 export const START_WAIT_MS = 10_000;
@@ -82,8 +82,15 @@ export class PiNeedsYou extends Error {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** Attaches to the project's live worker, or answers why not (never starts one). */
-export async function attachWorker(root: string, surface = 'timmy', helloTimeoutMs = 5000): Promise<PiClient | { error: string }> {
+/** Why attaching failed, when a caller must tell it apart from "no worker answers" (ensureWorker does). */
+export type AttachProblem = 'protocol';
+
+/**
+ * Attaches to the project's live worker, or answers why not (never starts one). A worker that speaks another protocol
+ * version (started by another Timmy build) is never used (fix N2 of H119's second review: version 2 changed result
+ * shapes, and such a worker was used unnoticed).
+ */
+export async function attachWorker(root: string, surface = 'timmy', helloTimeoutMs = 5000): Promise<PiClient | { error: string; kind?: AttachProblem }> {
   const paths = piPaths(root);
   const owner = readOwner(paths);
   if (!owner) return { error: 'no Pi worker record (worker.json) in this project' };
@@ -96,6 +103,10 @@ export async function attachWorker(root: string, surface = 'timmy', helloTimeout
   try {
     client = await PiClient.connect(owner.socket, { token, pid: THIS_PROCESS.pid, started: THIS_PROCESS.started, surface }, helloTimeoutMs);
   } catch (e) { return { error: `the Pi worker (pid ${owner.pid}) did not answer hello: ${e instanceof Error ? e.message : String(e)}` }; }
+  if (client.hello.protocol !== PROTOCOL_VERSION) {
+    client.close();
+    return { kind: 'protocol', error: `the Pi worker of this project (pid ${owner.pid}) speaks protocol ${String(client.hello.protocol)}, and this Timmy speaks protocol ${PROTOCOL_VERSION}: it was started by another Timmy build. This Timmy does not use it or stop it: let it exit (it does once no Timmy is attached to it) or stop it from its own build, then try again` };
+  }
   if (client.hello.project_id !== paths.projectId || client.hello.store !== STORE_REL || client.hello.pid !== owner.pid) {
     client.close();
     return { error: 'the worker that answered is not this project\'s (its hello names another project, store or pid)' };
@@ -182,6 +193,7 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
   const helloMs = opts.helloTimeoutMs ?? 5000;
   const first = await attachWorker(root, surface, helloMs);
   if (first instanceof PiClient) return { client: first, how: 'attached' };
+  if (first.kind === 'protocol') throw new PiNeedsYou(`NEEDS YOU: ${first.error}`, logTail(paths)); // nothing is started beside it
   const waitMs = opts.waitMs ?? START_WAIT_MS;
   const budget = opts.budget ?? START_BUDGET;
   let lastExit: number | null | undefined;
@@ -204,6 +216,7 @@ export async function ensureWorker(root: string, opts: EnsureOptions = {}): Prom
     while (Date.now() < deadline) {
       await sleep(100);
       const c = await attachWorker(root, surface, helloMs);
+      if (!(c instanceof PiClient) && c.kind === 'protocol') throw new PiNeedsYou(`NEEDS YOU: ${c.error}`, logTail(paths));
       if (c instanceof PiClient) {
         if (c.hello.pid === started.pid) return { client: c, how: 'started', spawned: started.pid };
         return { client: c, how: 'attached after exit 3', spawned: started.pid, spawnedExit: exit ?? (await Promise.race([started.exited, sleep(3000).then(() => undefined)])) ?? null };
