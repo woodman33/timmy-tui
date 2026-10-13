@@ -50,7 +50,7 @@ const F = '```';
 // the held shape of tests/act-md-signals.test.ts: a block that ignores SIGTERM, so its stop takes the wrapper's 0.8 s grace
 const SLOW = ['# Slow to stop', '', `${F}bash [name:first]`, 'echo ready', F, '', `${F}bash [name:long, deps:first]`, "trap '' TERM", 'touch long.started', 'sleep 30', F, ''].join('\n');
 
-interface Run { child: ChildProcess; done: Promise<{ code: number | null; stdout: string; stderr: string }> }
+interface Run { child: ChildProcess; stdout: () => string; done: Promise<{ code: number | null; stdout: string; stderr: string }> }
 /** `timmy md LONG.md long --json` through Timmy's own bin, in its own process group (as tests/act-md-signals.test.ts runs it). */
 function md(s: Sandbox, env: NodeJS.ProcessEnv = {}): Run {
   const child = spawn(process.execPath, ['--import', LOADER, BIN, 'md', 'LONG.md', 'long', '--json'], { cwd: s.root, env: { ...s.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
@@ -60,7 +60,7 @@ function md(s: Sandbox, env: NodeJS.ProcessEnv = {}): Run {
   let stderr = '';
   child.stdout!.setEncoding('utf8').on('data', (c: string) => { stdout += c; });
   child.stderr!.setEncoding('utf8').on('data', (c: string) => { stderr += c; });
-  return { child, done: new Promise((resolve) => child.on('close', (code) => resolve({ code, stdout, stderr }))) };
+  return { child, stdout: () => stdout, done: new Promise((resolve) => child.on('close', (code) => resolve({ code, stdout, stderr }))) };
 }
 const group = (r: Run, sig: NodeJS.Signals): void => { try { process.kill(-r.child.pid!, sig); } catch { /* it has ended */ } };
 const lastJson = (stdout: string): Record<string, unknown> => JSON.parse(stdout.trim().split('\n').at(-1)!) as Record<string, unknown>;
@@ -126,12 +126,16 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     expect((await wrapperStop(s)).signals).toEqual(['SIGTERM', 'SIGKILL']);
   }, 120_000);
 
-  it('the second SIGINT 1.5 s after the first (a test timer that fires late): the stop and md\'s end are over: the same outcome', async () => {
+  it('the second SIGINT once md has printed its end (a test timer that fires after the stop): the stop and md\'s end are over: the same outcome', async () => {
     const s = box('h114-late-');
     const r = md(s);
     await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
     group(r, 'SIGINT');
-    await sleep(1500);
+    // R4 lead (full suite 37): this sent its second SIGINT 1.5 s after the first, taking the stop and md's end (about 1 s on a
+    // quiet machine) to be over by then. On a loaded one they were not: the second SIGINT came inside the stop and md exited
+    // at once ("a second SIGINT: timmy md exited at once"), as it should then, and the test failed. It now sends its second
+    // SIGINT once md has printed its end, which is what "a timer that fires after the stop" means, whatever the load.
+    await until(() => { try { lastJson(r.stdout()); return true; } catch { return false; } }, 60_000, 'md\'s printed end');
     group(r, 'SIGINT');
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
