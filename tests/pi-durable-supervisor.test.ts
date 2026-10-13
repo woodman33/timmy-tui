@@ -5,7 +5,8 @@
  * killed (a crashed Timmy), worker.log, .timmy/private/pi/starts.jsonl, the run records, pi-durable 1.1.0's store.
  * FAKE: the model (pi-ai's scripted faux provider), the fixture projects, and the "Timmy" processes (this test and its
  * child). Timings are shortened through the worker's own options (--lease-grace-ms, --idle-ms); the defaults are 15 s
- * and 10 minutes.
+ * and 10 minutes. The worker's environment is read from /proc (Linux) and holds only the allowlist (fix S9 of H119's
+ * review: it was the parent's environment less 12 key names, while pi-ai reads some 40).
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -187,6 +188,23 @@ describe.skipIf(!INSTALLED)(`the supervisor and the worker's life (plan b.2, b.3
     expect(end.status).toBe('completed');
     await rec.attached!.client.request('shutdown');
     rec.attached!.client.close();
+  });
+
+  it.skipIf(!existsSync('/proc/self/environ'))('the worker\'s environment is built from an allowlist: a provider key, a token or a proxy setting in Timmy\'s environment does not reach it (S9)', async () => {
+    const root = project('sup-env');
+    // FAKE values, set only in the environment this test hands the supervisor
+    const env: NodeJS.ProcessEnv = {
+      ...process.env, HF_TOKEN: 'FAKE-hf', ANTHROPIC_OAUTH_TOKEN: 'FAKE-oauth', COPILOT_GITHUB_TOKEN: 'FAKE-copilot', AZURE_OPENAI_API_KEY: 'FAKE-azure',
+      OPENAI_API_KEY: 'FAKE-openai', HTTPS_PROXY: 'http://127.0.0.1:9', NODE_OPTIONS: '--max-old-space-size=4096', SOME_OTHER_SETTING: 'FAKE',
+      TIMMY_PI_LOCK_WAIT_MS: '2000', LC_ALL: 'C.UTF-8', TERM: 'xterm',
+    };
+    const a = await start(root, { env });
+    const names = readFileSync(`/proc/${a.client.hello.pid}/environ`, 'utf8').split('\0').filter(Boolean).map((kv) => kv.slice(0, kv.indexOf('=')));
+    const allowed = (k: string): boolean => ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TERM'].includes(k) || k.startsWith('LC_') || k.startsWith('TIMMY_PI_');
+    expect(names.filter((k) => !allowed(k))).toEqual([]);
+    for (const k of ['PATH', 'HOME', 'TMPDIR', 'TERM', 'LC_ALL', 'TIMMY_PI_LOCK_WAIT_MS']) expect(names).toContain(k);
+    await a.client.request('shutdown');
+    a.client.close();
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, idle, or killed by the test on purpose)', async () => {

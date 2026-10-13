@@ -33,8 +33,23 @@ import { listRuns } from './runs.js';
 
 export const START_WAIT_MS = 10_000;
 export const START_BUDGET = Object.freeze({ limit: 3, windowMs: 10 * 60_000 });
-/** provider keys the worker never needs in S1 (its only model is FAKE): blanked in its environment, as planAgent blanks OPENROUTER_API_KEY */
-export const BLANKED_KEYS = ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'];
+/**
+ * The worker's environment is built from this allowlist (fix S9 of H119's review): the parent's PATH, HOME, TMPDIR,
+ * LANG, TERM, LC_* and the TIMMY_PI_* settings the worker reads, and nothing else. No provider key, token or proxy
+ * setting reaches it: pi-ai reads some 40 key names, and the denylist before this missed most of them. S1's only model
+ * is FAKE; S3's real routes hand the worker what a route needs explicitly.
+ */
+export const WORKER_ENV_NAMES: readonly string[] = Object.freeze(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TERM']);
+export const WORKER_ENV_PREFIXES: readonly string[] = Object.freeze(['LC_', 'TIMMY_PI_']);
+
+/** The allowlisted part of an environment (WORKER_ENV_NAMES, WORKER_ENV_PREFIXES). */
+export function workerEnv(from: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(from)) {
+    if (v !== undefined && (WORKER_ENV_NAMES.includes(k) || WORKER_ENV_PREFIXES.some((p) => k.startsWith(p)))) env[k] = v;
+  }
+  return env;
+}
 
 export interface EnsureOptions {
   readonly workerDir?: string;
@@ -136,8 +151,7 @@ function startWorker(paths: PiPaths, opts: EnsureOptions): { pid: number; exited
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
   const fd = openSync(paths.log, 'a', 0o600);
   const { command, args } = workerCommand();
-  const env: NodeJS.ProcessEnv = { ...(opts.env ?? process.env) };
-  for (const k of BLANKED_KEYS) delete env[k];
+  const env = workerEnv(opts.env ?? process.env);
   const w = opts.worker ?? {};
   const workerArgs = [
     '--project', paths.root,
