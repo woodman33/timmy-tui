@@ -45,14 +45,19 @@ describe('the protocol\'s limits, in this process (fix S2)', () => {
     expect((protocol as Record<string, unknown>).MAX_EVENTS_WAIT_MS).toBe(25_000);
   });
 
-  it('an answer over the 1 MiB line limit is replaced by an error with words, and the connection stays', async () => {
+  it('an answer over the 1 MiB line limit is replaced by an error with words that fit its method, and the connection stays', async () => {
     const socket = join(tmpdir(), `timmy-pi-test-${randomBytes(4).toString('hex')}.sock`);
     const token = 'FAKE-token-for-this-test';
-    const server = await serve(socket, sha256Hex(token), async (method) => (method === 'status' ? { big: 'b'.repeat(2_000_000) } : { small: true }), () => ({ protocol: PROTOCOL_VERSION } as unknown as HelloResult));
+    const big = new Set(['status', 'transcript', 'list', 'stop']);
+    const server = await serve(socket, sha256Hex(token), async (method) => (big.has(method) ? { big: 'b'.repeat(2_000_000) } : { small: true }), () => ({ protocol: PROTOCOL_VERSION } as unknown as HelloResult));
     try {
       const c = await PiClient.connect(socket, { token, surface: 'test' });
-      await expect(c.request('status', { run: 'aaaaaaaa' })).rejects.toThrow(/^the answer to status is 2,000,0\d\d bytes, over the protocol's 1 MiB line limit: it was not sent \(ask for a smaller page\)$/);
-      expect(await c.request('list')).toEqual({ small: true }); // the same connection still answers
+      const over = (method: string, hint: string): RegExp => new RegExp(`^the answer to ${method} is 2,000,0\\d\\d bytes, over the protocol's 1 MiB line limit: it was not sent \\(${hint}\\)$`);
+      await expect(c.request('status', { run: 'aaaaaaaa' })).rejects.toThrow(over('status', 'status has no page: read the run in pages with transcript and events'));
+      await expect(c.request('transcript', { run: 'aaaaaaaa' })).rejects.toThrow(over('transcript', 'ask for a smaller page with max_bytes or limit'));
+      await expect(c.request('list')).rejects.toThrow(over('list', 'list has no page: the project has more runs than one answer can hold'));
+      await expect(c.request('stop', { run: 'aaaaaaaa' })).rejects.toThrow(over('stop', 'stop has no smaller form'));
+      expect(await c.request('events', { run: 'aaaaaaaa' })).toEqual({ small: true }); // the same connection still answers
       c.close();
     } finally { await server.close(2000); }
   });

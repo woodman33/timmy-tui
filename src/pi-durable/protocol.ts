@@ -186,6 +186,14 @@ export interface LeaseHooks {
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
 
+/** What a client can do about an answer too big for one line: only transcript and events have pages. */
+const SMALLER: Readonly<Record<string, string>> = Object.freeze({
+  transcript: 'ask for a smaller page with max_bytes or limit',
+  events: 'ask for a smaller page with max_bytes or limit',
+  status: 'status has no page: read the run in pages with transcript and events',
+  list: 'list has no page: the project has more runs than one answer can hold',
+});
+
 /** Splits a socket's bytes into lines, refusing any over MAX_LINE (`overflow` hears it, then the socket is destroyed). */
 function lines(socket: Socket, onLine: (line: string) => void, overflow?: () => void): void {
   let buf = '';
@@ -218,7 +226,10 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
       if (socket.destroyed) return;
       let line = JSON.stringify(r);
       const bytes = Buffer.byteLength(line);
-      if (bytes >= MAX_LINE) line = JSON.stringify({ id: r.id, ok: false, error: `the answer to ${method ?? 'this request'} is ${bytes.toLocaleString('en-US')} bytes, over the protocol's 1 MiB line limit: it was not sent (ask for a smaller page)` });
+      if (bytes >= MAX_LINE) {
+        const m = method ?? 'this request';
+        line = JSON.stringify({ id: r.id, ok: false, error: `the answer to ${m} is ${bytes.toLocaleString('en-US')} bytes, over the protocol's 1 MiB line limit: it was not sent (${SMALLER[m] ?? `${m} has no smaller form`})` });
+      }
       socket.write(`${line}\n`);
     };
     lines(socket, (line) => {

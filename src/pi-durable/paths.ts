@@ -3,9 +3,14 @@
  * <project>/.timmy/private/pi/ (Timmy's per-project folder, never committed), except the socket, which lives in $TMPDIR
  * with a short name because macOS caps a socket path at 104 bytes (plan b.1.5).
  *
- * .timmy/private is the part of the project Timmy's own file tools, reads and listings never reach (privatePath in
- * src/project), so no agent can read the worker's token into a model's context or rewrite its effect ledger (fix S1 of
- * H119's review: it was .timmy/pi/, which they reached). Pi's own file tools refuse all of .timmy/ (slow-tools.ts).
+ * What that keeps out of reach, and what it does not (fix S1 of H119's review: the folder was .timmy/pi/, which both
+ * kinds of file tool below reached):
+ * - covered: Timmy's own file tools, reads and listings never reach .timmy/private (privatePath in src/project), and
+ *   Pi's own file tools refuse all of .timmy/ (slow-tools.ts), so neither can put the worker's token into a model's
+ *   context or rewrite its effect ledger;
+ * - not covered: a trial_shell command (an unconfined fixture, an ordinary process of the user run in
+ *   .timmy/private/pi/<run>/trial) can still read ../../worker.token until S6's trial copy confines commands, and so
+ *   can any program the user, or an agent's shell, runs.
  */
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
