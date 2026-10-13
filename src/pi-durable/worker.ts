@@ -818,8 +818,10 @@ class Worker {
       }
     });
     if (decision === 'stop' && r.ended) {
-      const now = readRun(this.paths, run);
-      stop = { run, result: `the run had ended at its NEEDS YOU: recorded ${now?.ended?.status ?? r.ended.status}`, status: now?.ended?.status ?? r.ended.status };
+      const status = readRun(this.paths, run)?.ended?.status ?? r.ended.status;
+      stop = r.ended.status === 'needs you'
+        ? { run, result: `the run had ended at its NEEDS YOU: recorded ${status}`, status }
+        : { run, result: `the run had already ended (${r.ended.status}): nothing to stop`, status };
     }
     this.log(`answered NEEDS YOU of run ${run} (${key}): ${decision} by ${by}`);
     return { ok: true, run, key, decision, ledger, ...(stop ? { stop } : {}) };

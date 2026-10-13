@@ -249,6 +249,30 @@ describe.skipIf(!INSTALLED)(`the worker protocol's round trips (plan b.1.5)${INS
     client.close();
   });
 
+  it('answer stop on a run that completed with its NEEDS YOU still open: the answer says there was nothing to stop, and the run stays completed (S7)', async () => {
+    const root = project('proto-s7-completed', { 'a.txt': 'old bytes' });
+    const a = await start(root);
+    // a model that does not repeat an interrupted write: the run completes, its NEEDS YOU (unknown outcome) still open
+    const d = await delegate(a.client, {
+      first: { tool: 'slow_write', args: { path: 'a.txt', content: 'new bytes', expected_sha256: sha('old bytes'), delay_ms: 15_000 } },
+      after_interrupted: { text: 'I will not try that write again (FAKE answer).' },
+    });
+    await until('the write, before its end', () => effects(root, d.run).some((e) => e.state === 'started') && readFileSync(join(root, 'a.txt'), 'utf8') === 'new bytes');
+    a.client.close();
+    await killWorker(root);
+    writeFileSync(join(root, 'a.txt'), 'third bytes');
+    const b = await start(root);
+    await b.client.request('resume');
+    const end = await ended(b.client, d.run);
+    expect(end.status).toBe('completed');
+    expect(end.needs_you.filter((x) => !x.answered)).toHaveLength(1);
+    const ans = await b.client.request<AnswerResult>('answer', { run: d.run, key: end.needs_you[0].key, decision: 'stop' });
+    expect(ans).toMatchObject({ ok: true, decision: 'stop', stop: { run: d.run, result: 'the run had already ended (completed): nothing to stop', status: 'completed' } });
+    expect((await status(b.client, d.run)).status).toBe('completed');
+    await b.client.request('shutdown');
+    b.client.close();
+  });
+
   it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
     await until('every worker to have exited', () => anyAlive().length === 0, 30_000);
     expect(anyAlive()).toEqual([]);
