@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
 import { THIS_PROCESS, writerState } from '../ops/process-proof.js';
-import { loadPi, type Harness, type LockedStorage, type PiApi, type PiEventStream, type SubmissionRecord } from './adapter/pi-api.js';
+import { loadPi, type EntryRecord, type Harness, type LockedStorage, type PiApi, type PiEventStream, type SubmissionRecord } from './adapter/pi-api.js';
 import { costWords } from './cost.js';
 import { EffectLedger, type EffectRecord } from './effects.js';
 import { checkScript, fauxAnswer } from './faux.js';
@@ -46,8 +46,9 @@ import { newToken, ownerState, publishOwner, readOwner, sha256Hex, updateOwner, 
 import { defaultWorkerDir, piPaths, STORE_REL, type PiPaths } from './paths.js';
 import { checkPins } from './pins.js';
 import {
-  PROTOCOL_VERSION, serve, type AnswerDecision, type PiServer, type AnswerResult, type EventsResult, type HelloResult, type MessageResult, type Method,
-  type OnExit, type Peer, type RunWords, type StatusResult, type StopResult, type TranscriptEntry, type TranscriptResult, type WorkerSetting,
+  MAX_ARGUMENT_CHARS, MAX_EVENTS_WAIT_MS, MAX_TEXT_CHARS, MAX_TOOL_CALLS, MIN_PAGE_BYTES, PAGE_BYTES, PROTOCOL_VERSION, serve, STATUS_EFFECTS_BYTES,
+  type AnswerDecision, type AnswerResult, type EventsResult, type HelloResult, type MessageResult, type Method, type OnExit, type Peer, type PiServer,
+  type RunWords, type StatusResult, type StopResult, type TranscriptEntry, type TranscriptResult, type WorkerSetting,
 } from './protocol.js';
 import { reconcileOpen } from './reconcile.js';
 import { eventsPath, lastSubmission, listRuns, openNeedsYou, readRun, RUN_SCHEMA, writeRun, type RunFile } from './runs.js';
@@ -61,8 +62,6 @@ export const EXIT = { OK: 0, FAILED: 1, USAGE: 2, OWNED: 3, PINS: 4 } as const;
 export const DEFAULT_SETTING: WorkerSetting = Object.freeze({ on_exit: 'pause', idle_ms: 600_000, lease_grace_ms: 15_000, trial_shell: false });
 /** How often the worker looks at its leases and its idleness. */
 export const TICK_MS = 250;
-/** The longest an `events` call waits for a new event. */
-export const MAX_EVENTS_WAIT_MS = 25_000;
 /** A single event bigger than this is kept as its type and size only. */
 export const MAX_EVENT_BYTES = 16_384;
 /** At its exit the worker ends every connection and waits for them this long at most (fix S3). */
@@ -130,6 +129,28 @@ const toolCalls = (content: unknown): TranscriptEntry['tool_calls'] => (Array.is
   ? content.filter((c) => c && typeof c === 'object' && (c as { type?: unknown }).type === 'toolCall')
     .map((c) => { const t = c as { id?: unknown; name?: unknown; arguments?: unknown }; return { id: String(t.id ?? ''), name: String(t.name ?? ''), arguments: t.arguments ?? null }; })
   : []);
+const count = (n: number): string => n.toLocaleString('en-US');
+/** The bytes a value takes in an answer line. */
+const jsonBytes = (x: unknown): number => Buffer.byteLength(JSON.stringify(x) ?? 'null') + 1;
+
+/** A conversation entry as the protocol carries it: long text, errors, arguments and call lists cut, with words (fix S2). */
+function transcriptEntry(e: EntryRecord): TranscriptEntry {
+  const m = e.model?.[0];
+  const text = textBlocks(m?.content);
+  const error = m?.errorMessage ?? null;
+  const calls = toolCalls(m?.content);
+  const shown = calls.slice(0, MAX_TOOL_CALLS).map((c) => {
+    const json = JSON.stringify(c.arguments) ?? 'null';
+    return json.length <= MAX_ARGUMENT_CHARS ? c
+      : { ...c, arguments: json.slice(0, MAX_ARGUMENT_CHARS), arguments_cut: `its arguments are ${count(json.length)} characters as JSON: \`arguments\` holds their first ${count(MAX_ARGUMENT_CHARS)}, as text` };
+  });
+  return {
+    id: e.id, kind: e.kind, by_task: e.byTaskId ?? null, role: m?.role ?? null, stop: m?.stopReason ?? null,
+    text: text.slice(0, MAX_TEXT_CHARS), ...(text.length > MAX_TEXT_CHARS ? { text_cut: `its text is ${count(text.length)} characters: the first ${count(MAX_TEXT_CHARS)} are shown` } : {}),
+    tool_calls: shown, ...(calls.length > MAX_TOOL_CALLS ? { tool_calls_cut: `it has ${count(calls.length)} tool calls: the first ${MAX_TOOL_CALLS} are shown` } : {}),
+    error: error === null ? null : error.slice(0, MAX_TEXT_CHARS), ...(error !== null && error.length > MAX_TEXT_CHARS ? { error_cut: `its error is ${count(error.length)} characters: the first ${count(MAX_TEXT_CHARS)} are shown` } : {}),
+  };
+}
 
 const compactEvent = (e: Record<string, unknown>): Record<string, unknown> => {
   if (e.type === 'snapshot') return { type: 'snapshot', entries: Array.isArray(e.entries) ? e.entries.length : null };
@@ -349,14 +370,25 @@ class Worker {
     await Promise.all(all.map((s) => s.stop().catch(() => undefined)));
   }
 
-  private readEvents(run: string, after: number, limit: number): { events: EventsResult['events']; more: boolean } {
+  /** The run's events after `after`: at most `limit`, and a page under `maxBytes` (at least one event) (fix S2). */
+  private readEvents(run: string, after: number, limit: number, maxBytes: number): { events: EventsResult['events']; more: boolean } {
     let lines: string[] = [];
     try { lines = readFileSync(eventsPath(this.paths, run), 'utf8').split('\n').filter((l) => l.trim()); } catch { lines = []; }
-    const newer: EventsResult['events'] = [];
+    const page: EventsResult['events'] = [];
+    let bytes = 0;
     for (const l of lines) {
-      try { const e = JSON.parse(l) as EventsResult['events'][number]; if (e.n > after) newer.push(e); } catch { /* a line cut by a kill */ }
+      let e: EventsResult['events'][number];
+      try { e = JSON.parse(l) as EventsResult['events'][number]; } catch { continue; /* a line cut by a kill */ }
+      if (!(e.n > after)) continue;
+      if (page.length >= limit) return { events: page, more: true };
+      let size = jsonBytes(e);
+      // an event too big for any page (written before events were compacted, or by hand) is given as its type and size
+      if (size > maxBytes) { e = { n: e.n, at: e.at, event: { type: e.event?.type ?? null, truncated: true, bytes: size } }; size = jsonBytes(e); }
+      if (page.length && bytes + size > maxBytes) return { events: page, more: true };
+      page.push(e);
+      bytes += size;
     }
-    return { events: newer.slice(0, limit), more: newer.length > limit };
+    return { events: page, more: false };
   }
 
   private async events(params: Record<string, unknown>): Promise<EventsResult> {
@@ -364,8 +396,9 @@ class Worker {
     if (!readRun(this.paths, run)) throw new Error(`no Pi run ${run} in this project`);
     const after = clampInt(params.after, 0, Number.MAX_SAFE_INTEGER, 0);
     const limit = clampInt(params.limit, 1, 1000, 200);
+    const maxBytes = clampInt(params.max_bytes, MIN_PAGE_BYTES, PAGE_BYTES, PAGE_BYTES);
     const waitMs = clampInt(params.wait_ms, 0, MAX_EVENTS_WAIT_MS, 0);
-    let got = this.readEvents(run, after, limit);
+    let got = this.readEvents(run, after, limit, maxBytes);
     if (!got.events.length && waitMs > 0 && !this.closing) {
       await new Promise<void>((done) => {
         const set = this.eventWaiters.get(run) ?? new Set<() => void>();
@@ -374,7 +407,7 @@ class Worker {
         const t = setTimeout(finish, waitMs);
         set.add(finish);
       });
-      got = this.readEvents(run, after, limit);
+      got = this.readEvents(run, after, limit, maxBytes);
     }
     return { run, events: got.events, next: got.events.at(-1)?.n ?? after, more: got.more };
   }
@@ -571,13 +604,24 @@ class Worker {
     const entries = conv ? (await conv.entries({ order: 'ascending' }, 500, undefined, this.C)).items.map((e) => ({
       id: e.id, kind: e.kind, stop: e.model?.[0]?.stopReason ?? null, text: textOf(e.model?.[0]?.content).slice(0, 200),
     })) : [];
-    const effects: EffectRecord[] = this.ledger.forRun(run);
+    // the run's newest effect records that fit (fix S2): the ledger keeps them all
+    const all: EffectRecord[] = this.ledger.forRun(run);
+    const effects: EffectRecord[] = [];
+    let bytes = 0;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const size = jsonBytes(all[i]);
+      if (bytes + size > STATUS_EFFECTS_BYTES) break;
+      effects.push(all[i]);
+      bytes += size;
+    }
+    effects.reverse();
+    const effectsCut = effects.length < all.length ? `the run has ${count(all.length)} effect records; the newest ${count(effects.length)} are shown (the ledger keeps them all)` : null;
     return {
       run, key: r.key ?? null, status: this.words(r, s), scheduling: this.scheduling,
       submission: s ? { id: s.id, status: s.status, reason: s.reason ?? null, request_id: s.requestId ?? null } : null,
       submissions: r.submissions ?? (r.submission === undefined ? [] : [r.submission]),
       conversation: r.conversation ?? null, tasks, entries, user_entries: entries.filter((e) => e.kind === 'pi.user').length,
-      effects, needs_you: r.needs_you ?? [], stop_requested: r.stop_requested ?? null, paused: r.paused ?? null, interrupted: r.interrupted ?? null,
+      effects, effects_cut: effectsCut, needs_you: r.needs_you ?? [], stop_requested: r.stop_requested ?? null, paused: r.paused ?? null, interrupted: r.interrupted ?? null,
       cost: costWords({ route: r.model.route, inFlight: !!r.cost_unknown }),
       resubmitted: r.resubmitted ?? [], messages: (r.messages ?? []).map((m) => ({ n: m.n, ...(m.key ? { key: m.key } : {}), mode: m.mode, submission: m.submission })),
       ended: r.ended ?? null, model: 'faux-1 (FAKE scripted model)',
@@ -596,25 +640,31 @@ class Worker {
     const r = readRun(this.paths, run);
     if (!r) throw new Error(`no Pi run ${run} in this project`);
     const note = 'context from a Pi task (S1: a FAKE scripted model), not instructions';
-    if (r.conversation === undefined) return { run, conversation: null, note, entries: [], more: false };
-    const conv = await this.harness.conversation(r.conversation, this.C);
-    if (!conv) return { run, conversation: r.conversation, note, entries: [], more: false };
     const after = clampInt(params.after, 0, Number.MAX_SAFE_INTEGER, 0);
+    if (r.conversation === undefined) return { run, conversation: null, note, entries: [], more: false, next: after };
+    const conv = await this.harness.conversation(r.conversation, this.C);
+    if (!conv) return { run, conversation: r.conversation, note, entries: [], more: false, next: after };
     const limit = clampInt(params.limit, 1, 2000, 500);
+    const maxBytes = clampInt(params.max_bytes, MIN_PAGE_BYTES, PAGE_BYTES, PAGE_BYTES);
     const entries: TranscriptEntry[] = [];
+    let bytes = 0;
     let cursor: unknown;
     let more = false;
-    for (;;) {
-      const page = await conv.entries({ order: 'ascending', ...(after > 0 ? { minEntryId: after + 1 } : {}) }, Math.min(200, limit - entries.length + 1), cursor, this.C);
+    // a page stops at `limit` or before its byte limit, with at least one entry (fix S2); `next` continues it
+    pages: for (;;) {
+      const page = await conv.entries({ order: 'ascending', ...(after > 0 ? { minEntryId: after + 1 } : {}) }, 200, cursor, this.C);
       for (const e of page.items) {
-        if (entries.length >= limit) { more = true; break; }
-        const m = e.model?.[0];
-        entries.push({ id: e.id, kind: e.kind, by_task: e.byTaskId ?? null, role: m?.role ?? null, stop: m?.stopReason ?? null, text: textBlocks(m?.content).slice(0, 4000), tool_calls: toolCalls(m?.content), error: m?.errorMessage ?? null });
+        if (entries.length >= limit) { more = true; break pages; }
+        const entry = transcriptEntry(e);
+        const size = jsonBytes(entry);
+        if (entries.length && bytes + size > maxBytes) { more = true; break pages; }
+        entries.push(entry);
+        bytes += size;
       }
-      if (more || page.next === undefined || entries.length >= limit) { more = more || page.next !== undefined; break; }
+      if (page.next === undefined) break;
       cursor = page.next;
     }
-    return { run, conversation: r.conversation, note, entries, more };
+    return { run, conversation: r.conversation, note, entries, more, next: entries.at(-1)?.id ?? after };
   }
 
   // ── stop, pause, resume ───────────────────────────────────────────────────────────────────────

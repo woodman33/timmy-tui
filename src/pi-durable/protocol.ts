@@ -10,8 +10,13 @@
  * process start and surface), drops a lease when its connection closes or its process is proven gone, and treats "no
  * lease for the grace period" as Timmy's exit.
  *
- * FROZEN for S2-S5 as PROTOCOL_VERSION 1: the twelve methods of plan b.1.5 and the parameter and result shapes below.
- * A change of meaning is a new version.
+ * Every answer stays well under the line limit (fix S2 of H119's review): a transcript or events page stops before
+ * PAGE_BYTES (or a smaller `max_bytes`) with `more: true` and a cursor; a transcript cuts long text and tool-call
+ * arguments with words saying so; status shows the run's newest effect records that fit, with words; an answer that
+ * would still pass the limit is replaced by an error with words, and the connection stays.
+ *
+ * FROZEN for S2-S5 as PROTOCOL_VERSION 2: the twelve methods of plan b.1.5 and the parameter and result shapes below.
+ * A change of meaning is a new version. (Version 1, until the fix above, had no byte limits; nothing consumed it.)
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { chmodSync, rmSync } from 'node:fs';
@@ -20,11 +25,23 @@ import type { CostWords } from './cost.js';
 import type { EffectRecord } from './effects.js';
 import type { FauxScript } from './faux.js';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const METHODS = ['hello', 'delegate', 'status', 'list', 'events', 'stop', 'pause', 'resume', 'answer', 'message', 'transcript', 'shutdown'] as const;
 export type Method = (typeof METHODS)[number];
 /** A line longer than this ends the connection (a client is never trusted with the worker's memory). */
 export const MAX_LINE = 1024 * 1024;
+/** A page of transcript or events stops before this many bytes of JSON (fix S2): well under MAX_LINE. */
+export const PAGE_BYTES = 256 * 1024;
+/** The smallest page a client may ask for with `max_bytes`. */
+export const MIN_PAGE_BYTES = 16 * 1024;
+/** The longest an `events` call waits for a new event. */
+export const MAX_EVENTS_WAIT_MS = 25_000;
+/** In a transcript entry: its text, its error and each tool call's arguments (as JSON) are cut to these lengths, with words. */
+export const MAX_TEXT_CHARS = 4000;
+export const MAX_ARGUMENT_CHARS = 2000;
+export const MAX_TOOL_CALLS = 32;
+/** In status: the run's newest effect records up to this many bytes; `effects_cut` says how many there are. */
+export const STATUS_EFFECTS_BYTES = 64 * 1024;
 
 export type OnExit = 'pause' | 'keep-working';
 export interface WorkerSetting {
@@ -74,7 +91,10 @@ export interface StatusResult {
   readonly tasks: { readonly id: number; readonly kind: string; readonly status: string; readonly phase: string | null; readonly owner: number | null; readonly abort_requested: boolean; readonly inspect: string }[];
   readonly entries: { readonly id: number; readonly kind: string; readonly stop: string | null; readonly text: string }[];
   readonly user_entries: number;
+  /** the run's newest effect records that fit STATUS_EFFECTS_BYTES (the ledger keeps them all) */
   readonly effects: EffectRecord[];
+  /** words when not every effect record of the run is in `effects`; null when all are */
+  readonly effects_cut: string | null;
   readonly needs_you: NeedsYouItem[];
   readonly stop_requested: { readonly by: string; readonly at: string } | null;
   readonly paused: { readonly why: string; readonly at: string } | null;
@@ -88,9 +108,17 @@ export interface StatusResult {
 export interface ListResult { readonly scheduling: 'paused' | 'running'; readonly runs: { readonly run: string; readonly key: string | null; readonly status: RunWords; readonly created: string }[] }
 
 // ── events ─────────────────────────────────────────────────────────────────────────────────────
-/** `after`: the last event number the caller has (0 for all); `wait_ms` (at most 30 s): wait for a newer one before answering. */
-export interface EventsParams { readonly run: string; readonly after?: number; readonly limit?: number; readonly wait_ms?: number }
-/** pi-durable's agent events as they came (experimental upstream), numbered from 1, kept in the run's events file. */
+/**
+ * `after`: the last event number the caller has (0 for all); `limit`: at most this many events (1 to 1000, default 200);
+ * `max_bytes`: a smaller page than PAGE_BYTES (at least MIN_PAGE_BYTES); `wait_ms` (at most MAX_EVENTS_WAIT_MS, 25 s):
+ * wait for a newer event before answering.
+ */
+export interface EventsParams { readonly run: string; readonly after?: number; readonly limit?: number; readonly wait_ms?: number; readonly max_bytes?: number }
+/**
+ * pi-durable's agent events as they came (experimental upstream), numbered from 1, kept in the run's events file. A page
+ * stops at `limit` or before its byte limit: `more` says whether newer events wait, and `next` is the cursor to pass as
+ * `after`. An event too big for a page is given as its type and size only (`truncated: true`).
+ */
 export interface EventsResult { readonly run: string; readonly events: { readonly n: number; readonly at: string; readonly event: Record<string, unknown> }[]; readonly next: number; readonly more: boolean }
 
 // ── stop, pause, resume ────────────────────────────────────────────────────────────────────────
@@ -113,12 +141,21 @@ export type MessageResult =
   | { readonly ok: false; readonly refused: string; readonly n?: number; readonly submission?: number };
 
 // ── transcript ─────────────────────────────────────────────────────────────────────────────────
-export interface TranscriptParams { readonly run: string; readonly after?: number; readonly limit?: number }
+/** `after`: the last entry id the caller has; `limit`: at most this many entries (1 to 2000, default 500); `max_bytes`: a smaller page. */
+export interface TranscriptParams { readonly run: string; readonly after?: number; readonly limit?: number; readonly max_bytes?: number }
+/**
+ * One entry of a run's conversation. Its text and error are cut to MAX_TEXT_CHARS (`text_cut`, `error_cut` say so), each
+ * tool call's arguments to MAX_ARGUMENT_CHARS of their JSON (then `arguments` is that text and `arguments_cut` says so),
+ * and its tool calls to MAX_TOOL_CALLS (`tool_calls_cut`).
+ */
 export interface TranscriptEntry {
   readonly id: number; readonly kind: string; readonly by_task: number | null; readonly role: string | null; readonly stop: string | null;
-  readonly text: string; readonly tool_calls: { readonly id: string; readonly name: string; readonly arguments: unknown }[]; readonly error: string | null;
+  readonly text: string; readonly text_cut?: string;
+  readonly tool_calls: { readonly id: string; readonly name: string; readonly arguments: unknown; readonly arguments_cut?: string }[]; readonly tool_calls_cut?: string;
+  readonly error: string | null; readonly error_cut?: string;
 }
-export interface TranscriptResult { readonly run: string; readonly conversation: number | null; readonly note: string; readonly entries: TranscriptEntry[]; readonly more: boolean }
+/** A page stops at `limit` or before its byte limit: `more` says whether later entries wait, and `next` is the cursor to pass as `after`. */
+export interface TranscriptResult { readonly run: string; readonly conversation: number | null; readonly note: string; readonly entries: TranscriptEntry[]; readonly more: boolean; readonly next: number }
 
 // ── shutdown ───────────────────────────────────────────────────────────────────────────────────
 export interface ShutdownResult { readonly ok: true; readonly on_exit: 'pause'; readonly words: string }
@@ -148,13 +185,13 @@ export interface LeaseHooks {
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
 
-/** Splits a socket's bytes into lines, refusing any over MAX_LINE. */
-function lines(socket: Socket, onLine: (line: string) => void): void {
+/** Splits a socket's bytes into lines, refusing any over MAX_LINE (`overflow` hears it, then the socket is destroyed). */
+function lines(socket: Socket, onLine: (line: string) => void, overflow?: () => void): void {
   let buf = '';
   socket.setEncoding('utf8');
   socket.on('data', (chunk: string) => {
     buf += chunk;
-    if (buf.length > MAX_LINE && !buf.includes('\n')) { socket.destroy(); return; }
+    if (buf.length > MAX_LINE && !buf.includes('\n')) { overflow?.(); socket.destroy(); return; }
     let i: number;
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i);
@@ -175,7 +212,14 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
     sockets.add(socket);
     socket.on('close', () => { sockets.delete(socket); });
     let peer: Peer | undefined;
-    const send = (r: Response): void => { if (!socket.destroyed) socket.write(`${JSON.stringify(r)}\n`); };
+    // no answer line ever passes MAX_LINE (fix S2): the client would end its own connection; it gets words instead
+    const send = (r: Response, method?: string): void => {
+      if (socket.destroyed) return;
+      let line = JSON.stringify(r);
+      const bytes = Buffer.byteLength(line);
+      if (bytes >= MAX_LINE) line = JSON.stringify({ id: r.id, ok: false, error: `the answer to ${method ?? 'this request'} is ${bytes.toLocaleString('en-US')} bytes, over the protocol's 1 MiB line limit: it was not sent (ask for a smaller page)` });
+      socket.write(`${line}\n`);
+    };
     lines(socket, (line) => {
       let req: Request;
       try { req = JSON.parse(line) as Request; } catch { send({ id: -1, ok: false, error: 'not JSON' }); return; }
@@ -202,7 +246,7 @@ export async function serve(socketPath: string, tokenSha256Hex: string, handler:
       if (!(METHODS as readonly string[]).includes(req.method)) { send({ id, ok: false, error: `no such method: ${String(req.method)}` }); return; }
       const who = peer;
       void handler(req.method as Method, params, who).then(
-        (result) => send({ id, ok: true, result }),
+        (result) => send({ id, ok: true, result }, req.method),
         (e: unknown) => send({ id, ok: false, error: e instanceof Error ? e.message : String(e) }),
       );
     });
@@ -238,6 +282,11 @@ export class PiClient {
   hello!: HelloResult;
 
   private constructor(private readonly socket: Socket) {
+    const fail = (why: string): void => {
+      this.ended = true;
+      for (const [, w] of this.waiting) { clearTimeout(w.timer); w.reject(new Error(why)); }
+      this.waiting.clear();
+    };
     lines(socket, (line) => {
       let r: Response;
       try { r = JSON.parse(line) as Response; } catch { return; }
@@ -246,12 +295,7 @@ export class PiClient {
       this.waiting.delete(r.id);
       clearTimeout(w.timer);
       if (r.ok) w.resolve(r.result); else w.reject(new Error(r.error));
-    });
-    const fail = (why: string): void => {
-      this.ended = true;
-      for (const [, w] of this.waiting) { clearTimeout(w.timer); w.reject(new Error(why)); }
-      this.waiting.clear();
-    };
+    }, () => fail('an answer from the Pi worker was over the protocol\'s 1 MiB line limit: this client ended the connection'));
     socket.on('close', () => fail('the Pi worker closed the connection'));
     socket.on('error', (e) => fail(`the Pi worker's socket: ${e.message}`));
   }

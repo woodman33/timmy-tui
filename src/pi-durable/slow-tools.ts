@@ -38,6 +38,10 @@ import { argsSha256, effectKey, type EffectLedger } from './effects.js';
 import { PI_DIR_REL } from './paths.js';
 
 export const MAX_DELAY_MS = 120_000;
+/** The longest path a Pi file tool takes, and the longest command trial_shell runs (its argv's characters): so every
+ * effect record, NEEDS YOU and answer that names one stays small (fix S2 of H119's review). */
+export const MAX_PATH_CHARS = 1024;
+export const MAX_COMMAND_CHARS = 8192;
 
 export interface ToolHost {
   readonly root: string;
@@ -96,6 +100,7 @@ const timmyRefused = (shown: string): { error: string } => ({
  */
 export function fileTarget(root: string, args: Record<string, unknown>): { target: string; path: string } | { error: string } {
   const asked = String(args.path ?? '').trim();
+  if (asked.length > MAX_PATH_CHARS) return { error: `the path is ${asked.length.toLocaleString('en-US')} characters long; Pi's file tools take at most ${MAX_PATH_CHARS.toLocaleString('en-US')}` };
   const lexical = asked && !asked.includes('\0') ? relative(resolve(root), resolve(root, asked)).split(sep).join('/') : '';
   if (inTimmyFolder(lexical)) return timmyRefused(lexical);
   const at = resolveInside(root, asked);
@@ -181,6 +186,8 @@ export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {
       if (!run) return text('refused: no Timmy run for this conversation', true);
       const argv = Array.isArray(args.argv) ? args.argv.map(String) : [];
       if (!argv.length || !argv[0]) return text('refused: argv names no program', true);
+      const chars = argv.reduce((n, a) => n + a.length, 0);
+      if (chars > MAX_COMMAND_CHARS) return text(`refused: the command is ${chars.toLocaleString('en-US')} characters long; trial_shell takes at most ${MAX_COMMAND_CHARS.toLocaleString('en-US')}`, true);
       const target = trialTarget(run);
       const key = effectKey('trial_shell', target, run);
       const open = host.ledger.unreconciled(key);

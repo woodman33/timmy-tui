@@ -1,5 +1,5 @@
 /**
- * Pi Durable S1 (R4 H118), plan b.1.5: the worker protocol frozen for S2-S5 as version 1, method by method, with round
+ * Pi Durable S1 (R4 H118), plan b.1.5: the worker protocol frozen for S2-S5 as version 2, method by method, with round
  * trips over the real socket. REAL: Pi worker processes started by the supervisor, the token-checked Unix socket,
  * pi-durable 1.1.0's agent events (watchEvents), its store and transcript, SIGKILL, the effect ledger and the guard.
  * FAKE: the model (pi-ai's scripted faux provider), the fixture projects. (hello, delegate, status, list, stop, pause,
@@ -18,9 +18,9 @@ afterAll(() => { cleanup(); });
 const events = (c: PiClient, run: string, after: number, more: { wait_ms?: number; limit?: number } = {}): Promise<EventsResult> =>
   c.request<EventsResult>('events', { run, after, ...more }, 60_000);
 
-describe('the protocol is frozen as version 1 (plan b.1.5)', () => {
+describe('the protocol is frozen as version 2 (plan b.1.5; version 2: every answer bounded, fix S2)', () => {
   it('names the twelve methods of the plan, no more', () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+    expect(PROTOCOL_VERSION).toBe(2);
     expect([...METHODS]).toEqual(['hello', 'delegate', 'status', 'list', 'events', 'stop', 'pause', 'resume', 'answer', 'message', 'transcript', 'shutdown']);
   });
 });
