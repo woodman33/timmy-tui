@@ -7,7 +7,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { callTool, listServers, listTools, mcpCapabilityRows, mcpRoutes, mcpView, MCP_OUTPUT_LIMIT, serverLabel, splitCommandLine } from '../src/connectors/mcp-cli.js';
 import { createMcpTools } from '../src/agent/mcp-tools.js';
 import { appendReceipt, type ReceiptInput } from '../src/utils/receipts.js';
@@ -117,12 +119,32 @@ describe('Timmy\'s own MCP server (src/mcp/server.ts) as a second target', () =>
   const ROOT = fileURLToPath(new URL('..', import.meta.url));
   const TSX = pathToFileURL(join(ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href;
   const TIMMY = { command: [process.execPath, '--import', TSX, join(ROOT, 'src', 'mcp', 'server.ts')] };
-  it.each(ROUTES)('%s lists its tools', async (route) => {
-    const r = await listTools(route, TIMMY, { cwd: ROOT, timeoutMs: 60_000 });
+  // R4 lead (full suite 35): the server asks for the log companion as it starts (startMcpServer, ensureLogCompanion). Run
+  // with this process's environment, it found nothing on 127.0.0.1:4310 and started a detached log server there that
+  // outlived the suite, with its token in the real home's Timmy folder, and asked for a browser page. Here the server gets
+  // a home of its own, and a stub of the test's own answers the companion's /health on another port, so the server finds a
+  // companion up and starts none.
+  const home = scratch();
+  let stub: Server;
+  let port = 0;
+  const asked: string[] = [];
+  beforeAll(async () => {
+    stub = createServer((req, res) => { asked.push(req.url ?? ''); res.writeHead(req.url === '/health' ? 200 : 404); res.end(); });
+    await new Promise<void>((done) => stub.listen(0, '127.0.0.1', () => done()));
+    port = (stub.address() as AddressInfo).port;
+  });
+  afterAll(() => new Promise<void>((done) => stub.close(() => done())));
+  it.each(ROUTES)('%s lists its tools; the server starts no log companion of its own', async (route) => {
+    const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: process.env.TMPDIR, TIMMY_HOME: join(home, 'timmy'), TIMMY_LOGS_PORT: String(port), TIMMY_LOGS_OPEN: '0' };
+    const before = asked.length;
+    const r = await listTools(route, TIMMY, { cwd: ROOT, timeoutMs: 60_000, env, passEnv: ['TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_LOGS_OPEN'] });
     expect(r.error).toBeUndefined();
     expect(r.ok).toBe(true);
     expect(r.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['timmy_receipt_verify', 'timmy_events_tail', 'timmy_env_lock']));
     expect(JSON.stringify(r).length).toBeLessThanOrEqual(MCP_OUTPUT_LIMIT + 1024);
+    // the server asked the stub, found it up, and started nothing: no token of a log server of its own in its home
+    expect(await until(() => asked.slice(before).includes('/health'), 10_000)).toBe(true);
+    expect(existsSync(join(home, 'timmy', 'state', `logs-token-${port}`))).toBe(false);
   }, LONG);
 });
 
