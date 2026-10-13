@@ -159,8 +159,9 @@ class Worker {
   private line: Promise<unknown> = Promise.resolve();
   // leases (plan b.2): one per authenticated connection
   private readonly leases = new Map<number, { peer: Peer; end: () => void }>();
-  private noLeasesSince: number | null = Date.now();
-  private lastBusy = Date.now();
+  /** when the last lease ended: null while a lease is held, and before the socket listens (fix S8: the clocks start then) */
+  private noLeasesSince: number | null = null;
+  private lastBusy = 0;
   private ticking = false;
   private ticks = 0;
   private timer?: NodeJS.Timeout;
@@ -238,13 +239,18 @@ class Worker {
         if (this.leases.size === 0) this.noLeasesSince = Date.now();
       },
     });
+    // the clocks of Timmy's exit and of idleness start now that the socket listens (fix S8), not when the process began:
+    // loading the pinned packages and opening the Harness must not use up a supervisor's time to attach
+    const listening = Date.now();
+    this.noLeasesSince = this.leases.size ? null : listening;
+    this.lastBusy = listening;
+    this.timer = setInterval(() => { void this.tick(); }, TICK_MS);
     publishOwner(this.paths, token, {
       project_id: this.paths.projectId, store: STORE_REL, socket: this.paths.socket, pins: this.pins, node: process.version, scheduling: this.scheduling,
       setting: this.setting,
     });
     process.on('SIGTERM', () => { void this.shutdown('SIGTERM'); });
     process.on('SIGINT', () => { void this.shutdown('SIGINT'); });
-    this.timer = setInterval(() => { void this.tick(); }, TICK_MS);
     this.log(`ready on its socket (protocol ${PROTOCOL_VERSION}), scheduling ${this.scheduling}; on exit: ${this.setting.on_exit} (lease grace ${this.setting.lease_grace_ms} ms, idle exit ${this.setting.idle_ms} ms)${this.setting.trial_shell ? '; trial_shell offered' : ''}`);
   }
 
