@@ -771,9 +771,11 @@ class Worker {
   // ── answer, message ───────────────────────────────────────────────────────────────────────────
 
   /**
-   * A NEEDS YOU decision (plan e.3.5): the first answer wins and is recorded; only it moves the effect on. A run that
-   * ended waiting for it is recorded `cancelled` once nothing of it is open, with words saying who answered what and
-   * how it continues (fix S7 of H119's review: it kept saying "needs you").
+   * A NEEDS YOU decision (plan e.3.5): it answers every open item of the key (the first answer to an item wins and is
+   * recorded; only it moves the effect on). Keys repeat, so a key can have a new item after an earlier one was answered
+   * (fix N1 of H119's second review: that one was refused as "already answered", and the run could only be stopped);
+   * only a key with nothing open is refused. A run that ended waiting for it is recorded `cancelled` once nothing of it
+   * is open, with words saying who answered what and how it continues (fix S7: it kept saying "needs you").
    */
   private async answer(params: Record<string, unknown>, peer: Peer): Promise<AnswerResult> {
     const run = String(params.run ?? '');
@@ -784,8 +786,10 @@ class Worker {
     if (!r) return { ok: false, refused: `no Pi run ${run} in this project` };
     const items = (r.needs_you ?? []).filter((n) => n.key === key);
     if (!items.length) return { ok: false, refused: `run ${run} has no NEEDS YOU for ${key}` };
-    const done = items.find((n) => n.answered);
-    if (done?.answered) return { ok: false, refused: `already answered: ${done.answered.decision} by ${done.answered.by} at ${done.answered.at}` };
+    if (!items.some((n) => !n.answered)) {
+      const last = items.at(-1)?.answered;
+      return { ok: false, refused: last ? `already answered: ${last.decision} by ${last.by} at ${last.at}` : `run ${run} has no open NEEDS YOU for ${key}` };
+    }
     const by = peer.surface ?? 'a client';
     let ledger: EffectRecord | null = this.ledger.latest().get(key) ?? null;
     let stop: StopResult | undefined;

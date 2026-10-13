@@ -21,6 +21,9 @@
  * - An effect's key names the real file, relative to the project's real folder (fix S6 of H119's review): a link alias,
  *   a dotted spelling or a linked folder keys as the file it leads to, so the FAKE model's repeat of a write of unknown
  *   outcome under another name is refused too (it went through before, and wrote the file again without a person).
+ * - Two incidents on one key (fix N1 of H119's second review): a trial command stopped by a pause, answered retry, run
+ *   again and stopped by a second pause gives a second NEEDS YOU on the same key; it is answered like the first, and the
+ *   run goes on to its end. Before, the answer was refused ("already answered") and the run could only be stopped.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,6 +32,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { EffectLedger, effectKey } from '../src/pi-durable/effects.js';
 import { EFFECT_TOOLS } from '../src/pi-durable/guard.js';
 import { piPaths } from '../src/pi-durable/paths.js';
+import type { AnswerResult } from '../src/pi-durable/protocol.js';
 import { reconcileOpen } from '../src/pi-durable/reconcile.js';
 import { alive, anyAlive, cleanup, delegate, effects, ended, fauxCalls, INSTALLED, killWorker, project, sha, SKIP_WHY, sleep, start, status, track, until } from './helpers/pi-durable.js';
 
@@ -294,6 +298,41 @@ describe.skipIf(!INSTALLED)(`interrupted side effects through the worker (plan i
     await expectRepeatRefused(b.client, root, run);
     await b.client.request('shutdown');
     b.client.close();
+  });
+
+  it('two incidents on one key: a second NEEDS YOU on the same key is answered like the first, and the run goes on to its end (N1)', async () => {
+    const root = project('effects-two-incidents');
+    const a = await start(root, { worker: { trialShell: true } });
+    // a real program run as argv: it prints at once, then ends after 3 s
+    const argv = [process.execPath, '-e', "process.stdout.write('partial output\\n'); setTimeout(() => process.stdout.write('late output\\n'), 3000)"];
+    const d = await delegate(a.client, { first: { tool: 'trial_shell', args: { argv } }, after_interrupted: 'repeat', after_blocked: 'repeat' });
+    const printed = (k: number) => until(`command ${k} to have printed`, () => {
+      const e = effects(root, d.run).filter((x) => x.state === 'started')[k - 1];
+      if (!e?.output || !existsSync(join(root, e.output)) || !readFileSync(join(root, e.output), 'utf8').includes('partial output')) return undefined;
+      track(Number.parseInt(readFileSync(join(root, `${e.output}.pid`), 'utf8'), 10));
+      return e;
+    });
+    await printed(1);
+    await a.client.request('pause'); // incident 1: the command is stopped mid-run, its outcome unknown
+    let s = await status(a.client, d.run);
+    expect(s.needs_you.map((n) => n.answered?.decision ?? 'open')).toEqual(['open']);
+    const key = s.needs_you[0].key;
+    expect(await a.client.request<AnswerResult>('answer', { run: d.run, key, decision: 'retry' })).toMatchObject({ ok: true, decision: 'retry', ledger: { state: 'approved' } });
+    await a.client.request('resume'); // the FAKE model repeats the command: the retry lets it run once more
+    await printed(2);
+    await a.client.request('pause'); // incident 2, on the same key
+    s = await status(a.client, d.run);
+    expect(s.needs_you.map((n) => [n.key, n.answered?.decision ?? 'open'])).toEqual([[key, 'retry'], [key, 'open']]);
+    const second = await a.client.request<AnswerResult>('answer', { run: d.run, key, decision: 'accept' });
+    expect(second).toMatchObject({ ok: true, decision: 'accept', ledger: { state: 'ended', by: 'operator' } });
+    const third = await a.client.request<AnswerResult>('answer', { run: d.run, key, decision: 'stop' });
+    expect(third).toMatchObject({ ok: false, refused: expect.stringMatching(/^already answered: accept by test at /) });
+    await a.client.request('resume'); // the model repeats once more; nothing is open, so it runs to its end
+    const end = await ended(a.client, d.run, 60_000);
+    expect(end.status).toBe('completed');
+    expect(effects(root, d.run).map((e) => `${e.state}/${e.by}`)).toEqual(['started/tool', 'unknown/tool', 'approved/operator', 'started/tool', 'unknown/tool', 'ended/operator', 'started/tool', 'ended/tool']);
+    await a.client.request('shutdown');
+    a.client.close();
   });
 
   it('leaves no worker running: every worker this file started has exited (shut down, or killed by the test on purpose)', async () => {
