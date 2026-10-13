@@ -35,7 +35,14 @@ const FAKE_OPENER: Opener = { program: null, open: () => ({ ok: false, why: 'FAK
 const NO_PRODUCERS: Producers = { runDetail: async () => ({ ok: false, why: 'FIXTURE: none in this test' }), openChat: async () => ({ ok: false, why: 'FIXTURE: none in this test' }) };
 // FAKE workflows (this test's): blocks that sleep, and one that prints a line every 200 ms for 6 s
 const SLOW = '# Slow (FAKE workflow, this test)\n\nIts blocks only wait.\n\n```bash [name:wait]\nsleep 8\n```\n\n```bash [name:long]\nsleep 30\n```\n';
-const STREAM = '# Stream (FAKE workflow, this test)\n\nIt prints a line every 200 ms for 6 s.\n\n```bash [name:talk]\nfor i in $(seq 1 30); do echo "line $i"; sleep 0.2; done\n```\n';
+/**
+ * R4 lead (full suite 38): it printed its 30 lines in 6 s on its own, and on a loaded machine they could all have arrived before
+ * the test counted the lines it had (this test and the Workbench share one process): "five more lines" then never came. It
+ * now prints in three parts, 200 ms a line: lines 11 and 21 each wait for a file of the test's (`.stream-go-11`,
+ * `.stream-go-21` in the project), at most 30 s, so lines arrive while the test watches, and the run still runs when it
+ * presses End.
+ */
+const stream = (root: string): string => `# Stream (FAKE workflow, this test)\n\nIt prints a line every 200 ms, in three parts the test releases.\n\n\`\`\`bash [name:talk]\nfor i in $(seq 1 30); do if [ $i -eq 11 ] || [ $i -eq 21 ]; then n=0; while [ ! -f '${root}/.stream-go-'$i ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n+1)); done; fi; echo "line $i"; sleep 0.2; done\n\`\`\`\n`;
 
 let box = '';
 let home = '';
@@ -70,7 +77,7 @@ function trayProject(name: string): { name: string; root: string; chosen: boolea
   const copied = copyStarter('tray-workflow', made.root);
   if ('error' in copied) throw new Error(copied.error);
   writeFileSync(join(made.root, 'SLOW.md'), SLOW);
-  writeFileSync(join(made.root, 'STREAM.md'), STREAM);
+  writeFileSync(join(made.root, 'STREAM.md'), stream(made.root));
   saveActiveProject(made);
   return made;
 }
@@ -325,7 +332,7 @@ describe('a project switch during a run (R4 H112, slice C item 3)', () => {
 });
 
 describe('Activity while lines arrive (R4 H112, slice C item 5)', () => {
-  it('a FAKE block prints a line every 200 ms for 6 s (upmd on a pty): each line once, in order; Activity follows the newest; a row selected higher up stays selected, on the same row, with the rows above it, while lines arrive; End follows again', async () => {
+  it('a FAKE block prints a line every 200 ms, in three parts the test releases (upmd on a pty): each line once, in order; Activity follows the newest; a row selected higher up stays selected, on the same row, with the rows above it, while lines arrive; End follows again', async () => {
     sandbox();
     const p = trayProject('stream');
     const { c } = workbench(p);
@@ -353,7 +360,8 @@ describe('Activity while lines arrive (R4 H112, slice C item 5)', () => {
     const before = regionRows(c, 'bottom');
     const above = before.slice(3, heldRow + 1);
     const seen = c.data.activity.events.filter((e) => e.output).length;
-    // five more lines (a second or so)
+    // five more lines (a second or so): the second part released
+    writeFileSync(join(p.root, '.stream-go-11'), '');
     await until('five more lines', () => c.data.activity.events.filter((e) => e.output).length >= seen + 5, 10_000, f.text);
     await sleep(150);
     const after = regionRows(c, 'bottom');
@@ -365,6 +373,8 @@ describe('Activity while lines arrive (R4 H112, slice C item 5)', () => {
     expect(c.ui.activityFollow).toBe(true);
     const newest = c.ui.sel.bottom;
     expect(runsOf(p.root, 'STREAM.md › talk')[0].state).toBe('running');
+    // the third part released: newer lines arrive
+    writeFileSync(join(p.root, '.stream-go-21'), '');
     await until('the selection to follow a newer line', () => c.ui.sel.bottom !== newest, 10_000, f.text);
     expect(drawnSel()).toBeGreaterThan(-1);
     // the run ends; every line of it was shown once, in order (upmd redrew its block for each one)
