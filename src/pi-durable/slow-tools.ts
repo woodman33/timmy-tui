@@ -29,7 +29,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { resolveInside } from '../project/index.js';
@@ -51,6 +51,8 @@ export interface ToolHost {
   readonly trialShell?: boolean;
   /** records a NEEDS YOU on the run (an effect a tool cannot read back) */
   needsYou?(run: string, key: string, why: string): void;
+  /** the rename that makes slow_write's effect (default renameSync): a test seam, to make it fail after `started` */
+  rename?(from: string, to: string): void;
   /** the Timmy run of a Pi conversation */
   runOf(conversationId: number): string | undefined;
 }
@@ -65,6 +67,25 @@ export function fileTail(path: string, n: number): { text: string; bytes: number
     const buf = readFileSync(path);
     return { text: buf.subarray(Math.max(0, buf.length - n)).toString('utf8'), bytes: buf.length };
   } catch { return { text: '', bytes: 0 }; }
+}
+
+const WRITES = 'slow_write writes a regular file, or a new one in an existing folder';
+
+/** Whether slow_write may write `path`: an existing regular file, or a new file in an existing folder (fix N4). */
+function writable(path: string, shown: string): { error: string } | undefined {
+  let isFile = false;
+  try {
+    const st = lstatSync(path);
+    if (st.isDirectory()) return { error: `${shown} is a folder, not a file: ${WRITES}` };
+    isFile = st.isFile();
+    if (!isFile) return { error: `${shown} is not a regular file: ${WRITES}` };
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') return { error: `${shown} cannot be read (${code ?? 'error'}): ${WRITES}` };
+  }
+  if (isFile) return undefined;
+  try { if (statSync(dirname(path)).isDirectory()) return undefined; } catch { /* no such folder */ }
+  return { error: `the folder of ${shown} does not exist: ${WRITES}` };
 }
 
 /** The file's sha256, or 'absent'. */
@@ -174,6 +195,10 @@ export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {
       // the dispatcher's own check behind the guard hook: never a second effect over an unreconciled one
       const open = host.ledger.unreconciled(key);
       if (open) return text(`refused by Timmy's dispatcher: NEEDS YOU: an earlier slow_write of ${t.target} in this run is ${open.state === 'unknown' ? 'of unknown outcome' : 'started and never ended'}; reconcile before any retry`, true);
+      // only a regular file, or a new one in an existing folder, is written; anything else is refused before `started`
+      // (fix N4: a folder read as absent, so the write was recorded started and failed in the rename)
+      const unwritable = writable(t.path, t.target);
+      if (unwritable) return text(`refused: ${unwritable.error}`, true);
       const content = String(args.content ?? '');
       const expected = String(args.expected_sha256 ?? '');
       const next = createHash('sha256').update(content).digest('hex');
@@ -183,8 +208,18 @@ export function slowTools(pi: PiApi, host: ToolHost): ToolSpec[] {
       const base = { key, run, tool: 'slow_write', target: t.target, call_id: api.callId, task: api.taskId, args_sha256: argsSha256(args), expected_sha256: expected, new_sha256: next, by: 'tool' as const };
       host.ledger.append({ ...base, state: 'started' });
       const tmp = join(dirname(t.path), `.${randomBytes(6).toString('hex')}.tmp`);
-      writeFileSync(tmp, content);
-      renameSync(tmp, t.path); // the effect
+      try {
+        writeFileSync(tmp, content, { flag: 'wx', mode: 0o644 }); // created new: never through something already there
+        (host.rename ?? renameSync)(tmp, t.path); // the effect
+      } catch (e) {
+        // the write did not happen (a rename either replaces the file or does not): the temp file is removed, what is
+        // there now is read back, and the record ends with it, so no NEEDS YOU is raised about a write that never was
+        try { unlinkSync(tmp); } catch { /* never created, or gone */ }
+        const code = (e as NodeJS.ErrnoException).code ?? 'error';
+        const readback = { sha256: fileSha256(t.path) };
+        host.ledger.append({ ...base, state: 'ended', outcome: `not written: ${code}`, readback });
+        return text(`failed: ${t.target} was not written (${code}); ${readback.sha256 === current ? 'it is as it was' : 'it now has other bytes'} (sha256 ${readback.sha256})`, true);
+      }
       const waited = await wait(delayOf(args.delay_ms), context, args.ignore_abort === true);
       const readback = { sha256: fileSha256(t.path) };
       if (waited === 'aborted') {
