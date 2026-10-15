@@ -164,8 +164,8 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    // the center has APPROVAL.md's tidy selected first; Enter asks before it runs
-    await press(f.r, TAB);
+    // R5 (H131): 3 opens the Workflows tab; the center has APPROVAL.md's tidy selected first; Enter asks before it runs
+    await press(f.r, '3', TAB);
     expect(f.text()).toMatch(/▸\s+1\s+tidy/);
     expect(f.text()).toContain('[Enter] Run it here, through the REPL\'s own /run (one job, one operation)');
     await press(f.r, ENTER);
@@ -182,8 +182,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(box).not.toContain('allow for this session'); // a shell command is asked about every time
     expect(box).toContain('[n] / Esc / Enter deny (the default)');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
-    // what waits on you shows in the navigation's count and the Control Room's
-    expect(box).toMatch(/Control Room ⚠ 1/);
+    // what waits on you shows beside the Control Room's tab and Home's (R5, H131: the workspace frame's counts, read again
+    // within a second of the box)
+    await until('the waiting counts on the tabs', () => /7 Control(?: Room)? ⚠1/.test(f.text()) && /1 Home ⚠1/.test(f.text()), 5000, f.text);
     expect(ws.jobs.list().filter((j) => j.root === p.root)).toEqual([]);
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
     // Follow selected artifact (Quick settings): the run, once it starts, is what the Inspector and Activity show
@@ -260,7 +261,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    await press(f.r, TAB, ENTER, ENTER);
+    await press(f.r, '3', TAB, ENTER, ENTER);
     await until('the NEEDS YOU box', () => /⚠ NEEDS YOU/.test(f.text()), 10_000, f.text);
     await sleep(400);
     await press(f.r, ENTER);
@@ -328,7 +329,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.selectWorkspace('chat');
     const f = frameOf(c, 180, 50);
     await until('the session', () => /chat: FIXTURE route/.test(f.text()), 5000, f.text);
-    expect(f.text()).toContain('[Enter] Type a message to Timmy (sent through the chat session, on the route above)');
+    expect(f.text()).toContain('[Enter] Type a message (sent through the chat session, on the route above)');
     await press(f.r, TAB, ENTER);
     for (const ch of 'hi there') f.r.stdin.write(ch);
     await sleep(100);

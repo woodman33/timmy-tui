@@ -186,19 +186,34 @@ function terminal(label: string) {
 async function selectBlock(t: ReturnType<typeof terminal>, doc: string, block: string, w = 't'): Promise<void> {
   const selected = (): string => /RUN\s+(\S+ › \S+)/.exec(t.screen(w))?.[1] ?? '';
   const want = `${doc} › ${block}`;
+  // the selection as it settles: the same block read twice, 300 ms apart (a key still on its way would move it)
+  const settled = async (): Promise<string> => {
+    for (let prev = selected(), end = Date.now() + 5000; Date.now() < end;) {
+      await sleep(300);
+      const now = selected();
+      if (now === prev) return now;
+      prev = now;
+    }
+    return selected();
+  };
   // from the list's first row (Home), one Down at a time, each waited for on the screen (a loaded machine draws later than
-  // the key arrives)
-  if (selected() !== want) {
-    const before = t.screen(w);
-    t.tmux('send-keys', '-t', w, 'Home');
-    for (const end = Date.now() + 3000; t.screen(w) === before && Date.now() < end;) await sleep(50);
+  // the key arrives). R5 (H131): Home is waited for by the selection settling, not by any change of the screen (Activity's
+  // lines and the frame's words change it on their own: the next Down then went while Home was still on its way, and the
+  // last Down moved the selection one block past the one this read); and the selection is read again once it settles, so a
+  // key still on its way is seen, and the walk starts again
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (selected() !== want) {
+      t.tmux('send-keys', '-t', w, 'Home');
+      await settled();
+    }
+    for (let i = 0; i < 20 && selected() !== want; i++) {
+      const before = selected();
+      t.tmux('send-keys', '-t', w, 'Down');
+      for (const end = Date.now() + 3000; selected() === before && Date.now() < end;) await sleep(50);
+    }
+    if (await settled() === want) return;
   }
-  for (let i = 0; i < 20 && selected() !== want; i++) {
-    const before = selected();
-    t.tmux('send-keys', '-t', w, 'Down');
-    for (const end = Date.now() + 3000; selected() === before && Date.now() < end;) await sleep(50);
-  }
-  if (selected() !== want) throw new Error(`${want} is not selected:\n${t.screen(w)}`);
+  throw new Error(`${want} is not selected:\n${t.screen(w)}`);
 }
 
 beforeAll(async () => {
@@ -232,6 +247,8 @@ beforeAll(async () => {
   writeFileSync(join(trayA, 'STREAM.md'), STREAM);
 }, 180_000);
 
+// R5 (H131): the hook's own retries take up to 10 s (50 x 200 ms), the default hook timeout: under a loaded machine it
+// timed out while it still had retries left (seen once in a 4-file run); it gets the time its loop needs
 afterAll(async () => {
   for (const label of servers) { try { execFileSync('tmux', ['-L', label, 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ } }
   // what a test left running (a stopped test's runs), by their records' pids: only processes this test's records name
@@ -242,7 +259,7 @@ afterAll(async () => {
       await sleep(200);
     }
   }
-});
+}, 30_000);
 
 describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112, slice C)', () => {
   it('the mouse (item 1): it asks for SGR reports; a click opens a workspace, picks a tab, selects a row and runs nothing; the wheel scrolls the list under the pointer; m gives the mouse to the terminal and takes it back; quit with the mouse given back leaves no mouse mode', async () => {
@@ -256,16 +273,16 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await sleep(500);
       // it asked the terminal for button reports in SGR encoding, in its own screen
       expect(t.modes()).toBe('1 1 1 1');
-      // a click on the navigation's Control Room opens it, and on Workflows
+      // a click on row 1's 7 Control Room opens it, and on 3 Workflows (R5: the tabs; the navigation is a drawer)
       await t.click(t.cellOf('Control Room'));
       await t.waitFor(/trayA \/ Control Room/, 5000);
       await t.click(t.cellOf('Workflows'));
       await t.waitFor(/trayA \/ Workflows/, 5000);
       // a click on a right-dock tab picks it: Tools, then Files (the Inspector is the first one shown)
       expect(t.screen()).toMatch(/Tools │ ▸ Inspector │ {3}Files/);
-      await t.click(t.cellOnRow('Tools', /Tools │/));
+      await t.click(t.cellOnRow('Tools', /Tools │\s+(?:▸ )?Inspector/));
       await t.waitFor(/▸ Tools │ {3}Inspector │ {3}Files/, 5000);
-      await t.click(t.cellOnRow('Files', /Tools │/));
+      await t.click(t.cellOnRow('Files', /Tools │\s+(?:▸ )?Inspector/));
       await t.waitFor(/Tools │ {3}Inspector │ ▸ Files/, 5000);
       // a click on a row selects it; clicked again and again, it is only selected: no confirm, no NEEDS YOU box, no job
       const row = t.cellOf(' tidy ');
@@ -277,8 +294,8 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(t.screen()).not.toMatch(/Run APPROVAL\.md › tidy\?|⚠ NEEDS YOU/);
       expect(runsOf('APPROVAL.md › tidy')).toEqual([]);
       t.capture('wb-mouse-160x45-row-selected');
-      // the wheel over All tools' list scrolls it by rows (its range note moves), and opens nothing
-      await t.click(t.cellOf('All tools'));
+      // the wheel over All tools' list scrolls it by rows (its range note moves), and opens nothing (9 Tools & MCP opens it)
+      await t.click(t.cellOf('9 Tools'));
       const tools = await t.waitFor(/All tools · capabilities[^\n]*1–\d+ of \d+/, 30_000);
       const total = /1–(\d+) of (\d+)/.exec(tools)!;
       const over = t.cellOf('[r] checks again');
@@ -484,7 +501,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await w.find('Control');
       const stale = await w.waitFor(new RegExp(`${killed.id}\\s+stale\\s+SLOW\\.md › long · 1 of 1 step`), 10_000);
       // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files)
-      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │/)); await w.waitFor(/▸ Inspector/, 5000); }
+      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/)); await w.waitFor(/▸ Inspector/, 5000); }
       expect(stale).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       expect(stale).toContain('Stop current: idle');
       // the one quit with its Workbench: ended by its own stop, said as its record says (no recovery words)
@@ -518,7 +535,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // whether to run it again still waits on the person (upmd resumes nothing), now with its record's own words
       expect(ended).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       // its operation's run detail, read again since its record changed (the wheel over the Inspector shows its foot)
-      const inspector = w.cellOnRow('Inspector', /Tools │/);
+      const inspector = w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/);
       for (let i = 0; i < 60 && !/Verdict \S+ · \S+/.test(panelText(w.screen(), 'Context')); i++) await w.wheel({ x: inspector.x, y: inspector.y + 8 }, true);
       const detail = panelText(await w.waitFor(/RUN DETAIL[\s\S]*Verdict/, 10_000), 'Context');
       expect(detail).toMatch(new RegExp(`RUN DETAIL · ${killedOp.id} Objective /run SLOW\\.md long Verdict recovered · interrupted`));
@@ -633,12 +650,13 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         await t.waitFor(new RegExp(`Stop current: ${wait.id}`), 10_000);
         await sleep(500);
         const shot = t.capture(`wb-resize-run-${w}x${h}`);
-        expect(count(shot, 'Timmy Workbench'), shot).toBe(1);
+        expect(count(shot, 'Workflow actions'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
-        // one frame from the first row to the last: its top border first, its bottom border last
+        // one frame from the first row to the last: row 1's tabs first (TIMMY and the project on its middle row), Activity &
+        // log's bottom border last
         const rows = shot.trimEnd().split('\n');
         expect(rows).toHaveLength(h);
-        expect(rows[0]).toMatch(/^[╭┏]/);
+        expect(rows[1]).toMatch(/^TIMMY · trayA/);
         expect(rows[h - 1]).toMatch(/^[╰┗]/);
       }
       releaseWait();
@@ -661,7 +679,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         const shot = t.capture(`wb-resize-needs-you-${w}x${h}`);
         expect(count(shot, '⚠ NEEDS YOU'), shot).toBe(1);
         expect(count(shot, '[y] allow once'), shot).toBe(1);
-        expect(count(shot, 'Timmy Workbench'), shot).toBe(1);
+        expect(count(shot, 'Workflow actions'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
       }
       // nothing of the run has started while the box waits, and nothing is sealed
@@ -684,30 +702,30 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
     }
   }, 240_000);
 
-  it('the way to the workspace finder (item 6): in All tools, while its search holds /, the search and the navigation say Esc, then /; [/] Find a workspace shows only where / finds one; Esc leaves the keyboard on the navigation, where / finds a workspace in one key; at 80x24 (no navigation shown) it says Esc, then g, then /', async () => {
+  it('the way to the workspace finder (item 6): in All tools, while its search holds /, the search says Esc, then g, then / (R5: the navigation is a drawer at every size); [/] Find a workspace shows only where / finds one (the drawer); Esc clears the search and says g, then /; the same at 80x24', async () => {
     const t = terminal('wbF');
     try {
       t.start(160, 45);
       await t.waitFor(/trayA \/ [\s\S]*Activity/);
       await t.find('All tools');
       const tools = await t.waitFor(/trayA \/ All tools[\s\S]*\[r\] checks again/, 30_000);
-      // the center has the keyboard: / searches the tools there; the navigation says how to reach the finder
-      expect(panelText(tools, 'TIMMY')).toContain('Find a workspace: g, then /');
+      // the center has the keyboard: / searches the tools there; the list says how to reach the finder
+      expect(panelText(tools, 'TIMMY')).toBe('');
       expect(tools).not.toContain('[/] Find a workspace');
       expect(tools).toContain('a workspace: g, then /');
-      // /: the tools search, its first hint the way to the finder; the navigation says the same
+      // /: the tools search, its first hint the way to the finder
       await t.keys('/');
       const typing = await t.waitFor(/Search: /, 5000);
-      expect(typing).toContain('find a workspace: Esc, then /');
-      expect(panelText(typing, 'TIMMY')).toContain('Find a workspace: Esc, then /');
+      expect(typing).toContain('find a workspace: Esc, then g, then /');
       expect(typing).not.toContain('[/] Find a workspace');
       await t.typed('blender');
       await t.waitFor(/match "blender"/, 5000);
       t.capture('wb-finder-160x45-tools-search');
-      // Esc: the search cleared, the keyboard on the navigation (said), where / finds a workspace: one key
+      // Esc: the search cleared, and the way to the finder said; g opens the navigation's drawer, where / finds a workspace
       await t.keys('Escape');
-      const cleared = await t.waitFor(/Tools search cleared\. The navigation has the keyboard: \/ finds a workspace; Tab goes back to the tools\./, 5000);
-      expect(panelText(cleared, 'TIMMY')).toContain('[/] Find a workspace');
+      await t.waitFor(/Tools search cleared\. g, then \/ finds a workspace\./, 5000);
+      await t.keys('g');
+      expect(panelText(await t.waitFor(/[╭┏][─━] (?:◆ )?TIMMY/, 5000), 'TIMMY')).toContain('[/] Find a workspace');
       await t.find('Templates');
       await t.waitFor(/trayA \/ Templates/, 5000);
 
@@ -716,7 +734,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ Templates/, 10_000);
       await t.find('All tools');
       // (its list is where it was left: the matched row selected, so its first rows are scrolled away)
-      await t.waitFor(/trayA \/ All tools[\s\S]*All tools · capabilities/, 30_000);
+      await t.waitFor(/trayA \/ All tools · capabilities/, 30_000);
       await t.keys('/');
       const narrow = await t.waitFor(/Search: /, 5000);
       expect(narrow).toContain('find a workspace: Esc, then g, then /');
