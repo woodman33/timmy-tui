@@ -15,8 +15,9 @@
  * Its commands and what waits on a person are in the attention colour (the next action), never green: a fleet's outcome
  * is not a pass, and nothing it delivered is verified.
  *
- * Plain words, in Timmy Homebrew through the terminal theme's roles: commands green (accent), labels secondary, a wait or
- * an unproven state in the attention colour, a failure in the failure colour, and every outcome word in the text colour.
+ * Plain words, in Timmy Homebrew through the terminal theme's roles: commands amber (accent, DESIGN.md B10), labels secondary,
+ * a wait or an unproven state in the attention colour (amber), a failure amber with its word, and every outcome word in the
+ * text colour.
  * Everything printed comes from the model, which is already scrubbed of the project's and home folders.
  */
 import type { GlyphSet } from '../term/glyphs.js';

@@ -436,8 +436,8 @@ export function aeFlowCard(f: AeCardFlow, h: AeCardHelpers, status: string): str
 
 export const AE_FLOW_CSS = `
 .flow.ae pre.diff { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; }
-.flow.ae pre.diff .removed { color: ${HOMEBREW.failure}; }
-.flow.ae pre.diff .added { color: ${HOMEBREW.accent}; }
+.flow.ae pre.diff .removed { color: ${HOMEBREW.diffRemove}; }
+.flow.ae pre.diff .added { color: ${HOMEBREW.diffAdd}; }
 .flow.ae dd.bad, .flow.ae tr.bad td { color: ${HOMEBREW.failure}; }
 .flow.ae td.changed { color: ${HOMEBREW.accent}; }
 .flow.ae section.beforeafter, .flow.ae section.readback.ae { padding: 2px 0 2px 10px; }

@@ -1,6 +1,6 @@
 /**
  * Round R4 (helper H93): Timmy Cloud's client, its verbs once for both surfaces: `timmy cloud …` (src/cloud/cli.ts) and the
- * REPL's `/cloud …` (src/cloud/repl.ts). Each returns lines to print (Timmy Homebrew roles: labels secondary, commands green,
+ * REPL's `/cloud …` (src/cloud/repl.ts). Each returns lines to print (Timmy Homebrew roles: labels secondary, commands amber (B10),
  * outcome words in the text colour), one JSON object (--json), and an exit code: 0 done, 1 refused or not read (in full),
  * 2 usage.
  *

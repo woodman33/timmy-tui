@@ -1,7 +1,9 @@
 /**
- * R4 (H110): the terminal Workbench's look, Timmy Homebrew (src/theme/tokens.ts, DESIGN.md §10 B9): readable off-white text,
- * labels a step quieter, Homebrew green for commands, keys and the region that has the keyboard, blue for places to go, amber
- * only for a decision that waits on a person, red for failed or refused. No colour is chosen here: every value is a token.
+ * R4 (H110): the terminal Workbench's look, Timmy Homebrew (src/theme/tokens.ts). Since DESIGN.md §10 B10 (the operator's
+ * palette of 2026-10-15): readable off-white text, labels a step quieter (#8E8E93), amber for commands, keys, the region that
+ * has the keyboard and a decision that waits on a person, silver for places to go and for made-by-a-model, and amber with ✕
+ * and its word for failed or refused; green only for an observed live, passed or sealed state. No colour is chosen here:
+ * every value is a token.
  * Colour never carries a meaning alone: each role's meaning is also in its words, and the focused region also has its
  * marker and a heavier border (src/workbench/frame.ts).
  */

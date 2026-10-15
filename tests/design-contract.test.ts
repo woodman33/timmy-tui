@@ -60,15 +60,16 @@ describe('the visual law — theme bound to lanes/visual/tokens.json', () => {
     expect(Object.keys(theme).sort()).toEqual(Object.keys(BINDINGS).sort());
   });
 
-  it('the four accents and the ground are exactly the law; interaction is white, not a fifth hue', () => {
+  it('the four accents and the ground are exactly the law; interaction is amber (B10), not a fifth hue', () => {
     expect(theme.seal).toBe('#33FF66');
     expect(theme.refuse).toBe('#FF3B3B');
     expect(theme.predict).toBe('#FFB020');
     expect(theme.generated).toBe('#8B5CF6');
     expect(theme.ground).toBe('#000000');
     expect(theme.textPrimary).toBe('#FFFFFF');
-    expect(theme.accent).toBe(theme.structure);
-    expect(theme.lineFocus).toBe(theme.structure);
+    expect(theme.accent).toBe(theme.predict);
+    expect(theme.lineFocus).toBe(theme.predict);
+    expect(theme.warn).toBe(theme.predict);
     expect(theme.danger).toBe(theme.refuse);
   });
 
@@ -139,10 +140,10 @@ describe('§12 negative controls — the gate must FAIL on known-defective artif
     expect(lawViolations({ ...theme, danger: theme.predict }, law, BINDINGS).join('\n')).toMatch(/theme\.danger must be law\.refuse/);
   });
   it('a fifth hue fails even with every binding otherwise intact', () => {
-    expect(lawViolations({ ...theme, accent: '#37D2FF' }, law, BINDINGS).join('\n')).toMatch(/theme\.accent must be law\.white/);
+    expect(lawViolations({ ...theme, accent: '#37D2FF' }, law, BINDINGS).join('\n')).toMatch(/theme\.accent must be law\.predict/);
   });
   it('a structural token painted in an accent fails (line, textMuted, surfaceRaised, void, structure, grey3, sealDim)', () => {
-    for (const [token, bad] of [['line', theme.seal], ['textMuted', theme.generated], ['surfaceRaised', theme.seal], ['void', theme.seal], ['structure', theme.refuse], ['grey3', theme.generated], ['sealDim', theme.refuse], ['textSecondary', theme.predict], ['surface', theme.generated], ['lineFocus', theme.predict]] as [string, string][]) {
+    for (const [token, bad] of [['line', theme.seal], ['textMuted', theme.generated], ['surfaceRaised', theme.seal], ['void', theme.seal], ['structure', theme.refuse], ['grey3', theme.generated], ['sealDim', theme.refuse], ['textSecondary', theme.predict], ['surface', theme.generated], ['lineFocus', theme.seal]] as [string, string][]) {
       const v = lawViolations({ ...theme, [token]: bad }, law, BINDINGS);
       expect(v.length, token).toBeGreaterThan(0);
       expect(v.join('\n'), token).toContain(`theme.${token} must be`);

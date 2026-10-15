@@ -51,7 +51,7 @@ describe('probeTerminalColors', () => {
     const result = await probeTerminalColors(io, { interactive: true });
     // Row 28: slots 1, 2, 3 and 5 too, so a meaning color that misses its floor on this terminal is dropped;
     // fourth order, step 2: and their bright twins 9, 10, 11 and 13, which a meaning takes when its own misses.
-    expect(stdout.writes).toEqual(['\x1b]11;?\x07\x1b]4;7;?\x07\x1b]4;8;?\x07\x1b]4;1;?\x07\x1b]4;2;?\x07\x1b]4;3;?\x07\x1b]4;5;?\x07\x1b]4;9;?\x07\x1b]4;10;?\x07\x1b]4;11;?\x07\x1b]4;13;?\x07\x1b[c']);
+    expect(stdout.writes).toEqual(['\x1b]11;?\x07\x1b]4;7;?\x07\x1b]4;8;?\x07\x1b]4;1;?\x07\x1b]4;2;?\x07\x1b]4;3;?\x07\x1b]4;9;?\x07\x1b]4;10;?\x07\x1b]4;11;?\x07\x1b]4;15;?\x07\x1b[c']);
     expect(result).toEqual({ background: '#000000', slots: { 7: '#D0D0D0', 8: '#6C6C6C' } });
     expect([stdin.isRaw, stdin.paused, stdin.listenerCount('data')]).toEqual([false, true, 0]);
   });
@@ -71,7 +71,7 @@ describe('probeTerminalColors', () => {
   // Fourth order, step 2, found in Terminal on the Mac: the twin rule (row 51) needs the bright twins
   // measured, and the probe did not ask for them. A fake terminal that answers only what it is asked,
   // with the colors macOS Terminal "Clear Dark" answered there (red 3.09:1, bright red 4.61:1).
-  it('asks for the bright twins too, so a meaning can take one: failure in bright red on Clear Dark', async () => {
+  it('asks for the bright twins too, so a meaning can take one: a diff removal in bright red on Clear Dark', async () => {
     const terminal = (p: TerminalPalette) => {
       const stdin = new FakeIn();
       const hex = (h: string) => [1, 3, 5].map((i) => h.slice(i, i + 2).toLowerCase().repeat(2)).join('/');
@@ -87,10 +87,12 @@ describe('probeTerminalColors', () => {
       return { stdin, stdout } as unknown as ProbeStreams;
     };
     const measured = await probeTerminalColors(terminal(TERMINAL_CLEAR_DARK), { interactive: true });
-    expect(Object.keys(measured.slots).map(Number).sort((a, b) => a - b)).toEqual([1, 2, 3, 5, 7, 8, 9, 10, 11, 13]);
+    // B10's roles use slots 1 (diff removals), 2, 3, 7 and 8; each one's bright twin is asked too.
+    expect(Object.keys(measured.slots).map(Number).sort((a, b) => a - b)).toEqual([1, 2, 3, 7, 8, 9, 10, 11, 15]);
     const tty = { isTTY: true, columns: 80, rows: 24 };
     const theme = buildTheme(detectCapabilities({ env: { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'en_US.UTF-8' }, stdin: tty, stdout: tty, stderr: tty }), measured);
-    expect([theme.open('failure'), theme.open('ai'), theme.open('secondary')]).toEqual(['\x1b[1;91m', '\x1b[35m', '\x1b[37m']);
+    // A diff removal takes bright red there (red 3.09:1, bright red 4.61:1); failure is amber under B10.
+    expect([theme.open('diffRemove'), theme.open('failure'), theme.open('ai'), theme.open('secondary')]).toEqual(['\x1b[91m', '\x1b[1;33m', '\x1b[37m', '\x1b[37m']);
   });
   it('never queries a terminal that is not interactive (echo hi | timmy)', async () => {
     const { stdout, io } = streams('\x1b]11;rgb:0000/0000/0000\x07');
