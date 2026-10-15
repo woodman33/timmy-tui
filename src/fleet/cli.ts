@@ -20,8 +20,8 @@
 import { chooseProject } from '../project/index.js';
 import { ISOLATION_CLASSES, MAX_WORKERS, type IsolationClass } from './plan.js';
 import {
-  collectPlan, fleetEvents, KNOWN_PROVIDERS, listFleetViews, planFleet, readFleetView, reconcilePlan, runPlan, stopPlan,
-  type FleetView, type RunPlanOptions, type ServiceOptions,
+  adviseRoute, collectPlan, fleetEvents, KNOWN_PROVIDERS, listFleetViews, planFleet, readFleetView, readRouteAdvice, reconcilePlan, runPlan, stopPlan,
+  type FleetView, type RouteAdvice, type RunPlanOptions, type ServiceOptions,
 } from './service.js';
 
 export const FLEET_SCHEMA = 'timmy.fleet/1';
@@ -48,6 +48,8 @@ export function fleetHelp(): string {
     'plan options: --workers N (required) --concurrency N (default 4) --provider fake --isolation vm --per-worker dedicated',
     '  --harness codex --model NAME --cpu 2 --ram 4 --disk 10 --ttl 30 --infra-budget 0 --inference-budget 0 --prompt TEXT',
     '  --local-only --allow-paid (default: free only) --no-review (default: review before dispatch)',
+    '  With "Use Clef routing" on (timmy decide; off by default), the plan asks once which harness should take its tasks and',
+    '  shows the answer as a recommendation, never applied (--decide-fixture <file>: a FAKE answer, for tests and the offline slice).',
     'run: stays until every worker has ended; a provider that costs money needs --approve <token> (timmy approve <hash>).',
     'Every verb: --project <dir|name> (default: this folder), --json.',
     '',
@@ -57,7 +59,7 @@ export function fleetHelp(): string {
 
 interface Parsed { verb?: FleetVerb; plan?: string; flags: Map<string, string | true>; project?: string; json: boolean; help: boolean }
 
-const VALUE_FLAGS = new Set(['workers', 'concurrency', 'provider', 'isolation', 'per-worker', 'harness', 'model', 'cpu', 'ram', 'disk', 'ttl', 'infra-budget', 'inference-budget', 'prompt', 'approve', 'worker', 'after', 'limit', 'project']);
+const VALUE_FLAGS = new Set(['workers', 'concurrency', 'provider', 'isolation', 'per-worker', 'harness', 'model', 'cpu', 'ram', 'disk', 'ttl', 'infra-budget', 'inference-budget', 'prompt', 'approve', 'worker', 'after', 'limit', 'project', 'decide-fixture']);
 const BOOL_FLAGS = new Set(['local-only', 'allow-paid', 'no-review', 'json', 'help']);
 
 export function parseFleetArgs(argv: string[], o: { json?: boolean } = {}): Parsed | { error: string } {
@@ -107,7 +109,7 @@ const num = (p: Parsed, name: string, dflt: number | undefined, min: number, max
   return n;
 };
 
-export function viewLines(v: FleetView, o: { workers?: boolean } = {}): string[] {
+export function viewLines(v: FleetView, o: { workers?: boolean; route?: RouteAdvice } = {}): string[] {
   const c = v.counts;
   const lines = [
     `Fleet ${v.planId} — ${v.status}${v.simulation ? ' — SIMULATION (FAKE backend)' : ''}`,
@@ -116,6 +118,7 @@ export function viewLines(v: FleetView, o: { workers?: boolean } = {}): string[]
     `  delivered ${c.delivered} (not verified) · verified ${c.verified} · failed ${c.failed} · cancelled ${c.cancelled} · refused ${c.refused}`,
   ];
   if (v.runner) lines.push(`  running in process ${v.runner.pid} since ${v.runner.started}${v.cancelAsked ? '; a stop was asked' : ''}`);
+  if (o.route) lines.push(`  ${o.route.words} (decision ${o.route.decision})`);
   for (const n of v.needsYou) lines.push(`  NEEDS YOU: ${n}`);
   if (o.workers) {
     for (const w of v.workers) {
@@ -153,7 +156,12 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
         policy: { localOnly: p.flags.has('local-only'), freeOnly: !p.flags.has('allow-paid'), requireReview: !p.flags.has('no-review') },
       }, opts);
       if (!res.ok) return said(1, res.preview.lines, { refused: true, refusals: res.refusals, preview: res.preview });
-      return said(0, [...res.preview.lines, `Planned ${res.plan.id} (operation ${res.plan.operationId}); nothing started. Run it: timmy fleet run ${res.plan.id}`], { plan: res.plan.id, operation: res.plan.operationId, preview: res.preview });
+      // R4 (lead): one route question per plan when "Use Clef routing" is on; shown, never applied
+      const fixture = p.flags.get('decide-fixture');
+      let route: RouteAdvice | { error: string } | undefined;
+      try { route = await adviseRoute(root, res.plan, { ...opts, decide: typeof fixture === 'string' ? { fixture } : {} }); } catch (e) { route = { error: e instanceof Error ? e.message : String(e) }; }
+      const routeLine = route ? ('error' in route ? `  route: not asked (${route.error}); the plan keeps ${res.plan.harness}` : `  ${route.words} (decision ${route.decision})`) : undefined;
+      return said(0, [...res.preview.lines, ...(routeLine ? [routeLine] : []), `Planned ${res.plan.id} (operation ${res.plan.operationId}); nothing started. Run it: timmy fleet run ${res.plan.id}`], { plan: res.plan.id, operation: res.plan.operationId, preview: res.preview, ...(route ? { route } : {}) });
     }
     case 'run': {
       let ended = 0;
@@ -175,11 +183,12 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
       if (p.plan) {
         const v = readFleetView(root, p.plan);
         if (!v) return said(1, [`no plan ${p.plan} in this project`], { error: 'no such plan' });
-        return said(0, viewLines(v, { workers: v.workers.length <= 20 }), { view: v });
+        const route = readRouteAdvice(root, v.planId);
+        return said(0, viewLines(v, { workers: v.workers.length <= 20, ...(route ? { route } : {}) }), { view: v, ...(route ? { route } : {}) });
       }
       const all = listFleetViews(root);
       if (!all.length) return said(0, ['no fleet plans in this project (timmy fleet plan --workers N makes one)'], { plans: [] });
-      return said(0, all.flatMap((v) => viewLines(v)), { plans: all });
+      return said(0, all.flatMap((v) => { const route = readRouteAdvice(root, v.planId); return viewLines(v, route ? { route } : {}); }), { plans: all });
     }
     case 'events': {
       const after = num(p, 'after', 0, 0, Number.MAX_SAFE_INTEGER);

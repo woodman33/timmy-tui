@@ -19,6 +19,8 @@ import { consumeApproval, planHashOf } from '../utils/approvals.js';
 import { inOperationId, newOperationId } from '../ops/context.js';
 import { projectId } from '../project/index.js';
 import { OPERATION_SCHEMA, writeOperationRecord, type OperationRecord, type OperationState } from '../ops/operations.js';
+import { decideDetailed, type DecideContext } from '../decision/service.js';
+import { readSettings } from '../decision/settings.js';
 import type { Backend } from './backend.js';
 import { fakeBackend, type FakeOptions } from './fake.js';
 import { checkPlan, infraCeilingUsd, ISOLATION_WORDS, makePlan, MAX_WORKERS, type FleetPlan, type IsolationClass, type PlanInput, type ProviderCapabilities } from './plan.js';
@@ -401,3 +403,65 @@ export async function collectPlan(root: string, planId: string, opts: ServiceOpt
 }
 
 export const FLEET_LIMITS = { maxWorkers: MAX_WORKERS };
+
+// ── R4 (lead): the route advice, one decision per plan (src/decision), shown and never applied ─────────────────────
+
+/** What the decision provider said about a plan's harness: a recommendation, never applied to the plan. */
+export interface RouteAdvice {
+  decision: string;
+  outcome: 'recommend' | 'abstain' | 'fallback';
+  recommended?: string;
+  top?: number;
+  margin?: number;
+  /** The harness the plan keeps: always the one it asked for. */
+  kept: string;
+  /** One line for every surface (amber: a recommendation, not evidence). */
+  words: string;
+  /** The recorded decision was returned again (asked before; no second call). */
+  reused: boolean;
+}
+
+export const ROUTE_FILE = 'route.json';
+const pct = (n: number | undefined): string => (typeof n === 'number' ? `${(n * 100).toFixed(1)}%` : 'unknown');
+
+/**
+ * Asks the decision provider which of the backend's harnesses should take this plan's tasks: once per plan (a 100-worker
+ * plan is one question, never 100), bound to the plan's operation and revision, with the plan's inference budget as the
+ * budget for a paid call. Only when "Use Clef routing" is on (or a caller passes a provider or a fixture): otherwise
+ * nothing is asked or recorded. The answer is written beside the plan (route.json) and shown; the plan keeps its harness
+ * whatever the answer is (a person re-plans to follow it, and the new plan is checked again).
+ */
+export async function adviseRoute(root: string, plan: FleetPlan, opts: ServiceOptions & { decide?: DecideContext } = {}): Promise<RouteAdvice | undefined> {
+  const ctx: DecideContext = { ...(opts.decide ?? {}) };
+  const settings = ctx.settings ?? readSettings(ctx.env).settings;
+  if (!settings.useClef && !ctx.provider && !ctx.fixture) return undefined;
+  const backend = (opts.backendFor ?? ((id) => defaultBackendFor(id, opts.fake)))(plan.provider);
+  const harnesses = backend?.runtime.capabilities().harnesses ?? [plan.harness];
+  const label = backend?.provisioner.capabilities().label ?? plan.provider;
+  const options = [...new Set([plan.harness, ...harnesses])].map((h) => ({ id: h, label: h, description: `the ${h} harness on ${label}`, available: harnesses.includes(h) }));
+  const { record, reused } = await decideDetailed({
+    kind: 'route', operationId: plan.operationId, project: { root, revision: plan.project.revision, dirty: plan.project.dirty },
+    instructions: `Which harness should take this fleet's ${plan.agents} tasks?`,
+    options, deterministic: { option: plan.harness, rule: 'the harness the plan asked for' },
+    // what the model reads: counts and words Timmy already shows, never the tasks' text
+    state: { workers: plan.agents, concurrency: plan.concurrency, isolation: plan.isolation, provider: plan.provider, simulation: plan.provider === 'fake' },
+    requestKey: `fleet-route-${plan.id}`,
+  }, { ...ctx, settings, budget: ctx.budget ?? { remainingUsd: plan.budgets.inferenceUsd }, currentRevision: ctx.currentRevision ?? plan.project.revision });
+  const keep = `the plan keeps ${plan.harness}`;
+  const words = record.outcome === 'recommend' && record.recommendation
+    ? `route: ${record.recommendation.option} recommended (${pct(record.recommendation.top)}, ahead by ${pct(record.recommendation.margin)}): a model recommendation, not evidence; not applied, ${keep}${record.recommendation.option === plan.harness ? '' : ` (to follow it: timmy fleet plan --harness ${record.recommendation.option} …, a new plan checked again)`}`
+    : record.outcome === 'abstain'
+      ? `route: no recommendation, a person decides (${record.judge?.kind === 'abstain' ? record.judge.reason : 'the model abstained'}); ${keep}`
+      : `route: no recommendation (${record.fallback.reason ?? 'the deterministic path was used'}); ${keep}`;
+  const advice: RouteAdvice = {
+    decision: record.id, outcome: record.outcome, ...(record.recommendation ? { recommended: record.recommendation.option, top: record.recommendation.top, margin: record.recommendation.margin } : {}),
+    kept: plan.harness, words, reused,
+  };
+  fs.writeFileSync(path.join(planDir(root, plan.id), ROUTE_FILE), `${JSON.stringify(advice, null, 2)}\n`, { mode: 0o600 });
+  return advice;
+}
+
+/** The route advice written beside a plan, when there is one. */
+export function readRouteAdvice(root: string, planId: string): RouteAdvice | undefined {
+  try { return JSON.parse(fs.readFileSync(path.join(planDir(root, planId), ROUTE_FILE), 'utf8')) as RouteAdvice; } catch { return undefined; }
+}

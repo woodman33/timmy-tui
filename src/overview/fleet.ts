@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fleetRoot } from '../fleet/ledger.js';
 import type { FleetPlan } from '../fleet/plan.js';
-import { readFleetView, type FleetView } from '../fleet/service.js';
+import { readFleetView, readRouteAdvice, type FleetView, type RouteAdvice } from '../fleet/service.js';
 import { planHashOf } from '../utils/approvals.js';
 import { FLEET_TITLE, ITEMS_MAX, type Count, type FleetItem, type FleetSection, type FleetWorkerLine, type NeedsItem, type Tone, type Unreadable } from './model.js';
 import { message, type Sources } from './sources.js';
@@ -27,7 +27,7 @@ const WORKERS_SHOWN = 6;
 
 type S = Pick<Sources, 'root' | 'asOf' | 'scrub'>;
 
-interface Read { views: Array<{ view: FleetView; plan: FleetPlan }>; unreadable: Unreadable[]; notRead: number }
+interface Read { views: Array<{ view: FleetView; plan: FleetPlan; route?: RouteAdvice }>; unreadable: Unreadable[]; notRead: number }
 
 /** The project's fleet plans, read; undefined when it has none (no `.timmy/fleet`, or no plan in it). */
 function readPlans(s: S): Read | { error: string } | undefined {
@@ -52,7 +52,8 @@ function readPlans(s: S): Read | { error: string } | undefined {
     }
     const view = readFleetView(s.root, id);
     if (!view || plan.id !== id) { out.unreadable.push({ record: `.timmy/fleet/${id}`, why: 'its plan.json and state.json are not a fleet plan Timmy can read' }); continue; }
-    out.views.push({ view, plan });
+    const route = readRouteAdvice(s.root, id);
+    out.views.push({ view, plan, ...(route ? { route } : {}) });
   }
   out.views.sort((a, b) => b.view.createdAt.localeCompare(a.view.createdAt));
   return out;
@@ -84,7 +85,7 @@ function workerLines(v: FleetView): { lines: FleetWorkerLine[]; more: number } {
   return { lines, more: Math.max(0, v.workers.length - lines.length) };
 }
 
-function itemOf(v: FleetView, plan: FleetPlan): FleetItem {
+function itemOf(v: FleetView, plan: FleetPlan, route?: RouteAdvice): FleetItem {
   const id = v.planId;
   const c = v.counts;
   const proven = !!v.runner;
@@ -142,6 +143,7 @@ function itemOf(v: FleetView, plan: FleetPlan): FleetItem {
     words: `${id} ${words}${sim ? ' · a simulation' : ''}`,
     needs, worker_lines: w.lines, workers_more: w.more,
     results: collected ? `.timmy/fleet/${id}/w<NNN>/result/ (${plural(collected, 'worker')}' results, each with its MANIFEST.json)` : null,
+    route: route ? { words: route.words, decision: route.decision, outcome: route.outcome } : null,
     tone, commands,
     source: { record: `.timmy/fleet/${id}/state.json`, command: `timmy fleet status ${id}`, board: 'ov-fleet', detail: `ov-fleet-${id}` },
   };
@@ -153,7 +155,7 @@ export function fleetPart(s: S): FleetSection | undefined {
   if (!r) return undefined;
   const base = { id: 'fleet' as const, title: FLEET_TITLE, as_of: s.asOf, unreadable: [] as Unreadable[], notes: [] as string[] };
   if ('error' in r) return { ...base, state: 'unknown', why: r.error, summary: 'not known', counts: [], items: [], more: 0 };
-  const all = r.views.map(({ view, plan }) => itemOf(view, plan));
+  const all = r.views.map(({ view, plan, route }) => itemOf(view, plan, route));
   const items = all.slice(0, ITEMS_MAX);
   const by = (st: string): number => all.filter((i) => i.status === st).length;
   const running = all.filter((i) => (i.status === 'running' || i.status === 'stopping') && i.running_proven).length;

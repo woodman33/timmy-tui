@@ -538,6 +538,8 @@ export interface FleetItem {
   workers_more: number;
   /** where its results are, when any were collected */
   results: string | null;
+  /** the route advice for this plan (src/decision; drawn amber): a recommendation, never applied; null when none was asked */
+  route: { words: string; decision: string; outcome: string } | null;
   tone: Tone;
   commands: string[];
   source: OverviewSource;
