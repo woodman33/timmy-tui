@@ -15,7 +15,7 @@
 // excluded) plus the named surfaces outside it that C1b-1 re-pointed —
 // src/tui-opentui, src/forge, cli.tsx, headless.ts, scripts/timmy-ui-smoke.tsx,
 // src/utils/{markdown,humanlog,logserver,dash,logger}.ts — and chatpage.html's
-// hex set, which must be a subset of the law. Declared debt, still outside the
+// hex set, which must be a subset of the shared tokens (B10; it was the law's until R5). Declared debt, still outside the
 // gate (counts at C1b-1): src/utils/slash-commands.ts (20 raw SGR escapes),
 // src/utils/test-sandboxes.ts (18 chalk colour members).
 import { describe, it, expect } from 'vitest';
@@ -23,6 +23,7 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { theme, visualLaw, BINDINGS } from '../src/tui/theme.js';
 import { lawViolations, sourceColorViolations } from '../src/tui/color-contract.js';
+import { HOMEBREW } from '../src/theme/tokens.js';
 
 const TUI = join(process.cwd(), 'src', 'tui');
 const LAW_PATH = join(process.cwd(), 'lanes', 'visual', 'tokens.json');
@@ -104,8 +105,10 @@ describe('no colour is chosen outside theme.ts', () => {
     expect(bad).toEqual([]);
   });
 
-  it('chatpage.html paints only law colours', () => {
-    const law = new Set(Object.values(visualLaw.color).map(c => c.value.toUpperCase()));
+  // R5 (B10): chatpage.html is a browser page, so it paints the shared tokens (src/theme/tokens.ts HOMEBREW), not the
+  // terminal law, whose raw hexes (violet, red) a browser would show as they are. The rule is as closed as before.
+  it('chatpage.html paints only the shared tokens\' colours (B10)', () => {
+    const law = new Set(Object.values(HOMEBREW).map(c => c.toUpperCase()));
     const hexes = [...new Set((readFileSync(CHATPAGE, 'utf8').match(/#[0-9a-fA-F]{6}\b/g) ?? []).map(h => h.toUpperCase()))];
     expect(hexes.length).toBeGreaterThan(0);
     expect(hexes.filter(h => !law.has(h))).toEqual([]);
