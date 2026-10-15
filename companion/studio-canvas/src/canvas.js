@@ -101,17 +101,14 @@ function showStatus(editor) {
   const state = editor.licenseManager?.state.get() ?? 'unknown';
   window.timmyCanvas.licenseState = state;
   showSave();
-  if (canvas.conflict) {
-    say(`Not saved: ${canvas.conflict.words}`, 'error');
-    return;
-  }
   // R4 (H83): Timmy refused this page's save, in its own words (which say what to do).
   if (canvas.refused) {
     say(`Not saved: ${canvas.refused}`, 'refused');
     return;
   }
   const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${savedWords(saveState(canvas))}`;
-  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.linked ? 'ready' : 'waiting');
+  // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
+  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
   if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 
@@ -721,9 +718,19 @@ function openBoard(editor, template) {
       x: slot.gap + (i % across) * (slot.w + slot.gap), y: slot.gap + Math.floor(i / across) * (slot.h + slot.gap),
       props: { name: cap, w: slot.w, h: slot.h },
     })));
-    editor.zoomToFit();
+    fitBeside(editor);
   }
   showGuide(editor);
+}
+/**
+ * R5 (H133): a board just opened, fitted into the area beside Timmy's panel (or below it on a phone), never closer than 100 %:
+ * zoomToFit alone fitted it to the whole window, and its left part sat under the panel.
+ */
+function fitBeside(editor) {
+  editor.zoomToFit();
+  const z = editor.getCamera().z;
+  if (z > 1) editor.setCamera({ ...editor.getCamera(), z: 1 });
+  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id)); } catch { /* showing it is a courtesy */ }
 }
 /**
  * R5 (H133): a guided blank board (src/studio/templates.ts guidedTemplates): its title and what it is for, then one empty frame
@@ -738,8 +745,8 @@ function openGuided(editor, t) {
   const title = createShapeId();
   const intro = createShapeId();
   editor.createShapes([
-    { id: title, type: 'text', x: 0, y: -170, props: { richText: toRichText(t.title), size: 'l', autoSize: true }, meta: meta('title') },
-    { id: intro, type: 'text', x: 0, y: -105, props: { richText: toRichText(t.intro), size: 's', color: 'grey', autoSize: false, w: Math.min(width, 900) }, meta: meta('intro') },
+    { id: title, type: 'text', x: 0, y: -210, props: { richText: toRichText(t.title), size: 'l', font: 'sans', autoSize: true }, meta: meta('title') },
+    { id: intro, type: 'text', x: 0, y: -140, props: { richText: toRichText(t.intro), size: 's', font: 'sans', color: 'grey', autoSize: false, w: Math.min(width, 900) }, meta: meta('intro') },
   ]);
   const frames = t.frames.map(() => createShapeId());
   editor.createShapes(t.frames.flatMap((f, i) => {
@@ -747,7 +754,7 @@ function openGuided(editor, t) {
     const y = Math.floor(i / across) * (slot.h + slot.gap);
     return [
       { id: frames[i], type: 'frame', x, y, props: { name: f.name, w: slot.w, h: slot.h }, meta: meta('frame') },
-      { id: createShapeId(), type: 'text', parentId: frames[i], x: 16, y: 16, props: { richText: toRichText(f.guide), size: 's', color: 'grey', autoSize: false, w: slot.w - 32 }, meta: meta('hint') },
+      { id: createShapeId(), type: 'text', parentId: frames[i], x: 16, y: 16, props: { richText: toRichText(f.guide), size: 's', font: 'sans', color: 'grey', autoSize: false, w: slot.w - 32 }, meta: meta('hint') },
     ];
   }));
   if (t.flow) {
@@ -766,7 +773,7 @@ function openGuided(editor, t) {
     }
   }
   editor.selectNone();
-  editor.zoomToFit();
+  fitBeside(editor);
 }
 async function offerBoards() {
   const pick = document.getElementById('board-pick');

@@ -102,7 +102,7 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       const focus = await page.evaluate(() => { const el = document.activeElement as HTMLElement; const s = getComputedStyle(el); return { text: el.textContent, outline: `${s.outlineStyle} ${s.outlineColor}`, visible: el.matches(':focus-visible') }; });
       expect(focus).toEqual({ text: 'Accept', outline: 'solid rgb(255, 176, 0)', visible: true });
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job draft-accept\): its shapes are the board's now; saved at revision \d+ and recorded\. Nothing ran/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job draft-accept\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       await savedState(page);
       // the shapes stay, unmarked, saying who proposed them; the outline and the row are gone
       for (const s of [a, b]) {
@@ -140,7 +140,7 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       const mine = await page.evaluate((f) => { const e = (window as never as Win).timmyCanvas.editor; const id = `shape:mine-${Date.now()}`; e.createShape({ id, type: 'geo', parentId: f, x: 180, y: 120, props: { w: 60, h: 40 } }); return id; }, frame);
       expect((await page.evaluate((x) => (window as never as Win).timmyCanvas.editor.getShape(x)!.meta, mine)).timmyDraft).toBeUndefined();
       await page.click(`#draft-list li[data-draft="${drawn.draft!.id}"] .draft-discard`);
-      await page.waitForFunction(() => /^Discarded Timmy's draft \(2 shapes, job draft-discard\): its shapes are gone from the board; saved at revision \d+ and recorded/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Discarded Timmy's draft \(2 shapes, job draft-discard\): removed from the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       await savedState(page);
       const left = await page.evaluate((ids) => ids.map((x) => { const s = (window as never as Win).timmyCanvas.editor.getShape(x); return s ? { id: s.id, parent: s.parentId } : null; }), [frame, child, mine]);
       expect(left[0]).toBeNull();

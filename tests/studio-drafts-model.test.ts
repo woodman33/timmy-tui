@@ -117,8 +117,8 @@ describe('Accept and Discard', () => {
   });
   it('says what was decided, that nothing ran, and whether its save is on disk yet', () => {
     const d = { shapes: ['a', 'b'], job: 'turn-1' };
-    expect(decisionWords('accepted', d, { revision: 12 })).toBe("Accepted Timmy's draft (2 shapes, job turn-1): its shapes are the board's now; saved at revision 12 and recorded. Nothing ran: no tool, job or file but the canvas.");
-    expect(decisionWords('discarded', { count: 1, job: null }, null)).toBe("Discarded Timmy's draft (1 shape): its shapes are gone from the board; not saved yet: the save line above says why. Nothing ran: no tool, job or file but the canvas.");
+    expect(decisionWords('accepted', d, { revision: 12 })).toBe("Accepted Timmy's draft (2 shapes, job turn-1): kept on the board; saved at revision 12 and recorded. No tool or job ran.");
+    expect(decisionWords('discarded', { count: 1, job: null }, null)).toBe("Discarded Timmy's draft (1 shape): removed from the board; not saved yet (the save line says why). No tool or job ran.");
   });
 });
 

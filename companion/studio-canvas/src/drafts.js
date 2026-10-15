@@ -193,7 +193,7 @@ export function draftLine(d) {
 export function decisionWords(decision, d, saved) {
   const count = Array.isArray(d.shapes) ? d.shapes.length : Number(d.count) || 0;
   const what = `${decision === 'accepted' ? 'Accepted' : 'Discarded'} Timmy's draft (${plural(count, 'shape')}${d.job ? `, job ${d.job}` : ''})`;
-  const effect = decision === 'accepted' ? 'its shapes are the board\'s now' : 'its shapes are gone from the board';
-  const tail = saved ? `saved at revision ${saved.revision} and recorded` : 'not saved yet: the save line above says why';
-  return `${what}: ${effect}; ${tail}. Nothing ran: no tool, job or file but the canvas.`;
+  const effect = decision === 'accepted' ? 'kept on the board' : 'removed from the board';
+  const tail = saved ? `saved at revision ${saved.revision} and recorded` : 'not saved yet (the save line says why)';
+  return `${what}: ${effect}; ${tail}. No tool or job ran.`;
 }

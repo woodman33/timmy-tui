@@ -254,7 +254,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
             assets: e.store.allRecords().filter((r) => r.typeName === 'asset').length,
           };
         });
-        expect(board.page, t.id).toBe(t.title);
+        // (a board opened again gets a number: the keyboard test above opened the first one already)
+        expect(board.page, t.id).toMatch(new RegExp(`^${t.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\d+)?$`));
         expect(board.frames, t.id).toEqual(t.frames.map((f) => ({ name: f.name, hints: [{ type: 'text', text: f.guide, part: 'hint' }] })));
         expect(board.texts, t.id).toEqual([t.title, t.intro]);
         expect(board.template, t.id).toEqual([t.id]);

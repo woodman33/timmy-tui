@@ -150,7 +150,8 @@ describe.skipIf(!browserPath)('the save, in a real browser', () => {
       const conflict = await line(page);
       expect(conflict).toMatchObject({ glyph: '⇄', box: true, words: expect.stringMatching(new RegExp(`^Not saved: a newer version of this canvas is on disk \\(revision ${theirs.revision}\\), saved after this page opened it\\. This page's (change|\\d+ changes) since revision \\d+ (is|are) not saved\\. Nothing was overwritten\\.$`)) });
       expect(conflict.color).toBe(AMBER);
-      expect(await page.textContent('#status')).toMatch(/^Not saved: Another window saved this canvas at revision \d+/);
+      expect(await page.textContent('#status')).toMatch(/· revision \d+, not saved$/);
+      expect(await page.getAttribute('#status', 'data-kind')).toBe('error');
       expect(await page.locator('#conflict button').allTextContents()).toEqual(['Reload the newer version', 'Keep a copy']);
       // nothing overwritten: the disk holds the other window's canvas, without this page's late shape
       const disk = await doc();
