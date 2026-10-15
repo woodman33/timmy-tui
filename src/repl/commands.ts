@@ -392,9 +392,6 @@ export const COMMANDS: SlashCommand[] = [
     group: 'setup',
     description: 'Model and price; /model <id>, free, free-only',
     run: (args, ctx) => {
-      // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it)
-      const local = ctx.chatModel?.(args);
-      if (local) return local.then((lines) => { for (const line of lines) ctx.print(line); });
       const a = args.trim();
       // R5: what a model costs and can do, from OpenRouter's catalog as this computer has it (src/agent/model-price.ts)
       const priceLine = (id: string): Segment[] => {
@@ -402,8 +399,8 @@ export const COMMANDS: SlashCommand[] = [
         return [{ text: '  Price: ', role: 'secondary' }, { text: p.words, role: p.free === true ? 'primary' : p.free === false ? 'estimate' : 'secondary' }];
       };
       const freeOnlyLine = (): Segment[] => freeOnlyOn()
-        ? [{ text: '  Free-only: on', role: 'strong' }, { text: ' · a message to a model not known to be free is not sent', role: 'secondary' }]
-        : [{ text: '  Free-only: off', role: 'secondary' }, { text: ' · /model free-only on refuses any model not known to be free', role: 'secondary' }];
+        ? [{ text: '  Free-only: on', role: 'strong' }, { text: ' · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)', role: 'secondary' }]
+        : [{ text: '  Free-only: off', role: 'secondary' }, { text: ' · /model free-only on refuses any OpenRouter model not known to be free', role: 'secondary' }];
       if (a === 'free') {
         const free = freeModels();
         if (!free.length) return void ctx.print([{ text: '  No free model in the catalog this computer has. ', role: 'secondary' }, { text: 'timmy models --refresh' }, { text: ' fetches it (free); OpenRouter names its free variants <id>:free.', role: 'secondary' }]);
@@ -421,6 +418,11 @@ export const COMMANDS: SlashCommand[] = [
           if (process.env.TIMMY_CHAT_FREE_ONLY?.trim()) ctx.print([{ text: '  TIMMY_CHAT_FREE_ONLY is set in this environment and wins over this setting.', role: 'secondary' }]);
         });
       }
+      // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it).
+      // R5 lead: after free and free-only, which are the same on every route (the rehearsal of the review build found
+      // `/model free-only on` taken as an Ollama model's name on the local route)
+      const local = ctx.chatModel?.(args);
+      if (local) return local.then((lines) => { for (const line of lines) ctx.print(line); });
       const current = ctx.agent.getModel();
       if (!a) {
         ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
