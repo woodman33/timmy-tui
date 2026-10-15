@@ -160,6 +160,29 @@ export function runOutcome(run: OperationRun, root: string, jobs: { get(id: stri
       if (!outcome) return { state: 'unknown', words: r.ok ? 'its record names no outcome' : `no record: ${r.error}` };
       return { state: outcome === 'answered' && v?.isError !== true ? 'succeeded' : outcome === 'stopped' ? 'stopped' : 'failed', words: outcome };
     }
+    case 'fleet': {
+      // R4 lead: a fleet plan's run, by its own state file (src/fleet/ledger.ts). Delivered is not verified.
+      const r = readProjectRecord(root, `.timmy/fleet/${run.id}/state.json`);
+      const v = r.ok ? obj(r.value) : undefined;
+      if (!v) return { state: 'unknown', words: r.ok ? 'its state is not a record' : `no record: ${r.error}` };
+      const workers = (Array.isArray(v.workers) ? v.workers : []).map((w) => obj(w)).filter((w): w is Obj => !!w);
+      const n = (...ps: string[]) => workers.filter((w) => ps.includes(String(w.phase))).length;
+      const total = workers.length;
+      const parts = [`${n('delivered')} of ${total} delivered (not verified)`];
+      if (n('failed', 'expired')) parts.push(`${n('failed', 'expired')} failed`);
+      if (n('unknown')) parts.push(`${n('unknown')} unknown`);
+      if (n('cancelled', 'interrupted')) parts.push(`${n('cancelled', 'interrupted')} cancelled`);
+      if (n('refused')) parts.push(`${n('refused')} refused`);
+      const words = parts.join(', ');
+      const status = str(v.status);
+      if (status === 'planned') return { state: 'unknown', words: 'planned; not run' };
+      if (status === 'running') return { state: 'running', words };
+      if (total && n('refused') === total) return { state: 'refused', words };
+      if (status === 'stopped') return { state: 'stopped', words };
+      if (n('unknown')) return { state: 'unknown', words };
+      if (total && n('delivered') === total) return { state: 'succeeded', words };
+      return { state: 'failed', words };
+    }
     default: return { state: 'unknown', words: 'a run Timmy does not know' };
   }
 }

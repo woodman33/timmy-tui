@@ -91,6 +91,7 @@ Commands:
   connect <tool>        Bind a tool binary into the chain (env.lock receipt)
   connect add|probe|run|status|stop|fetch …  Your own computers over SSH (timmy connect help)
   cloud use|status      Timmy Cloud's backend, read by its operator (timmy cloud help)
+  fleet providers|plan|run|status|events|stop|reconcile|collect  A fleet of workers on an execution backend (timmy fleet help; FAKE backend only: a simulation)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
@@ -157,7 +158,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'connect', 'cloud'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'connect', 'cloud', 'fleet'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -186,6 +187,12 @@ if (command === 'op') {
   // R4 lead (the Workbench direction): one operation's run detail (src/ops/op-cli.ts; the shape: src/contracts/run-detail.ts).
   const { opMain } = await import('./ops/op-cli.js');
   process.exit(await opMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'fleet') {
+  // R4 lead (2026-10-15): a fleet of workers on an execution backend (src/fleet/cli.ts); only the FAKE backend is implemented.
+  const { fleetMain } = await import('./fleet/cli.js');
+  process.exit(await fleetMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
 }
 
 if (command === 'workbench') {
