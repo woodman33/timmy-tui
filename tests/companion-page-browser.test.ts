@@ -273,14 +273,15 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await page.waitForTimeout(500);
       expect(seen.outside).toEqual([]);
       for (const r of seen.requests) expect(new URL(r).origin, r).toBe(base);
-      // the chat's code, its styles and the page's fonts came from this server
-      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/web/fonts/outfit-latin-wght-normal.woff2', '/web/fonts/inter-latin-wght-normal.woff2', '/web/fonts/fira-code-latin-wght-normal.woff2']) {
+      // the chat's code, its styles and Timmy's shared look came from this server (R5 H132: the theme's sheet; its face's
+      // files are this server's too, or the font installed here: the face test below)
+      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/timmy-theme.css']) {
         expect(seen.requests, p).toContain(`${base}${p}`);
       }
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
-      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, Timmy's theme, Monaspace's
-      // files, marked): no page of the companion asks for any of them, so they are no longer shipped or served
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|timmy-theme\.css|fonts\/|vendor\/)/.test(new URL(r).pathname))).toEqual([]);
+      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
+      // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's three fonts.
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/|web\/fonts\/)/.test(new URL(r).pathname))).toEqual([]);
       expect(upstream).toEqual([]);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
       expect(await violations(page)).toEqual([]);
@@ -316,12 +317,25 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // other site (the built chat's files carry its packages' licence comments, which name their sites as text: what the page
     // fetches is the browser checks' business, above and below)
     const named = [...html.matchAll(/\s(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]).filter((p) => !p.startsWith('/slate3d'));
-    expect(named).toEqual(expect.arrayContaining(['/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
+    expect(named).toEqual(expect.arrayContaining(['/timmy-theme.css', '/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
     // R4 (H97): what H92's page had and H95's replaced is not served any more (no page asks for it: the test above)
-    for (const p of ['/chat.js', '/markdown.js', '/timmy-theme.css', '/fonts/monaspace-argon-latin-400-normal.woff2', '/vendor/marked.esm.js']) {
+    for (const p of ['/chat.js', '/markdown.js', '/vendor/marked.esm.js']) {
       const gone = await fetch(`${base}${p}`);
       expect(gone.status, p).toBe(404);
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
+    }
+    // R5 (H132, DESIGN.md §10 B10): Timmy's shared look is served again: the --timmy-* variables with Monaspace Argon's faces,
+    // and the faces' files by their exact names only (anything else under /fonts/ is a 404 in words, no path)
+    const theme = await fetch(`${base}/timmy-theme.css`);
+    expect(theme.status).toBe(200);
+    expect(await theme.text()).toMatch(/--timmy-ground: #000000;[\s\S]*--timmy-accent: #FFB000;[\s\S]*--timmy-live: #28FE14;/);
+    const face = await fetch(`${base}/fonts/monaspace-argon-latin-400-normal.woff2`);
+    expect(face.status).toBe(200);
+    expect(face.headers.get('content-type')).toMatch(/^font\/woff2/);
+    for (const p of ['/fonts/outfit-latin-wght-normal.woff2', '/fonts/..%2F..%2Fpackage.json', '/fonts/monaspace-argon-latin-400-normal.woff']) {
+      const no = await fetch(`${base}${p}`);
+      expect(no.status, p).toBe(404);
+      expect(await no.text(), p).not.toMatch(/\/(?:home|root|Users|tmp)\/|node_modules/);
     }
     // R4 (H104, r25's D11): the page names its icon, this server's own SVG
     expect(named).toContain('/favicon.svg');
@@ -536,17 +550,18 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
-  it('its three fonts are its own files, each loaded: Outfit for headings, Inter for text, Fira Code for code', async () => {
+  it('its one face is Monaspace Argon, the theme\'s (R5 H132, DESIGN.md §10 B10): loaded from this computer (installed, or the companion\'s own file), for headings, text and code alike', async () => {
     const { page, context, seen } = await open();
     try {
       await connected(page);
       await page.evaluate(() => document.fonts.ready);
-      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.status}`).sort());
-      expect(fonts).toEqual(expect.arrayContaining(['Fira Code loaded', 'Inter loaded', 'Outfit loaded']));
-      expect(await page.evaluate(() => getComputedStyle(document.querySelector('h1')!).fontFamily)).toMatch(/^"?Outfit"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toMatch(/^"?Inter"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.getElementById('status')!).fontFamily)).toMatch(/^"?Fira Code"?/);
-      for (const f of ['outfit', 'inter', 'fira-code']) expect(seen.requests).toContain(`${base}/web/fonts/${f}-latin-wght-normal.woff2`);
+      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.weight} ${f.status}`));
+      expect(fonts).toContain('Monaspace Argon 400 loaded');
+      for (const s of ['h1', 'body', '#status', '#project-name']) {
+        expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Monaspace Argon"?/);
+      }
+      // a face's file the browser asked for was this server's (none, where the font is installed); b69ab12's three were not asked for
+      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/fonts/monaspace-argon-latin-\\d00-(?:normal|italic)\\.woff2$`));
       expect(seen.outside).toEqual([]);
     } finally { await context.close(); }
   });
@@ -599,25 +614,28 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         console.warn('companion-page-browser: Slate 3D is built here, so its absence words were not checked');
         return;
       }
-      // the page's --text-main (#e6edf3) on the frame's ground (#0A1628), in Inter
-      expect(look.color).toBe('rgb(230, 237, 243)');
-      expect(look.ground).toBe('rgb(10, 22, 40)');
-      expect(look.font).toMatch(/^"?Inter"?/);
+      // R5 (H132): the theme's text (#F2EFE9) on the canvas (#000000), in Monaspace Argon
+      expect(look.color).toBe('rgb(242, 239, 233)');
+      expect(look.ground).toBe('rgb(0, 0, 0)');
+      expect(look.font).toMatch(/^"?Monaspace Argon"?/);
       expect(contrast(look.color, look.ground)).toBeGreaterThan(7);
       expect(seen.outside).toEqual([]);
       expect(await violations(page)).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('its sheet holds b69ab12\'s design: the same palette, glass panels, glows, gradient title and tab look', () => {
-    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8');
-    for (const rule of [
-      '--bg-base: #07090e;', '--bg-card: rgba(13, 17, 23, 0.75);', '--border-color: #21262d;', '--text-main: #e6edf3;', '--text-muted: #8b949e;',
-      "--font-outfit: 'Outfit', sans-serif;", "--font-inter: 'Inter', sans-serif;", "--font-fira: 'Fira Code', monospace;",
-      'background: radial-gradient(circle, var(--secondary-glow) 0%, transparent 70%);', 'filter: blur(80px);',
-      'background: linear-gradient(135deg, var(--text-main), var(--secondary-hsl));', 'backdrop-filter: blur(12px);',
-      'box-shadow: 0 0 20px hsla(var(--secondary-h), 80%, 60%, 0.35);', 'transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);',
-    ]) expect(css, rule).toContain(rule);
+  it('its sheet colors with Timmy\'s shared variables only (R5 H132, DESIGN.md §10 B10): no color of its own, none of b69ab12\'s palette, glows, blur or gradient title', () => {
+    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // no literal color anywhere (the shadcn tokens Streamdown's parts name are the palette's own values, as HSL triplets)
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
+    for (const gone of ['--bg-base', '--secondary-hsl', '--primary-hsl', '--success-hsl', 'radial-gradient', 'linear-gradient', 'backdrop-filter', 'blur(', 'Outfit', 'Fira Code']) expect(css, gone).not.toContain(gone);
+    // every color a declaration gives is one of the theme's variables (or transparent, currentColor, inherit, none)
+    const decl = /(?:^|[;{\s])((?:background|border|outline|box-shadow|text-decoration|caret|scrollbar|column-rule)(?:-[a-z-]+)?|color|fill|stroke)\s*:\s*([^;}]+)/g;
+    for (const [, prop, value] of css.matchAll(decl)) {
+      if (/^(?:border(?:-[a-z]+)*-(?:width|style|radius|collapse|spacing)|border-(?:top|right|bottom|left)-(?:width|style)|scrollbar-width|text-decoration-(?:line|thickness|style)|background-(?:clip|image|position|repeat|size)|outline-(?:offset|width|style))$/.test(prop)) continue;
+      const rest = value.replace(/var\(--timmy-[a-z-]+\)/g, '').replace(/!important|\b(?:solid|dashed|dotted|none|transparent|currentColor|inherit|underline|thin|auto)\b|-?\d*\.?\d+(?:px|em|rem|%)?/g, '').trim();
+      expect(rest, `${prop}: ${value}`).toBe('');
+    }
   });
 
   // ---------- R4 (H104): the chat mirror (r24: empty, nothing said why) and readable diagrams (r24: labels about 6 px) ----------

@@ -86,7 +86,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -355,6 +355,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
+  // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files (src/companion/page.ts)
+  mountTheme(app);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
   const favicon = faviconSvg();
   app.get([...FAVICON_PATHS], (_req, res) => {

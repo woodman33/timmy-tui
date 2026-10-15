@@ -7,19 +7,20 @@
   <meta http-equiv="x-dns-prefetch-control" content="off">
   <title>TIMMY Browser Companion</title>
   <!-- R4 (H92, H95): everything this page uses is served by the companion on this computer (src/companion/page.ts): its own
-       style sheet with its own design (as it was at b69ab12) and its three fonts; Streamdown's style sheet and the Tailwind
-       classes it emits, precompiled; its scripts below. No inline script, style or handler (the page's
-       Content-Security-Policy allows none), and nothing from any other site. In b69ab12's order: the Tailwind classes first
-       (its Play CDN script stood before the page's style block), the page's own sheet, then Streamdown's (linked last). -->
+       style sheet; Streamdown's style sheet and the Tailwind classes it emits, precompiled; its scripts below. No inline
+       script, style or handler (the page's Content-Security-Policy allows none), and nothing from any other site. R5 (H132,
+       DESIGN.md §10 B10): Timmy's shared look first (the --timmy-* variables and Monaspace Argon's faces, /timmy-theme.css),
+       then the Tailwind classes, the page's own sheet (only those variables), then Streamdown's (linked last). -->
   <!-- R4 (H104, r25's D11): the page's icon, the companion's own (with none declared the browser asked for /favicon.ico: a 404) -->
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/timmy-theme.css">
   <link rel="stylesheet" href="/web/styles/tailwind.css">
   <link rel="stylesheet" href="/companion.css">
   <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body>
   <header>
-    <h1>🛡️ TIMMY OS Companion</h1>
+    <h1>[▣] TIMMY · companion</h1>
     <div class="header-right">
       <!-- R4 (H104, second part): the project this page shows (the active one, followed; or pinned on this page; or fixed by
            TIMMY_REPO), as the companion says it; its Pin keeps this page on it. The script fills it when the companion answers. -->
@@ -68,7 +69,7 @@
           <div class="card-header wrap">
             <div class="row-10">
               <div class="card-title c-secondary">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-hsl)" stroke-width="2.5" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                 Chat Mirror
               </div>
               <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
@@ -177,7 +178,7 @@
         <div id="logs-card" class="glass-card">
           <div class="card-header">
             <div class="card-title c-primary">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hsl)" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
               Live Telemetry Log Event Tail
             </div>
             <span class="status-badge amber">STREAMING</span>
@@ -252,7 +253,7 @@
         <div class="glass-card sd-card">
           <div class="card-header">
             <div class="card-title c-violet">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a98bff" stroke-width="2.5" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               Streamdown Chat
               <span class="badge-planned violet">TMX P3</span>
             </div>

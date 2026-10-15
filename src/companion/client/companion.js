@@ -575,10 +575,13 @@ function appendToLocalLogs(level, msg) {
   logsList.scrollTop = logsList.scrollHeight;
 }
 
-// The socket's state on the header's dot (its look follows data-state: connecting, connected, lost).
+// The socket's state on the header's dot (its look follows data-state: connecting, connected, lost). R5 (H132, B10): green
+// only while this page observes its socket open (.is-live), beside the words CONNECTED.
 function setDot(state) {
   const dot = document.querySelector('.status-dot');
-  if (dot) dot.dataset.state = state;
+  if (!dot) return;
+  dot.dataset.state = state;
+  if (dot.classList) dot.classList.toggle('is-live', state === 'connected');
 }
 
 function connect() {
