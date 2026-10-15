@@ -48,16 +48,21 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 2. **Connections, honestly.** A connection is green and "live" only when a free request it answered was seen in the last
    30 minutes; a setting alone is "configured"; Studio or the companion not started is "not running", with the key that
    starts it; an optional service nobody chose is "not set up", with its step.
-3. **Chat and its price.** `/model` (in the REPL) shows the model's price, context and tool calling from OpenRouter's catalog
-   with its date; `/model free` lists the free ones; `/model free-only on` refuses any model not known to be free, on every
-   surface, with its cause (an unknown price is refused, never passed). Off by default.
+3. **Chat, one conversation.** With a route (`./review.sh ollama …`, or your OpenRouter key), Chat & Intent (2) → Enter →
+   type → Enter sends; the REPL (`./review.sh repl`) continues the same conversation, one turn at a time (a message sent
+   while another surface's turn runs is not sent, and says so). `/model` in the REPL: on OpenRouter, the model's price,
+   context and tool calling from OpenRouter's catalog with its date; on a local Ollama, the models it has. `/model free`
+   lists the catalog's free models; `/model free-only on` refuses any OpenRouter model not known to be free, on every
+   surface, with its cause (an unknown price is refused, never passed). Off by default; a local model costs nothing.
 4. **One sandbox workflow to its receipt (no spend).** In the tray project: Workflows → APPROVAL.md › tidy → its confirm → the
    NEEDS YOU box → `y`. The prediction is sealed before the run and never shown as an observed result; then the same
    operation in the Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail.
-5. **Studio (`s`).** Timmy's canvas edits arrive as drafts outlined in amber ("DRAFT · proposed by Timmy"): Accept keeps them,
-   Discard removes them, and neither runs a tool or a job. The save line says saved, saving, not saved yet, failed (Retry),
-   refused, or that a newer version is on disk (Reload it, or Keep a copy); it never saves over a newer version. New board
-   lists three guided blank templates first.
+5. **Studio (`s`).** In the REPL, `/canvas open` gives that REPL the canvas and names the page to open. Ask Timmy to draw:
+   its canvas tool asks in a NEEDS YOU box first, and what it draws arrives as a draft outlined in amber ("DRAFT · proposed
+   by Timmy"): Accept keeps it, Discard removes it, and neither runs a tool or a job. The save line says saved, saving, not
+   saved yet, failed (Retry), refused, or that a newer version is on disk (Reload it, or Keep a copy); it never saves over
+   a newer version. A page's grant is one-time, so a browser reload loads nothing and says so: `/canvas open` again
+   reopens the saved board. New board lists three guided blank templates first.
 6. **Settings that follow you.** "Open the companion / Studio when the workspace starts" (Quick settings `,` in the
    Workbench, or the companion's settings): one file, checked against the workspace's revision, with a "changed elsewhere"
    path when two surfaces disagree.
