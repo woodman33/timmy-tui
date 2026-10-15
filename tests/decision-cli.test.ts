@@ -171,8 +171,8 @@ describe('usage (exit 2)', () => {
 });
 
 describe('the MCP tool', () => {
-  it('DECISION_TOOLS holds one plain JSON Schema tool, decide_route', () => {
-    expect(DECISION_TOOLS.map((t) => t.name)).toEqual(['decide_route']);
+  it('DECISION_TOOLS holds one plain JSON Schema tool, timmy_decide_route', () => {
+    expect(DECISION_TOOLS.map((t) => t.name)).toEqual(['timmy_decide_route']);
     const t = DECISION_TOOLS[0];
     expect(t.inputSchema).toMatchObject({ type: 'object', required: ['options'] });
     expect(t.description).toMatch(/recommendation/i);
@@ -182,7 +182,7 @@ describe('the MCP tool', () => {
   it('returns the CLI\'s JSON for the same request (the same recorded decision)', async () => {
     const cli = await decideDo(ROUTE('--operation', 'o0000d00d', '--fixture', fixture('response-route-ok.json')), {});
     expect(cli.code).toBe(0);
-    const mcp = await callDecisionTool('decide_route', {
+    const mcp = await callDecisionTool('timmy_decide_route', {
       options: [{ id: 'codex', label: 'Codex' }, { id: 'pi' }, { id: 'openhands' }], deterministic: 'codex',
       operation: 'o0000d00d', project: project.root, fixture: fixture('response-route-ok.json'),
     });
@@ -193,10 +193,10 @@ describe('the MCP tool', () => {
   });
 
   it('applies the same checks: usage problems are exit 2, Clef off is a recorded fallback', async () => {
-    expect(await callDecisionTool('decide_route', { options: [{ id: 'codex' }, { id: 'codex' }], project: project.root })).toMatchObject({ ok: false, exit_code: 2, refusal: 'usage' });
-    expect(await callDecisionTool('decide_route', { project: project.root })).toMatchObject({ ok: false, exit_code: 2 });
+    expect(await callDecisionTool('timmy_decide_route', { options: [{ id: 'codex' }, { id: 'codex' }], project: project.root })).toMatchObject({ ok: false, exit_code: 2, refusal: 'usage' });
+    expect(await callDecisionTool('timmy_decide_route', { project: project.root })).toMatchObject({ ok: false, exit_code: 2 });
     vi.stubEnv('TIMMY_CLEF', '0');
-    const off = await callDecisionTool('decide_route', { options: [{ id: 'codex' }, { id: 'pi' }], deterministic: 'pi', project: project.root });
+    const off = await callDecisionTool('timmy_decide_route', { options: [{ id: 'codex' }, { id: 'pi' }], deterministic: 'pi', project: project.root });
     expect(off).toMatchObject({ ok: true, exit_code: 0, outcome: 'fallback', fallback: { reasonKind: 'clef-off', option: 'pi' } });
   });
 

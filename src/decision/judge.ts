@@ -1,9 +1,11 @@
 /**
  * Round R4 (lead): when a decision model's distribution becomes a recommendation, and when it does not.
  *
- * The thresholds are settings, evaluated in tests (tests/decision-judge.test.ts), never constants hidden in a surface. A
- * recommendation still passes Timmy's own admission (scope, privacy, budget, concurrency, isolation, approvals) before
- * anything is dispatched: this file only reads numbers.
+ * The thresholds are settings, never constants hidden in a surface. The defaults (0.60 top, 0.15 margin) are PLACEHOLDERS:
+ * they have not been evaluated against outcomes (no labelled set of routing decisions exists yet), and the model's numbers
+ * are not calibrated; tests/decision-judge.test.ts checks the rule, not the values. A recommendation still passes Timmy's
+ * own admission (scope, privacy, budget, concurrency, isolation, approvals) before anything is dispatched: this file only
+ * reads numbers.
  */
 
 /** The abstain option every allowed-choice set carries: "a person should decide". */

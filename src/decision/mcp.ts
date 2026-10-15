@@ -1,6 +1,6 @@
 /**
  * Round R4 (H120): the decision provider as an MCP tool, in plain JSON Schema like src/geo/mcp.ts GEO_TOOLS: one tool,
- * decide_route, answering with exactly the JSON `timmy decide route --json` prints (src/decision/cli.ts decideDo), under the
+ * timmy_decide_route, answering with exactly the JSON `timmy decide route --json` prints (src/decision/cli.ts decideDo), under the
  * same checks and the same policy (settings, egress, budget, staleness, admission). The lead adds it to src/mcp/server.ts.
  *
  * The operator's rule it keeps: the tool only records a recommendation. It never dispatches, approves, raises a worker
@@ -14,7 +14,7 @@ const bool = { type: 'boolean' };
 
 export const DECISION_TOOLS = [
   {
-    name: 'decide_route',
+    name: 'timmy_decide_route',
     description: 'Recommend which available harness or runtime should take a task, from the options given, with Cloudflare Clef-Omni when "Use Clef routing" is on. It only scores the options: it never writes code, grants a permission, starts compute, dispatches or seals anything. The answer is a recommendation, never evidence; with "Require review before dispatch" on (the default) a person approves it first. An abstention goes to a person; any failure (Clef off or unavailable, a timeout, a malformed answer, local-only or free-only policy, no budget for paid inference, a stale revision, fewer than 2 available options) falls back to the deterministic option, its reason recorded. The decision is kept in the project\'s .timmy/decisions; the same request returns the recorded decision with no second call. Returns the record as `timmy decide route --json` prints it (exit_code 0 recorded, 1 refused, 2 usage).',
     inputSchema: {
       type: 'object',
@@ -77,10 +77,10 @@ function argsOf(a: Record<string, unknown>): DecideArgs | { error: string } {
   };
 }
 
-/** Calls a decision tool: the CLI's JSON for decide_route, or a refusal in words. */
+/** Calls a decision tool: the CLI's JSON for timmy_decide_route, or a refusal in words. */
 export async function callDecisionTool(name: string, args: Record<string, unknown> = {}, ctx: DecideCliContext = {}): Promise<Record<string, unknown>> {
-  if (name !== 'decide_route') {
-    return { schema: DECISION_SCHEMA, ok: false, refusal: 'unknown tool', why: `no decision tool is named ${name}; there is decide_route`, exit_code: 2 };
+  if (name !== 'timmy_decide_route') {
+    return { schema: DECISION_SCHEMA, ok: false, refusal: 'unknown tool', why: `no decision tool is named ${name}; there is timmy_decide_route`, exit_code: 2 };
   }
   const parsed = argsOf(args ?? {});
   if ('error' in parsed) return { schema: DECISION_SCHEMA, ok: false, refusal: 'usage', why: parsed.error, exit_code: 2 };
