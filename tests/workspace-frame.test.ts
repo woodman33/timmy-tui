@@ -240,7 +240,7 @@ describe('timmy workspace check', () => {
       edge: async () => null,
     });
     expect(record.checks.openrouter).toBeUndefined();
-    expect(record.checks.ollama).toMatchObject({ answer: 'accepted', detail: '1 model listed' });
+    expect(record.checks.ollama).toMatchObject({ answer: 'accepted', detail: '1 local model' });
     expect(record.checks.studio).toMatchObject({ answer: 'not running' });
     expect(record.checks.companion).toMatchObject({ answer: 'not running' });
     const f = await frame(NOW + 1000);

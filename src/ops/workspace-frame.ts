@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { OllamaProbe } from '../capabilities/ollama-row.js';
 import {
   TABS, WORKSPACE_SCHEMA, WORKSPACE_VERSION,
   type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry,
@@ -339,7 +340,9 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
   const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama());
   const ol = await ollama();
   checks.ollama = ol.ok
-    ? { answer: 'accepted', at: stamp(), detail: `${ol.models.length} model${ol.models.length === 1 ? '' : 's'} listed` }
+    // R5 lead: the same words as /tools (src/capabilities/ollama-row.ts): local models that pass Ollama's own check, and how
+    // many more did not (the Mac rehearsal: "8 models listed" while Ollama listed 32, most of them cloud models)
+    ? { answer: 'accepted', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true }).detail }
     : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer' };
   const studio = d.studio ?? (async (u: string) => (await import('../studio/health.js')).studioHealth(u) as Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>);
   const st = await studio(studioBaseUrl(env));
