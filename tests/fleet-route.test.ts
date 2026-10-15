@@ -71,7 +71,7 @@ describe('route advice for a fleet plan', () => {
     const o = buildOverview(root, { name: 'proj', env: { TIMMY_HOME: path.join(root, '.fake-home', 'timmy') } });
     expect(o.fleet?.items[0].route).toEqual({ words: advice!.words, decision: advice!.decision, outcome: 'recommend' });
     const line = overviewLines(o, 'fleet', { glyphs: glyphSet(true) }).find((l) => l[0]?.text === '      route     ')!;
-    expect(line[1]).toEqual({ text: advice!.words, role: 'estimate' });
+    expect(line[1]).toEqual({ text: advice!.words.replace(/^route: /, ''), role: 'estimate' });
   });
 
   it('through the shipped CLI: the plan line, then status, say the same; Clef off says nothing', () => {

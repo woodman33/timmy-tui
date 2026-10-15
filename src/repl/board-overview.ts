@@ -156,7 +156,7 @@ function fleetHtml(s: FleetSection, k: Kit): string {
     const body = `<dl class="ov-dl">${row('backend', `${f.backend} (${f.provider})${f.simulation ? ' · a simulation: no compute, no harness, no model' : ''}`)}`
       + `${row('workers', `${f.workers}, at most ${f.concurrency} at once · ${f.isolation_words}`)}${row('runs', `${f.harness} · ${f.model}`)}`
       + `${row('counts', f.counts_line)}${row('revision', `${f.revision} (the revision it was planned at)`)}${row('spend', f.spend_words)}${workers}`
-      + `${f.results ? row('results', f.results) : ''}${f.route ? row('route', `${f.route.words} (decision ${f.route.decision})`, 'ov-warn') : ''}${f.needs.map((n) => row('needs', n, 'ov-warn')).join('')}`
+      + `${f.results ? row('results', f.results) : ''}${f.route ? row('route', `${f.route.words.replace(/^route: /, '')} (decision ${f.route.decision})`, 'ov-warn') : ''}${f.needs.map((n) => row('needs', n, 'ov-warn')).join('')}`
       + `${row('record', `${f.source.record ?? ''} · operation ${f.operation} · planned ${stamp(f.created_at)}, read ${stamp(f.updated_at)}`)}</dl>`
       + `<div class="cmds ov-next">${f.commands.map((c) => k.cmd(c)).join('')}</div><p class="ov-note">${esc(FLEET_NOTE)}</p>`;
     return selectable(f.source.detail ?? `ov-fleet-${f.plan}`, `overview:fleet:${f.plan}`, summary, body, 'ov-fleet-plan');

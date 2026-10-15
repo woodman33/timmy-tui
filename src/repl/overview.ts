@@ -425,7 +425,7 @@ function fleetLines(sec: FleetSection, c: Ctx): Line[] {
     for (const w of f.worker_lines) lines.push([{ text: '      worker    ', role: 'secondary' }, { text: w.words, ...(['unknown', 'failed', 'expired', 'interrupted', 'refused'].includes(w.phase) ? { role: (w.phase === 'unknown' ? 'estimate' : 'failure') as Role } : {}) }]);
     if (f.workers_more) lines.push([{ text: `      and ${f.workers_more} more workers: timmy fleet status ${f.plan} lists them`, role: 'secondary' }]);
     if (f.results) lines.push([{ text: '      results   ', role: 'secondary' }, { text: f.results }]);
-    if (f.route) lines.push([{ text: '      route     ', role: 'secondary' }, { text: f.route.words, role: next }, { text: `${c.sep}decision ${f.route.decision}`, role: 'secondary' }]);
+    if (f.route) lines.push([{ text: '      route     ', role: 'secondary' }, { text: f.route.words.replace(/^route: /, ''), role: next }, { text: `${c.sep}decision ${f.route.decision}`, role: 'secondary' }]);
     for (const n of f.needs) lines.push([{ text: '      needs     ', role: next }, { text: n, role: next }]);
     lines.push([{ text: '      record    ', role: 'secondary' }, { text: c.link(f.source.record ?? '') }, { text: `${c.sep}operation ${f.operation}`, role: 'secondary' }]);
     lines.push([{ text: '      type      ', role: 'secondary' }, { text: f.commands.join(c.sep), role: next }]);

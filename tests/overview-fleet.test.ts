@@ -70,13 +70,17 @@ describe('a FAKE fleet run, read back', () => {
     operation = made.plan.operationId;
     const before = overviewOf(p);
     expect(before.fleet?.items[0]).toMatchObject({ plan: planId, status: 'planned', simulation: true, tone: 'attention' });
+    // the first screen's line names the plan waiting to run, its id whole, within 80 columns
+    const waiting = plain(overviewFirstLines(before, { glyphs: g })).find((l) => l.startsWith('  Fleets'))!;
+    expect(waiting).toContain(` · ${planId} planned`);
+    expect(Array.from(waiting).length).toBeLessThanOrEqual(80);
     expect(before.fleet?.items[0].commands).toEqual([`timmy fleet status ${planId}`, `timmy fleet run ${planId}`, expect.stringMatching(/^timmy approve [0-9a-f]{32}$/), `timmy fleet events ${planId}`, `timmy op ${operation}`]);
     const rep = await runPlan(p.root, planId, { by: 'person', backendFor: () => fakeBackend() });
     expect(rep.status).toBe('finished');
     o = overviewOf(p);
     const f = o.fleet!;
     expect(f).toMatchObject({ id: 'fleet', title: 'Fleets', state: 'read', more: 0 });
-    expect(f.summary).toBe('1 plan, 6 delivered (not verified), simulation');
+    expect(f.summary).toBe('1 plan, 6 delivered (not verified), FAKE');
     expect(f.urgent).toBeUndefined(); // a finished plan is not urgent
     const i = f.items[0];
     expect(i).toMatchObject({ plan: planId, operation, status: 'finished', running_proven: false, backend: 'FAKE', simulation: true, workers: 6, concurrency: 2, tone: 'neutral', needs: [] });
@@ -99,7 +103,7 @@ describe('a FAKE fleet run, read back', () => {
     const at = (w: string): number => first.findIndex((l) => l.startsWith(`  ${w}`));
     expect(at('Fleets')).toBe(at('Costs') + 1);
     expect(at('Project')).toBe(at('Fleets') + 1);
-    expect(first[at('Fleets')]).toBe('  Fleets      1 plan, 6 delivered (not verified), simulation');
+    expect(first[at('Fleets')]).toBe('  Fleets      1 plan, 6 delivered (not verified), FAKE');
     expect(first.length).toBeLessThanOrEqual(25);
   });
 
@@ -165,7 +169,7 @@ describe('a real fleet that left work behind goes to Needs you (a HAND-WRITTEN r
     expect(needs.find((n) => n.kind === 'fleet-unknown')!.title).toBe(`fleet ${made.plan.id}: worker 1: the create call timed out; whether its VM exists is not known (a person must check)`);
     for (const n of needs) expect(n.commands[0]).toBe(`timmy fleet reconcile ${made.plan.id}`);
     expect(o.needs.counts.map((c) => c.of)).toContain('of them from this project\'s fleets (timmy fleet)');
-    expect(o.fleet!.urgent).toMatchObject({ tone: 'attention', text: `${made.plan.id}: worker 1: the create call timed out; whether its VM exists is not known (a person must check)` });
+    expect(o.fleet!.urgent).toMatchObject({ tone: 'attention', text: `${made.plan.id} needs you: worker 1: the create call timed out; whether its VM exists is not known (a person must check)` });
   });
 
   it('a plan that cannot be read is named with why; the others are still read', async () => {

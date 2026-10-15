@@ -73,6 +73,8 @@ const PHASE_ORDER: Readonly<Record<string, number>> = { unknown: 0, failed: 1, e
  */
 function workerLines(v: FleetView): { lines: FleetWorkerLine[]; more: number } {
   const ordered = [...v.workers].sort((a, b) => (PHASE_ORDER[a.phase] ?? 8) - (PHASE_ORDER[b.phase] ?? 8) || a.index - b.index);
+  // nothing started yet: the counts say it; listing queued workers one by one says nothing more
+  if (v.workers.every((w) => w.phase === 'queued')) return { lines: [], more: 0 };
   const notDelivered = ordered.filter((w) => w.phase !== 'delivered').length;
   const shown = ordered.slice(0, notDelivered ? Math.min(WORKERS_SHOWN, notDelivered) : Math.min(2, ordered.length));
   const lines = shown.map((w) => {
@@ -175,10 +177,17 @@ export function fleetPart(s: S): FleetSection | undefined {
   ];
   // the first line's item: what needs a person, else what runs, else what waits to be run; a finished plan is not urgent
   const first = all.find((i) => i.needs.length) ?? all.find((i) => i.tone === 'running') ?? all.find((i) => i.status === 'planned' || i.tone === 'attention' || i.tone === 'failed');
-  const firstText = first ? (first.needs[0] ? `${first.plan}: ${withoutCommand(first.needs[0])}` : first.words) : '';
+  // short, its plan id first, so the first screen keeps the id whole (the part in full has every word)
+  const shortState = (i: FleetItem): string => (i.needs[0] ? `needs you: ${withoutCommand(i.needs[0])}`
+    : i.tone === 'running' ? `running (${i.counts.running} running, ${i.counts.queued} queued)`
+      : i.status === 'planned' ? 'planned, not run'
+        : i.status === 'running' || i.status === 'stopping' ? 'its process ended while it ran'
+          : i.counts.failed ? `${i.status}, ${i.counts.failed} failed` : i.status);
+  const firstText = first ? `${first.plan} ${shortState(first)}` : '';
   const summary = !all.length
     ? 'not known'
-    : [plural(plans, 'plan'), running ? `${running} running` : '', by('planned') ? `${by('planned')} planned` : '', `${sum('delivered')} delivered (not verified)`, sims === all.length ? 'simulation' : sims ? `${sims} simulated` : ''].filter(Boolean).join(', ');
+    // short for the first screen (the counts and the part in full say the rest): FAKE is the label every surface gives a simulation
+    : [plural(plans, 'plan'), `${sum('delivered')} delivered (not verified)`, sims === all.length ? 'FAKE' : sims ? `${sims} FAKE` : ''].filter(Boolean).join(', ');
   const notes = [
     'Read from the plans\' own files (.timmy/fleet); nothing here runs, stops, reconciles or collects. Delivered is the runtime\'s word (it said completed): nothing a fleet run delivers is verified by the run.',
     ...(sims ? ['A FAKE plan is a simulation: no compute, no harness, no model and no cost; nothing it left can need a person.'] : []),
