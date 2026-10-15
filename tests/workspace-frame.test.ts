@@ -71,6 +71,17 @@ describe('a connection', () => {
     expect(none.state).toBe('not set up');
     expect(none.words).toBe('run timmy setup');
   });
+  it('a surface started on demand that is not running is set up, not failed, and says how to start it', () => {
+    const c = connectionOf('studio', 'Studio', { ...base, startWords: 's starts it', check: { answer: 'not running', at: at(5000) } });
+    expect(c.state).toBe('configured');
+    expect(c.words).toBe('not running when checked 5 s ago; s starts it');
+  });
+  it('an optional service nobody chose that does not answer is not set up, with its step, not a failure', () => {
+    const c = connectionOf('ollama', 'Ollama', { ...base, configured: false, setupWords: 'optional: run Ollama', check: { answer: 'no answer', at: at(2000), detail: 'connection refused' } });
+    expect(c.state).toBe('not set up');
+    expect(c.words).toBe('nothing answered when checked 2 s ago (connection refused); optional: run Ollama');
+    expect(c.observedAt).toBe(at(2000));
+  });
   it('ignores an observation whose time is not a time', () => {
     expect(connectionOf('ollama', 'Ollama', { ...base, check: { answer: 'accepted', at: 'yesterday' } }).state).toBe('configured');
   });
@@ -170,10 +181,12 @@ describe('timmy workspace check', () => {
       openRouter: async (k) => { asked.push(`openrouter:${k ? 'with a key' : 'no key'}`); return 'accepted'; },
       ollama: async () => { asked.push('ollama'); return { ok: false, models: [], answer: { state: 'no answer', why: 'connection refused' } }; },
       studio: async (u) => { asked.push(`studio:${u}`); return { state: 'running', pageConnected: true }; },
+      companion: async (u) => { asked.push(`companion:${u}`); return 401; },
       edge: async () => { asked.push('edge'); return 200; },
     });
     expect(path).toBe(connectionsPath(env));
-    expect(asked.slice(0, 3)).toEqual(['openrouter:with a key', 'ollama', expect.stringMatching(/^studio:http:\/\/127\.0\.0\.1:\d+/)]);
+    expect(asked.slice(0, 4)).toEqual(['openrouter:with a key', 'ollama', expect.stringMatching(/^studio:http:\/\/127\.0\.0\.1:\d+/), 'companion:http://127.0.0.1:3001/']);
+    expect(record.checks.companion).toMatchObject({ answer: 'accepted', detail: 'running' });
     expect(record.checks.openrouter).toMatchObject({ answer: 'accepted' });
     expect(record.checks.ollama).toMatchObject({ answer: 'no answer', detail: 'connection refused' });
     expect(record.checks.studio).toMatchObject({ answer: 'accepted', detail: 'running, a page is open' });
@@ -182,8 +195,30 @@ describe('timmy workspace check', () => {
     expect(readConnections(env).checks.studio?.answer).toBe('accepted');
     const f = await frame(NOW + 1000);
     expect(f.connections.find((c) => c.id === 'openrouter')?.state).toBe('live');
-    expect(f.connections.find((c) => c.id === 'ollama')?.state).toBe('unreachable');
+    // nobody chose the local model here: nothing answering is "not set up", with its step, never a failure
+    expect(f.connections.find((c) => c.id === 'ollama')).toMatchObject({ state: 'not set up', words: expect.stringContaining('nothing answered') });
     expect(f.connections.find((c) => c.id === 'studio')?.state).toBe('live');
+    expect(f.surfaces.companion).toMatchObject({ state: 'running', url: 'http://127.0.0.1:3001/' });
+  });
+  it('a chosen local model that does not answer is unreachable; Studio and the companion not started are set up, not running', async () => {
+    env.OLLAMA_HOST = 'http://127.0.0.1:11434';
+    env.TIMMY_COMPANION_PORT = '3101';
+    const asked: string[] = [];
+    await checkConnections({
+      env, cwd: project, now: () => NOW, key: () => null, openRouter: async () => 'no-key',
+      ollama: async () => ({ ok: false, models: [], answer: { state: 'no answer', why: 'connection refused' } }),
+      studio: async () => ({ state: 'not-running' }),
+      companion: async (u) => { asked.push(u); return 'refused'; },
+      edge: async () => null,
+    });
+    expect(asked).toEqual(['http://127.0.0.1:3101/']);
+    const f = await frame(NOW + 1000);
+    expect(f.connections.find((c) => c.id === 'ollama')?.state).toBe('unreachable');
+    for (const id of ['studio', 'companion'] as const) {
+      expect(f.connections.find((c) => c.id === id), id).toMatchObject({ state: 'configured', words: expect.stringContaining('not running when checked') });
+      expect(f.surfaces[id].state).toBe('not running');
+    }
+    expect(f.connections.filter((c) => c.state === 'unreachable').map((c) => c.id)).toEqual(['ollama']);
   });
   it('with no key asks nothing of OpenRouter and drops an old observation of it, so the frame says not set up', async () => {
     writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { openrouter: { answer: 'accepted', at: new Date(NOW - 1000).toISOString() } } }, env);
@@ -192,11 +227,13 @@ describe('timmy workspace check', () => {
       openRouter: async (k) => (k ? 'accepted' : 'no-key'),
       ollama: async () => ({ ok: true, models: ['qwen3.8:27b-mlx'] }),
       studio: async () => ({ state: 'not-running' }),
+      companion: async () => 'refused',
       edge: async () => null,
     });
     expect(record.checks.openrouter).toBeUndefined();
     expect(record.checks.ollama).toMatchObject({ answer: 'accepted', detail: '1 model listed' });
-    expect(record.checks.studio).toMatchObject({ answer: 'no answer', detail: 'not running' });
+    expect(record.checks.studio).toMatchObject({ answer: 'not running' });
+    expect(record.checks.companion).toMatchObject({ answer: 'not running' });
     const f = await frame(NOW + 1000);
     expect(f.connections.find((c) => c.id === 'openrouter')?.state).toBe('not set up');
   });

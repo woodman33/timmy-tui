@@ -83,9 +83,9 @@ export interface WorkspaceConnection {
   id: ConnectionId;
   label: string;
   state: ConnectionState;
-  /** plain words: "key accepted, checked 12 min ago", "no key: timmy setup" */
+  /** plain words: "answered 2 min ago (the key endpoint took the key)", "not running when checked 5 s ago; s in the Workbench, or timmy studio, starts it", "no key: run timmy setup" */
   words: string;
-  /** when an answered request was observed; null: never observed (so never live) */
+  /** when Timmy last checked it, answered or not (`state` says which); null: never checked, so never live */
   observedAt: string | null;
   /** the step that sets it up or checks it, when there is one */
   setup: string | null;
