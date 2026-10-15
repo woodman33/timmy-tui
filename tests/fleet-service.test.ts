@@ -52,7 +52,7 @@ describe('plan', () => {
     const r = planFleet(root, req({ provider: 'cloudroom' }));
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.refusals.join('\n')).toMatch(/provider "cloudroom" is unavailable: not implemented: Cloudroom's source and documentation could not be read/);
+    expect(r.refusals.join('\n')).toMatch(/provider "cloudroom" is unavailable: not implemented in this build yet: its source was read at the pinned revisions/);
     expect(fs.existsSync(path.join(root, '.timmy', 'fleet'))).toBe(false);
   });
 });

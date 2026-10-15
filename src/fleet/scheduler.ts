@@ -61,7 +61,8 @@ export function checkRuntime(plan: FleetPlan, backend: Backend): string[] {
   if (!rc.events) p.push(`runtime "${rc.runtime}" cannot stream events`);
   if (!rc.close) p.push(`runtime "${rc.runtime}" cannot close a session`);
   if (!rc.harnesses.includes(plan.harness)) p.push(`runtime "${rc.runtime}" has no "${plan.harness}" harness (it has: ${rc.harnesses.join(', ') || 'none'})`);
-  if (isDedicatedStrict(plan) && rc.childSpawn === 'may-share-parent' && !backend.provisioner.capabilities().childSpawnCanBeDisabled) {
+  const pc = backend.provisioner.capabilities();
+  if (isDedicatedStrict(plan) && rc.childSpawn === 'may-share-parent' && !pc.childSpawnCanBeDisabled && !pc.childSpawnDetected) {
     p.push(`runtime "${rc.runtime}" may start child sessions in the parent's sandbox and cannot be told not to`);
   }
   return p;

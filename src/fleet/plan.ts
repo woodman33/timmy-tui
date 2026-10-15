@@ -84,6 +84,13 @@ export interface ProviderCapabilities {
   childSpawnMayShareParent: boolean;
   /** The adapter can turn that child path off. */
   childSpawnCanBeDisabled: boolean;
+  /**
+   * The path cannot be turned off, but a child that starts in its parent's sandbox is seen in the event stream and fails its
+   * worker (detection, not prevention: the child may run briefly in that worker's own sandbox before it is stopped). Cloudroom:
+   * Timmy refuses every child request, so Core's no-answer fallback never fires, and an agent's `--shared-sandbox` child is
+   * caught by its record.
+   */
+  childSpawnDetected?: boolean;
   snapshots: boolean;
   /** Compute ends on its own after this many minutes, whatever Timmy asks. */
   maxTtlMinutes?: number;
@@ -158,7 +165,7 @@ export function checkPlan(plan: FleetPlan, caps: ProviderCapabilities | undefine
     p.push(`provider "${plan.provider}" cannot give ${ISOLATION_WORDS[plan.isolation]} (it offers: ${caps.isolation.join(', ') || 'nothing'}); refused rather than run with less`);
   }
   if (plan.perWorker === 'dedicated' && (plan.isolation === 'vm' || plan.isolation === 'microvm' || plan.isolation === 'provider-sandbox')
-    && caps.childSpawnMayShareParent && !caps.childSpawnCanBeDisabled) {
+    && caps.childSpawnMayShareParent && !caps.childSpawnCanBeDisabled && !caps.childSpawnDetected) {
     p.push(`provider "${plan.provider}" can start child sessions in their parent's sandbox and that cannot be turned off, so one ${plan.isolation} per worker cannot be kept`);
   }
   if (plan.concurrency > caps.maxConcurrent) p.push(`concurrency ${plan.concurrency} is more than provider "${plan.provider}" allows (${caps.maxConcurrent})`);

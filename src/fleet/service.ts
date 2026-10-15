@@ -42,7 +42,7 @@ export interface ProviderEntry {
  */
 export const KNOWN_PROVIDERS: readonly ProviderEntry[] = [
   { id: 'fake', label: 'FAKE', available: true, about: 'the offline test backend: in-memory machines and scripted sessions; no compute, no harness, no model, no cost' },
-  { id: 'cloudroom', label: 'Cloudroom Core', available: false, why: "not implemented: Cloudroom's source and documentation could not be read in this session (access was blocked), so no adapter was written and its protocol is not assumed", about: 'a self-hosted remote runtime for coding agents (Rust, Apache-2.0), by its listing' },
+  { id: 'cloudroom', label: 'Cloudroom Core', available: false, why: 'not implemented in this build yet: its source was read at the pinned revisions (core 3949daa, app f939f41) and the adapter is being written; until it is wired in, nothing reaches a Cloudroom Core', about: 'a self-hosted service that runs coding agents on a Linux machine and saves their history (Rust, Apache-2.0)' },
   { id: 'modal', label: 'Modal', available: false, why: 'no Timmy adapter; a provider in an upstream GUI is not a Timmy integration', about: 'provider sandboxes' },
   { id: 'hostinger', label: 'Hostinger', available: false, why: 'no Timmy adapter; no provisioning API is called or configured', about: 'virtual private servers' },
 ];
@@ -125,6 +125,13 @@ export function preview(plan: FleetPlan, caps: ProviderCapabilities | undefined,
     `  ${plan.agents} workers, at most ${effective} at once (${plan.concurrency} asked${caps && caps.maxConcurrent < plan.concurrency ? `, the provider allows ${caps.maxConcurrent}` : ''})`,
     `  ${allocations} allocation${allocations === 1 ? '' : 's'}: ${plan.perWorker === 'dedicated' ? 'one per worker' : 'shared by workers'}, each ${simulation ? `a simulated ${ISOLATION_WORDS[plan.isolation].replace(/^an? /, '')} (FAKE: nothing is allocated)` : ISOLATION_WORDS[plan.isolation]}`,
     `  on ${backend}; harness ${plan.harness}, model ${plan.model}`,
+    ...(caps?.childSpawnMayShareParent && plan.perWorker === 'dedicated' && ['vm', 'microvm', 'provider-sandbox'].includes(plan.isolation)
+      ? [caps.childSpawnCanBeDisabled
+        ? '  child sessions: turned off for this plan'
+        : caps.childSpawnDetected
+          ? "  child sessions: refused when asked; one an agent starts in its own sandbox anyway is detected and fails its worker (detection, not prevention)"
+          : '']
+      : []).filter(Boolean),
     `  each: ${plan.limits.cpu} CPU, ${plan.limits.ramGb} GB RAM, ${plan.limits.diskGb} GB disk, ${plan.ttlMinutes} min`,
     `  compute ceiling: ${ceiling === undefined ? 'unknown (the provider states no price)' : `$${ceiling.toFixed(2)}`}; budgets: compute $${plan.budgets.infraUsd}, inference $${plan.budgets.inferenceUsd}`,
     `  inference: the harness's own model route; not counted by the fleet${plan.budgets.inferenceUsd ? '' : ' (no inference budget set)'}`,
