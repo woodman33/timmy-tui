@@ -1679,6 +1679,45 @@ document.getElementById('ws-prefs')?.addEventListener('change', (event) => {
 });
 document.getElementById('ws-prefs')?.addEventListener('submit', (event) => { event.preventDefault(); });
 
+// ── the keyboard ──
+//
+// Keys 1 to 9, then 0, open the ten tabs (as the frame keys them), never while typing in a text field nor under an open
+// dialog. Left, Right, Home and End move along a tablist and open the tab reached (the WAI-ARIA tabs pattern: the workspace's
+// ten tabs, the chat's two views). Focus that a tab change would hide (in the tabs, the strip or the page left) goes to the
+// tab opened.
+
+const TEXT_INPUT = /^(?:text|search|url|email|password|number|tel|date|datetime-local|month|time|week)$/;
+/** Whether keys typed now go into a text field (a text input, a text area, a list box or editable text). */
+function typingIn(el) {
+  if (!(el instanceof Element)) return false;
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLInputElement) return TEXT_INPUT.test(el.type || 'text');
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+  const at = event.target;
+  if (/^[0-9]$/.test(event.key)) {
+    if (typingIn(at) || document.querySelector('dialog[open], [aria-modal="true"]')) return;
+    const id = tabForKey(event.key);
+    if (!id) return;
+    event.preventDefault();
+    const moves = at instanceof Element && Boolean(at.closest('#ws-tabs, #ws-strip, .ws-page'));
+    showWorkspaceTab(id, { focus: moves });
+    return;
+  }
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || !(at instanceof Element) || at.getAttribute('role') !== 'tab') return;
+  const list = at.closest('[role="tablist"]');
+  if (!list) return;
+  const tabs = [...list.querySelectorAll('[role="tab"]')];
+  const i = tabs.indexOf(at);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+});
+
 // ── when the page reads the frame ──
 
 function onCompanionConnected() { readFrame(); }

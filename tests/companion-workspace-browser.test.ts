@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import type { WorkspaceFrame } from '../src/contracts/workspace.js';
 import { CONNECTIONS_SCHEMA, buildWorkspaceFrame, writeConnections, type ConnectionsRecord } from '../src/ops/workspace-frame.js';
 import { startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
 import { DEFAULT_SETTINGS, readSettings, saveSettings, settingsPath } from '../src/workbench/settings.js';
@@ -261,6 +262,217 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
       await studioLive(page);
       expect(reads.n).toBe(quiet + 1);
+    } finally { await context.close(); }
+  });
+
+  /** The frame as the companion gives it (its token), to compare what the page draws with: the FAKE clock makes it the page's. */
+  const frameNow = async (s: CompanionServer = companion): Promise<WorkspaceFrame> => {
+    const token = /#t=([0-9a-f]{64})$/.exec(s.url)![1];
+    return await (await fetch(`http://127.0.0.1:${s.port}/api/workspace`, { headers: { Authorization: `Bearer ${token}` } })).json() as WorkspaceFrame;
+  };
+  const shown = (page: Page): Promise<{ selected: string[]; visible: string[]; focused: string | null }> => page.evaluate(() => ({
+    selected: [...document.querySelectorAll('#ws-tabs [aria-selected="true"]')].map((b) => (b as HTMLElement).dataset.wsTab ?? ''),
+    visible: [...document.querySelectorAll('.ws-page')].filter((p) => !(p as HTMLElement).hidden).map((p) => (p as HTMLElement).dataset.wsPage ?? ''),
+    focused: (document.activeElement as HTMLElement | null)?.dataset?.wsTab ?? null,
+  }));
+  /** A tab opened by its button, its fade ended. */
+  const openTab = async (page: Page, id: string): Promise<void> => {
+    await page.click(`#ws-tab-${id}`);
+    await page.waitForFunction((t) => !(document.getElementById(`ws-${t}`) as HTMLElement).hidden && document.getAnimations().every((a) => a.playState !== 'running'), id, { timeout: 10_000 });
+  };
+
+  it('the ten tabs: a tablist in the frame\'s order, labels and keys, each naming its panel; keys 1 to 9 then 0 open them (not while typing), arrows move along them, the focus ring is amber', async () => {
+    const f = await frameNow();
+    const { page, context, errors } = await open();
+    try {
+      expect(await page.getAttribute('#ws-tabs', 'role')).toBe('tablist');
+      const tabs = await page.$$eval('#ws-tabs [role="tab"]', (els) => els.map((b) => ({
+        id: (b as HTMLElement).dataset.wsTab ?? '', key: b.querySelector('.tab-key')?.textContent ?? '', label: b.querySelector('.tab-label')?.textContent ?? '',
+        shortcut: b.getAttribute('aria-keyshortcuts'), controls: b.getAttribute('aria-controls') ?? '', selected: b.getAttribute('aria-selected'), border: getComputedStyle(b).borderTopColor,
+      })));
+      expect(tabs.map((t) => [t.id, t.key, t.label, t.shortcut])).toEqual(f.tabs.map((t) => [t.id, t.key, t.label, t.key]));
+      // the selected tab is the one with the 1px amber border
+      expect(tabs.map((t) => [t.id, t.selected, t.border === 'rgb(255, 176, 0)'])).toEqual(f.tabs.map((t) => [t.id, t.id === 'home' ? 'true' : 'false', t.id === 'home']));
+      for (const t of tabs) {
+        expect(await page.getAttribute(`#${t.controls}`, 'role')).toBe('tabpanel');
+        expect(await page.getAttribute(`#${t.controls}`, 'aria-labelledby')).toBe(`ws-tab-${t.id}`);
+      }
+      for (const t of f.tabs) {
+        await page.keyboard.press(t.key);
+        expect(await shown(page), `key ${t.key}`).toMatchObject({ selected: [t.id], visible: [t.id] });
+      }
+      // typing in a text field: the digits are the field's
+      await page.keyboard.press('3');
+      await page.focus('#run-op');
+      await page.keyboard.type('12');
+      expect(await shown(page)).toMatchObject({ selected: ['workflows'], visible: ['workflows'] });
+      expect(await page.inputValue('#run-op')).toBe('12');
+      // from a focused tab: Right, Left, End, Home move along the ten and open the tab reached
+      await page.focus('#ws-tab-workflows');
+      await page.keyboard.press('ArrowRight');
+      expect(await shown(page)).toEqual({ selected: ['studio'], visible: ['studio'], focused: 'studio' });
+      expect(await page.evaluate(() => { const cs = getComputedStyle(document.activeElement!); return [cs.outlineStyle, cs.outlineColor, cs.outlineWidth]; })).toEqual(['solid', 'rgb(255, 176, 0)', '2px']);
+      await page.keyboard.press('ArrowLeft');
+      expect(await shown(page)).toEqual({ selected: ['workflows'], visible: ['workflows'], focused: 'workflows' });
+      await page.keyboard.press('End');
+      expect(await shown(page)).toEqual({ selected: ['logs'], visible: ['logs'], focused: 'logs' });
+      await page.keyboard.press('Home');
+      expect(await shown(page)).toEqual({ selected: ['home'], visible: ['home'], focused: 'home' });
+      // a key pressed from inside the page left: focus goes to the tab opened, not lost with the page
+      await page.focus('#home-connections [data-connection="ollama"]');
+      await page.keyboard.press('2');
+      expect(await shown(page)).toEqual({ selected: ['chat'], visible: ['chat'], focused: 'chat' });
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  });
+
+  it('the Workflow actions strip is the frame\'s actions of the tab shown: at most one primary, filled amber with black words; the rest on the ground with a grey line; one not available now is aria-disabled and says why', async () => {
+    const f = await frameNow();
+    const { page, context } = await open();
+    try {
+      let primaries = 0;
+      for (const t of f.tabs) {
+        await openTab(page, t.id);
+        const drawn = await page.$$eval('#ws-actions .act', (els) => els.map((b) => {
+          const cs = getComputedStyle(b);
+          const why = b.getAttribute('aria-describedby');
+          return {
+            label: b.querySelector('.act-label')?.textContent ?? '', command: (b as HTMLElement).dataset.act ?? '', primary: b.classList.contains('is-primary'),
+            disabled: b.getAttribute('aria-disabled') === 'true', why: why ? document.getElementById(why)?.textContent ?? null : null,
+            look: [cs.backgroundColor, cs.color, cs.borderTopColor],
+          };
+        }));
+        const want = f.actions[t.id];
+        expect(drawn.map((d) => [d.label, d.command, d.primary, d.disabled]), t.id).toEqual(want.map((a) => [a.label, a.command, a.primary, !a.enabled]));
+        expect(drawn.filter((d) => d.primary).length, t.id).toBeLessThanOrEqual(1);
+        for (const [i, d] of drawn.entries()) {
+          if (d.primary) primaries += 1;
+          expect(d.look, `${t.id}: ${d.label}`).toEqual(d.primary ? ['rgb(255, 176, 0)', 'rgb(0, 0, 0)', 'rgb(255, 176, 0)'] : ['rgb(0, 0, 0)', d.disabled ? 'rgb(142, 142, 147)' : 'rgb(242, 239, 233)', 'rgb(68, 68, 68)']);
+          expect(d.why, `${t.id}: ${d.label}`).toBe(want[i].enabled ? null : `not now: ${want[i].why}`);
+        }
+      }
+      expect(primaries).toBe(Object.values(f.actions).flat().filter((a) => a.primary).length);
+    } finally { await context.close(); }
+  });
+
+  /**
+   * The page as drawn now, each element shown (outside a model's answers and any frame): each colour that is blue, purple,
+   * cyan or mint; each green outside what .is-live or .is-verified marks (and how many greens are inside); each text below
+   * 4.5:1 against what is behind it (its opacity and its ancestors' counted).
+   */
+  const looks = (page: Page): Promise<{ hue: string[]; green: string[]; greens: number; contrast: string[]; texts: number }> => page.evaluate(() => {
+    const parse = (v: string): number[] | null => {
+      const m = /^rgba?\(([^)]+)\)$/.exec(v.trim());
+      if (!m) return null;
+      const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      return [p[0], p[1], p[2], p[3] ?? 1];
+    };
+    const hsl = ([r, g, b]: number[]): { h: number; s: number; l: number } => {
+      const [R, G, B] = [r / 255, g / 255, b / 255];
+      const max = Math.max(R, G, B);
+      const min = Math.min(R, G, B);
+      const l = (max + min) / 2;
+      const d = max - min;
+      if (d === 0) return { h: 0, s: 0, l };
+      const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4);
+      return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l };
+    };
+    const lum = (c: number[]): number => {
+      const [r, g, b] = c.slice(0, 3).map((x) => { const v = x / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const name = (el: Element): string => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${el.classList.length ? `.${[...el.classList].join('.')}` : ''}`;
+    const behind = (el: Element): number[] => {
+      for (let e: Element | null = el; e; e = e.parentElement) {
+        const c = parse(getComputedStyle(e).backgroundColor);
+        if (c && c[3] > 0.5) return c.slice(0, 3);
+      }
+      return [0, 0, 0];
+    };
+    const out = { hue: [] as string[], green: [] as string[], greens: 0, contrast: [] as string[], texts: 0 };
+    for (const el of document.querySelectorAll('body, body *')) {
+      if (el.closest('[hidden], script, style, template, iframe, #streamdown-root .sd-messages')) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 && box.height === 0) continue;
+      for (const prop of ['color', 'background-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'outline-color', 'text-decoration-color', 'fill', 'stroke']) {
+        const c = parse(cs.getPropertyValue(prop));
+        if (!c || c[3] === 0) continue;
+        const { h, s, l } = hsl(c);
+        if (s < 0.2 || l < 0.08 || l > 0.92) continue;
+        if (h >= 150 && h <= 320) out.hue.push(`${name(el)} ${prop} ${cs.getPropertyValue(prop)}`);
+        else if (h >= 75 && h < 150) { if (el.closest('.is-live, .is-verified')) out.greens += 1; else out.green.push(`${name(el)} ${prop} ${cs.getPropertyValue(prop)}`); }
+      }
+      if (![...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim())) continue;
+      const fg = parse(cs.color);
+      if (!fg) continue;
+      out.texts += 1;
+      let opacity = fg[3];
+      for (let e: Element | null = el; e; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
+      const bg = behind(el);
+      const seen = [0, 1, 2].map((i) => fg[i] * opacity + bg[i] * (1 - opacity));
+      const [hi, lo] = [lum(seen), lum(bg)].sort((x, y) => y - x);
+      const ratio = (hi + 0.05) / (lo + 0.05);
+      if (ratio < 4.5) out.contrast.push(`${name(el)} ${ratio.toFixed(2)}: "${(el.textContent ?? '').trim().slice(0, 40)}"`);
+    }
+    return out;
+  });
+
+  it('every tab\'s chrome is the palette\'s: no blue, purple, cyan or mint; green only where .is-live (or .is-verified) marks it; every text at least 4.5:1; at 1376 Home\'s columns side by side', async () => {
+    const f = await frameNow();
+    const { page, context } = await open();
+    try {
+      // the first box of each column (the right column is a stack of boxes)
+      const cols = await page.$$eval('#ws-home .cols-home > .box, #ws-home .cols-home > .col-stack > .box:first-child', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; }));
+      expect(cols).toHaveLength(2);
+      expect(cols[1][0]).toBeGreaterThan(cols[0][0]);
+      expect(cols[1][1]).toBe(cols[0][1]);
+      let greens = 0;
+      for (const t of f.tabs) {
+        await openTab(page, t.id);
+        const views = t.id === 'chat' ? ['chat', 'streamdown'] : [null];
+        for (const view of views) {
+          if (view) {
+            await page.click(`.view-switch [data-tab="${view}"]`);
+            await page.waitForFunction((v) => document.getElementById(`tab-${v}`)?.classList.contains('active') && document.getAnimations().every((a) => a.playState !== 'running'), view, { timeout: 10_000 });
+          }
+          const seen = await looks(page);
+          const where = view ? `${t.id} (${view})` : t.id;
+          expect(seen.hue, where).toEqual([]);
+          expect(seen.green, where).toEqual([]);
+          expect(seen.contrast, where).toEqual([]);
+          expect(seen.texts, where).toBeGreaterThan(5);
+          greens += seen.greens;
+        }
+      }
+      // the check saw green where it belongs (the FAKE live connections), so the rule above is not empty
+      expect(greens).toBeGreaterThan(0);
+      // and it finds what it looks for: a blue word, a green line and a faint word, planted here (FAKE), are each found
+      await openTab(page, 'home');
+      await page.addStyleTag({ content: '.brand { color: #3b82f6 !important } #home-conn-title { border-bottom: 1px solid #28fe14 } #prefs-title { color: #333333 !important }' });
+      const planted = await looks(page);
+      expect(planted.hue.filter((s) => s.startsWith('h1.brand color'))).toHaveLength(1);
+      expect(planted.green.filter((s) => s.startsWith('h2#home-conn-title.box-title border-bottom-color'))).toHaveLength(1);
+      expect(planted.contrast.filter((s) => s.startsWith('h2#prefs-title.box-title'))).toHaveLength(1);
+    } finally { await context.close(); }
+  });
+
+  it('at 390 px wide every tab fits the window (nothing scrolls sideways), and Home\'s columns stack', async () => {
+    const f = await frameNow();
+    const { page, context } = await open({ viewport: { width: 390, height: 844 } });
+    try {
+      for (const t of f.tabs) {
+        await openTab(page, t.id);
+        const m = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: window.innerWidth }));
+        expect(Math.max(m.page, m.body), t.id).toBeLessThanOrEqual(m.inner);
+      }
+      await openTab(page, 'home');
+      const cols = await page.$$eval('#ws-home .cols-home > *', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right) }; }));
+      expect(cols.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(cols.map((c) => c.left)).size).toBe(1);
+      for (let i = 1; i < cols.length; i += 1) expect(cols[i].top).toBeGreaterThan(cols[i - 1].top);
+      for (const c of cols) expect(c.right).toBeLessThanOrEqual(390);
     } finally { await context.close(); }
   });
 });
