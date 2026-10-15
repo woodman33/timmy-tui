@@ -529,8 +529,12 @@ function raw(port: number, o2: { method?: string; path: string; headers?: Record
 
 describe.skipIf(!browserPath)('the live board in a real headless Chromium: selecting an item opens its detail', () => {
   let browser: Browser;
-  beforeAll(async () => { browser = await chromium.launch({ headless: true, executablePath: browserPath }); });
-  afterAll(async () => { await browser?.close(); });
+  // A real Chromium's launch and close each get a deadline of their own (R5 H130). Vitest's default for a hook is 10 s, below
+  // Playwright's own 30 s for a launch; in a full run on 2 CPUs with two other agents testing, this close took longer than
+  // that ("Hook timed out in 10000ms", after every test here had passed), though it takes 0.1 s here alone and 0.2 to
+  // 0.25 s beside four CPU burners. As board-needs-person-browser and board-results-browser give their launch.
+  beforeAll(async () => { browser = await chromium.launch({ headless: true, executablePath: browserPath, timeout: 60_000 }); }, 90_000);
+  afterAll(async () => { await browser?.close(); }, 60_000);
 
   it('Devices, Hosting and Costs are cards of the Overview; a computer, a remote job and an order open in place; a link from Needs you opens its detail; GET /overview needs the token', async () => {
     expect(text(await ws.boardLive('live'))).toContain('Live board');

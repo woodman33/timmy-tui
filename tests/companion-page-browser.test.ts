@@ -788,29 +788,29 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(shown.labels[0].left).toBeGreaterThanOrEqual(blockBox.x);
         // the page's column fits the window (at 390 it was laid out 712 px wide)
         expect(await page.evaluate(() => document.querySelector('.right-col')!.getBoundingClientRect().right)).toBeLessThanOrEqual(viewport.width + 1);
-        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing
-        const settle = (): Promise<void> => page.waitForTimeout(400); // its transform eases in 150 ms
+        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing. A click's new state reaches the drawing's frame
+        // (role="application") as an inline transform that then eases in 150 ms, so each reading is taken again until it is the
+        // one asked for or 10 s pass, and then the last reading is what fails. A fixed 400 ms wait read the scale before a
+        // zoom had landed on a loaded computer ("expected 1 to be close to 0.9", R5 H130).
+        const again = { timeout: 10_000, interval: 50 };
+        const scale = async (): Promise<number> => (await shownLabels(page, 'chat'))!.scale;
+        const left = async (): Promise<number> => (await shownLabels(page, 'chat'))!.left;
         await block.locator('button[title="Zoom in"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(1.1, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(1.1, 2);
         await block.locator('button[title="Zoom out"]').click();
         await block.locator('button[title="Zoom out"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(0.9, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(0.9, 2);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale).toBeCloseTo(shown.scale, 3);
+        await expect.poll(scale, again).toBeCloseTo(shown.scale, 3);
         // pan: a drag moves the drawing by as much; Reset brings it back
         const a = (await area.boundingBox())!;
         await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
         await page.mouse.down();
         await page.mouse.move(a.x + a.width / 2 - 120, a.y + a.height / 2, { steps: 12 });
         await page.mouse.up();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left - shown.left).toBeCloseTo(-120, 0);
+        await expect.poll(async () => (await left()) - shown.left, again).toBeCloseTo(-120, 0);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left).toBeCloseTo(shown.left, 0);
+        await expect.poll(left, again).toBeCloseTo(shown.left, 0);
         // fullscreen: the drawing in Streamdown's own view (in the page's body), its labels at least 12 px too; Escape closes it
         await block.locator('[data-streamdown="mermaid-block-actions"] button[title="View fullscreen"]').click();
         await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg')].some((s) => !s.closest('#streamdown-root')), null, { timeout: 15_000 });

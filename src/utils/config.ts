@@ -36,6 +36,8 @@ export interface TuiConfig {
     port: number;
     autoOpen: boolean;
   };
+  /** R5: refuse a chat message to a model not known to be free (src/agent/model-price.ts); TIMMY_CHAT_FREE_ONLY wins */
+  freeOnly?: boolean;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {

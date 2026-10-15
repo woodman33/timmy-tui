@@ -30,6 +30,10 @@ function caller(){return fs.mkdtempSync(path.join(fixture,'synthetic-caller-'));
 function invoke(root:string,...args:string[]){return spawnSync(process.execPath,[path.join(install,'dist/timmy.js'),'inspect',...args],{cwd:root,env:env(root),encoding:'utf8',timeout:10000});}
 function retained(root:string,radius=4.5){return JSON.parse(execFileSync(process.execPath,[maker,String(radius)],{cwd:root,env:env(root),encoding:'utf8',timeout:10000}));}
 function ok(root:string,...args:string[]){const run=invoke(root,...args);expect(run.error).toBeUndefined();expect(run.status,run.stderr).toBe(0);return JSON.parse(run.stdout);}
+// What resolving `name` from the installed bin gives ('resolved <file>', or the error's code), asked in a process of its own
+// with exactly `environment`, never in this one: Node reads NODE_PATH once, when a process starts (Module.globalPaths), so
+// here a tsx in the machine's global NODE_PATH folder made the compiled install look as if tsx were reachable from it (R5 H130).
+function fromInstall(root:string,name:string,environment:NodeJS.ProcessEnv){const run=spawnSync(process.execPath,['-e',`try{process.stdout.write('resolved '+require('node:module').createRequire(${JSON.stringify(path.join(install,'dist/timmy.js'))}).resolve(${JSON.stringify(name)}))}catch(error){process.stdout.write(String(error.code))}`],{cwd:root,env:environment,encoding:'utf8',timeout:10000});expect(run.status,run.stderr).toBe(0);return run.stdout;}
 function refused(root:string,reason:string,...args:string[]){const run=invoke(root,...args);expect(run.error).toBeUndefined();expect(run.status).toBe(1);expect(JSON.parse(run.stderr)).toMatchObject({state:'unavailable',reason:expect.stringContaining(reason)});}
 
 beforeAll(()=>{
@@ -78,7 +82,11 @@ describe('compiled inspect delivery with synthetic retained contract data',()=>{
  it('reads the caller store through the real bin, preserves frame and analytical limits',()=>{
   const before=snapshot(install),root=caller(),record=retained(root),evidence=snapshot(root);
   for(const name of ['tsx','typescript','vitest'])expect(fs.existsSync(path.join(install,'node_modules',name))).toBe(false);
-  expect(()=>createRequire(path.join(install,'dist/timmy.js')).resolve('tsx')).toThrow();
+  // with the environment the bin's own runs get here (env(): no NODE_PATH), tsx is not found from the install; the probe does
+  // find one where one is reachable (NODE_PATH naming the folder that holds this repository's tsx)
+  expect(fromInstall(root,'tsx',env(root))).toBe('MODULE_NOT_FOUND');
+  const repositoryRequire=createRequire(import.meta.url);
+  expect(fromInstall(root,'tsx',{...env(root),NODE_PATH:path.dirname(path.dirname(repositoryRequire.resolve('tsx/package.json')))})).toBe('resolved '+repositoryRequire.resolve('tsx'));
   expect(ok(root,'clearance')).toMatchObject({state:'passed',gapMm:2.5,basis:'analytical',revision:record.revision,observedAt:'2000-01-01T00:00:00.000Z',displayTransformOnly:true,unmeasured:['complete tool path','physical validation']});
   expect(ok(root,'frame','--frame','world','--unit','m','--rotation','90')).toMatchObject({point:[-.03,-.06,.011],frame:{id:'world',unit:'m',rotationZ:90}});
   expect(ok(root,'arrows').arrows.map((a:any)=>a.kind)).toEqual(['materialization','dependency','hypothesis']);
