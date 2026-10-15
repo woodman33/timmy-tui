@@ -23,6 +23,10 @@ function manifest(dir:string):unknown[]{return fs.readdirSync(dir,{withFileTypes
 const env=():NodeJS.ProcessEnv=>({PATH:path.dirname(process.execPath),HOME:path.join(fixture,'home'),TMPDIR:path.join(fixture,'tmp'),XDG_CONFIG_HOME:path.join(fixture,'config'),NODE_OPTIONS:`--import=${pathToFileURL(guard).href}`,RECIPE_INSTALL:install,RECIPE_GUARD_LOG:path.join(fixture,'guard.jsonl')});
 function command(...args:string[]){return spawnSync(process.execPath,[path.join(install,'dist/timmy.js'),'recipe',...args],{cwd:caller,env:env(),encoding:'utf8',timeout:15000});}
 function json(...args:string[]){const run=command(...args);expect(run.error).toBeUndefined();expect(run.status,run.stderr).toBe(0);return JSON.parse(run.stdout);}
+// What resolving `name` from the installed bin gives ('resolved <file>', or the error's code), asked in a process of its own
+// with exactly `environment`, never in this one: Node reads NODE_PATH once, when a process starts (Module.globalPaths), so
+// here a tsx in the machine's global NODE_PATH folder made the compiled install look as if tsx were reachable from it (R5 H130).
+function fromInstall(name:string,environment:NodeJS.ProcessEnv){const run=spawnSync(process.execPath,['-e',`try{process.stdout.write('resolved '+require('node:module').createRequire(${JSON.stringify(path.join(install,'dist/timmy.js'))}).resolve(${JSON.stringify(name)}))}catch(error){process.stdout.write(String(error.code))}`],{cwd:caller,env:environment,encoding:'utf8',timeout:15000});expect(run.status,run.stderr).toBe(0);return run.stdout;}
 
 beforeAll(()=>{
  try{
@@ -72,7 +76,11 @@ describe('compiled recipe delivery without source or development dependencies',(
   const before=manifest(install);
   if(!process.env.TIMMY_RECIPE_PACKAGE_INSTALL)expect(fs.existsSync(path.join(install,'node_modules'))).toBe(false);
   for(const dependency of ['tsx','typescript','vitest'])expect(fs.existsSync(path.join(install,'node_modules',dependency))).toBe(false);
-  expect(()=>createRequire(path.join(install,'dist/timmy.js')).resolve('tsx')).toThrow();
+  // with the environment the bin's own runs get here (env(): no NODE_PATH), tsx is not found from the install; the probe does
+  // find one where one is reachable (NODE_PATH naming the folder that holds this repository's tsx)
+  expect(fromInstall('tsx',env())).toBe('MODULE_NOT_FOUND');
+  const repositoryRequire=createRequire(import.meta.url);
+  expect(fromInstall('tsx',{...env(),NODE_PATH:path.dirname(path.dirname(repositoryRequire.resolve('tsx/package.json')))})).toBe('resolved '+repositoryRequire.resolve('tsx'));
   expect(json('list')).toMatchObject({id:'enclosure.tray/1'});
   expect(json('plan','--request','request with spaces.json')).toMatchObject({bounds:[140,80,30],widthChange:{mustRebuild:['tray.outer','tray.cavity','tray.bosses','tray.bores']}});
   const invalid=command('plan','--request','zero wall.json');expect(invalid.status).toBe(1);expect(invalid.stderr).toContain('positive wall');
