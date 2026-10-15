@@ -206,4 +206,61 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       expect(existsSync(settingsPath(env))).toBe(false);
     } finally { await context.close(); }
   });
+
+  /** Counts the page's reads of the frame from now on. */
+  const countReads = (context: BrowserContext): { n: number } => {
+    const seen = { n: 0 };
+    context.on('request', (r) => { if (r.method() === 'GET' && isRead(new URL(r.url()))) seen.n += 1; });
+    return seen;
+  };
+  /** FAKE: Studio answered a check 2 s before the frame's clock */
+  const studioAnswered = (): string => writeConnections({ ...CHECKS, checks: { ...CHECKS.checks, studio: { answer: 'accepted', at: ago(2), detail: 'FAKE: studio running' } } }, env);
+  const studioLive = (page: Page): Promise<unknown> => page.waitForFunction(() => document.querySelector('#home-connections [data-connection="studio"] .conn-state')?.textContent === '● live', null, { timeout: 15_000 });
+
+  it('live: read every few seconds while seen, drawn again only when the frame\'s revision is another (focus kept in place); a new observation shows within a poll', async () => {
+    const { page, context } = await open();
+    const reads = countReads(context);
+    try {
+      // every change to what the frame draws, from here
+      await page.evaluate(() => {
+        const w = window as unknown as { __changes: number };
+        w.__changes = 0;
+        const seen = new MutationObserver((m) => { w.__changes += m.length; });
+        for (const id of ['ws-tabs', 'ws-actions', 'home-connections', 'home-preview', 'chat-events', 'flow-runs', 'ws-activity-list']) {
+          const el = document.getElementById(id);
+          if (el) seen.observe(el, { childList: true, subtree: true, characterData: true, attributes: true });
+        }
+      });
+      // a keyboard's place: the Ollama card
+      await page.focus('#home-connections [data-connection="ollama"]');
+      await page.waitForTimeout(6_500);
+      expect(reads.n).toBeGreaterThanOrEqual(2);
+      expect(await page.evaluate(() => (window as unknown as { __changes: number }).__changes)).toBe(0);
+      studioAnswered();
+      await studioLive(page);
+      expect(await page.evaluate(() => (window as unknown as { __changes: number }).__changes)).toBeGreaterThan(0);
+      expect(await page.textContent('#home-connections [data-connection="studio"] .conn-words')).toBe('answered 2 s ago (FAKE: studio running)');
+      // the card focused before the redraw has focus in its new self
+      expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.connection)).toBe('ollama');
+    } finally { await context.close(); }
+  });
+
+  it('live: not seen, the page reads nothing; its socket opening again reads the frame at once', async () => {
+    const { page, context } = await open();
+    const reads = countReads(context);
+    try {
+      // the page as a hidden tab sees itself (the browser's own visibility is not changed by a test)
+      await page.evaluate(() => Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }));
+      await page.waitForTimeout(3_500);
+      const quiet = reads.n;
+      await page.waitForTimeout(3_500);
+      expect(reads.n).toBe(quiet);
+      studioAnswered();
+      for (const c of companion.clients) c.terminate();
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · RECONNECTING', null, { timeout: 10_000 });
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      await studioLive(page);
+      expect(reads.n).toBe(quiet + 1);
+    } finally { await context.close(); }
+  });
 });

@@ -1258,9 +1258,29 @@ function otherProjectWords(f) {
   return `This page shows ${shown}; the frame the companion gave is ${f.project.name}’s, so its actions, runs and log are not shown here.`;
 }
 
+/**
+ * Where focus is among what a redraw replaces (an action, a connection card, a command, a run), to give it back to the
+ * element drawn in its place: a frame that moves every few seconds must not take a keyboard's place away.
+ */
+function focusKey() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  for (const attr of ['data-act', 'data-connection', 'data-copy', 'data-open-run']) {
+    if (el.hasAttribute(attr)) return { attr, value: el.getAttribute(attr), within: el.parentElement?.closest('[id]')?.id || null };
+  }
+  return null;
+}
+function refocus(k) {
+  if (!k || (document.activeElement && document.activeElement !== document.body)) return;
+  const scope = (k.within && document.getElementById(k.within)) || document;
+  const el = scope.querySelector(`[${k.attr}="${CSS.escape(k.value)}"]`);
+  if (el) el.focus({ preventScroll: true });
+}
+
 function drawFrame() {
   const f = workspace.frame;
   if (!f) return;
+  const kept = focusKey();
   const own = !otherProject(f);
   drawTabs(f);
   drawActions(f, own);
@@ -1276,6 +1296,7 @@ function drawFrame() {
   drawPrefs(f);
   stripNote(otherProjectWords(f), own ? null : 'failed');
   if (workspace.tab === 'workflows') openNewestRun();
+  refocus(kept);
 }
 
 // ── the ten tabs ──
@@ -1662,6 +1683,13 @@ document.getElementById('ws-prefs')?.addEventListener('submit', (event) => { eve
 
 function onCompanionConnected() { readFrame(); }
 function onProjectShown(p) { if (!workspace.frame || workspace.frame.project.id !== p.id) readFrame(); }
+
+// Live: the frame is read every WS_POLL_MS while this page is seen (one read at a time; drawn again only when its revision
+// is another one), at once when the page is seen again, and when the companion's socket opens again (onCompanionConnected).
+// A read changes nothing: a save waiting on a conflict stays the person's to reload.
+const WS_POLL_MS = 3000;
+setInterval(() => { if (!document.hidden) readFrame(); }, WS_POLL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) readFrame(); });
 
 (() => {
   // the tab this browser tab showed last (a run's address opens Workflows instead)
