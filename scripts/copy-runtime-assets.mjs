@@ -29,6 +29,9 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/companion.css',
   'src/companion/client/companion.js',
   'src/utils/chatpage.html',
+  // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
+  // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
+  'src/models/cache.json',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));
 
