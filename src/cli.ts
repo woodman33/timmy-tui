@@ -92,6 +92,7 @@ Commands:
   connect add|probe|run|status|stop|fetch …  Your own computers over SSH (timmy connect help)
   cloud use|status      Timmy Cloud's backend, read by its operator (timmy cloud help)
   fleet providers|connect|plan|run|status|events|stop|reconcile|collect  A fleet of workers on an execution backend: FAKE (a simulation) or one self-hosted Cloudroom Core, not verified live (timmy fleet help)
+  workspace [check]     The frame every surface shares: project, tabs, actions, connections as observed (check: free requests only)
   decide route|queue|mode|vox-review --option <id> …  A recommendation among the options Timmy built (Clef-Omni when "Use Clef routing" is on; off by default), recorded, never applied (timmy decide --help)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
@@ -159,7 +160,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'connect', 'cloud', 'fleet', 'decide'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'evidence', 'op', 'workbench', 'workspace', 'connect', 'cloud', 'fleet', 'decide'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -206,6 +207,12 @@ if (command === 'workbench') {
   // R4 lead (the Workbench direction): the terminal Workbench, one project in five zones (src/workbench/cli.ts).
   const { workbenchMain } = await import('./workbench/cli.js');
   process.exit(await workbenchMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'workspace') {
+  // R5 lead (the completion order of 2026-10-15): the one frame the Workbench, the companion and Studio share (src/ops/workspace-cli.ts).
+  const { workspaceMain } = await import('./ops/workspace-cli.js');
+  process.exit(await workspaceMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
 }
 
 if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
