@@ -24,6 +24,7 @@ import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
 import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
+import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 
 type Env = Record<string, string | undefined>;
@@ -124,7 +125,7 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
   out.push(connectionOf('openrouter', 'OpenRouter (cloud chat)', {
     configured: key !== null, setupWords: 'no key: run timmy setup, or set OPENROUTER_API_KEY', setup: key ? 'timmy workspace check' : 'timmy setup',
-    check: checks.openrouter, now, ...(key ? { detail: `key from ${key}` } : {}),
+    check: checks.openrouter, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}` } : {}),
   }));
   const ollamaBase = env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
   // set up when the chat route is the local model, or when an address for it is set; otherwise it is optional
