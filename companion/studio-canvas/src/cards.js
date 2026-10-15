@@ -201,9 +201,11 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
  * /api/project?detail=1 with this page's session, or (R4 H81) the plain card list with `detail: false` and `detailWhy` when
  * the page has no session that reads the detail. `session` whether this page holds one. A result card is always a diagram.
  */
-export function cardMode(type, props, answer, session) {
+export function cardMode(type, props, answer, session, meta = null) {
   const diagram = (words, follows = false) => ({ executable: false, badge: 'diagram', words, follows });
   const name = props.project || 'its project';
+  // R5 (H133): a card Timmy proposed as a draft acts only once a person accepts it (./drafts.js; the panel's Drafts)
+  if (meta && meta.timmyDraft && typeof meta.timmyDraft === 'object') return { ...diagram('A draft proposed by Timmy: nothing on it acts until you accept it in Timmy\'s panel (Drafts).'), draft: true };
   // R4 (H83): a card of another project, its kept detail withheld from this page: it says so, and how to read it
   const withheld = withheldData(props.data);
   if (withheld) return { ...diagram(one(withheld.words)), withheld: true };
@@ -561,6 +563,23 @@ export function createCards(deps) {
     if (r.status === 401 && (said.other !== true || said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) noted(r, 'Timmy did not let this page read the run detail.');
     return r;
   }
+  /**
+   * R5 (H133): keeps this page's version of the canvas as a copy beside the canvas file (POST /api/canvas/document/copy), when a
+   * newer version is on disk and this page may not save over it. `text`: the document as JSON text, written by canvas.js.
+   */
+  async function keepCopy(text) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/document/copy', 'POST', token, undefined, { raw: text });
+    if (r.status === 401) noted(r, 'Timmy refused to keep this page\'s copy.');
+    return r;
+  }
+  /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
+  async function draftDecision(body) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/drafts', 'POST', token, body);
+    if (r.status === 401) noted(r, 'Timmy refused to record the decision.');
+    return r;
+  }
   /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
   function bridgeSocket(url) {
     if (!token || !SAFE.WebSocket) return null;
@@ -620,7 +639,7 @@ export function createCards(deps) {
     const shape = editor ? editor.getShape(rec.shapeId) : null;
     if (!shape || !isDrawnCard(shape) || TYPE_OF_SHAPE[shape.type] !== rec.type || shape.props.card !== rec.card || shape.props.projectId !== rec.projectId) return;
     const now = live.get().answer;
-    const mode = cardMode(rec.type, shape.props, now, token !== null);
+    const mode = cardMode(rec.type, shape.props, now, token !== null, shape.meta);
     if (!mode.executable) return;
     const card = (now.cards || []).find((c) => c.id === rec.card);
     if (!offeredNow(rec.act, card && card.detail)) return;
@@ -941,7 +960,7 @@ export function createCards(deps) {
     const own = useValue('timmy cards: this card\'s action', () => acts.get()[shape.id] ?? null, [shape.id]);
     const sess = useValue('timmy cards: session', () => session.get(), []);
     const p = shape.props;
-    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null);
+    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null, shape.meta);
     const card = mode.follows ? (now.cards || []).find((c) => c.id === p.card) : null;
     // R4 (H83): a withheld card has no detail here (only the words and commands its marker holds)
     const detail = mode.withheld ? null : (card && card.detail) || p.data;
@@ -1211,6 +1230,8 @@ export function createCards(deps) {
     runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
+    // R5 (H133): a copy of this page's canvas when a newer one is on disk, and a decision on a draft of Timmy's
+    keepCopy, draftDecision,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },

@@ -10,25 +10,77 @@
 <!-- Timmy's shared look (src/theme/tokens.ts): colors, Monaspace Argon and its fallbacks, as variables. -->
 <link rel="stylesheet" href="/timmy-theme.css" />
 <style>
-  /* Timmy's own panel only, in the shared look (DESIGN.md §10 B9). tldraw's chrome, its fonts and the
-     colors you choose for your drawing stay tldraw's: nothing here touches them. */
+  /* Timmy's own panel, in the shared look (DESIGN.md §10 B10, the operator's palette of 2026-10-15: canvas and wells black,
+     structure greys, off-white text, amber for focus, the selection and the one next step, green only for an observed live
+     connection, a passed check or a verified sealed receipt). Every color is a --timmy-* token; the hex beside it is only its
+     fallback. tldraw's fonts and the colors you choose for your drawing stay tldraw's: nothing here touches them. */
   html, body, #root { margin: 0; height: 100%; }
-  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #e8e6e1); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  /* R5 (H133), B10: tldraw's own chrome (its menus, toolbar, panels, tooltips, dialogs and the canvas behind the drawing) on the
+     same tokens. tldraw 5.5.2 colors that chrome only through these variables (its Themes guide: the canvas's background is
+     --tl-color-background); the canvas's own UI colors (the selection, its brush, snap lines, handles) come from the same
+     tokens through src/theme.js. Nothing here changes how a shape, a fill, a note, a frame, a highlight or an image looks. */
+  .tl-container.tl-theme__dark {
+    --tl-color-background: var(--timmy-ground, #000000);
+    --tl-color-grid: var(--timmy-line-strong, #444444);
+    --tl-color-selection-fill: color-mix(in srgb, var(--timmy-accent, #FFB000) 16%, transparent);
+    --tl-color-selection-stroke: var(--timmy-accent, #FFB000);
+    --tl-color-low: var(--timmy-surface, #070707);
+    --tl-color-low-border: var(--timmy-line, #333333);
+    --tl-color-muted-none: color-mix(in srgb, var(--timmy-text, #F2EFE9) 0%, transparent);
+    --tl-color-muted-0: color-mix(in srgb, var(--timmy-text, #F2EFE9) 2%, transparent);
+    --tl-color-muted-1: color-mix(in srgb, var(--timmy-text, #F2EFE9) 10%, transparent);
+    --tl-color-muted-2: color-mix(in srgb, var(--timmy-text, #F2EFE9) 5%, transparent);
+    --tl-color-hint: color-mix(in srgb, var(--timmy-text, #F2EFE9) 7%, transparent);
+    --tl-color-overlay: color-mix(in srgb, var(--timmy-ground, #000000) 60%, transparent);
+    --tl-color-divider: var(--timmy-line, #333333);
+    --tl-color-panel: var(--timmy-surface, #070707);
+    --tl-color-panel-contrast: var(--timmy-line, #333333);
+    --tl-color-panel-overlay: color-mix(in srgb, var(--timmy-surface, #070707) 82%, transparent);
+    --tl-color-panel-transparent: color-mix(in srgb, var(--timmy-surface, #070707) 0%, transparent);
+    --tl-color-selected: var(--timmy-accent, #FFB000);
+    --tl-color-selected-contrast: var(--timmy-accent-ink, #000000);
+    --tl-color-focus: var(--timmy-accent, #FFB000);
+    --tl-color-tooltip: var(--timmy-line, #333333);
+    --tl-color-text: var(--timmy-text, #F2EFE9);
+    --tl-color-text-0: var(--timmy-text, #F2EFE9);
+    --tl-color-text-1: var(--timmy-text, #F2EFE9);
+    --tl-color-text-3: var(--timmy-text-secondary, #8E8E93);
+    --tl-color-text-disabled: color-mix(in srgb, var(--timmy-text-secondary, #8E8E93) 70%, var(--timmy-ground, #000000));
+    /* tldraw writes its tooltips' words in this one */
+    --tl-color-text-shadow: var(--timmy-text, #F2EFE9);
+    --tl-color-primary: var(--timmy-accent, #FFB000);
+    /* a toast's "done" is a delivered result: never green (B10) */
+    --tl-color-success: var(--timmy-text, #F2EFE9);
+    --tl-color-info: var(--timmy-silver, #E8E4D9);
+    --tl-color-warning: var(--timmy-attention, #FFB000);
+    --tl-color-danger: var(--timmy-failure, #FFB000);
+  }
+  /* R5 (H133): a pending draft of Timmy's on the canvas: an amber dashed outline and its label, in front of the drawing, never
+     taking a click (src/drafts.js; the panel's Drafts has Accept and Discard) */
+  .timmy-draft-mark { position: absolute; box-sizing: border-box; border: 2px dashed var(--timmy-accent, #FFB000); border-radius: 6px; pointer-events: none; }
+  .timmy-draft-label { position: absolute; left: -2px; bottom: 100%; margin-bottom: 4px; white-space: nowrap; padding: 1px 6px; border-radius: 4px;
+    background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-accent, #FFB000); color: var(--timmy-accent, #FFB000);
+    font: var(--timmy-weight-strong, 600) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); letter-spacing: .04em; }
+  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #F2EFE9); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
-  #side { position: fixed; left: 8px; top: 52px; z-index: 400; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1);
+  /* R5 (H133): just under tldraw's UI layer (.tlui-layout, a stacking context at z-index 300, which holds its menus, dialogs and
+     toasts), so tldraw's main menu opens over this panel instead of under it (its Preferences sat under the panel and could not be
+     reached); still over the canvas, its in-front layer (250) and the drawn cards. tldraw's panels never overlap this one. */
+  #side { position: fixed; left: 8px; top: 52px; z-index: 299; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
     /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold. R4 (H100; the Mac run r24: the New board
        footer and the "Placed card" message sat on the list's cut rows): the panel itself never scrolls; its lists scroll in one
        region (#side-scroll) that ends above the message band and New board, which stay in place below it. A full panel ends
        116 px above the window's bottom (its top is at 52): tldraw's toolbar is up to 104 px tall on a narrow window, with
        its row of actions over it */
     max-height: calc(100vh - 168px); overflow: hidden; }
-  #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
-  #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
-  #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
+  #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #444444); }
+  /* R5 (H133), B10: green is earned: "Timmy connected" is an observed live connection (the bridge's socket is open), said in words */
+  #status[data-kind="ready"] { border-left-color: var(--timmy-live, #28FE14); }
+  #status[data-kind="error"] { border-left-color: var(--timmy-failure, #FFB000); }
   /* R4 (H83): Timmy refused this page (no session that counts now): what to do, in words. */
-  #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #FFB000); }
   #side-ready { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
   /* R4 (H83): hidden until the canvas loads (a page Timmy refused shows no jobs, project or boards it cannot use) */
   #side-ready[hidden] { display: none; }
@@ -36,45 +88,73 @@
   #side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 6px; align-content: start; }
   #side summary { cursor: pointer; font-weight: var(--timmy-weight-heading, 700); }
   /* R4 (H100): a list's heading stays in view while its list scrolls under it */
-  #side-scroll summary { position: sticky; top: 0; z-index: 1; background: var(--timmy-surface, #121212); }
+  #side-scroll summary { position: sticky; top: 0; z-index: 1; background: var(--timmy-surface, #070707); }
   #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
   #side li { overflow-wrap: anywhere; }
-  #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #FFB000); outline-offset: 2px; }
   /* A job, in the REPL's words: outcome and time, then Canvas (job and revision) and Receipt. */
   #side li.job { display: grid; gap: 1px; padding: 4px 0; }
   #side li.job + li.job { border-top: 1px solid var(--timmy-line, #333333); }
   #side .job-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
-  #side .job-head time { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side .job-head .job-failed { color: var(--timmy-attention, #e5b550); }
+  #side .job-head time { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .job-head .job-failed { color: var(--timmy-attention, #FFB000); }
   #side .job-row { display: grid; grid-template-columns: 8ch minmax(0, 1fr); gap: 0 6px; align-items: baseline; }
-  #side .job-row .k { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side .job-row .job-note { grid-column: 2; color: var(--timmy-attention, #e5b550); }
-  #side button.job-show { justify-self: start; text-align: left; padding: 0; border: 0; background: none; color: var(--timmy-link, #6ca8ff); text-decoration: underline; overflow-wrap: anywhere; min-width: 0; }
-  #side a { color: var(--timmy-link, #6ca8ff); }
-  #side .ok { color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-heading, 700); }
-  #side .bad { color: var(--timmy-failure, #ff5f56); font-weight: var(--timmy-weight-heading, 700); }
+  #side .job-row .k { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .job-row .job-note { grid-column: 2; color: var(--timmy-attention, #FFB000); }
+  #side button.job-show { justify-self: start; text-align: left; padding: 0; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; overflow-wrap: anywhere; min-width: 0; }
+  #side a { color: var(--timmy-link, #E8E4D9); }
+  /* R5 (H133), B10: a job that is done delivered its result: the text color, with its word and glyph (never green, never amber) */
+  #side .ok { color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-heading, 700); }
+  #side .bad { color: var(--timmy-failure, #FFB000); font-weight: var(--timmy-weight-heading, 700); }
   #side label { font-weight: var(--timmy-weight-heading, 700); }
-  #side select, #side button { font: inherit; color: var(--timmy-text, #e8e6e1); background: var(--timmy-raised, #1c1c1c); border: 1px solid var(--timmy-line-strong, #6b6b6b); border-radius: 4px; padding: 2px 6px; }
+  #side select, #side button { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-raised, #070707); border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; padding: 2px 6px; }
   /* R4 (H100): New board, the panel's footer: below the scrolling region, never over it; one row (its label, the picker and
      Open), so the list keeps the room */
   #boards { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; padding-top: 6px; border-top: 1px solid var(--timmy-line, #333333); }
   #side select { width: 100%; min-width: 0; }
   #side button { justify-self: start; cursor: pointer; }
-  /* The primary action is Homebrew green, with black ink on it. */
-  #side #board-open { background: var(--timmy-accent, #28fe14); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
-  #side :focus-visible { outline: 2px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  /* The primary next step is amber (B10), with black ink on it. */
+  #side #board-open, #side .primary { background: var(--timmy-accent, #FFB000); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  /* R5 (H133): the save line: one state at a time, in words and a glyph (src/save-state.js); amber when it needs you, never green */
+  #save { flex: none; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  #save #save-glyph { flex: none; width: 1.2em; text-align: center; color: var(--timmy-text-secondary, #8E8E93); }
+  #save #save-words { flex: 1 1 12em; min-width: 0; }
+  #save[data-state="saved"] { color: var(--timmy-text, #F2EFE9); }
+  #save[data-state="saved"] #save-glyph { color: var(--timmy-text, #F2EFE9); }
+  #save[data-needs-you="true"], #save[data-needs-you="true"] #save-glyph { color: var(--timmy-attention, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  #save-retry[hidden] { display: none; }
+  /* R5 (H133): a newer canvas on disk: Reload it (this page's version kept as a copy first), or Keep a copy of this page's */
+  #conflict { flex: none; display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-attention, #FFB000); border-radius: 4px; background: var(--timmy-raised, #070707); }
+  #conflict[hidden] { display: none; }
+  #conflict p { margin: 0; overflow-wrap: anywhere; }
+  #conflict .conflict-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  #side button[disabled] { opacity: .55; cursor: default; }
+  /* R5 (H133): drafts Timmy proposed, waiting for you: each with Show, Accept (the next step, amber) and Discard */
+  #drafts { flex: none; display: grid; gap: 4px; padding: 6px 8px; border: 1px dashed var(--timmy-accent, #FFB000); border-radius: 4px; background: var(--timmy-raised, #070707); max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; }
+  #drafts[hidden] { display: none; }
+  #drafts h2 { margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #FFB000); text-transform: uppercase; letter-spacing: .04em; }
+  #drafts #drafts-count { font-weight: var(--timmy-weight-body, 400); text-transform: none; letter-spacing: 0; color: var(--timmy-text, #F2EFE9); }
+  #drafts ol { margin: 0; }
+  #drafts li.draft { display: grid; gap: 3px; padding: 4px 0; }
+  #drafts li.draft + li.draft { border-top: 1px solid var(--timmy-line, #333333); }
+  #drafts .draft-line, #drafts .draft-where { margin: 0; overflow-wrap: anywhere; }
+  #drafts .draft-where { color: var(--timmy-text-secondary, #8E8E93); }
+  #drafts .draft-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  #side button.draft-accept { background: var(--timmy-accent, #FFB000); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  #side button.draft-show { border: 0; padding: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; }
+  #side :focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 2px; }
   /* R4 (H55): the project the REPL named, as cards: title, state in words, what is behind it, its command, and actions. */
-  #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
-  #project-note { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #project-note { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
   /* R4 (H100; r24): what a press said ("Placed card: …"), in its own band between the list and New board: it never sits on
      a row or its buttons. Empty, it takes no room (and stays a live region for screen readers). */
   #project-said { flex: none; margin: 0; overflow-wrap: anywhere; max-height: 7.5em; overflow-y: auto; }
   #project-said:not(:empty) { padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
-  #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  #project-said[data-kind="error"] { color: var(--timmy-failure, #FFB000); }
   /* R4 (H109): whether this board follows the active project or is pinned to one; the pin, visible beside the project's name */
-  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #bdbdb8); }
-  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #e8e6e1); }
-  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #e8e6e1); color: var(--timmy-text, #e8e6e1); }
+  #project-follow { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  #project-follow[data-kind="pinned"] { color: var(--timmy-text, #F2EFE9); }
+  .pin-badge { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: var(--timmy-weight-strong, 600); padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-text, #F2EFE9); color: var(--timmy-text, #F2EFE9); }
   .pin-badge[hidden] { display: none; }
   /* R4 (H109): buttons under the band's words that act on what they say (Select the cards a press placed) */
   #project-said-acts { flex: none; display: flex; flex-wrap: wrap; gap: 4px 8px; }
@@ -87,44 +167,45 @@
   #side #project-by button { border-radius: 0; }
   #side #project-by button:first-child { border-radius: 4px 0 0 4px; }
   #side #project-by button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
-  #side #project-by button[aria-pressed="true"] { border-color: var(--timmy-accent, #28fe14); box-shadow: inset 0 -2px 0 var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
+  #side #project-by button[aria-pressed="true"] { border-color: var(--timmy-accent, #FFB000); box-shadow: inset 0 -2px 0 var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
   /* R4 (H100): an operation's group: its id and state, its request, Place this operation, its cards in the order they ran */
   #side .pop + .pgroup { margin-top: 6px; padding-top: 2px; border-top: 1px solid var(--timmy-line, #333333); }
-  #side .pop-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--timmy-text, #e8e6e1); }
+  #side .pop-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--timmy-text, #F2EFE9); }
   #side .pop-state { font-weight: var(--timmy-weight-body, 400); }
-  #side .pop-request { margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #e8e6e1); }
-  #side .pop-none, #side .pop-note, #side .pop-count, #side .pcard-op { color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
+  #side .pop-request { margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  #side .pop-none, #side .pop-note, #side .pop-count, #side .pcard-op { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
   #side .pop-note { margin: 2px 0 0; }
   #side .pop-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 4px 0 2px; }
-  #side button.pop-place { font-weight: var(--timmy-weight-strong, 600); border-color: var(--timmy-accent, #28fe14); }
-  #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #bdbdb8); }
+  #side button.pop-place { font-weight: var(--timmy-weight-strong, 600); border-color: var(--timmy-accent, #FFB000); }
+  #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #8E8E93); }
   #side ol.plist { max-height: none; overflow: visible; margin: 0; gap: 0; }
   #side li.pcard { display: grid; gap: 2px; padding: 5px 0; }
   #side li.pcard + li.pcard { border-top: 1px solid var(--timmy-line, #333333); }
   #side .pcard-title { font-weight: var(--timmy-weight-strong, 600); }
-  #side .pcard-behind { color: var(--timmy-text-secondary, #bdbdb8); }
-  #side button.pcard-cmd { justify-self: stretch; text-align: left; padding: 1px 4px; background: var(--timmy-ground, #000000); border-color: var(--timmy-line, #333333); color: var(--timmy-accent, #28fe14); overflow-wrap: anywhere; }
+  #side .pcard-behind { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R5 (H133), B10: a command to type is never green, and not every one is the next step: the text color, in its well */
+  #side button.pcard-cmd { justify-self: stretch; text-align: left; padding: 1px 4px; background: var(--timmy-ground, #000000); border-color: var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9); overflow-wrap: anywhere; }
   #side button.pcard-cmd code { font: inherit; }
   #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
-  #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); }
   /* R4 (H109): an operation's run detail (src/run-detail.js), at the top of the scrolling region: each field, under it the
      record it came from. Timmy's verdict, the workflow stage, each exit, the freshness and a person's acceptance are rows of
-     their own, never merged; green only for the commands to type. */
-  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #6b6b6b); border-left: 3px solid var(--timmy-accent, #28fe14); border-radius: 4px; background: var(--timmy-raised, #1c1c1c); overflow-wrap: anywhere; }
+     their own, never merged; R5 (H133), B10: nothing in it is green (the commands to type are in the text color, in their well). */
+  #run-detail { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-accent, #FFB000); border-radius: 4px; background: var(--timmy-raised, #070707); overflow-wrap: anywhere; }
   #run-detail[hidden] { display: none; }
-  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #6b6b6b); }
-  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
+  #run-detail[data-state="not-built"], #run-detail[data-state="reading"] { border-left-color: var(--timmy-line-strong, #444444); }
+  #run-detail[data-state="refused"] { border-left-color: var(--timmy-attention, #FFB000); }
   #run-detail .rd-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
   #run-detail h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
-  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #8E8E93); }
   #run-detail .rd-dl { margin: 0; display: grid; gap: 1px; }
-  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #bdbdb8); }
+  #run-detail .rd-dl dt { color: var(--timmy-text-secondary, #8E8E93); }
   #run-detail .rd-dl dd { margin: 0 0 4px 8px; }
-  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #bdbdb8); }
-  #run-detail .rd-cmd { font: inherit; color: var(--timmy-accent, #28fe14); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
-  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #bdbdb8); }
-  #run-detail .rd-said { color: var(--timmy-text, #e8e6e1); }
-  #run-detail .rd-refused { color: var(--timmy-attention, #e5b550); }
+  #run-detail .rd-from { display: block; font-size: 11px; color: var(--timmy-text-secondary, #8E8E93); }
+  #run-detail .rd-cmd { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  #run-detail .rd-note { margin: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  #run-detail .rd-said { color: var(--timmy-text, #F2EFE9); }
+  #run-detail .rd-refused { color: var(--timmy-attention, #FFB000); }
   /* R4 (H109): Run detail beside a drawn card's Details: like Details, it shows and changes nothing (in the side panel) */
   .tc-foot-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
   .tc-rd { font: inherit; padding: 0; border: 0; background: none; color: var(--timmy-link); text-decoration: underline; cursor: pointer; }
@@ -132,8 +213,9 @@
   #project-acts { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   #project-acts[data-kind="ok"] { color: var(--timmy-text); }
   #project-acts[data-kind="refused"] { color: var(--timmy-attention); }
-  /* R4 (H75): Timmy's drawn cards on the canvas, in Timmy Homebrew from the theme's variables (src/theme/tokens.ts). Outcome
-     words stay in the text colour; green is for commands and actions; red and amber only for failed and needs-attention. */
+  /* R4 (H75): Timmy's drawn cards on the canvas, from the theme's variables (src/theme/tokens.ts). Outcome words stay in the text
+     colour. R5 (H133), B10: amber for the one action and for failed and needs-attention (each with its word); commands to type in
+     the text colour, in their well; nothing green. */
   .tc { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
     font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
   .tc-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
@@ -163,7 +245,7 @@
   .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-accent); color: var(--timmy-accent-ink); border: 1px solid var(--timmy-accent); border-radius: 4px; padding: 0 8px; cursor: pointer; }
   .tc-btn[disabled] { opacity: .55; cursor: default; }
   .tc-btn.tc-quiet { background: var(--timmy-raised); color: var(--timmy-text); border-color: var(--timmy-line-strong); font-weight: var(--timmy-weight-body); }
-  .tc-cmd { font: inherit; color: var(--timmy-accent); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
+  .tc-cmd { font: inherit; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
   .tc-table { border-collapse: collapse; width: 100%; }
   .tc-table th { text-align: left; font-weight: var(--timmy-weight-strong); padding: 2px 8px 2px 0; vertical-align: top; }
   .tc-table td { padding: 2px 8px 2px 0; vertical-align: top; overflow-wrap: anywhere; }
@@ -186,16 +268,16 @@
   .tc :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
   #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
-    text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
-  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #28fe14); margin-bottom: 6px; }
+    text-align: center; color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #FFB000); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
   /* R4 (H83): a page that loads no canvas (no session from Timmy) says why and what to type, in the middle of the page. */
   #refused { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
-    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #e5b550);
-    color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #FFB000);
+    color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #refused strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; }
   #refused p { margin: 6px 0 0; overflow-wrap: anywhere; }
-  #refused code { color: var(--timmy-accent, #28fe14); }
+  #refused code { color: var(--timmy-accent, #FFB000); }
 </style>
 </head>
 <body>
@@ -203,6 +285,15 @@
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
+    <p id="save" role="status" aria-live="polite" data-state="saved" data-needs-you="false"><span id="save-glyph" aria-hidden="true">■</span><span id="save-words">Saved.</span><button id="save-retry" type="button" hidden title="Saves this page's canvas now">Retry</button></p>
+    <section id="conflict" hidden aria-labelledby="conflict-title" role="alert">
+      <p id="conflict-title"><strong>A newer version is on disk.</strong> This page will not save over it.</p>
+      <div class="conflict-acts"><button id="conflict-reload" class="primary" type="button" title="Loads the newer canvas from disk. This page's unsaved changes are kept as a copy first.">Reload the newer version</button><button id="conflict-keep" type="button" title="Keeps this page's version as a copy beside the canvas file. The canvas on disk is unchanged.">Keep a copy</button></div>
+    </section>
+    <section id="drafts" hidden aria-labelledby="drafts-title">
+      <h2 id="drafts-title">Drafts from Timmy · <span id="drafts-count"></span></h2>
+      <ol id="draft-list"></ol>
+    </section>
     <div id="side-scroll">
       <section id="run-detail" hidden aria-labelledby="run-detail-title">
         <div class="rd-head"><h2 id="run-detail-title">Run detail</h2><button id="run-detail-again" type="button" title="Reads this run detail from Timmy's records again">Read again</button><button id="run-detail-close" type="button" title="Closes this run detail">Close</button></div>
