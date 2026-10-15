@@ -25,9 +25,11 @@
  *
  * R5 (H132, the operator's palette, DESIGN.md §10 B10): the page is drawn in Timmy's shared look again, so /timmy-theme.css
  * (src/theme/tokens.ts themeCss: the --timmy-* variables and Monaspace Argon's faces) and the four Monaspace Argon files
- * those faces name (/fonts/<name>, by exact name, from the @fontsource/monaspace-argon package, OFL-1.1, unmodified) are
- * served here, as Timmy Canvas serves its own. The page's sheet (companion.css) uses only those variables. Outfit, Inter and
- * Fira Code (b69ab12's look) are no longer named by the page. /chat.js, /markdown.js and /vendor/marked.esm.js stay gone.
+ * those faces name (by exact name, from the @fontsource/monaspace-argon package, OFL-1.1, unmodified) are served here, as
+ * Timmy Canvas serves its own. The files are at /web/fonts/<name>, beside the page's other font files (the page's files are
+ * its own and /web/'s; a page without its token asks for nothing else), answered before the built web code's own files.
+ * The page's sheet (companion.css) uses only those variables. Outfit, Inter and Fira Code (b69ab12's look) are no longer
+ * named by the page. /chat.js, /markdown.js, /vendor/marked.esm.js and /fonts/<name> stay gone.
  */
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -148,8 +150,8 @@ export const FONT_ABSENT = 'No such font here: the page uses this computer\'s ow
 
 /** R5 (H132): the path of the theme's style sheet (the variables and the font faces), as the page links it. */
 export const THEME_PATH = '/timmy-theme.css';
-/** R5 (H132): where the theme's font faces find their files (themeCss's fontPath). */
-export const THEME_FONT_PATH = '/fonts/';
+/** R5 (H132): where the theme's font faces find their files (themeCss's fontPath), beside the page's other web files. */
+export const THEME_FONT_PATH = '/web/fonts/';
 
 /** R5 (H132): Monaspace Argon's files, from its package (a runtime dependency); null when it is not installed. */
 export function themeFontDir(): string | null {
@@ -165,18 +167,19 @@ const THEME_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
 
 /**
  * R5 (H132): Timmy's shared look for the page: the theme's sheet (no project content, so no token) and Monaspace Argon's
- * files by exact name; any other name, or a font the package does not have here, is a 404 in words (no path of this
- * computer), and the page falls back to this computer's own monospace font (the theme's stack).
+ * files by exact name. Mounted before the built web code (mountWebAssets): any other name under /web/fonts/, or a Monaspace
+ * file the package does not have here, goes on to it, which answers its own files or a 404 in words (no path of this
+ * computer); the page then falls back to this computer's own monospace font (the theme's stack).
  */
 export function mountTheme(app: express.Application): void {
   const css = themeCss(THEME_FONT_PATH);
   app.get(THEME_PATH, (_req, res) => {
     res.set('Cache-Control', 'no-store').type('text/css; charset=utf-8').send(css);
   });
-  app.get(`${THEME_FONT_PATH}:file`, (req, res) => {
+  app.get(`${THEME_FONT_PATH}:file`, (req, res, next) => {
     const file = String(req.params.file);
-    const dir = themeFontDir();
-    if (!THEME_FONTS.has(file) || !dir || !existsSync(join(dir, file))) { failRequest(res, 404, FONT_ABSENT, 'text'); return; }
+    const dir = THEME_FONTS.has(file) ? themeFontDir() : null;
+    if (!dir || !existsSync(join(dir, file))) { next(); return; }
     res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(join(dir, file), (err?: Error) => {
       if (err) failRequest(res, 404, FONT_ABSENT, 'text');
     });

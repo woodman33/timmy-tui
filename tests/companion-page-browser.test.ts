@@ -281,7 +281,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
       // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
       // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's three fonts.
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/|web\/fonts\/)/.test(new URL(r).pathname))).toEqual([]);
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/|web\/fonts\/(?:outfit|inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
       expect(upstream).toEqual([]);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
       expect(await violations(page)).toEqual([]);
@@ -325,14 +325,14 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
     }
     // R5 (H132, DESIGN.md §10 B10): Timmy's shared look is served again: the --timmy-* variables with Monaspace Argon's faces,
-    // and the faces' files by their exact names only (anything else under /fonts/ is a 404 in words, no path)
+    // and the faces' files by their exact names only, beside the page's web files (anything else is a 404 in words, no path)
     const theme = await fetch(`${base}/timmy-theme.css`);
     expect(theme.status).toBe(200);
     expect(await theme.text()).toMatch(/--timmy-ground: #000000;[\s\S]*--timmy-accent: #FFB000;[\s\S]*--timmy-live: #28FE14;/);
-    const face = await fetch(`${base}/fonts/monaspace-argon-latin-400-normal.woff2`);
+    const face = await fetch(`${base}/web/fonts/monaspace-argon-latin-400-normal.woff2`);
     expect(face.status).toBe(200);
     expect(face.headers.get('content-type')).toMatch(/^font\/woff2/);
-    for (const p of ['/fonts/outfit-latin-wght-normal.woff2', '/fonts/..%2F..%2Fpackage.json', '/fonts/monaspace-argon-latin-400-normal.woff']) {
+    for (const p of ['/fonts/monaspace-argon-latin-400-normal.woff2', '/web/fonts/monaspace-argon-latin-400-normal.woff', '/web/fonts/..%2F..%2Fpackage.json']) {
       const no = await fetch(`${base}${p}`);
       expect(no.status, p).toBe(404);
       expect(await no.text(), p).not.toMatch(/\/(?:home|root|Users|tmp)\/|node_modules/);
@@ -561,7 +561,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Monaspace Argon"?/);
       }
       // a face's file the browser asked for was this server's (none, where the font is installed); b69ab12's three were not asked for
-      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/fonts/monaspace-argon-latin-\\d00-(?:normal|italic)\\.woff2$`));
+      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/web/fonts/monaspace-argon-latin-\\d00-(?:normal|italic)\\.woff2$`));
       expect(seen.outside).toEqual([]);
     } finally { await context.close(); }
   });

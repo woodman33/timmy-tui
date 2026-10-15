@@ -78,7 +78,8 @@
  *                                                                            operator's records (projects, jobs, connections)
  *   POST /api/workspace/prefs              the token                         writes the Workbench's settings file, checked
  *                                                                            against the frame's revision (409 when stale)
- *   GET /timmy-theme.css, /fonts/<name>    nothing more                      Timmy's look and Monaspace Argon: no content
+ *   GET /timmy-theme.css,                  nothing more                      Timmy's look and Monaspace Argon: no content
+ *       /web/fonts/monaspace-argon-*
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -373,10 +374,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // Serve static client files
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
+  // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
+  // before the built web code's own (src/companion/page.ts)
+  mountTheme(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
-  // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files (src/companion/page.ts)
-  mountTheme(app);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
   const favicon = faviconSvg();
   app.get([...FAVICON_PATHS], (_req, res) => {
