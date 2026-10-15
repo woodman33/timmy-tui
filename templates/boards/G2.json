@@ -1,0 +1,16 @@
+{
+  "id": "G2",
+  "kind": "guided",
+  "title": "Fleet plan review",
+  "domain": "fleet",
+  "intro": "Review a fleet plan before anything runs: its goal, the machines it names, its jobs, limits and holds. Fill each frame from the plan itself; nothing here is a measurement.",
+  "columns": 3,
+  "frames": [
+    { "name": "Goal", "guide": "The plan's purpose in a line or two, and what done looks like." },
+    { "name": "Machines", "guide": "Each machine or provider the plan names, as the plan names it, and whether it was reached: checked now, or not checked." },
+    { "name": "Jobs", "guide": "Each job the plan schedules, in order: its input, where its output goes, and what it waits for." },
+    { "name": "Limits", "guide": "The spend cap, time limits and stop conditions the plan states. Leave out what the plan does not state." },
+    { "name": "Risks and holds", "guide": "What could fail, what is on hold, and whose approval each step needs before it runs." },
+    { "name": "Decision", "guide": "Approve, change or stop, with the reason. Approval is given in Timmy, never on this board." }
+  ]
+}
