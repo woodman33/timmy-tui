@@ -207,13 +207,19 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await page.keyboard.press('Enter');
     expect(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open)).toBe(true);
     await page.focus('#board-pick');
-    await page.keyboard.press('ArrowDown'); // the first template, after "Blank board"
+    await page.keyboard.press('ArrowDown'); // the first template, after "Blank board": R5 (H133) the first guided blank board
     await page.keyboard.press('Tab');
     expect(await page.evaluate(() => document.activeElement?.id)).toBe('board-open');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(400);
     const board = await page.evaluate(() => { const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => Array<{ type: string }> } } }).timmyCanvas.editor; return { page: e.getCurrentPage().name, frames: e.getCurrentPageShapes().filter((s) => s.type === 'frame').length }; });
-    expect(board).toEqual({ page: 'Prompt Lab', frames: 4 });
+    expect(board).toEqual({ page: 'Workflow: intent → predict → sandbox → review → receipt', frames: 5 });
+    // and a seed, further down the list, still opens as its title and an empty frame per capability
+    await page.selectOption('#board-pick', 'P63');
+    await page.click('#board-open');
+    await page.waitForTimeout(400);
+    const seed = await page.evaluate(() => { const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => Array<{ type: string }> } } }).timmyCanvas.editor; return { page: e.getCurrentPage().name, frames: e.getCurrentPageShapes().filter((s) => s.type === 'frame').length }; });
+    expect(seed).toEqual({ page: 'Prompt Lab', frames: 4 });
     // tldraw's own keys, once the canvas has focus: r picks the rectangle (geo) tool, Escape goes back.
     await page.mouse.click(700, 500);
     await page.keyboard.press('r');
@@ -222,6 +228,46 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     expect(await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getCurrentToolId: () => string } } }).timmyCanvas.editor.getCurrentToolId())).toBe('select');
     await context.close();
   }, 60_000);
+
+  // R5 (H133): "Templates shipped publicly start blank and guided, without private creative assets."
+  it('opens each guided blank board as its title, what it is for, and empty frames that say what goes where: text only, no image or asset', async () => {
+    const { guidedTemplates } = await import('../src/studio/templates.js');
+    const { page, context, errors } = await open();
+    try {
+      for (const t of guidedTemplates()) {
+        await page.selectOption('#board-pick', t.id);
+        await page.click('#board-open');
+        await page.waitForTimeout(300);
+        type S = { id: string; type: string; parentId: string; props: Record<string, unknown>; meta: Record<string, unknown> };
+        const board = await page.evaluate(() => {
+          const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => S[]; getBindingsFromShape: (id: string, t: string) => Array<{ toId: string }>; store: { allRecords: () => Array<{ typeName: string }> } } } }).timmyCanvas.editor;
+          const plain = (rich: unknown): string => { const out: string[] = []; const walk = (n: { text?: string; content?: unknown[] } | undefined) => { if (!n) return; if (typeof n.text === 'string') out.push(n.text); for (const c of n.content ?? []) walk(c as never); }; walk(rich as never); return out.join(''); };
+          const shapes = e.getCurrentPageShapes();
+          const frames = shapes.filter((s) => s.type === 'frame');
+          return {
+            page: e.getCurrentPage().name,
+            types: [...new Set(shapes.map((s) => s.type))].sort(),
+            frames: frames.map((f) => ({ name: f.props.name, hints: shapes.filter((s) => s.parentId === f.id).map((s) => ({ type: s.type, text: plain(s.props.richText), part: s.meta.timmyGuide })) })),
+            texts: shapes.filter((s) => s.type === 'text' && !frames.some((f) => f.id === s.parentId)).map((s) => plain(s.props.richText)),
+            arrows: shapes.filter((s) => s.type === 'arrow').map((a) => e.getBindingsFromShape(a.id, 'arrow').length),
+            template: [...new Set(shapes.map((s) => s.meta.timmyTemplate))],
+            assets: e.store.allRecords().filter((r) => r.typeName === 'asset').length,
+          };
+        });
+        expect(board.page, t.id).toBe(t.title);
+        expect(board.frames, t.id).toEqual(t.frames.map((f) => ({ name: f.name, hints: [{ type: 'text', text: f.guide, part: 'hint' }] })));
+        expect(board.texts, t.id).toEqual([t.title, t.intro]);
+        expect(board.template, t.id).toEqual([t.id]);
+        expect(board.types, t.id).toEqual(t.flow ? ['arrow', 'frame', 'text'] : ['frame', 'text']);
+        // the workflow's stages are joined left to right, each arrow bound at both ends
+        expect(board.arrows, t.id).toEqual(t.flow ? Array(t.frames.length - 1).fill(2) : []);
+        expect(board.assets, t.id).toBe(0);
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
 
   it("its own text clears 4.5:1 on what is behind it: the panel, the job marks, links, controls, the guide", async () => {
     const { page, context } = await open();
@@ -239,7 +285,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       const link = document.createElement('a'); link.href = '#'; link.textContent = 'receipt';
       const list = document.getElementById('job-list')!;
       list.append(ok, bad, link);
-      const els: Array<[string, Element, string?]> = [['status', document.getElementById('status')!], ['jobs', document.querySelector('#jobs summary')!], ['done', ok], ['failed', bad], ['link', link],
+      // R5 (H133): and the save line
+      const els: Array<[string, Element, string?]> = [['status', document.getElementById('status')!], ['save', document.getElementById('save-words')!], ['jobs', document.querySelector('#jobs summary')!], ['done', ok], ['failed', bad], ['link', link],
         ['label', document.querySelector('label[for="board-pick"]')!], ['select', document.getElementById('board-pick')!], ['button', document.getElementById('board-open')!], ['guide', document.getElementById('guide')!, canvasBg]];
       return els.map(([name, el, behind]) => ({ name, fg: getComputedStyle(el).color, bg: behind ?? bgOf(el) }));
     });
