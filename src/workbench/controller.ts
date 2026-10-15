@@ -295,7 +295,9 @@ export class Controller {
     r.running = true;
     r.at = Date.now();
     const root = this.data.project.root;
-    void buildWorkspaceFrame({ env: this.d.env, cwd: root, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
+    // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
+    // another, its actions are still its project's)
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
       .then((f) => {
         if (this.disposed || !sameFolder(root, this.data.project.root)) return;
         const before = this.data.frame?.revision;

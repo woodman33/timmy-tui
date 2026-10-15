@@ -162,9 +162,12 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
   }
-  if (!wb.route.ready) unknown.push({ field: 'chat', why: wb.route.refusal?.join(' ') || 'no chat route is set up' });
+  if (!wb.route.ready) unknown.push({ field: 'chat', why: sentences(wb.route.refusal ?? []) || 'no chat route is set up' });
   return out;
 }
+
+/** Lines said as one paragraph: each ends as a sentence (a line with no closing mark gets a full stop), so none runs on. */
+export const sentences = (lines: readonly string[]): string => lines.map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:)]$/.test(l) ? l : `${l}.`)).join(' ');
 
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
@@ -176,7 +179,6 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
   const stop = wb.activity.stop_current;
-  const blocked = wb.workflows.docs.flatMap((d) => d.blocks.filter((b) => b.needs_person).map((b) => `${d.rel} › ${b.name}`));
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   const homeNext: WorkspaceAction = !routeReady
@@ -201,7 +203,11 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
       firstBlock
         ? act(1, `Run ${firstBlock.doc} › ${firstBlock.block}`, `/run ${firstBlock.doc} ${firstBlock.block}`, { primary: waiting === 0 && running === 0, effect: 'local change' })
         : act(1, 'Start a workflow document', '/workflows', { primary: running === 0 }),
-      act(2, blocked.length ? `Review what needs you (${blocked.length})` : 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops', { primary: waiting > 0 && running === 0 }),
+      // R5 lead (H131's report): "needs you" has one meaning on a screen, what waits on a person now (the activity's count);
+      // a block that asks first says so on its own row of the Workflows list, not in this count
+      waiting > 0
+        ? act(2, `Answer what waits on you (${waiting})`, '/room', { primary: running === 0 })
+        : act(2, 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops'),
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
