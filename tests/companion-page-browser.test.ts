@@ -865,9 +865,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(icon.headers.get('content-type'), p).toMatch(/^image\/svg\+xml/);
         const svg = await icon.text();
         expect(svg, p).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-        // Timmy Homebrew's charcoal surface and green (src/theme/tokens.ts), and no script or other site
-        expect(svg, p).toContain('fill="#121212"');
-        expect(svg, p).toContain('stroke="#28FE14"');
+        // Timmy Homebrew's well and amber accent (src/theme/tokens.ts, B10: an icon is never green), and no script or other site
+        expect(svg, p).toContain('fill="#070707"');
+        expect(svg, p).toContain('stroke="#FFB000"');
+        expect(svg.toUpperCase(), p).not.toContain('#28FE14');
         expect(svg.replace('http://www.w3.org/2000/svg', ''), p).not.toMatch(/<script|https?:|href=/i);
       }
       expect(seen.errors).toEqual([]);

@@ -1,6 +1,6 @@
 /**
  * R4 (H110): the Workbench's frame. Each zone is a panel: a border with its title in the top edge, and rows fitted inside. The
- * region that has the keyboard has a heavier border in Homebrew green and a marker before its title, so focus is visible by
+ * region that has the keyboard has a heavier border in amber (DESIGN.md B10) and a marker before its title, so focus is visible by
  * shape and words as well as by colour. Without Unicode the borders are + - | and the marker is >.
  *
  * compose() lays the panels into the screen's rows by the layout (src/workbench/layout.ts): every row is exactly the

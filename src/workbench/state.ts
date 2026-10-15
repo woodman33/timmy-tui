@@ -500,6 +500,8 @@ export function chainOf(root: string, env: Env = process.env): Receipt[] {
 // ── the state model (`timmy workbench --json`) ─────────────────────────────────
 
 export const STATE_SCHEMA = 'timmy.workbench/1';
+/** R5 lead: how many activity events `timmy workbench --json` carries (the newest first). */
+export const EVENTS_IN_JSON = 40;
 
 export interface WorkbenchJson {
   schema: typeof STATE_SCHEMA;
@@ -507,6 +509,8 @@ export interface WorkbenchJson {
   project: ProjectView;
   navigation: Array<{ group: string; items: Array<{ id: WorkspaceId; label: string; title: string; waiting?: number }> }>;
   activity: { running: number; waiting_on_you: number; last: ActivityEvent | null; stop_current: { job: string | null; words: string } };
+  /** R5 lead: the newest activity first (at most EVENTS_IN_JSON), for the workspace frame's log (src/ops/workspace-frame.ts) */
+  events: ActivityEvent[];
   route: RouteView;
   files: { total: number; truncated: boolean; by_kind: Record<string, number> };
   workflows: { upmd: boolean; docs: Array<{ rel: string; blocks: Array<{ name: string; state: string; needs: string[]; needs_person: boolean }> }> };
@@ -549,6 +553,7 @@ export async function workbenchJson(d: StateDeps = {}): Promise<WorkbenchJson> {
     schema: STATE_SCHEMA, at: new Date().toISOString(), project,
     navigation: groups.map((g) => ({ group: GROUP_LABEL[g] || 'FOOT', items: NAV.filter((n) => n.group === g).map((n) => ({ id: n.id, label: n.label, title: n.title, ...(n.id === 'control' ? { waiting: decisions.total } : {}) })) })),
     activity: { running: act.running, waiting_on_you: act.waiting, last: act.last, stop_current: { job: stop?.id ?? null, words: stop ? `Stop current: ${stop.id} ${stop.label}` : 'Stop current: idle' } },
+    events: act.events.slice(0, EVENTS_IN_JSON),
     route: readRoute(env, cwd),
     files: { total: files.total, truncated: files.truncated, by_kind: Object.fromEntries(files.groups.map((g) => [g.kind, g.files.length])) },
     workflows: { upmd: wf.upmd, docs: wf.docs.map((doc) => ({ rel: doc.rel, blocks: doc.blocks.map((b) => ({ name: b.name, state: b.word, needs: b.needs, needs_person: b.risky.length > 0 })) })) },

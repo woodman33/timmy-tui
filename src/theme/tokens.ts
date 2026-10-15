@@ -1,63 +1,91 @@
 /**
- * Timmy's shared look (round R1, DESIGN.md §10 B9): one place for the colors and the type that every
- * surface reads, so a new screen inherits them. The default is Homebrew-inspired: a black ground with
- * charcoal surfaces, readable off-white text, Homebrew green for prompts, selection and primary
- * actions, and a few restrained accents for status and navigation. Green is not proof: every outcome
- * keeps its word (verified, failed, needs setup), so color alone never says what happened.
+ * Timmy's shared look: one place for the colors and the type that every surface reads, so a new screen
+ * inherits them. The palette is the operator's decision of 2026-10-15 (DESIGN.md §10 B10), which
+ * replaces B9's green-for-interaction:
+ *
+ *   canvas and wells                                   #000000 / #070707
+ *   structure, execution, secondary controls          #333333 / #444444
+ *   primary and secondary text                         #F2EFE9 / #8E8E93
+ *   focus, primary next step, .intent, .predict,
+ *   target geometry                                    #FFB000, with the supporting silver #E8E4D9
+ *   observed live connection, passed check,
+ *   verified sealed receipt                            #28FE14 / #00D700
+ *
+ * Green is earned: a selectable command, an enabled setting, a recommendation, a running process or a
+ * delivered result is never green. Every state also keeps its word and its glyph (✓ verified, ✕ failed,
+ * ● live, needs setup), so color alone never says what happened. The palette has no red, blue, cyan,
+ * violet or mint; a failure is amber with ✕ and the word, and made-by-a-model is silver with its word.
  *
  * The terminal palette (src/term/palettes.ts, TIMMY_HOMEBREW), the terminal theme files and the browser
  * pages (themeCss) are all built from these values. Pure data and string building: no imports at run
- * time, so Node and the browser pages can both use it. The canvas's artwork colors are tldraw's and the
- * operator's, never these.
+ * time, so Node and the browser pages can both use it. Content keeps its own colors: the canvas's
+ * artwork, imported images and video, reference artwork and scientifically meaningful data are never
+ * recolored to fit this chrome.
  */
 import type { TerminalPalette } from '../term/palettes.js';
 
-/** The green of macOS Terminal's Homebrew profile (its text color). */
+/** The green of macOS Terminal's Homebrew profile: observed live, passed, verified and sealed, nothing else. */
 export const HOMEBREW_GREEN = '#28FE14';
+/** The amber of focus, the primary next step, intent, prediction and target geometry (exactly this; not #E5B550). */
+export const HOMEBREW_AMBER = '#FFB000';
 
 /** The browser surfaces' colors (and the terminal palette's defaults). */
 export const HOMEBREW = {
-  /** The page and the terminal: black. */
+  /** The canvas: the page, the terminal, every viewport. */
   ground: '#000000',
-  /** Panels and cards: charcoal. */
-  surface: '#121212',
-  /** Menus, inputs and hovered rows on a panel. */
-  raised: '#1C1C1C',
-  /** Hairlines that only separate. */
+  /** Wells: panels and cards. */
+  surface: '#070707',
+  /** Menus and inputs: wells too, told apart by their border, never by a lighter fill. */
+  raised: '#070707',
+  /** Hairlines that only separate (low contrast on purpose; never a control's only boundary). */
   line: '#333333',
-  /** Borders that mark a control (3:1 on every ground). */
-  lineStrong: '#6B6B6B',
-  /** Most text: off-white. */
-  text: '#E8E6E1',
-  /** Labels and hints. */
-  textSecondary: '#BDBDB8',
-  /** Prompts, the selection, and primary actions. */
-  accent: HOMEBREW_GREEN,
-  /** Text on an accent fill. */
+  /** Structure, execution stages and secondary controls. A control also carries its words or a fill. */
+  lineStrong: '#444444',
+  /** Primary text. */
+  text: '#F2EFE9',
+  /** Secondary labels and hints (6.4:1 on the canvas). */
+  textSecondary: '#8E8E93',
+  /** Focus, the primary next step, .intent and .predict cards, target geometry. */
+  accent: HOMEBREW_AMBER,
+  /** Text on an amber or green fill. */
   accentInk: '#000000',
-  /** The selection's ground. */
-  accentSoft: '#14451B',
-  /** Waiting for you, estimates, cost. */
-  attention: '#E5B550',
-  /** Failed, refused, destructive. */
-  failure: '#FF5F56',
-  /** Made by a model, or sent over the network (B4). */
-  ai: '#B58CFF',
-  /** Links and navigation. */
-  link: '#6CA8FF',
+  /** The selection's ground: structure grey, so the selection never reads as a state. */
+  accentSoft: '#333333',
+  /** The supporting silver beside amber: secondary target geometry and neutral highlights. */
+  silver: '#E8E4D9',
+  /** Waiting for you, estimates, cost: amber, always with its word. */
+  attention: HOMEBREW_AMBER,
+  /** Failed, refused, destructive: amber with ✕ and the word (the palette has no red). */
+  failure: HOMEBREW_AMBER,
+  /** Observed live connection, passed check, verified sealed receipt. Nothing selectable, enabled, recommended, running or merely delivered. */
+  live: HOMEBREW_GREEN,
+  /** The second green of the same meaning (smaller marks, the terminal's bright twin). */
+  liveDim: '#00D700',
+  /** Made by a model, or sent over the network (B4): silver with its word. */
+  ai: '#E8E4D9',
+  /** Links: silver, underlined. */
+  link: '#E8E4D9',
+  /** Diff markers (B5): + keeps green and − keeps red. The one red, and the one green that is not proof. */
+  diffAdd: HOMEBREW_GREEN,
+  diffRemove: '#FF5F56',
 } as const;
 
-/** Timmy Homebrew as a terminal palette: the ground, the text, and the 16 slots Timmy's roles use. */
+/**
+ * Timmy Homebrew as a terminal palette: the ground, the text, and the 16 slots. Timmy's roles use
+ * slot 2 (green: live, passed, sealed), 3 (amber: focus, next step, estimates, failures), 7 (silver:
+ * made by a model), 8 (secondary labels) and 1 (red: diff removals only); the other slots keep
+ * conventional values for the other programs in the same terminal and are never Timmy's chrome.
+ */
 export const HOMEBREW_TERMINAL: TerminalPalette = {
   name: 'Timmy Homebrew',
   background: HOMEBREW.ground,
   foreground: HOMEBREW.text,
-  cursor: '#38FE27',
+  cursor: HOMEBREW.accent,
   selection: HOMEBREW.accentSoft,
-  black: '#1C1C1C', red: HOMEBREW.failure, green: HOMEBREW.accent, yellow: HOMEBREW.attention,
-  blue: HOMEBREW.link, magenta: HOMEBREW.ai, cyan: '#5CC8D6', white: HOMEBREW.textSecondary,
-  brightBlack: HOMEBREW.lineStrong, brightRed: '#FF8A80', brightGreen: '#7DFF6E', brightYellow: '#FFD479',
-  brightBlue: '#9CC3FF', brightMagenta: '#D0B3FF', brightCyan: '#8EE3EC', brightWhite: '#FFFFFF',
+  black: HOMEBREW.surface, red: HOMEBREW.diffRemove, green: HOMEBREW.live, yellow: HOMEBREW.accent,
+  blue: '#6CA8FF', magenta: '#B58CFF', cyan: '#5CC8D6', white: HOMEBREW.silver,
+  brightBlack: HOMEBREW.textSecondary, brightRed: '#FF8A80', brightGreen: HOMEBREW.liveDim, brightYellow: '#FFC94D',
+  brightBlue: '#9CC3FF', brightMagenta: '#D0B3FF', brightCyan: '#8EE3EC', brightWhite: HOMEBREW.text,
 };
 
 /** Type: Monaspace Argon when it can be had, then the system's monospace faces, then any monospace. */

@@ -13,7 +13,7 @@ export type Role =
   | 'secondary'
   /** a name or a heading: off-white, bold */
   | 'strong'
-  /** a command, a key, a button: Homebrew green */
+  /** a command, a key, a button: amber (DESIGN.md B10) */
   | 'action'
   /** a link or a place to go: blue */
   | 'link'

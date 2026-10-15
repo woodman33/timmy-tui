@@ -155,8 +155,8 @@ describe.skipIf(!browserPath)('the live board in a real browser (headless Chromi
       { id: 'room', tag: 'A', href: '#room', text: 'Control Room' },
       { id: 'overview', tag: 'A', href: '#overview', text: 'God\'s Eye View' },
     ]);
-    // Timmy Homebrew's tokens (src/theme/tokens.ts: surface #121212, link #6CA8FF), and no style attribute (the page's policy allows none)
-    expect([top.ground, top.link, top.styled]).toEqual(['rgb(18, 18, 18)', 'rgb(108, 168, 255)', 0]);
+    // Timmy Homebrew's tokens (src/theme/tokens.ts, B10: well #070707, link silver #E8E4D9), and no style attribute (the page's policy allows none)
+    expect([top.ground, top.link, top.styled]).toEqual(['rgb(7, 7, 7)', 'rgb(232, 228, 217)', 0]);
     // Control Room, then God's Eye View: each jumps to its section, and the board stays live (its token is in the page, not the address)
     for (const id of ['room', 'overview'] as const) {
       await page.click(`nav.surfaces a[data-surface="${id}"]`);
