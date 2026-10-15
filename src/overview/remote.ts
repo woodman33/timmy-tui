@@ -462,7 +462,7 @@ function modelCounts(m: CostsSection['model']): CostsSection['counts'] {
  * keep Waiting on you's own order (src/room/decisions.ts TIER: approval, refused save, left, setup, failed, lesson).
  */
 export const NEED_RANK: Readonly<Record<string, number>> = {
-  approval: 0, 'stale-save': 0, 'host-key-changed': 1, left: 2, 'cloud-unknown_outcome': 2, 'remote-job': 2, setup: 3, 'cloud-cancel_asked': 3,
+  approval: 0, 'stale-save': 0, 'host-key-changed': 1, left: 2, 'cloud-unknown_outcome': 2, 'remote-job': 2, 'fleet-unknown': 2, 'fleet-left': 2, setup: 3, 'cloud-cancel_asked': 3,
   'cloud-deletion_unknown': 3, 'cloud-event_log': 3, failed: 4, interrupted: 4, differs: 4, 'cloud-failed_step': 4, 'cloud-approval': 4,
   'cloud-stopped_mid_order': 5, 'cloud-purchase_blocked': 5, 'cloud-subscription_canceled': 5, 'device-unreachable': 5, 'host-key': 5,
   'cloud-deletion_approval': 7, 'cloud-domain_decision': 7, 'cloud-export': 8, lesson: 9,
