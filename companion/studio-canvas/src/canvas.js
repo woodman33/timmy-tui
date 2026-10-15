@@ -4,15 +4,23 @@
 // so the canvas loads nothing from another host. The license key is never built in: the server
 // hands it to the page at run time. The canvas itself is saved by Timmy, in its home, and opened
 // from there: it reopens where it was, and the terminal reads the same document.
+//
+// R5 (H133): tldraw's chrome on Timmy's palette (./theme.js and index.html; DESIGN.md §10 B10), dark only; what Timmy proposes
+// arrives as a draft the person accepts or discards (./drafts.js); the save says saving, saved, failed or conflict in words and
+// a glyph, with a recovery path (./save-state.js); and the guided blank templates open as text and empty frames.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BaseBoxShapeUtil, Box, HTMLContainer, T, Tldraw, Vec, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useValue } from 'tldraw';
+import { AccessibilityMenu, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { band, createProjectPanel } from './project.js';
 import { createCards, drawnType } from './cards.js';
 // R4 (H109): an operation's run detail (src/contracts/run-detail.ts, made by Timmy) in the side panel
 import { createRunDetailPanel } from './run-detail.js';
+// R5 (H133): B10 for tldraw's canvas colors; drafts; the save's words
+import { timmyThemes } from './theme.js';
+import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
+import { saveState } from './save-state.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -48,8 +56,12 @@ const LICENSE = {
  * window saved first: this one then stops saving rather than overwrite it. R4 (H83): `refused` is set when Timmy refused a
  * save to this page's session (it no longer counts: another project or REPL holds the canvas, or it ended); the page's changes
  * stay in it, unsaved, and the next change tries again.
+ * R5 (H133): `saving` while a save is on its way; `savedAt` when the last one landed; `failed` why the last save did not happen
+ * (Timmy unreachable, too large, an error: the next change or Retry tries again); `conflict` is { words, revision } (the
+ * revision on disk); `stale` ({ revision }) when the canvas on disk is newer than this page's last save, seen before a save;
+ * `kept` where this page's version was kept as a copy. Neither conflict nor stale is ever saved over.
  */
-const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: null, refused: null, notice: null, linked: false, timer: null };
+const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, savedAt: null, saving: false, failed: null, conflict: null, stale: null, kept: null, refused: null, notice: null, linked: false, timer: null };
 
 /**
  * The live editor. A canvas call that crashes tldraw gets a fresh editor (round R1: see `restore`), so
@@ -78,50 +90,92 @@ const cards = createCards({
   runDetail: (op, projectId) => showRunDetail(op, projectId),
 });
 
+/** R5 (H133): the save in words for the status line's end (the save line, #save, says it in full). */
+function savedWords(st) {
+  if (st.state === 'saved') return `revision ${canvas.revision}, saved`;
+  if (st.state === 'saving' || st.state === 'unsaved') return `revision ${canvas.revision}, saving`;
+  return `revision ${canvas.revision}, not saved`;
+}
+
 function showStatus(editor) {
   const state = editor.licenseManager?.state.get() ?? 'unknown';
   window.timmyCanvas.licenseState = state;
-  if (canvas.conflict) {
-    say(`Not saved: ${canvas.conflict}`, 'error');
-    return;
-  }
+  showSave();
   // R4 (H83): Timmy refused this page's save, in its own words (which say what to do).
   if (canvas.refused) {
     say(`Not saved: ${canvas.refused}`, 'refused');
     return;
   }
-  const saved = canvas.revision === canvas.savedRevision ? `revision ${canvas.revision}, saved` : `revision ${canvas.revision}, saving`;
-  const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${saved}`;
-  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.linked ? 'ready' : 'waiting');
+  const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${savedWords(saveState(canvas))}`;
+  // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
+  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
   if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 
+/**
+ * R5 (H133): the save line (#save) and, when a newer version is on disk, the recovery box (#conflict): Reload takes the newer
+ * version (this page's version kept as a copy first when it has unsaved changes), Keep a copy keeps it beside the canvas file.
+ */
+function showSave() {
+  const st = saveState(canvas);
+  const line = document.getElementById('save');
+  if (!line) return;
+  line.dataset.state = st.state;
+  line.dataset.needsYou = String(st.needsYou);
+  document.getElementById('save-glyph').textContent = st.glyph;
+  document.getElementById('save-words').textContent = st.words;
+  document.getElementById('save-retry').hidden = st.state !== 'failed';
+  const box = document.getElementById('conflict');
+  const newer = st.state === 'conflict' || st.state === 'stale';
+  box.hidden = !newer;
+  if (newer) document.getElementById('conflict-keep').disabled = Boolean(canvas.kept) && canvas.revision === canvas.keptRevision;
+}
+
+/** R5 (H133): the document as this page holds it, as the save sends it. */
+const documentBody = () => JSON.stringify({ snapshot: getSnapshot(current.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
+
 // Saves go one at a time, each from the revision the last one left on disk.
 let queue = Promise.resolve();
+/** R5 (H133): the recording of decisions on drafts, one at a time (flushDecisions). */
+let flushing = Promise.resolve();
 async function saveNow() {
   const editor = current;
-  if (canvas.conflict) return { ok: false, error: canvas.conflict };
+  if (canvas.conflict) return { ok: false, error: canvas.conflict.words };
+  // R5 (H133): a newer canvas is on disk: this page never saves over it (Reload, or Keep a copy)
+  if (canvas.stale) return { ok: false, error: saveState(canvas).words };
   if (canvas.revision === canvas.savedRevision) return { ok: true, revision: canvas.revision, sourceRevision: canvas.sourceRevision };
   const revision = canvas.revision;
   let status = 0;
+  let reached = true;
   let saved;
+  canvas.saving = true;
+  showSave();
   try {
     // R4 (H83): saved with this page's session (./cards.js holds it; this file never sees it)
     const response = await cards.saveDocument(JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision, baseRevision: canvas.savedRevision }));
     status = response.status;
     saved = response.body || { ok: false, error: `Timmy answered ${status} for the save.` };
   } catch (error) {
+    reached = false;
     saved = { ok: false, error: `Timmy could not be reached to save the canvas (${error instanceof Error ? error.message : String(error)}).` };
   }
+  canvas.saving = false;
   if (saved.ok) {
     canvas.savedRevision = saved.revision;
     canvas.sourceRevision = saved.sourceRevision;
+    canvas.savedAt = typeof saved.savedAt === 'string' ? saved.savedAt : new Date().toISOString();
     canvas.notice = null;
     canvas.refused = null;
+    canvas.failed = null;
+    // R5 (H133): the decisions on drafts this save holds are recorded now, one at a time
+    flushing = flushing.then(() => flushDecisions(saved)).catch(() => undefined);
   } else if (status === 409) {
-    canvas.conflict = saved.error;
-  } else if (status === 401 || status === 0) {
+    canvas.conflict = { words: saved.error, revision: Number.isInteger(saved.revision) ? saved.revision : null };
+  } else if (reached && (status === 401 || status === 0)) {
     canvas.refused = saved.error || 'Timmy refused this page\'s save. In Timmy: /canvas open.';
+  } else {
+    // R5 (H133): not saved, and said so (it had stayed "saving" for good): Retry, or the next change, tries again
+    canvas.failed = saved.error || `Timmy answered ${status} for the save.`;
   }
   showStatus(editor);
   return saved;
@@ -142,19 +196,91 @@ const saveSoon = () => {
  * an ordinary one, which the browser may cut off: then the last 400 ms of changes can be lost.
  */
 function saveOnLeave() {
-  if (!current || canvas.conflict || canvas.revision === canvas.savedRevision || !cards.hasSession()) return;
+  if (!current || canvas.conflict || canvas.stale || canvas.revision === canvas.savedRevision || !cards.hasSession()) return;
   clearTimeout(canvas.timer);
-  const body = JSON.stringify({ snapshot: getSnapshot(current.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
+  const body = documentBody();
   cards.saveDocument(body, body.length < 60_000).catch(() => undefined);
+}
+
+/**
+ * R5 (H133): the canvas on disk, as Timmy's health says (no content: its revision and source revision). A canvas newer than this
+ * page's last save (another window saved it) marks this page stale before it tries to save over it. A reading that began before
+ * this page's own last save landed, or while a save is on its way, is ignored.
+ */
+async function checkDisk() {
+  if (!current || canvas.conflict || canvas.stale || canvas.saving) return;
+  const asked = { revision: canvas.savedRevision, source: canvas.sourceRevision };
+  let health;
+  try {
+    const r = await fetch('/api/canvas/health', { cache: 'no-store' });
+    if (!r.ok) return;
+    health = await r.json();
+  } catch {
+    return;
+  }
+  if (canvas.saving || canvas.savedRevision !== asked.revision || canvas.sourceRevision !== asked.source) return;
+  if (!Number.isInteger(health.revision)) return;
+  const newer = health.revision !== canvas.savedRevision || (health.revision > 0 && typeof health.sourceRevision === 'string' && canvas.sourceRevision && health.sourceRevision !== canvas.sourceRevision);
+  if (newer) {
+    canvas.stale = { revision: health.revision };
+    clearTimeout(canvas.timer);
+    showStatus(current);
+  }
+}
+
+/** R5 (H133): Keep a copy: this page's version, kept beside the canvas file (it never replaces it). */
+async function keepCopy() {
+  if (!current) return null;
+  const r = await cards.keepCopy(documentBody()).catch((error) => ({ status: 0, ok: false, body: { ok: false, error: error instanceof Error ? error.message : String(error) } }));
+  const said = r.body || {};
+  if (r.ok && said.ok === true && typeof said.kept === 'string') {
+    canvas.kept = said.kept;
+    canvas.keptRevision = canvas.revision;
+    band(`Kept this page's version (revision ${canvas.revision}) as ${said.kept}, beside the canvas file in Timmy's canvas folder. The canvas on disk is unchanged.`);
+    showStatus(current);
+    return said.kept;
+  }
+  band(`Not kept: ${said.error || `Timmy answered ${r.status}.`}`, true);
+  return null;
+}
+
+/**
+ * R5 (H133): Reload: the newer canvas from disk, in a fresh editor. This page's unsaved changes are kept as a copy first (never
+ * lost without a copy); then the page shows and saves from the revision on disk.
+ */
+async function reloadFromDisk() {
+  if (!current) return;
+  if (canvas.revision !== canvas.savedRevision && !(canvas.kept && canvas.keptRevision === canvas.revision)) {
+    if (!(await keepCopy())) return;
+  }
+  const opened = await cards.loadDocument();
+  if (!opened.ok || !opened.body) {
+    band(`Not reloaded: ${opened.why || `Timmy answered ${opened.status} for the saved canvas.`}`, true);
+    return;
+  }
+  const disk = opened.body;
+  clearTimeout(canvas.timer);
+  await mount(disk.snapshot ? { document: disk.snapshot } : undefined);
+  Object.assign(canvas, { revision: disk.revision, savedRevision: disk.revision, sourceRevision: disk.sourceRevision, savedAt: disk.savedAt ?? null, saving: false, failed: null, conflict: null, stale: null, refused: null });
+  const kept = canvas.kept;
+  canvas.kept = null;
+  band(`Reloaded revision ${disk.revision} from disk.${kept ? ` This page's version is kept as ${kept}.` : ''}`);
+  showStatus(current);
+  showDrafts(current);
+  showJobs(current);
 }
 
 // The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
 // and the answer goes back only after the canvas is saved, with the revision and the source revision
 // of what was saved, so the terminal and the file agree on what the call produced. Calls run one at a
 // time, and every shape created while a job's code runs carries that job's ID in meta.timmyJob.
+// R5 (H133): a call sent as a draft marks what it creates (meta.timmyDraft) and only adds; one made from a revision the canvas
+// has left is refused before it runs (./drafts.js).
 const AsyncFunction = (async () => {}).constructor;
 const MAX_ANSWER = 256 * 1024;
 let runningJob = null;
+/** R5 (H133): the mark of the draft the running call makes, or null when it is not a draft. */
+let drafting = null;
 let calls = Promise.resolve();
 /** The shapes the running call has created, so they can be brought into view when it ends. */
 let drawnInCall = null;
@@ -204,10 +330,15 @@ function reveal(editor, ids) {
 function attachEditor(editor) {
   editor.sideEffects.registerBeforeCreateHandler('shape', (shape) => {
     drawnInCall?.add(shape.id);
-    return runningJob ? { ...shape, meta: { ...shape.meta, timmyJob: runningJob } } : shape;
+    if (!runningJob && !drafting) return shape;
+    // R5 (H133): a draft's shapes carry its mark as well as the job
+    return { ...shape, meta: { ...shape.meta, ...(runningJob ? { timmyJob: runningJob } : {}), ...(drafting ? { timmyDraft: drafting } : {}) } };
   });
+  // R5 (H133): an asset a draft brings (an image it shows) carries the mark too, so Discard takes it with the shapes
+  editor.sideEffects.registerBeforeCreateHandler('asset', (asset) => (drafting ? { ...asset, meta: { ...asset.meta, timmyDraft: drafting } } : asset));
   const bump = () => {
     canvas.revision += 1;
+    if (canvas.failed) canvas.failed = null;
     saveSoon();
     if (current) showStatus(current);
   };
@@ -246,6 +377,13 @@ async function restore(editor, before, mark, crashed) {
   if (!sameDocument(now.document, before.document)) editor.loadSnapshot(before);
 }
 
+/** R5 (H133): the draft a bridge message asks for ({ id, baseRevision }), or null when the call is not a draft. */
+function draftAsked(message) {
+  const d = message && message.draft;
+  if (!d || typeof d !== 'object' || typeof d.id !== 'string' || !DRAFT_ID.test(d.id)) return null;
+  return { id: d.id, baseRevision: Number.isInteger(d.baseRevision) && d.baseRevision >= 0 ? d.baseRevision : null };
+}
+
 function connectBridge() {
   const helpers = { Box, Vec, createBindingId, createShapeId, toRichText };
   // R4 (H83): the page joins with its session (./cards.js makes the socket; this file never sees the session). A page Timmy
@@ -268,45 +406,73 @@ function connectBridge() {
       const editor = current;
       const before = getSnapshot(editor.store);
       const revisionBefore = canvas.revision;
-      const mark = editor.markHistoryStoppingPoint(`timmy ${typeof message.jobId === 'string' ? message.jobId : 'call'}`);
+      const draft = draftAsked(message);
       let answer;
-      runningJob = typeof message.jobId === 'string' ? message.jobId : null;
-      drawnInCall = new Set();
-      try {
-        // R4 (H81): this code runs in this page's own realm, with the page's own rights: it can reach the network, replace
-        // the page's globals and rewrite what the page and its cards show. It cannot read the cards' session or turn a
-        // person's click on one card button into another's (./cards.js says how), but it can put a card's button under a
-        // person's next click. The REPL's NEEDS YOU box for canvas_exec, asked before every script, is the barrier.
-        const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
-        const json = JSON.stringify(result === undefined ? null : result);
-        answer = json.length > MAX_ANSWER
-          ? { ok: false, error: `The result is too large to send back (${Math.round(json.length / 1024)} KB); return less.` }
-          : { ok: true, result: JSON.parse(json) };
-      } catch (error) {
-        answer = { ok: false, error: describe(error) };
-      } finally {
-        runningJob = null;
-      }
-      const drawn = [...drawnInCall];
-      drawnInCall = null;
-      const crash = typeof editor.getCrashingError === 'function' ? editor.getCrashingError() : null;
-      if (!answer.ok || crash) {
-        // Nothing a failed call drew is kept, and a crashed page is started again (see restore).
-        if (answer.ok) answer = { ok: false, error: `The canvas page crashed during this call (${describe(crash)}).` };
-        try {
-          await restore(editor, before, mark, Boolean(crash));
-          answer.rolledBack = true;
-          if (crash) answer.restarted = true;
-          // The canvas changed and changed back: one more revision, so the saved file follows.
-          if (canvas.revision !== revisionBefore) canvas.revision += 1;
-        } catch (error) {
-          answer.rollbackError = describe(error);
-        }
+      let drawn = [];
+      if (draft && draft.baseRevision !== null && draft.baseRevision !== canvas.revision) {
+        // R5 (H133): made from a revision the canvas has left: refused before its code runs, and said so
+        answer = { ok: false, error: staleWords(draft.baseRevision, canvas.revision), stale: true, draft: { id: draft.id, refused: 'stale', from: draft.baseRevision, now: canvas.revision } };
       } else {
+        const mark = editor.markHistoryStoppingPoint(`timmy ${typeof message.jobId === 'string' ? message.jobId : 'call'}`);
+        runningJob = typeof message.jobId === 'string' ? message.jobId : null;
+        const callMark = draft ? draftMark({ id: draft.id, job: runningJob, from: canvas.revision }) : null;
+        drafting = callMark;
+        drawnInCall = new Set();
         try {
-          reveal(editor, drawn);
-        } catch {
-          // Showing the drawing is a courtesy; the call's answer never depends on it.
+          // R4 (H81): this code runs in this page's own realm, with the page's own rights: it can reach the network, replace
+          // the page's globals and rewrite what the page and its cards show. It cannot read the cards' session or turn a
+          // person's click on one card button into another's (./cards.js says how), but it can put a card's button under a
+          // person's next click. The REPL's NEEDS YOU box for canvas_exec, asked before every script, is the barrier.
+          const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
+          const json = JSON.stringify(result === undefined ? null : result);
+          answer = json.length > MAX_ANSWER
+            ? { ok: false, error: `The result is too large to send back (${Math.round(json.length / 1024)} KB); return less.` }
+            : { ok: true, result: JSON.parse(json) };
+        } catch (error) {
+          answer = { ok: false, error: describe(error) };
+        } finally {
+          runningJob = null;
+          drafting = null;
+        }
+        drawn = [...drawnInCall];
+        drawnInCall = null;
+        const crash = typeof editor.getCrashingError === 'function' ? editor.getCrashingError() : null;
+        // R5 (H133): a draft only adds; one that touched the board's own shapes keeps nothing, and says why. Everything the call
+        // created carries this draft's mark when it ends, whatever its code did to the mark (code that stripped it would have
+        // put its shapes on the board without the person's Accept).
+        if (answer.ok && !crash && draft) {
+          const after = getSnapshot(editor.store);
+          const changes = documentChanges(before.document.store, after.document.store);
+          const refusal = draftRefusal(changes, before.document.store, after.document.store);
+          if (refusal) {
+            answer = { ok: false, error: refusal, draft: { id: draft.id, refused: 'changes' } };
+          } else {
+            const unmarked = remarkPlan(changes.created.map((id) => editor.store.get(id)), callMark);
+            if (unmarked.length) editor.run(() => editor.store.put(unmarked));
+          }
+        }
+        if (!answer.ok || crash) {
+          // Nothing a failed call drew is kept, and a crashed page is started again (see restore).
+          if (answer.ok) answer = { ok: false, error: `The canvas page crashed during this call (${describe(crash)}).` };
+          try {
+            await restore(editor, before, mark, Boolean(crash));
+            answer.rolledBack = true;
+            if (crash) answer.restarted = true;
+            // The canvas changed and changed back: one more revision, so the saved file follows.
+            if (canvas.revision !== revisionBefore) canvas.revision += 1;
+          } catch (error) {
+            answer.rollbackError = describe(error);
+          }
+        } else {
+          if (draft) {
+            const marked = current.store.allRecords().filter((r) => r.typeName === 'shape' && draftOf(r)?.id === draft.id).length;
+            answer.draft = { id: draft.id, shapes: marked, from: revisionBefore };
+          }
+          try {
+            reveal(editor, drawn);
+          } catch {
+            // Showing the drawing is a courtesy; the call's answer never depends on it.
+          }
         }
       }
       const saved = await save();
@@ -316,6 +482,7 @@ function connectBridge() {
       ws.send(JSON.stringify({ id: message.id, ...answer, changed, revision: canvas.revision, ...savedAs }));
       // The server records the job when it reads this answer; show it a moment later.
       setTimeout(() => void refreshJobs(), 200);
+      if (current) showDrafts(current);
     };
     ws.onmessage = (event) => {
       let message;
@@ -410,6 +577,140 @@ function showGuide(editor) {
   document.getElementById('guide').hidden = editor.getCurrentPageShapes().length > 0;
 }
 
+// ── R5 (H133): drafts in the side panel: each pending draft with Show, Accept and Discard ───────────────────────────────
+/** The decisions made on this page, waiting for their save to land before they are recorded (then sent and dropped). */
+const decisions = [];
+let draftsShown = '';
+function showDrafts(editor) {
+  const pending = pendingDrafts(editor.store.allRecords());
+  const key = JSON.stringify(pending.map((d) => [d.id, d.shapes.length, d.pages]));
+  if (key === draftsShown) return;
+  draftsShown = key;
+  const box = document.getElementById('drafts');
+  const list = document.getElementById('draft-list');
+  box.hidden = pending.length === 0;
+  document.getElementById('drafts-count').textContent = pending.length === 1 ? '1 waiting for you' : `${pending.length} waiting for you`;
+  const pageName = (id) => editor.getPage(id)?.name ?? 'another page';
+  list.replaceChildren(...pending.map((d) => {
+    const li = el('li', undefined, { className: 'draft' });
+    li.dataset.draft = d.id;
+    li.append(el('p', draftLine(d), { className: 'draft-line' }));
+    const here = d.pages.includes(editor.getCurrentPageId());
+    if (!here) li.append(el('p', `On ${d.pages.map(pageName).join(', ')}.`, { className: 'draft-where' }));
+    const acts = el('div', undefined, { className: 'draft-acts' });
+    const show = el('button', 'Show', { type: 'button', className: 'draft-show', title: 'Selects the draft\'s shapes and brings them into view' });
+    const accept = el('button', 'Accept', { type: 'button', className: 'draft-accept', title: 'Keeps the draft\'s shapes on the board and clears their draft mark. Nothing runs: no tool, job or file but the canvas.' });
+    const discard = el('button', 'Discard', { type: 'button', className: 'draft-discard', title: 'Removes the draft\'s shapes from the board. Nothing runs: no tool, job or file but the canvas.' });
+    // a decision is the person's: only a click the browser marks as theirs (a pointer, or Enter or Space on the focused button)
+    // decides; code on the page (the agent's own calls run here) calling .click() on Accept decides nothing
+    show.addEventListener('click', () => showDraft(d.id));
+    accept.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'accepted'); });
+    discard.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'discarded'); });
+    acts.append(show, accept, discard);
+    li.append(acts);
+    return li;
+  }));
+}
+function showDraft(id) {
+  const editor = current;
+  if (!editor) return;
+  const d = pendingDrafts(editor.store.allRecords()).find((x) => x.id === id);
+  if (!d) return;
+  if (!d.pages.includes(editor.getCurrentPageId()) && d.pages[0]) editor.setCurrentPage(d.pages[0]);
+  const here = d.shapes.filter((s) => editor.getAncestorPageId(s) === editor.getCurrentPageId());
+  editor.select(...here);
+  reveal(editor, here);
+}
+/**
+ * R5 (H133): a person's decision on draft `id`: Accept clears its mark (its shapes stay), Discard removes its shapes (and assets
+ * no other shape shows; the person's own shapes inside them are moved out first). Either is one undo step, saved through the
+ * normal revision-checked save, and recorded once that save lands (flushDecisions). Nothing else runs.
+ */
+function decide(id, decision) {
+  const editor = current;
+  if (!editor) return;
+  const records = editor.store.allRecords();
+  const d = pendingDrafts(records).find((x) => x.id === id);
+  if (!d) { band('That draft is no longer on the board.', true); showDrafts(editor); return; }
+  editor.markHistoryStoppingPoint(`timmy ${decision} ${id}`);
+  if (decision === 'accepted') {
+    const next = acceptPlan(records, id);
+    editor.run(() => editor.store.put(next));
+  } else {
+    const plan = discardPlan(records, id);
+    editor.run(() => {
+      for (const [child, parent] of Object.entries(plan.keepOut)) editor.reparentShapes([child], parent);
+      editor.deleteShapes(plan.shapes);
+      if (plan.assets.length) editor.deleteAssets(plan.assets);
+    });
+  }
+  // recorded once a save holds it: a save already on its way when the person decided does not (`made`, the revision it left)
+  decisions.push({ record: { draft: id, decision, shapes: d.shapes.length, job: d.job, from: d.from, at: new Date().toISOString() }, made: canvas.revision });
+  band(decisionWords(decision, d, null));
+  showDrafts(editor);
+  void save();
+}
+/** R5 (H133): every decision whose save has landed, recorded with the revision and source revision that save produced. */
+async function flushDecisions(saved) {
+  while (decisions.length && decisions[0].made <= saved.revision) {
+    const next = decisions[0].record;
+    const body = { ...next, revision: saved.revision, sourceRevision: saved.sourceRevision };
+    let r;
+    try { r = await cards.draftDecision(body); } catch { r = { ok: false }; }
+    if (!r.ok) { band(`${decisionWords(next.decision, { count: next.shapes, job: next.job }, saved)} The record of it was not written (Timmy answered ${r.status ?? 'nothing'}); it is tried again with the next save.`, true); return; }
+    decisions.shift();
+    band(decisionWords(next.decision, { count: next.shapes, job: next.job }, saved));
+  }
+}
+
+/** R5 (H133): the outline and label of each pending draft on the page shown, in front of the canvas (never taking a click). */
+function DraftMarks() {
+  const editor = useEditor();
+  const marks = useValue('timmy: drafts on this page', () => {
+    const groups = new Map();
+    for (const shape of editor.getCurrentPageShapes()) {
+      const d = draftOf(shape);
+      if (!d) continue;
+      const b = editor.getShapePageBounds(shape.id);
+      if (!b) continue;
+      const g = groups.get(d.id) ?? { id: d.id, minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      g.minX = Math.min(g.minX, b.minX); g.minY = Math.min(g.minY, b.minY); g.maxX = Math.max(g.maxX, b.maxX); g.maxY = Math.max(g.maxY, b.maxY);
+      groups.set(d.id, g);
+    }
+    const pad = 10;
+    return [...groups.values()].map((g) => {
+      const a = editor.pageToViewport({ x: g.minX, y: g.minY });
+      const z = editor.pageToViewport({ x: g.maxX, y: g.maxY });
+      return { id: g.id, x: Math.round(a.x - pad), y: Math.round(a.y - pad), w: Math.round(z.x - a.x + 2 * pad), h: Math.round(z.y - a.y + 2 * pad) };
+    });
+  }, [editor]);
+  const h = React.createElement;
+  return h(React.Fragment, null, ...marks.map((m) => h('div', { key: m.id, className: 'timmy-draft-mark', 'data-draft': m.id, style: { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` } },
+    h('span', { className: 'timmy-draft-label' }, DRAFT_LABEL))));
+}
+
+/** R5 (H133): tldraw's main menu without its color-scheme choice: Timmy Canvas is dark only (DESIGN.md §10 B10). */
+function TimmyMainMenu() {
+  const h = React.createElement;
+  return h(DefaultMainMenu, null,
+    h(TldrawUiMenuGroup, { id: 'basic' }, h(EditSubmenu), h(ViewSubmenu), h(ExportFileContentSubMenu), h(ExtrasGroup)),
+    h(TldrawUiMenuGroup, { id: 'preferences' },
+      h(TldrawUiMenuSubmenu, { id: 'preferences', label: 'menu.preferences' },
+        h(TldrawUiMenuGroup, { id: 'preferences-actions' }, h(ToggleSnapModeItem), h(ToggleToolLockItem), h(ToggleGridItem), h(ToggleWrapModeItem), h(ToggleFocusModeItem), h(ToggleEdgeScrollingItem), h(ToggleDynamicSizeModeItem), h(TogglePasteAtCursorItem), h(ToggleDebugModeItem)),
+        h(TldrawUiMenuGroup, { id: 'user-interface-submenus' }, h(AccessibilityMenu), h(InputModeMenu))),
+      h(LanguageMenu), h(KeyboardShortcutsMenuItem)));
+}
+
+/** R5 (H133): the page's CSS variable `name` (Timmy's shared look), or `fallback`. */
+function cssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** A new page: blank, or a public template as an empty board (a frame named for it, an empty frame per capability). */
 function openBoard(editor, template) {
   const names = new Set(editor.getPages().map((p) => p.name));
@@ -417,7 +718,9 @@ function openBoard(editor, template) {
   for (let n = 2; names.has(name); n += 1) name = `${template ? template.title : 'Blank board'} ${n}`;
   const page = editor.createPage({ name }).getPages().find((p) => p.name === name);
   editor.setCurrentPage(page.id);
-  if (template) {
+  if (template && Array.isArray(template.frames)) {
+    openGuided(editor, template);
+  } else if (template) {
     const frame = createShapeId();
     const slot = { w: 320, h: 220, gap: 24 };
     const across = Math.min(3, template.caps.length);
@@ -428,21 +731,90 @@ function openBoard(editor, template) {
       x: slot.gap + (i % across) * (slot.w + slot.gap), y: slot.gap + Math.floor(i / across) * (slot.h + slot.gap),
       props: { name: cap, w: slot.w, h: slot.h },
     })));
-    editor.zoomToFit();
+    fitBeside(editor);
   }
   showGuide(editor);
+}
+/**
+ * R5 (H133): a board just opened, fitted into the area beside Timmy's panel (or below it on a phone), never closer than 100 %:
+ * zoomToFit alone fitted it to the whole window, and its left part sat under the panel.
+ */
+function fitBeside(editor) {
+  editor.zoomToFit();
+  const z = editor.getCamera().z;
+  if (z > 1) editor.setCamera({ ...editor.getCamera(), z: 1 });
+  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id)); } catch { /* showing it is a courtesy */ }
+}
+/**
+ * R5 (H133): a guided blank board (src/studio/templates.ts guidedTemplates): its title and what it is for, then one empty frame
+ * per part, each holding a line that says what goes in it. Text and empty frames only: no image, sample, metric or asset. A flow
+ * board's frames are joined left to right by arrows, in order. Every shape keeps the template's id in its meta.
+ */
+function openGuided(editor, t) {
+  const slot = { w: 340, h: 250, gap: 56 };
+  const across = Math.max(1, Math.min(t.frames.length, t.columns || 3));
+  const width = across * slot.w + (across - 1) * slot.gap;
+  const meta = (part) => ({ timmyTemplate: t.id, timmyGuide: part });
+  const title = createShapeId();
+  const intro = createShapeId();
+  editor.createShapes([
+    { id: title, type: 'text', x: 0, y: -210, props: { richText: toRichText(t.title), size: 'l', font: 'sans', autoSize: true }, meta: meta('title') },
+    { id: intro, type: 'text', x: 0, y: -140, props: { richText: toRichText(t.intro), size: 's', font: 'sans', color: 'grey', autoSize: false, w: Math.min(width, 900) }, meta: meta('intro') },
+  ]);
+  const frames = t.frames.map(() => createShapeId());
+  editor.createShapes(t.frames.flatMap((f, i) => {
+    const x = (i % across) * (slot.w + slot.gap);
+    const y = Math.floor(i / across) * (slot.h + slot.gap);
+    return [
+      { id: frames[i], type: 'frame', x, y, props: { name: f.name, w: slot.w, h: slot.h }, meta: meta('frame') },
+      { id: createShapeId(), type: 'text', parentId: frames[i], x: 16, y: 16, props: { richText: toRichText(f.guide), size: 's', font: 'sans', color: 'grey', autoSize: false, w: slot.w - 32 }, meta: meta('hint') },
+    ];
+  }));
+  if (t.flow) {
+    for (let i = 0; i + 1 < frames.length; i += 1) {
+      if (Math.floor(i / across) !== Math.floor((i + 1) / across)) continue;
+      const a = editor.getShapePageBounds(frames[i]);
+      const b = editor.getShapePageBounds(frames[i + 1]);
+      if (!a || !b) continue;
+      const arrow = createShapeId();
+      const y = a.minY + a.h / 2;
+      editor.createShape({ id: arrow, type: 'arrow', x: a.maxX, y, props: { start: { x: 0, y: 0 }, end: { x: b.minX - a.maxX, y: 0 }, color: 'grey' }, meta: meta('flow') });
+      editor.createBindings([
+        { type: 'arrow', fromId: arrow, toId: frames[i], props: { terminal: 'start', normalizedAnchor: { x: 1, y: 0.5 }, isExact: false, isPrecise: true } },
+        { type: 'arrow', fromId: arrow, toId: frames[i + 1], props: { terminal: 'end', normalizedAnchor: { x: 0, y: 0.5 }, isExact: false, isPrecise: true } },
+      ]);
+    }
+  }
+  editor.selectNone();
+  fitBeside(editor);
 }
 async function offerBoards() {
   const pick = document.getElementById('board-pick');
   let templates = [];
+  let guided = [];
   try {
     const response = await fetch('/api/canvas/templates', { cache: 'no-store' });
-    if (response.ok) templates = (await response.json()).templates ?? [];
+    if (response.ok) {
+      const listed = await response.json();
+      templates = listed.templates ?? [];
+      guided = listed.guided ?? [];
+    }
   } catch {
     // Without the list, New board still opens a blank board.
   }
-  pick.append(...templates.map((t) => el('option', `${t.title} (${t.domain})`, { value: t.id })));
-  document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, templates.find((t) => t.id === pick.value)));
+  // R5 (H133): the guided blank boards first (each says what goes where), then the seeds (a frame per capability)
+  if (guided.length) {
+    const group = el('optgroup', undefined, { label: 'Guided, blank' });
+    group.append(...guided.map((t) => el('option', t.title, { value: t.id })));
+    pick.append(group);
+  }
+  if (templates.length) {
+    const group = el('optgroup', undefined, { label: 'Seeds, blank' });
+    group.append(...templates.map((t) => el('option', `${t.title} (${t.domain})`, { value: t.id })));
+    pick.append(group);
+  }
+  const all = [...guided, ...templates];
+  document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, all.find((t) => t.id === pick.value)));
 }
 /** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
 function connectPanel() {
@@ -451,7 +823,15 @@ function connectPanel() {
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
   void offerBoards();
   void refreshJobs();
-  setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(); }, 5000);
+  // R5 (H133): the save's Retry and the recovery box's buttons
+  document.getElementById('save-retry').addEventListener('click', () => { canvas.failed = null; void save(); });
+  document.getElementById('conflict-reload').addEventListener('click', () => void reloadFromDisk());
+  document.getElementById('conflict-keep').addEventListener('click', () => void keepCopy());
+  setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    void refreshJobs();
+    void checkDisk();
+  }, 5000);
   // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js). R4 (H75): read with each card's
   // drawn detail, which the drawn cards follow; Place card makes one; the reading comes faster while a card's job runs.
   // R4 (H81): read through the drawn cards' own reader: the cards' detail only with this page's session (./cards.js read), and
@@ -472,6 +852,7 @@ function connectPanel() {
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
   cards.setSessionListener(showSession);
   showSession();
+  if (current) showDrafts(current);
 }
 
 // Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
@@ -512,10 +893,13 @@ function followEditor(editor) {
       if (current !== editor) return;
       showGuide(editor);
       showJobs(editor);
+      // R5 (H133): the pending drafts follow the board (a person's own deletes and undo included)
+      if (document.getElementById('side-ready').hidden === false) showDrafts(editor);
       // R4 (H109): another board shown (or a board's pin changed): the panel reads for it at once
       try { projectPanel?.boardChanged(); } catch { /* the next reading follows */ }
     });
   });
+  draftsShown = '';
   showGuide(editor);
   showJobs(editor);
 }
@@ -544,6 +928,8 @@ function mount(snapshot) {
             placeDrawnCard: (id) => (projectPanel ? projectPanel.placeCard(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
             // R4 (H100): an operation's cards at once, as the panel's Place this operation does (shapes only: nothing runs)
             placeOperation: (id) => (projectPanel ? projectPanel.placeOperation(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
+            // R5 (H133): the pending drafts, as the panel lists them (read only; Accept and Discard are the panel's buttons)
+            drafts: () => pendingDrafts(editor.store.allRecords()),
           };
           attachEditor(editor);
           followEditor(editor);
@@ -588,6 +974,7 @@ async function start() {
   canvas.revision = saved.revision;
   canvas.savedRevision = saved.revision;
   canvas.sourceRevision = saved.sourceRevision;
+  canvas.savedAt = saved.savedAt ?? null;
   canvas.notice = saved.notice ?? null;
   say('Loading the canvas: starting tldraw', 'loading');
   tldrawProps = {
@@ -596,6 +983,14 @@ async function start() {
     licenseKey: config.licenseKey ?? undefined,
     // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
     assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),
+    // R5 (H133): dark only, on B10: the canvas colors from Timmy's shared look (./theme.js), the chrome from index.html's
+    // variables; tldraw's palette for what is drawn stays tldraw's. The color-scheme choice is left out of the menu, and its
+    // shortcut with it.
+    themes: timmyThemes(DEFAULT_THEME, cssVar),
+    colorScheme: 'dark',
+    overrides: { actions: (_editor, actions) => { const { 'toggle-dark-mode': _dark, ...kept } = actions; return kept; } },
+    // R5 (H133): a pending draft's outline and label, in front of the canvas; the main menu without the color scheme
+    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu },
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.

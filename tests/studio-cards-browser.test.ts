@@ -322,7 +322,12 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       await page.waitForFunction((s) => !(document.querySelector(`${s} button[data-tc-act="rebuild"]`) as HTMLButtonElement).disabled, at);
       await page.click(`${at} button[data-tc-act="rebuild"]`);
       await page.waitForFunction((s) => /^canvas \/recipe tray/.test(document.querySelector(`${s} .tc-answer`)?.textContent ?? ''), at, { timeout: 20_000 });
-      await page.waitForFunction((s) => /^Newest build: succeeded/.test(document.querySelector(`${s} .tc-build`)?.textContent ?? ''), at, { timeout: 30_000 });
+      // R5 (H133): the build is checked once its copy in the project has verified. Between the job's own success and the REPL's
+      // watcher copying its exports into the project, a reading says "Newest build: succeeded · but its exports are not
+      // verified in the project: out/recipes/<job>/outer.stl is missing", with no facts (true then). Under load the watcher's
+      // next poll can come after the page's next reading, and a wait for "succeeded" alone passed on that line.
+      const build = (): Promise<string> => page.evaluate((s) => document.querySelector(`${s} .tc-build`)?.textContent ?? '', at);
+      await expect.poll(build, { timeout: 30_000 }).toMatch(/^Newest build: succeeded · its signed result verified now/);
       expect(await text(page, `${at} .tc-build`)).toMatch(/bounds 160 x 80 x 30 mm/);
       expect(errors.filter((e) => !/status of 422/.test(e))).toEqual([]);
     } finally {

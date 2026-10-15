@@ -24,8 +24,17 @@ import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
 import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
+import { freeOnlyOn } from '../agent/model-price.js';
+import { askedCompanionPort } from '../setup/companion-port.js';
 
 type Env = Record<string, string | undefined>;
+
+/** Where the companion is asked to listen (TIMMY_COMPANION_PORT, else 3001); a busy port makes it take another, which it says. */
+export const companionBaseUrl = (env: Env = process.env): string => {
+  let port = 3001;
+  try { port = askedCompanionPort([], env); } catch { /* the default */ }
+  return `http://127.0.0.1:${port}/`;
+};
 
 /** An answered request counts as live for this long; after it, the frame says how old the answer is. */
 export const LIVE_FOR_MS = 30 * 60_000;
@@ -35,8 +44,12 @@ export const LOG_MAX = 30;
 
 /** One observation: what a request was answered with, and when. */
 export interface ConnectionCheck {
-  /** accepted: the service answered and took the request; refused: it answered no (a rejected key); no answer: nothing came back */
-  answer: 'accepted' | 'refused' | 'no answer' | 'not asked';
+  /**
+   * accepted: the service answered and took the request; refused: it answered no (a rejected key); no answer: nothing came
+   * back, or something else answered; not running: a local surface Timmy starts on demand (Studio, the companion) refused
+   * the connection, so it is simply not started
+   */
+  answer: 'accepted' | 'refused' | 'no answer' | 'not running' | 'not asked';
   at: string;
   /** words worth keeping: "3 models", "HTTP 200", "studio running, page connected" */
   detail?: string;
@@ -80,7 +93,8 @@ const ago = (at: string, now: number): string => {
 
 /** A connection's state from its setting and its last observation (pure: the frame's tests drive it with FAKE checks). */
 export function connectionOf(
-  id: ConnectionId, label: string, o: { configured: boolean; setupWords: string; setup: string | null; check?: ConnectionCheck; now: number; detail?: string; notConfiguredState?: WorkspaceConnection['state'] },
+  id: ConnectionId, label: string,
+  o: { configured: boolean; setupWords: string; setup: string | null; check?: ConnectionCheck; now: number; detail?: string; notConfiguredState?: WorkspaceConnection['state']; startWords?: string },
 ): WorkspaceConnection {
   const base = { id, label, setup: o.setup, ...(o.detail ? { detail: o.detail } : {}) };
   const c = o.check;
@@ -88,7 +102,13 @@ export function connectionOf(
     const fresh = o.now - Date.parse(c.at) <= LIVE_FOR_MS;
     const said = c.detail ? ` (${c.detail})` : '';
     if (c.answer === 'refused') return { ...base, state: 'refused', words: `refused when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
-    if (c.answer === 'no answer') return { ...base, state: 'unreachable', words: `no answer when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
+    // a surface Timmy starts on demand that is not started is not a failure: it is set up, and says how to start it
+    if (c.answer === 'not running') return { ...base, state: 'configured', words: `not running when checked ${ago(c.at, o.now)}${o.startWords ? `; ${o.startWords}` : ''}`, observedAt: c.at };
+    if (c.answer === 'no answer') {
+      // an optional service nobody chose: nothing answering is not a failure either; it is not set up, with its step
+      if (!o.configured) return { ...base, state: o.notConfiguredState ?? 'not set up', words: `nothing answered when checked ${ago(c.at, o.now)}${said}; ${o.setupWords}`, observedAt: c.at };
+      return { ...base, state: 'unreachable', words: `no answer when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
+    }
     if (c.answer === 'accepted') {
       return fresh
         ? { ...base, state: 'live', words: `answered ${ago(c.at, o.now)}${said}`, observedAt: c.at }
@@ -105,11 +125,14 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
   out.push(connectionOf('openrouter', 'OpenRouter (cloud chat)', {
     configured: key !== null, setupWords: 'no key: run timmy setup, or set OPENROUTER_API_KEY', setup: key ? 'timmy workspace check' : 'timmy setup',
-    check: checks.openrouter, now, ...(key ? { detail: `key from ${key}` } : {}),
+    check: checks.openrouter, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}` } : {}),
   }));
   const ollamaBase = env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+  // set up when the chat route is the local model, or when an address for it is set; otherwise it is optional
+  const ollamaChosen = wb.route.kind === 'local' || Boolean(env.OLLAMA_HOST || env.OLLAMA_BASE_URL);
   out.push(connectionOf('ollama', 'Ollama (local models)', {
-    configured: true, setupWords: '', setup: 'timmy workspace check', check: checks.ollama, now, detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)`,
+    configured: ollamaChosen, setupWords: 'optional: run Ollama with a model pulled, then timmy setup can choose it for chat',
+    setup: ollamaChosen ? 'timmy workspace check' : 'timmy setup', check: checks.ollama, now, detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)`,
   }));
   const edge = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
   out.push(connectionOf('cloudflare', 'Cloudflare edge (optional)', {
@@ -129,17 +152,22 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   });
   const wbSet = readWorkbenchSettings(env).settings;
   out.push(connectionOf('companion', 'Browser companion', {
-    configured: true, setupWords: '', setup: 'timmy watch', check: checks.companion, now, detail: wbSet.openCompanionAtStart ? 'opens with the workspace' : 'opens when asked',
+    configured: true, setupWords: '', setup: 'timmy watch', check: checks.companion, now, startWords: 'c in the Workbench, or timmy watch, starts it',
+    detail: `at ${companionBaseUrl(env)}; ${wbSet.openCompanionAtStart ? 'opens with the workspace' : 'opens when asked'}`,
   }));
   out.push(connectionOf('studio', 'Timmy Studio (tldraw)', {
-    configured: true, setupWords: '', setup: 'timmy studio', check: checks.studio, now, detail: `at ${studioBaseUrl(env)}`,
+    configured: true, setupWords: '', setup: 'timmy studio', check: checks.studio, now, startWords: 's in the Workbench, or timmy studio, starts it',
+    detail: `at ${studioBaseUrl(env)}; ${wbSet.openStudioAtStart ? 'opens with the workspace' : 'opens when asked'}`,
   }));
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
   }
-  if (!wb.route.ready) unknown.push({ field: 'chat', why: wb.route.refusal?.join(' ') || 'no chat route is set up' });
+  if (!wb.route.ready) unknown.push({ field: 'chat', why: sentences(wb.route.refusal ?? []) || 'no chat route is set up' });
   return out;
 }
+
+/** Lines said as one paragraph: each ends as a sentence (a line with no closing mark gets a full stop), so none runs on. */
+export const sentences = (lines: readonly string[]): string => lines.map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:)]$/.test(l) ? l : `${l}.`)).join(' ');
 
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
@@ -151,7 +179,6 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
   const stop = wb.activity.stop_current;
-  const blocked = wb.workflows.docs.flatMap((d) => d.blocks.filter((b) => b.needs_person).map((b) => `${d.rel} › ${b.name}`));
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   const homeNext: WorkspaceAction = !routeReady
@@ -176,7 +203,11 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
       firstBlock
         ? act(1, `Run ${firstBlock.doc} › ${firstBlock.block}`, `/run ${firstBlock.doc} ${firstBlock.block}`, { primary: waiting === 0 && running === 0, effect: 'local change' })
         : act(1, 'Start a workflow document', '/workflows', { primary: running === 0 }),
-      act(2, blocked.length ? `Review what needs you (${blocked.length})` : 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops', { primary: waiting > 0 && running === 0 }),
+      // R5 lead (H131's report): "needs you" has one meaning on a screen, what waits on a person now (the activity's count);
+      // a block that asks first says so on its own row of the Workflows list, not in this count
+      waiting > 0
+        ? act(2, `Answer what waits on you (${waiting})`, '/room', { primary: running === 0 })
+        : act(2, 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops'),
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
@@ -239,7 +270,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
   const surface = (id: 'companion' | 'studio', openAtStart: boolean) => {
     const c = connections.find((x) => x.id === id);
     const running = c?.state === 'live';
-    return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : null) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
+    return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
   };
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
     at: e.at, tag: e.output ? 'job.output' : e.job ? 'job' : 'event', words: e.words, tone: tone(e),
@@ -274,13 +305,15 @@ export interface CheckDeps {
   key?: () => string | null;
   ollama?: () => Promise<{ ok: boolean; models: string[]; answer?: { state: string; why?: string } }>;
   studio?: (baseUrl: string) => Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>;
+  /** the companion's /api/auth: its HTTP status, 'refused' when nothing listens, null when nothing answered in time */
+  companion?: (baseUrl: string) => Promise<number | 'refused' | null>;
   edge?: (url: string) => Promise<number | null>;
 }
 
 /**
  * Asks each service once, with short timeouts, and records what answered: OpenRouter's key endpoint (free), the local
- * Ollama's model list, Timmy Studio's health and, when one is set up, the Cloudflare edge's /health. No model is called
- * and nothing is spent. Returns the record it wrote.
+ * Ollama's model list, Timmy Studio's health, the browser companion's token check (a 401 is a companion answering) and,
+ * when one is set up, the Cloudflare edge's /health. No model is called and nothing is spent. Returns the record it wrote.
  */
 export async function checkConnections(d: CheckDeps = {}): Promise<{ record: ConnectionsRecord; path: string }> {
   const env = d.env ?? process.env;
@@ -312,7 +345,18 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
   const st = await studio(studioBaseUrl(env));
   checks.studio = st.state === 'running'
     ? { answer: 'accepted', at: stamp(), detail: st.pageConnected ? 'running, a page is open' : 'running' }
-    : { answer: 'no answer', at: stamp(), detail: st.state === 'not-running' ? 'not running' : (st.detail ?? st.state) };
+    : st.state === 'not-running' ? { answer: 'not running', at: stamp() } : { answer: 'no answer', at: stamp(), detail: st.detail ?? st.state };
+  // the companion asks for its token on /api/auth: a 401 there is a companion answering; a refused connection, none started
+  const companion = d.companion ?? (async (u: string): Promise<number | 'refused' | null> => {
+    try { return (await fetch(`${u}api/auth`, { signal: AbortSignal.timeout(1500), redirect: 'manual' })).status; } catch (e) {
+      const err = e as { cause?: { code?: string } };
+      return err?.cause?.code === 'ECONNREFUSED' ? 'refused' : null;
+    }
+  });
+  const cp = await companion(companionBaseUrl(env));
+  checks.companion = cp === 401 || cp === 200 ? { answer: 'accepted', at: stamp(), detail: 'running' }
+    : cp === 'refused' ? { answer: 'not running', at: stamp() }
+    : { answer: 'no answer', at: stamp(), detail: cp === null ? 'nothing answered in time' : `HTTP ${cp}: another program may hold the port` };
   const edgeUrl = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
   if (edgeUrl) {
     const edge = d.edge ?? (async (u: string) => {

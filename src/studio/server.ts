@@ -26,8 +26,13 @@
  *   GET /api/canvas/jobs                    the token or a session                                 the canvas jobs (ids a model may name, receipts)
  *   POST /api/canvas/jobs/<job>/receipt     the token only; no Origin, no query string             a write, by the REPL that sealed the turn
  *   POST /api/canvas/exec                   the token only; no Origin, no query string; while a   code that runs in the canvas page with its rights
- *                                           project is named, the holder id of the REPL holding
- *                                           it; a page on the bridge whose session counts now
+ *                                           project is named, the holder id of the REPL holding    (R5 H133: as a draft, when the agent asks, which
+ *                                           it; a page on the bridge whose session counts now      a person accepts or discards on the page)
+ *   GET /api/canvas/drafts                  the token or a session                                 R5 (H133): the drafts record (proposed, refused,
+ *                                                                                                  accepted, discarded)
+ *   POST /api/canvas/drafts                 the token or a session                                 R5 (H133): a decision on a draft, once saved
+ *   POST /api/canvas/document/copy          the token or a session                                 R5 (H133): a page's version kept beside the
+ *                                                                                                  canvas (a newer one is on disk)
  *   GET /bridge (WebSocket)                 a session, as a subprotocol (src/studio/bridge.ts)     the page the code is sent to
  *   POST /api/project/active                the token; no Origin                                   names the project (project-link.ts)
  *   GET /api/project/active                 nothing more: whether a project is named and a page    the project's name is its content
@@ -55,8 +60,8 @@
  */
 import express from 'express';
 import { mountReceiptPages, type ReceiptSource } from './receipt-page.js';
-import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -64,8 +69,8 @@ import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, TLDRAW_VERSION, studioConfig } from './config.js';
 import { studioHealth } from './health.js';
-import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
-import { publicTemplates } from './templates.js';
+import { CanvasDocuments, DRAFT_ID, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
+import { guidedTemplates, publicTemplates } from './templates.js';
 import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
 // Round R4 (H55): the project the REPL names, and the read-only project API built from the board's readers.
 import { dropProjectToken, HOLDER_ID, mountProjectRoutes, ProjectLink, writeProjectToken } from './project-link.js';
@@ -138,8 +143,13 @@ export function studioRoot(): string {
 export const isLocalRequest = (req: IncomingMessage): boolean => isLocal(req);
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
-/** R4 (H83): what an exec call carries, and nothing else (a token never goes in a body). */
-const EXEC_KEYS: ReadonlySet<string> = new Set(['code', 'jobId', 'holder']);
+/** R4 (H83): what an exec call carries, and nothing else (a token never goes in a body). R5 (H133): and whether it is a draft. */
+const EXEC_KEYS: ReadonlySet<string> = new Set(['code', 'jobId', 'holder', 'draft', 'baseRevision']);
+/** R5 (H133): what a decision on a draft carries, and nothing else. */
+const DECISION_KEYS: ReadonlySet<string> = new Set(['draft', 'decision', 'shapes', 'job', 'from', 'at', 'revision', 'sourceRevision']);
+/** R5 (H133): how many copies a canvas folder keeps before it asks for room. */
+const MAX_COPIES = 50;
+const isCount = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
 
 /** Monaspace Argon's files, from its package (OFL-1.1, served unmodified); null when it is not installed. */
 export function fontDir(): string | null {
@@ -259,9 +269,61 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   app.get('/api/canvas/jobs', credited(JOBS_REFUSED), (_req, res) => {
     res.set('Cache-Control', 'no-store').json(documents.jobs());
   });
-  // Public templates start blank: the seeds' four fields only; the page opens one as an empty board.
+  // R5 (H133): a page's version of the canvas, kept beside the canvas file when a newer version is on disk (the page may not save
+  // over it). The canvas file is never touched; a copy holds what the page holds (another project's detail stays withheld in it).
+  app.post('/api/canvas/document/copy', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N}.'), credited(DOCUMENT_REFUSED),
+    express.json({ limit: Math.max(2 * maxCanvasBytes, 1024 * 1024) }), (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      const copies = join(savedIn, 'copies');
+      let kept = 0;
+      try { kept = readdirSync(copies).filter((f) => f.endsWith('.json')).length; } catch { kept = 0; }
+      if (kept >= MAX_COPIES) {
+        res.status(507).json({ ok: false, error: `Timmy keeps at most ${MAX_COPIES} copies of the canvas, and ${shownPath(copies)} holds ${kept}. Move some elsewhere, then keep this one.` });
+        return;
+      }
+      const result = documents.keepCopy((req.body ?? {}) as Record<string, unknown>);
+      if (!result.ok) { res.status('tooLarge' in result ? 413 : 400).json(result); return; }
+      res.json({ ...result, path: shownPath(join(savedIn, result.kept)) });
+    });
+  // R5 (H133): the drafts record: what Timmy proposed, what was refused, and what a person accepted or discarded.
+  app.get('/api/canvas/drafts', credited(DOCUMENT_REFUSED), (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ drafts: documents.drafts() });
+  });
+  // R5 (H133): a person's decision on a draft, recorded once its save is on disk (the page sends it after the save landed, with
+  // the revision and source revision that hold it). It records; it runs nothing.
+  app.post('/api/canvas/drafts', jsonOnly('Send JSON: {"draft": "draft-…", "decision": "accepted" | "discarded", …}.'), credited(DOCUMENT_REFUSED), express.json({ limit: '2kb' }), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const body = req.body as Record<string, unknown>;
+    const extra = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body).filter((k) => !DECISION_KEYS.has(k)) : ['(not an object)'];
+    const { draft, decision, shapes, job, from, at, revision, sourceRevision } = (extra.length ? {} : body) as Record<string, unknown>;
+    const wrong = extra.length ? `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}.`
+      : typeof draft !== 'string' || !DRAFT_ID.test(draft) ? 'draft is the draft\'s id (draft- and hex).'
+        : decision !== 'accepted' && decision !== 'discarded' ? 'decision is accepted or discarded.'
+          : !isCount(shapes) || shapes > 100_000 ? 'shapes is how many shapes the draft had.'
+            : job !== null && job !== undefined && (typeof job !== 'string' || !JOB_ID.test(job)) ? 'job is the draft\'s job id, or null.'
+              : from !== null && from !== undefined && !isCount(from) ? 'from is the revision the draft was made from, or null.'
+                : at !== undefined && (typeof at !== 'string' || Number.isNaN(Date.parse(at))) ? 'at is when the decision was made (an ISO time).'
+                  : !isCount(revision) || typeof sourceRevision !== 'string' || !/^[0-9a-f]{64}$/.test(sourceRevision) ? 'revision and sourceRevision are the save that holds the decision.'
+                    : null;
+    if (wrong) { res.status(400).json({ ok: false, error: wrong }); return; }
+    const onDisk = documents.peek();
+    if (onDisk.revision === null || (revision as number) > onDisk.revision) {
+      res.status(409).json({ ok: false, error: `The save that holds this decision (revision ${revision}) is not on disk (the canvas is at revision ${onDisk.revision ?? 'unknown'}).` });
+      return;
+    }
+    const id = draft as string;
+    const proposed = documents.drafts().some((r) => r.draft === id && r.event === 'proposed');
+    const line = documents.recordDraft({
+      draft: id, event: decision as 'accepted' | 'discarded', job: typeof job === 'string' ? job : null, shapes: shapes as number,
+      from: isCount(from) ? from : null, revision: revision as number, sourceRevision: sourceRevision as string,
+      by: res.locals.by === 'token' ? 'token' : 'page', proposed, ...(typeof at === 'string' ? { at } : {}),
+    });
+    res.json({ ok: true, recorded: line });
+  });
+  // Public templates start blank: the seeds' four fields only; the page opens one as an empty board. R5 (H133): and the guided
+  // blank boards (text and empty frames that say what goes where; no image, sample, metric or asset).
   app.get('/api/canvas/templates', (_req, res) => {
-    res.set('Cache-Control', 'no-store').json({ templates: publicTemplates() });
+    res.set('Cache-Control', 'no-store').json({ templates: publicTemplates(), guided: guidedTemplates() });
   });
   // The REPL links the receipt it sealed for a turn to that turn's canvas job. R4 (H83): a write, the REPL's only (the token).
   app.post('/api/canvas/jobs/:job/receipt', (req, res, next) => { if (replOnly(req, res, link, LINK_REFUSED)) next(); }, jsonOnly('Send JSON: {"receipt": "<its short hash>"}.'), express.json({ limit: '1kb' }), (req, res) => {
@@ -292,10 +354,19 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     const body = (req.body ?? {}) as Record<string, unknown>;
     const extra = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body).filter((k) => !EXEC_KEYS.has(k)) : ['(not an object)'];
     if (extra.length) {
-      res.status(400).json({ ok: false, error: `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are code, jobId and holder.` });
+      res.status(400).json({ ok: false, error: `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are code, jobId, holder, draft and baseRevision.` });
       return;
     }
-    const { code, jobId, holder } = body as { code?: unknown; jobId?: unknown; holder?: unknown };
+    const { code, jobId, holder, draft, baseRevision } = body as { code?: unknown; jobId?: unknown; holder?: unknown; draft?: unknown; baseRevision?: unknown };
+    // R5 (H133): a draft (what it creates waits for a person's Accept or Discard), made from the canvas revision the agent read
+    if (draft !== undefined && typeof draft !== 'boolean') {
+      res.status(400).json({ ok: false, error: 'draft is true (what the call creates waits for a person\'s Accept or Discard) or false.' });
+      return;
+    }
+    if (baseRevision !== undefined && baseRevision !== null && !isCount(baseRevision)) {
+      res.status(400).json({ ok: false, error: 'baseRevision is the canvas revision the call was made from (a whole number), or null.' });
+      return;
+    }
     if (typeof code !== 'string' || !code.trim()) {
       res.status(400).json({ ok: false, error: 'Send {"code": "..."}: the Editor API code to run.' });
       return;
@@ -312,7 +383,8 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     }
     // The bridge sends it only to a page whose session counts now for the project named and its holder (409 when the page
     // open cannot act for it, 503 when none is open).
-    const outcome = await bridge.exec(code, id);
+    const asked = draft === true ? { id: `draft-${randomBytes(6).toString('hex')}`, baseRevision: isCount(baseRevision) ? baseRevision : null } : null;
+    const outcome = await bridge.exec(code, id, asked);
     // The page answers after saving: a call with the source revision it produced joins the jobs ledger.
     const { ok, revision, sourceRevision } = outcome.body;
     if (outcome.status === 200 && sourceRevision) {
@@ -320,6 +392,19 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
         documents.recordJob(id, { ok, revision: revision ?? 0, sourceRevision });
       } catch {
         // The call's own answer stands; the ledger is a record of it, not a condition for it.
+      }
+    }
+    // R5 (H133): the drafts record: a draft that left shapes for a person to decide on, or one refused (and why)
+    const d = outcome.status === 200 ? outcome.body.draft : undefined;
+    if (asked && d && (d.refused || (ok && (d.shapes ?? 0) > 0))) {
+      try {
+        documents.recordDraft({
+          draft: asked.id, event: d.refused ? 'refused' : 'proposed', job: id, shapes: d.refused ? 0 : d.shapes ?? 0,
+          from: d.from ?? asked.baseRevision, revision: revision ?? null, sourceRevision: sourceRevision ?? null,
+          ...(d.refused ? { reason: d.refused, why: String(outcome.body.error ?? '').slice(0, 400) } : {}),
+        });
+      } catch {
+        // The call's own answer stands; the record is of it, not a condition for it.
       }
     }
     res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);

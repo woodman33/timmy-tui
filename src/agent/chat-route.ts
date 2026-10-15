@@ -9,6 +9,7 @@
  */
 import { chatRoute, knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
 import { modelKeySource } from '../utils/model-key.js';
+import { freeOnlyOn, freeOnlyRefusal, modelPrice, type ModelPrice } from './model-price.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
@@ -121,7 +122,11 @@ export const REPL_NO_ROUTE_TRY = 'Try: /setup key (it asks for the key, hidden),
  * from `cwd`). Each surface's own way to the fix: the REPL's commands in the REPL; the monitor's /setup on its top line; a
  * command any terminal runs elsewhere.
  */
-export function chatRouteNow(o: { env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface }): RouteNow {
+export function chatRouteNow(o: {
+  env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface;
+  /** R5: free-only now (absent: TIMMY_CHAT_FREE_ONLY, else the settings' freeOnly); `price` answers what a model costs (a test's) */
+  freeOnly?: boolean; price?: (id: string) => ModelPrice;
+}): RouteNow {
   const surface = o.surface ?? 'repl';
   const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
   // the monitor's top line names its own /setup (it answers where the setup happens): never the REPL's /model or /setup chat
@@ -138,7 +143,17 @@ export function chatRouteNow(o: { env?: Env; cwd?: string; state?: SetupState; s
     return { route, state: { kind: 'local', words, ready: false, refusal } };
   }
   const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
-  if (key) return { route, state: { kind: 'openrouter', words: said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short })), ready: true } };
+  if (key) {
+    const words = said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }));
+    // R5: free-only refuses a model not known to be free (unknown is refused, never passed), on every surface alike
+    if (o.freeOnly ?? freeOnlyOn(o.env ?? process.env)) {
+      const model = o.openRouterModel ?? null;
+      const refusal = freeOnlyRefusal(model, model ? (o.price ?? ((id: string) => modelPrice(id)))(model) : null, surface !== 'repl');
+      if (refusal) return { route, state: { kind: 'openrouter', words: `${words} · free-only: not sent`, ready: false, refusal } };
+      return { route, state: { kind: 'openrouter', words: `${words} · free-only`, ready: true } };
+    }
+    return { route, state: { kind: 'openrouter', words, ready: true } };
+  }
   const refusal = surface === 'repl' ? NO_ROUTE_REFUSAL.map((l) => (/^Try:/.test(l) ? REPL_NO_ROUTE_TRY : l)) : [...NO_ROUTE_REFUSAL];
   return { route, state: { kind: 'none', words: said(chatRoute({ key: false })), ready: false, refusal } };
 }

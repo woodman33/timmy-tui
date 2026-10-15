@@ -21,6 +21,9 @@ export type Role =
   | 'attention'
   /** failed, refused */
   | 'failure'
+  /** R5 (H131): an observed live connection, a passed check, a verified sealed receipt, and nothing else: green (DESIGN.md
+   *  B10). Never a command, a setting, a recommendation, a running process or a delivered result; always with its word. */
+  | 'live'
   /** made by a model, or sent over the network */
   | 'ai'
   /** a border or a rule */

@@ -42,6 +42,33 @@ export interface CanvasAnswer {
   restarted?: boolean;
   /** The call failed and its changes could not be undone: why (the canvas may hold part of it). */
   rollbackError?: string;
+  /**
+   * R5 (H133): a call sent as a draft: its id, how many shapes it left marked as a draft (a person accepts or discards them on
+   * the page), the revision it was made from; or why it was refused (`stale`: made from a revision the canvas has left, nothing
+   * ran; `changes`: it changed what was already on the board, nothing kept), with the revision the canvas is at (`now`).
+   */
+  draft?: { id: string; shapes?: number; from?: number; refused?: 'stale' | 'changes'; now?: number };
+  /** R5 (H133): the draft was made from a revision the canvas has left; nothing of it ran. */
+  stale?: true;
+}
+
+/** R5 (H133): a call sent as a draft: its id (made by the server) and the canvas revision the agent made it from (null: now). */
+export interface DraftAsk { id: string; baseRevision: number | null }
+
+const DRAFT_ID = /^draft-[0-9a-f]{8,32}$/;
+const isCount = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
+
+/** R5 (H133): the draft part of a page's answer, kept only in its own shape (and only for the draft the call was sent as). */
+function draftAnswer(m: unknown, asked: DraftAsk | null): CanvasAnswer['draft'] | undefined {
+  if (!asked || !m || typeof m !== 'object') return undefined;
+  const d = m as Record<string, unknown>;
+  if (d.id !== asked.id) return undefined;
+  const out: NonNullable<CanvasAnswer['draft']> = { id: asked.id };
+  if (isCount(d.shapes)) out.shapes = d.shapes;
+  if (isCount(d.from)) out.from = d.from;
+  if (d.refused === 'stale' || d.refused === 'changes') out.refused = d.refused;
+  if (isCount(d.now)) out.now = d.now;
+  return out;
 }
 
 /**
@@ -67,6 +94,8 @@ export interface BridgeGate {
 interface Pending {
   page: WebSocket;
   jobId: string;
+  /** R5 (H133): the draft the call was sent as, or null */
+  draft: DraftAsk | null;
   done: (outcome: CanvasOutcome) => void;
   timer: NodeJS.Timeout;
 }
@@ -128,8 +157,12 @@ export class CanvasBridge {
     return !!p && 'page' in p;
   }
 
-  /** Runs `code` on the open canvas (the newest page to connect whose session counts now). */
-  exec(code: string, jobId: string): Promise<CanvasOutcome> {
+  /**
+   * Runs `code` on the open canvas (the newest page to connect whose session counts now). R5 (H133): with `draft`, the page marks
+   * what it creates as that draft (only adding; refused when made from a revision the canvas has left).
+   */
+  exec(code: string, jobId: string, draft: DraftAsk | null = null): Promise<CanvasOutcome> {
+    if (draft && !DRAFT_ID.test(draft.id)) return Promise.resolve({ status: 503, body: { ok: false, error: 'Not a draft id.', jobId } });
     const picked = this.pick();
     if (!picked) return Promise.resolve({ status: 503, body: { ok: false, error: NO_CANVAS, jobId } });
     if ('refused' in picked) return Promise.resolve({ status: 409, body: { ok: false, error: picked.refused, jobId } });
@@ -140,8 +173,8 @@ export class CanvasBridge {
         this.pending.delete(id);
         done({ status: 504, body: { ok: false, error: `The canvas did not answer within ${this.timeoutMs / 1000} s.`, jobId } });
       }, this.timeoutMs);
-      this.pending.set(id, { page, jobId, done, timer });
-      page.send(JSON.stringify({ type: 'exec', id, code, jobId }));
+      this.pending.set(id, { page, jobId, draft, done, timer });
+      page.send(JSON.stringify({ type: 'exec', id, code, jobId, ...(draft ? { draft: { id: draft.id, baseRevision: draft.baseRevision } } : {}) }));
     });
   }
 
@@ -164,7 +197,7 @@ export class CanvasBridge {
 
   /** A page's answer: R4 (H83) taken only from the socket its call was sent to. */
   private answer(from: WebSocket, text: string): void {
-    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown; changed?: unknown; rolledBack?: unknown; restarted?: unknown; rollbackError?: unknown };
+    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown; changed?: unknown; rolledBack?: unknown; restarted?: unknown; rollbackError?: unknown; draft?: unknown; stale?: unknown };
     try {
       m = JSON.parse(text);
     } catch {
@@ -182,6 +215,10 @@ export class CanvasBridge {
     if (m.ok !== true && m.rolledBack === true) body.rolledBack = true;
     if (m.ok !== true && m.restarted === true) body.restarted = true;
     if (m.ok !== true && typeof m.rollbackError === 'string' && m.rollbackError) body.rollbackError = m.rollbackError.slice(0, 300);
+    // R5 (H133): the draft the call was sent as (never one of another call's)
+    const draft = draftAnswer(m.draft, p.draft);
+    if (draft) body.draft = draft;
+    if (m.ok !== true && m.stale === true && p.draft) body.stale = true;
     this.settle(m.id as number, p, { status: 200, body });
   }
 

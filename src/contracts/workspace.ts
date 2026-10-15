@@ -41,7 +41,7 @@ export interface TabDef {
  * apps), so this is the one stable set: the operator's screens of the completion order, in its order, with the logs last.
  */
 export const TABS: readonly TabDef[] = [
-  { id: 'home', key: '1', label: 'Home', workbench: ['overview', 'connections'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
+  { id: 'home', key: '1', label: 'Home', workbench: ['connections', 'overview'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
   { id: 'chat', key: '2', label: 'Chat & Intent', workbench: ['chat'], refs: ['02', '11'], purpose: 'One conversation with Timmy for this project, shared by every surface.' },
   { id: 'workflows', key: '3', label: 'Workflows', workbench: ['workflows'], refs: ['03', '12'], purpose: 'Intent, prediction, sandbox, review, run, logs, receipt and analysis, kept apart.' },
   { id: 'studio', key: '4', label: 'Studio', workbench: ['studio'], refs: ['06'], purpose: 'The tldraw canvas: boards, cards, drafts to accept or discard, saved and reopened.' },
@@ -83,9 +83,9 @@ export interface WorkspaceConnection {
   id: ConnectionId;
   label: string;
   state: ConnectionState;
-  /** plain words: "key accepted, checked 12 min ago", "no key: timmy setup" */
+  /** plain words: "answered 2 min ago (the key endpoint took the key)", "not running when checked 5 s ago; s in the Workbench, or timmy studio, starts it", "no key: run timmy setup" */
   words: string;
-  /** when an answered request was observed; null: never observed (so never live) */
+  /** when Timmy last checked it, answered or not (`state` says which); null: never checked, so never live */
   observedAt: string | null;
   /** the step that sets it up or checks it, when there is one */
   setup: string | null;

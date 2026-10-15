@@ -1,0 +1,40 @@
+                ┏━━━━━━┓ ╭──────╮ ╭───────────╮ ╭────────╮ ╭───────────╮ ╭────╮ ╭─────────╮ ╭───────╮ ╭───────╮ ╭──────╮
+TIMMY · tray1   ┃1 Home┃ │2 Chat│ │3 Workflows│ │4 Studio│ │5 VoxVision│ │6 3D│ │7 Control│ │8 Fleet│ │9 Tools│ │0 Logs│
+                ┗━━━━━━┛ ╰──────╯ ╰───────────╯ ╰────────╯ ╰───────────╯ ╰────╯ ╰─────────╯ ╰───────╯ ╰───────╯ ╰──────╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────────────── 1 Home ╮
+│  [▶ 1 Set up chat: an…]  [2 Check connections…]  [3 New project]  [4 Switch project]                                 │
+│ this computer · chat: local · no model chosen…  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Home · connections, as observed  1–23 of 43 ┓╭─ Preview · the companion and Studio, in words ─ 1–23 of 31 ╮
+┃ CONNECTIONS, AS LAST OBSERVED                          ┃│ COMPANION ○ configured  · opens when asked                 │
+┃ live: an answer seen in the last 30 minutes; a setting ┃│   [c] Companion · Show  to see it rendered                 │
+┃ alone is configured                                    ┃│ STUDIO    ○ configured  · opens when asked                 │
+┃ ┏━ OpenRouter (cloud chat) ━━━━━━━━━━━━━━ ✕ refused ━┓ ┃│   [s] Studio · Show  to see it rendered                    │
+┃ ┃ refused when checked 5 min ago (FAKE: HTTP 401)    ┃ ┃│                                                            │
+┃ ┃ → timmy setup                                      ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S RECORDS)        │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   2 workflows · 1 parameter · 1 run                        │
+┃ ╭─ Ollama (local models) ─────────────────── ● live ─╮ ┃│   · Approval: see a NEEDS YOU box  not run yet · 1…        │
+┃ │ answered 3 min ago (FAKE: 2 models)                │ ┃│   · Tray workflow: change, inspect, result  not run yet…   │
+┃ │ asked at http://127.0.0.1:11434, no charge (local) │ ┃│   · Tray recipe parameters (recipes/tray.params.json)  sa… │
+┃ ╰────────────────────────────────────────────────────╯ ┃│   · a task · j66b3d9  running · FAKE job (test): sleep 300 │
+┃ ╭─ Cloudflare edge (optional) ─────── ✕ unreachable ─╮ ┃│                                                            │
+┃ │ no answer when checked 5 min ago (FAKE: timed out) │ ┃│ FILES (11)                                                 │
+┃ │ observed 16:05:06                                  │ ┃│   1 editable source · 2 workflows · 1 references · 2 run…  │
+┃ ╰────────────────────────────────────────────────────╯ ┃│   in ~/timmy/projects/tray1 · 0 Logs & Receipts lists them │
+┃ ╭─ Clef-Omni (decision recommender) ── · not set up ─╮ ┃│                                                            │
+┃ │ Use Clef routing is off (the default): routes…     │ ┃│ LAST RUN                                                   │
+┃ │ → timmy decide mode                                │ ┃│   ✓ j3e9b07  completed  APPROVAL.md › tidy                 │
+┃ ╰────────────────────────────────────────────────────╯ ┃│     3 s ago, took 0.2 s · operation oea7f5785              │
+┃ ╭─ Cloudroom Core (fleet backend) ──── · not set up ─╮ ┃│                                                            │
+┃ │ no Core connected; the FAKE backend is the…        │ ┃│ NOT KNOWN                                                  │
+┃ │ → timmy fleet connect cloudroom <url>…             │ ┃│   chat: Error: the chat is set to the local model, and no  │
+┃ ╰────────────────────────────────────────────────────╯ ┃│   model is chosen. Cause: the setup recorded none for      │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰────────────────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠧ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as…     [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                        │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                       │
+│ 16:10:11 [job] j3e9b07 tidy started                                                                                  │
+│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                   │
+│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt…     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -11,13 +11,17 @@
  * them (src/workbench/producers.ts); until then the Inspector and the composer say so.
  */
 import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Key } from 'ink';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
+import { TABS, tabByKey, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import type { JobRecord } from '../jobs/index.js';
 import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
+import { operationRel } from '../ops/operations.js';
+import { buildWorkspaceFrame } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { projectCards } from '../studio/project-cards.js';
@@ -25,10 +29,11 @@ import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
 import { keyAt, type MouseReport } from '../tui/mouse.js';
 import { scrubHomes } from '../utils/home-scrub.js';
-import { receiptsPath, type Receipt } from '../utils/receipts.js';
+import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
 import { innerWidth, type Glyphs } from './frame.js';
-import { modeOf } from './layout.js';
+import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
+import { contextIsColumn } from './layout.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
@@ -39,12 +44,15 @@ import type { CompanionControl, StudioControl } from './servers.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
-  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readRoute, readTurns, readVoxRecords,
+  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readPipeline, readRoute, readTurns, readVoxRecords,
   readWorkflows, type ActivityEvent,
 } from './state.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
-import { actionsOf, bottomView, centerView, cursorOf, rightView, runOfBlock, selectedItem, stopWords, topButtons, type ViewCtx } from './views.js';
+import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
+
+/** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
+export const FRAME_EVERY_MS = 1000;
 
 /** What this Workbench uses of the REPL's Workspace. */
 export type WorkspaceLike = Pick<Workspace, 'project' | 'root' | 'jobs' | 'project_' | 'stop' | 'overview' | 'close' | 'run' | 'ops'>;
@@ -110,15 +118,27 @@ export class Controller {
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
   private readonly output = new OutputWatch();
-  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed) */
+  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed).
+   *  R5 (H131): and its operation's own record (see wantDetail) */
   private readonly detailSig = new Map<string, string>();
+  /** R5 (H131): each run detail's reading: its number (only the newest one's result is kept) and the records it was for */
+  private readonly detailRead = new Map<string, { n: number; sig: string; busy: boolean }>();
+  /** R5 (H131): each drawn run detail's operation record as the tick last saw it (onTick draws again once per change) */
+  private readonly detailOpSeen = new Map<string, string>();
+  /** R5 (H131): the workspace frame's reading: one at a time, at most every FRAME_EVERY_MS, once more when asked meanwhile */
+  private readonly frameRead: { running: boolean; again: boolean; at: number; timer: NodeJS.Timeout | null } = { running: false, again: false, at: 0, timer: null };
+  /** R5 (H131): the receipts this Workbench verified (src/utils/receipts.ts verifyReceiptIn), by the chain as read and the hash */
+  private verified: { key: string; hash: string; v: { ok: true } | { ok: false; reason: string } } | null = null;
 
   constructor(private readonly d: ControllerDeps) {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
     const project = projectView(d.workspace.project, d.env);
     const remembered = settings.settings.rememberLayout ? settings.settings.layouts[project.id] : undefined;
+    // R5 (H131): the Workbench opens on Home (the operator's opening hub, references 01 and 13), or where this project was left;
+    // the workflow actions have the keyboard first, their one primary next step selected (Tab: the body)
+    const workspace = remembered?.workspace ?? 'connections';
     this.ui = {
-      workspace: remembered?.workspace ?? 'workflows', focus: 'nav', tab: remembered?.tab ?? 'inspector',
+      page: pageOf(workspace), workspace, focus: 'top', tab: remembered?.tab ?? 'inspector',
       navOpen: false, rightOpen: false, activityOpen: remembered?.activity ?? false, activityAll: false, overlay: null,
       input: { field: null, text: '' }, cursor: {}, scroll: {}, sel: {}, anchor: {}, wheel: {}, activityFollow: true, toolsQuery: '',
       flash: null, mouse: false, related: false, settings, saved: null,
@@ -126,6 +146,7 @@ export class Controller {
     };
     this.data = this.emptyData(project);
     this.readAll();
+    this.refreshFrame();
   }
 
   private now(): number { return this.d.now?.() ?? Date.now(); }
@@ -235,7 +256,65 @@ export class Controller {
     this.data.projects = projectChoices(this.data.project, this.d.env);
     if (!this.data.starters.length) { try { this.data.starters = listStarters(); } catch { this.data.starters = []; } }
     if (!this.data.boards.length) { try { this.data.boards = publicTemplates(); } catch { this.data.boards = []; } }
+    this.readPipeline(chain);
     this.data.readAt = this.now();
+  }
+
+  /** R5 (H131): the newest run's pipeline (the Chat tab's row), its receipt verified here once per chain as read. */
+  private readPipeline(chain: Receipt[] = this.chain()): void {
+    const key = this.chainCache?.key ?? '';
+    try {
+      this.data.pipeline = readPipeline(this.data.project.root, this.data.jobs, chain, (hash) => {
+        if (this.verified?.key === key && this.verified.hash === hash) return this.verified.v;
+        const r = verifyReceiptIn(chain, hash);
+        const v = r.ok ? { ok: true as const } : { ok: false as const, reason: r.reason };
+        this.verified = { key, hash, v };
+        return v;
+      });
+    } catch (e) {
+      const why = `its records could not be read: ${e instanceof Error ? e.message : String(e)}`;
+      const unknown = { state: 'unknown' as const, words: why };
+      this.data.pipeline = { operation: null, label: null, intent: unknown, predict: unknown, sandbox: unknown, receipt: unknown };
+    }
+  }
+
+  /**
+   * R5 (H131): the workspace frame (src/ops/workspace-frame.ts buildWorkspaceFrame), the one the companion and Studio draw too:
+   * read from the records this Workbench already read (its jobs and its chain, passed in), at most every FRAME_EVERY_MS, one
+   * reading at a time (a call while one runs asks for one more after it). A frame of the same revision draws nothing again.
+   */
+  refreshFrame(): void {
+    if (this.disposed) return;
+    const r = this.frameRead;
+    if (r.running) { r.again = true; return; }
+    const wait = r.at + FRAME_EVERY_MS - Date.now();
+    if (r.at && wait > 0) {
+      if (!r.timer) { r.timer = setTimeout(() => { r.timer = null; this.refreshFrame(); }, wait); r.timer.unref?.(); }
+      return;
+    }
+    r.running = true;
+    r.at = Date.now();
+    const root = this.data.project.root;
+    // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
+    // another, its actions are still its project's)
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
+      .then((f) => {
+        if (this.disposed || !sameFolder(root, this.data.project.root)) return;
+        const before = this.data.frame?.revision;
+        this.data.frame = f;
+        const hadError = this.data.frameError !== undefined;
+        this.data.frameError = undefined;
+        if (before !== f.revision || hadError) this.emit();
+      })
+      .catch((e: unknown) => {
+        if (this.disposed) return;
+        this.data.frameError = e instanceof Error ? e.message : String(e);
+        this.emit();
+      })
+      .finally(() => {
+        r.running = false;
+        if (r.again && !this.disposed) { r.again = false; this.refreshFrame(); }
+      });
   }
 
   private async lazy<T>(key: 'overview' | 'studio' | 'caps', load: () => Promise<T>, force = false): Promise<void> {
@@ -260,7 +339,8 @@ export class Controller {
         return lines.map((l) => l.map((s) => ({ text: s.text.replace(/^ {2}/, ''), role: roleOf(s.role) })));
       }, force);
     }
-    if (ws === 'studio') {
+    // R5 (H131): Home's preview says Studio's board too
+    if (ws === 'studio' || ws === 'connections') {
       void this.lazy('studio', async () => {
         const p = this.data.project;
         const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
@@ -277,7 +357,8 @@ export class Controller {
     const tick = this.d.tickMs ?? 1000;
     const slow = this.d.slowMs ?? 5000;
     this.timers.push(setInterval(() => this.onTick(), tick));
-    this.timers.push(setInterval(() => { this.readAll(); this.emit(); }, slow));
+    // R5 (H131): the workspace frame with the slow reading too (at most once a second; the same revision draws nothing again)
+    this.timers.push(setInterval(() => { this.readAll(); this.refreshFrame(); this.emit(); }, slow));
     this.loadFor(this.ui.workspace);
     if (this.d.interactive) {
       const s = this.ui.settings.settings;
@@ -294,6 +375,25 @@ export class Controller {
     // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
     const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.away.map((j) => [j.id, j.state, j.steps.length]), this.data.activity.last?.words, this.ui.flash?.at]);
     const ticking = this.data.activity.running > 0 && this.ui.mouse;
+    // R5 (H131): the operation record of a run detail drawn changed (a later session's recovery ends it after the job's
+    // record): the next frame reads it again (wantDetail), whether or not a job changed
+    // (once for each change: a detail no longer shown is not drawn again every second)
+    const root = this.data.project.root;
+    let opChanged = false;
+    for (const [op, was] of this.detailSig) {
+      if (this.data.details[op]?.state !== 'ready') continue;
+      const now = this.operationSig(root, op);
+      if (this.detailOpSeen.get(op) === now) continue;
+      this.detailOpSeen.set(op, now);
+      if (!was.endsWith(` ${now}`)) opChanged = true;
+    }
+    if (opChanged) this.emit();
+    if (sig !== this.signature) {
+      // R5 (H131): a job started, moved or ended: the workspace frame (its log, its counts, its actions) and the newest run's
+      // pipeline are read again (the frame at most once a second)
+      this.readPipeline();
+      this.refreshFrame();
+    }
     if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
   }
 
@@ -314,6 +414,7 @@ export class Controller {
     this.disposed = true;
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    if (this.frameRead.timer) { clearTimeout(this.frameRead.timer); this.frameRead.timer = null; }
     this.d.studio.close();
   }
 
@@ -367,42 +468,86 @@ export class Controller {
    * The run detail of an operation the Inspector shows: read once, and again while its run goes on. R4 (H112): and again once
    * its job's record changed since (`sig`: a run that ended, one a later session's recovery ended), and after [r] (found in
    * tmux: a detail read while a run was stale still said "left running" after /recover had ended it).
+   *
+   * R5 (H131; the recovery PTY test's flake, reproduced here under load): a later session's recovery ends the job's record
+   * first and the operation's record after it. A reading between the two said "left running" (the operation's record still
+   * open, its writer gone), and it stayed drawn beside the job's "ended by recovery": the job's record did not change again,
+   * and [r] read the detail again while the old one stayed on screen until the new one came, so a screen read meanwhile said
+   * what the records no longer said. Now (1) the operation's own record is part of what a detail is read for, so its change
+   * reads the detail again; (2) once what it was read for has changed (or after [r]), the old detail is not drawn as if it
+   * were so: "reading…" until the new one comes, from the very frame that sees the change (true: frame() composes that frame
+   * again); (3) one reading at a time for the same records, and only the newest reading's result is kept (an older one that
+   * ends later is dropped). A live run read again with the same records keeps its detail on screen meanwhile (nothing has
+   * contradicted it).
    */
-  private wantDetail(op: string, live: boolean, sig = ''): void {
-    if (!this.detailOf?.ok) return;
-    const cur = this.data.details[op];
-    if (cur?.state === 'loading') return;
-    const same = this.detailSig.get(op) === sig;
-    if (cur && (cur.state === 'ready' || cur.state === 'failed') && same && (!live || this.now() - cur.at < 1000)) return;
-    this.detailSig.set(op, sig);
-    const of = this.detailOf.value;
+  private wantDetail(op: string, live: boolean, sig = ''): boolean {
+    if (!this.detailOf?.ok) return false;
     const root = this.data.project.root;
-    this.data.details[op] = cur?.state === 'ready' ? cur : { state: 'loading', since: this.now() };
+    const full = `${sig} ${this.operationSig(root, op)}`;
+    const cur = this.data.details[op];
+    const read = this.detailRead.get(op);
+    const changed = this.detailSig.get(op) !== full;
+    // a reading of these very records is on its way
+    if (read?.busy && read.sig === full) return false;
+    if (!changed && cur && (cur.state === 'ready' || cur.state === 'failed') && (!live || this.now() - cur.at < 1000)) return false;
+    this.detailSig.set(op, full);
+    const n = (read?.n ?? 0) + 1;
+    this.detailRead.set(op, { n, sig: full, busy: true });
+    // what is drawn changes: the frame being drawn is composed again (frame())
+    let drawn = false;
+    if (changed || cur?.state !== 'ready') {
+      drawn = cur?.state !== 'loading';
+      this.data.details[op] = { state: 'loading', since: this.now() };
+    }
+    const of = this.detailOf.value;
     void (async () => {
+      let next: Data['details'][string];
       try {
         const got = checkDetail(await of(op, { root }), op);
-        this.data.details[op] = got.ok ? { state: 'ready', value: got.detail, at: this.now() } : { state: 'failed', why: got.why, at: this.now() };
+        next = got.ok ? { state: 'ready', value: got.detail, at: this.now() } : { state: 'failed', why: got.why, at: this.now() };
       } catch (e) {
-        this.data.details[op] = { state: 'failed', why: `the producer failed: ${e instanceof Error ? e.message : String(e)}`, at: this.now() };
+        next = { state: 'failed', why: `the producer failed: ${e instanceof Error ? e.message : String(e)}`, at: this.now() };
       }
+      // a newer reading was asked for meanwhile (its records changed, or [r]): this one's result is dropped
+      const now = this.detailRead.get(op);
+      if (this.disposed || now?.n !== n) return;
+      now.busy = false;
+      this.data.details[op] = next;
       this.emit();
     })();
+    return drawn;
+  }
+
+  /** R5 (H131): an operation's own record as it is on disk now (its size and time), for wantDetail; '' when it has none. */
+  private operationSig(root: string, op: string): string {
+    try { const st = statSync(join(root, operationRel(op))); return `${st.size}:${st.mtimeMs}`; } catch { return ''; }
   }
 
   frame(columns: number, rows: number): Frame {
     this.size = { columns, rows };
-    // a drawer belongs to a size: one that is not a drawer there is closed (in focus mode both are drawers)
-    const mode = modeOf(columns);
-    if (mode === 'wide' && !this.ui.focusMode) { this.ui.rightOpen = false; this.ui.navOpen = false; }
-    if (mode === 'medium' && !this.ui.focusMode) this.ui.navOpen = false;
+    // a drawer belongs to a size: Context is no drawer where it is a column beside the workspace (R5, H131: the navigation is
+    // a drawer at every size)
+    if (this.contextColumn()) this.ui.rightOpen = false;
     this.ui.companion = this.d.companion.state();
     this.ui.studio = this.d.studio.state();
     this.ui.mine = [...this.mine];
     this.ui.starting = [...this.starting];
-    this.ui.navShown = (mode !== 'narrow' && !this.ui.focusMode) || this.ui.navOpen;
+    this.ui.navShown = this.ui.navOpen;
     // R4 (H112): each list's selection is found again by its item, wherever the records moved it, before anything is drawn
     this.reselect();
-    const f = frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
+    const compose = (): Frame => frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
+    let f = compose();
+    // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
+    // sealed turn has ended: its receipt is what the detail is read again for). R5 (H131): when what a detail was read for has
+    // changed (or after [r]), this very frame is composed again with it said as being read: a frame never shows a detail beside
+    // the records that contradict it (the recovery PTY test caught the frame that drew [r]'s notice with the verdict before it)
+    if (f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') {
+      const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
+      let again = false;
+      if (sel?.kind === 'job' && sel.job.operation) again = this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
+      if (sel?.kind === 'turn' && sel.turn.operation) again = this.wantDetail(sel.turn.operation, false, sel.turn.receipt) || again;
+      if (again) f = compose();
+    }
     // and the next frame keeps each list's selected item, and its anchor on the same row
     for (const d of Object.values(f.regions)) {
       if (!d || d.list === 'top') continue;
@@ -412,18 +557,21 @@ export class Controller {
       }
       rememberList(this.ui, d.list, d.items, d.scroll);
     }
-    // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
-    // sealed turn has ended: its receipt is what the detail is read again for)
-    if (f.regions.right && this.ui.tab === 'inspector') {
-      const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
-      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
-      if (sel?.kind === 'turn' && sel.turn.operation) this.wantDetail(sel.turn.operation, false, sel.turn.receipt);
-    }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
     if (this.ui.focus === 'center' && !f.regions.center) this.ui.focus = f.regions.right ? 'right' : 'top';
     this.last = f;
     return f;
+  }
+
+  /** R5 (H131): Context (Tools, Inspector, Files) is a column beside the workspace at this size (else a drawer, [i]). */
+  private contextColumn(): boolean {
+    return contextIsColumn(this.size.columns, isHub(this.ui.page) ? 'hub' : 'workspace', this.ui.focusMode === true);
+  }
+
+  /** R5 (H131): the right column is Home's preview or Chat's event log now (not Context). */
+  private hubColumn(): boolean {
+    return this.last?.layout.rightAs === 'hub';
   }
 
   /**
@@ -507,6 +655,11 @@ export class Controller {
     // the search key opens the search with the rest as its text. Any other chunk of several characters is not taken as
     // keys (a paste never presses x, Stop, or any other key here).
     if (input.length > 1 && input.startsWith('/') && !k.ctrl && !k.meta) { this.search(); this.typing(input.slice(1), {}); return; }
+    // R5 (H131): 1 to 9, then 0: the ten tabs (no field has the keyboard here: a field took the key above)
+    if (!k.ctrl && !k.meta && /^[0-9]$/.test(input)) {
+      const t = tabByKey(input);
+      if (t) { this.selectPage(t.id); return; }
+    }
     switch (input) {
       case '?': this.open({ kind: 'help' }); return;
       case 'p': this.openPicker(); return;
@@ -539,7 +692,9 @@ export class Controller {
     this.ui.overlay = o;
     this.ui.cursor.overlay = 0;
     this.ui.scroll.overlay = 0;
-    if (modeOf(this.size.columns) !== 'wide' || this.ui.focusMode) { this.ui.rightOpen = false; this.ui.navOpen = false; }
+    // a box is drawn in the body's left column: the drawers close (R5, H131: the navigation is a drawer at every size)
+    this.ui.rightOpen = false;
+    this.ui.navOpen = false;
     this.ui.focus = 'center';
     this.emit();
   }
@@ -567,13 +722,13 @@ export class Controller {
   /** The list a region's cursor moves in. */
   private listOf(region: Region): string {
     if (region === 'center') return this.ui.overlay ? 'overlay' : `center:${this.ui.workspace}`;
-    if (region === 'right') return `right:${this.ui.tab}`;
+    if (region === 'right') return this.hubColumn() ? `right:hub-${this.ui.page}` : `right:${this.ui.tab}`;
     return region;
   }
 
   private itemsOf(region: Region): number {
     if (region === 'nav') return NAV_ORDER.length;
-    if (region === 'top') return topButtons(this).length;
+    if (region === 'top') return pageActions(this.ctx()).acts.length;
     return this.last?.regions[region]?.items.length ?? 0;
   }
 
@@ -583,6 +738,20 @@ export class Controller {
     if (region === 'nav') {
       const at = NAV_ORDER.indexOf(this.ui.workspace);
       this.selectWorkspace(NAV_ORDER[Math.max(0, Math.min(NAV_ORDER.length - 1, at + delta))]);
+      return;
+    }
+    // R5 (H131): the workflow actions: from the one selected (the primary next step until the person moves)
+    if (region === 'top') {
+      const { acts, at } = selectedAction(this.ctx());
+      if (!acts.length) return;
+      this.ui.cursor.top = Math.max(0, Math.min(acts.length - 1, at + delta));
+      this.emit();
+      return;
+    }
+    // R5 (H131): Home's preview and Chat's event log have no rows to select: the arrows scroll them
+    if (region === 'right' && this.hubColumn()) {
+      const d = this.last?.regions.right;
+      if (d) this.wheel('right', d, delta);
       return;
     }
     const list = this.listOf(region);
@@ -601,12 +770,14 @@ export class Controller {
   private itemsNow(region: Region): ReadonlyArray<{ line: number; item: Item }> | null {
     const c = this.ctx();
     if (region === 'center') return centerView(c).items;
-    if (region === 'right') return rightView(c).items;
+    if (region === 'right') return this.hubColumn() ? [] : rightView(c).items;
     if (region === 'bottom') return bottomView(c).items;
     return null;
   }
 
   private side(dir: 1 | -1): void {
+    // R5 (H131): Home's preview and Chat's event log have no tabs
+    if (this.ui.focus === 'right' && this.hubColumn()) return;
     if (this.ui.focus === 'right' || this.ui.focus === 'center' && !this.last?.regions.center) {
       const at = RIGHT_TABS.indexOf(this.ui.tab);
       this.ui.tab = RIGHT_TABS[(at + dir + RIGHT_TABS.length) % RIGHT_TABS.length];
@@ -619,6 +790,10 @@ export class Controller {
   }
 
   selectWorkspace(ws: WorkspaceId): void {
+    // R5 (H131): the tab that shows it is the active one (its actions in row 2)
+    const page = pageOf(ws);
+    if (this.ui.page !== page) { this.ui.page = page; delete this.ui.cursor.top; }
+    (this.ui.pageWs ??= {})[page] = ws;
     if (this.ui.workspace !== ws) {
       this.ui.workspace = ws;
       this.ui.overlay = null;
@@ -635,24 +810,47 @@ export class Controller {
     this.emit();
   }
 
+  /**
+   * R5 (H131): a tab by its key (1 to 9, then 0) or a click: the workspace it showed last (else the one it opens); the same
+   * tab again shows its next workspace, where it gathers several (6: 3D Create, Motion; 9: All tools, REA, Templates).
+   * Nothing runs by a tab: a box open in the body closes (a NEEDS YOU box and Quit take every key before this).
+   */
+  selectPage(page: TabId): void {
+    const list = workspacesOf(page);
+    let ws: WorkspaceId;
+    if (this.ui.page === page && !this.ui.overlay) {
+      const at = list.indexOf(this.ui.workspace);
+      ws = list[(at + 1) % list.length] ?? workspaceOfPage(page);
+    } else ws = this.ui.pageWs?.[page] ?? workspaceOfPage(page);
+    this.ui.overlay = null;
+    this.ui.navOpen = false;
+    if (this.ui.input.field === 'search') this.ui.input = { field: null, text: '' };
+    if (this.ui.focus === 'nav') this.ui.focus = 'center';
+    this.selectWorkspace(ws);
+  }
+
   private search(): void {
-    // in All tools, away from the navigation, / searches the tools (R4, H112: from the words the search kept)
-    if (this.ui.workspace === 'tools' && this.ui.focus !== 'nav') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.toolsTop(); this.loadFor('tools'); this.emit(); return; }
-    if (modeOf(this.size.columns) === 'narrow' || this.ui.focusMode) this.ui.navOpen = true;
+    // in All tools, from its list, / searches the tools (R4, H112: from the words the search kept). R5 (H131): only from the
+    // list: from the actions bar (where the Workbench starts), Context or Activity, / finds a workspace as on every tab
+    if (this.ui.workspace === 'tools' && this.ui.focus === 'center') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.toolsTop(); this.loadFor('tools'); this.emit(); return; }
+    // R5 (H131): the navigation is a drawer at every size: / opens it with its search
+    this.ui.navOpen = true;
+    this.ui.rightOpen = false;
     this.ui.focus = 'nav';
     this.ui.input = { field: 'search', text: '' };
     this.emit();
   }
 
   private toggleRight(): void {
-    if (modeOf(this.size.columns) === 'wide' && !this.ui.focusMode) { this.ui.tab = 'inspector'; this.ui.focus = 'right'; this.emit(); return; }
+    // R5 (H131): where Context is a column beside the workspace, i gives it the keyboard on its Inspector; elsewhere it is a
+    // drawer (over Home's preview and Chat's log too)
+    if (this.contextColumn()) { this.ui.tab = 'inspector'; this.ui.focus = 'right'; this.emit(); return; }
     this.ui.rightOpen = !this.ui.rightOpen;
     if (this.ui.rightOpen) { this.ui.navOpen = false; this.ui.focus = 'right'; } else this.ui.focus = 'center';
     this.emit();
   }
 
   private toggleNav(): void {
-    if (modeOf(this.size.columns) !== 'narrow' && !this.ui.focusMode) { this.ui.focus = 'nav'; this.emit(); return; }
     this.ui.navOpen = !this.ui.navOpen;
     if (this.ui.navOpen) { this.ui.rightOpen = false; this.ui.focus = 'nav'; } else this.ui.focus = 'center';
     this.emit();
@@ -665,9 +863,12 @@ export class Controller {
   }
 
   refresh(): void {
-    // R4 (H112): each run detail is read again too, when next shown (until then the one read before stays on screen)
+    // R4 (H112): each run detail is read again too, when next shown. R5 (H131): meanwhile it says "reading…", not what the
+    // reading before said (wantDetail)
     this.detailSig.clear();
     this.readAll();
+    // R5 (H131): and the workspace frame (at most once a second)
+    this.refreshFrame();
     this.loadFor(this.ui.workspace, true);
     this.say(`Read ${this.data.project.name}'s records again at ${clock(new Date(this.now()).toISOString())}.`, 'secondary');
   }
@@ -732,9 +933,13 @@ export class Controller {
     if (field === 'search') {
       const q = text.trim().toLowerCase();
       const hit = NAV_ORDER.find((id) => this.labelOf(id).toLowerCase().startsWith(q)) ?? NAV_ORDER.find((id) => this.labelOf(id).toLowerCase().includes(q));
+      // R5 (H131): else a tab by its words ("Logs", "Fleet", "Home")
+      const tab = !hit && q ? TABS.find((t) => t.label.toLowerCase().startsWith(q)) ?? TABS.find((t) => t.label.toLowerCase().includes(q)) : undefined;
       this.ui.input = { field: null, text: '' };
       if (hit) { this.selectWorkspace(hit); this.ui.focus = 'center'; this.ui.navOpen = false; }
-      else if (q) { this.selectWorkspace('tools'); this.ui.input = { field: 'tools', text }; this.ui.focus = 'center'; }
+      else if (tab) { this.selectPage(tab.id); this.ui.focus = 'center'; this.ui.navOpen = false; }
+      else if (q) { this.selectWorkspace('tools'); this.ui.input = { field: 'tools', text }; this.ui.focus = 'center'; this.ui.navOpen = false; }
+      else this.ui.navOpen = false;
       this.emit();
       return;
     }
@@ -886,6 +1091,8 @@ export class Controller {
     const root = this.data.project.root;
     this.data.decisions = readDecisions(root, this.records, this.chain(), this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
     this.data.activity = this.activity();
+    // R5 (H131): what waits on you is in the frame too (its tabs' counts, its next step)
+    this.refreshFrame();
     this.emit();
   }
 
@@ -937,6 +1144,8 @@ export class Controller {
     if (r.ok) {
       this.ui.settings = { settings: s, path: r.path, state: 'saved' };
       this.ui.saved = `Saved locally at ${clock(r.at)}`;
+      // R5 (H131): the frame says which views open at start
+      this.refreshFrame();
     } else {
       this.ui.saved = `Not saved: ${r.error}`;
     }
@@ -1015,8 +1224,11 @@ export class Controller {
     this.ui.chosen = {};
     this.ui.toolsQuery = '';
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
-    if (remembered) { this.ui.workspace = remembered.workspace; this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
+    if (remembered) { this.ui.workspace = remembered.workspace; this.ui.page = pageOf(remembered.workspace); this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
+    // R5 (H131): another project's frame: the last one is not shown for it (its actions and log are the other project's)
+    delete this.ui.cursor.top;
     this.readAll();
+    this.refreshFrame();
     this.loadFor(this.ui.workspace);
     // R4 (H112): this Workbench's runs elsewhere go on, named with where they run
     const away = this.data.away.filter((j) => j.live).map((j) => `${j.id} (${j.label}) keeps running in ${j.project}`);
@@ -1058,8 +1270,8 @@ export class Controller {
     const region = this.ui.focus;
     if (region === 'nav') { this.ui.focus = 'center'; this.ui.navOpen = false; this.emit(); return; }
     if (region === 'top') {
-      const b = topButtons(this)[cursorOf(this.ui, 'top', topButtons(this).length)];
-      if (b) this.key(b.key, {});
+      const { acts, at } = selectedAction(this.ctx());
+      await this.runAction(acts[at]);
       return;
     }
     if (region === 'right') {
@@ -1074,10 +1286,72 @@ export class Controller {
     if (region === 'center') await this.activate(this.selected());
   }
 
+  /**
+   * R5 (H131): a workflow action of row 2 (the workspace frame's, src/ops/workspace-frame.ts), run through a path this
+   * Workbench has: a tab, a key's own path (Stop current, Companion · Show, Studio · Show, New project, Switch project), a
+   * workspace, a workflow block's Run confirm (it asks before anything runs), the composer. Any other command is shown to copy,
+   * with where it runs: nothing is run for it here, and nothing is said to have happened.
+   */
+  async runAction(a: WorkspaceAction | undefined): Promise<void> {
+    if (!a) { this.say(pageActions(this.ctx()).why ? `No action: ${pageActions(this.ctx()).why}` : 'No action on this tab.', 'secondary'); return; }
+    if (!a.enabled) { this.say(`${a.n} ${a.label}: not now: ${a.why ?? 'not available'}`, 'secondary'); return; }
+    const r = routeOf(a);
+    switch (r.kind) {
+      case 'page': this.selectPage(r.page); this.ui.focus = 'center'; this.emit(); return;
+      case 'key': this.key(r.key, {}); return;
+      case 'workspace': this.selectWorkspace(r.ws); this.ui.focus = 'center'; this.emit(); return;
+      case 'composer':
+        this.selectWorkspace('chat');
+        this.ui.focus = 'center';
+        if (this.can().chat) this.ui.input = { field: 'composer', text: '' };
+        else this.say(`Not now: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary');
+        this.emit();
+        return;
+      case 'abort':
+        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent…', 'secondary'); } else this.say('No message is being sent: nothing to stop.', 'secondary');
+        return;
+      case 'run': {
+        const doc = this.data.workflows.docs.find((d) => d.rel === r.doc);
+        const block = doc?.blocks.find((b) => b.name === r.block);
+        if (!doc || !block) { this.say(`${r.doc} › ${r.block} is not in this project's workflows now: nothing was run.`, 'secondary'); return; }
+        this.selectWorkspace('workflows');
+        await this.activate({ kind: 'block', key: `block:${doc.rel}:${block.key}`, doc, block });
+        return;
+      }
+      default: {
+        const lines: Line[] = [
+          [{ text: a.label, role: 'strong' }],
+          [],
+          [{ text: '  ' }, { text: a.command, role: 'action' }],
+          [],
+          [{ text: `It runs in ${r.where}${a.effect === 'read' ? '' : `, and ${a.effect === 'network' ? 'asks over the network' : a.effect === 'spend' ? 'can spend' : 'changes things on this computer'}`}. Nothing was run from here: the Workbench has no path of its own for it.`, role: 'secondary' }],
+          [{ text: 'm gives the mouse back to the terminal, to select the command and copy it.', role: 'secondary' }],
+        ];
+        this.open({ kind: 'message', title: `Run it in ${r.where}`, lines });
+      }
+    }
+  }
+
   /** What Enter does to the selection: the action its words name. */
   private async activate(item: Item | null): Promise<void> {
     if (!item) return;
     switch (item.kind) {
+      case 'conn': {
+        // R5 (H131): a connection card: the companion's and Studio's Show; any other, its step, shown to copy
+        const k = item.conn;
+        if (k.id === 'companion') { await this.showCompanion(); return; }
+        if (k.id === 'studio') { await this.showStudio(); return; }
+        if (!k.setup) { this.say(`${k.label}: no step sets it up or checks it from here.`, 'secondary'); return; }
+        const where = k.setup.startsWith('/') ? 'the REPL (timmy)' : 'a shell';
+        this.open({
+          kind: 'message', title: `Run it in ${where}`, lines: [
+            [{ text: `${k.label}: its step`, role: 'strong' }], [], [{ text: '  ' }, { text: k.setup, role: 'action' }], [],
+            [{ text: `It runs in ${where}. Nothing was run from here, and the card says what was last observed until it is checked again.`, role: 'secondary' }],
+            [{ text: 'm gives the mouse back to the terminal, to select the command and copy it.', role: 'secondary' }],
+          ],
+        });
+        return;
+      }
       case 'block': {
         // R4 (H112): a run of this block under way (here, or in any session, read now from the job store) starts nothing
         this.ui.starting = [...this.starting];
@@ -1096,9 +1370,9 @@ export class Controller {
         if (item.key.startsWith('nav:')) { this.selectWorkspace(item.action as WorkspaceId); this.ui.focus = 'center'; this.emit(); }
         return;
       default:
-        // the Inspector shows it
+        // the Inspector shows it (R5, H131: as a drawer where Context is not a column)
         this.ui.tab = 'inspector';
-        if (modeOf(this.size.columns) !== 'wide' || this.ui.focusMode) this.ui.rightOpen = true;
+        if (!this.contextColumn()) this.ui.rightOpen = true;
         this.emit();
     }
   }
@@ -1145,6 +1419,9 @@ export class Controller {
       return;
     }
     if (o?.kind === 'quit') { if (hint === 'Esc') { this.ui.overlay = null; this.emit(); } return; }
+    // R5 (H131): a tab of row 1 opens it (as its key does; a box open in the body closes, nothing runs)
+    const page = f.pages.find((p) => y >= p.y0 && y <= p.y1 && x >= p.x0 && x <= p.x1);
+    if (page) { this.selectPage(page.page); return; }
     if (o?.kind === 'settings') {
       // a checkbox or a preset is changed by its click, as Space would (a setting, never a run)
       const d = f.regions.center;
@@ -1157,6 +1434,9 @@ export class Controller {
     if (!hit) return;
     // a tab of the right dock
     for (const t of f.tabs) if (y === t.y && x >= t.x0 && x <= t.x1) { this.ui.tab = t.tab; this.ui.focus = 'right'; this.remember(); this.emit(); return; }
+    // R5 (H131): a workflow action of row 2 is selected by its click, never run (Enter, the key, runs it)
+    const act = f.actions.find((a) => y === a.y && x >= a.x0 && x <= a.x1);
+    if (act) { this.ui.focus = 'top'; this.ui.cursor.top = act.i; this.emit(); return; }
     const [region, d] = hit;
     const at = this.rowAt(d, x, y, region === 'bottom');
     const it = at >= 0 ? d.items[at].item : null;
@@ -1185,7 +1465,10 @@ export class Controller {
     if (row < 0 || (d.height && row >= d.height)) return -1;
     const line = row + d.scroll;
     const exact = d.items.findIndex((it) => it.line === line);
-    if (exact >= 0 || !rows) return exact;
+    if (exact >= 0) return exact;
+    // R5 (H131): an item of several rows (a connection card) is under every one of its rows
+    const span = d.items.findIndex((it) => (it.rows ?? 1) > 1 && line >= it.line && line < it.line + (it.rows ?? 1));
+    if (span >= 0 || !rows) return span;
     for (let i = d.items.length - 1; i >= 0; i--) if (d.items[i].line <= line) return i;
     return -1;
   }

@@ -69,7 +69,7 @@ describe('POST /api/canvas/exec: the server token, from the REPL that holds the 
       ['the token in the address', exec(w.port, null, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /^Refused: the token goes in an Authorization header, never in an address/],
       ['the token in the address and the header', exec(w.port, w.token, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /never in an address/],
       ['the token in the body', exec(w.port, null, { ...code, token: w.token }), 401, /^Refused: code runs/],
-      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId and holder\./],
+      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId, holder, draft and baseRevision\./],
       ['a page (Origin) with the token', exec(w.port, w.token, code, { Origin: `http://127.0.0.1:${w.port}` }), 403, /^Refused: this route is for Timmy's REPL, never a page\./],
       ['the page\'s session as the token', exec(w.port, page.session, code), 401, /^Refused: code runs/],
       ['another site', exec(w.port, w.token, code, { Origin: 'http://evil.example' }), 403, /answers 127\.0\.0\.1 and localhost only|never a page/],

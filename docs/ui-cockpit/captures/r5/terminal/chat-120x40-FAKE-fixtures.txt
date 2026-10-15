@@ -1,0 +1,40 @@
+                ╭──────╮┏━━━━━━━━━━━━━━━┓╭───────────╮╭────────╮╭───────────╮╭────╮╭─────────╮╭───────╮╭───────╮╭──────╮
+TIMMY · tray1   │1 Home│┃2 Chat & Intent┃│3 Workflows││4 Studio││5 VoxVision││6 3D││7 Control││8 Fleet││9 Tools││0 Logs│
+                ╰──────╯┗━━━━━━━━━━━━━━━┛╰───────────╯╰────────╯╰───────────╯╰────╯╰─────────╯╰───────╯╰───────╯╰──────╯
+╭─ Workflow actions ────────────────────────────────────────────────────────────────────────────────── 2 Chat & Intent ╮
+│  [1 Send a message]  [2 Choose the model]  [3 Stop the turn]  [4 Show it in the companion]                           │
+│ this computer · chat: local · no model chosen…  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Pipeline · intent → predict → sandbox → receipt ────────────────────────────────────────────────────────────────────╮
+│ [intent · /run APPROVAL…] → [predict · sealed before…] → [sandbox · none recorded…] → [✓ receipt · sealed 331a62…]   │
+│ newest run APPROVAL.md › tidy · operation oea7f5785 · from its records: the operation's request, its predict…        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Chat · conversation ━━━━━━━━━━━━━━━━━━━━━━━━┓╭─ Event log · newest at the top ────────────────────────────╮
+┃ Route    chat: local · no model chosen · /model        ┃│ RUNNING NOW (1)                                            │
+┃ Ready    not ready: /setup in the REPL chooses a route ┃│   ● j66b3d9  FAKE job (test): sleep 300 · 8.8 s            │
+┃   Error: the chat is set to the local model, and no    ┃│                                                            │
+┃   model is chosen.                                     ┃│ EVENT LOG, NEWEST AT THE TOP                               │
+┃   Cause: the setup recorded none for Ollama at         ┃│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step              │
+┃   127.0.0.1:11434.                                     ┃│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)             │
+┃   Try: timmy init --chat local --model <name> (in a    ┃│ 16:10:11 [job] j3e9b07 tidy started                        │
+┃   terminal: Timmy checks that Ollama lists it), or     ┃│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy         │
+┃   /model in the REPL                                   ┃│ 16:10:06 [job] j66b3d9 started: FAKE job (test): sleep 300 │
+┃   Nothing was sent to any model.                       ┃│                                                            │
+┃                                                        ┃│                                                            │
+┃ THIS PROJECT'S CONVERSATION                            ┃│                                                            │
+┃   No conversation is kept in this project yet…         ┃│                                                            │
+┃                                                        ┃│                                                            │
+┃ COMPOSER                                               ┃│                                                            │
+┃ [Enter] Type a message (sent through the chat…         ┃│                                                            │
+┃                                                        ┃│                                                            │
+┃                                                        ┃│                                                            │
+┃                                                        ┃│                                                            │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰────────────────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠋ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as…     [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                        │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                       │
+│ 16:10:11 [job] j3e9b07 tidy started                                                                                  │
+│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                   │
+│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt…     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
