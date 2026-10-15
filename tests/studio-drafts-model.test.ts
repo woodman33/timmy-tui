@@ -4,7 +4,7 @@
  * exercised in Chromium by tests/studio-drafts-browser.test.ts and tests/studio-save-browser.test.ts).
  */
 import { describe, expect, it } from 'vitest';
-import { acceptPlan, decisionWords, discardPlan, documentChanges, DRAFT_LABEL, draftLine, draftMark, draftOf, draftRefusal, followed, pendingDrafts, staleWords } from '../companion/studio-canvas/src/drafts.js';
+import { acceptPlan, decisionWords, discardPlan, documentChanges, DRAFT_LABEL, draftLine, draftMark, draftOf, draftRefusal, followed, pendingDrafts, remarkPlan, staleWords } from '../companion/studio-canvas/src/drafts.js';
 import { SAVE_GLYPH, saveState } from '../companion/studio-canvas/src/save-state.js';
 
 type Rec = Record<string, unknown> & { id: string; typeName: string };
@@ -78,6 +78,13 @@ describe('a draft only adds', () => {
     const b = store(card);
     const a = store(read as Rec);
     expect(draftRefusal(documentChanges(b, a), b, a)).toBeNull();
+  });
+  it('puts its mark back on whatever the call created without it (code that stripped the mark lands nothing unreviewed)', () => {
+    const m = draftMark({ id: D1, job: 'turn-1', from: 3, at: 'then' });
+    const created = [shape('shape:kept', { meta: { timmyDraft: m } }), shape('shape:stripped', { meta: { other: 1 } }), shape('shape:moved', { meta: mark(D2) }), { id: 'asset:a', typeName: 'asset', meta: {} }, { id: 'binding:b', typeName: 'binding', meta: {} }, undefined];
+    expect(remarkPlan(created as Rec[], m).map((r) => [r.id, (r.meta as Record<string, unknown>).timmyDraft, (r.meta as Record<string, unknown>).other])).toEqual([
+      ['shape:stripped', m, 1], ['shape:moved', m, undefined], ['asset:a', m, undefined],
+    ]);
   });
   it('says plainly when a draft was made from a revision the canvas has left', () => {
     expect(staleWords(4, 9)).toBe('Refused: this draft was made from revision 4, but the canvas is at revision 9 now: it changed after Timmy read it. Nothing was drawn. Read the canvas again (canvas_read), then propose again.');

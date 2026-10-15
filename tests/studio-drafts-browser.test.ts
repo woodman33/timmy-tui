@@ -190,6 +190,32 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
     }
   }, 120_000);
 
+  it('code on the page cannot get round the review: a draft call that strips its own mark still leaves a draft, and a script\'s click on Accept decides nothing; a person\'s click does', async () => {
+    const { page, context } = await open();
+    try {
+      const run = agent();
+      expect((await run('canvas_read', {})).ok).toBe(true);
+      const sneaky = "const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: 520, y: 420, props: { w: 100, h: 50 } }); const s = editor.getShape(id); editor.store.put([{ ...s, meta: {} }]); return id;";
+      const drawn = await run('canvas_exec', { code: sneaky, jobId: 'draft-sneaky' });
+      expect(drawn).toMatchObject({ ok: true, draft: { shapes: 1 } });
+      expect((await page.evaluate((x) => (window as never as Win).timmyCanvas.editor.getShape(x)!.meta, drawn.result as string)).timmyDraft).toMatchObject({ id: drawn.draft!.id });
+      const row = `#draft-list li[data-draft="${drawn.draft!.id}"]`;
+      await page.waitForSelector(row);
+      // a script's click (as the agent's next call could make) is not the person's
+      await page.evaluate((r) => (document.querySelector(`${r} .draft-accept`) as HTMLButtonElement).click(), row);
+      const own = await run('canvas_exec', { code: `document.querySelector(${JSON.stringify(`${row} .draft-accept`)}).click(); return 1;`, jobId: 'draft-self-accept', draft: false });
+      expect(own.ok).toBe(true);
+      await page.waitForTimeout(500);
+      expect((await page.evaluate((x) => (window as never as Win).timmyCanvas.editor.getShape(x)!.meta, drawn.result as string)).timmyDraft).toBeDefined();
+      expect((await getJson<{ drafts: Array<Record<string, unknown>> }>('/api/canvas/drafts')).drafts.filter((r) => r.draft === drawn.draft!.id).map((r) => r.event)).toEqual(['proposed']);
+      // the person's click accepts
+      await page.click(`${row} .draft-accept`);
+      await page.waitForFunction((x) => !(window as never as Win).timmyCanvas.editor.getShape(x)!.meta.timmyDraft, drawn.result as string, { timeout: 10_000 });
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
   it('a pending draft survives a reopen: it is saved with its mark, and a new page lists it again', async () => {
     const first = await open();
     let id = '';

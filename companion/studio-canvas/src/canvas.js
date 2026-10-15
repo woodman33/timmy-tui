@@ -19,7 +19,7 @@ import { createCards, drawnType } from './cards.js';
 import { createRunDetailPanel } from './run-detail.js';
 // R5 (H133): B10 for tldraw's canvas colors; drafts; the save's words
 import { timmyThemes } from './theme.js';
-import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, staleWords } from './drafts.js';
+import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
 import { saveState } from './save-state.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
@@ -266,6 +266,8 @@ async function reloadFromDisk() {
   canvas.kept = null;
   band(`Reloaded revision ${disk.revision} from disk.${kept ? ` This page's version is kept as ${kept}.` : ''}`);
   showStatus(current);
+  showDrafts(current);
+  showJobs(current);
 }
 
 // The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
@@ -413,7 +415,8 @@ function connectBridge() {
       } else {
         const mark = editor.markHistoryStoppingPoint(`timmy ${typeof message.jobId === 'string' ? message.jobId : 'call'}`);
         runningJob = typeof message.jobId === 'string' ? message.jobId : null;
-        drafting = draft ? draftMark({ id: draft.id, job: runningJob, from: canvas.revision }) : null;
+        const callMark = draft ? draftMark({ id: draft.id, job: runningJob, from: canvas.revision }) : null;
+        drafting = callMark;
         drawnInCall = new Set();
         try {
           // R4 (H81): this code runs in this page's own realm, with the page's own rights: it can reach the network, replace
@@ -434,11 +437,19 @@ function connectBridge() {
         drawn = [...drawnInCall];
         drawnInCall = null;
         const crash = typeof editor.getCrashingError === 'function' ? editor.getCrashingError() : null;
-        // R5 (H133): a draft only adds; one that touched the board's own shapes keeps nothing, and says why
+        // R5 (H133): a draft only adds; one that touched the board's own shapes keeps nothing, and says why. Everything the call
+        // created carries this draft's mark when it ends, whatever its code did to the mark (code that stripped it would have
+        // put its shapes on the board without the person's Accept).
         if (answer.ok && !crash && draft) {
           const after = getSnapshot(editor.store);
-          const refusal = draftRefusal(documentChanges(before.document.store, after.document.store), before.document.store, after.document.store);
-          if (refusal) answer = { ok: false, error: refusal, draft: { id: draft.id, refused: 'changes' } };
+          const changes = documentChanges(before.document.store, after.document.store);
+          const refusal = draftRefusal(changes, before.document.store, after.document.store);
+          if (refusal) {
+            answer = { ok: false, error: refusal, draft: { id: draft.id, refused: 'changes' } };
+          } else {
+            const unmarked = remarkPlan(changes.created.map((id) => editor.store.get(id)), callMark);
+            if (unmarked.length) editor.run(() => editor.store.put(unmarked));
+          }
         }
         if (!answer.ok || crash) {
           // Nothing a failed call drew is kept, and a crashed page is started again (see restore).
@@ -590,9 +601,11 @@ function showDrafts(editor) {
     const show = el('button', 'Show', { type: 'button', className: 'draft-show', title: 'Selects the draft\'s shapes and brings them into view' });
     const accept = el('button', 'Accept', { type: 'button', className: 'draft-accept', title: 'Keeps the draft\'s shapes on the board and clears their draft mark. Nothing runs: no tool, job or file but the canvas.' });
     const discard = el('button', 'Discard', { type: 'button', className: 'draft-discard', title: 'Removes the draft\'s shapes from the board. Nothing runs: no tool, job or file but the canvas.' });
+    // a decision is the person's: only a click the browser marks as theirs (a pointer, or Enter or Space on the focused button)
+    // decides; code on the page (the agent's own calls run here) calling .click() on Accept decides nothing
     show.addEventListener('click', () => showDraft(d.id));
-    accept.addEventListener('click', () => decide(d.id, 'accepted'));
-    discard.addEventListener('click', () => decide(d.id, 'discarded'));
+    accept.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'accepted'); });
+    discard.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'discarded'); });
     acts.append(show, accept, discard);
     li.append(acts);
     return li;

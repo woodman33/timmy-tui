@@ -112,6 +112,16 @@ export function draftRefusal(changes, before, after) {
   return `Refused: a draft only adds to the board, and ${parts.join('; ')}. Nothing was kept. Propose new shapes as a draft; to change the board's own shapes, ask the person, or run the call without draft (it asks them first in Timmy).`;
 }
 
+/**
+ * The records a draft call created that do not carry its mark when it ends (`created`: those records; `mark`: the draft's), each
+ * with the mark put back. Shapes and assets only (a binding goes with its shapes).
+ */
+export function remarkPlan(created, mark) {
+  return created
+    .filter((r) => r && (r.typeName === 'shape' || r.typeName === 'asset') && draftOf(r)?.id !== mark.id)
+    .map((r) => ({ ...r, meta: { ...(r.meta || {}), timmyDraft: mark } }));
+}
+
 /** Timmy's drawn cards (./cards.js CARD_SHAPES), and the props the page itself writes as a card follows its record. */
 const DRAWN_CARDS = ['timmy-workflow', 'timmy-params', 'timmy-result'];
 const FOLLOWED_PROPS = ['data', 'readAt', 'gone', 'title', 'command', 'h'];
