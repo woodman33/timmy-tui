@@ -1222,6 +1222,7 @@ function stripNote(words, state) {
 function readFrame() {
   if (!companion.token || companion.refused) {
     stripNote('Nothing is read without the companion’s token (see the note above).', 'failed');
+    if (workspace.prefs.state === 'idle') setPrefs('idle', 'Not read: nothing is read without the companion’s token.');
     return Promise.resolve();
   }
   if (workspace.asking) return workspace.asking;
@@ -1557,8 +1558,7 @@ function drawPrefs(f) {
     const box = document.getElementById(id);
     if (!box || !s[key]) continue;
     box.checked = s[key].openAtStart === true;
-    // changed from this page once it can save them (savePref)
-    box.disabled = typeof savePref !== 'function';
+    box.disabled = false;
   }
   if (workspace.prefs.state === 'idle') setPrefs('idle', 'Kept in the Workbench’s settings file: the terminal reads the same one.');
 }
@@ -1571,6 +1571,92 @@ function setPrefs(state, words) {
   const reload = document.getElementById('prefs-reload');
   if (reload) reload.hidden = state !== 'conflict';
 }
+
+// ── the start-up settings, saved from this page (POST /api/workspace/prefs) ──
+//
+// One save at a time, sent with the revision of the frame this page drew. The companion answers saved (with the newer
+// frame), stale (409: the frame is another revision now; nothing written) or a failure in words. The frame's revision
+// also moves with its time words ("answered 12 s ago"), so a stale answer whose frame shows the same two settings this
+// page drew is sent once more with that frame's revision: nothing the person did not see is written over. A stale answer
+// whose settings differ is a conflict, the person's to resolve: the boxes wait as before the click until Reload reads the
+// newer frame; nothing is sent again by itself, after a reconnect either.
+
+const PREF_SURFACE = { openCompanionAtStart: 'companion', openStudioAtStart: 'studio' };
+/** "14:08": the hour and minute of a save, in this browser's time */
+const hourMinute = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
+/** the two settings a frame says, to compare with the ones this page drew */
+const prefsOf = (f) => JSON.stringify(Object.values(PREF_SURFACE).map((k) => Boolean(f && f.surfaces && f.surfaces[k] && f.surfaces[k].openAtStart === true)));
+
+function prefBoxes() { return ['pref-companion', 'pref-studio'].map((id) => document.getElementById(id)).filter(Boolean); }
+function prefsBusy(busy) {
+  workspace.prefs.busy = busy;
+  document.getElementById('ws-prefs')?.setAttribute('aria-busy', busy ? 'true' : 'false');
+  for (const box of prefBoxes()) box.disabled = busy || workspace.prefs.state === 'conflict';
+}
+
+async function postPref(key, want, revision) {
+  const project = shownProjectId();
+  const r = await companion.fetch(`/api/workspace/prefs${project ? `?project=${encodeURIComponent(project)}` : ''}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [key]: want, if_revision: revision }),
+  });
+  return { status: r.status, body: await r.json().catch(() => null) };
+}
+
+async function savePref(box) {
+  const drawn = workspace.frame;
+  const key = box.dataset.pref;
+  const want = box.checked;
+  // nothing drawn to save against yet, a save on its way, or a conflict waiting: the box goes back, nothing is sent
+  if (!drawn || workspace.prefs.busy || workspace.prefs.state === 'conflict' || !Object.prototype.hasOwnProperty.call(PREF_SURFACE, key)) { box.checked = !want; return; }
+  setPrefs('saving', 'Saving…');
+  prefsBusy(true);
+  let took = false;
+  try {
+    let { status, body } = await postPref(key, want, drawn.revision);
+    const stale = () => status === 409 && body && body.error === 'stale';
+    if (stale() && body.frame && prefsOf(body.frame) === prefsOf(drawn)) ({ status, body } = await postPref(key, want, body.frame.revision));
+    if (status === 200 && body && typeof body.saved_at === 'string') {
+      setPrefs('saved', `Saved at ${hourMinute(body.saved_at)}`);
+      if (body.frame) { takeFrame(body.frame); took = true; }
+    } else if (stale()) {
+      box.checked = !want;
+      setPrefs('conflict', 'Changed elsewhere: reload');
+    } else {
+      box.checked = !want;
+      setPrefs('failed', `Failed to save: ${(body && typeof body.error === 'string' && body.error) || `the companion answered HTTP ${status}`}`);
+    }
+  } catch (err) {
+    box.checked = !want;
+    setPrefs('failed', `Failed to save: the companion could not be reached (${err && err.message ? err.message : String(err)})`);
+  } finally {
+    prefsBusy(false);
+  }
+  // both boxes as the saved frame says them (the other one may have changed elsewhere, and is shown, not written)
+  if (took) drawPrefs(workspace.frame);
+}
+
+/** Reload after a conflict: the newer frame is read and drawn; the person decides again from what it says. */
+async function reloadPrefs() {
+  if (workspace.prefs.busy) return;
+  setPrefs('saving', 'Reading the settings as they are now…');
+  prefsBusy(true);
+  await readFrame();
+  if (workspace.failed) {
+    setPrefs('conflict', `Changed elsewhere: reload (the companion did not answer: ${workspace.failed})`);
+    prefsBusy(false);
+    return;
+  }
+  // a state of its own, so these words stay while the boxes are drawn from the newer frame
+  setPrefs('reloaded', `Reloaded at ${hourMinute(new Date().toISOString())}: these are the settings now.`);
+  prefsBusy(false);
+  if (workspace.frame) drawPrefs(workspace.frame);
+}
+
+document.getElementById('ws-prefs')?.addEventListener('change', (event) => {
+  const box = event.target;
+  if (box instanceof HTMLInputElement && box.type === 'checkbox' && box.dataset.pref) savePref(box);
+});
+document.getElementById('ws-prefs')?.addEventListener('submit', (event) => { event.preventDefault(); });
 
 // ── when the page reads the frame ──
 

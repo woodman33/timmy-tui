@@ -272,7 +272,9 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; color: var(--timmy-text); }
 .prefs-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 1.6em; }
 .prefs-state { font-size: 12px; color: var(--timmy-text-secondary); }
-.prefs-state[data-state="saved"] { color: var(--timmy-text); }
+.prefs-state[data-state="saved"], .prefs-state[data-state="reloaded"] { color: var(--timmy-text); }
+.prefs[aria-busy="true"] .check { cursor: progress; }
+.check:has(input:disabled) { color: var(--timmy-text-secondary); cursor: default; }
 .prefs-state[data-state="failed"], .prefs-state[data-state="conflict"] { color: var(--timmy-failure); }
 
 /* ---------- events and activity: one line each, newest first; the tag's color follows its tone (with its word) ---------- */
