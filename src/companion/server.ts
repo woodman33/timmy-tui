@@ -67,6 +67,18 @@
  *   GET /run/<operation id>                nothing more                      the page (as GET /), its RUN DETAIL tab on that id
  *   GET /api/chat/route                    the token                         the chat's route in words (never a key)
  *   GET /api/run/<operation id>            the token                         the operator's records, as a run detail
+ *
+ * R5 (H132, the operator's completion order of 2026-10-15: one project workspace across the terminal, the companion and
+ * Studio): the page draws the workspace frame every surface shares (src/contracts/workspace.ts, made only by
+ * src/ops/workspace-frame.ts) around its own content, and may change the two start-up settings the terminal Workbench keeps
+ * (src/companion/workspace.ts says what each answer is). Timmy's shared look is served beside the page (src/companion/page.ts).
+ *
+ *   route                                  requires                          why
+ *   GET /api/workspace                     the token                         the frame of the project the page shows: the
+ *                                                                            operator's records (projects, jobs, connections)
+ *   POST /api/workspace/prefs              the token                         writes the Workbench's settings file, checked
+ *                                                                            against the frame's revision (409 when stale)
+ *   GET /timmy-theme.css, /fonts/<name>    nothing more                      Timmy's look and Monaspace Argon: no content
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -94,6 +106,8 @@ import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
 import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
+// R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
+import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -152,6 +166,12 @@ export interface CompanionOptions {
    * src/ops/run-detail.ts when absent, and words saying there is none where it is not built yet.
    */
   runDetail?: RunDetailProducer;
+  /**
+   * R5 (H132): what GET /api/workspace and POST /api/workspace/prefs read and write with (src/companion/workspace.ts): a test's
+   * environment (its TIMMY_HOME and TIMMY_SETTINGS_DIR), a FAKE frame producer, or a settings saver that fails; this
+   * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
+   */
+  workspace?: WorkspaceDeps;
 }
 
 /**
@@ -732,6 +752,22 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const project = projectFor(req);
     if (!project) { res.set('Cache-Control', 'no-store').json({ ok: false, reason: 'project', error: PROJECT_UNKNOWN }); return; }
     const answer = await runDetailAnswer(String(req.params.op), project.root, options.runDetail);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+
+  // R5 (H132): the workspace frame of the project the page shows (?project=<id>, else the one followed), and the two start-up
+  // settings it may change (src/companion/workspace.ts: 409 with the newer frame when the page's revision is stale)
+  const workspace = new CompanionWorkspace(options.workspace);
+  app.get('/api/workspace', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const answer = await workspace.answerFrame(project.root);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+  app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ error: PROJECT_UNKNOWN }); return; }
+    const answer = await workspace.answerPrefs(project.root, req.body);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
 
