@@ -25,13 +25,21 @@
  * What it reads and writes is the environment it is given (CompanionOptions.workspace, a test's), else this process's.
  */
 import type { WorkspaceFrame } from '../contracts/workspace.js';
+import { readActiveProject } from '../project/index.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { readSettings, saveSettings, type SaveResult, type SettingsRead, type WorkbenchSettings } from '../workbench/settings.js';
 
 type Env = Record<string, string | undefined>;
 
-/** What makes a frame for a project's folder: src/ops/workspace-frame.ts buildWorkspaceFrame unless a test gives one. */
-export type FrameProducer = (o: { cwd: string; env: Env }) => Promise<WorkspaceFrame>;
+/** The project a page shows (src/companion/project.ts): its name and its folder. */
+export interface ShownProject { name: string; root: string }
+
+/**
+ * What makes a frame for a project: src/ops/workspace-frame.ts buildWorkspaceFrame unless a test gives one. `project` is
+ * named only when the page shows another project than the one the producer reads by itself (a page pinned to its own, or a
+ * folder TIMMY_REPO fixed while another project is recorded as active).
+ */
+export type FrameProducer = (o: { cwd: string; env: Env; project?: ShownProject }) => Promise<WorkspaceFrame>;
 
 export interface WorkspaceDeps {
   /** the environment the frame and the settings are read and written with; this process's when absent */
@@ -70,41 +78,49 @@ export class CompanionWorkspace {
 
   private env(): Env { return this.d.env ?? process.env; }
 
-  /** A frame for the project at `root`, made now. */
-  private async make(root: string): Promise<WorkspaceFrame> {
-    if (this.d.frame) return this.d.frame({ cwd: root, env: this.env() });
+  /**
+   * A frame for `shown`, made now. The producer reads the active project (the one chosen, else the folder it is given) by
+   * itself; it is told the page's project only when that is another one, so a following page gets the very frame the
+   * terminal Workbench draws.
+   */
+  private async make(shown: ShownProject): Promise<WorkspaceFrame> {
+    let own = false;
+    try { own = readActiveProject(shown.root).root === shown.root; } catch { own = false; }
+    const o = { cwd: shown.root, env: this.env(), ...(own ? {} : { project: { name: shown.name, root: shown.root } }) };
+    if (this.d.frame) return this.d.frame(o);
     const { buildWorkspaceFrame } = await import('../ops/workspace-frame.js');
-    return buildWorkspaceFrame({ cwd: root, env: this.env() });
+    return buildWorkspaceFrame(o);
   }
 
-  /** The frame for the project at `root`; one made in the last `shareMs` answers again unless `fresh`. */
-  frame(root: string, fresh = false): Promise<WorkspaceFrame> {
+  /** The frame for `shown`; one made in the last `shareMs` answers again unless `fresh`. */
+  frame(shown: ShownProject, fresh = false): Promise<WorkspaceFrame> {
     const now = Date.now();
-    const had = this.shared.get(root);
+    const key = `${shown.root}\n${shown.name}`;
+    const had = this.shared.get(key);
     if (!fresh && had && now - had.at < (this.d.shareMs ?? 750)) return had.made;
-    const made = this.make(root);
-    this.shared.set(root, { at: now, made });
-    made.catch(() => { if (this.shared.get(root)?.made === made) this.shared.delete(root); });
+    const made = this.make(shown);
+    this.shared.set(key, { at: now, made });
+    made.catch(() => { if (this.shared.get(key)?.made === made) this.shared.delete(key); });
     return made;
   }
 
   /** GET /api/workspace: the frame, or why there is none, in words. */
-  async answerFrame(root: string): Promise<Answer> {
+  async answerFrame(shown: ShownProject): Promise<Answer> {
     try {
-      return { status: 200, body: await this.frame(root) };
+      return { status: 200, body: await this.frame(shown) };
     } catch (err) {
       return { status: 500, body: { ok: false, error: `${WORKSPACE_FAILED}: ${words(err)}. Nothing was changed.` } };
     }
   }
 
   /** POST /api/workspace/prefs, one at a time (see the module's comment). */
-  answerPrefs(root: string, body: unknown): Promise<Answer> {
-    const run = this.queue.then(() => this.prefsNow(root, body), () => this.prefsNow(root, body));
+  answerPrefs(shown: ShownProject, body: unknown): Promise<Answer> {
+    const run = this.queue.then(() => this.prefsNow(shown, body), () => this.prefsNow(shown, body));
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  private async prefsNow(root: string, body: unknown): Promise<Answer> {
+  private async prefsNow(shown: ShownProject, body: unknown): Promise<Answer> {
     if (!isObject(body)) return { status: 400, body: { error: PREFS_BAD_BODY } };
     const extra = Object.keys(body).filter((k) => k !== 'if_revision' && !(PREF_KEYS as readonly string[]).includes(k));
     const asked = PREF_KEYS.filter((k) => typeof body[k] === 'boolean');
@@ -112,7 +128,7 @@ export class CompanionWorkspace {
     const revision = body.if_revision;
     if (extra.length || wrong.length || !asked.length || typeof revision !== 'string' || !revision || revision.length > 128) return { status: 400, body: { error: PREFS_BAD_BODY } };
     let now: WorkspaceFrame;
-    try { now = await this.frame(root, true); } catch (err) {
+    try { now = await this.frame(shown, true); } catch (err) {
       return { status: 500, body: { error: `${WORKSPACE_FAILED} to check this change against: ${words(err)}. Nothing was written.` } };
     }
     if (now.revision !== revision) return { status: 409, body: { error: 'stale', frame: now } };
@@ -129,7 +145,7 @@ export class CompanionWorkspace {
     }
     if (!saved.ok) return { status: 500, body: { error: `the Workbench's settings file could not be written (${words(saved.error)}); nothing was changed` } };
     try {
-      return { status: 200, body: { saved_at: saved.at, frame: await this.frame(root, true) } };
+      return { status: 200, body: { saved_at: saved.at, frame: await this.frame(shown, true) } };
     } catch (err) {
       // saved; the page asks for the frame again on its next poll
       return { status: 200, body: { saved_at: saved.at, frame: null, frame_error: `${WORKSPACE_FAILED}: ${words(err)}` } };

@@ -763,13 +763,13 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   app.get('/api/workspace', withToken, async (req, res) => {
     const project = projectFor(req);
     if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
-    const answer = await workspace.answerFrame(project.root);
+    const answer = await workspace.answerFrame(project);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
   app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
     const project = projectFor(req);
     if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ error: PROJECT_UNKNOWN }); return; }
-    const answer = await workspace.answerPrefs(project.root, req.body);
+    const answer = await workspace.answerPrefs(project, req.body);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
 

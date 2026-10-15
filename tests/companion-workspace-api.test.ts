@@ -15,7 +15,7 @@ import { TABS, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import { buildWorkspaceFrame } from '../src/ops/workspace-frame.js';
 import { COMPANION_BAD_REQUEST, COMPANION_REFUSED, PROJECT_UNKNOWN, startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
 import { PREFS_BAD_BODY } from '../src/companion/workspace.js';
-import { projectId } from '../src/project/index.js';
+import { projectId, saveActiveProject } from '../src/project/index.js';
 import { readSettings, saveSettings, settingsPath, DEFAULT_SETTINGS } from '../src/workbench/settings.js';
 
 type Env = Record<string, string | undefined>;
@@ -100,6 +100,21 @@ describe('the companion\'s workspace routes: GET /api/workspace and POST /api/wo
     expect(await unknown.json()).toEqual({ ok: false, error: PROJECT_UNKNOWN });
     // with the project's own id, the same frame
     expect((await frameOf(await get(c, `/api/workspace?project=${projectId(root)}`))).revision).toBe(frame.revision);
+  });
+
+  it('a page whose project is not the active one (here a folder TIMMY_REPO fixed, while the record names another) gets its own project\'s frame, never the active project\'s', async () => {
+    // FAKE: another project, recorded as the active one (Timmy's own code writes the record, in this test's TIMMY_HOME)
+    const other = join(box, 'FAKE-other');
+    mkdirSync(other, { recursive: true });
+    saveActiveProject({ name: 'FAKE-other', root: other, chosen: true });
+    try {
+      const c = await companion();
+      const frame = await frameOf(await get(c));
+      expect(frame.project.id).toBe(projectId(root));
+      expect(frame.project.name).toBe('FAKE-project');
+      // the producer, told the same project, makes the same frame
+      expect(frame.revision).toBe((await buildWorkspaceFrame({ cwd: root, env, project: { name: 'FAKE-project', root } })).revision);
+    } finally { rmSync(join(box, 'home', 'state'), { recursive: true, force: true }); }
   });
 
   it('POST /api/workspace/prefs: 401 without the token, before its body is read; nothing is written', async () => {

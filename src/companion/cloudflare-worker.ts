@@ -3,6 +3,8 @@ import type { Message } from "../types/index.js";
 import { computeReceiptHash, Receipt } from "../receipt/schema.js";
 import { VERSION } from "../version.js";
 import { theme } from '../tui/theme.js';
+// R5 (H132, the lead's ask): the receipt page's card well is the palette's (DESIGN.md §10 B10), not GitHub-dark #161b22
+import { HOMEBREW } from '../theme/tokens.js';
 
 
 // Cloudflare Env Bindings conforming exactly to user receipt parameters
@@ -1518,7 +1520,7 @@ export class MyDurableObject extends DurableObject {
         <style>
           :root {
             --bg-dark: ${theme.ground};
-            --bg-card: #161b22;
+            --bg-card: ${HOMEBREW.surface};
             --border-color: ${theme.line};
             --text-primary: ${theme.textSecondary};
             --text-muted: ${theme.textSecondary};
