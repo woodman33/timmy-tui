@@ -12,7 +12,7 @@ import type {
 
 /** Faults the FAKE backend can be told to produce, per worker index. */
 export interface FakeFaults {
-  /** create() answers "unknown"; lookup() later finds the compute ("created") or nothing ("absent"). */
+  /** The first create() for the worker answers "unknown"; lookup() later finds the compute ("created") or nothing ("absent"). */
   createUnknown?: Map<number, 'created' | 'absent'>;
   /** create() refuses. */
   refuse?: Set<number>;
@@ -20,6 +20,8 @@ export interface FakeFaults {
   dropAfter?: Map<number, number>;
   /** The session fails instead of completing. */
   fail?: Set<number>;
+  /** A child session starts in the parent's sandbox even when children were not allowed (a runtime that ignores the flag). */
+  childIgnoresFlag?: Set<number>;
   /** The compute expires before the session ends. */
   expire?: Set<number>;
   /** A child session starts in the parent's sandbox when children are allowed. */
@@ -38,6 +40,8 @@ export interface FakeOptions {
   paid?: boolean;
   usdPerWorkerMinute?: number;
   messagesPerTask?: number;
+  /** A pause before each event, so a test can act while workers run. */
+  eventDelayMs?: number;
   faults?: FakeFaults;
 }
 
@@ -54,6 +58,7 @@ export const FAKE_LEAKED_TOKEN = 'sk-or-v1-FAKEFAKE';
 export class FakeProvisioner implements Provisioner {
   readonly records = new Map<string, ComputeRecord>();
   private readonly byRequest = new Map<string, CreateOutcome>();
+  private readonly unknownUsed = new Set<number>();
   private next = 1;
   peakLive = 0;
   creates = 0;
@@ -94,7 +99,8 @@ export class FakeProvisioner implements Provisioner {
     else if (this.live() >= (this.opts.maxConcurrent ?? 100)) out = { outcome: 'refused', reason: 'FAKE: quota reached' };
     else {
       const providerId = `fake-${spec.isolation}-${String(this.next++).padStart(3, '0')}`;
-      const unknown = this.opts.faults?.createUnknown?.get(w);
+      const unknown = this.unknownUsed.has(w) ? undefined : this.opts.faults?.createUnknown?.get(w);
+      if (unknown) this.unknownUsed.add(w);
       if (unknown !== 'absent') {
         this.records.set(spec.allocationKey, { providerId, allocationKey: spec.allocationKey, state: 'ready', isolation: spec.isolation, labels: spec.labels, expiresAt: new Date(Date.now() + spec.ttlMinutes * 60_000).toISOString() });
         this.creates += 1;
@@ -129,6 +135,16 @@ export class FakeProvisioner implements Provisioner {
   async list(labels: Record<string, string>): Promise<ComputeRecord[]> {
     await yieldNow();
     return [...this.records.values()].filter((r) => Object.entries(labels).every(([k, v]) => r.labels[k] === v)).map((r) => ({ ...r }));
+  }
+
+  /** The FAKE runtime calls this when a scripted expiry happens. */
+  markExpired(providerId: string): void {
+    for (const r of this.records.values()) if (r.providerId === providerId && r.state === 'ready') r.state = 'expired';
+  }
+
+  stateOf(providerId: string): ComputeState | undefined {
+    for (const r of this.records.values()) if (r.providerId === providerId) return r.state;
+    return undefined;
   }
 
   /** Test hook: compute that exists at the provider but not in Timmy's ledger (an orphan). */
@@ -206,7 +222,7 @@ export class FakeRuntime implements Runtime {
     const n = this.opts.messagesPerTask ?? 3;
     for (let i = 1; i <= n; i++) push('message', { role: 'assistant', text: `FAKE worker ${s.worker} step ${i} of ${n}` });
     if (f.leakToken?.has(s.worker)) push('tool', { name: 'shell', output: `export OPENROUTER_API_KEY=${FAKE_LEAKED_TOKEN}` });
-    if (f.childInParent?.has(s.worker) && s.allowChildren) push('child.spawned', { child: `${s.id}-child`, sandbox: s.computeId, sharedWithParent: true });
+    if ((f.childInParent?.has(s.worker) && s.allowChildren) || f.childIgnoresFlag?.has(s.worker)) push('child.spawned', { child: `${s.id}-child`, sandbox: s.computeId, sharedWithParent: true });
     if (f.expire?.has(s.worker)) push('compute.expired', { computeId: s.computeId });
     else if (f.fail?.has(s.worker)) push('session.failed', { reason: 'FAKE: scripted failure' });
     else push('session.completed', { summary: `FAKE result of worker ${s.worker}` });
@@ -222,6 +238,7 @@ export class FakeRuntime implements Runtime {
     if (!s) throw new Error(`FAKE: no session ${sessionId}`);
     if (s.state === 'accepted') s.state = 'running';
     this.peakRunning = Math.max(this.peakRunning, this.running());
+    const stateNow = (): SessionState => s.state;
     const dropAt = this.opts.faults?.dropAfter?.get(s.worker);
     let sent = 0;
     for (const e of s.events) {
@@ -231,10 +248,13 @@ export class FakeRuntime implements Runtime {
         s.dropped = true;
         return; // the connection drops; the caller resumes from its cursor
       }
-      await yieldNow();
+      if (this.opts.eventDelayMs) await new Promise<void>((resolve) => setTimeout(resolve, this.opts.eventDelayMs));
+      else await yieldNow();
+      if (signal?.aborted || stateNow() === 'interrupted') return; // an interrupt may have come during the pause
       sent += 1;
       if (e.type === 'session.completed') s.state = 'completed';
       if (e.type === 'session.failed' || e.type === 'compute.expired') s.state = 'failed';
+      if (e.type === 'compute.expired') this.provisioner.markExpired(s.computeId);
       yield e;
     }
   }
@@ -267,6 +287,7 @@ export class FakeRuntime implements Runtime {
   async collect(sessionId: string): Promise<{ files: Array<{ path: string; bytes: number; sha256: string; content: Buffer }>; summary?: string }> {
     const s = this.sessions.get(sessionId);
     if (!s) return { files: [] };
+    if (this.provisioner.stateOf(s.computeId) === 'expired') throw new Error('FAKE: the compute expired; its files are gone');
     const content = Buffer.from(`FAKE result of worker ${s.worker}\nprompt: ${s.prompt}\n`);
     return { files: [{ path: 'RESULT.md', bytes: content.length, sha256: sha(content), content }], summary: `FAKE result of worker ${s.worker}` };
   }

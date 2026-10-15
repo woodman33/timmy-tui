@@ -76,6 +76,17 @@ export const fleetRoot = (projectRoot: string): string => path.join(projectRoot,
 export const planDir = (projectRoot: string, planId: string): string => path.join(fleetRoot(projectRoot), planId);
 export const workerDir = (projectRoot: string, planId: string, index: number): string => path.join(planDir(projectRoot, planId), `w${String(index).padStart(3, '0')}`);
 export const allocationKey = (planId: string, index: number, attempt: number): string => `${planId}:w${String(index).padStart(3, '0')}:a${attempt}`;
+export const cancelPath = (projectRoot: string, planId: string): string => path.join(planDir(projectRoot, planId), 'CANCEL');
+export const ownerPath = (projectRoot: string, planId: string): string => path.join(planDir(projectRoot, planId), 'runner.json');
+
+/** The process running a plan, when one is (its pid answers); otherwise undefined. */
+export function runnerOf(projectRoot: string, planId: string): { pid: number; started: string } | undefined {
+  try {
+    const o = JSON.parse(fs.readFileSync(ownerPath(projectRoot, planId), 'utf8')) as { pid: number; started: string };
+    process.kill(o.pid, 0);
+    return o;
+  } catch { return undefined; }
+}
 
 /** Writes a whole file so a reader sees the old one or the new one, never half (temp in the same folder, then rename). */
 export function writeWhole(file: string, text: string): void {
@@ -96,6 +107,15 @@ export function appendFlushed(file: string, line: string): void {
     fs.closeSync(fd);
   }
 }
+
+/** Appends one line without waiting for the disk (for transitions that carry no identity). */
+export function appendPlain(file: string, line: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${line}\n`, { mode: 0o600 });
+}
+
+/** Transitions that carry an identity or end one: flushed to disk before the call they announce, and saved at once. */
+const IDENTITY = new Set(['reserved', 'creating', 'create outcome unknown', 'reconciled: created', 'reconciled: absent', 'new attempt', 'compute live', 'session accepted', 'destroying', 'compute destroyed', 'orphan destroyed', 'cancelled before admission']);
 
 export function readJsonl<T>(file: string): T[] {
   if (!fs.existsSync(file)) return [];
@@ -163,13 +183,20 @@ export class FleetLedger {
     return w;
   }
 
-  /** Records a transition (flushed) and the new worker state (whole file). */
+  /**
+   * Records a transition and the new worker state. Identity transitions (a reservation, a live allocation, a session's
+   * id, a teardown) are flushed to disk before returning and saved at once; the rest are appended and the state file is
+   * rewritten at most every 250 ms (and always at the end of a run).
+   */
   record(index: number, what: string, change: (w: WorkerRecord) => void, extra: Partial<Transition> = {}): WorkerRecord {
     const w = this.worker(index);
     change(w);
     w.updatedAt = new Date().toISOString();
-    appendFlushed(path.join(this.dir, 'allocations.jsonl'), JSON.stringify({ at: w.updatedAt, worker: index, allocationKey: w.allocationKey, what, ...extra }));
-    this.save();
+    const line = JSON.stringify({ at: w.updatedAt, worker: index, allocationKey: w.allocationKey, what, ...extra });
+    const identity = IDENTITY.has(what);
+    if (identity) appendFlushed(path.join(this.dir, 'allocations.jsonl'), line);
+    else appendPlain(path.join(this.dir, 'allocations.jsonl'), line);
+    this.save(identity);
     return w;
   }
 
@@ -178,16 +205,45 @@ export class FleetLedger {
     this.save();
   }
 
+  /** Asks the process running this plan to stop (it watches for the file); also marks this copy of the state. */
   requestCancel(): void {
+    writeWhole(cancelPath(this.projectRoot, this.plan.id), `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid })}\n`);
     this.state.cancelRequested = true;
     this.save();
+  }
+
+  cancelAsked(): boolean {
+    return this.state.cancelRequested || fs.existsSync(cancelPath(this.projectRoot, this.plan.id));
+  }
+
+  /** Records which process runs the plan, so another process knows whether to ask it or to act itself. */
+  claimRunner(): void {
+    writeWhole(ownerPath(this.projectRoot, this.plan.id), `${JSON.stringify({ pid: process.pid, started: new Date().toISOString() })}\n`);
+  }
+
+  releaseRunner(): void {
+    fs.rmSync(ownerPath(this.projectRoot, this.plan.id), { force: true });
   }
 
   transitions(): Transition[] {
     return readJsonl<Transition>(path.join(this.dir, 'allocations.jsonl'));
   }
 
-  save(): void {
+  private lastSave = 0;
+  private pending: NodeJS.Timeout | undefined;
+
+  /** Writes state.json now when forced or when the last write is 250 ms old; otherwise once, shortly. */
+  save(force = true): void {
+    const now = Date.now();
+    if (!force && now - this.lastSave < 250) {
+      if (!this.pending) {
+        this.pending = setTimeout(() => { this.pending = undefined; this.save(true); }, 250);
+        this.pending.unref();
+      }
+      return;
+    }
+    if (this.pending) { clearTimeout(this.pending); this.pending = undefined; }
+    this.lastSave = now;
     this.state.updatedAt = new Date().toISOString();
     writeWhole(path.join(this.dir, 'state.json'), `${JSON.stringify(this.state, null, 2)}\n`);
   }
