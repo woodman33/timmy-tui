@@ -123,6 +123,8 @@ interface Turn {
   request: string;
   interruptedBy?: string;
   closedBy?: string;
+  /** Ends the turn's current pause at once (an interrupt or a close arrived). */
+  wake?: () => void;
 }
 
 interface FSession {
@@ -228,6 +230,13 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
     const t = setTimeout(() => { timers.delete(t); resolve(); }, ms);
     timers.add(t);
   });
+  /** A pause inside a turn, which an interrupt or a close ends at once (a harness stops when it is told to). */
+  const turnPause = (turn: Turn, ms: number) => new Promise<void>((resolve) => {
+    const t = setTimeout(done, ms);
+    timers.add(t);
+    function done() { clearTimeout(t); timers.delete(t); turn.wake = undefined; resolve(); }
+    turn.wake = done;
+  });
 
   /** Appends one record to the journal (the next global sequence) and applies it, as Core's Local::append does. */
   function append(s: FSession, kind: string, data: Json, native?: string): CoreRecord {
@@ -281,25 +290,25 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
     if (next) void runTurn(s, next);
   }
 
-  /** Ends a turn that an interrupt or a close cut; true when the turn must stop now. */
+  /** Ends a turn that an interrupt or a close cut (the interrupt, accepted first, wins); true when the turn must stop now. */
   function cut(s: FSession, turn: Turn): boolean {
     if (stopped) return true;
-    if (turn.closedBy) {
-      finishReceipt(s, turn.request, 'unknown', 'FAKE: the session was closed while this turn ran; nobody can say how far it got');
-      s.turn = undefined;
-      closeNow(s, turn.closedBy);
-      return true;
-    }
+    if (!turn.interruptedBy && !turn.closedBy) return false;
     if (turn.interruptedBy) {
       finishReceipt(s, turn.request, 'interrupted');
       finishReceipt(s, turn.interruptedBy, 'completed');
-      s.turn = undefined;
-      s.interrupting = false;
-      append(s, 'state', { state: 'idle' });
-      advance(s);
+    } else {
+      finishReceipt(s, turn.request, 'unknown', 'FAKE: the session was closed while this turn ran; nobody can say how far it got');
+    }
+    s.turn = undefined;
+    s.interrupting = false;
+    if (turn.closedBy) {
+      closeNow(s, turn.closedBy);
       return true;
     }
-    return false;
+    append(s, 'state', { state: 'idle' });
+    advance(s);
+    return true;
   }
 
   async function runTurn(s: FSession, request: string): Promise<void> {
@@ -310,7 +319,7 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
     s.queue = s.queue.filter((q) => q !== request);
     const turnId = `fake-turn-${s.n}-${s.records.length}`;
     append(s, 'state', { state: 'starting_turn', request_id: request });
-    await pause(step);
+    await turnPause(turn, step);
     if (cut(s, turn)) return;
     finishReceipt(s, request, 'delivered');
     append(s, 'state', { state: 'running', request_id: request, turn_id: turnId });
@@ -321,7 +330,7 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
       append(s, 'text_delta', { harness: s.harness, request_id: request, item_id: itemId, delta: text }, JSON.stringify({ fake: true, type: 'text_delta', delta: text }));
     };
     for (let i = 1; i <= (f.deltas ?? 2); i++) {
-      await pause(step);
+      await turnPause(turn, step);
       if (cut(s, turn)) return;
       delta(turnText(s, i));
     }
@@ -330,16 +339,16 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
       const key = `fakechild${++childKeys}`;
       spawnHere(s, key, 'the agent asked for --shared-sandbox');
       delta(`FAKE: room-cli thread spawn --shared-sandbox started cr_child_${key} in this sandbox and folder. `);
-      if (f.holdAfterChildMs) await pause(f.holdAfterChildMs);
+      if (f.holdAfterChildMs) await turnPause(turn, f.holdAfterChildMs);
       if (cut(s, turn)) return;
     }
     if (f.childRequest) {
       const said = await childRequest(s);
       if (said) delta(said);
-      if (f.holdAfterChildMs) await pause(f.holdAfterChildMs);
+      if (f.holdAfterChildMs) await turnPause(turn, f.holdAfterChildMs);
       if (cut(s, turn)) return;
     }
-    await pause(step);
+    await turnPause(turn, step);
     if (cut(s, turn)) return;
     const full = words.join('');
     append(s, 'item_completed', { harness: s.harness, request_id: request, item_id: itemId, item_type: 'agentMessage', text: full }, JSON.stringify({ fake: true, type: 'item_completed', text: full }));
@@ -619,12 +628,14 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
     if (command === 'interrupt' && s.turn) {
       s.interrupting = true;
       s.turn.interruptedBy = requestId;
+      s.turn.wake?.();
       append(s, 'state', { state: 'interrupting', request_id: s.current_request, turn_id: s.current_turn });
     } else if (command === 'stop') {
       s.queue_paused = true;
       if (s.turn) {
         s.interrupting = true;
         s.turn.interruptedBy = requestId;
+        s.turn.wake?.();
         append(s, 'state', { state: 'interrupting', request_id: s.current_request, turn_id: s.current_turn });
       } else finishReceipt(s, requestId, 'completed');
     } else if (command === 'resume') {
@@ -636,8 +647,10 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
       append(s, 'state', { state: 'closing', request_id: s.current_request, turn_id: s.current_turn });
       for (const queued of s.queue) finishReceipt(s, queued, 'failed', 'the session was closed before this prompt ran');
       s.queue = [];
-      if (s.turn) s.turn.closedBy = requestId;
-      else if (s.state !== 'pending') closeNow(s, requestId);
+      if (s.turn) {
+        s.turn.closedBy = requestId;
+        s.turn.wake?.();
+      } else if (s.state !== 'pending') closeNow(s, requestId);
       // a session still pending is closed by its launch, before any harness starts (launch checks close_request)
     }
     return accepted(res, call, s, s.receipts.get(requestId) ?? receipt);
@@ -696,15 +709,18 @@ export async function startFakeCore(options: FakeCoreOptions = {}): Promise<Fake
     };
     function send(rec: CoreRecord): void {
       if (ended || rec.sequence <= cursor) return;
-      res.write(`id: ${rec.sequence}\nevent: record\ndata: ${JSON.stringify(rec)}\n\n`);
+      const frame = `id: ${rec.sequence}\nevent: record\ndata: ${JSON.stringify(rec)}\n\n`;
       cursor = rec.sequence;
       sent += 1;
       const dropAt = s.faults.dropStreamAfter;
       if (dropAt !== undefined && !s.streamDropped && sent >= dropAt) {
         s.streamDropped = true;
         end();
-        res.destroy(); // the connection drops mid-stream; the client resumes from its own cursor
+        // this frame reaches the client, then the connection drops mid-stream; the client resumes from its own cursor
+        res.write(frame, () => res.destroy());
+        return;
       }
+      res.write(frame);
     }
     for (const rec of [...s.records]) send(rec);
     if (!ended) s.subscribers.add(send);
