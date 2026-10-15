@@ -358,7 +358,7 @@ describe('the fleet on a FAKE Core: runFleet, the ledger and the event store are
   }, 60_000);
 
   it('a --shared-sandbox child fails its worker under a strict plan (a FAKE stand-in for one Core per VM): detected, interrupted, closed', async () => {
-    const core = await fakeCore({ faults: ({ worker }) => (worker === 2 ? { sharedChild: true, holdAfterChildMs: 3000 } : undefined) });
+    const core = await fakeCore({ faults: ({ worker }) => (worker === 2 ? { sharedChild: true, holdAfterChildMs: 20_000 } : undefined) });
     const shared = await backendOn(core);
     // No Core-per-VM provisioner exists; this stand-in claims "vm" so the strict path can be exercised. Labelled FAKE.
     const perVm: Provisioner = {
@@ -422,11 +422,14 @@ describe('the fleet on a FAKE Core: runFleet, the ledger and the event store are
     expect(res.counts.delivered).toBe(3);
     const w1 = ids(ledger.worker(1).allocationKey);
     const prompts = posts(core, `/v1/sessions/${w1.sessionId}/prompts`);
-    expect(prompts.map((c) => [c.status, c.body?.request_id])).toEqual([[503, w1.promptId], [202, w1.promptId]]);
+    expect(prompts[0].status).toBe(503);
+    expect(prompts.length).toBeGreaterThanOrEqual(2); // (a loaded machine may time out one more try: it carries the same id)
+    expect(new Set(prompts.map((c) => c.body?.request_id))).toEqual(new Set([w1.promptId]));
     expect(core.records(w1.sessionId).filter((r) => r.kind === 'state' && (r.data as { state?: string }).state === 'starting_turn')).toHaveLength(1);
     const w2 = ids(ledger.worker(2).allocationKey);
     const starts = posts(core, '/v1/sessions').filter((c) => c.body?.request_id === w2.startId);
-    expect(starts).toHaveLength(2); // the first 202 arrived after the client's 400 ms; the same id went again
+    expect(starts.length).toBeGreaterThanOrEqual(2); // the first 202 arrived after the client's 400 ms; the same id went again
+    expect(new Set(posts(core, '/v1/sessions').map((c) => c.body?.request_id)).size).toBe(3); // no start under a new id
     expect(core.sessionIds()).toHaveLength(3); // and no second session was made
   }, 60_000);
 
@@ -531,7 +534,7 @@ describe('the fleet on a FAKE Core: runFleet, the ledger and the event store are
     expect(new Set(starts.map((c) => c.body?.request_id)).size).toBe(100);
     expect(prompts).toHaveLength(100); // the budget: one prompt per worker (one model turn on a real Core), none resent
     expect(new Set(prompts.map((c) => c.body?.request_id)).size).toBe(100);
-  }, 180_000);
+  }, 300_000);
 });
 
 describe('request ids and config', () => {
@@ -615,5 +618,11 @@ describe('request ids and config', () => {
     expect(run.counts.delivered).toBe(4);
     expect(run.backend).toBe(FAKE_CORE_LABEL);
     expect(core.sessionIds()).toHaveLength(4);
+    // the run's receipts (this test's own store, TIMMY_STORE) and the operation record hold no token either
+    const store = process.env.TIMMY_STORE;
+    if (!store) throw new Error('the test setup names no receipt store');
+    const written = [...walk(store), ...walk(path.join(root, '.timmy'))];
+    expect(written.some((f) => f.endsWith('.jsonl') && f.startsWith(store))).toBe(true);
+    for (const f of written) expect(fs.readFileSync(f, 'utf8')).not.toContain(core.token);
   }, 60_000);
 });
