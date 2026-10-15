@@ -40,7 +40,8 @@ import { readChain, type Receipt } from '../utils/receipts.js';
 import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { blockCount } from '../workflows/block-count.js';
 import { findUpmd, findWorkflowDocs } from '../workflows/upmd.js';
-import type { TurnRow } from './model.js';
+import { readOperationRecord } from '../ops/operations.js';
+import type { PipelineStage, PipelineView, TurnRow } from './model.js';
 import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
 import { took } from './text.js';
 
@@ -451,6 +452,45 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
     });
   }
   return out;
+}
+
+// ── the newest run's pipeline (the Chat tab's row) ─────────────────────────────
+
+/**
+ * R5 (H131): the project's newest run as its records say it, for the Chat tab's pipeline row (the operator's references 02 and
+ * 11: intent → predict → sandbox → receipt): its operation's request (the operation record), the prediction sealed before it
+ * (a `predict` receipt of the operation), what ran it (its job record; a sandbox only when a record names one), and the
+ * operation's own receipt, verified here by `verify` (its chain link, body hash and signature: src/utils/receipts.ts
+ * verifyReceiptIn). What no record says is said so; nothing is guessed. Reads only.
+ */
+export function readPipeline(root: string, rows: readonly JobRow[], chain: readonly Receipt[], verify: (hash: string) => { ok: true } | { ok: false; reason: string }): PipelineView {
+  const none = (words: string): PipelineStage => ({ state: 'not run yet', words });
+  const job = rows.find((j) => j.operation);
+  if (!job?.operation) {
+    return { operation: null, label: null, intent: none('not run yet'), predict: none('not run yet'), sandbox: none('not run yet'), receipt: none('not run yet') };
+  }
+  const op = job.operation;
+  const rec = readOperationRecord(root, op);
+  const intent: PipelineStage = rec.ok ? { state: 'done', words: rec.record.request } : { state: 'unknown', words: `its operation record could not be read (${rec.error})` };
+  const mine = chain.filter((r) => r.operation_id === op);
+  const predicted = [...mine].reverse().find((r) => r.kind === 'predict');
+  const predict: PipelineStage = predicted ? { state: 'done', words: `sealed before it ran (${shortReceipt(predicted)})` } : { state: 'none', words: 'none recorded for this run' };
+  const runner = job.kind === 'workflow' ? 'upmd' : `a ${job.kind} job`;
+  const sandbox: PipelineStage = {
+    state: job.live ? 'running' : job.mark === 'failed' ? 'failed' : 'done',
+    words: `none recorded: ${runner} ran it on this computer · ${job.word}`,
+  };
+  // the operation's own receipt: its run's (a workflow's), else its newest that is not the prediction
+  const own = [...mine].reverse().find((r) => r.kind === 'workflow') ?? [...mine].reverse().find((r) => r.kind !== 'predict');
+  let receipt: PipelineStage;
+  if (!own) receipt = job.live ? { state: 'running', words: 'not sealed yet: it runs' } : { state: 'none', words: 'none sealed for this run' };
+  else {
+    const v = verify(own.hash);
+    receipt = v.ok
+      ? { state: 'done', words: `sealed ${shortReceipt(own)} · verified here`, verified: true }
+      : { state: 'failed', words: `sealed ${shortReceipt(own)} · does not verify: ${v.reason}` };
+  }
+  return { operation: op, label: job.label, intent, predict, sandbox, receipt };
 }
 
 // ── each tool workspace's records in this project ──────────────────────────────

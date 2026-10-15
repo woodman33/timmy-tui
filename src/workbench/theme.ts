@@ -27,6 +27,8 @@ const ROLE_COLOR: Readonly<Record<Role, string>> = {
   link: HOMEBREW.link,
   attention: HOMEBREW.attention,
   failure: HOMEBREW.failure,
+  // R5 (H131): earned green only (src/workbench/text.ts Role 'live'); its word is always beside it
+  live: HOMEBREW.live,
   ai: HOMEBREW.ai,
   border: HOMEBREW.lineStrong,
   focus: HOMEBREW.accent,
@@ -37,7 +39,7 @@ export function styleOf(s: Seg, colour: boolean): InkTextStyle {
   const role = s.role ?? 'text';
   const style: InkTextStyle = {};
   if (colour) style.color = ROLE_COLOR[role];
-  if (s.bold || role === 'strong' || role === 'focus') style.bold = true;
+  if (s.bold || role === 'strong' || role === 'focus' || role === 'live') style.bold = true;
   if (s.underline) style.underline = true;
   if (s.inverse) style.inverse = true;
   // the selected row: the selection's ground with colour; inverted without it (its marker says it too)

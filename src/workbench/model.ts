@@ -5,6 +5,7 @@
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
+import type { TabId, WorkspaceConnection, WorkspaceFrame } from '../contracts/workspace.js';
 import type { ApprovalRequest } from '../repl/approvals.js';
 import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.js';
 import type { ProjectCard, ProjectOperation } from '../studio/project-cards.js';
@@ -110,6 +111,34 @@ export interface Data {
   /** R4 (H112): live jobs this Workbench started in another project than the one shown: a run keeps its own project when
    *  the view switches, and Stop and Activity still name it, with where it runs */
   away: JobRow[];
+  /** R5 (H131): the one workspace frame (src/ops/workspace-frame.ts buildWorkspaceFrame) the terminal, the companion and
+   *  Studio share: the tabs, each tab's actions, the connections as observed, the log. Absent until it is first read. */
+  frame?: WorkspaceFrame;
+  /** R5 (H131): why the frame could not be read, when it could not (the last frame read stays shown) */
+  frameError?: string;
+  /** R5 (H131): the newest run's intent, prediction, run and receipt, from its records (src/workbench/state.ts readPipeline) */
+  pipeline?: PipelineView;
+}
+
+/** R5 (H131): one stage of the newest run's pipeline, as its records say it. */
+export interface PipelineStage {
+  /** done: a record says it happened; none: the run has no such record; not run yet: nothing has run; running; failed: it
+   *  failed, or (a receipt) it does not verify; unknown: its record could not be read */
+  state: 'done' | 'none' | 'not run yet' | 'running' | 'failed' | 'unknown';
+  words: string;
+  /** a receipt this Workbench verified (its chain link, body hash and signature), by verifyReceiptIn */
+  verified?: boolean;
+}
+
+/** R5 (H131): the Chat tab's pipeline row: intent → predict → sandbox → receipt, of the project's newest run. */
+export interface PipelineView {
+  operation: string | null;
+  /** the run's job, by its label */
+  label: string | null;
+  intent: PipelineStage;
+  predict: PipelineStage;
+  sandbox: PipelineStage;
+  receipt: PipelineStage;
 }
 
 export type Item =
@@ -129,10 +158,12 @@ export type Item =
   | { kind: 'message'; key: string; role: string; text: string }
   | { kind: 'event'; key: string; event: ActivityEvent }
   | { kind: 'project'; key: string; choice: ProjectChoice }
-  | { kind: 'action'; key: string; action: string };
+  | { kind: 'action'; key: string; action: string }
+  /** R5 (H131): a connection card of Home, as the workspace frame has it */
+  | { kind: 'conn'; key: string; conn: WorkspaceConnection };
 
-/** A view's rows and where its selectable items are among them. */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item }>; note?: string }
+/** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one. */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number }>; note?: string }
 
 export type Overlay =
   | null
@@ -146,6 +177,10 @@ export type Overlay =
   | { kind: 'message'; title: string; lines: Line[] };
 
 export interface Ui {
+  /** R5 (H131): the active tab of the ten (src/contracts/workspace.ts TABS), the frame's own ids */
+  page: TabId;
+  /** R5 (H131): the workspace each tab showed last (a tab that gathers several returns to the one left) */
+  pageWs?: Partial<Record<TabId, WorkspaceId>>;
   workspace: WorkspaceId;
   focus: Region;
   tab: RightTab;

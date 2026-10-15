@@ -11,7 +11,9 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
+import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
 import type { Glyphs } from './frame.js';
+import { actionsRow, actionWords, connectionMark, homeView, hintLine, newestLog, pageOf, type ActionHit } from './hub.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
@@ -78,7 +80,7 @@ const markOf = (j: JobRow, g: Glyphs): { glyph: string; role: Role } => (
 
 // ── the navigation ─────────────────────────────────────────────────────────────
 
-export function navView(c: ViewCtx): View {
+export function navView(c: ViewCtx): View & { prompt: number } {
   const { ui, data, g, height } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
@@ -88,7 +90,8 @@ export function navView(c: ViewCtx): View {
   lines.push([key('p'), S(' Switch  ', 'text'), key('n'), S(' New', 'text')]);
   // R4 (H112; the r26 dry run): "[/] Find a workspace" reads as a key only where / finds a workspace now; in All tools, away
   // from the navigation, / searches the tools, and two rows say how to reach the finder instead (the second takes the blank
-  // row's place, so nothing below moves)
+  // row's place, so nothing below moves). R5 (H131): its row is `prompt`, which a short drawer keeps in view while it searches
+  const prompt = lines.length;
   const how = ui.input.field === 'search' ? undefined : finderKeys(ui);
   if (ui.input.field === 'search') lines.push([S('/ ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
   else if (how) lines.push([S('Find a workspace:', 'secondary')], [S(`  ${how}`, 'secondary')]);
@@ -111,39 +114,60 @@ export function navView(c: ViewCtx): View {
         ? [[S(`  ${g.warn} ${waiting} waiting`, 'attention'), ...(running ? [S(` ${g.sep} ${running} running`, 'secondary')] : [])],
           [S(`  ${g.warn} ${waiting} waiting`, 'attention')], [S(` ${g.warn} ${waiting} waiting`, 'attention')], [S(` ${g.warn} ${waiting}`, 'attention')]]
         : running ? [[S(`  ${running} running`, 'secondary')], [S(` ${running} running`, 'secondary')], [S(` ${running} run${running === 1 ? '' : 's'}`, 'secondary')]] : [];
-      const room = c.width - 2 - lineCells([S(n.label)]);
+      // R5 (H131): the key of the tab that shows it, at the row's end
+      const tabKey = tabOf(pageOf(n.id)).key;
+      const room = c.width - 2 - lineCells([S(n.label)]) - 2;
       const extra: Line = counts.find((x) => lineCells(x) <= room) ?? counts[counts.length - 1] ?? [];
+      const used = 2 + lineCells([S(n.label), ...extra]);
+      const keyCell: Line = used + 2 <= c.width ? [S(' '.repeat(Math.max(1, c.width - used - 1))), S(tabKey, 'secondary')] : [];
       items.push({ line: lines.length, item: { kind: 'action', key: `nav:${n.id}`, action: n.id } });
-      lines.push(row([S(n.label, active ? 'strong' : 'text'), ...extra], active, g));
+      lines.push(row([S(n.label, active ? 'strong' : 'text'), ...extra, ...keyCell], active, g));
     }
   }
   if (q && !shown.length) lines.push(...para(`No workspace matches "${ui.input.text}". Enter searches All tools for it.`, c.width));
   // Connections at the foot
   const foot = NAV.find((n) => n.group === 'foot')!;
-  const footLines = [blank, row([S(foot.label, ui.workspace === foot.id ? 'strong' : 'text')], ui.workspace === foot.id, g)];
+  const footKey = tabOf(pageOf(foot.id)).key;
+  const footPad = Math.max(1, c.width - 2 - lineCells([S(foot.label)]) - 1);
+  const footLines = [blank, row([S(foot.label, ui.workspace === foot.id ? 'strong' : 'text'), S(' '.repeat(footPad)), S(footKey, 'secondary')], ui.workspace === foot.id, g)];
   while (lines.length < height - footLines.length) lines.push(blank);
   items.push({ line: lines.length + 1, item: { kind: 'action', key: `nav:${foot.id}`, action: foot.id } });
   lines.push(...footLines);
-  return { lines, items };
+  return { lines, items, prompt };
 }
 
-// ── the top: project, task, state and Stop ─────────────────────────────────────
+// ── row 2: the workflow actions, the run state and Stop ────────────────────────
 
-export interface Button { key: string; label: string; role?: Role }
+/**
+ * R5 (H131): the active tab's workflow actions, from the workspace frame (src/ops/workspace-frame.ts actionsOf), never made
+ * here. None while the frame is being read, or while it names another project than the one shown (Follow active project off
+ * and another surface chose another: its actions are that project's); `why` says which.
+ */
+export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; why?: string } {
+  const f = c.data.frame;
+  if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
+  if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
+  return { acts: f.actions[c.ui.page] ?? [] };
+}
 
-export function topButtons(c: Pick<ViewCtx, 'ui'> & { g?: Glyphs }): Button[] {
-  const dot = c.g?.sep ?? '·';
-  const comp = `Companion ${dot} Show${c.ui.companion.serving ? ' (serving)' : ''}`;
-  const stud = `Studio ${dot} Show${c.ui.studio.serving || c.ui.studio.other ? ' (serving)' : ''}`;
-  return [{ key: 'c', label: comp }, { key: 's', label: stud }, { key: ',', label: 'Quick settings' }];
+/** R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it. */
+export function selectedAction(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; at: number } {
+  const { acts } = pageActions(c);
+  if (!acts.length) return { acts, at: -1 };
+  const chosen = c.ui.cursor.top;
+  const primary = acts.findIndex((a) => a.primary);
+  const at = chosen === undefined ? Math.max(0, primary) : Math.max(0, Math.min(acts.length - 1, chosen));
+  return { acts, at };
 }
 
 /**
  * R4 (H112): the keys that reach the workspace finder when / alone does not (All tools, away from the navigation, where /
  * searches the tools); undefined where / finds a workspace now. No key changes here: the words say the way that exists.
+ * R5 (H131): / searches the tools only while their list has the keyboard (src/workbench/controller.ts search); from the
+ * actions bar, Context or Activity it finds a workspace, as on every other tab.
  */
 export function finderKeys(ui: Pick<Ui, 'workspace' | 'focus' | 'input' | 'navShown'>): string | undefined {
-  if (ui.workspace !== 'tools' || ui.focus === 'nav') return undefined;
+  if (ui.workspace !== 'tools' || ui.focus !== 'center') return undefined;
   // Esc leaves the tools search with the keyboard on the navigation where it is shown (src/workbench/controller.ts)
   if (ui.input.field === 'tools') return ui.navShown === false ? 'Esc, then g, then /' : 'Esc, then /';
   return 'g, then /';
@@ -170,16 +194,6 @@ export function stopWords(d: Data, selected?: Item | null, workspace?: Workspace
   return { text: t ? `Stop current: ${t.id} ${t.label}${where}` : 'Stop current: idle', target: t };
 }
 
-/** The crumb (project / workspace) kept whole; the environment and route after it, cut first when the row is short. */
-function crumbRow(crumb: Line, env: Line, width: number, g: Glyphs): Line {
-  const cw = lineCells(crumb);
-  const ew = lineCells(env);
-  if (cw + 2 + ew <= width) return spread(crumb, env, width, g.ellipsis);
-  const room = width - cw - 2;
-  if (room >= 14) return [...crumb, S('  '), ...fitTo(env, room, g)];
-  return crumb;
-}
-
 const fitTo = (line: Line, w: number, g: Glyphs): Line => {
   const out: Line = [];
   let used = 0;
@@ -203,27 +217,35 @@ export function routeShown(data: Data): { words: string; ready: boolean; refusal
   return { words: r.words, ready: r.ready, ...(r.refusal?.length ? { refusal: r.refusal } : {}) };
 }
 
-export function topLines(c: ViewCtx): Line[] {
-  const { ui, data, width, height } = c;
-  const ws = navItem(ui.workspace);
-  const crumb: Line = [S(data.project.name, 'strong'), S(' / ', 'secondary'), S(ws.label, 'text')];
-  const route = routeShown(data);
-  const env: Line = [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(route.words, route.ready ? 'text' : 'secondary')];
+/** The run state and Stop current, kept whole first wherever they are drawn (R4: they show at every size). */
+export function stopRight(c: ViewCtx, width: number): Line {
+  const { ui, data } = c;
   const stop = stopWords(data, selectedItem(c), ui.workspace);
   const state: Line = [S(runWords(data), data.decisions.total ? 'attention' : 'secondary')];
   const stopLine: Line = stop.target ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, 'secondary')];
   // the state and Stop are kept whole first; when even they do not fit, Stop alone, cut at its end
   const fullRight: Line = [...state, S('  '), ...stopLine];
-  const right: Line = lineCells(fullRight) <= width ? fullRight : lineCells(stopLine) <= width ? stopLine : fitTo(stopLine, width, c.g);
-  const buttons = topButtons(c).map((b): Line => [key(b.key), S(` ${b.label}`, 'text')]);
-  const left = pick(buttons, Math.max(0, width - lineCells(right) - 2));
-  const controls = left.length ? spread(left, right, width, c.g.ellipsis) : right;
-  if (height >= 3) {
-    return [crumbRow(crumb, env, width, c.g), [S(ws.title, 'strong'), S('  '), S(ws.purpose, 'secondary')], controls];
-  }
-  // two rows: the title joins the crumb only when it shows whole
-  const withTitle: Line = [...crumb, S('  '), S(ws.title, 'secondary')];
-  return [crumbRow(lineCells(withTitle) + 2 + lineCells(env) <= width ? withTitle : crumb, env, width, c.g), controls];
+  return lineCells(fullRight) <= width ? fullRight : lineCells(stopLine) <= width ? stopLine : fitTo(stopLine, width, c.g);
+}
+
+/**
+ * R5 (H131): row 2, Workflow actions: the tab's actions as numbered boxes (src/workbench/hub.ts actionsRow), then (with
+ * `detail`) a row with the selected action's words while the bar has the keyboard (else this computer and the chat route), and
+ * the run state and Stop current at its end, kept whole first.
+ */
+export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: ActionHit[] } {
+  const { ui, data, width } = c;
+  const { acts, why } = pageActions(c);
+  const { at } = selectedAction(c);
+  const focused = ui.focus === 'top';
+  const row = acts.length ? actionsRow(acts, at, focused, width, c.g) : { line: [S(why ?? 'No action on this tab.', why?.startsWith('the workspace frame could not') ? 'failure' : 'secondary')] as Line, hits: [] };
+  if (!detail) return { lines: [row.line], hits: row.hits };
+  const right = stopRight(c, width);
+  const route = routeShown(data);
+  const left: Line = focused && acts.length
+    ? actionWords(acts[at], c.g)
+    : [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(route.words, route.ready ? 'text' : 'secondary')];
+  return { lines: [row.line, spread(left, right, width, c.g.ellipsis)], hits: row.hits };
 }
 
 // ── the center ─────────────────────────────────────────────────────────────────
@@ -241,7 +263,8 @@ export function centerView(c: ViewCtx): View {
     case 'voxvision': case 'create3d': case 'motion': case 'rea': return familyView(c, c.ui.workspace);
     case 'templates': return templatesView(c);
     case 'tools': return toolsView(c);
-    case 'connections': return connectionsView(c);
+    // R5 (H131): Home's left column, the connection cards from the workspace frame (src/workbench/hub.ts)
+    case 'connections': return homeView(c);
     default: return { lines: [], items: [] };
   }
 }
@@ -517,7 +540,8 @@ function chatView(c: ViewCtx): View {
   lines.push(blank);
   lines.push(heading('Composer'));
   if (ui.input.field === 'composer') lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], [S('  Enter sends · Esc leaves the composer', 'secondary')]);
-  else lines.push([key('Enter'), S(c.can.chat ? ' Type a message to Timmy (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
+  // R5 (H131): the conversation is the body's left column now: the hint is short enough for it
+  else lines.push([key('Enter'), S(c.can.chat ? ' Type a message (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
   return { lines, items };
 }
@@ -604,7 +628,8 @@ function toolsView(c: ViewCtx): View {
       [S('Esc', 'action'), S(' clears the search', 'secondary')],
       [S('Enter keeps the matches', 'secondary')],
     ], Math.max(0, c.width - 2), S(`  ${g.sep} `, 'secondary'))]);
-  } else if (ui.focus === 'nav') {
+  } else if (ui.focus !== 'center') {
+    // R5 (H131): / searches the tools only from their list; elsewhere it finds a workspace
     lines.push([S(q ? `Matching "${q}"  ${g.sep} ` : '', 'secondary'), S('Search the tools: Tab to this list, then /', 'secondary')]);
   } else if (q) {
     // (a narrow row keeps the way to the finder before "[/] change the search", never cut)
@@ -634,59 +659,34 @@ function toolsView(c: ViewCtx): View {
   return { lines, items };
 }
 
-function connectionsView(c: ViewCtx): View {
-  const { ui, data, g } = c;
-  const lines: Line[] = [];
-  const items: View['items'] = [];
-  const cur = cursorOf(c.ui, 'center:connections', 2);
-  const server = (which: 'companion' | 'studio', i: number): void => {
-    const s = which === 'companion' ? ui.companion : ui.studio;
-    const name = which === 'companion' ? 'Companion (browser)' : 'Studio (Timmy Canvas)';
-    const state = s.starting ? 'starting' : s.serving ? `serving at ${s.address}` : s.other ? `served by another Timmy at ${s.address}` : 'not serving';
-    items.push({ line: lines.length, item: { kind: 'server', key: `server:${which}`, which } });
-    lines.push(row([S(name, 'strong'), S(`  ${state}`, s.serving || s.other ? 'text' : 'secondary')], i === cur, g));
-    if (s.last) lines.push(...para(s.last, c.width, 'secondary', '    '));
-    lines.push([S('    '), key(which === 'companion' ? 'c' : 's'), S(` ${which === 'companion' ? 'Companion' : 'Studio'} · Show`, 'text'), S('   '), ...(s.serving ? [key(which === 'companion' ? 'C' : 'S'), S(' Stop serving', 'text')] : [S('Stop serving: nothing this Workbench started', 'secondary')])]);
-  };
-  lines.push(heading('Servers this Workbench starts (127.0.0.1 only)'));
-  server('companion', 0);
-  lines.push(blank);
-  server('studio', 1);
-  lines.push(blank);
-  lines.push(heading('This computer'));
-  lines.push(field('Chat', routeShown(data).words));
-  lines.push(field('Project', data.project.shown));
-  lines.push(field('Mouse', ui.mouse ? 'reported to the Workbench ([m] gives it back to the terminal, for selecting text)' : 'the terminal\'s ([m] lets the Workbench take clicks)'));
-  lines.push(field('Settings', tildePath(ui.settings.path)));
-  return { lines, items };
-}
-
 // ── the overlays (drawn in the center) ─────────────────────────────────────────
 
 export const HELP: ReadonlyArray<[string, string]> = [
-  ['Tab / Shift+Tab', 'the next or previous region (the one with the keyboard has a heavy green border and ◆)'],
-  ['↑ ↓ or k j', 'move within the region; PgUp PgDn a page'],
-  ['← →', 'the right dock\'s tabs (Tools, Inspector, Files); the top\'s buttons'],
-  ['Home End', 'the first or last tab of the right dock; elsewhere the first or last row'],
-  ['Enter', 'open or do what the selection offers (its words say what and to what); a workflow block: run it, after a confirm'],
+  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace'],
+  ['Tab / Shift+Tab', 'the next or previous zone: the body\'s columns, Activity & log, the workflow actions (the one with the keyboard has a heavy amber border and ◆)'],
+  ['↑ ↓ or k j', 'move within the zone; PgUp PgDn a page'],
+  ['← →', 'the workflow actions (row 2); Context\'s tabs (Tools, Inspector, Files)'],
+  ['Home End', 'the first or last of Context\'s tabs; elsewhere the first or last row'],
+  ['Enter', 'do what the selection offers (its words say what and to what): a workflow action (row 2) runs through the Workbench\'s own path or shows its command to copy; a workflow block: run it, after a confirm'],
   ['y  a  n', 'a NEEDS YOU box: allow once, for this session (when offered), or deny; Esc and Enter deny too (the default)'],
   ['Esc', 'close a drawer, a box or a search'],
   ['p  n', 'switch project (search, recent, open a folder)  ·  a new blank project'],
-  ['/', 'find a workspace (in the navigation), or search All tools there'],
-  ['c  s', 'Companion · Show  ·  Studio · Show (each starts once, on 127.0.0.1)'],
+  ['/', 'find a workspace or a tab (the navigation, as a drawer), or search All tools there'],
+  ['c  s', 'Companion · Show  ·  Studio · Show (each starts once, on 127.0.0.1); closing a view never stops a job'],
   ['C  S', 'stop serving the Companion  ·  Studio (only what this Workbench started)'],
-  [',', 'Quick settings (saved in Timmy\'s settings folder)'],
+  [',', 'Quick settings (saved in Timmy\'s settings folder): open the Companion or Studio at start, and more'],
   ['x', 'Stop current: the job it names'],
-  ['i  g', 'the right dock and the navigation as drawers, on a narrower terminal (or in focus mode)'],
-  ['z', 'focus mode: the center alone, with the top and the bottom; z or Esc leaves it'],
-  ['a  A', 'Activity: expand or collapse  ·  all operations or the selected one'],
+  ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (CREATE, OPERATE, LIBRARY) as a drawer'],
+  ['z', 'focus mode: the body\'s list alone, with the tabs, the actions and the log; z or Esc leaves it'],
+  ['a  A', 'Activity & log: expand or collapse  ·  all operations or the selected one'],
   ['f', 'Files tab: related files only, or all of them'],
-  ['r', 'read the records again (and check the tools again)'],
+  ['r', 'read the records again (the workspace frame and the tools too)'],
   ['m', 'mouse capture on or off (off: the terminal selects text as usual)'],
   ['?', 'these keys'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
-  ['Mouse', 'a click opens a workspace, picks a tab, selects a row or presses a [key]; a click never runs or allows anything (Enter, the key, runs; y allows); the wheel scrolls the list under the pointer'],
-  ['Activity', 'oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
+  ['Mouse', 'a click picks a tab, selects an action, a card or a row, or presses a [key]; a click never runs or allows anything (Enter, the key, runs; y allows); the wheel scrolls the list under the pointer'],
+  ['Marks', '● live (green: an answer seen in the last 30 min)  ○ configured (a setting, not seen answering)  ✕ unreachable or refused (amber)  · not set up  ? unknown; green is only ever live, passed or verified'],
+  ['Activity', 'collapsed: the log\'s newest lines, the newest first; expanded: oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
 ];
 
 function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
@@ -854,6 +854,13 @@ export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
   }
   if (ws === 'control' && item?.kind === 'job') out.push({ key: 'x', label: item.job.live ? `Stop ${item.job.id} ${item.job.label}` : `Stop ${item.job.id}`, enabled: item.job.live, ...(item.job.live ? {} : { why: `it already ${item.job.word}` }) });
   if (ws === 'templates' && item?.kind === 'starter') out.push({ key: 'Enter', label: `New project from ${item.name}`, enabled: true });
+  // R5 (H131): a connection card of Home: the companion's and Studio's Show; any other, the step that sets it up, shown to copy
+  if (ws === 'connections' && item?.kind === 'conn') {
+    const k = item.conn;
+    if (k.id === 'companion') out.push({ key: 'Enter', label: 'Companion · Show: the browser companion on 127.0.0.1', enabled: true });
+    else if (k.id === 'studio') out.push({ key: 'Enter', label: 'Studio · Show: the rich canvas on this project', enabled: true });
+    else out.push({ key: 'Enter', label: k.setup ? `Its step, shown to copy: ${k.setup}` : `${k.label}: its step`, enabled: !!k.setup, ...(k.setup ? {} : { why: 'no step sets it up or checks it' }) });
+  }
   if (ws === 'chat') out.push({ key: 'Enter', label: 'Type a message to Timmy', enabled: c.can.chat, ...(c.can.chat ? {} : { why: c.can.chatWhy ?? 'sending is not available here' }) });
   if (ws === 'studio' || ws === 'connections') out.push({ key: 's', label: 'Studio · Show: the rich canvas on this project', enabled: true });
   if (ws === 'connections') {
@@ -887,6 +894,7 @@ function itemName(item: Item | null): string {
     case 'message': return `a ${item.role} message`;
     case 'event': return item.event.words;
     case 'project': return item.choice.name;
+    case 'conn': return item.conn.label;
     default: return 'an action';
   }
 }
@@ -1029,6 +1037,18 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     case 'server': { const s = item.which === 'companion' ? c.ui.companion : c.ui.studio; lines.push(heading(item.which === 'companion' ? 'Companion' : 'Studio')); f('Serving', s.serving ? `yes, at ${s.address}` : s.other ? `another Timmy, at ${s.address}` : 'no'); if (s.last) lines.push(...para(s.last, w)); break; }
     case 'message': lines.push(heading(item.role === 'user' ? 'Your message' : 'Timmy\'s answer')); lines.push(...para(item.text, w, 'text')); break;
     case 'event': lines.push(heading('Activity')); f('When', clock(item.event.at)); lines.push(...para(item.event.words, w, 'text')); if (item.event.job) f('Job', item.event.job); if (item.event.operation) f('Operation', item.event.operation); break;
+    case 'conn': {
+      // R5 (H131): a connection as the workspace frame has it (src/ops/workspace-frame.ts), never as a setting alone
+      const k = item.conn;
+      const mark = connectionMark(k.state, c.g);
+      lines.push(heading('Connection'));
+      f('Name', k.label, 'strong'); f('State', mark.text, mark.role); f('Words', k.words);
+      f('Observed', k.observedAt ? `${clock(k.observedAt)} (${ago(k.observedAt, c.now)})` : 'never: no answered request of it is recorded here');
+      if (k.detail) f('Detail', k.detail);
+      f('Step', k.setup ?? 'none');
+      lines.push(blank, ...para('Live only when a request it answered was seen in the last 30 minutes (timmy workspace check asks each one once, with free requests); a setting alone is configured.', w));
+      break;
+    }
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
   }
   return { lines, items: [] };
@@ -1085,28 +1105,41 @@ export function rightView(c: ViewCtx): View {
 
 // ── the bottom: task controls and Activity ─────────────────────────────────────
 
-export function bottomView(c: ViewCtx): View {
+/**
+ * R5 (H131): Activity & log. Its first row: what runs and waits (with Stop current too where row 2 has no room for it); then,
+ * collapsed, the frame's newest log lines, the newest first (`logLines` of them); expanded ([a]), every event of this Workbench's
+ * Activity (the jobs' records, the lines they printed, its own notices), oldest first and the newest at the bottom, as R4 drew
+ * them. `foot` is the key-hint line, drawn last (a fresh notice takes its place for a few seconds). `fixed`: the rows at the top
+ * that do not scroll.
+ */
+export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line } {
   const { ui, data, g, width } = c;
-  const ws = navItem(ui.workspace);
-  const item = selectedItem(c);
-  const acts = actionsOf(c, item).filter((a) => a.enabled);
   const fresh = ui.flash && c.now - ui.flash.at < 6000 ? ui.flash : null;
-  const controls: Line = fresh
-    ? [S(fresh.text, fresh.role)]
-    : [S(`${ws.task}  `, 'secondary'), ...pick(acts.map((a) => [key(a.key), S(` ${a.label}`, 'text')]), Math.max(0, width - ws.task.length - 12)), S('  '), key('?'), S(' keys', 'secondary')];
+  const foot: Line = fresh ? [S(fresh.text, fresh.role)] : hintLine(width);
   const a = data.activity;
   const last = a.last ? `${clock(a.last.at)} ${a.last.words}` : 'nothing yet';
   const motion = !ui.settings.settings.reducedMotion && a.running ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][Math.floor(c.now / 250) % 10] : '';
   // R4 (H112): this Workbench's runs in another project count as running, with where they run
   const running = a.away ? `${a.running} running (${a.away.running} in ${a.away.where.join(', ')})` : `${a.running} running`;
+  // the newest of this Workbench's own Activity (a notice of what it did, a job's line) stays on the first row, as R4 drew it;
+  // the rows under it, collapsed, are the shared log's
   const strip: Line = [
-    S(ui.activityOpen ? (g.unicode ? '▾ ' : 'v ') : (g.unicode ? '▸ ' : '> '), 'action'), S('Activity  ', 'strong'),
+    S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'action'), S('Activity  ', 'strong'),
     S(`${motion && g.unicode ? `${motion} ` : ''}${running}`, 'text'), S(` ${g.sep} `, 'secondary'),
-    S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'), S(` ${g.sep} last: `, 'secondary'), S(last, a.last?.failed ? 'failure' : 'text'),
+    S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'),
+    S(` ${g.sep} last: `, 'secondary'), S(last, a.last?.failed ? 'failure' : 'text'),
   ];
-  const lines: Line[] = [controls, spread(strip, [key('a'), S(ui.activityOpen ? ' collapse' : ' expand', 'secondary')], width, g.ellipsis)];
+  const toggle: Line = [key('a'), S(ui.activityOpen ? ' collapse' : ' expand', 'secondary')];
+  // on a short terminal row 2 has no row for the run state and Stop: they are here, kept whole first
+  const right: Line = o.stop ? [...stopRight(c, Math.max(10, width - 30)), S('  '), ...toggle] : toggle;
+  const lines: Line[] = [spread(strip, right, width, g.ellipsis)];
   const items: View['items'] = [];
-  if (ui.activityOpen) {
+  if (!ui.activityOpen) {
+    const n = Math.max(0, o.logLines ?? 3);
+    lines.push(...newestLog(c, n, width).slice(0, n));
+    return { lines, items, fixed: lines.length, foot };
+  }
+  {
     const sel = selectedItem(c);
     const op = operationOf(sel);
     // R4 (H112): oldest first, the newest at the bottom (a log's order): rows that arrive are added below, so a row the person
@@ -1129,5 +1162,5 @@ export function bottomView(c: ViewCtx): View {
       for (const rest of more) lines.push([S(' '.repeat(2 + at.length)), S(rest, role)]);
     });
   }
-  return { lines, items };
+  return { lines, items, fixed: 2, foot };
 }
