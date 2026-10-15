@@ -225,7 +225,12 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
 
   const connected = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const idle = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'IDLE', null, { timeout: 30_000 });
@@ -566,7 +571,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
-  it('the tabs fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), and switch at once where reduced motion is asked', async () => {
+  it('the chat\'s two views fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), a workspace tab fades in (0.15 s power2.out), and both switch at once where reduced motion is asked', async () => {
     const record = (page: Page): Promise<void> => page.evaluate(() => {
       const w = window as unknown as { __anims: Array<{ id: string; from: unknown; to: unknown; duration: unknown; easing: unknown }> };
       w.__anims = [];
@@ -582,10 +587,13 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     try {
       await connected(moving.page);
       await record(moving.page);
-      await tab(moving.page, 'workspace');
+      // R5 (H132): a workspace tab (here 2, Chat & Intent) fades its page in; the chat's two views keep GSAP's fade
+      await tab(moving.page, 'chat');
+      await tab(moving.page, 'streamdown');
       expect(await moving.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([
+        { id: 'ws-chat', from: 0, to: 1, duration: 150, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
         { id: 'tab-chat', from: 1, to: 0, duration: 150, easing: 'cubic-bezier(0.32, 0, 0.67, 0)' },
-        { id: 'tab-workspace', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
+        { id: 'tab-streamdown', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
       ]);
     } finally { await moving.context.close(); }
     const still = await open({ reducedMotion: 'reduce' });
@@ -593,7 +601,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await connected(still.page);
       await record(still.page);
       await still.page.click('[data-tab="logs"]');
-      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active'), null, { timeout: 5_000 });
+      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active') && !document.getElementById('ws-logs')?.hidden, null, { timeout: 5_000 });
+      await tab(still.page, 'streamdown');
       expect(await still.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([]);
       expect(await still.page.evaluate(() => getComputedStyle(document.querySelector('.log-line')!).animationName)).toBe('none');
     } finally { await still.context.close(); }
@@ -666,6 +675,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own, viewport });
     try {
       await connected(page);
+      // R5 (H132): the mirror is the Chat tab's (2)
+      await tab(page, 'chat');
       // the tail reached the page (its log says so), then the mirror is read
       await page.waitForFunction(() => /Event bus: 1 recent event, latest receipt\.sealed/.test(document.getElementById('logs-list')?.textContent ?? ''), null, { timeout: 15_000 });
       await page.waitForFunction(() => /since this companion started at/.test(document.querySelector('#console-logs [data-mirror="empty"]')?.textContent ?? ''), null, { timeout: 10_000 });
@@ -705,6 +716,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       const first = fakeTurn(new Date(), 'repl · 2 steps');
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
@@ -744,6 +756,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       // SYNTHETIC turn facts (no model was asked); the sealing, its signature, its chain and its bus event are the real ones
       const sealed = sealTurn({ prompt: 'SYNTHETIC prompt, never shown', answer: 'SYNTHETIC answer, never shown', steps: 3, spend: 0, costMeasured: false, ms: 1_200, status: 'ok', model: 'SYNTHETIC/model' }, root);

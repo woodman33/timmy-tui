@@ -262,7 +262,12 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
   const turns = (page: Page): Promise<string[]> => page.$$eval('#console-logs [data-mirror="repl-turn"]', (rows) => rows.map((r) => (r.textContent ?? '').replace(/\s+/g, ' ')));
   const turnShown = (page: Page, receipt: string): Promise<unknown> => page.waitForFunction((r) => [...document.querySelectorAll('#console-logs [data-mirror="repl-turn"]')].some((row) => (row.textContent ?? '').includes(r)), receipt, { timeout: 15_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const record = (): string => tildePath(join(home, 'state', 'active-project.json'));
