@@ -1,0 +1,40 @@
+                    ╭──────╮╭──────╮╭───────────╮╭────────╮╭───────────╮╭────╮┏━━━━━━━━━━━━━━┓╭───────╮╭───────╮╭──────╮
+TIMMY · tray1       │1 Home││2 Chat││3 Workflows││4 Studio││5 VoxVision││6 3D│┃7 Control Room┃│8 Fleet││9 Tools││0 Logs│
+                    ╰──────╯╰──────╯╰───────────╯╰────────╯╰───────────╯╰────╯┗━━━━━━━━━━━━━━┛╰───────╯╰───────╯╰──────╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────── 7 Control Room ╮
+│  [1 What waits on you]  [2 Jobs]  [3 Stop current]  [4 Recover what a crash left]                                    │
+│ this computer · chat: local · no model chosen…  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━┓╭─ Context ──────────────────────────────────╮
+┃ RUNNING NOW (1)                                                        ┃│   Tools │ ▸ Inspector │   Files            │
+┃ ▸ ● j66b3d9  running    FAKE job (test): sleep 300 · left running · 9… ┃│                                            │
+┃                                                                        ┃│ JOB                                        │
+┃ WAITING ON YOU (0)                                                     ┃│ Job        j66b3d9                         │
+┃   Nothing waits on you.                                                ┃│ What       FAKE job (test): sleep 300      │
+┃                                                                        ┃│ Judged     running                         │
+┃ RECENT (1)                                                             ┃│ left running: started by a Timmy session   │
+┃   ✓ j3e9b07  completed  APPROVAL.md › tidy · 1 of 1 step · 0.2 s · oe… ┃│ that has ended (pid 17464), and its        │
+┃                                                                        ┃│ process still runs. Stop ends it through   │
+┃ CHAT TURNS (0)                                                         ┃│ recovery's stop (only when the process     │
+┃   No chat turn of this project is sealed yet: a turn is listed once    ┃│ table proves the group is the job's).      │
+┃   its receipt is sealed, from whichever surface sent it (the REPL, the ┃│ Outcome    running                         │
+┃   Workbench, the monitor, a companion page).                           ┃│ Record     running                         │
+┃   A turn being answered now is on the surface that sent it, where Esc  ┃│ Started    16:10:06 (10 s ago)             │
+┃   (the Workbench) or Ctrl+C (the REPL) stops it.                       ┃│ Running    9.8 s                           │
+┃                                                                        ┃│ Operation  none recorded                   │
+┃                                                                        ┃│ started by a Timmy session that has ended  │
+┃                                                                        ┃│ (pid 17464)                                │
+┃                                                                        ┃│                                            │
+┃                                                                        ┃│ Run detail: this job names no operation.   │
+┃                                                                        ┃│                                            │
+┃                                                                        ┃│                                            │
+┃                                                                        ┃│                                            │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠴ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as…     [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                        │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                       │
+│ 16:10:11 [job] j3e9b07 tidy started                                                                                  │
+│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                   │
+│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt…     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

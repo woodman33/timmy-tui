@@ -1,0 +1,30 @@
+                                 ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ┏━━━━━━━━━━━┓ ╭───╮ ╭───╮ ╭───╮
+TIMMY · tray1                    │ 1 │ │ 2 │ │ 3 │ │ 4 │ │ 5 │ │ 6 │ ┃ 7 Control ┃ │ 8 │ │ 9 │ │ 0 │
+                                 ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ┗━━━━━━━━━━━┛ ╰───╯ ╰───╯ ╰───╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────── 7 Control Room ╮
+│  [1 What waits on you]  [2 Jobs]  [3 Stop current]  [4 Recover what a crash left]                │
+│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ RUNNING NOW (1)                                                                                  ┃
+┃ ▸ ● j66b3d9  running    FAKE job (test): sleep 300 · left running · 13 s · no operation · an…    ┃
+┃                                                                                                  ┃
+┃ WAITING ON YOU (0)                                                                               ┃
+┃   Nothing waits on you.                                                                          ┃
+┃                                                                                                  ┃
+┃ RECENT (1)                                                                                       ┃
+┃   ✓ j3e9b07  completed  APPROVAL.md › tidy · 1 of 1 step · 0.2 s · oea7f5785 · this Workbench    ┃
+┃                                                                                                  ┃
+┃ CHAT TURNS (0)                                                                                   ┃
+┃   No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from  ┃
+┃   whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).            ┃
+┃   A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C  ┃
+┃   (the REPL) stops it.                                                                           ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠦ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
+│ 16:10:11 [job] j3e9b07 tidy started                                                              │
+│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
