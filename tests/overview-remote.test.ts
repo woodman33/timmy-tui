@@ -391,7 +391,7 @@ describe("God's Eye View, slice 2, from real Connect records and a real backend'
     // the aliases and the usage
     expect(plain(overviewLines(o, 'cloud', { glyphs: g }))[1]).toMatch(/^ {2}HOSTING/);
     expect(plain(overviewLines(o, 'computers', { glyphs: g }))[1]).toMatch(/^ {2}DEVICES/);
-    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]']);
+    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|fleet|project|map] [--all] [--json]']);
   });
 
   it('one item said the same in /overview, the board and the JSON; the REPL\'s own overview reads the same', () => {

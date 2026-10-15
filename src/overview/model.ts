@@ -21,6 +21,10 @@
  * beside provider spend per customer against its limits); new kinds in `needs`; the map's dependency edges (a remote job on
  * its device, an order's step on a decision). A probe's time is when it was true, never "online now"; a remote job is
  * running only as its status file said, when it was read; a cached answer says its age, and old past an hour.
+ *
+ * R4 (lead): `fleet`, the project's fleet plans (`timmy fleet`, src/fleet) from their own files. It is a part, not one of
+ * OVERVIEW_SECTIONS: present only in a project that has a fleet plan, drawn after Costs, so a project without one sees the
+ * same model and screens as before (the schema stays `timmy.overview/2`; a reader that does not know `fleet` ignores it).
  */
 import type { DecisionKind } from '../room/decisions.js';
 
@@ -29,9 +33,12 @@ export const OVERVIEW_SCHEMA = 'timmy.overview/2';
 /** The sections, in the order the first screen shows them: what needs you first. */
 export const OVERVIEW_SECTIONS = ['needs', 'devices', 'hosting', 'agents', 'workflows', 'apps', 'spatial', 'history', 'costs', 'project'] as const;
 export type OverviewSectionId = typeof OVERVIEW_SECTIONS[number];
+/** R4 (lead): a section, or the Fleets part (present only in a project with a fleet plan). */
+export type OverviewPartId = OverviewSectionId | 'fleet';
 export const SECTION_TITLE: Readonly<Record<OverviewSectionId, string>> = {
   needs: 'Needs you', devices: 'Devices', hosting: 'Hosting', agents: 'Agents', workflows: 'Workflows', apps: 'Apps', spatial: 'Spatial', history: 'History', costs: 'Costs', project: 'Project',
 };
+export const FLEET_TITLE = 'Fleets';
 
 /** How many items a section lists; the rest are counted in `more`. */
 export const ITEMS_MAX = 8;
@@ -41,7 +48,7 @@ export const ITEMS_MAX = 8;
  * devices, hosting and costs (`ov-devices`, `ov-hosting`, `ov-costs`), where each item opens its detail in place.
  */
 export type BoardAnchor = 'room' | 'room-decisions' | 'room-running' | 'room-tools' | 'workflows' | 'jobs' | 'flows' | 'voxvision' | 'review' | 'results' | 'memory' | 'canvas'
-  | 'ov-devices' | 'ov-hosting' | 'ov-costs';
+  | 'ov-devices' | 'ov-hosting' | 'ov-costs' | 'ov-fleet';
 
 /** Where an item comes from: its record (relative to the project; null when it has none there) and the command that opens it. */
 export interface OverviewSource {
@@ -83,7 +90,7 @@ export interface OverviewCost {
 export interface Unreadable { record: string; why: string }
 
 export interface SectionBase {
-  id: OverviewSectionId;
+  id: OverviewPartId;
   title: string;
   /** when its sources were read (ISO) */
   as_of: string;
@@ -113,7 +120,9 @@ export type Tone = 'attention' | 'failed' | 'running' | 'ok' | 'neutral';
  * fetched), a host key that changed, a computer whose last probe did not connect, a remote job unknown or whose stop is not
  * confirmed (Timmy Connect); and each item the Timmy Cloud backend's needs_person names, as `cloud-<its kind>`.
  */
-export type OverviewNeedKind = 'host-key' | 'host-key-changed' | 'device-unreachable' | 'remote-job' | `cloud-${string}`;
+export type OverviewNeedKind = 'host-key' | 'host-key-changed' | 'device-unreachable' | 'remote-job' | `cloud-${string}`
+  // R4 (lead): a fleet worker whose compute is unknown; a fleet whose process ended while it ran (never for a simulation)
+  | 'fleet-unknown' | 'fleet-left';
 
 export interface NeedsItem {
   title: string;
@@ -488,6 +497,57 @@ export interface ProjectSection extends SectionBase {
   canvas: { state: 'same' | 'other' | 'none' | 'off' | 'unknown' | 'running'; words: string; command?: string };
 }
 
+// ── fleets (R4 lead: `timmy fleet`'s plans, from their own files) ─────────────
+
+/** One worker of a fleet as its ledger has it, in words (a bounded few per plan: the ones that need reading first). */
+export interface FleetWorkerLine { index: number; phase: string; words: string }
+export interface FleetItem {
+  /** the plan's id (f and 8 hex digits) and the one Timmy operation it belongs to */
+  plan: string;
+  operation: string;
+  created_at: string;
+  updated_at: string;
+  /** the ledger's own word: planned, running, finished, stopped, refused */
+  status: string;
+  /** a live process runs it now (its runner's pid answers); `running` is said only when this is true */
+  running_proven: boolean;
+  /** the provider and the backend as every surface labels it (FAKE for the simulation) */
+  provider: string;
+  backend: string;
+  simulation: boolean;
+  /** the isolation asked for, in honest words ("each a simulated virtual machine (FAKE: nothing was allocated)") */
+  isolation: string;
+  isolation_words: string;
+  harness: string;
+  model: string;
+  workers: number;
+  concurrency: number;
+  /** requested, admitted, queued, allocating, running, live and unknown allocations, delivered, verified, failed, cancelled, refused: kept apart */
+  counts: Record<string, number>;
+  counts_line: string;
+  /** the revision the plan was made at, and whether the folder had uncommitted changes then */
+  revision: string;
+  /** budgets as the plan set them (a ceiling, never a spend), or why nothing was spent */
+  spend_words: string;
+  /** the plan's state in one sentence */
+  words: string;
+  /** what waits on a person, each in words with its command */
+  needs: string[];
+  /** a few workers, the ones to read first (failed, unknown, running), with how many more */
+  worker_lines: FleetWorkerLine[];
+  workers_more: number;
+  /** where its results are, when any were collected */
+  results: string | null;
+  tone: Tone;
+  commands: string[];
+  source: OverviewSource;
+}
+export interface FleetSection extends SectionBase {
+  id: 'fleet';
+  items: FleetItem[];
+  more: number;
+}
+
 // ── the abstract map ─────────────────────────────────────────────────────────
 
 export const MAP_LABEL = 'layout, not geometry';
@@ -515,6 +575,8 @@ export interface Overview {
   apps: AppsSection;
   spatial: SpatialSection;
   history: HistorySection;
+  /** R4 (lead): the project's fleet plans; absent when it has none (src/overview/fleet.ts) */
+  fleet?: FleetSection;
   map: OverviewMap;
   /** what the overview does not show, and where it came from */
   notes: string[];
