@@ -52,6 +52,16 @@ export function normalize(e: NativeEvent): { kind: EventKind; text: string } {
     case 'session.interrupted': return { kind: 'interrupted', text: 'interrupted' };
     case 'compute.expired': return { kind: 'expired', text: `compute expired (${s(d.computeId)})` };
     case 'session.closed': return { kind: 'closed', text: 'session closed' };
+    // R4 (lead, H121's note): the Cloudroom runtime's own kinds, in words (its record is kept beside them, as every event's)
+    case 'child.refused': {
+      const a = (d.answer ?? {}) as Record<string, unknown>;
+      return { kind: 'child', text: `a child request ${s(d.child)} was refused: ${s(a.words)}` };
+    }
+    case 'receipt': case 'state': case 'child': {
+      const core = (d.data ?? {}) as Record<string, unknown>;
+      const words = e.type === 'receipt' ? `receipt: ${s(core.command)} ${s(core.state)}` : e.type === 'state' ? `state: ${s(core.state)}` : `child ${s(core.id)}: ${s(core.state)}`;
+      return { kind: 'status', text: words.trim() };
+    }
     default: return { kind: 'other', text: `${e.type}` };
   }
 }

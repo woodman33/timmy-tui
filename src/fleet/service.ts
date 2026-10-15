@@ -20,6 +20,7 @@ import { inOperationId, newOperationId } from '../ops/context.js';
 import { projectId } from '../project/index.js';
 import { OPERATION_SCHEMA, writeOperationRecord, type OperationRecord, type OperationState } from '../ops/operations.js';
 import { decideDetailed, type DecideContext } from '../decision/service.js';
+import { cloudroomAvailability, openCloudroomBackend, type CloudroomBackend } from './cloudroom/index.js';
 import { readSettings } from '../decision/settings.js';
 import type { Backend } from './backend.js';
 import { fakeBackend, type FakeOptions } from './fake.js';
@@ -38,16 +39,36 @@ export interface ProviderEntry {
   about: string;
 }
 
+/** R4 (lead): the providers that are simulations, labelled so on every surface (no compute, no harness, no model, no cost). */
+export const SIMULATED_PROVIDERS: ReadonlySet<string> = new Set(['fake', 'cloudroom-fake']);
+export const isSimulation = (provider: string): boolean => SIMULATED_PROVIDERS.has(provider);
+
 /**
- * Every provider Timmy knows by name, and whether it can be used now. Only the FAKE backend is implemented: the others
- * are named so a plan for them is refused in words rather than run with something else.
+ * Every provider Timmy knows by name, and whether it can be used now (read at each call: the Cloudroom flag and config
+ * may change). A provider that is not available is named so a plan for it is refused in words rather than run with
+ * something else. R4 (lead, H121's adapter): Cloudroom Core is two ids, so a simulation can never be mistaken for a Core:
+ * `cloudroom` (TIMMY_FLEET_CLOUDROOM=1 and a configured Core) and `cloudroom-fake` (TIMMY_FLEET_CLOUDROOM=fake: the
+ * adapter over real HTTP to a FAKE Core started in this process).
  */
-export const KNOWN_PROVIDERS: readonly ProviderEntry[] = [
-  { id: 'fake', label: 'FAKE', available: true, about: 'the offline test backend: in-memory machines and scripted sessions; no compute, no harness, no model, no cost' },
-  { id: 'cloudroom', label: 'Cloudroom Core', available: false, why: 'not implemented in this build yet: its source was read at the pinned revisions (core 3949daa, app f939f41) and the adapter is being written; until it is wired in, nothing reaches a Cloudroom Core', about: 'a self-hosted service that runs coding agents on a Linux machine and saves their history (Rust, Apache-2.0)' },
-  { id: 'modal', label: 'Modal', available: false, why: 'no Timmy adapter; a provider in an upstream GUI is not a Timmy integration', about: 'provider sandboxes' },
-  { id: 'hostinger', label: 'Hostinger', available: false, why: 'no Timmy adapter; no provisioning API is called or configured', about: 'virtual private servers' },
-];
+export function knownProviders(env: Record<string, string | undefined> = process.env): ProviderEntry[] {
+  const cr = cloudroomAvailability(env);
+  const real = cr.mode === 'real' && cr.available;
+  return [
+    { id: 'fake', label: 'FAKE', available: true, about: 'the offline test backend: in-memory machines and scripted sessions; no compute, no harness, no model, no cost' },
+    {
+      id: 'cloudroom', label: 'Cloudroom Core', available: real,
+      ...(real ? {} : { why: cr.mode === 'fake' ? 'TIMMY_FLEET_CLOUDROOM=fake: only the FAKE Core (provider cloudroom-fake) is on in this process' : cr.why }),
+      about: 'one self-hosted Cloudroom Core (pinned 3949daa, Apache-2.0): each worker a session on that shared machine, never a VM; not verified until a live check passes',
+    },
+    {
+      id: 'cloudroom-fake', label: 'FAKE Cloudroom Core', available: cr.mode === 'fake',
+      ...(cr.mode === 'fake' ? {} : { why: 'off: TIMMY_FLEET_CLOUDROOM=fake starts a FAKE Core in this process' }),
+      about: "Timmy's Cloudroom adapter over real HTTP to a FAKE Core on 127.0.0.1: a simulation (no harness, no model, no cost)",
+    },
+    { id: 'modal', label: 'Modal', available: false, why: 'no Timmy adapter yet (the provisioner is an open assignment); a provider in an upstream GUI is not a Timmy integration', about: "provider sandboxes (gVisor containers, not VMs)" },
+    { id: 'hostinger', label: 'Hostinger', available: false, why: 'no Timmy adapter; no provisioning API is called or configured', about: 'virtual private servers' },
+  ];
+}
 
 export interface ServiceOptions {
   /** The backend for a provider id; the default knows only the FAKE one. Tests inject their own. */
@@ -57,16 +78,38 @@ export interface ServiceOptions {
 
 const backends = new Map<string, Backend>();
 
-/** One FAKE backend per process (its machines live only in this process's memory). */
+/** One FAKE backend per process (its machines live only in this process's memory); a Cloudroom one once prepareProvider opened it. */
 export function defaultBackendFor(provider: string, fake?: FakeOptions): Backend | undefined {
-  if (provider !== 'fake') return undefined;
-  if (fake) return fakeBackend(fake);
-  if (!backends.has('fake')) backends.set('fake', fakeBackend());
-  return backends.get('fake');
+  if (provider === 'fake') {
+    if (fake) return fakeBackend(fake);
+    if (!backends.has('fake')) backends.set('fake', fakeBackend());
+    return backends.get('fake');
+  }
+  return backends.get(provider);
+}
+
+/**
+ * R4 (lead): opens (once per process) and refreshes the Cloudroom backend a provider id names, so its synchronous
+ * capabilities can answer a plan's checks; the FAKE backend and the unknown ids need nothing. An unavailable or unready
+ * Core is not an error here: its capabilities then say why, and the plan is refused in words.
+ */
+export async function prepareProvider(provider: string, env: Record<string, string | undefined> = process.env): Promise<{ ok: true } | { ok: false; why: string }> {
+  if (provider !== 'cloudroom' && provider !== 'cloudroom-fake') return { ok: true };
+  const open = backends.get(provider) as CloudroomBackend | undefined;
+  if (open) {
+    await open.refresh().catch(() => undefined);
+    return { ok: true };
+  }
+  const entry = knownProviders(env).find((p) => p.id === provider)!;
+  if (!entry.available) return { ok: false, why: entry.why ?? 'unavailable' };
+  const opened = await openCloudroomBackend(env);
+  if (!opened.ok) return { ok: false, why: opened.why };
+  backends.set(provider, opened.backend);
+  return { ok: true };
 }
 
 export function providerCaps(provider: string, opts: ServiceOptions = {}): ProviderCapabilities | undefined {
-  const known = KNOWN_PROVIDERS.find((p) => p.id === provider);
+  const known = knownProviders().find((p) => p.id === provider);
   const b = (opts.backendFor ?? ((id) => defaultBackendFor(id, opts.fake)))(provider);
   if (b) return b.provisioner.capabilities();
   if (!known) return undefined;
@@ -117,13 +160,13 @@ export interface PlanPreview {
 export type PlanRequest = Omit<PlanInput, 'project' | 'operationId'>;
 
 export function preview(plan: FleetPlan, caps: ProviderCapabilities | undefined, refusals: string[]): PlanPreview {
-  const simulation = plan.provider === 'fake';
+  const simulation = isSimulation(plan.provider);
   const ceiling = infraCeilingUsd(plan, caps);
   const allocations = plan.perWorker === 'dedicated' ? plan.agents : plan.concurrency;
   const effective = Math.max(0, Math.min(plan.concurrency, caps?.maxConcurrent ?? plan.concurrency));
   const backend = caps?.label ?? plan.provider;
   const lines = [
-    `Fleet plan${refusals.length ? ' (refused)' : ''}${simulation ? ' — SIMULATION on the FAKE backend: no compute, no harness, no model, no cost' : ''}`,
+    `Fleet plan${refusals.length ? ' (refused)' : ''}${simulation ? ` — SIMULATION on the ${plan.provider === 'fake' ? 'FAKE backend' : 'FAKE Cloudroom Core (real HTTP to a FAKE Core on this computer)'}: no compute, no harness, no model, no cost` : ''}`,
     `  ${plan.agents} workers, at most ${effective} at once (${plan.concurrency} asked${caps && caps.maxConcurrent < plan.concurrency ? `, the provider allows ${caps.maxConcurrent}` : ''})`,
     `  ${allocations} allocation${allocations === 1 ? '' : 's'}: ${plan.perWorker === 'dedicated' ? 'one per worker' : 'shared by workers'}, each ${simulation ? `a simulated ${ISOLATION_WORDS[plan.isolation].replace(/^an? /, '')} (FAKE: nothing is allocated)` : ISOLATION_WORDS[plan.isolation]}`,
     `  on ${backend}; harness ${plan.harness}, model ${plan.model}`,
@@ -157,6 +200,8 @@ export function planFleet(root: string, req: PlanRequest, opts: ServiceOptions =
   const caps = providerCaps(plan.provider, opts);
   const backend = (opts.backendFor ?? ((id) => defaultBackendFor(id, opts.fake)))(plan.provider);
   const refusals = [...checkPlan(plan, caps), ...(backend ? checkRuntime(plan, backend) : [])];
+  // R4 (lead): only the FAKE backend runs a task with no words; any runtime that starts a harness is given one
+  if (plan.provider !== 'fake' && plan.tasks.some((t) => !t.prompt.trim())) refusals.push('each task needs words (--prompt TEXT): a harness is never started without a task');
   const pv = preview(plan, caps, refusals);
   if (refusals.length) return { ok: false, preview: { ...pv, planId: undefined, operationId: undefined }, refusals };
   FleetLedger.create(root, plan);
@@ -232,7 +277,7 @@ export async function runPlan(root: string, planId: string, o: RunPlanOptions = 
   const backend = (o.backendFor ?? ((id) => defaultBackendFor(id, o.fake)))(plan.provider);
   const caps = backend?.provisioner.capabilities() ?? providerCaps(plan.provider, o);
   const label = caps?.label ?? plan.provider;
-  const simulation = plan.provider === 'fake';
+  const simulation = isSimulation(plan.provider);
   const refuse = (why: string): RunReport => ({ planId, status: 'refused', refusals: [why], counts: ledger.counts(), peakActive: 0, operationId: plan.operationId, backend: label, simulation, lines: [`REFUSED: ${why}`] });
   if (!backend) return refuse(`provider "${plan.provider}" is unavailable: ${caps?.unavailableReason ?? 'not known to Timmy'}`);
   if (runnerOf(root, planId)) return refuse(`plan ${planId} is already running in process ${runnerOf(root, planId)?.pid}`);
@@ -269,7 +314,7 @@ export async function runPlan(root: string, planId: string, o: RunPlanOptions = 
   try {
     result = await runFleet({ backend, ledger, signal: o.signal, timeouts: o.timeouts, onEvent: o.onEvent, onChange: o.onChange });
   } catch (e) {
-    writeOp(root, plan, 'failed', `Timmy's own error: ${(e as Error).message}`, started, new Date().toISOString());
+    writeOp(root, plan, 'failed', `an error stopped the run: ${(e as Error).message}`, started, new Date().toISOString());
     throw e;
   }
   ledger.save(true);
@@ -289,7 +334,7 @@ export async function runPlan(root: string, planId: string, o: RunPlanOptions = 
   }, storeDir(root)));
   writeOp(root, plan, state, why, started, new Date().toISOString());
   const lines = [
-    `Fleet ${plan.id} ${result.status}${simulation ? ' (SIMULATION, FAKE backend)' : ''}: ${why}`,
+    `Fleet ${plan.id} ${result.status}${simulation ? ` (SIMULATION, ${plan.provider === 'fake' ? 'FAKE backend' : 'FAKE Cloudroom Core'})` : ''}: ${why}`,
     `  peak at once: ${result.peakActive}; operation ${plan.operationId}; receipts ${predict.hash.slice(7, 15)} (prediction), ${run.hash.slice(7, 15)} (run)`,
     ...result.refusals.map((r) => `  REFUSED: ${r}`),
   ];
@@ -323,7 +368,7 @@ export function readFleetView(root: string, planId: string): FleetView | undefin
   try {
     const plan = JSON.parse(fs.readFileSync(path.join(dir, 'plan.json'), 'utf8')) as FleetPlan;
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')) as FleetState;
-    const known = KNOWN_PROVIDERS.find((p) => p.id === plan.provider);
+    const known = knownProviders().find((p) => p.id === plan.provider);
     const needsYou: string[] = [];
     for (const w of state.workers) {
       if (w.phase === 'unknown') needsYou.push(`worker ${w.index}: ${w.reason ?? 'its compute is unknown'} (timmy fleet reconcile ${planId})`);
@@ -332,7 +377,7 @@ export function readFleetView(root: string, planId: string): FleetView | undefin
     if (state.status === 'running' && !runner) needsYou.push(`the process that ran this plan has ended while it was running (timmy fleet reconcile ${planId})`);
     return {
       planId, operationId: plan.operationId, createdAt: plan.createdAt, status: state.status, provider: plan.provider,
-      backend: plan.provider === 'fake' ? 'FAKE' : known?.label ?? plan.provider, simulation: plan.provider === 'fake',
+      backend: plan.provider === 'fake' ? 'FAKE' : known?.label ?? plan.provider, simulation: isSimulation(plan.provider),
       isolation: plan.isolation, isolationWords: ISOLATION_WORDS[plan.isolation], perWorker: plan.perWorker, harness: plan.harness, model: plan.model,
       counts: countWorkers(plan.agents, state.workers), runner, cancelAsked: state.cancelRequested || fs.existsSync(path.join(dir, 'CANCEL')),
       workers: state.workers.map((w) => ({
@@ -444,7 +489,7 @@ export async function adviseRoute(root: string, plan: FleetPlan, opts: ServiceOp
     instructions: `Which harness should take this fleet's ${plan.agents} tasks?`,
     options, deterministic: { option: plan.harness, rule: 'the harness the plan asked for' },
     // what the model reads: counts and words Timmy already shows, never the tasks' text
-    state: { workers: plan.agents, concurrency: plan.concurrency, isolation: plan.isolation, provider: plan.provider, simulation: plan.provider === 'fake' },
+    state: { workers: plan.agents, concurrency: plan.concurrency, isolation: plan.isolation, provider: plan.provider, simulation: isSimulation(plan.provider) },
     requestKey: `fleet-route-${plan.id}`,
   }, { ...ctx, settings, budget: ctx.budget ?? { remainingUsd: plan.budgets.inferenceUsd }, currentRevision: ctx.currentRevision ?? plan.project.revision });
   const keep = `the plan keeps ${plan.harness}`;

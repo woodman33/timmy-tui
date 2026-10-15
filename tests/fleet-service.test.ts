@@ -47,12 +47,14 @@ describe('plan', () => {
     expect(readFleetView(root, r.plan.id)?.status).toBe('planned');
   });
 
-  it('refuses a provider that is not implemented, in words, and writes nothing', () => {
+  it('refuses a provider that is not turned on or not implemented, in words, and writes nothing', () => {
     const root = gitProject();
     const r = planFleet(root, req({ provider: 'cloudroom' }));
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.refusals.join('\n')).toMatch(/provider "cloudroom" is unavailable: not implemented in this build yet: its source was read at the pinned revisions/);
+    expect(r.refusals.join('\n')).toMatch(/provider "cloudroom" is unavailable: TIMMY_FLEET_CLOUDROOM is not set: set it to 1 to use the Cloudroom Core named in/);
+    const m = planFleet(root, req({ provider: 'modal' }));
+    expect(!m.ok && m.refusals.join('\n')).toMatch(/provider "modal" is unavailable: no Timmy adapter yet/);
     expect(fs.existsSync(path.join(root, '.timmy', 'fleet'))).toBe(false);
   });
 });

@@ -20,6 +20,9 @@ export const MAX_WORKERS = 100;
 export const ISOLATION_CLASSES = ['shared-session', 'container', 'provider-sandbox', 'microvm', 'vm'] as const;
 export type IsolationClass = (typeof ISOLATION_CLASSES)[number];
 
+/** R4 (lead): the plan's model when none is named: Timmy's words, never sent to a runtime as a model id. */
+export const HARNESS_DEFAULT_MODEL = 'the harness default';
+
 export const ISOLATION_WORDS: Record<IsolationClass, string> = {
   'shared-session': 'a session on a shared machine (shares the account, files and machine; not isolated)',
   container: 'a container',

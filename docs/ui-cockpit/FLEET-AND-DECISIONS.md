@@ -42,7 +42,7 @@ service. No row is live-qualified yet.
 | `timmy decide` and MCP `timmy_decide_route`. | as above | `decision-cli`; called through both MCP-to-CLI routes |
 | A fleet plan's route advice: one question per plan, shown, never applied. See (d). | FAKE answer (`fleet-route-pi.json`) | `fleet-route` (3) |
 | Child sessions: a provider may declare a child in its parent's sandbox "detected, not prevented"; the worker fails. | on FAKE | `fleet-core` (child isolation) |
-| Cloudroom Core adapter. See (e). | — | — |
+| Cloudroom Core adapter (H121, wired by the lead). See (e). | FAKE Core on 127.0.0.1 | `fleet-cloudroom` (18), including 100 workers at a cap of 8; `fleet-cloudroom-cli` (3), through the shipped CLI over real HTTP |
 | Modal sandbox provisioner. See (f). | — | — |
 | Control Room, live board (Browser Companion) and Studio nodes for fleets. See (g). | — | — |
 
@@ -64,7 +64,18 @@ Notes:
   - The allowed-choice set, egress, budget and media rules, stale revisions, and admission.
   - Each decision recorded once, with a deterministic fallback.
 - **(d)** The route advice is drawn in amber in the CLI, in status and in God's Eye View.
-- **(e)** Cloudroom is being built by H121 against a FAKE Core. This row is updated when it is integrated.
+- **(e) Cloudroom Core:**
+  - An adapted subset of Core's own TypeScript client (`integrations/bb/client.ts` at `3949daa`, Apache-2.0, its license
+    beside it), a runtime, and a provisioner for one self-hosted Core. Each worker is a session on that shared machine,
+    never a VM.
+  - `timmy fleet connect cloudroom <url> --token-file <file>` records which Core and where its 0600 token file is. It never
+    reads or copies the token, and it is a person's step, not an MCP tool.
+  - `TIMMY_FLEET_CLOUDROOM=1` turns the configured Core on as provider `cloudroom`. `TIMMY_FLEET_CLOUDROOM=fake` starts a FAKE
+    Core in the process as provider `cloudroom-fake`, labelled a simulation everywhere.
+  - Every child request is refused at once, so Core's no-answer fallback into the parent's folder never fires. A
+    `--shared-sandbox` child fails its worker under a strict plan. An `unknown` receipt is never resent.
+  - A plan for a real runtime needs task words (`--prompt`). A plan asking for a VM per worker is refused: one Core gives
+    sessions on one machine.
 - **(f)** The Modal provisioner is the Codex assignment below.
 - **(g)** The live board draws the same Overview HTML, so the Fleets card appears there too, but it was not exercised on
   the live board in this round. Control Room rows and Studio nodes for fleets are not built yet.
@@ -84,6 +95,15 @@ TIMMY_CLEF=1 timmy decide route --option codex --option pi --option openhands --
 ```
 
 In the REPL, `/overview` shows one Fleets line, and `/overview fleet` shows everything. `/board` draws the card.
+
+The Cloudroom adapter, offline:
+
+```sh
+TIMMY_FLEET_CLOUDROOM=fake timmy fleet providers       # cloudroom-fake available: a FAKE Core in this process
+TIMMY_FLEET_CLOUDROOM=fake timmy fleet plan --provider cloudroom-fake --isolation shared-session --workers 5 --prompt "FAKE task"
+TIMMY_FLEET_CLOUDROOM=fake timmy fleet run <plan>      # real HTTP to the FAKE Core; SIMULATION on every line
+timmy fleet connect cloudroom https://<your Core> --token-file <a 0600 file of yours>   # records; contacts nothing
+```
 
 ## Staged rollout (each stage needs the operator's go-ahead)
 
@@ -107,8 +127,9 @@ In the REPL, `/overview` shows one Fleets line, and `/overview fleet` shows ever
 
 ## What needs the operator
 
-- **A Cloudroom Core to connect to.** It can be self-hosted, or hosted (invite-only), plus its token. Without one, the
-  Cloudroom provider stays unavailable.
+- **A Cloudroom Core to connect to.** It can be self-hosted, or hosted (invite-only), plus its token. Then a person runs
+  `timmy fleet connect cloudroom <url> --token-file <file>` and sets `TIMMY_FLEET_CLOUDROOM=1`. Until then, the provider
+  says it is unavailable and why.
 - **Authorization for any live call or spend.** That includes the first Workers AI call.
 - **CODEX_UI_SPEC.md** was not found on any pushed branch.
   - The fleet parts use the theme's attention token (`#E5B550`) for amber. They do not use `#FFB000`.
@@ -131,6 +152,23 @@ In the REPL, `/overview` shows one Fleets line, and `/overview fleet` shows ever
 
 The judge's thresholds (0.60 top, 0.15 margin) are placeholders. They have not been evaluated against outcomes, and the
 model's numbers are not calibrated.
+
+## Decisions on H121's questions
+
+1. **An `unknown` receipt is final for Timmy**, even though Core may settle it later. It is never resent. A reconcile may
+   read what Core says now and record it.
+2. **`subagents` alone counts as "may share the parent"**. That is the safe side.
+3. **The FAKE Core has its own provider id**, `cloudroom-fake`, so a simulation can never be shown as a Core.
+4. **The BB MIT notice does not travel with `client.ts`.** It was adapted from the core's Apache-2.0 copy. The
+   byte-identical copy in the GUI repository is recorded in `CLOUDROOM-PROVENANCE.md`.
+
+Known limits:
+- Each Core record becomes one stored event with an fsync, which a real Core's text deltas will make slow; batching is
+  for the live stage.
+- Close and interrupt cannot yet say "nothing to do".
+- Codex's own sub-agents bypass Core's child path and are not counted.
+
+`CLOUDROOM-PROVENANCE.md` lists the ten places where Core's contract is ambiguous.
 
 ## Codex assignment: the Modal sandbox provisioner
 
@@ -161,7 +199,7 @@ This assignment is independent of all UI work. It owns only `src/fleet/modal/**`
 
   Pinned in `src/decision/clef-contract.ts`.
 - **Cloudroom:** read at core `3949daaea3c7613458e9ad14afddbd267a0a56bc` and app `f939f4103c5a2946f03d85de37af94d1a58053fb`.
-  The files reused or read, each with its license, are listed in `CLOUDROOM-PROVENANCE.md`, which H121 writes.
+  The files reused or read, each with its license, are listed in `CLOUDROOM-PROVENANCE.md`.
 - **Deliberately not reused from the app:**
   - its sandbox service, which copies the Mac's Codex, Claude, gh and other logins into cloud sandboxes;
   - `runOnVm`, which is host control;

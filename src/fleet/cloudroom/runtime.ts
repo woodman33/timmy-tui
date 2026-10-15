@@ -21,6 +21,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { NativeEvent, Runtime, RuntimeCapabilities, SessionOpen, SessionState } from '../backend.js';
+import { HARNESS_DEFAULT_MODEL } from '../plan.js';
 import { redactString } from '../../utils/redact.js';
 import { scrubHomes } from '../../utils/home-scrub.js';
 import { CloudroomConnectionError, CloudroomError, HARNESSES, type CloudroomClient, type Harness, type Json, type SessionRecord } from './client.js';
@@ -29,6 +30,8 @@ import { CloudroomConnectionError, CloudroomError, HARNESSES, type CloudroomClie
 export const CHILD_REFUSAL = "Timmy's fleet starts no sandboxes for children: this session is one worker of a Timmy fleet and does its task itself. Do not retry with --shared-sandbox: a child in this folder fails this worker.";
 /** The reason a worker fails with when Core's receipt is unknown or unknown_after_restart. */
 export const UNKNOWN_REASON = 'the runtime could not say whether the work ran (unknown); it is not resent';
+/** R4 (lead): told to an agent whose plan allows no children (a request, not enforcement: see open()). */
+export const NO_CHILDREN_NOTE = "This session is one worker of a Timmy fleet: do its task yourself, in this folder. Do not start child threads (room-cli thread spawn) or subagents; a child request is refused, and a child started in this folder fails this worker.";
 /** What stands in for a folder path on the Core machine wherever a record carries one. */
 export const REMOTE_PATH = '[a path on the Core machine; not kept]';
 
@@ -293,7 +296,12 @@ export class CloudroomRuntime implements Runtime {
     const startId = cloudroomRequestId(requestId);
     const sessionId = sessionIdFor(startId);
     const promptId = promptIdFor(startId);
-    const started = await this.sameId('start', startId, () => this.client.start(startId, task.harness as Harness, task.model ? { model: task.model } : {}));
+    // R4 (lead): the plan's "the harness default" is Timmy's words, not a model id: Core is then given no model. Without
+    // children, the agent is also told not to start any; that is a request, not enforcement (every child request is
+    // refused, and a child that starts in this folder anyway fails the worker)
+    const model = task.model && task.model !== HARNESS_DEFAULT_MODEL ? task.model : undefined;
+    const startOptions = { ...(model ? { model } : {}), ...(task.allowChildren ? {} : { system_prompt: NO_CHILDREN_NOTE }) };
+    const started = await this.sameId('start', startId, () => this.client.start(startId, task.harness as Harness, startOptions));
     if (started.session_id !== sessionId) throw new CloudroomError(`the Core named the session ${started.session_id}, not ${sessionId}`);
     try {
       await this.sameId('prompt', promptId, () => this.client.prompt(sessionId, promptId, task.prompt));

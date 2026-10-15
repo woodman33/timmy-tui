@@ -110,8 +110,13 @@ export async function runFleet(opts: RunOptions): Promise<RunResult> {
     while (queue.length || active.size) {
       while (queue.length && active.size < cap && !cancelled()) {
         const index = queue.shift()!;
-        const run = runWorker(index, opts, t, fleetAbort.signal).catch((e: unknown) => {
-          ledger.record(index, 'error', (r) => { r.phase = 'failed'; r.reason = `Timmy's own error: ${(e as Error).message}`; });
+        const run = runWorker(index, opts, t, fleetAbort.signal).catch(async (e: unknown) => {
+          // R4 (lead, H121's note): the error may be Timmy's or the backend's (a Core that refused a harness, a prompt
+          // never confirmed); the words do not guess which
+          ledger.record(index, 'error', (r) => { r.phase = 'failed'; r.reason = `an error stopped this worker: ${(e as Error).message}`; });
+          // what was allocated before the error is not left behind: torn down, each step recorded (a failure here is
+          // left for reconcile, which lists what carries this plan's label)
+          try { if (ledger.worker(index).compute.state === 'live') await destroyCompute(ledger, backend, index); } catch { /* reconcile settles it */ }
         }).finally(() => { active.delete(index); changed(index); });
         active.set(index, run);
         peakActive = Math.max(peakActive, active.size);

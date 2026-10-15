@@ -91,7 +91,7 @@ Commands:
   connect <tool>        Bind a tool binary into the chain (env.lock receipt)
   connect add|probe|run|status|stop|fetch …  Your own computers over SSH (timmy connect help)
   cloud use|status      Timmy Cloud's backend, read by its operator (timmy cloud help)
-  fleet providers|plan|run|status|events|stop|reconcile|collect  A fleet of workers on an execution backend (timmy fleet help; FAKE backend only: a simulation)
+  fleet providers|connect|plan|run|status|events|stop|reconcile|collect  A fleet of workers on an execution backend: FAKE (a simulation) or one self-hosted Cloudroom Core, not verified live (timmy fleet help)
   decide route|queue|mode|vox-review --option <id> …  A recommendation among the options Timmy built (Clef-Omni when "Use Clef routing" is on; off by default), recorded, never applied (timmy decide --help)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)

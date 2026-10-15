@@ -1,7 +1,11 @@
 /**
  * Round R4 (lead): `timmy fleet` — plan, run and follow a fleet of workers on an execution backend, with the same service
- * (src/fleet/service.ts) the MCP tools and surfaces call. Only the FAKE backend is implemented: it is an offline simulation
- * and says so on every line; Cloudroom, Modal and Hostinger are named and unavailable, with why.
+ * (src/fleet/service.ts) the MCP tools and surfaces call. Backends: the FAKE one (an offline simulation, said on every
+ * line); Cloudroom Core (R4 H121's adapter: one self-hosted Core a person connected, each worker a session on that shared
+ * machine; not verified until a live check passes) and its FAKE Core (cloudroom-fake, a simulation over real HTTP). Modal
+ * and Hostinger are named and unavailable, with why.
+ *
+ *   timmy fleet connect [cloudroom <url> --token-file <file> [--label NAME] [--max-concurrent N]]   (a person's step; not MCP)
  *
  *   timmy fleet providers
  *   timmy fleet plan --workers N [--concurrency N] [--provider fake] [--isolation vm|microvm|provider-sandbox|container|shared-session]
@@ -18,14 +22,16 @@
  * Exit codes: 0 done; 1 refused, or a run with a failed, unknown or refused worker; 2 usage; 3 a run that was stopped.
  */
 import { chooseProject } from '../project/index.js';
-import { ISOLATION_CLASSES, MAX_WORKERS, type IsolationClass } from './plan.js';
+import { timmyHome } from '../setup/home.js';
+import { cloudroomAvailability, writeCloudroomConfig } from './cloudroom/index.js';
+import { HARNESS_DEFAULT_MODEL, ISOLATION_CLASSES, MAX_WORKERS, type IsolationClass } from './plan.js';
 import {
-  adviseRoute, collectPlan, fleetEvents, KNOWN_PROVIDERS, listFleetViews, planFleet, readFleetView, readRouteAdvice, reconcilePlan, runPlan, stopPlan,
+  adviseRoute, collectPlan, fleetEvents, knownProviders, listFleetViews, planFleet, prepareProvider, readFleetView, readRouteAdvice, reconcilePlan, runPlan, stopPlan,
   type FleetView, type RouteAdvice, type RunPlanOptions, type ServiceOptions,
 } from './service.js';
 
 export const FLEET_SCHEMA = 'timmy.fleet/1';
-export const FLEET_VERBS = ['providers', 'plan', 'run', 'status', 'events', 'stop', 'reconcile', 'collect'] as const;
+export const FLEET_VERBS = ['providers', 'connect', 'plan', 'run', 'status', 'events', 'stop', 'reconcile', 'collect'] as const;
 export type FleetVerb = (typeof FLEET_VERBS)[number];
 
 export interface FleetSaid {
@@ -34,7 +40,7 @@ export interface FleetSaid {
   json: Record<string, unknown>;
 }
 
-const USAGE = 'timmy fleet providers | plan --workers N [options] | run <plan> | status [<plan>] | events <plan> | stop <plan> | reconcile <plan> | collect <plan>';
+const USAGE = 'timmy fleet providers | connect [cloudroom <url> --token-file <file>] | plan --workers N [options] | run <plan> | status [<plan>] | events <plan> | stop <plan> | reconcile <plan> | collect <plan>';
 
 export function fleetHelp(): string {
   return [
@@ -42,8 +48,12 @@ export function fleetHelp(): string {
     '',
     'timmy fleet: plan a fleet of workers (1 to 100), run it on an execution backend at a bounded concurrency, and follow it.',
     'Counts are kept apart: requested, admitted, queued, running, live and unknown allocations, delivered, verified, failed.',
-    'Only the FAKE backend is implemented: an offline simulation (no compute, no harness, no model, no cost). Cloudroom,',
-    'Modal and Hostinger are named and unavailable; `timmy fleet providers` says why.',
+    'Backends: FAKE (an offline simulation: no compute, no harness, no model, no cost); Cloudroom Core, one self-hosted Core',
+    'whose workers are sessions on its shared machine (TIMMY_FLEET_CLOUDROOM=1 and timmy fleet connect cloudroom; not verified',
+    'until a live check passes), and its FAKE Core (TIMMY_FLEET_CLOUDROOM=fake: provider cloudroom-fake, a simulation). Modal',
+    'and Hostinger are named and unavailable; `timmy fleet providers` says why.',
+    'connect cloudroom <url> --token-file <file> [--label NAME] [--max-concurrent N]: records which Core to use and where its',
+    '  token file is (0600; never read here, never copied); a person runs it (it is not an MCP tool).',
     '',
     'plan options: --workers N (required) --concurrency N (default 4) --provider fake --isolation vm --per-worker dedicated',
     '  --harness codex --model NAME --cpu 2 --ram 4 --disk 10 --ttl 30 --infra-budget 0 --inference-budget 0 --prompt TEXT',
@@ -57,9 +67,9 @@ export function fleetHelp(): string {
   ].join('\n');
 }
 
-interface Parsed { verb?: FleetVerb; plan?: string; flags: Map<string, string | true>; project?: string; json: boolean; help: boolean }
+interface Parsed { verb?: FleetVerb; plan?: string; flags: Map<string, string | true>; project?: string; json: boolean; help: boolean; args?: string[] }
 
-const VALUE_FLAGS = new Set(['workers', 'concurrency', 'provider', 'isolation', 'per-worker', 'harness', 'model', 'cpu', 'ram', 'disk', 'ttl', 'infra-budget', 'inference-budget', 'prompt', 'approve', 'worker', 'after', 'limit', 'project', 'decide-fixture']);
+const VALUE_FLAGS = new Set(['workers', 'concurrency', 'provider', 'isolation', 'per-worker', 'harness', 'model', 'cpu', 'ram', 'disk', 'ttl', 'infra-budget', 'inference-budget', 'prompt', 'approve', 'worker', 'after', 'limit', 'project', 'decide-fixture', 'token-file', 'label', 'max-concurrent']);
 const BOOL_FLAGS = new Set(['local-only', 'allow-paid', 'no-review', 'json', 'help']);
 
 export function parseFleetArgs(argv: string[], o: { json?: boolean } = {}): Parsed | { error: string } {
@@ -93,6 +103,9 @@ export function parseFleetArgs(argv: string[], o: { json?: boolean } = {}): Pars
     if (!words[0]) return { error: `timmy fleet ${verb} needs a plan id (timmy fleet status lists them)` };
     if (!/^f[0-9a-f]{8}$/.test(words[0])) return { error: `"${words[0]}" is not a plan id (f and 8 hex digits)` };
     p.plan = words.shift();
+  } else if (verb === 'connect') {
+    p.args = words.splice(0, words.length);
+    if (p.args.length && (p.args[0] !== 'cloudroom' || p.args.length !== 2)) return { error: 'timmy fleet connect cloudroom <url> --token-file <file> (or no arguments, to see what is set up)' };
   } else if (verb === 'status' && words[0]) {
     if (!/^f[0-9a-f]{8}$/.test(words[0])) return { error: `"${words[0]}" is not a plan id (f and 8 hex digits)` };
     p.plan = words.shift();
@@ -132,8 +145,31 @@ export function viewLines(v: FleetView, o: { workers?: boolean; route?: RouteAdv
 export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { signal?: AbortSignal; progress?: (line: string) => void; by?: 'person' | 'agent'; consume?: RunPlanOptions['consume'] } = {}): Promise<FleetSaid> {
   const said = (code: number, lines: string[], json: Record<string, unknown>): FleetSaid => ({ code, lines, json: { schema: FLEET_SCHEMA, verb: p.verb, ok: code === 0, ...json } });
   switch (p.verb) {
-    case 'providers':
-      return said(0, KNOWN_PROVIDERS.map((x) => `${x.available ? 'available  ' : 'unavailable'} ${x.id.padEnd(10)} ${x.label}: ${x.about}${x.why ? ` — ${x.why}` : ''}`), { providers: KNOWN_PROVIDERS });
+    case 'providers': {
+      const providers = knownProviders();
+      return said(0, providers.map((x) => `${x.available ? 'available  ' : 'unavailable'} ${x.id.padEnd(14)} ${x.label}: ${x.about}${x.why ? ` — ${x.why}` : ''}`), { providers });
+    }
+    case 'connect': {
+      // R4 (lead): which Core the fleet uses and where its token file is; the token is never read or copied here
+      if (!p.args?.length) {
+        const a = cloudroomAvailability();
+        return said(0, [`Cloudroom: ${a.available ? 'available' : 'unavailable'} (${a.mode}): ${a.why}`], { cloudroom: a });
+      }
+      const tokenFile = p.flags.get('token-file');
+      if (typeof tokenFile !== 'string') return said(2, ['timmy fleet connect cloudroom <url> --token-file <file>: the token file (0600) is required'], { error: 'usage' });
+      const max = num(p, 'max-concurrent', undefined, 1, 100);
+      if (max && typeof max === 'object') return said(2, [max.error], { error: 'usage' });
+      const label = p.flags.get('label');
+      try {
+        const w = writeCloudroomConfig(timmyHome(), { url: p.args[1], tokenFile, ...(typeof label === 'string' ? { label } : {}), ...(typeof max === 'number' ? { maxConcurrent: max } : {}) });
+        return said(0, [
+          `Recorded: the Cloudroom Core at ${w.config.url}${w.config.label ? ` ("${w.config.label}")` : ''}, its token in the file you named (0600; not read now, never copied).`,
+          'Nothing was contacted. TIMMY_FLEET_CLOUDROOM=1 turns it on; then timmy fleet providers checks it, and a plan uses --provider cloudroom --isolation shared-session.',
+        ], { written: true, url: w.config.url, ...(w.config.label ? { label: w.config.label } : {}) });
+      } catch (e) {
+        return said(1, [`Not recorded: ${e instanceof Error ? e.message : String(e)}`], { written: false });
+      }
+    }
     case 'plan': {
       const workers = num(p, 'workers', undefined, 1, MAX_WORKERS);
       if (workers === undefined) return said(2, [`timmy fleet plan needs --workers N (1 to ${MAX_WORKERS})`], { error: 'usage' });
@@ -148,9 +184,11 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
       if (!(ISOLATION_CLASSES as readonly string[]).includes(isolation)) return said(2, [`--isolation must be one of ${ISOLATION_CLASSES.join(', ')}`], { error: 'usage' });
       const perWorker = String(p.flags.get('per-worker') ?? (isolation === 'shared-session' ? 'shared' : 'dedicated'));
       if (perWorker !== 'dedicated' && perWorker !== 'shared') return said(2, ['--per-worker must be dedicated or shared'], { error: 'usage' });
+      const provider = String(p.flags.get('provider') ?? 'fake');
+      await prepareProvider(provider); // a Cloudroom backend is opened and refreshed so its capabilities can answer the checks
       const res = planFleet(root, {
-        agents: vals.workers as number, concurrency: vals.concurrency as number, provider: String(p.flags.get('provider') ?? 'fake'),
-        isolation: isolation as IsolationClass, perWorker, harness: String(p.flags.get('harness') ?? 'codex'), model: String(p.flags.get('model') ?? 'the harness default'),
+        agents: vals.workers as number, concurrency: vals.concurrency as number, provider,
+        isolation: isolation as IsolationClass, perWorker, harness: String(p.flags.get('harness') ?? 'codex'), model: String(p.flags.get('model') ?? HARNESS_DEFAULT_MODEL),
         limits: { cpu: vals.cpu as number, ramGb: vals.ram as number, diskGb: vals.disk as number }, ttlMinutes: vals.ttl as number,
         budgets: { infraUsd: vals.infra as number, inferenceUsd: vals.inference as number }, prompt: String(p.flags.get('prompt') ?? ''),
         policy: { localOnly: p.flags.has('local-only'), freeOnly: !p.flags.has('allow-paid'), requireReview: !p.flags.has('no-review') },
@@ -165,6 +203,8 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
     }
     case 'run': {
       let ended = 0;
+      const planned = readFleetView(root, p.plan!);
+      if (planned) await prepareProvider(planned.provider);
       const report = await runPlan(root, p.plan!, {
         ...opts,
         approval: typeof p.flags.get('approve') === 'string' ? String(p.flags.get('approve')) : undefined,
@@ -204,10 +244,14 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
       return said(r.asked ? 0 : 1, [r.words], { asked: r.asked, runner: r.runner ?? null });
     }
     case 'reconcile': {
+      const v = readFleetView(root, p.plan!);
+      if (v) await prepareProvider(v.provider);
       const r = await reconcilePlan(root, p.plan!, opts);
       return said(r.ok ? 0 : 1, r.lines, { lines: r.lines });
     }
     case 'collect': {
+      const v = readFleetView(root, p.plan!);
+      if (v) await prepareProvider(v.provider);
       const r = await collectPlan(root, p.plan!, opts);
       return said(r.ok ? 0 : 1, r.lines, { lines: r.lines });
     }
