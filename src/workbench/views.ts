@@ -812,9 +812,19 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push([key('Ctrl+C'), S(own.length ? ` Quit and stop ${own.length === 1 ? 'it' : 'them'}   ` : ' Quit   ', 'text'), key('Esc'), S(' Stay', 'text')]);
       return { lines, items };
     }
-    case 'message':
-      lines.push([S(o.title, 'strong')], blank, ...o.lines, blank, [key('Esc'), S(' Close', 'text')]);
+    case 'message': {
+      // R5 (H131): a line of one voice wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width:
+      // "Nothing was run from here" was cut off a shown command's words); a line of several voices keeps its row
+      const fitted = o.lines.flatMap((l): Line[] => {
+        if (lineCells(l) <= c.width) return [l];
+        const voiced = l.filter((s) => s.text.trim());
+        const role = voiced[0]?.role ?? 'text';
+        if (voiced.some((s) => (s.role ?? 'text') !== role)) return [l];
+        return para(l.map((s) => s.text).join('').trim(), c.width, role);
+      });
+      lines.push([S(o.title, 'strong')], blank, ...fitted, blank, [key('Esc'), S(' Close', 'text')]);
       return { lines, items };
+    }
     default:
       return { lines, items };
   }
