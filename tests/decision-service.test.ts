@@ -4,7 +4,8 @@
  * the same request is decided once. Answers come from the FAKE fixtures (tests/fixtures/clef-omni) or a fetch the test
  * supplies; nothing here reaches a network.
  */
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,7 +14,8 @@ import { admission } from '../src/decision/policy.js';
 import { ClefOmniProvider } from '../src/decision/provider.js';
 import { decide, decideDetailed, listDecisions, readDecision } from '../src/decision/service.js';
 import { DEFAULT_DECISION_SETTINGS, type DecisionSettings } from '../src/decision/settings.js';
-import type { AdmissionChecks, DecisionInput, DecisionOption, DecisionProvider } from '../src/decision/types.js';
+import { claimPath } from '../src/decision/store.js';
+import type { AdmissionChecks, DecisionInput, DecisionOption, DecisionProvider, DecisionRecord } from '../src/decision/types.js';
 import { allFiles, FAKE_ACCOUNT, FAKE_TOKEN, fakeAnswer, fakeTokenFile, fixture, readFixture, writeFake } from './fixtures/clef-omni/fake.js';
 
 const ON: DecisionSettings = { ...DEFAULT_DECISION_SETTINGS, useClef: true };
@@ -216,6 +218,27 @@ describe('every failure falls back to the deterministic path, with its reason re
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(rec.fallback).toMatchObject({ used: true, reasonKind: 'timeout', option: 'codex' });
     expect(rec.fallback.reason).toMatch(/60 ms/);
+  });
+
+  it('a fetch that ignores its signal still cannot hold the decision past the timeout', async () => {
+    const deaf = (() => new Promise<Response>(() => { /* never settles, never listens */ })) as typeof fetch;
+    const t0 = Date.now();
+    const rec = await decide(input(), { settings: { ...ON, timeoutMs: 60 }, provider: workersAi(deaf), budget: { remainingUsd: 1 } });
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect(rec.fallback).toMatchObject({ used: true, reasonKind: 'timeout' });
+  });
+
+  it('a call the caller cancels, before or during it, is recorded as unavailable (cancelled)', async () => {
+    const deaf = (() => new Promise<Response>(() => { /* never settles */ })) as typeof fetch;
+    const before = new AbortController();
+    before.abort();
+    const early = await decide(input(), { settings: ON, provider: workersAi(deaf), budget: { remainingUsd: 1 }, signal: before.signal });
+    expect(early.fallback).toMatchObject({ used: true, reasonKind: 'unavailable' });
+    expect(early.fallback.reason).toMatch(/cancelled/);
+    const during = new AbortController();
+    setTimeout(() => during.abort(), 30);
+    const late = await decide(input({ operationId: 'o1234abce' }), { settings: ON, provider: workersAi(deaf), budget: { remainingUsd: 1 }, signal: during.signal });
+    expect(late.fallback.reason).toMatch(/cancelled/);
   });
 
   it('a network error', async () => {
@@ -503,6 +526,82 @@ describe('duplicate delivery: the same request is decided once', () => {
   it('a request key the caller gives is the one used', async () => {
     const rec = await decide(input({ requestKey: 'caller-key-1' }), { settings: ON, provider: new ClefOmniProvider({ transport: 'fixture' }), fixture: fixture('response-route-ok.json') });
     expect(rec.requestKey).toBe('caller-key-1');
+  });
+});
+
+describe('across processes: a claim keeps a request to one decision', () => {
+  /** The record another process would have written for input(), made in a scratch project (the key does not depend on the folder). */
+  async function theirs(): Promise<{ other: string; record: DecisionRecord }> {
+    const other = mkdtempSync(join(tmpdir(), 'timmy-decide-other-'));
+    const r = await decideDetailed(input({ project: { root: other, revision: 'rev-1' } }), { settings: ON, provider: new ClefOmniProvider({ transport: 'fixture' }), fixture: fixture('response-route-ok.json') });
+    return { other, record: r.record };
+  }
+  const claimFor = (key: string, pid: number, id: string): void => {
+    mkdirSync(join(root, '.timmy', 'decisions', 'claims'), { recursive: true });
+    writeFileSync(claimPath(root, key), JSON.stringify({ pid, at: new Date().toISOString(), id }));
+  };
+  const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid as number;
+
+  it('a live process holding the claim is waited for; its record is returned, with no call', async () => {
+    const { other, record } = await theirs();
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'ignore' });
+    try {
+      claimFor(record.requestKey, child.pid as number, record.id);
+      const { calls, provider } = fixtureProvider();
+      const pending = decideDetailed(input(), { settings: { ...ON, timeoutMs: 3000 }, provider, fixture: fixture('response-route-ok.json') });
+      await new Promise((r) => setTimeout(r, 150));
+      // the other process records its decision and lets the claim go
+      copyFileSync(join(other, '.timmy', 'decisions', `${record.id}.json`), join(root, '.timmy', 'decisions', `${record.id}.json`));
+      appendFileSync(join(root, '.timmy', 'decisions', 'index.jsonl'), `${JSON.stringify({ requestKey: record.requestKey, id: record.id, at: record.createdAt })}\n`);
+      unlinkSync(claimPath(root, record.requestKey));
+      const r = await pending;
+      expect(calls).toHaveLength(0);
+      expect(r.reused).toBe(true);
+      expect(r.record.id).toBe(record.id);
+    } finally {
+      child.kill();
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('a claim whose process died without a record is taken over: one call, one record, no claim left', async () => {
+    const { other, record } = await theirs();
+    rmSync(other, { recursive: true, force: true });
+    claimFor(record.requestKey, deadPid(), 'd00000001');
+    const { calls, provider } = fixtureProvider();
+    const r = await decideDetailed(input(), { settings: ON, provider, fixture: fixture('response-route-ok.json') });
+    expect(calls).toHaveLength(1);
+    expect(r.reused).toBe(false);
+    expect(recordFiles()).toEqual([`${r.record.id}.json`]);
+    expect(existsSync(claimPath(root, record.requestKey))).toBe(false);
+  });
+
+  it('a claim whose process died after writing its record: the record is indexed and returned, never decided again', async () => {
+    const { other, record } = await theirs();
+    mkdirSync(join(root, '.timmy', 'decisions'), { recursive: true });
+    copyFileSync(join(other, '.timmy', 'decisions', `${record.id}.json`), join(root, '.timmy', 'decisions', `${record.id}.json`));
+    rmSync(other, { recursive: true, force: true });
+    claimFor(record.requestKey, deadPid(), record.id);
+    const { calls, provider } = fixtureProvider();
+    const r = await decideDetailed(input(), { settings: ON, provider, fixture: fixture('response-route-ok.json') });
+    expect(calls).toHaveLength(0);
+    expect(r).toMatchObject({ reused: true, record: { id: record.id } });
+    expect(readFileSync(join(root, '.timmy', 'decisions', 'index.jsonl'), 'utf8')).toContain(record.id);
+    const again = await decideDetailed(input(), { settings: ON, provider, fixture: fixture('response-route-ok.json') });
+    expect(again).toMatchObject({ reused: true, record: { id: record.id } });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a claim naming this process\'s id that this process did not make (an earlier process given the same id) is taken over', async () => {
+    const { other, record } = await theirs();
+    rmSync(other, { recursive: true, force: true });
+    claimFor(record.requestKey, process.pid, 'd00000002');
+    const { calls, provider } = fixtureProvider();
+    const t0 = Date.now();
+    const r = await decideDetailed(input(), { settings: ON, provider, fixture: fixture('response-route-ok.json') });
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(calls).toHaveLength(1);
+    expect(r.reused).toBe(false);
   });
 });
 

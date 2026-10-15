@@ -140,13 +140,13 @@ export class ClefOmniProvider implements DecisionProvider {
     const ac = new AbortController();
     let timedOut = false;
     let cancelled = false;
+    // a fetch that ignores the signal still cannot hold the decision past its timeout (made before anything can abort)
+    const aborted = new Promise<never>((_resolve, reject) => { ac.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); });
+    aborted.catch(() => { /* settled through the race below */ });
     const timer = setTimeout(() => { timedOut = true; ac.abort(); }, o.timeoutMs);
     const onCancel = (): void => { cancelled = true; ac.abort(); };
     if (o.signal?.aborted) onCancel();
     o.signal?.addEventListener('abort', onCancel, { once: true });
-    // a fetch that ignores the signal still cannot hold the decision past its timeout
-    const aborted = new Promise<never>((_resolve, reject) => { ac.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); });
-    aborted.catch(() => { /* settled through the race below */ });
     const stopped = (e: unknown): ProviderFailure => {
       if (timedOut) return fail('timeout', `no answer within ${o.timeoutMs} ms`);
       if (cancelled) return fail('unavailable', 'the caller cancelled the call');

@@ -22,7 +22,7 @@
  */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OPERATION_ID } from '../ops/context.js';
 import { scrubHomes } from '../utils/home-scrub.js';
@@ -128,7 +128,9 @@ function prepare(input: DecisionInput, index: number, settings: DecisionSettings
   const problems: string[] = [];
   // the record goes in the project's own folder: one not named is refused, never taken to be the current folder
   if (typeof input.project?.root !== 'string' || !input.project.root.trim()) throw new DecisionRefused('not recorded', 'no project folder was given');
-  const root = resolve(input.project.root);
+  // one spelling per folder, so a second path to the same project shares its in-flight decision and its claim
+  let root: string;
+  try { root = realpathSync(resolve(input.project.root)); } catch { throw new DecisionRefused('not recorded', 'the project folder does not exist'); }
   if (!(DECISION_KINDS as readonly string[]).includes(input.kind)) problems.push(`${JSON.stringify(input.kind)} is not a kind of decision (${DECISION_KINDS.join(', ')})`);
   if (typeof input.operationId !== 'string' || !OPERATION_ID.test(input.operationId)) problems.push(`the operation id ${JSON.stringify(input.operationId ?? null)} is not o and 8 hex digits`);
   const revision = typeof input.project?.revision === 'string' ? input.project.revision.trim() : '';

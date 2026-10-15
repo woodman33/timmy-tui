@@ -151,17 +151,29 @@ export interface MediaPlan {
 /** Bytes hashed for the record at most; a larger file is recorded by its size alone (it is over every limit anyway). */
 const MAX_HASHED = 64 * 1024 * 1024;
 
-function readRegular(file: string): { bytes: Buffer; size: number } | { size?: number; why: string } {
+/**
+ * A regular file (never through a link): its size and sha256, and its bytes only when `keep` (an item that may be sent).
+ * Bytes not kept are hashed a megabyte at a time.
+ */
+function readRegular(file: string, keep: boolean): { bytes?: Buffer; size: number; sha256: string } | { size?: number; why: string } {
   let fd: number | undefined;
   try {
     fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const st = fstatSync(fd);
     if (!st.isFile()) return { why: 'not a regular file' };
     if (st.size > MAX_HASHED) return { size: st.size, why: `larger than ${MAX_HASHED / 1024 / 1024} MiB` };
-    const bytes = Buffer.alloc(st.size);
+    const hash = createHash('sha256');
+    const bytes = keep ? Buffer.alloc(st.size) : undefined;
+    const chunk = keep ? undefined : Buffer.alloc(Math.min(st.size, 1024 * 1024) || 1);
     let at = 0;
-    while (at < st.size) { const n = readSync(fd, bytes, at, st.size - at, at); if (n <= 0) break; at += n; }
-    return { bytes: bytes.subarray(0, at), size: at };
+    while (at < st.size) {
+      const n = bytes ? readSync(fd, bytes, at, st.size - at, at) : readSync(fd, chunk!, 0, Math.min(chunk!.length, st.size - at), at);
+      if (n <= 0) break;
+      if (chunk) hash.update(chunk.subarray(0, n));
+      at += n;
+    }
+    if (bytes) hash.update(bytes.subarray(0, at));
+    return { ...(bytes ? { bytes: bytes.subarray(0, at) } : {}), size: at, sha256: hash.digest('hex') };
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     return { why: code === 'ELOOP' ? 'a symbolic link (only regular files are read)' : `${code ?? 'error'}` };
@@ -181,11 +193,12 @@ export function planMedia(refs: MediaRef[] | undefined, root: string, allowCloud
   for (const m of refs ?? []) {
     const rec: MediaRecord = { ref: scrubHomes(String(m.path)), kind: m.kind, contentType: String(m.contentType), sent: false };
     records.push(rec);
-    const read = readRegular(isAbsolute(m.path) ? m.path : join(root, m.path));
-    if ('bytes' in read) { rec.bytes = read.size; rec.sha256 = createHash('sha256').update(read.bytes).digest('hex'); } else if (read.size !== undefined) rec.bytes = read.size;
+    const mayBeSent = allowCloudAnalysis && m.private === false;
+    const read = readRegular(isAbsolute(m.path) ? m.path : join(root, m.path), mayBeSent);
+    if ('sha256' in read) { rec.bytes = read.size; rec.sha256 = read.sha256; } else if (read.size !== undefined) rec.bytes = read.size;
     if (!allowCloudAnalysis) { rec.reason = 'Allow cloud analysis is off: no media item is sent'; continue; }
     if (m.private !== false) { rec.reason = 'marked private (only items marked not private are ever sent)'; continue; }
-    if (!('bytes' in read)) { rec.reason = `cannot be read: ${read.why}`; continue; }
+    if (!('sha256' in read) || !read.bytes) { rec.reason = `cannot be read: ${'why' in read ? read.why : 'no bytes'}`; continue; }
     eligible.push({ rec, bytes: read.bytes, cand: { kind: m.kind, contentType: m.contentType, bytes: read.size, width: m.width, height: m.height, seconds: m.seconds } });
   }
   const checked = checkMedia(eligible.map((e) => e.cand));

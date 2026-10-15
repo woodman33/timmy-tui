@@ -27,7 +27,10 @@ export const CLAIM_STALE_MS = 10 * 60_000;
 export const decisionsDir = (root: string): string => join(root, DECISIONS_DIR);
 export const recordRel = (id: string): string => join(DECISIONS_DIR, `${id}.json`);
 const indexPath = (root: string): string => join(decisionsDir(root), 'index.jsonl');
-const claimPath = (root: string, key: string): string => join(decisionsDir(root), 'claims', `${createHash('sha256').update(key).digest('hex').slice(0, 40)}.json`);
+/** Where a request's claim is kept while it is being decided. */
+export const claimPath = (root: string, key: string): string => join(decisionsDir(root), 'claims', `${createHash('sha256').update(key).digest('hex').slice(0, 40)}.json`);
+/** The claims this process made and has not released: a claim naming this process's id that is not here was left by an earlier process given the same id. */
+const ownClaims = new Set<string>();
 
 /** Why a decision could not be recorded or read back; the caller refuses (the CLI exits 1). Its words never hold a secret. */
 export class DecisionRefused extends Error {
@@ -120,7 +123,6 @@ function ensureDir(dir: string): void {
 
 const alive = (pid: number): boolean => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (pid === process.pid) return true;
   try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
 };
 
@@ -142,15 +144,17 @@ export function claim(root: string, requestKey: string): Claim {
     try {
       const fd = openSync(file, 'wx', 0o600);
       try { writeSync(fd, `${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), id })}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+      ownClaims.add(file);
       let released = false;
-      return { kind: 'mine', id, release: () => { if (released) return; released = true; try { unlinkSync(file); } catch { /* gone */ } } };
+      return { kind: 'mine', id, release: () => { if (released) return; released = true; ownClaims.delete(file); try { unlinkSync(file); } catch { /* gone */ } } };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw new DecisionRefused('not recorded', `a claim cannot be written in ${DECISIONS_DIR} (${words(e)})`);
     }
     let held: { pid?: number; at?: string; id?: string } = {};
     try { held = JSON.parse(readFileSync(file, 'utf8')) as typeof held; } catch { /* torn or empty: taken over below */ }
     const age = held.at ? Date.now() - Date.parse(held.at) : Number.POSITIVE_INFINITY;
-    if (typeof held.pid === 'number' && alive(held.pid) && age < CLAIM_STALE_MS) return { kind: 'held', pid: held.pid };
+    const holderLives = typeof held.pid === 'number' && (held.pid === process.pid ? ownClaims.has(file) : alive(held.pid));
+    if (holderLives && age < CLAIM_STALE_MS) return { kind: 'held', pid: held.pid as number };
     // the holder is gone: if it wrote its record, index it and return it; otherwise take the claim over
     if (held.id && DECISION_ID.test(held.id)) {
       const r = readDecision(root, held.id);
@@ -203,6 +207,7 @@ export async function waitForRecorded(root: string, requestKey: string, ms: numb
   }
 }
 
+/** Whether a claim file is there for this request (whoever holds it). */
 function claimStateOf(root: string, requestKey: string): 'held' | 'none' {
   try { readFileSync(claimPath(root, requestKey)); return 'held'; } catch { return 'none'; }
 }
