@@ -89,8 +89,9 @@ case "$cmd" in
 Timmy review package, revision $REV
 
   ./review.sh install        install the packed Timmy into $BOX/prefix (Node 24 or later; npm fetches its dependencies)
-  ./review.sh demo           a blank Timmy home with two projects: "blank", then "tray" (from the tray-workflow starter),
-                             which is the active project at the end
+  ./review.sh demo           a new Timmy home with three projects: "first-light" (timmy init's own), "blank", then "tray"
+                             (from the tray-workflow starter), the active project at the end, with scripted review content:
+                             a VoxVision observation of the package's example image and a report run that writes four files
   ./review.sh workbench      the terminal Workbench, the main space: keys 1-9 and 0 are the ten tabs, c shows the browser
                              companion, s shows Studio, ? lists every key (on the active project; p switches)
   ./review.sh check          the shared workspace frame, after asking each service once with a free request
