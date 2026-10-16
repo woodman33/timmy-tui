@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import { chooseProject } from '../project/index.js';
 import { OPERATION_ENV, OPERATION_ID } from './context.js';
+import { JOB_CANCELLED, TURN_STOPPED } from '../contracts/stop-words.js';
 import {
   readRunDetail, RUN_DETAIL_SCHEMA, runDetailJson, runRecipe, runSummaryMarkdown, summaryRel, writeRunSummary,
   type RunDetail, type RunDetailResult,
@@ -78,6 +79,18 @@ const stageWords = (s: RunDetail['stage']): string =>
 
 const durWords = (ms: number | null): string => (ms === null ? 'unknown' : ms < 1000 ? `${ms} ms` : ms < 120_000 ? `${(ms / 1000).toFixed(1)} s` : ms < 7_200_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`);
 
+/**
+ * R6 (H140; the R5 interaction review, claim e: `timmy op` said "cancelled" for an operation whose chat turn was stopped): the
+ * verdict's word in the one table's words (src/contracts/stop-words.ts). The run detail's verdict "cancelled" covers any stop;
+ * an operation whose receipts are a chat turn's (and no job's) was stopped, one whose job a cancel ended, cancelled.
+ */
+export function verdictWord(d: Pick<RunDetail, 'verdict' | 'receipts' | 'exits'>): string {
+  if (d.verdict.state !== 'cancelled') return d.verdict.state;
+  const kinds = new Set(d.receipts.map((r) => r.kind));
+  const job = kinds.has('workflow') || kinds.has('workflow-block') || d.exits.length > 0;
+  return (kinds.has('chat') || kinds.has('turn')) && !job ? TURN_STOPPED : JOB_CANCELLED;
+}
+
 /** The run detail in plain words, one part a line, each with the record it came from (in brackets). */
 export function runDetailWords(d: RunDetail): string {
   const L: string[] = [];
@@ -88,7 +101,7 @@ export function runDetailWords(d: RunDetail): string {
     if (!items.length) { row(label, none); return; }
     items.forEach((x, i) => row(i === 0 ? label : '', x.value, x.from));
   };
-  L.push(`operation ${d.operation} · ${d.project.name} · ${d.verdict.state}`);
+  L.push(`operation ${d.operation} · ${d.project.name} · ${verdictWord(d)}`);
   row('request', d.objective ? d.objective.value : 'not recorded', d.objective?.from);
   row('project', `${d.project.name} (project id ${d.project.id})`);
   if (d.parent || d.children.length) {

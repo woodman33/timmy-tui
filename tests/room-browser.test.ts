@@ -91,7 +91,7 @@ describe.skipIf(!browserPath)('the Control Room in a real browser (headless Chro
     await page.waitForFunction(() => !document.getElementById('out')!.hidden);
     expect((await page.textContent('#out'))!.split('\n')[0]).toBe(`board /stop ${job}`);
     await page.waitForFunction((id) => !document.querySelector(`button[data-act="room-stop"][data-job="${id}"]`)
-      && [...document.querySelectorAll('article.room-run .room-state')].some((s) => s.textContent === 'stopped'), job, { timeout: 8000 });
+      && [...document.querySelectorAll('article.room-run .room-state')].some((s) => s.textContent === 'cancelled'), job, { timeout: 8000 }); // R6 (H140): a job's word
     expect(ws.jobs.get(job)?.state).toBe('cancelled');
     expect(notes).toContain(`  board  /stop ${job}`);
     expect(await page.locator('#room-running + p.empty').textContent()).toBe('Nothing runs in this project now.');

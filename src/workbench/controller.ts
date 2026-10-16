@@ -23,6 +23,7 @@ import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
 import { operationRel } from '../ops/operations.js';
 import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
+import { JOB_CANCELLED } from '../contracts/stop-words.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
@@ -1823,7 +1824,7 @@ export class Controller {
     const others = live.filter((j) => j.owner !== 'workbench');
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
     const after = others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`);
-    if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was stopped as the Workbench ended.`));
+    if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was ${JOB_CANCELLED} as the Workbench ended.`)); // R6 (H140): a job's word
     this.dispose();
     try { await this.d.workspace.close({ by: 'as the Workbench ended' }); } catch { /* said below */ }
     try { await this.d.companion.stopServing(); } catch { /* ends with the process */ }

@@ -59,6 +59,12 @@ export function turnEndWords(t: { state: 'answered' | 'stopped' | 'failed'; surf
   return t.state === 'stopped' ? turnStoppedWords(t, here) : t.state;
 }
 
+/** Where in a turn its stop came, from its receipt's cancelled_at (as Studio's receipt page says it). */
+const STOP_STAGE: Readonly<Record<string, string>> = {
+  'before-tools': 'before any tool started', 'during-tool': 'while a tool ran', 'after-tools': 'after its tools, before the answer',
+};
+export const turnStopStage = (at: string | undefined): string | null => (at ? STOP_STAGE[at] ?? at.replace(/-/g, ' ') : null);
+
 /**
  * The REPL's line for a turn it stopped (`by`: the surface that asked, in words, when another one did): "Stopped by you." or
  * "Stopped, asked from the companion."; what its tools did follows it (src/repl/transcript.ts cancelOutcome).
