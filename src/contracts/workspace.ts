@@ -134,7 +134,8 @@ export interface WorkspaceFrame {
     switch: string;
     create: string;
   };
-  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; waiting: number }>;
+  /** R5 lead: each tab's purpose too (H132's note), as TABS says it */
+  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; purpose?: string; waiting: number }>;
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
   /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */

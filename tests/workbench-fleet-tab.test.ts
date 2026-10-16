@@ -242,7 +242,7 @@ describe('tab 8: Cloudflare and the services', () => {
       expect(rolesOf(v.lines, /○ configured/).every((x) => x === 'text')).toBe(true);
     }
     // beside the fleet at 160: the name on its row, the mark and the frame's words under it
-    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered \d+ s ago/);
+    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered (just now|\d+ min ago)/);
     // what a terminal cannot draw, and where it is seen: c the companion, s Studio (the Workbench's own keys), at every size
     for (const [c, r] of SIZES) {
       const v = fleetView(ctxAt(c, r), d, frame);
@@ -254,7 +254,7 @@ describe('tab 8: Cloudflare and the services', () => {
     const stacked = text(fleetView(ctxAt(100, 30), d, frame).lines);
     expect(stacked).toMatch(/Workers AI: not used \(Clef-Omni's transport is not Workers AI\)/);
     expect(stacked).toMatch(/not the chat provider: chat goes to OpenRouter or a local Ollama/);
-    expect(stacked).toMatch(/● live +Browser companion *\n +answered \d+ s ago \(running\)/);
+    expect(stacked).toMatch(/● live +Browser companion *\n +answered (just now|\d+ min ago) \(running\)/);
   });
 
   it('before the frame is read, the services say so; a frame that could not be read says why, amber', async () => {

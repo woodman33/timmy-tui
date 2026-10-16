@@ -38,6 +38,8 @@ export const KEPT_PROPS = ['card', 'kind', 'projectId', 'project', 'title', 'com
 
 export const DOCUMENT_REFUSED = 'Refused: the canvas is loaded and saved only by a canvas page Timmy opened (it has a session) or by Timmy\'s REPL (with its token). A page opened by its address, a bookmark or a reload has no session. In Timmy: /canvas open.';
 export const JOBS_REFUSED = 'Refused: the canvas jobs are read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
+/** R5 (H133): the shared workspace frame (the project, its tabs, actions and activity) is the project's content too. */
+export const WORKSPACE_REFUSED = 'Refused: the workspace (this project, its tabs, actions and activity) is read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
 export const EXEC_REFUSED = 'Refused: code runs on Timmy Canvas only for Timmy\'s REPL, with the token this canvas server made, sent in an Authorization header (the agent\'s canvas tools send it). In Timmy: /canvas open, then ask again.';
 export const TOKEN_IN_ADDRESS = 'Refused: the token goes in an Authorization header, never in an address; this route takes no query string.';
 export const FROM_REPL = 'Refused: this route is for Timmy\'s REPL, never a page.';

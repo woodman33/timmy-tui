@@ -211,9 +211,11 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     const [job] = runsOf(p.root, 'SLOW.md › wait');
     // its words (the controls row shows the newest notice; Activity keeps each one whole)
     expect(c.data.activity.events.map((e) => e.words)).toContain(`Not started: it is running now as ${job.id}, started by this Workbench, operation ${job.operation}: Run starts nothing until it ends (x stops it).`);
-    // the Tools tab says the same, before anything is pressed
+    // the Tools tab says the same, before anything is pressed (R5 H136: Workflows draws its own columns; Context is the i drawer)
+    await press(f.r, 'i');
     c.ui.tab = 'tools';
     expect(regionText(c, 'right')).toContain(`needs: it is running now as ${job.id}`);
+    await press(f.r, 'i');
     await sleep(300);
     expect(runsOf(p.root, 'SLOW.md › wait')).toHaveLength(1);
     expect(operationsOf(p.root, '/run SLOW.md wait')).toHaveLength(1);
@@ -345,8 +347,9 @@ describe('Activity while lines arrive (R4 H112, slice C item 5)', () => {
     await press(f.r, ENTER, ENTER);
     await until('the run', () => runsOf(p.root, 'STREAM.md › talk')[0]?.state === 'running', 10_000, f.text);
     const [job] = runsOf(p.root, 'STREAM.md › talk');
-    // Activity, expanded, with the keyboard
-    await press(f.r, 'a', TAB, TAB);
+    // Activity, expanded, with the keyboard (R5 H136: Tab from the list, past Context where it is a column)
+    await press(f.r, 'a');
+    for (let i = 0; i < 4 && c.ui.focus !== 'bottom'; i++) await press(f.r, TAB);
     expect(c.ui.focus).toBe('bottom');
     await until('a few lines', () => c.data.activity.events.some((e) => e.words === `${job.id} │ line 4`), 10_000, f.text);
     // following: the newest row is selected (its marker on it) and shown

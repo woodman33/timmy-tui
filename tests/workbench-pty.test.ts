@@ -202,9 +202,9 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(home).toContain('Preview · the companion and Studio, in words');
     expect(home).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
     expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
-    // 3: Workflows, the tray workflow's blocks, Context beside them
+    // 3: Workflows, the tray workflow's blocks in its three columns (R5, H136: the whole width; Context a drawer, i)
     await keys('3');
-    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*Context/);
+    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*SANDBOX/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wide).toContain(block);
     expect(wide).toContain('⚠ needs you before it runs');
     expect(wide).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
@@ -294,7 +294,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
         `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
       await waitFor(/tray1 \/ [\s\S]*Activity/);
       await find('Workflows');
-      const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here, through the REPL's own \/run/);
+      const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here/);
       expect(wf).toContain('upmd found');
       // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here
       await keys('Enter');
