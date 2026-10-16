@@ -21,14 +21,32 @@ die() { printf 'review.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
 
-# the review's PATH: the installed timmy first, then the FAKE lane stand-ins (so no real lane program can start), then upmd
-# 0.2.7 from bin/ on Linux x86_64 when this computer has no upmd of its own, then this computer's PATH
+# R5 lead (the Mac walk at aa247e5): the node Timmy runs on is the one ./review.sh install used, recorded here, never just the
+# first on the caller's PATH. There a tmux pane's shell startup files put an older node first, and the Workbench ran on
+# Node 22 although ./review.sh where, in the terminal that installed it, named Node 24.
+NODE_FILE="$BOX/node.path"
+node_dir() { [ -f "$NODE_FILE" ] && dirname "$(cat "$NODE_FILE")"; }
+
+# the review's PATH: the installed timmy first, then the FAKE lane stand-ins (so no real lane program can start), then the
+# folder of the node install used, then upmd 0.2.7 from bin/ on Linux x86_64 when this computer has no upmd of its own, then
+# this computer's PATH (a timmy or a lane program in the node's folder still comes after the two before it)
 review_path() {
-  local p="$PREFIX/node_modules/.bin:$HERE/fake-lanes"
+  local p="$PREFIX/node_modules/.bin:$HERE/fake-lanes" d
+  d="$(node_dir)"
+  [ -n "$d" ] && p="$p:$d"
   if ! command -v upmd >/dev/null 2>&1 && [ "$(uname -s)-$(uname -m)" = "Linux-x86_64" ] && [ -x "$HERE/bin/upmd" ]; then
     p="$p:$HERE/bin"
   fi
   printf '%s:%s' "$p" "$PATH"
+}
+
+# the node the review runs Timmy on: the one install recorded, still there and still Node 24 or later
+need_node() {
+  local n v
+  n="$(cat "$NODE_FILE" 2>/dev/null)"
+  { [ -n "$n" ] && [ -x "$n" ]; } || die "the node ./review.sh install used is not recorded, or is no longer there ($NODE_FILE): run ./review.sh install again, with Node 24 or later first on PATH" 3
+  v="$("$n" -p 'process.versions.node' 2>/dev/null)"
+  [ "${v%%.*}" -ge 24 ] 2>/dev/null || die "$n is Node ${v:-of an unknown version}, older than the package asks (Node 24 or later): run ./review.sh install again, with Node 24 first on PATH" 3
 }
 
 # runs "$@" in the review's environment: its own HOME, Timmy home, settings, tmux and temporary folders, its ports, no
@@ -61,7 +79,7 @@ start_dir() {
   if [ -n "$a" ]; then printf '%s' "$a"; else printf '%s' "$WORK"; fi
 }
 
-need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; }
+need_install() { [ -x "$PREFIX/node_modules/.bin/timmy" ] || die "not installed yet: run ./review.sh install first" 2; need_node; }
 
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift
@@ -97,6 +115,9 @@ HELP
     mkdir -p "$PREFIX"
     say "Installing $(basename "$TGZ") into $PREFIX (npm fetches its dependencies; --ignore-scripts: no install script runs)..."
     npm install --prefix "$PREFIX" --no-audit --no-fund --ignore-scripts --loglevel=error "$TGZ" || die "npm install failed (above)" 1
+    # the node itself (its real file, not a version manager's shim): every later command runs Timmy on it
+    node -p 'process.execPath' > "$NODE_FILE" || die "could not record the node in use ($NODE_FILE)" 1
+    say "Timmy runs on $(cat "$NODE_FILE") ($(node --version)) in every ./review.sh command, whatever node a shell puts first."
     run timmy --version
     ;;
   demo)
@@ -142,7 +163,12 @@ HELP
     say "ports         Studio $STUDIO_PORT, log companion $LOGS_PORT, browser companion $COMPANION_PORT (127.0.0.1)"
     say "free-only     ${TIMMY_CHAT_FREE_ONLY:-the setting in the sandbox (off unless you turned it on: ./review.sh timmy act '/model free-only on')}"
     say "upmd          $(PATH="$(review_path)" command -v upmd || echo 'not found: workflows say how to install it')"
-    say "node          $(command -v node || echo 'not found') $(node --version 2>/dev/null)"
+    if [ -f "$NODE_FILE" ]; then
+      say "node          $(cat "$NODE_FILE") $("$(cat "$NODE_FILE")" --version 2>/dev/null || echo '(no longer there: ./review.sh install again)') (the one install used; Timmy runs on it)"
+    else
+      say "node          not recorded yet (./review.sh install records the node it used)"
+    fi
+    say "shell's node  $(command -v node || echo 'not found') $(node --version 2>/dev/null) (first on this shell's PATH; not the one Timmy runs on when they differ)"
     ;;
   clean)
     case "$BOX" in /|"$HOME"|"") die "refusing to remove $BOX" 2 ;; esac
