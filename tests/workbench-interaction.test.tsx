@@ -178,10 +178,14 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     expect(c.ui.overlay).toBe(null);
     expect(ws.jobs.list()).toEqual([]);
     // a right-dock tab: Files, then Tools
+    // (R5, H136: tab 3's body takes the whole width; i opens Context as a drawer, and i again closes it)
+    await press(f.r, 'i');
     await click(f.r, cellOf(c, 'Files', 0, 6));
     expect(c.ui.tab).toBe('files');
     await click(f.r, cellOf(c, 'Tools │'));
     expect(c.ui.tab).toBe('tools');
+    await press(f.r, 'i');
+    expect(c.ui.rightOpen).toBe(false);
     // a row: WORKFLOW.md's inspect block is selected, and nothing more, however often it is clicked
     const row = cellOf(c, ' inspect ');
     await click(f.r, row);

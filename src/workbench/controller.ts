@@ -35,7 +35,7 @@ import { isLiveRun } from '../workflows/upmd-live.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
-import { contextIsColumn } from './layout.js';
+import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
@@ -53,6 +53,7 @@ import {
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
 import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
+import { readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
 
 /** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
 export const FRAME_EVERY_MS = 1000;
@@ -280,6 +281,41 @@ export class Controller {
     } catch (e) {
       const why = `${ws === 'logs' ? 'Logs & Receipts' : 'Fleet & Clef'} could not be read: ${e instanceof Error ? e.message : String(e)}`;
       if (why !== this.tabError) { this.tabError = why; this.say(why, 'failure'); }
+    }
+  }
+
+  /**
+   * R5 (H136): tab 3's reading, for each frame while it is shown (src/workbench/workflows-tab.ts): each block's state read
+   * again from the newest job records (the review of 2026-10-15 saw a row say waiting more than 2 s after its job had ended:
+   * the documents are read every few seconds, the jobs every second), and the selected block's newest run: its record, its
+   * log's last lines (the job store's own tail) and its receipt, verified once per chain reading and hash. Files only.
+   */
+  private wfError = '';
+  private wfVerified: { key: string; by: Map<string, { ok: true } | { ok: false; reason: string }> } = { key: '', by: new Map() };
+  private readWorkflowsTab(): void {
+    const root = this.data.project.root;
+    const own = this.records.filter((j) => sameFolder(j.root, root));
+    try {
+      const chain = this.chain();
+      const key = this.chainCache?.key ?? '';
+      if (this.wfVerified.key !== key) this.wfVerified = { key, by: new Map() };
+      const seen = this.wfVerified.by;
+      this.data.workflows = refreshBlockStates(this.data.workflows, own, chain);
+      const sel = selectedBlock({ ui: this.ui, data: this.data });
+      this.data.workflowsTab = readWorkflowsTab({
+        records: own, chain, selected: sel ? { doc: sel.doc, block: sel.block.name } : null, now: this.now(),
+        tail: (j, n) => this.d.workspace.jobs.tail(j.id, n),
+        verify: (hash) => {
+          let v = seen.get(hash);
+          if (!v) { const r = verifyReceiptIn(chain, hash); v = r.ok ? { ok: true } : { ok: false, reason: r.reason }; seen.set(hash, v); }
+          return v;
+        },
+        scrub: (t) => scrubHomes(t.split(root).join('.'), this.d.env),
+      });
+      this.wfError = '';
+    } catch (e) {
+      const why = `Workflows could not be read: ${e instanceof Error ? e.message : String(e)}`;
+      if (why !== this.wfError) { this.wfError = why; this.say(why, 'failure'); }
     }
   }
 
@@ -560,8 +596,15 @@ export class Controller {
     this.ui.navShown = this.ui.navOpen;
     // R4 (H112): each list's selection is found again by its item, wherever the records moved it, before anything is drawn
     this.reselect();
+    // R5 (H136): tab 3 reads its blocks' states and its selected block's newest run from the newest records, for each frame
+    const wf = !isHub(this.ui.page) && this.ui.workspace === 'workflows' && !this.ui.overlay;
+    if (wf) this.readWorkflowsTab();
     const compose = (): Frame => frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
     let f = compose();
+    // R5 (H136): tab 3's .predict card, its checks and its verdict are the run detail of the selected block's newest run, read
+    // as the Inspector reads a job's (and this very frame composed again when what it was read for changed)
+    const run = wf ? this.data.workflowsTab?.run : undefined;
+    if (run?.operation && this.wantDetail(run.operation, run.live, `${run.state} ${run.endedAt ?? ''} ${run.stale}`)) f = compose();
     // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
     // sealed turn has ended: its receipt is what the detail is read again for). R5 (H131): when what a detail was read for has
     // changed (or after [r]), this very frame is composed again with it said as being read: a frame never shows a detail beside
@@ -591,7 +634,7 @@ export class Controller {
 
   /** R5 (H131): Context (Tools, Inspector, Files) is a column beside the workspace at this size (else a drawer, [i]). */
   private contextColumn(): boolean {
-    return contextIsColumn(this.size.columns, isHub(this.ui.page) ? 'hub' : 'workspace', this.ui.focusMode === true);
+    return contextIsColumn(this.size.columns, bodyKind(isHub(this.ui.page), this.ui.workspace), this.ui.focusMode === true);
   }
 
   /** R5 (H131): the right column is Home's preview or Chat's event log now (not Context). */
