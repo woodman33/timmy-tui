@@ -457,6 +457,17 @@
   #side .nitem-title { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
   #side .nitem-kind, #side .nitem-state, #side .nitem-none { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
   #side .nitem-state { flex: 1 1 100%; }
+  /* R6 (H145, step 4c): the nodes' connections (src/nodes.js): a data link's mark solid and a link's dashed, as their arrows are */
+  #side #node-links { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--timmy-line, #333333); }
+  #node-links-note, #node-connect-note { margin: 4px 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side #node-link-list { list-style: none; margin: 6px 0 0; padding: 0; }
+  #side li.nlink { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 2px 0 2px 8px; border-left: 2px solid var(--timmy-line-strong, #444444); }
+  #side li.nlink + li.nlink { margin-top: 6px; }
+  #side li.nlink.is-data { border-left-color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.nlink.is-link { border-left-style: dashed; }
+  #side .nlink-kind { font-weight: var(--timmy-weight-strong, 600); }
+  #side .nlink-ends { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+  #side .nlink-words, #side .nlink-by, #side .nlink-none { flex: 1 1 100%; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -516,6 +527,15 @@
       <details id="nodes"><summary>Nodes <span id="nodes-name">reading…</span></summary>
         <p id="nodes-note"></p>
         <div id="node-palette"></div>
+        <!-- R6 (H145, step 4c): the nodes' connections (src/nodes.js): arrows bound to two of the shown project's cards; data flows
+             only along an operation's own links, and any other arrow is a link that says so -->
+        <section id="node-links" aria-label="Connections between nodes">
+          <h3 class="ngroup-title">Connections</h3>
+          <p id="node-links-note"></p>
+          <p id="node-connect-note"></p>
+          <button type="button" id="node-connect" disabled>Connect the two selected nodes</button>
+          <ul id="node-link-list" aria-label="Connections on this board"></ul>
+        </section>
       </details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>

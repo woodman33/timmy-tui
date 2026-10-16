@@ -199,6 +199,11 @@ const nodes = createNodes({
   placeCard: (id, now) => cards.place(id, now),
   placeOperation: (id, now) => cards.placeOperation(id, now),
   say: (text, bad = false) => band(text, bad),
+  // R6 (H145, step 4c): connections are drawn on the board on screen; nothing is labelled while a call runs on it
+  editor: () => current,
+  createShapeId: () => createShapeId(),
+  toRichText: (text) => toRichText(text),
+  calling: () => runningOn !== null && runningOn === current,
 });
 
 /** R5 (H133): the save in words for the status line's end (the save line, #save, says it in full). */
@@ -1203,11 +1208,14 @@ function followEditor(editor) {
       if (document.getElementById('side-ready').hidden === false) showDrafts(editor);
       // R4 (H109): another board shown (or a board's pin changed): the panel reads for it at once
       try { projectPanel?.boardChanged(); } catch { /* the next reading follows */ }
+      // R6 (H145, step 4c): the nodes' connections follow the board (an arrow drawn between two cards, the selection)
+      try { nodes.boardChanged(editor); } catch { /* the next change draws them */ }
     });
   });
   draftsShown = '';
   showGuide(editor);
   showJobs(editor);
+  try { nodes.boardChanged(editor); } catch { /* the next change draws them */ }
 }
 
 /** Props every mount of tldraw shares; set once the server's settings are read. */
@@ -1250,6 +1258,10 @@ function mount(snapshot, b = canvas) {
             placeReference: (path) => references.add(String(path)),
             // R6 (H145, step 4a): a node of the shown project, as the palette adds one (kind: params, workflow, result or operation)
             addNode: (kind, id) => nodes.add(String(kind), String(id)),
+            // R6 (H145, step 4c): two nodes connected (shape ids, from the first to the second), as the panel's Connect does, and the
+            // board's connections as the panel lists them (read only)
+            connectNodes: (from, to) => nodes.connect(String(from), String(to)),
+            connections: () => nodes.connections(),
           };
           attachEditor(editor, b);
           followEditor(editor);
