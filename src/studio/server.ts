@@ -403,7 +403,7 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
       const { buildWorkspaceFrame, noteAnswered } = await import('../ops/workspace-frame.js');
       // R5 lead: this Studio answering its page is an answer observed now, so the frame (on every surface) says Studio answered
       // and its next step is no longer to open it. Only for the Studio the frame names: its port, no other URL set.
-      if (framesStudio(env, cardWiring.port())) noteAnswered('studio', 'a Studio page asked for its frame', env);
+      if (framesStudio(env, cardWiring.port())) noteAnswered('studio', 'the canvas page asked for its frame', env);
       const frame = await buildWorkspaceFrame({ env, cwd: named.root, project: { name: named.name, root: named.root } });
       res.json({ ok: true, frame });
     } catch (e) {
@@ -695,8 +695,7 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   if (framesStudio(env, bound)) {
     try {
       frameOps = await import('../ops/workspace-frame.js');
-      // R6 (H139; the interaction review, defect 14): what is true then, without implying that anyone opened Studio
-      frameOps.noteAnswered('studio', 'its server started listening; no Studio page had opened yet', env);
+      frameOps.noteAnswered('studio', 'it started listening', env);
     } catch { /* the record cannot be written: the frame says what the last check saw */ }
     const atExit = (): void => { if (server.listening) noteStop(); };
     process.once('exit', atExit);
