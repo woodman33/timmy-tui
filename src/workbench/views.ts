@@ -167,6 +167,9 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
       return { ...rest, primary: true, enabled: true };
     }
     if (!turn && r.kind === 'abort') return { ...a, primary: false, enabled: false, why: 'only while a turn runs' };
+    // (R5 H134, at the merge of the frame's chat fix: Stop is the one next step while the turn runs; the frame, not knowing of
+    // the turn yet, may still make the chat's fix primary)
+    if (turn && a.primary) return { ...a, primary: false };
     return a;
   });
 }
