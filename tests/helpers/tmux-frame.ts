@@ -1,6 +1,6 @@
 // R5 (H136; the operator's finish line, item 5): how the tmux PTY tests read the terminal Workbench, wait on it, send it keys
-// and keep its screens, in one place for tests/workbench-pty.test.ts, tests/workbench-interaction-pty.test.ts and
-// tests/workbench-captures-pty.test.ts.
+// and keep its screens, in one place for tests/workbench-pty.test.ts, tests/workbench-interaction-pty.test.ts,
+// tests/workbench-captures-pty.test.ts and tests/workbench-control-grid-pty.test.ts.
 //
 // Ink draws a frame that fills the terminal by clearing the screen and writing the frame from its top row down (src/term/
 // screen-stream.ts). A capture that lands while it writes holds the new frame's top rows and blank rows under them: a wait
