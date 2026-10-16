@@ -185,7 +185,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     const { tmux, screen, waitFor, keys, typed, find, capture } = terminal('wb');
 
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
-      `stty -a > '${box}/stty-before.txt'; ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
+      `stty -a > '${box}/stty-before.txt'; TIMMY_WORKBENCH_KEYLOG='${box}/wbA-keys.log' ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
 
     // 160x45: row 1 (TIMMY, the project, the ten tabs), row 2 (the workflow actions, the run state and Stop), Home's body,
     // Activity & log; the left job named by Stop and counted by Activity
@@ -232,7 +232,9 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await keys('a');
     const activity = await waitFor(/▾ Activity[\s\S]*All operations/);
     expect(activity.replace(/[│┃]/g, ' ').replace(/\s+/g, ' ')).toContain(`Stopped ${id}; its record says cancelled. FAKE job (test): sleep 300: the session that started it had ended, so recovery's stop ended its process group`);
+    // R6 (H141): collapsed again, as tray1's layout is left (Remember layout: slice B's Workbench opens tray1 with it)
     await keys('a');
+    await waitFor(/▸ Activity/);
 
     // 80x24: the navigation is a drawer too; Files shows the project's tree
     tmux('resize-window', '-t', 't', '-x', '80', '-y', '24');
@@ -285,12 +287,18 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, pane, waitFor, keys, find, capture, close } = terminal('wbB');
+    const { tmux, pane, screen, waitFor, keys, find, capture, close } = terminal('wbB');
+    // R6 (H141; CI at 388c0c8 and after): the Workbench's key log (src/workbench/run.ts): each chunk it read from the terminal and
+    // each key with what took it, read by a failure below
+    const keyLog = join(box, 'wbB-keys.log');
+    const keysSaid = (n = 40): string => (existsSync(keyLog) ? readFileSync(keyLog, 'utf8').trimEnd().split('\n').slice(-n).join('\n') : '(no key log was written)');
+    // (and slice A's: the layouts it remembered for tray1 and demo, which slice B's Workbench opens with)
+    const layoutsSaid = (): string => (existsSync(join(box, 'wbA-keys.log')) ? readFileSync(join(box, 'wbA-keys.log'), 'utf8').split('\n').filter((l) => /"event":"(layout|now in)/.test(l)).join('\n') : '(slice A wrote no key log)');
     let runId = '';
     let op = '';
     try {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
-        `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+        `TIMMY_WORKBENCH_KEYLOG='${keyLog}' ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
       await waitFor(/tray1 \/ [\s\S]*Activity/);
       await find('Workflows');
       const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here/);
@@ -320,7 +328,11 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       op = run.operation!;
       expect(op).toMatch(/^o[0-9a-f]{8}$/);
       await waitFor(new RegExp(`${run.id} completed\\s+operation ${op}`));
-      await waitFor(/Activity\s+0 running/);
+      const ended = await waitFor(/Activity\s+0 running/);
+      // R6 (H141; the cause of CI's failures here at 3b6a5b6 and after, as at bfb7fe5, 94e0c01, 0cbadd0 and aa247e5): Activity as
+      // slice A left tray1, collapsed. Its collapse used to be remembered under demo when the picker's switch came within 1.5 s
+      // of it (src/workbench/controller.ts rememberPending), so tray1 opened expanded here and this a collapsed it
+      expect(/▸ Activity/.test(ended), `Activity is not collapsed before the a (slice A's layouts):\n${layoutsSaid()}\n${ended}`).toBe(true);
       await keys('a');
       // R5 lead (CI at 94e0c01, 0cbadd0 and aa247e5, as at the R4 lead's bfb7fe5: Activity stayed collapsed for 30 s after its
       // a was read, the Workbench drawing on): when the expanded Activity does not come, the failure says which it was before it
@@ -334,7 +346,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
         };
         const r = await after('r');
         const a = r.endsWith('open') ? 'a second a: not pressed' : await after('a');
-        throw new Error(`${(e as Error).message}\n\nR5 lead's check of the cause: ${r}; ${a}\n${screen()}`);
+        throw new Error(`${(e as Error).message}\n\nR5 lead's check of the cause: ${r}; ${a}\n${screen()}\nThe key log's last lines:\n${keysSaid()}\nSlice A's layouts:\n${layoutsSaid()}`);
       }
       const activity = capture('wb-160x45-activity-after-run');
       expect(activity).toMatch(new RegExp(`${run.id} tidy completed`));

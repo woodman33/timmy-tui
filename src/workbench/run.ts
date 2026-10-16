@@ -6,7 +6,7 @@
  * overview. It recovers nothing at start (the REPL does).
  */
 import React from 'react';
-import { closeSync, constants, openSync, readSync } from 'node:fs';
+import { appendFileSync, closeSync, constants, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from 'ink';
 import { projectId, readActiveProject } from '../project/index.js';
@@ -75,8 +75,11 @@ export async function runWorkbench(): Promise<number> {
   let finish: (code: number) => void = () => undefined;
   const done = new Promise<number>((resolve) => { finish = resolve; });
   let after: string[] = [];
+  // R6 (H141; CI at 388c0c8, slice B: an `a` the Workbench read did not expand Activity): TIMMY_WORKBENCH_KEYLOG=<file> writes
+  // each chunk this process reads from its terminal, and each key the controller is given with what took it, one line each
+  const keyLog = keyLogTo(env.TIMMY_WORKBENCH_KEYLOG);
   const controller = new Controller({
-    env, jobsDir, onPath, glyphs, workspace: ws, companion, studio, setMouse, interactive: true,
+    env, jobsDir, onPath, glyphs, workspace: ws, companion, studio, setMouse, interactive: true, ...(keyLog ? { keyLog } : {}),
     capabilities: async () => {
       const { capabilities } = await import('../capabilities/index.js');
       const { liveDeps } = await import('../capabilities/live.js');
@@ -87,6 +90,7 @@ export async function runWorkbench(): Promise<number> {
   });
   say = (text) => { if (text) controller.say(text); };
   ask = (req) => controller.askPerson(req);
+  if (keyLog) watchReads(process.stdin, keyLog, () => controller.ui.input.field !== null);
   if (mouseWanted) { controller.ui.mouse = true; setMouse(true); }
 
   // a narrower terminal reflows the old frame: start the new one on a clear screen (as the monitor does)
@@ -107,6 +111,31 @@ export async function runWorkbench(): Promise<number> {
   session.restore();
   for (const line of after) process.stdout.write(`${line}\n`);
   return code;
+}
+
+/** R6 (H141): the key log's writer: one JSON line an entry, with its time, appended to `path` (none without a path). */
+export function keyLogTo(path: string | undefined): ((entry: Record<string, unknown>) => void) | undefined {
+  if (!path) return undefined;
+  return (entry) => {
+    try { appendFileSync(path, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`, { mode: 0o600 }); } catch { /* a log that cannot be written is no failure of the Workbench's */ }
+  };
+}
+
+/**
+ * R6 (H141): the key log's view of the terminal: each chunk read from `stdin` (by Ink, or by anything else that reads it), as
+ * it was read, and whether the terminal was raw then. A read that returns nothing is not written; one read while a field has
+ * the keyboard (`typing`) is said by its length only.
+ */
+export function watchReads(stdin: NodeJS.ReadStream, log: (entry: Record<string, unknown>) => void, typing: () => boolean = () => false): void {
+  const read = stdin.read.bind(stdin);
+  stdin.read = ((size?: number) => {
+    const chunk: unknown = read(size);
+    if (chunk !== null && chunk !== undefined) {
+      const text = String(chunk);
+      log({ read: typing() ? `(${[...text].length} characters, a field has the keyboard)` : text, raw: stdin.isRaw === true });
+    }
+    return chunk;
+  }) as typeof stdin.read;
 }
 
 /**
