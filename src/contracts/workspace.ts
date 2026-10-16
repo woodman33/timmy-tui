@@ -41,16 +41,16 @@ export interface TabDef {
  * apps), so this is the one stable set: the operator's screens of the completion order, in its order, with the logs last.
  */
 export const TABS: readonly TabDef[] = [
-  { id: 'home', key: '1', label: 'Home', workbench: ['overview', 'connections'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
+  { id: 'home', key: '1', label: 'Home', workbench: ['connections', 'overview'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
   { id: 'chat', key: '2', label: 'Chat & Intent', workbench: ['chat'], refs: ['02', '11'], purpose: 'One conversation with Timmy for this project, shared by every surface.' },
   { id: 'workflows', key: '3', label: 'Workflows', workbench: ['workflows'], refs: ['03', '12'], purpose: 'Intent, prediction, sandbox, review, run, logs, receipt and analysis, kept apart.' },
   { id: 'studio', key: '4', label: 'Studio', workbench: ['studio'], refs: ['06'], purpose: 'The tldraw canvas: boards, cards, drafts to accept or discard, saved and reopened.' },
   { id: 'voxvision', key: '5', label: 'VoxVision', workbench: ['voxvision'], refs: ['04', '05', '15', '16'], purpose: 'Every 2D and 3D vision tool with its observed status, and this project\'s observations.' },
   { id: 'create', key: '6', label: '3D & Motion', workbench: ['create3d', 'motion'], refs: ['06'], purpose: 'Native scenes, CAD, compositions and renders Timmy drives, with what each needs.' },
   { id: 'control', key: '7', label: 'Control Room', workbench: ['control'], refs: ['07', '14'], purpose: 'Devices, harnesses, jobs, chat turns and decisions: what runs, what ended, what waits.' },
-  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.' },
+  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['fleet', 'overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.' },
   { id: 'tools', key: '9', label: 'Tools & MCP', workbench: ['tools', 'rea', 'templates'], refs: ['08', '17'], purpose: 'Every capability with its rung, both MCP-to-CLI routes, REA, and public templates.' },
-  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.' },
+  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['logs', 'files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.' },
 ];
 
 export const tabOf = (id: TabId): TabDef => TABS.find((t) => t.id === id) ?? TABS[0];
@@ -83,9 +83,9 @@ export interface WorkspaceConnection {
   id: ConnectionId;
   label: string;
   state: ConnectionState;
-  /** plain words: "key accepted, checked 12 min ago", "no key: timmy setup" */
+  /** plain words: "answered 2 min ago (the key endpoint took the key)", "not running when checked 5 s ago; s in the Workbench, or timmy studio, starts it", "no key: run timmy setup" */
   words: string;
-  /** when an answered request was observed; null: never observed (so never live) */
+  /** when Timmy last checked it, answered or not (`state` says which); null: never checked, so never live */
   observedAt: string | null;
   /** the step that sets it up or checks it, when there is one */
   setup: string | null;
@@ -137,7 +137,8 @@ export interface WorkspaceFrame {
   tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; waiting: number }>;
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
-  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string } };
+  /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
+  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string } | null };
   log: WorkspaceLogEntry[];
   surfaces: { companion: SurfaceState; studio: SurfaceState };
   unknown: Array<{ field: string; why: string }>;

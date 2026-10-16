@@ -24,6 +24,7 @@ import { operationRel } from '../ops/operations.js';
 import { buildWorkspaceFrame } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
+import { timmyHome } from '../setup/home.js';
 import { projectCards } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
@@ -31,9 +32,11 @@ import { keyAt, type MouseReport } from '../tui/mouse.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
+import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
 import { contextIsColumn } from './layout.js';
+import { readLogs } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
@@ -257,7 +260,27 @@ export class Controller {
     if (!this.data.starters.length) { try { this.data.starters = listStarters(); } catch { this.data.starters = []; } }
     if (!this.data.boards.length) { try { this.data.boards = publicTemplates(); } catch { this.data.boards = []; } }
     this.readPipeline(chain);
+    this.readTab();
     this.data.readAt = this.now();
+  }
+
+  /**
+   * R5 (H134): tab 0's and tab 8's readings (src/workbench/logs-tab.ts readLogs, src/workbench/fleet-tab.ts readFleet), only
+   * while the tab is shown: the receipt chain verified once per reading, each receipt on screen checked once per reading.
+   * Files only: no network, no VM, no paid call. A reading that fails says why in Activity (once until it changes).
+   */
+  private tabError = '';
+  private readTab(ws: WorkspaceId = this.ui.workspace): void {
+    if (ws !== 'logs' && ws !== 'fleet') return;
+    const root = this.data.project.root;
+    try {
+      if (ws === 'logs') this.data.logs = readLogs({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, now: this.now() });
+      else this.data.fleet = readFleet({ home: timmyHome(this.d.env), root, env: this.d.env, now: this.now() });
+      this.tabError = '';
+    } catch (e) {
+      const why = `${ws === 'logs' ? 'Logs & Receipts' : 'Fleet & Clef'} could not be read: ${e instanceof Error ? e.message : String(e)}`;
+      if (why !== this.tabError) { this.tabError = why; this.say(why, 'failure'); }
+    }
   }
 
   /** R5 (H131): the newest run's pipeline (the Chat tab's row), its receipt verified here once per chain as read. */
@@ -295,7 +318,9 @@ export class Controller {
     r.running = true;
     r.at = Date.now();
     const root = this.data.project.root;
-    void buildWorkspaceFrame({ env: this.d.env, cwd: root, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
+    // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
+    // another, its actions are still its project's)
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
       .then((f) => {
         if (this.disposed || !sameFolder(root, this.data.project.root)) return;
         const before = this.data.frame?.revision;
@@ -346,6 +371,8 @@ export class Controller {
       }, force);
     }
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
+    // R5 (H134): tab 0 and tab 8 read when opened (then with the slow reading while they are shown)
+    if (ws === 'logs' || ws === 'fleet') this.readTab(ws);
   }
 
   // ── timers ────────────────────────────────────────────────────────────────────
@@ -589,7 +616,7 @@ export class Controller {
 
   private ctx(): ViewCtx {
     const r = this.last?.regions.center?.rect;
-    return { ui: this.ui, data: this.data, g: this.d.glyphs, width: Math.max(10, innerWidth(r?.w ?? this.size.columns)), height: Math.max(3, (r?.h ?? this.size.rows) - 2), now: this.now(), can: this.can() };
+    return { ui: this.ui, data: this.data, g: this.d.glyphs, width: Math.max(10, innerWidth(r?.w ?? this.size.columns)), height: Math.max(3, (r?.h ?? this.size.rows) - 2), now: this.now(), can: this.can(), columns: this.size.columns };
   }
 
   selected(): Item | null { return selectedItem(this.ctx()); }

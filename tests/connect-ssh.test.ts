@@ -8,7 +8,7 @@
  * tests/connect-real-ssh.test.ts (it runs only where both exist and TIMMY_TEST_REAL_SSH=1).
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -492,24 +492,105 @@ describe('fetch: only the job\'s own files, sha256 checked on both computers', (
     expect(readChain('runs').filter((x) => x.kind === 'remote-fetch').map((x) => x.status)).toEqual(['ok', 'failed']);
   }, 90_000);
 
-  it('a file swapped for a link while it is fetched is never followed out of the job\'s folder (what is hashed and sent is one copy)', async () => {
+  it('a file swapped for a link while it is fetched is never followed out of the job\'s folder (what is hashed and sent is one copy); held still as a regular file, it is fetched whole', async () => {
+    // Two claims, one job (R5 H130). SAFETY: while the job swaps work/x between a regular file and a link to a file outside
+    // its folder, no byte from outside the folder reaches this computer, whatever the timing: every fetch gives the 7 inside
+    // bytes or a refusal that sends nothing. That must hold for every interleaving, so it is asserted of every outcome; how
+    // the outcomes fall (all refused, all fetched, a mix) is the machine's timing and is not asserted. LIVENESS: a regular
+    // file is fetched, checked deterministically while the job holds x still (a control file it answers), never by hoping a
+    // racing fetch lands in a regular-file window: on a loaded runner all 30 racing fetches were refused as links (CI run
+    // 38793708710), and a few more process starts in the job's link phase often do the same here.
     const { id, home } = await ready(2247);
+    const INSIDE = 'inside\n';
+    const insideSha = createHash('sha256').update(INSIDE).digest('hex');
     fs.writeFileSync(path.join(home, 'outside.txt'), 'OUTSIDE-THE-JOB-FOLDER\n');
-    // the job swaps work/x between a regular file and a link to a file outside its folder, as fast as it can
-    const r = await runJob(p, id, { command: ['sh', '-c', 'echo inside > in.txt; while :; do ln -s "$HOME/outside.txt" l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x; done'] });
+    // The job, in its folder's work/: swaps x between a regular file (a copy of in.txt) and a link to $HOME/outside.txt as
+    // fast as it can, counting each whole swap in ./cycles (with the shell's own echo: no process start more in the loop).
+    // While ./hold exists it leaves x a regular file, says so with ./held and waits; once ./hold is gone it removes ./held
+    // and swaps on.
+    const r = await runJob(p, id, { command: ['sh', '-c', [
+      'echo inside > in.txt; n=0',
+      'while :; do',
+      '  if [ -e hold ]; then cp in.txt f.tmp; mv -f f.tmp x; : > held; while [ -e hold ]; do sleep 0.05; done; rm -f held; fi',
+      '  ln -s "$HOME/outside.txt" l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x',
+      '  n=$((n + 1)); echo "$n" > cycles',
+      'done',
+    ].join('\n')] });
     if ('error' in r) throw new Error(r.error);
     expect(r.job.state).toBe('running');
+    const work = path.join(jobDir(home, r.job.id), 'work');
+    let swaps = 0;
+    /** the whole swaps the job has made so far (a read that meets ./cycles being rewritten keeps the last count) */
+    const cycles = (): number => {
+      try { const n = Number(fs.readFileSync(path.join(work, 'cycles'), 'utf8')); if (Number.isInteger(n) && n > swaps) swaps = n; } catch { /* not written yet */ }
+      return swaps;
+    };
     const to = path.join(kit.root, 'race');
-    const outcomes: string[] = [];
-    for (let i = 0; i < 30; i++) outcomes.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
+    const tried: Array<{ phase: string; dest: string; words: string }> = [];
+    const said = (): string => tried.map((t) => `${t.phase}: ${t.words}`).join('\n');
+    /** fetches under hostile swaps: at least `min` of them, and on until the job has made at least `min` whole swaps meanwhile */
+    const hostile = async (phase: string, min: number): Promise<void> => {
+      const from = cycles();
+      const end = Date.now() + 30_000;
+      for (let i = 0; i < min || cycles() - from < min; i++) {
+        if (Date.now() > end) throw new Error(`${phase}: the job made ${cycles() - from} swaps during ${i} fetches\n${said()}`);
+        const dest = path.join(to, `${phase}-${i}`);
+        tried.push({ phase, dest, words: (await fetchFile(p, r.job.id, 'work/x', { to: dest })).words });
+      }
+    };
+    await until(() => cycles() >= 1, 20_000, 'the job to swap x');
+    await hostile('swapping', 15);
+
+    // LIVENESS: the job holds x still, a regular file with the inside bytes, and says so; a fetch then has to succeed
+    fs.writeFileSync(path.join(work, 'hold'), '');
+    await until(() => fs.existsSync(path.join(work, 'held')), 20_000, 'the job to hold x still');
+    const still = cycles();
+    expect(fs.lstatSync(path.join(work, 'x')).isFile()).toBe(true);
+    expect(fs.readFileSync(path.join(work, 'x'), 'utf8')).toBe(INSIDE);
+    const heldTo = path.join(to, 'held');
+    const held = await fetchFile(p, r.job.id, 'work/x', { to: heldTo });
+    tried.push({ phase: 'held', dest: heldTo, words: held.words });
+    expect(held.ok, said()).toBe(true);
+    expect([held.bytes, held.sha256, held.remote_sha256]).toEqual([7, insideSha, insideSha]);
+    expect(fs.readFileSync(heldTo, 'utf8')).toBe(INSIDE);
+    expect(cycles(), 'x was swapped while it was held').toBe(still);
+    // the swapping resumes: the job removes ./held and makes whole swaps again (x is a link again in each)
+    fs.rmSync(path.join(work, 'hold'));
+    await until(() => !fs.existsSync(path.join(work, 'held')) && cycles() >= still + 2, 20_000, 'the job to swap x again');
+    await hostile('resumed', 15);
     await stopJob(p, r.job.id);
-    // whatever reached this computer (a saved file, or a .partial kept after a failed check) came from inside the job's folder
-    const received = fs.existsSync(to) ? fs.readdirSync(to).map((n) => fs.readFileSync(path.join(to, n), 'utf8')) : [];
-    expect(received.join(''), outcomes.join('\n')).not.toContain('OUTSIDE');
-    expect(received.length, outcomes.join('\n')).toBeGreaterThan(0);
-    for (const text of received) expect(text).toBe('inside\n');
-    for (const words of outcomes) expect(words).toMatch(/^(fetched work\/x from dev: 7 bytes|not fetched: work\/x is or passes through a symbolic link on dev: refused)/);
-  }, 90_000);
+
+    // SAFETY, over every fetch: whatever reached this computer (a saved file, or a .partial kept after a failed check) holds
+    // the inside bytes only
+    const received = fs.readdirSync(to).map((n) => ({ n, text: fs.readFileSync(path.join(to, n), 'utf8') }));
+    expect(received.map((x) => x.text).join(''), said()).not.toContain('OUTSIDE');
+    for (const x of received) expect(x.text, `${x.n}\n${said()}`).toBe(INSIDE);
+    // each fetch gave the inside bytes, or was refused and sent nothing
+    const fetched = new RegExp(`^fetched work/x from dev: 7 bytes, sha256 ${insideSha} equal on both computers; saved as `);
+    const refusals = [
+      'not fetched: work/x is or passes through a symbolic link on dev: refused',
+      // "could not be copied" is a refusal that sends nothing too. GNU cp -P (this kit's FAKE devices run this computer's
+      // cp) lstats the file, opens it with O_NOFOLLOW and checks that what it opened is what it lstat'd (strace: newfstatat
+      // AT_SYMLINK_NOFOLLOW, openat O_RDONLY|O_NOFOLLOW, fstat); a swap landing between them fails the copy ("Too many levels
+      // of symbolic links", "cannot read symbolic link: Invalid argument"), and the device's script answers no-copy before
+      // any byte is sent. Against the same swap loop, 8 of 6000 copies failed so, and none of the 6000 held an outside byte.
+      // A BSD cp (macOS's) opens the file without O_NOFOLLOW: not exercised here.
+      'not fetched: work/x could not be copied inside the job\'s folder on dev to be sent (a fetch sends one copy, so the file needs room for a copy there): refused',
+    ];
+    for (const t of tried) {
+      if (fetched.test(t.words)) expect(fs.readFileSync(t.dest, 'utf8'), t.words).toBe(INSIDE);
+      else {
+        expect(refusals, `${t.phase}: ${t.words}`).toContain(t.words);
+        expect(fs.existsSync(t.dest), t.words).toBe(false);
+      }
+    }
+    // and nothing else was written: one file per fetch that gave the bytes (no .partial), each with its receipt of them
+    const ok = tried.filter((t) => fetched.test(t.words));
+    expect(received.map((x) => x.n).sort(), said()).toEqual(ok.map((t) => path.basename(t.dest)).sort());
+    const receipts = readChain('runs').filter((x) => x.kind === 'remote-fetch');
+    expect(receipts).toHaveLength(ok.length);
+    for (const x of receipts) expect(x).toMatchObject({ status: 'ok', outputs: [{ sha256: insideSha, bytes: 7 }], sources: [{ remote_sha256: insideSha, remote_bytes: 7 }] });
+  }, 120_000);
 });
 
 describe('secrets and words', () => {

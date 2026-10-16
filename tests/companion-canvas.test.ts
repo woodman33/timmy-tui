@@ -81,8 +81,9 @@ describe('the CANVAS tab', () => {
     expect(render({ ...summary, revision: null, sourceRevision: null, unreadable: true, jobs: [] }, '127.0.0.1')).toContain('The saved canvas could not be read');
   });
   it('the tab is in the deck, with its panel', () => {
-    // R4 (H92): wired by the page's script (data-tab), not an inline handler, which the page's policy would not run
-    expect(html).toMatch(/id="btn-canvas" data-tab="canvas"/);
+    // R4 (H92): wired by the page's script (data-tab), not an inline handler, which the page's policy would not run. R5 (H132):
+    // the panel is the Studio tab's (4), and that tab names it
+    expect(html).toMatch(/id="ws-tab-studio" data-ws-tab="studio" data-tab="canvas"/);
     expect(html).toContain('id="tab-canvas"');
     expect(html).not.toMatch(/\sonclick=/);
   });

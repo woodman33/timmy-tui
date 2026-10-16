@@ -93,6 +93,8 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     try {
       await page.goto(companion.url);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      // R5 (H132): the mirror is the Chat tab's (2)
+      await page.click('#ws-tabs [data-ws-tab="chat"]');
       await page.waitForSelector('#console-logs [data-mirror="empty"]', { timeout: 15_000 });
       const words = (await page.textContent('#console-logs [data-mirror="empty"]'))!.replace(/\s+/g, ' ');
       expect(words).toContain('In the Workbench (timmy workbench), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor\'s turn is labelled Monitor.');
