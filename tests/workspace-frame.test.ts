@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TABS, WORKSPACE_SCHEMA, tabByKey, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import {
-  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatFix, chatNotReady, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
+  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatFix, chatNotReady, checkConnections, connectionOf, connectionsPath, ollamaAddress, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { freeOnlyRefusal } from '../src/agent/model-price.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
+import { projectId } from '../src/project/index.js';
 
 let home: string;
 let project: string;
@@ -143,7 +144,8 @@ describe('the frame', () => {
     expect(free).toMatchObject({ problem: 'free-only', command: '/model free' });
     expect(`${free.label} ${free.command}`).not.toMatch(/free-only off|TIMMY_CHAT_FREE_ONLY=0/);
     // a key OpenRouter refused when checked: give a working one, hidden
-    expect(chatFix({ kind: 'openrouter', ready: true }, [{ id: 'openrouter', state: 'refused', words: 'refused when checked just now' }])).toMatchObject({ problem: 'key-refused', command: 'timmy init --chat openrouter' });
+    // (with a key stored, timmy init --chat openrouter asks nothing and keeps it: H131's finding; --openrouter - replaces it)
+    expect(chatFix({ kind: 'openrouter', ready: true }, [{ id: 'openrouter', state: 'refused', words: 'refused when checked just now' }])).toMatchObject({ problem: 'key-refused', command: 'timmy init --openrouter -' });
     expect(chatFix({ kind: 'openrouter', ready: true }, [])).toBeNull();
   });
   it('offers no "start Ollama" or "give a key" fix when a turn on that route answered after the check that saw it fail (the rehearsal)', () => {
@@ -200,6 +202,26 @@ describe('the frame', () => {
     expect(why).toMatch(/^Free-only is on, and m\/x is not known to be free\. Cause: m\/x costs \$1 per million\. Try: /);
     expect(why).not.toMatch(/not sent|Nothing was sent|Error:/);
     expect(chatNotReady({ kind: 'local', refusal: [] })).toBe('The chat route is not ready.');
+  });
+  it('carries the project\'s sealed chat turns, every surface\'s, newest first, in the words every log uses (the finish line, item 3)', async () => {
+    const id = projectId(project);
+    const hash = (n: number) => `sha256_${String(n).repeat(64).slice(0, 64)}`;
+    // FAKE receipts as the seal writes them (src/repl/seal.ts): a Workbench turn on this computer's Ollama, stopped; a REPL
+    // turn on OpenRouter, answered; another project's turn, which is not this one's
+    const chain = [
+      { kind: 'turn', subject: 'repl · 1 step', project_id: id, status: 'ok', ts: '2026-10-15T19:58:00.000Z', ms: 1200, model_resolved: 'm/free:free', operation_id: 'o11111111', hash: hash(1) },
+      { kind: 'chat', subject: 'chat.turn · workbench · cancelled · 0 steps · qwen3:8b', project_id: id, status: 'cancelled', ts: '2026-10-15T19:59:00.000Z', ms: 4100, via: 'ollama', sources: [{ kind: 'ollama', host: '127.0.0.1:11434', endpoint: 'local', tools: 'off', cost_basis: 'local endpoint' }], model_resolved: 'qwen3:8b', operation_id: 'o22222222', hash: hash(2) },
+      { kind: 'chat', subject: 'chat.turn · workbench · 0 steps · qwen3:8b', project_id: 'ffffffffffffffff', status: 'ok', ts: '2026-10-15T19:59:30.000Z', hash: hash(3) },
+    ];
+    const f = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain as never, onPath: () => null, now: NOW });
+    expect(f.chat?.turns).toEqual([
+      { receipt: '22222222', surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: '2026-10-15T19:59:00.000Z', ms: 4100, operation: 'o22222222', route: 'local', words: 'turn stopped in the Workbench · qwen3:8b · receipt 22222222 · 4.1 s' },
+      { receipt: '11111111', surface: 'repl', state: 'answered', model: 'm/free:free', at: '2026-10-15T19:58:00.000Z', ms: 1200, operation: 'o11111111', route: 'openrouter', words: 'turn answered in the REPL · m/free:free · receipt 11111111 · 1.2 s' },
+    ]);
+    // a receipt keeps hashes only, and so does the frame
+    expect(JSON.stringify(f.chat)).not.toMatch(/prompt|response_hash|sha256_/);
+    // no turn sealed yet: an empty list, never a made-up one
+    expect((await frame()).chat).toEqual({ turns: [] });
   });
   it('lists every connection, none live without an observation, the two MCP routes unknown', async () => {
     const f = await frame();
@@ -296,6 +318,24 @@ describe('timmy workspace check', () => {
     expect(f.connections.find((c) => c.id === 'ollama')).toMatchObject({ state: 'not set up', words: expect.stringContaining('nothing answered') });
     expect(f.connections.find((c) => c.id === 'studio')?.state).toBe('live');
     expect(f.surfaces.companion).toMatchObject({ state: 'running', url: 'http://127.0.0.1:3001/' });
+  });
+  it('asks the Ollama the local chat asks (the setup\'s recorded address), and names it on the card; else OLLAMA_HOST, else the default (H131\'s finding)', async () => {
+    expect(ollamaAddress(env)).toBe('http://127.0.0.1:11434');
+    env.OLLAMA_HOST = 'http://127.0.0.1:11500';
+    expect(ollamaAddress(env)).toBe('http://127.0.0.1:11500');
+    // FAKE: a setup record that chose the local chat at its own address (as applySetup writes it); nothing is asked
+    mkdirSync(join(home, 'timmy'), { recursive: true });
+    writeFileSync(join(home, 'timmy', 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'FAKE', chat: 'local', ollama: 'http://127.0.0.1:47011', model: 'qwen3:8b' } }));
+    expect(ollamaAddress(env)).toBe('http://127.0.0.1:47011');
+    let asked = '';
+    await checkConnections({
+      env, cwd: project, now: () => NOW, key: () => null, openRouter: async () => 'no-key',
+      ollama: async () => { asked = ollamaAddress(env); return { ok: true, models: ['qwen3:8b'] }; },
+      studio: async () => ({ state: 'not-running' }), companion: async () => 'refused', edge: async () => null,
+    });
+    expect(asked).toBe('http://127.0.0.1:47011');
+    const f = await frame(NOW + 1000);
+    expect(f.connections.find((c) => c.id === 'ollama')).toMatchObject({ state: 'live', detail: expect.stringContaining('asked at http://127.0.0.1:47011') });
   });
   it('a chosen local model that does not answer is unreachable; Studio and the companion not started are set up, not running', async () => {
     env.OLLAMA_HOST = 'http://127.0.0.1:11434';
