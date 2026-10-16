@@ -330,6 +330,15 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     expect(cells(none).filter((s) => s.role === 'live' && s.text.trim())).toEqual([]);
   }, 60_000);
 
+  it('on the selection\'s ground a quiet word takes the text\'s colour (the QA round\'s defect 11: grey on it measured 3.88:1); elsewhere it stays quiet', () => {
+    for (const role of ['secondary', 'border'] as const) {
+      expect(styleOf({ text: 'x', role, selected: true }, true)).toMatchObject({ color: HOMEBREW.text, backgroundColor: HOMEBREW.accentSoft });
+      expect(styleOf({ text: 'x', role }, true).color).not.toBe(HOMEBREW.text);
+    }
+    // the roles that carry a meaning keep their colour on it (their word says it too)
+    for (const role of ['action', 'attention', 'failure', 'live', 'ai', 'link'] as const) expect(styleOf({ text: 'x', role, selected: true }, true).color).toBe(styleOf({ text: 'x', role }, true).color);
+  });
+
   it('only the role `live` is green: every other role\'s colour is not Homebrew\'s green (B10)', () => {
     const roles: Role[] = ['text', 'secondary', 'strong', 'action', 'link', 'attention', 'failure', 'live', 'ai', 'border', 'focus'];
     const greens = new Set([HOMEBREW_GREEN.toLowerCase(), HOMEBREW.liveDim.toLowerCase()]);

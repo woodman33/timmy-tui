@@ -169,6 +169,11 @@ describe('words given room (R5 H131, the QA round)', () => {
     expect(preview).toContain('not counted: 5 logs Timmy writes itself (logs/*.log)');
     expect(preview).toContain('1 other file');
 
+    // defect 7: at 100x30 both of Home's columns are clipped, and each says which rows it shows (1–N of M)
+    const small = screenText(c.frame(100, 30).screen);
+    const titles = small.find((r) => r.includes('Preview'))!;
+    expect(titles.match(/\d+–\d+ of \d+/g), `Home's column titles at 100x30: ${titles}`).toHaveLength(2);
+
     // tab 6: 3D Create, then Motion (the key again)
     c.key('6', {});
     expect(c.ui.workspace).toBe('create3d');
