@@ -8,7 +8,8 @@
  *
  * Everything here is read from the record and the files it names (src/repl/board-vox.ts readVoxRecord, the board's own
  * reading and check), the runs chain (verifyReceiptIn) and the tools' configuration (src/vox/tools.ts, layers.ts): nothing
- * runs, no viewer opens, nothing is asked over the network, and nothing is written.
+ * runs, no viewer opens, nothing is asked over the network, and nothing is written. A record, a recording, a mesh and a served
+ * image are each read through one descriptor (./read-plain.ts): no link is followed, and the file checked is the file read.
  *
  * Each drawn thing carries its provenance and evidence state (DOCTRINE §15; AGENTS.md §4), told from the record's own words:
  *
@@ -29,8 +30,8 @@
  * it is said in words, never drawn as if it were there.
  */
 import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseStl } from '../native/stl-readback.js';
 import { projectId, resolveInside } from '../project/index.js';
 import { hashFile } from '../project/intake.js';
@@ -41,6 +42,7 @@ import { voxArg } from './args.js';
 import { headBytes, KIND_WORDS, type VoxKind } from './kinds.js';
 import { LATER_LAYERS, RERUN_SETUP, rerunReady } from './layers.js';
 import { projectMesh, type ProjectionView } from './projection.js';
+import { plainRel, readPlainInside, type PlainReadHooks } from './read-plain.js';
 import { isRecording, readRecording, type RecordingFacts } from './recording.js';
 import { DOCTRINE_15, num, TIER, VOX_DIR, VOX_ID } from './record.js';
 import { metricText, roboflowReady, toolStatuses, type ToolEnv } from './tools.js';
@@ -343,14 +345,9 @@ const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
 
 /** A card read for a record file (scrubbed), or why not. */
 function cardOf(i: PreviewInput, file: string): { card: VoxCard; raw: Obj; operation?: string } | { why: string } {
-  const abs = join(i.root, file);
-  let bytes: Buffer;
-  try {
-    const st = lstatSync(abs);
-    if (st.isSymbolicLink() || !st.isFile()) return { why: 'it is not a plain file' };
-    if (st.size > RECORD_MAX) return { why: 'it is larger than 1 MB' };
-    bytes = readFileSync(abs);
-  } catch (e) { return { why: `it could not be read (${(e as NodeJS.ErrnoException).code ?? 'error'})` }; }
+  const read = readPlainInside(i.root, file, RECORD_MAX);
+  if (!read.ok) return { why: read.why === 'link' || read.why === 'not-file' ? 'it is not a plain file' : read.words };
+  const bytes = read.body;
   const text = bytes.toString('utf8');
   const card = readVoxRecord({ root: i.root, file, text, fileSha256: createHash('sha256').update(bytes).digest('hex'), chain: i.chain, projectId: projectId(i.root) });
   if (!card) return { why: 'it is not a VoxVision record (timmy.vox/1) Timmy can read' };
@@ -591,12 +588,9 @@ function buildPreview(i: PreviewInput, c: VoxCard, operation: string | undefined
     if (o.light) { recordings.push({ path: x.path, why: 'read when the record is opened', viewer }); continue; }
     let facts: RecordingFacts | undefined;
     let why: string | undefined;
-    try {
-      const st = lstatSync(at.path);
-      if (st.isSymbolicLink() || !st.isFile()) why = 'it is not a plain file';
-      else if (st.size > MESH_READ_MAX) why = `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is read here`;
-      else { const r = readRecording(readFileSync(at.path)); if ('error' in r) why = r.error; else facts = r; }
-    } catch (e) { why = `it could not be read (${(e as NodeJS.ErrnoException).code ?? 'error'})`; }
+    const read = readPlainInside(i.root, at.rel, MESH_READ_MAX);
+    if (!read.ok) why = read.why === 'too-large' ? `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is read here` : read.words;
+    else { const r = readRecording(read.body); if ('error' in r) why = r.error; else facts = r; }
     recordings.push({ path: x.path, ...(facts ? { facts } : {}), ...(why ? { why } : {}), viewer });
   }
 
@@ -679,13 +673,9 @@ function noOverlayWhy(c: VoxCard, images: readonly PreviewImage[]): string {
 function drawMesh(i: PreviewInput, rel: string, sha256: string | undefined, matches: boolean | null, base: Omit<PreviewSpatial, 'words'>): PreviewSpatial {
   const at = resolveInside(i.root, rel);
   if ('error' in at) return { ...base, why: at.error, words: 'not drawn' };
-  let buf: Buffer;
-  try {
-    const st = lstatSync(at.path);
-    if (st.isSymbolicLink() || !st.isFile()) return { ...base, why: 'it is not a plain file', words: 'not drawn' };
-    if (st.size > MESH_READ_MAX) return { ...base, why: `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is drawn here: Rerun's viewer draws it (/vox view)`, words: 'not drawn' };
-    buf = readFileSync(at.path);
-  } catch (e) { return { ...base, why: `it could not be read (${(e as NodeJS.ErrnoException).code ?? 'error'})`, words: 'not drawn' }; }
+  const read = readPlainInside(i.root, at.rel, MESH_READ_MAX);
+  if (!read.ok) return { ...base, why: read.why === 'too-large' ? `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is drawn here: Rerun's viewer draws it (/vox view)` : read.words, words: 'not drawn' };
+  const buf = read.body;
   if (sha256 && createHash('sha256').update(buf).digest('hex') !== sha256) matches = false;
   if (matches === false) return { ...base, evidence: 'stale', why: 'it changed since the record, so it is not drawn as the record\'s', words: 'not drawn' };
   const parsed = parseStl(buf);
@@ -740,10 +730,11 @@ export type VoxFileAnswer = { ok: true; type: string; body: Buffer } | { ok: fal
 /**
  * A file of a record for the page: only an image the record names (an input, a highlight the board would show, a frame), a
  * regular file inside the project reached without a link and without "..", of a type its bytes and name agree on, at most
- * VOX_FILE_MAX bytes. Anything else is refused with why.
+ * VOX_FILE_MAX bytes, read through one descriptor so the file checked is the file served (./read-plain.ts: a file swapped
+ * between the checks and the read is refused). Anything else is refused with why. `hooks` is for tests only.
  */
-export function voxFile(i: PreviewInput, id: string, rel: string): VoxFileAnswer {
-  if (typeof rel !== 'string' || !rel || rel.length > 512 || rel.includes('\0') || rel.includes('\\') || rel.startsWith('/') || rel.split('/').some((s) => s === '..' || s === '.' || s === '')) {
+export function voxFile(i: PreviewInput, id: string, rel: string, hooks: PlainReadHooks = {}): VoxFileAnswer {
+  if (typeof rel !== 'string' || rel.length > 512 || !plainRel(rel)) {
     return { ok: false, status: 400, error: 'Refused: a file is named by its path inside the project, without "..", "." or a leading "/".' };
   }
   const p = voxPreview(i, id);
@@ -751,21 +742,18 @@ export function voxFile(i: PreviewInput, id: string, rel: string): VoxFileAnswer
   const named = p.preview.images.find((x) => x.path === rel);
   if (!named) return { ok: false, status: 404, error: `Refused: ${rel} is not an image record ${id} names, so it is not served.` };
   if (!named.servable) return { ok: false, status: 404, error: `Not served: ${rel} is not shown (${named.why ?? 'not checked'}).` };
-  let real: string;
-  try { real = realpathSync(i.root); } catch { return { ok: false, status: 404, error: 'The project folder is gone.' }; }
-  const lexical = join(real, ...rel.split('/'));
   const at = resolveInside(i.root, rel);
   if ('error' in at) return { ok: false, status: 403, error: `Refused: ${at.error}.` };
-  if (at.path !== lexical) return { ok: false, status: 403, error: `Refused: ${rel} is reached through a link, so it is not served.` };
-  for (let dir = lexical; dir.length > real.length; dir = dir.slice(0, dir.lastIndexOf(sep))) {
-    try { if (lstatSync(dir).isSymbolicLink()) return { ok: false, status: 403, error: `Refused: ${rel} is reached through a link, so it is not served.` }; } catch { return { ok: false, status: 404, error: `${rel} is not there.` }; }
+  const read = readPlainInside(i.root, rel, VOX_FILE_MAX, hooks);
+  if (!read.ok) {
+    switch (read.why) {
+      case 'link': case 'not-file': case 'changed': return { ok: false, status: 403, error: `Refused: ${rel} ${read.words.replace(/^it /, '')}, so it is not served.` };
+      case 'too-large': return { ok: false, status: 413, error: `Not served: ${rel} is larger than ${VOX_FILE_MAX / 1024 / 1024} MB.` };
+      case 'path': return { ok: false, status: 400, error: 'Refused: a file is named by its path inside the project, without "..", "." or a leading "/".' };
+      default: return { ok: false, status: 404, error: `Not served: ${rel} (${read.words}).` };
+    }
   }
-  let st;
-  try { st = lstatSync(lexical); } catch { return { ok: false, status: 404, error: `${rel} is not there.` }; }
-  if (!st.isFile()) return { ok: false, status: 403, error: `Refused: ${rel} is not a regular file.` };
-  if (st.size > VOX_FILE_MAX) return { ok: false, status: 413, error: `Not served: ${rel} is larger than ${VOX_FILE_MAX / 1024 / 1024} MB.` };
-  let body: Buffer;
-  try { body = readFileSync(lexical); } catch { return { ok: false, status: 404, error: `${rel} cannot be read.` }; }
+  const body = read.body;
   const type = imageType(rel, body.subarray(0, 512), named.type === 'bbox-svg');
   if (!type) return { ok: false, status: 415, error: `Refused: ${rel} is not an image of a type served here (PNG, JPEG, GIF, WebP, or Timmy's own SVG drawing), by its bytes and its name.` };
   return { ok: true, type, body };

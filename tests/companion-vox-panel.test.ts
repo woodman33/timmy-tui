@@ -2,7 +2,8 @@
  * R6 (H143): the VoxVision panel's routes (src/companion/panels/vox.ts; src/vox/preview.ts makes what they answer), through
  * the real companion server on 127.0.0.1 and its token: the project's records newest first; one record's preview (its
  * images, what was measured over them, its entity tree, frames, pipeline, engines, mesh views, recording, receipt, verdict
- * and commands); and the file route, which serves only an image the record names and refuses everything else, with why.
+ * and commands); and the file route, which serves only an image the record names and refuses everything else, with why, and
+ * reads it through one descriptor (src/vox/read-plain.ts): a file swapped between its checks and its read is refused.
  *
  * FAKE, labelled: Look (tests/helpers/vox-fakes.ts, a test double, not OpenCV; its records say "fake" and the preview says
  * FAKE), and the records tests/helpers/vox-panel-kit.ts writes (a video's frames, a record naming a link or a file that is
@@ -10,15 +11,16 @@
  * /detect and /measure, Timmy's STL reader, the receipts on the per-test chain and their verification (verifyReceiptIn),
  * the Rerun recording in the repository (studio/ctx-c3w8/…/context.rrd, read, never changed).
  */
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId } from '../src/project/index.js';
 import { PATH_DATA } from '../src/vox/projection.js';
-import { NO_VERDICT, type VoxList, type VoxPreview } from '../src/vox/preview.js';
-import { act, cubeStl, fakeImageRecord, fakeVideoRecord, put, sha, SMALL, tempKit, writeFile } from './helpers/vox-panel-kit.js';
+import { NO_VERDICT, voxFile, type VoxFileAnswer, type VoxList, type VoxPreview } from '../src/vox/preview.js';
+import { act, chainNow, cubeStl, fakeImageRecord, fakeVideoRecord, png, put, sha, SMALL, tempKit, writeFile } from './helpers/vox-panel-kit.js';
 
 const TOKEN = 'a1'.repeat(32);
 const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
@@ -160,7 +162,7 @@ describe('the VoxVision panel\'s routes (R6 H143)', () => {
     expect(v.pipeline.steps[1]).toMatchObject({ name: 'video (timmy-video-readback)', state: 'job j0fa4e1 completed' });
   });
 
-  it('an STL is drawn as three views from its own triangles; a recording is read for what Timmy knows of it', async () => {
+  it('an STL is drawn as three views from its own triangles; a recording is read for what Timmy knows of it; neither through a link', async () => {
     const p = project();
     put(p.root, 'refs/cube.stl', cubeStl(10));
     const id = await act(kit, p.root, (ws) => ws.measure('refs/cube.stl'));
@@ -186,6 +188,12 @@ describe('the VoxVision panel\'s routes (R6 H143)', () => {
     });
     expect(r.recordings[0].facts?.unknown.entities).toBe("inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it");
     expect(r.recordings[0].viewer).toEqual({ state: 'needs setup', words: "Rerun's viewer needs setup: cargo install rerun-cli --locked, or Rerun's release from its site", command: `/vox view ${rid}` });
+
+    // reached through a link (even one to a folder inside the project), a mesh and a recording are not read for the page
+    for (const root of [p.root, q.root]) { renameSync(join(root, 'refs'), join(root, 'refs-real')); symlinkSync(join(root, 'refs-real'), join(root, 'refs')); }
+    expect((await previewOf(p, id)).spatial[0]).toMatchObject({ source: 'refs/cube.stl', why: 'it is reached through a link', words: 'not drawn' });
+    expect((await previewOf(q, rid)).recordings[0]).toMatchObject({ path: 'refs/context.rrd', why: 'it is reached through a link' });
+    expect((await previewOf(q, rid)).recordings[0].facts).toBeUndefined();
     expect(sha(readFileSync(RRD))).toBe('8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f'); // the repository's file, unchanged
   });
 
@@ -228,5 +236,50 @@ describe('the VoxVision panel\'s routes (R6 H143)', () => {
     expect((await fileOf(p, 'v00000000', 'refs/photo.png')).status).toBe(404);
     const bad = await get(`/api/panel/voxvision/record?id=..%2Fx&project=${p.id}`);
     expect(bad.status).toBe(400);
+  });
+
+  // the lead's review of dcce794: what is checked must be what is read (the operator's R5 22:32 rule: running as the same OS
+  // user does not by itself make a project-scoped read safe). Each swap runs in the gap between voxFile's checks and its
+  // read (the beforeOpen hook), where a file checked by name and then read by name would be read through the swap.
+  it('a file swapped between the checks and the read is refused: for a link, for another file, for a FIFO, or its folder for a link', async () => {
+    const p = project();
+    const id = await act(kit, p.root, (ws) => ws.detect('refs/photo.png color 200,10,10'));
+    const input = { root: p.root, chain: chainNow(), env: {} };
+    const photo = join(p.root, 'refs', 'photo.png');
+    // outside the project: a PNG of other bytes, what a swap would have served
+    const outside = join(box, `outside-${n}`);
+    const OTHER = png(6, 3, () => [1, 2, 3]);
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, 'photo.png'), OTHER);
+    const served = (a: VoxFileAnswer): Buffer | null => (a.ok ? a.body : null);
+
+    // nothing swapped: served, its own bytes
+    expect(served(voxFile(input, id, 'refs/photo.png', { beforeOpen: () => undefined }))?.equals(SMALL)).toBe(true);
+    const notChecked = 'Refused: refs/photo.png changed while it was read (it is not the file that was checked), so it is not served.';
+
+    // 1. the file swapped for a link to the outside file: the open does not follow it
+    const a = voxFile(input, id, 'refs/photo.png', { beforeOpen: () => { rmSync(photo); symlinkSync(join(outside, 'photo.png'), photo); } });
+    expect(a).toEqual({ ok: false, status: 403, error: 'Refused: refs/photo.png changed while it was read (it is a link now), so it is not served.' });
+    rmSync(photo);
+    writeFileSync(photo, SMALL);
+    // 2. its folder swapped for a link to an outside folder holding a photo.png: opened, but not the file checked
+    const b = voxFile(input, id, 'refs/photo.png', { beforeOpen: () => { renameSync(join(p.root, 'refs'), join(p.root, 'refs-kept')); symlinkSync(outside, join(p.root, 'refs')); } });
+    expect(b).toEqual({ ok: false, status: 403, error: notChecked });
+    rmSync(join(p.root, 'refs'));
+    renameSync(join(p.root, 'refs-kept'), join(p.root, 'refs'));
+    // 3. another file renamed over it
+    const c = voxFile(input, id, 'refs/photo.png', { beforeOpen: () => { writeFileSync(join(p.root, 'refs', 'next.png'), OTHER); renameSync(join(p.root, 'refs', 'next.png'), photo); } });
+    expect(c).toEqual({ ok: false, status: 403, error: notChecked });
+    // 4. a FIFO in its place: the open does not wait for a writer (O_NONBLOCK), and a FIFO is not the file checked
+    writeFileSync(photo, SMALL);
+    const d = voxFile(input, id, 'refs/photo.png', { beforeOpen: () => { rmSync(photo); execFileSync('mkfifo', [photo]); } });
+    expect(d).toEqual({ ok: false, status: 403, error: notChecked });
+    rmSync(photo);
+
+    // the outside bytes were never served; with the file back, it is served again
+    for (const x of [a, b, c, d]) expect(served(x)).toBeNull();
+    writeFileSync(photo, SMALL);
+    expect(served(voxFile(input, id, 'refs/photo.png'))?.equals(SMALL)).toBe(true);
+    expect(readFileSync(join(outside, 'photo.png')).equals(OTHER)).toBe(true);
   });
 });
