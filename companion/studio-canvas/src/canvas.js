@@ -263,6 +263,7 @@ async function reloadFromDisk() {
   const disk = opened.body;
   clearTimeout(canvas.timer);
   await mount(disk.snapshot ? { document: disk.snapshot } : undefined);
+  fitOnOpen(current);
   Object.assign(canvas, { revision: disk.revision, savedRevision: disk.revision, sourceRevision: disk.sourceRevision, savedAt: disk.savedAt ?? null, saving: false, failed: null, conflict: null, stale: null, refused: null });
   const kept = canvas.kept;
   canvas.kept = null;
@@ -307,7 +308,8 @@ function freeArea() {
   if (right.w >= BESIDE_MIN && right.h > 0) return right;
   return right.w * right.h >= below.w * below.h ? right : below;
 }
-function reveal(editor, ids) {
+/** `o.now`: the camera goes there at once (a board just opened), not with the 220 ms move a placed shape gets. */
+function reveal(editor, ids, o = {}) {
   const page = editor.getCurrentPageId();
   const shown = ids.filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page);
   const boxes = shown.map((id) => editor.getShapePageBounds(id)).filter(Boolean);
@@ -325,7 +327,7 @@ function reveal(editor, ids) {
   const center = bounds.center;
   editor.setCamera(
     { x: (area.x + area.w / 2 - view.x) / z - center.x, y: (area.y + area.h / 2 - view.y) / z - center.y, z },
-    { animation: { duration: 220 } },
+    o.now ? undefined : { animation: { duration: 220 } },
   );
 }
 
@@ -742,11 +744,22 @@ function openBoard(editor, template) {
  * R5 (H133): a board just opened, fitted into the area beside Timmy's panel (or below it on a phone), never closer than 100 %:
  * zoomToFit alone fitted it to the whole window, and its left part sat under the panel.
  */
-function fitBeside(editor) {
+function fitBeside(editor, o = {}) {
   editor.zoomToFit();
   const z = editor.getCamera().z;
   if (z > 1) editor.setCamera({ ...editor.getCamera(), z: 1 });
-  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id)); } catch { /* showing it is a courtesy */ }
+  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id), o); } catch { /* showing it is a courtesy */ }
+}
+/**
+ * R5 (H133): a canvas reopened (loaded, or reloaded from disk) shows what it holds: its shapes fitted into the area beside Timmy's
+ * panel and under the workspace strip, never closer than 100 % (the camera is not saved with the canvas, so it had opened at the
+ * origin: a shape cut by the top edge, the others under the panel). A blank page stays as it is.
+ */
+function fitOnOpen(editor) {
+  if (!editor || editor.getCurrentPageShapes().length === 0) return;
+  // the canvas box as it is laid out now (it starts under the strip), before the fit reads it
+  try { editor.updateViewportScreenBounds(editor.getContainer()); } catch { /* tldraw keeps its own */ }
+  fitBeside(editor, { now: true });
 }
 /**
  * R5 (H133): a guided blank board (src/studio/templates.ts guidedTemplates): its title and what it is for, then one empty frame
@@ -1030,6 +1043,8 @@ async function start() {
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.
   await mount(saved.snapshot ? { document: saved.snapshot } : undefined);
+  // R5 (H133): reopened, it shows what it holds, beside the panel and under the strip
+  fitOnOpen(current);
   connectBridge();
   connectPanel();
   window.addEventListener('pagehide', () => saveOnLeave());

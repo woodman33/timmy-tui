@@ -1,6 +1,6 @@
 /**
  * R5 (H133): Timmy Studio draws the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 "Layouts") as a strip
- * above tldraw. In a real headless Chromium at
+ * above tldraw, and reopens a canvas with what it holds in view. In a real headless Chromium at
  * 1400 x 900, against the real canvas server and the real bundle (built here into a temporary folder), with a project of many
  * cards (tests/helpers/canvas-project.ts and 24 more workflow documents). The frame comes from GET /api/workspace with the page's
  * session; the one observation of Studio it reads is a record this test writes (FAKE: no request was made to a Studio), so the
@@ -33,7 +33,7 @@ type Win = { timmyCanvas: { document: { revision: number; savedRevision: number 
   createShapes: (s: unknown[]) => void;
 } } };
 
-describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above the canvas', () => {
+describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above the canvas, the canvas reopened in view', () => {
   let p: CanvasProject;
   let pageRoot = '';
   let home = '';
@@ -191,6 +191,54 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(errors).toEqual([]);
     } finally {
       await context.close();
+    }
+  }, 120_000);
+
+  it('a canvas reopened by /canvas open shows what it holds: every shape inside the area beside the panel and under the strip, at 100 % or farther', async () => {
+    const first = await open();
+    try {
+      const made = await first.page.evaluate(() => {
+        const w = window as never as Win;
+        const from = w.timmyCanvas.document.revision;
+        w.timmyCanvas.editor.createShapes([
+          { type: 'geo', x: -900, y: -650, props: { w: 220, h: 140 } },
+          { type: 'geo', x: 1700, y: 1350, props: { w: 220, h: 140 } },
+          { type: 'geo', x: 2600, y: -500, props: { w: 220, h: 140 } },
+          { type: 'geo', x: 40, y: 60, props: { w: 160, h: 100 } },
+        ]);
+        return from;
+      });
+      // saved by the page's own save path before it closes
+      await first.page.waitForFunction((from) => { const d = (window as never as Win).timmyCanvas.document; return d.revision > from && d.savedRevision === d.revision; }, made, { timeout: 20_000 });
+      expect(first.errors).toEqual([]);
+    } finally {
+      await first.context.close();
+    }
+    const again = await open();
+    try {
+      const view = await again.page.evaluate(() => {
+        const e = (window as never as Win).timmyCanvas.editor;
+        const bar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+        const shapes = e.getCurrentPageShapes().map((s) => {
+          const b = e.getShapePageBounds(s.id);
+          const a = e.pageToScreen({ x: b.minX, y: b.minY });
+          const z = e.pageToScreen({ x: b.maxX, y: b.maxY });
+          return { left: a.x, top: a.y, right: z.x, bottom: z.y };
+        });
+        return { panel: document.getElementById('side')!.getBoundingClientRect().right, top: document.getElementById('root')!.getBoundingClientRect().top, width: innerWidth, bottom: bar && bar.height > 0 ? bar.top : innerHeight, zoom: e.getCamera().z, shapes };
+      });
+      await shoot(again.page, 'frame-reopened-1400x900.png');
+      expect(view.shapes.length).toBeGreaterThanOrEqual(4);
+      expect(view.zoom).toBeLessThanOrEqual(1);
+      for (const s of view.shapes) {
+        expect(s.left).toBeGreaterThanOrEqual(view.panel);
+        expect(s.top).toBeGreaterThanOrEqual(view.top);
+        expect(s.right).toBeLessThanOrEqual(view.width);
+        expect(s.bottom).toBeLessThanOrEqual(view.bottom);
+      }
+      expect(again.errors).toEqual([]);
+    } finally {
+      await again.context.close();
     }
   }, 120_000);
 });
