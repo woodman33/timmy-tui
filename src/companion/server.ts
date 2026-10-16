@@ -112,6 +112,7 @@ import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './c
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
 // R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
 import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
+import { mountPanels } from './panels.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -130,7 +131,8 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
  * R4 (H92): the page and the files it needs (its scripts and style sheet were inline, or from CDNs).
  */
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js'] as const;
+// R6 lead: the tab panels' page code (panels.js, the registry; panel-vox.js and panel-tools.js, each panel's own drawing)
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-vox.js', 'panel-tools.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -809,6 +811,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     const answer = await workspace.answerPrefs(project, req.body);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
+
+  // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
+  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)

@@ -1416,8 +1416,18 @@ function drawFrame() {
   frameTurnsChanged();
   frameNote(f);
   if (workspace.tab === 'workflows') openNewestRun();
+  drawPanel(workspace.tab, f);
   refocus(kept);
   markOverflow();
+}
+
+/**
+ * R6 lead: the panel of a tab (panels.js; each panel's own file registers it), drawn with this frame for the project the
+ * page shows. Only the tab on screen draws: its panel reads its own routes when it is shown and when the frame changes.
+ */
+function drawPanel(tab, f) {
+  if (typeof TimmyPanels === 'undefined' || !f) return;
+  TimmyPanels.draw(tab, f, { own: !otherProject(f), project: shownProjectId(), fetch: companion.fetch, h });
 }
 
 /**
@@ -1481,6 +1491,7 @@ function showWorkspaceTab(id, o = {}) {
   if (id === 'studio') refreshCanvas();
   if (id === 'create') openSlate();
   if (id === 'workflows') openNewestRun();
+  if (was !== id && workspace.frame) drawPanel(id, workspace.frame);
   markOverflow();
   try { sessionStorage.setItem(WS_TAB_KEY, id); } catch (e) { /* no storage here */ }
 }

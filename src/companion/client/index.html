@@ -224,7 +224,7 @@
         </section>
         <section class="box" aria-labelledby="vox-here-title">
           <h2 id="vox-here-title" class="box-title">On this page</h2>
-          <div class="box-body"><p class="empty" data-gather="voxvision">Nothing of this tab's records reaches the companion yet: its actions run in Timmy's terminal, where its records show.</p></div>
+          <div class="box-body"><div data-panel-host="voxvision"><p class="empty" data-gather="voxvision">Nothing of this tab's records reaches the companion yet: its actions run in Timmy's terminal, where its records show.</p></div></div>
         </section>
       </div>
     </section>
@@ -342,6 +342,7 @@
           <div class="box-body"><div class="acts-full" data-acts-for="tools"></div></div>
         </section>
       </div>
+      <div data-panel-host="tools"></div>
     </section>
 
     <!-- 0 · Logs & Receipts (reference 10): raw lines as they reached this page, structured events, and the latest receipt -->
@@ -398,6 +399,10 @@
     <ol id="ws-activity-list" class="activity-list"><li class="empty">Reading the workspace…</li></ol>
   </section>
 
+  <!-- R6 lead: the tab panels' registry, then each panel's own file, then the page's code, which draws them -->
+  <script src="/panels.js"></script>
+  <script src="/panel-vox.js"></script>
+  <script src="/panel-tools.js"></script>
   <script src="/companion.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>
 </body>
