@@ -93,7 +93,18 @@ export const KIND_WORD: Readonly<Record<FileKind, string>> = {
 export const KIND_ORDER: readonly FileKind[] = ['source', 'workflow', 'reference', 'results', 'records', 'other'];
 
 export interface FileRow extends ProjectFile { kind: FileKind }
-export interface FilesView { total: number; truncated: boolean; groups: Array<{ kind: FileKind; title: string; files: FileRow[] }> }
+export interface FilesView {
+  total: number; truncated: boolean; groups: Array<{ kind: FileKind; title: string; files: FileRow[] }>;
+  /** R5 (H131): of `total`, the logs Timmy itself writes in the folder (TIMMY_LOGS) */
+  timmyLogs?: number;
+}
+
+/**
+ * R5 (H131; the QA round's defect 24): the logs Timmy itself writes into the folder it runs in (src/utils/logger.ts makes them,
+ * empty, when it is loaded, in the working folder): they are not the project's files, so Home counts them apart. Named here,
+ * not imported: loading that module makes them.
+ */
+export const TIMMY_LOGS: ReadonlySet<string> = new Set(['logs/timmy-tui.log', 'logs/companion.log', 'logs/browser-launcher.log', 'logs/workspace-launcher.log', 'logs/agent-events.log']);
 
 export function readFiles(root: string): FilesView {
   const { files, truncated } = listProjectFiles(root);
@@ -101,6 +112,7 @@ export function readFiles(root: string): FilesView {
   return {
     total: rows.length, truncated,
     groups: KIND_ORDER.map((kind) => ({ kind, title: KIND_TITLE[kind], files: rows.filter((f) => f.kind === kind) })).filter((g) => g.files.length),
+    timmyLogs: rows.filter((f) => TIMMY_LOGS.has(f.rel)).length,
   };
 }
 

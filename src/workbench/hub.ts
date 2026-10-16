@@ -21,6 +21,7 @@
  */
 import { TABS, tabOf, type ConnectionState, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry } from '../contracts/workspace.js';
 import { sameFolder } from '../project/index.js';
+import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
@@ -485,10 +486,19 @@ export function previewView(c: ViewCtx): View {
   } else if (st.state === 'failed') lines.push(...para(`Studio's cards could not be read: ${st.why}`, 'failure', '  '));
   else lines.push([S('  Reading Studio\'s cards…', 'secondary')]);
   lines.push(blank);
-  // the files
-  lines.push(heading(`Files (${data.files.total})`));
-  if (!data.files.total) lines.push([S('  No files yet: this project is blank.', 'secondary')]);
-  else lines.push([S(`  ${data.files.groups.map((gr) => `${gr.files.length} ${gr.title.toLowerCase()}`).join(` ${g.sep} `)}`, 'text')], [S(`  in ${data.project.shown} ${g.sep} 0 Logs & Receipts lists them`, 'secondary')]);
+  // the files: the project's own; R5 (H131; the QA round's defect 24): Timmy's own logs (logs/*.log, which Timmy writes in the
+  // folder it runs in) are counted apart, and said so
+  const own = (gr: (typeof data.files.groups)[number]): number => gr.files.filter((f) => !TIMMY_LOGS.has(f.rel)).length;
+  const logs = data.files.timmyLogs ?? 0;
+  const projectFiles = data.files.total - logs;
+  lines.push(heading(`Files (${projectFiles})`));
+  if (!projectFiles) lines.push([S('  No files yet: this project is blank.', 'secondary')]);
+  else {
+    const kinds = data.files.groups.map((gr) => [gr.kind, own(gr)] as const).filter(([, n]) => n).map(([k, n]) => count(n, k === 'other' ? 'other file' : KIND_WORD[k]));
+    lines.push(...wrapSegs([S(kinds.join(` ${g.sep} `), 'text')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
+    lines.push(...wrapSegs([S(`in ${data.project.shown} ${g.sep} 0 Logs & Receipts lists them`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
+  }
+  if (logs) lines.push(...wrapSegs([S(`not counted: ${count(logs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));
   lines.push(blank);
   // the last run
   lines.push(heading('Last run'));

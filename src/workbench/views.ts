@@ -21,7 +21,7 @@ import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type FileRow, type JobRow } from './state.js';
 import { stateMark, workflowsTabView } from './workflows-tab.js';
-import { clock, count, cut, fit, lineCells, pick, spread, took, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, pick, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
   ui: Ui;
@@ -593,6 +593,10 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   const total = rows.length + records.length;
   const cur = cursorOf(c.ui, `center:${ws}`, total);
   let i = 0;
+  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw, and which keys show it rendered
+  if (ws === 'create3d' || ws === 'motion') {
+    lines.push(...wrapSegs([S('A terminal cannot draw images, 3D or live previews: ', 'secondary'), key('c'), S(' Companion · Show, ', 'secondary'), key('s'), S(' Studio · Show.', 'secondary')], c.width, '  '), blank);
+  }
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -691,6 +695,9 @@ function toolsView(c: ViewCtx): View {
 
 // ── the overlays (drawn in the center) ─────────────────────────────────────────
 
+/** The keys sheet's key column: the longest key and a cell of air. */
+const KEY_COLUMN = 17;
+
 export const HELP: ReadonlyArray<[string, string]> = [
   ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace. Row 1 says their full labels where they fit, else their first words, else their keys with the open tab\'s name at the end; a tab never moves, and ⚠ with a count over a tab is what waits on you there'],
   ['Tab / Shift+Tab', 'the next or previous zone: the body\'s columns, Activity & log, the workflow actions (the one with the keyboard has a heavy amber border and ◆)'],
@@ -725,8 +732,13 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
   const items: View['items'] = [];
   switch (o.kind) {
     case 'help':
-      lines.push([S('Keys', 'strong'), S('  Esc closes. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], blank);
-      for (const [k, w] of HELP) lines.push([S(k.padEnd(16), 'action'), S(w, 'text')]);
+      // R5 (H131; the QA round's defect 5): every entry whole, its words wrapped under themselves (the body is a column of
+      // about half the width on Home and Chat)
+      lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
+      for (const [k, w] of HELP) {
+        const words = wrapText(w, Math.max(8, c.width - KEY_COLUMN));
+        words.forEach((r, i) => lines.push(i === 0 ? [S(k.padEnd(KEY_COLUMN), 'action'), S(r, 'text')] : [S(' '.repeat(KEY_COLUMN)), S(r, 'text')]));
+      }
       return { lines, items };
     case 'picker': {
       lines.push([S('Switch project', 'strong'), S('  type to search; Enter chooses; a path (with /) opens that folder; Esc keeps this one', 'secondary')]);
@@ -772,27 +784,33 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       const s = ui.settings.settings;
       const n = SETTING_LABELS.length + PRESETS.length;
       const cur = cursorOf(ui, 'overlay', n);
+      // R5 (H131; the QA round's defects 5 and 25): each row whole, wrapped under its label (a selected one keeps its ground on
+      // every row); the settings file's path from ~ where it can be, broken at its separators
+      const wrapped = (line: Line, sel: boolean, indent: string): Line[] => wrapSegs(line, Math.max(8, c.width - 2), indent).map((r, k) => (k === 0 ? row(r, sel, g) : [S('  ', 'text', sel ? { selected: true } : {}), ...r.map((x) => (sel ? { ...x, selected: true } : x))]));
       SETTING_LABELS.forEach((x, i) => {
-        items.push({ line: lines.length, item: { kind: 'action', key: `setting:${x.key}`, action: x.key } });
-        lines.push(row([S(s[x.key] ? g.check : g.uncheck, 'action'), S(` ${x.label}`, 'strong'), S(`  ${x.about}`, 'secondary')], i === cur, g));
+        const rows = wrapped([S(s[x.key] ? g.check : g.uncheck, 'action'), S(` ${x.label}`, 'strong'), S(`  ${x.about}`, 'secondary')], i === cur, ' '.repeat(lineCells([S(`${g.check} `)])));
+        items.push({ line: lines.length, item: { kind: 'action', key: `setting:${x.key}`, action: x.key }, rows: rows.length });
+        lines.push(...rows);
       });
       lines.push(blank);
       lines.push(heading('Presets (the startup choices)'));
       PRESETS.forEach((p, j) => {
-        items.push({ line: lines.length, item: { kind: 'action', key: `preset:${p.id}`, action: p.id } });
-        lines.push(row([S(p.label, 'strong'), S(`  ${p.about}`, 'secondary')], SETTING_LABELS.length + j === cur, g));
+        const rows = wrapped([S(p.label, 'strong'), S(`  ${p.about}`, 'secondary')], SETTING_LABELS.length + j === cur, '  ');
+        items.push({ line: lines.length, item: { kind: 'action', key: `preset:${p.id}`, action: p.id }, rows: rows.length });
+        lines.push(...rows);
       });
       lines.push(blank);
-      lines.push(...para(`Kept in ${tildePath(ui.settings.path)}. Show acts now; the startup choices apply when timmy workbench starts at a terminal, never for --json, --help or a script.`, c.width));
+      lines.push(...wrapSegs([S('Kept in ', 'secondary'), S(`${tildePath(ui.settings.path)}.`, 'secondary'), S(' Show acts now; the startup choices apply when timmy workbench starts at a terminal, never for --json, --help or a script.', 'secondary')], c.width));
       return { lines, items };
     }
     case 'confirm-run':
       lines.push([S('Run ', 'strong'), S(`${o.doc} › ${o.block}`, 'strong'), S('?', 'strong')]);
       lines.push(blank);
-      lines.push(field('Runs', o.order.join(` ${g.arrow} `)));
-      lines.push(field('How', 'the REPL\'s own /run: its prediction sealed first, upmd runs each block after the blocks it needs'));
-      lines.push(field('Where', `${data.project.name} (${data.project.shown}), on this computer`));
-      if (o.risky.length) lines.push(field('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, 'attention'));
+      // R5 (H131; the QA round's defect 15): each field whole, wrapped under itself
+      lines.push(...fieldRows('Runs', o.order.join(` ${g.arrow} `), c.width));
+      lines.push(...fieldRows('How', 'the REPL\'s own /run: its prediction sealed first, upmd runs each block after the blocks it needs', c.width));
+      lines.push(...fieldRows('Where', `${data.project.name} (${data.project.shown}), on this computer`, c.width));
+      if (o.risky.length) lines.push(...fieldRows('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, c.width, 'attention'));
       {
         // R4 (H112): a run of it that goes on now: Enter starts nothing (one press, one operation, one job)
         const going = runOfBlock(c, o.doc, o.block);
@@ -1164,10 +1182,14 @@ export function rightView(c: ViewCtx): View {
  * them. `foot` is the key-hint line, drawn last (a fresh notice takes its place for a few seconds). `fixed`: the rows at the top
  * that do not scroll.
  */
-export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line } {
+export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
   const { ui, data, g, width } = c;
   const fresh = ui.flash && c.now - ui.flash.at < 6000 ? ui.flash : null;
-  const foot: Line = fresh ? [S(fresh.text, fresh.role)] : hintLine(width);
+  // R5 (H131; the QA round's defect 15): a notice wider than the row takes the row above the hints too (for its few seconds),
+  // so its words are read to their end ("…so Timmy asks once" was cut); a longer one is cut at the second row's end
+  const said = fresh ? wrapSegs([S(fresh.text, fresh.role)], width) : null;
+  const foot: Line = !said ? hintLine(width) : said.length === 1 ? said[0] : fit(said.slice(1).flatMap((r, i) => (i ? [S(' '), ...r] : r)), width, g.ellipsis);
+  const footAbove = said && said.length > 1 ? said[0] : undefined;
   const a = data.activity;
   // R5 (H131; the QA round's defect 9): the newest event in words; a line a job printed (its raw output) is tab 0's
   const newest = a.events.find((e) => !e.output) ?? null;
@@ -1195,7 +1217,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   if (!ui.activityOpen) {
     const n = Math.max(0, o.logLines ?? 3);
     lines.push(...newestLog(c, n, width).slice(0, n));
-    return { lines, items, fixed: lines.length, foot };
+    return { lines, items, fixed: lines.length, foot, ...(footAbove ? { footAbove } : {}) };
   }
   {
     const sel = selectedItem(c);
@@ -1220,5 +1242,5 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
       for (const rest of more) lines.push([S(' '.repeat(2 + at.length)), S(rest, role)]);
     });
   }
-  return { lines, items, fixed: 2, foot };
+  return { lines, items, fixed: 2, foot, ...(footAbove ? { footAbove } : {}) };
 }

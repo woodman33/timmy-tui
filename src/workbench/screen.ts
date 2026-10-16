@@ -180,7 +180,10 @@ export function frameOf(a: FrameAsk): Frame {
     const i = items.length ? cursorOf(ui, 'bottom', items.length) : -1;
     const scroll = scrollFor(ui, 'bottom', items, { ...(i >= 0 ? { at: items[i].line, end: endOf(items, i, rest.length) } : {}), height: Math.max(1, body), total: rest.length });
     const shown = rest.slice(scroll, scroll + body);
-    const lines = [...v.lines.slice(0, fixed), ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => []), v.foot];
+    const above = [...v.lines.slice(0, fixed), ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => [])];
+    // R5 (H131): a notice two rows long takes the row above the hints for its few seconds (never Activity's first row)
+    if (v.footAbove && above.length > 1) above[above.length - 1] = v.footAbove;
+    const lines = [...above, v.foot];
     const note = ui.activityOpen ? rangeNote(scroll, Math.max(1, body), rest.length) : undefined;
     placed.push({ rect: layout.bottom, rows: panel({ title: 'Activity & log', lines, focused: ui.focus === 'bottom', ...(note ? { note } : {}) }, layout.bottom, g) });
     regions.bottom = { rect: layout.bottom, list: 'bottom', items, scroll, fixed, height: Math.max(1, body), total: rest.length };
