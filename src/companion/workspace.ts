@@ -104,6 +104,14 @@ export class CompanionWorkspace {
     return made;
   }
 
+  /**
+   * R5 lead (the final QA of a77d80d, defect 1): the frames shared for the project in `root` are let go, so the next read makes
+   * one after what just happened there (the bus brought a sealed receipt: a turn's end, a run's).
+   */
+  forget(root: string): void {
+    for (const k of [...this.shared.keys()]) if (k.startsWith(`${root}\n`)) this.shared.delete(k);
+  }
+
   /** GET /api/workspace: the frame, or why there is none, in words. */
   async answerFrame(shown: ShownProject): Promise<Answer> {
     try {

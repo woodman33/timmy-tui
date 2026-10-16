@@ -662,7 +662,9 @@ function connect() {
         if (takeReplTurns(msg.events, false)) mirrorChanged();
       } else if (msg.type === 'bus' && msg.event) {
         appendToLocalLogs('INFO', `Event bus: ${String(msg.event.kind)}`);
-        if (takeReplTurns([msg.event], true)) mirrorChanged();
+        // R5 lead (the final QA of a77d80d, defect 1): a turn's end reaches the whole page with its mirror row: the frame
+        // (the strip, the activity line, the log) is read again now, not at its next 3 s read
+        if (takeReplTurns([msg.event], true)) { mirrorChanged(); readFrameAfterTurnEnd(); }
       } else if (msg.type === 'sync') {
         // Live broadcasts use data; the hello/reconnect snapshot uses history.
         const history = msg.data ?? msg.history;
@@ -1342,6 +1344,18 @@ function readFrame() {
     } finally { workspace.asking = null; }
   })();
   return workspace.asking;
+}
+
+/**
+ * R5 lead (the final QA of a77d80d, defect 1: just after a stop the page's mirror said STOPPED while its strip still offered
+ * Stop, its activity said "1 running" and its log had no stop, for up to 3 s, until the next read): a turn sealed on the bus
+ * is read into the whole page at once. A read already under way began before the seal, so this one follows it.
+ */
+function readFrameAfterTurnEnd() {
+  try {
+    const under = workspace.asking;
+    return under ? under.then(() => readFrame()) : readFrame();
+  } catch (e) { return Promise.resolve(); } // the frame's part of the page is not set up yet: its first read follows
 }
 
 /** Takes a frame: drawn again only when its revision is another one. */

@@ -339,6 +339,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         const whole = chunk.slice(0, cut + 1);
         busOffsets[i] += Buffer.byteLength(whole, 'utf8');
         for (const event of parseBusLines(whole)) {
+          // R5 lead (the final QA of a77d80d, defect 1): a sealed receipt changes the frame (a turn's end, a run's): the frame
+          // shared between reads is let go first, so a page that reads it again on this event is given the frame after it
+          if (event.kind === 'receipt.sealed') workspace.forget(root);
           const msg = JSON.stringify({ type: 'bus', event });
           for (const [c, v] of views) if (v.project.root === root && c.readyState === 1) c.send(msg);
         }
