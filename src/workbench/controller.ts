@@ -40,7 +40,7 @@ import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
-import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
+import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
 import { OutputWatch } from './output.js';
@@ -282,7 +282,7 @@ export class Controller {
     try {
       if (ws === 'logs') this.data.logs = readLogs({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, now: this.now() });
       // R5 (H137): tab 7's reading: the lanes on PATH, Connect's devices, the turns being answered, each pane's log and receipt
-      else if (ws === 'control') this.data.control = readControl({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, jobs: this.data.jobs, away: this.data.away, chain: this.chain(), now: this.now() });
+      else if (ws === 'control') this.data.control = readControl({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, jobs: this.data.jobs, away: this.data.away, chain: this.chain(), now: this.now(), output: this.output, tickMs: this.d.tickMs ?? 1000 });
       else if (ws === 'voxvision') this.data.voxTab = readVox({ root, chain: this.chain(), env: this.d.env, now: this.now() });
       else if (ws === 'tools') this.data.toolsTab = readTools({ root, chain: this.chain(), env: this.d.env, now: this.now() });
       else this.data.fleet = readFleet({ home: timmyHome(this.d.env), root, env: this.d.env, now: this.now() });
@@ -843,7 +843,9 @@ export class Controller {
     const items = this.itemsNow(region);
     const n = items?.length ?? this.itemsOf(region);
     if (!n) return;
-    const at = Math.max(0, Math.min(n - 1, (this.ui.cursor[list] ?? 0) + delta));
+    // R5 (H137): a view that lays its items out as a grid names where ↑ and ↓ move from each (View items' `near`)
+    const near = Math.abs(delta) === 1 ? items?.[this.ui.cursor[list] ?? 0]?.near : undefined;
+    const at = Math.max(0, Math.min(n - 1, (delta > 0 ? near?.down : near?.up) ?? (this.ui.cursor[list] ?? 0) + delta));
     if (items) select(this.ui, list, items, at); else { this.ui.cursor[list] = at; delete this.ui.wheel[list]; }
     // Activity follows its newest while the newest is selected, and is held where the person moved otherwise
     if (region === 'bottom') this.ui.activityFollow = at === n - 1;
@@ -851,7 +853,7 @@ export class Controller {
   }
 
   /** R4 (H112): a region's selectable items as they are now (the center's, the right tab's, Activity's). */
-  private itemsNow(region: Region): ReadonlyArray<{ line: number; item: Item }> | null {
+  private itemsNow(region: Region): View['items'] | null {
     const c = this.ctx();
     if (region === 'center') return centerView(c).items;
     if (region === 'right') return this.hubColumn() ? [] : rightView(c).items;
@@ -870,7 +872,14 @@ export class Controller {
       return;
     }
     if (this.ui.focus === 'top') { this.move(dir); return; }
-    if (this.ui.focus === 'nav' && dir === 1) { this.ui.focus = 'center'; this.emit(); }
+    if (this.ui.focus === 'nav' && dir === 1) { this.ui.focus = 'center'; this.emit(); return; }
+    // R5 (H137): ← → inside a row of a view that lays its items out as a grid (View items' `near`); elsewhere they move nothing
+    if (this.ui.focus === 'center') {
+      const list = this.listOf('center');
+      const items = this.itemsNow('center');
+      const to = items?.[this.ui.cursor[list] ?? 0]?.near?.[dir > 0 ? 'right' : 'left'];
+      if (items && to !== undefined) { this.ui.follow = null; select(this.ui, list, items, to); this.emit(); }
+    }
   }
 
   selectWorkspace(ws: WorkspaceId): void {

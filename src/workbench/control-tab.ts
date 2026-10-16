@@ -8,18 +8,21 @@
  *                    this computer's surfaces (the Workbench, the REPL, the companion, Studio) as the workspace frame's
  *                    connections and the records say; the devices of Timmy Connect (src/connect/read.ts readConnect), each
  *                    with its last probe and the word for it
- *   PANES (centre)   one box per running job, with its log's last lines, and per chat turn being answered (its hold,
- *                    src/agent/chat-turn.ts runningTurns, read only); the selected pane's frame amber and heavy; with nothing
- *                    running, the newest ended runs as quiet panes with their exit and receipt (green only when
- *                    verifyReceiptIn confirms it in this reading)
+ *   PANES (centre)   one box per running job, with its log's last lines (read again at each tick of the Workbench, as the pane
+ *                    says: no job of Timmy's tells a reader that it printed), and per chat turn being answered (its hold,
+ *                    src/agent/chat-turn.ts runningTurns, read only); in the PANES_MAX slots they leave, the newest ended runs
+ *                    as quiet panes with their exit and receipt (green only when verifyReceiptIn confirms it in this reading);
+ *                    the selected pane's frame amber and heavy
  *   right            WAITING ON YOU (the decisions, as the Control Room always had them), the selected run's detail (the one
  *                    run detail, src/contracts/run-detail.ts), RECENT and CHAT TURNS (sealed, every surface's)
  *
  * From 120 terminal columns the three sit side by side (src/workbench/tab-columns.ts, as tabs 0 and 8), each keeping its
  * selection in its own rows (a clipped column says which of its rows show: "↓ a–b of n rows"); below that they are stacked:
- * the panes, what waits, the run detail, the recent runs and turns, then the roster. A terminal draws no picture: live previews (carbonyl) are not drawn here, and the companion
- * (c) shows pages. Marks: ▶ running (never ●, which is a live connection only), ✓ completed or verified, ✕ failed (amber),
- * ■ stopped; every mark has its word beside it.
+ * the panes, what waits, the run detail, the recent runs and turns, then the roster. From GRID_FROM body cells (160 terminal
+ * columns) the panes are the references' 2×2 grid, the roster compact and the right column narrower: ← → move inside a row,
+ * ↑ ↓ between rows; more panes than four are said, with how to reach them. A terminal draws no picture: live previews
+ * (carbonyl) are not drawn here, and the companion (c) shows pages. Marks: ▶ running (never ●, which is a live connection
+ * only), ✓ completed or verified, ✕ failed (amber), ■ stopped; every mark has its word beside it.
  *
  * readControl reads files only: nothing here runs a program, contacts a device, writes, or asks the network.
  */
@@ -50,11 +53,26 @@ type Env = Record<string, string | undefined>;
 
 /** The Workbench list the tab's selection is kept in (src/workbench/screen.ts: `center:<workspace>`). */
 export const CONTROL_LIST = 'center:control';
-/** With nothing running, how many of the newest ended runs are drawn as quiet panes. */
-export const QUIET_PANES = 3;
+/** How many panes the Control Room fills (the references' 2×2 grid): every run that is running first, then the newest ended
+ *  runs in the slots left, as quiet panes. More running than this: the grid shows four at a time and says how many more. */
+export const PANES_MAX = 4;
 /** How many of a pane's log lines are drawn: at least (where there is room), and at most. */
 export const TAIL_MIN = 3;
 export const TAIL_MAX = 6;
+/** The panes as a 2×2 grid from this many body cells (160 terminal columns give 156): a compact roster, two panes of at least
+ *  GRID_PANE_MIN cells side by side, a narrower right column, and the two rules between them. Below it the panes stack. */
+export const GRID_PANE_MIN = 44;
+const GRID_GAP = 1;
+const ROSTER_MIN = 22;
+const RIGHT_MIN = 36;
+export const GRID_FROM = ROSTER_MIN + 2 * GRID_PANE_MIN + GRID_GAP + RIGHT_MIN + 2 * RULE_CELLS;
+/** How many rows of panes the grid shows at a time; a pane's height there, at least (else the keys and the words below the
+ *  grid give it their rows) and at most (a taller grid leaves the rest below it). */
+const GRID_ROWS = 2;
+const PANE_H_MIN = 8;
+const PANE_H_MAX = 14;
+/** The Workbench's own tick (src/workbench/controller.ts), when the reading is not told it: a pane's log is read this often. */
+const TICK_MS = 1000;
 /** The most bytes of a log's end read for its last lines. */
 const TAIL_BYTES = 16 * 1024;
 /** How many ended runs RECENT counts and lists (the newest), as the Control Room always did. */
@@ -64,8 +82,9 @@ const WEIGHTS = [25, 40, 35] as const;
 
 /** The line under the panes: a terminal draws no picture (the operator's reference 07 shows carbonyl previews). */
 export const PREVIEWS_WORDS = 'Live previews (carbonyl) are not drawn here; the companion (c) shows pages.';
-/** What the references' Add harness, Remove harness and Broadcast are, in Timmy now. */
-export const HARNESS_WORDS = 'Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes. Remove a harness, or broadcast to every pane: not in Timmy yet.';
+/** What the references' Add harness, Remove harness, Add pane, Remove pane and Broadcast are, in Timmy now (words only: nothing
+ *  here is drawn as a button). */
+export const HARNESS_WORDS = 'Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes. Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every pane: not in Timmy yet.';
 /** Today's words about a turn being answered (the Control Room's, since R4 H117). */
 export const TURN_STOP_WORDS = 'A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.';
 
@@ -128,8 +147,10 @@ export interface DeviceRow {
 /** A chat turn being answered now, as its hold names it (src/agent/chat-turn.ts OtherTurn). */
 export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown' }
 
-/** A pane's log: its last lines (escapes removed, homes written from ~, the project's folder as .), or why there are none. */
-export type PaneTail = { lines: string[] } | { why: string };
+/** A pane's log: its last lines (escapes removed, homes written from ~, the project's folder as .), or why there are none.
+ *  `every`: while the job runs, how often its log is read again (the Workbench's tick: no job of Timmy's tells a reader of its
+ *  log that it printed, so the pane says how often it looks). */
+export type PaneTail = ({ lines: string[] } | { why: string }) & { every?: number };
 
 /** A quiet pane's receipt, checked in this reading: verified (verifyReceiptIn: its chain link, body hash and signature), not
  *  verified with why, or not found on the chain read here. */
@@ -169,6 +190,11 @@ export interface ControlReadInput {
   turns?: () => readonly OtherTurn[];
   /** Timmy Connect's records (a test's FAKE); else readConnect */
   connect?: (home: string) => ConnectView;
+  /** what each running job printed as the Workbench read it for Activity (src/workbench/output.ts OutputWatch: its log from a
+   *  byte offset, every tick, a drawing run read as its blocks' output): a running pane's lines are these where its job is read */
+  output?: { watching(job: string): boolean; lines(job: string): ReadonlyArray<{ text: string }> };
+  /** how often the Workbench reads again while the tab is shown (its tick, ms); TICK_MS when not said */
+  tickMs?: number;
 }
 
 /** Where `program` is on PATH (the first executable file of its name), or null: nothing is run. */
@@ -300,13 +326,13 @@ export function checkReceipt(chain: readonly Receipt[], job: string, short: stri
 }
 
 /** The jobs drawn as panes: every live one of the project, and this Workbench's runs in another project (`away`, as the
- *  Control Room always listed them apart); with nothing running (no job, no chat turn), the newest QUIET_PANES ended runs of
- *  the project, as quiet panes. */
+ *  Control Room always listed them apart); then, in the PANES_MAX slots the running ones (chat turns being answered among them)
+ *  leave, the project's newest ended runs, as quiet panes. */
 export function paneJobs(jobs: readonly JobRow[], away: readonly JobRow[], turnsRunning: number): { live: JobRow[]; away: JobRow[]; quiet: JobRow[] } {
   const live = jobs.filter((j) => j.live);
   const elsewhere = away.filter((j) => j.live);
-  if (live.length || elsewhere.length || turnsRunning) return { live, away: elsewhere, quiet: [] };
-  return { live, away: elsewhere, quiet: jobs.filter((j) => !j.live).slice(0, QUIET_PANES) };
+  const left = Math.max(0, PANES_MAX - live.length - elsewhere.length - turnsRunning);
+  return { live, away: elsewhere, quiet: jobs.filter((j) => !j.live).slice(0, left) };
 }
 
 /**
@@ -327,9 +353,14 @@ export function readControl(i: ControlReadInput): ControlData {
   const panes = paneJobs(i.jobs, away, turns.length);
   const tails: Record<string, PaneTail> = {};
   const receipts: Record<string, ReceiptCheck> = {};
+  const every = i.tickMs ?? TICK_MS;
   for (const j of [...panes.live, ...panes.away, ...panes.quiet]) {
+    // a running job: the lines the Workbench read of it for Activity (the same lines, read from where it last looked), else its
+    // log's end; either way read again at the next tick, as the pane says. An ended one: its log's end, as it ended.
+    if (j.live && i.output?.watching(j.id)) { tails[j.id] = { lines: i.output.lines(j.id).map((l) => l.text).filter((t) => t.trim()).slice(-TAIL_MAX), every }; continue; }
     const rec = i.records.find((r) => r.id === j.id);
-    tails[j.id] = rec ? tailOf(rec.logPath, TAIL_MAX, (t) => scrubHomes(t.split(j.root).join('.'), env as NodeJS.ProcessEnv)) : { why: 'its record was not read here' };
+    const tail = rec ? tailOf(rec.logPath, TAIL_MAX, (t) => scrubHomes(t.split(j.root).join('.'), env as NodeJS.ProcessEnv)) : { why: 'its record was not read here' };
+    tails[j.id] = j.live ? { ...tail, every } : tail;
   }
   if (i.chain) for (const j of panes.quiet) if (j.receipt) receipts[j.id] = checkReceipt(i.chain, j.id, j.receipt);
   return { at: new Date(now).toISOString(), lanes, devices, turns, tails, receipts, notes };
@@ -349,7 +380,32 @@ export type ControlItem =
  *  columns sit side by side (a click on that row in another column is not on it). */
 export interface ControlView {
   lines: Line[];
-  items: Array<{ line: number; item: ControlItem; rows?: number; x?: { from: number; to: number } }>;
+  items: Array<{ line: number; item: ControlItem; rows?: number; x?: { from: number; to: number }; near?: Near }>;
+}
+
+/** Where each arrow moves from an item drawn in a grid (the item's place among the view's items); an arrow it does not name
+ *  moves as in any list (↑ ↓ to the item before or after; ← → nowhere). */
+export interface Near { up?: number; down?: number; left?: number; right?: number }
+
+/** The columns' widths where the panes are a grid (GRID_FROM body cells and wider): the roster compact, two panes of at least
+ *  GRID_PANE_MIN cells side by side in the middle, the right column narrower; what is beyond the least shared 15 : 55 : 30. */
+export function gridWidths(W: number): [number, number, number] {
+  const total = W - 2 * RULE_CELLS;
+  const extra = Math.max(0, total - (GRID_FROM - 2 * RULE_CELLS));
+  const roster = ROSTER_MIN + Math.floor(extra * 0.15);
+  const right = RIGHT_MIN + Math.floor(extra * 0.3);
+  return [roster, total - roster - right, right];
+}
+
+/** Where the arrows move from the `i`th of `n` panes laid out two to a row (row by row): ← → inside its row, ↑ ↓ to the pane
+ *  above or below it; at the grid's top and bottom rows ↑ ↓ move on as in any list. */
+export function gridNear(i: number, n: number): Near {
+  const out: Near = {};
+  if (i % 2 === 0 && i + 1 < n) out.right = i + 1;
+  if (i % 2 === 1) out.left = i - 1;
+  if (i + 2 < n) out.down = i + 2;
+  if (i - 2 >= 0) out.up = i - 2;
+  return out;
 }
 
 /** A live turn's key: its surface, its process and when it took the project. */
@@ -449,30 +505,58 @@ function exitAndReceipt(j: JobRow, d: ControlData | undefined, g: Glyphs, w: num
   return oneOr(w, [...exit, S(` ${g.sep} `, 'secondary'), S(words, role)], [exit, ...wrapText(words, Math.max(6, w)).map((t) => [S(t, role)])]);
 }
 
-/** A job's pane: its id on the edge (its elapsed time, or when it ended, at the edge's end), its mark, word and label, recovery's
- *  state and where it runs when they apply, who started it with its operation and blocks, its log's last lines, and (a quiet
- *  pane) its exit and receipt. */
-function jobPane(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: number, selected: boolean, quiet: boolean, tailRows: number): Line[] {
+/** A pane's parts: its title and note on the box's edge, the rows above its log (always drawn), its log's lines (the newest
+ *  kept where the pane is short) and the rows below them (always drawn). */
+interface PaneParts { title: Seg[]; note: Seg[]; head: Line[]; tail: Line[]; foot: Line[]; selected: boolean }
+
+/** A pane `w` cells wide: `height` rows tall when given (its log's oldest lines left out where the rows are few, blank rows
+ *  under them where they are many: the panes of a grid's row are one height), else as tall as its parts. Selected: its frame
+ *  amber and heavy. */
+function drawPane(p: PaneParts, w: number, g: Glyphs, height?: number): Line[] {
+  let body: Line[] = [...p.head, ...p.tail, ...p.foot];
+  if (height !== undefined) {
+    const room = Math.max(0, height - 2);
+    const keep = Math.max(0, room - p.head.length - p.foot.length);
+    body = [...p.head, ...p.tail.slice(Math.max(0, p.tail.length - keep)), ...p.foot].slice(0, room);
+    while (body.length < room) body.push([]);
+  }
+  return card({ w, title: p.title, note: p.note, body, edge: p.selected ? 'focus' : 'border', heavy: p.selected, g });
+}
+
+/** "1 s", "0.5 s": an interval in the pane's words. */
+const seconds = (ms: number): string => `${Number((ms / 1000).toFixed(1))} s`;
+
+/** A job's pane: its id on the edge (its elapsed time, or when it ended, at the edge's end), its mark, word and label (its blocks
+ *  beside them where they fit), recovery's state and where it runs when they apply, who started it with its operation, its
+ *  log's last lines (at most `tailRows`), and how its log is read (a running job: every tick) or (a quiet pane) its exit and
+ *  receipt. */
+function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: number, selected: boolean, quiet: boolean, tailRows = TAIL_MAX): PaneParts {
   const g = c.g;
   const m = jobMark(j, g);
   const inner = Math.max(1, w - 4);
-  // its mark and word, then its label: on one row where they fit, else the label wrapped under them (the word is never cut)
+  const role: Role = quiet ? 'text' : 'strong';
+  // its mark and word, then its label and its blocks: on one row where they fit, else the label wrapped under them (the word is
+  // never cut) and the blocks with who started it
   const state: Line = [S(`${m.glyph} `, m.role), S(j.word, m.role)];
-  const body: Line[] = oneOr(inner, [...state, S(`  ${j.label}`, quiet ? 'text' : 'strong')], [state, ...wrapText(j.label, Math.max(6, inner)).slice(0, 2).map((t) => [S(t, quiet ? 'text' : 'strong')])]);
+  const labelled: Line = [...state, S(`  ${j.label}`, role)];
+  const withBlocks: Line = [...labelled, ...(j.blocks ? [S(` ${g.sep} ${j.blocks}`, 'secondary')] : [])];
+  const blocksAbove = lineCells(withBlocks) <= inner;
+  const head: Line[] = blocksAbove ? [withBlocks] : oneOr(inner, labelled, [state, ...wrapText(j.label, Math.max(6, inner)).slice(0, 2).map((t) => [S(t, role)])]);
   const where = sameFolder(j.root, c.data.project.root) ? '' : `in ${j.project}`;
   // R4 (H112): a job a session left, in recovery's words (left running, stale, ended by recovery), never as one of ours
   const recovery = j.recovery && j.recovery.state !== j.word ? j.recovery.state : '';
-  if (recovery || where) body.push([...(recovery ? [S(recovery, 'attention')] : []), ...(where ? [S(`${recovery ? ` ${g.sep} ` : ''}${where}`, 'secondary')] : [])]);
-  // who started it, its operation, its blocks: each whole, on as many rows as the pane's width takes
-  body.push(...flowRows([whoOf(j), j.operation ?? 'no operation', j.blocks ?? ''], inner, 'secondary', g));
+  if (recovery || where) head.push([...(recovery ? [S(recovery, 'attention')] : []), ...(where ? [S(`${recovery ? ` ${g.sep} ` : ''}${where}`, 'secondary')] : [])]);
+  // who started it, its operation (its blocks where they were not above): each whole, on as many rows as the pane's width takes
+  head.push(...flowRows([whoOf(j), j.operation ?? 'no operation', blocksAbove ? '' : j.blocks ?? ''], inner, 'secondary', g));
   const t = d?.tails[j.id];
-  if (!t) body.push([S('reading its log…', 'secondary')]);
-  else if ('why' in t) body.push([S(t.why, 'secondary')]);
-  else if (!t.lines.length) body.push([S(quiet ? 'it printed nothing' : 'nothing printed yet', 'secondary')]);
-  else for (const l of t.lines.slice(-tailRows)) body.push([S(cut(l, inner, g.ellipsis), quiet ? 'secondary' : 'text')]);
-  if (quiet) body.push(...exitAndReceipt(j, d, g, inner));
+  const tail: Line[] = !t ? [[S('reading its log…', 'secondary')]]
+    : 'why' in t ? para(t.why, inner)
+      : !t.lines.length ? [[S(quiet ? 'it printed nothing' : 'nothing printed yet', 'secondary')]]
+        : t.lines.slice(-tailRows).map((l): Line => [S(cut(l, inner, g.ellipsis), quiet ? 'secondary' : 'text')]);
+  // how its lines come: read again at each tick while it runs (said, as the reading is a look, not a stream)
+  const foot: Line[] = quiet ? exitAndReceipt(j, d, g, inner) : t?.every ? [[S(`log read every ${seconds(t.every)}`, 'secondary')]] : [];
   const note = [S(j.live ? j.elapsed : `ended ${ago(j.endedAt ?? j.startedAt, c.now)}`, 'secondary')];
-  return card({ w, title: [S(j.id, selected ? 'focus' : 'strong')], note, body, edge: selected ? 'focus' : 'border', heavy: selected, g });
+  return { title: [S(j.id, selected ? 'focus' : 'strong')], note, head, tail, foot, selected };
 }
 
 /** How a turn being answered is stopped, where it was sent from. */
@@ -480,21 +564,21 @@ const turnStop = (s: ChatSurface): string => (s === 'workbench' ? 'Esc in its co
 
 /** A chat turn's pane: whose surface, which process, since when; the Workbench's own turn its tools as they run (its words
  *  are drawn in Chat, never here); how it is stopped. */
-function turnPane(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean): Line[] {
+function turnParts(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean): PaneParts {
   const g = c.g;
   const inner = Math.max(8, w - 4);
   const state: Line = [S(`${g.next} `, 'text'), S('answering', 'text')];
-  const body: Line[] = oneOr(inner, [...state, S(`  from ${surfaceWords(t.surface)}`, 'strong')], [state, [S(`from ${surfaceWords(t.surface)}`, 'strong')]]);
-  body.push(...flowRows([t.mine ? 'this process' : `pid ${t.pid}`, `since ${clock(t.taken)}`], inner, 'secondary', g));
-  if (t.proof === 'unknown') body.push(...para('its process\'s start could not be read, so it is taken as running', inner));
+  const head: Line[] = oneOr(inner, [...state, S(`  from ${surfaceWords(t.surface)}`, 'strong')], [state, [S(`from ${surfaceWords(t.surface)}`, 'strong')]]);
+  head.push(...flowRows([t.mine ? 'this process' : `pid ${t.pid}`, `since ${clock(t.taken)}`], inner, 'secondary', g));
+  if (t.proof === 'unknown') head.push(...para('its process\'s start could not be read, so it is taken as running', inner));
+  const tail: Line[] = [];
   const own = t.mine && t.surface === 'workbench' && c.data.turn?.state === 'sending' ? c.data.turn : undefined;
   if (own) {
-    for (const x of own.tools.slice(-3)) body.push([S(`${x.phase === 'start' ? g.next : g.ok} ${x.name}`, 'text'), S(x.outcome ? ` ${x.outcome}` : x.phase === 'start' ? ' running' : '', 'secondary')]);
-    body.push([S(own.answer ? `the answer so far: ${count(own.answer.length, 'character')} (2 Chat shows it)` : 'no answer yet', 'secondary')]);
-  } else body.push(...para('its words are where it was sent', inner));
-  body.push(...para(turnStop(t.surface), inner));
+    for (const x of own.tools.slice(-3)) tail.push([S(`${x.phase === 'start' ? g.next : g.ok} ${x.name}`, 'text'), S(x.outcome ? ` ${x.outcome}` : x.phase === 'start' ? ' running' : '', 'secondary')]);
+    tail.push([S(own.answer ? `the answer so far: ${count(own.answer.length, 'character')} (2 Chat shows it)` : 'no answer yet', 'secondary')]);
+  } else tail.push(...para('its words are where it was sent', inner));
   const ms = c.now - Date.parse(t.taken);
-  return card({ w, title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], body, edge: selected ? 'focus' : 'border', heavy: selected, g });
+  return { title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], head, tail, foot: para(turnStop(t.surface), inner), selected };
 }
 
 /** What waits on you, one decision: its title (⚠, wrapped, never cut), what is needed, its first command. */
@@ -737,29 +821,87 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const selected = sel >= 0 ? all[sel] : null;
   const paneCount = panes.live.length + liveTurns.length + panes.away.length + panes.quiet.length;
   const side = sideBySideAt(c);
-  const [wa, wb, wc] = side ? widths(W - 2 * RULE_CELLS, WEIGHTS) : [W, W, W];
+  // from GRID_FROM body cells (160 terminal columns, Context's drawer shut), the panes are a 2×2 grid; below, they stack
+  const grid = side && W >= GRID_FROM;
+  const [wa, wb, wc] = !side ? [W, W, W] : grid ? gridWidths(W) : widths(W - 2 * RULE_CELLS, WEIGHTS);
   const room = Math.max(1, c.height);
+  /** The parts of the `i`th pane (a job, or a chat turn being answered), `w` cells wide. */
+  const partsOf = (i: number, w: number, tailRows?: number): PaneParts | null => {
+    const it = all[i];
+    if (it?.kind === 'live-turn') return turnParts(it.live, c, w, i === sel);
+    if (it?.kind === 'job') return jobParts(it.job, c, d, w, i === sel, quietIds.has(it.job.id), tailRows);
+    return null;
+  };
 
-  // the panes column: what runs (or, with nothing running, the newest ended runs, quiet), then what a terminal cannot draw
+  const running = panes.live.length + liveTurns.length;
+  const awayTitle = (w: number): Line[] => wrapText(`Running in another project, started here (${panes.away.length})`, Math.max(6, w)).map((t): Line => [heading(t)]);
+
+  // stacked panes (below GRID_FROM): what runs, this Workbench's runs elsewhere, the newest ended (quiet), one under another,
+  // then what a terminal cannot draw
   const paneBlocks = (w: number): Block[] => {
     const b: Block[] = [];
-    const running = panes.live.length + liveTurns.length;
     b.push({ lines: [[heading(`Running now (${running})`)]] });
     if (!running) b.push({ lines: para('Nothing runs in this project.', w) });
-    if (panes.quiet.length) b.push({ lines: [[heading(`Newest ended runs (${panes.quiet.length})`)]] });
     // each pane's log lines: as many as the column has room for, TAIL_MIN to TAIL_MAX
     const base = 5 + (panes.quiet.length ? 1 : 0);
     const tailRows = side ? Math.max(TAIL_MIN, Math.min(TAIL_MAX, Math.floor((room - 6) / Math.max(1, paneCount)) - base)) : TAIL_MIN + 1;
-    let i = 0;
-    for (const j of panes.live) { b.push({ lines: jobPane(j, c, d, w, i === sel, false, tailRows), at: i }); i += 1; }
-    for (const t of liveTurns) { b.push({ lines: turnPane(t, c, w, i === sel), at: i }); i += 1; }
-    // this Workbench's runs in another project keep running when the project changes (R4 H112): apart, under their own title
-    if (panes.away.length) b.push({ lines: [[], ...wrapText(`Running in another project, started here (${panes.away.length})`, Math.max(6, w)).map((t): Line => [heading(t)])] });
-    for (const j of panes.away) { b.push({ lines: jobPane(j, c, d, w, i === sel, false, tailRows), at: i }); i += 1; }
-    for (const j of panes.quiet) { b.push({ lines: jobPane(j, c, d, w, i === sel, true, tailRows), at: i }); i += 1; }
+    for (let i = 0; i < paneCount; i++) {
+      // this Workbench's runs in another project keep running when the project changes (R4 H112): apart, under their own title
+      if (i === running && panes.away.length) b.push({ lines: [[], ...awayTitle(w)] });
+      if (i === running + panes.away.length && panes.quiet.length) b.push({ lines: [[], [heading(`Newest ended runs (${panes.quiet.length})`)]] });
+      const parts = partsOf(i, w, tailRows);
+      if (parts) b.push({ lines: drawPane(parts, w, g), at: i });
+    }
     // stacked, what a terminal cannot draw follows the panes; side by side it is the column's foot, always shown (previewsFoot)
     if (!side) b.push({ lines: [[], ...para(PREVIEWS_WORDS, w)] });
     return b;
+  };
+
+  // the panes as the references' 2×2 grid: what runs first, then the newest ended, two to a row, the rows' panes one height;
+  // two rows at a time, around the selected pane, a line saying how many more there are and how to reach them; then the keys,
+  // what is not in Timmy, and what a terminal cannot draw
+  const gridColumn = (w: number): { lines: Line[]; placed: Array<{ at: number; line: number; rows: number; from: number; to: number }> } => {
+    const pw = Math.floor((w - GRID_GAP) / 2);
+    const gap = w - 2 * pw;
+    const top: Line[] = oneOr(w, [heading(`Running now (${running})`), ...(panes.quiet.length ? [S(`  ${g.sep}  `, 'secondary'), heading(`Newest ended runs (${panes.quiet.length})`)] : [])],
+      [[heading(`Running now (${running})`)], ...(panes.quiet.length ? [[heading(`Newest ended runs (${panes.quiet.length})`)]] : [])]);
+    if (!running) top.push(...para('Nothing runs in this project.', w));
+    if (panes.away.length) top.push(...awayTitle(w));
+    const rowsAll = Math.ceil(paneCount / 2);
+    const selRow = sel >= 0 && sel < paneCount ? Math.floor(sel / 2) : 0;
+    const r0 = Math.max(0, Math.min(rowsAll - GRID_ROWS, selRow - GRID_ROWS + 1));
+    const r1 = Math.min(rowsAll, r0 + GRID_ROWS);
+    const above = r0 * 2;
+    const below = Math.max(0, paneCount - r1 * 2);
+    const up = g.unicode ? '↑' : '^';
+    const down = g.unicode ? '↓' : 'v';
+    const more: Line[] = above || below ? flow([[...(above ? [`+${above} more above: ${up} moves to them`] : []), ...(below ? [`+${below} more below: ${down} moves to them`] : [])]], w, '', `  ${g.sep}  `, 'secondary', g.ellipsis) : [];
+    const arrows = g.unicode ? '←→↑↓' : 'arrows';
+    const keys = oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key(arrows), S(' between panes', 'secondary')],
+      [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w), ...keyRows(arrows, 'between panes', w)]);
+    const full: Line[] = [[], ...keys, ...para(HARNESS_WORDS, w), [], ...para(PREVIEWS_WORDS, w)];
+    const least: Line[] = [[], ...para(PREVIEWS_WORDS, w)];
+    const shown = r1 - r0;
+    const heightWith = (foot: readonly Line[]): number => (shown ? Math.floor((room - top.length - more.length - foot.length) / shown) : 0);
+    // the keys and the words of what is not in Timmy where the panes keep a useful height; else what a terminal cannot draw only
+    const foot = !shown || heightWith(full) >= PANE_H_MIN ? full : least;
+    const H = Math.max(3, Math.min(PANE_H_MAX, heightWith(foot)));
+    const lines: Line[] = [...top];
+    const placed: Array<{ at: number; line: number; rows: number; from: number; to: number }> = [];
+    for (let r = r0; r < r1; r++) {
+      const pair: Line[][] = [[], []];
+      for (let k = 0; k < 2; k++) {
+        const i = r * 2 + k;
+        const parts = i < paneCount ? partsOf(i, pw) : null;
+        if (!parts) continue;
+        pair[k] = drawPane(parts, pw, g, H);
+        const from = k ? pw + gap : 0;
+        placed.push({ at: i, line: lines.length, rows: H, from, to: from + pw });
+      }
+      for (let y = 0; y < H; y++) lines.push([...fit(pair[0][y] ?? [], pw, g.ellipsis), S(' '.repeat(gap)), ...fit(pair[1][y] ?? [], pw, g.ellipsis)]);
+    }
+    lines.push(...more, ...foot);
+    return { lines: rowsOf(lines, w, room, g.ellipsis), placed };
   };
   const previewsFoot = (w: number): Line[] => [[], ...para(PREVIEWS_WORDS, w)];
   // the keys, and what the references' Add harness, Remove harness and Broadcast are here (side by side: only where they fit
@@ -796,11 +938,15 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     return b;
   };
 
-  const items: ControlView['items'] = all.map((item) => ({ line: -1, item }));
+  const items: ControlView['items'] = all.map((item, i) => ({ line: -1, item, ...(grid && i < paneCount ? { near: gridNear(i, paneCount) } : {}) }));
   if (side) {
+    const x0 = [0, wa + RULE_CELLS, wa + RULE_CELLS + wb + RULE_CELLS];
+    // the grid places each pane in its own cells (a click is on the pane under it)
+    const gridded = grid ? gridColumn(wb) : null;
+    for (const p of gridded?.placed ?? []) items[p.at] = { ...items[p.at], line: p.line, rows: p.rows, x: { from: x0[1] + p.from, to: x0[1] + p.to } };
     const cols = [
       { lines: clipRows(rosterLines(c, d, wa), wa, room, g), placed: [] as Array<{ at: number; line: number; rows: number }> },
-      (() => {
+      gridded ? { lines: gridded.lines, placed: [] as Array<{ at: number; line: number; rows: number }> } : (() => {
         const blocks = paneBlocks(wb);
         const foot = previewsFoot(wb);
         const keys = keysBlock(wb);
@@ -813,7 +959,6 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
         return columnOf(listRows(whole) <= room ? whole : rightBlocks(wc, true), sel, room, wc, g);
       })(),
     ];
-    const x0 = [0, wa + RULE_CELLS, wa + RULE_CELLS + wb + RULE_CELLS];
     const ws = [wa, wb, wc];
     cols.forEach((col, k) => { for (const p of col.placed) items[p.at] = { line: p.line, item: all[p.at], ...(p.rows > 1 ? { rows: p.rows } : {}), x: { from: x0[k], to: x0[k] + ws[k] } }; });
     const height = Math.max(...cols.map((col) => col.lines.length));
