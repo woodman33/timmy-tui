@@ -154,6 +154,15 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         // On a phone the jobs start folded: they are in the page before they are on screen.
         await page.waitForSelector(`#job-list li[data-job="${tag}-a"]`, { state: 'attached', timeout: 10_000 });
         await page.waitForSelector(`#job-list li[data-job="${tag}-b"]`, { state: 'attached', timeout: 10_000 });
+        // R6 lead (CI on #99 at 1165cbd): since H139 a job this page answered is listed at once with the page's own time, marked
+        // "answered here; Timmy records it next" (data-waiting), until the page reads Timmy's ledger. The rows compared with the
+        // ledger below are the recorded ones: wait for them (and for a's receipt), not for the first row drawn.
+        await page.waitForFunction((t) => {
+          const row = (id: string) => document.querySelector<HTMLElement>(`#job-list li[data-job="${id}"]`);
+          const a = row(`${t}-a`);
+          const b = row(`${t}-b`);
+          return !!a && !a.dataset.waiting && !!a.querySelector('.job-row[data-row="Receipt"] a') && !!b && !b.dataset.waiting;
+        }, tag, { timeout: 15_000 });
         if (!(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open))) await page.click('#jobs > summary');
         const api = await getJson<Array<{ id: string; revision: number; at: string; ok: boolean }>>('/api/canvas/jobs');
         const read = (id: string) => page.$eval(`#job-list li[data-job="${id}"]`, (li) => ({
