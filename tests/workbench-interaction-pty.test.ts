@@ -706,8 +706,11 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // every line once, in order, whatever upmd redrew (Activity, all of it, by its rows' words); R5 (H136): read once the
       // run's end is drawn (its job's completed event), not after a set time
       await t.waitFor(new RegExp(`${job.id} completed`), 10_000);
-      const ended = await activity();
-      expect(ended.range.endsWith(`–${ended.total}`)).toBe(true);
+      // R6 lead (CI at bbf0d33, once; not seen in 3 local runs): one read after the run's end found the view not at its last
+      // row. Read until the view shows the newest (up to 5 s; a view that stopped following still fails), and say what it showed
+      let ended = await activity();
+      for (const end = Date.now() + 5_000; !ended.range.endsWith(`–${ended.total}`) && Date.now() < end; await sleep(200)) ended = await activity();
+      expect(ended.range.endsWith(`–${ended.total}`), `after the run's end the view shows ${ended.range} of ${ended.total}; its last rows: ${ended.rows.slice(-3).join(' / ')}`).toBe(true);
 
       // resized during a run: one frame each time, as wide as the terminal; the run and its Stop as they were
       await t.keys('BTab');
