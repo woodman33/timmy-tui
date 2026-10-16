@@ -160,7 +160,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     expect(tidy()?.state, 'the FAKE-upmd run of APPROVAL.md › tidy, by its job record').toBe('completed');
 
     const pages = [
-      { key: '1', name: 'home', title: /tray1 \/ Home · connections, as observed/ },
+      // (at 100x30 the title gives its tail to the range note, 1–N of M: QA defect 7)
+      { key: '1', name: 'home', title: /tray1 \/ Home · connections/ },
       { key: '2', name: 'chat', title: /tray1 \/ Chat · conversation/ },
       { key: '3', name: 'workflows', title: /tray1 \/ Workflows · plan and run/ },
       { key: '7', name: 'control-room', title: /tray1 \/ Control Room · jobs/ },

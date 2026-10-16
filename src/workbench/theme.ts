@@ -38,7 +38,9 @@ const ROLE_COLOR: Readonly<Record<Role, string>> = {
 export function styleOf(s: Seg, colour: boolean): InkTextStyle {
   const role = s.role ?? 'text';
   const style: InkTextStyle = {};
-  if (colour) style.color = ROLE_COLOR[role];
+  // R5 (H131; the QA round's defect 11): on the selection's ground a quiet word takes the text's colour (grey on it measured
+  // 3.88:1, under the 4.5:1 floor), and so does a bracket drawn in the border's grey
+  if (colour) style.color = s.selected && (role === 'secondary' || role === 'border') ? HOMEBREW.text : ROLE_COLOR[role];
   if (s.bold || role === 'strong' || role === 'focus' || role === 'live') style.bold = true;
   if (s.underline) style.underline = true;
   if (s.inverse) style.inverse = true;

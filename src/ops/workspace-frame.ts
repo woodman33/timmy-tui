@@ -84,6 +84,27 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
   return file;
 }
 
+/** R5 lead: how often a surface that answers its own page notes it (noteAnswered); well inside LIVE_FOR_MS. */
+export const SELF_NOTE_MS = 5 * 60_000;
+
+/**
+ * R5 lead (H133's note: Studio's own page showed "Open Studio" as its next step until a `timmy workspace check` had seen
+ * Studio): a local surface that just answered a request records that answer, as a check made then would have seen it. At
+ * most once in SELF_NOTE_MS, so a page asking every few seconds writes little; true when it wrote. A record that cannot be
+ * written leaves the frame as the last check left it (nothing is said that was not observed).
+ */
+export function noteAnswered(id: 'studio' | 'companion', detail: string, env: Env = process.env, now = Date.now()): boolean {
+  try {
+    const rec = readConnections(env);
+    const last = rec.checks[id];
+    if (last?.answer === 'accepted' && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail } } }, env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * How long ago, in words that change at most once a minute (R5 lead, H132's note: words in seconds changed the frame's
  * revision every second, so a revision check went stale by itself): "just now", then minutes, hours, days. The exact time is the connection's observedAt.
@@ -168,27 +189,79 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
   }
-  if (!wb.route.ready) unknown.push({ field: 'chat', why: sentences(wb.route.refusal ?? []) || 'no chat route is set up' });
+  if (!wb.route.ready) unknown.push({ field: 'chat', why: chatNotReady(wb.route) });
   return out;
 }
 
 /** Lines said as one paragraph: each ends as a sentence (a line with no closing mark gets a full stop), so none runs on. */
 export const sentences = (lines: readonly string[]): string => lines.map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:)]$/.test(l) ? l : `${l}.`)).join(' ');
 
+/**
+ * R5 lead (H131's note): why chat is not ready, said as a state. A route's refusal is a message's ("so this message was not
+ * sent", "Nothing was sent to any model"), and a frame is no message. With no route at all, the frame's one step, the same
+ * as Home's first action (timmy setup); otherwise the route's own cause and fix (a local model not answering, free-only).
+ */
+export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>): string {
+  if (r.kind === 'none') return 'No chat route yet: no OpenRouter key, and the chat is not set to a local model. timmy setup sets one up.';
+  const lines = (r.refusal ?? [])
+    .filter((l) => !/^\s*Nothing was sent to any model\.?\s*$/i.test(l))
+    .map((l) => l.replace(/,?\s*so this message was not sent/i, '').replace(/^\s*Error:\s*/, ''))
+    .map((l) => l.charAt(0).toUpperCase() + l.slice(1));
+  return sentences(lines) || 'The chat route is not ready.';
+}
+
+/**
+ * R5 lead (the operator's finish line, item 3): the one fix for a chat that cannot answer, specific to what is wrong. Each
+ * names a command a surface can carry out or show: `timmy setup` asks for a key hidden (a key is never typed into a tab),
+ * `/model` chooses the local model among those Ollama lists, `/model free` chooses a free model while free-only stays on
+ * (turning free-only off is never the fix offered), `timmy workspace check` asks again once Ollama runs.
+ */
+export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'free-only' | 'key-refused';
+export interface ChatFix { problem: ChatProblem; label: string; command: string; effect: WorkspaceAction['effect']; words: string }
+
+export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly Pick<WorkspaceConnection, 'id' | 'state' | 'words'>[] = []): ChatFix | null {
+  const first = (route.refusal ?? [])[0] ?? '';
+  const conn = (id: string) => conns.find((c) => c.id === id);
+  if (route.kind === 'none') {
+    return { problem: 'no-route', label: 'Set up chat: an OpenRouter key (asked hidden) or a local model', command: 'timmy setup', effect: 'local change', words: chatNotReady(route) };
+  }
+  if (route.kind === 'local' && !route.ready) {
+    if (/no model is chosen/i.test(first)) return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
+    return { problem: 'ollama-address', label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change', words: chatNotReady(route) };
+  }
+  if (route.kind === 'local' && route.ready) {
+    const o = conn('ollama');
+    if (o && (o.state === 'unreachable' || o.state === 'refused')) {
+      return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. Start it (ollama serve), then check again.` };
+    }
+    return null;
+  }
+  if (route.kind === 'openrouter' && !route.ready) {
+    return { problem: 'free-only', label: 'Choose a free model (free-only stays on)', command: '/model free', effect: 'local change', words: chatNotReady(route) };
+  }
+  if (route.kind === 'openrouter' && route.ready) {
+    const k = conn('openrouter');
+    if (k?.state === 'refused') return { problem: 'key-refused', label: 'Give a working OpenRouter key (asked hidden)', command: 'timmy setup', effect: 'local change', words: `OpenRouter: ${k.words}. timmy setup asks for a key, hidden.` };
+  }
+  return null;
+}
+
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean } = {}): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly Pick<WorkspaceConnection, 'id' | 'state' | 'words'>[] } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
   const stop = wb.activity.stop_current;
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
-  const homeNext: WorkspaceAction = !routeReady
-    ? act(1, 'Set up chat: an OpenRouter key or a local model', 'timmy setup', { primary: true, effect: 'local change' })
+  // R5 lead (the finish line, item 3): what keeps chat from answering, and its own fix (null: nothing known to be wrong)
+  const fix = chatFix(wb.route, o.connections ?? []);
+  const homeNext: WorkspaceAction = fix
+    ? act(1, fix.label, fix.command, { primary: true, effect: fix.effect })
     : waiting > 0
       ? act(1, `Answer what waits on you (${waiting})`, '/room', { primary: true })
       : act(1, 'Continue in Chat', '2', { primary: true });
@@ -204,8 +277,8 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
     chat: [
       turns.length
         ? act(1, 'Send a message', 'type in Chat, then Enter', { enabled: false, effect: 'network', why: `one turn at a time: a turn is being answered in ${surfaceWords(turns[0].surface as Parameters<typeof surfaceWords>[0])}` })
-        : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: 'no chat route: timmy setup' }) }),
-      act(2, 'Choose the model', '/model'),
+        : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady && !fix, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: fix ? `${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)}: ${fix.command}` : 'no chat route: timmy setup' }) }),
+      fix && !turns.length ? act(2, fix.label, fix.command, { primary: true, effect: fix.effect }) : act(2, 'Choose the model', '/model'),
       turns.length
         ? act(3, 'Stop the turn', 'Esc in the composer that sent it (Ctrl+C in the REPL)', { primary: true })
         : act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
@@ -300,7 +373,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live' }),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,
