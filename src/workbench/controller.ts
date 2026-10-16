@@ -29,7 +29,7 @@ import { projectCards } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
 import { keyAt, type MouseReport } from '../tui/mouse.js';
-import { scrubHomes } from '../utils/home-scrub.js';
+import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
@@ -53,6 +53,7 @@ import {
   activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readPipeline, readRoute, readTurns, readVoxRecords,
   readWorkflows, type ActivityEvent,
 } from './state.js';
+import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPlan } from './setup-paths.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
 import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
@@ -94,6 +95,8 @@ export interface ControllerDeps {
   tickMs?: number;
   /** how often the files, workflows and decisions are read (ms) */
   slowMs?: number;
+  /** R5 (H131; the finish line, item 3): the chat's fixes done here (absent: the real modules; a test gives FAKE ones) */
+  setup?: Partial<SetupDeps>;
 }
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
@@ -125,6 +128,8 @@ export class Controller {
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
   private readonly output = new OutputWatch();
+  /** R5 (H131): the chat's fixes (src/workbench/setup-paths.ts) */
+  private readonly setup: SetupDeps;
   /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed).
    *  R5 (H131): and its operation's own record (see wantDetail) */
   private readonly detailSig = new Map<string, string>();
@@ -138,6 +143,7 @@ export class Controller {
   private verified: { key: string; hash: string; v: { ok: true } | { ok: false; reason: string } } | null = null;
 
   constructor(private readonly d: ControllerDeps) {
+    this.setup = { ...realSetupDeps(d.env), ...(d.setup ?? {}) };
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
     const project = projectView(d.workspace.project, d.env);
     const remembered = settings.settings.rememberLayout ? settings.settings.layouts[project.id] : undefined;
@@ -1150,8 +1156,150 @@ export class Controller {
       if (k.return) { void this.runBlock(o); return true; }
       return false;
     }
+    // R5 (H131; the finish line, item 3): the chat's fixes: Enter takes the selected row (the arrows and Esc as in any box)
+    if (o.kind === 'free-models') {
+      if (!k.return) return false;
+      if (o.state === 'listed') { const m = o.catalog.models[cursorOf(this.ui, 'overlay', o.catalog.models.length)]; if (m) void this.chooseFree(m.id); }
+      return true;
+    }
+    if (o.kind === 'local-models') {
+      if (!k.return) return false;
+      if (o.state === 'listed') { const m = o.list.models[cursorOf(this.ui, 'overlay', o.list.models.length)]; if (m) void this.chooseLocal(m.name); }
+      else if (o.state === 'failed') void this.runCheck();
+      return true;
+    }
+    if (o.kind === 'setup') {
+      if (!k.return) return false;
+      if (o.local) void this.openLocalModels();
+      return true;
+    }
     if (o.kind === 'help' || o.kind === 'message') return false;
     return false;
+  }
+
+  // ── R5 (H131; the finish line, item 3): the chat's fixes, done here ─────────────
+
+  /** /model free: the free models this computer's catalog lists; Enter on one saves it as the chat's model. */
+  private async openFreeModels(): Promise<void> {
+    this.open({ kind: 'free-models', state: 'reading' });
+    let next: Overlay;
+    try { next = { kind: 'free-models', state: 'listed', catalog: await this.setup.freeModels() }; } catch (e) { next = { kind: 'free-models', state: 'failed', why: e instanceof Error ? e.message : String(e) }; }
+    if (this.ui.overlay?.kind !== 'free-models') return;
+    this.ui.overlay = next;
+    this.ui.cursor.overlay = 0;
+    this.emit();
+  }
+
+  /** Saves `id` as the chat's OpenRouter model, and says exactly what that changed and what it did not. */
+  private async chooseFree(id: string): Promise<void> {
+    const S = (text: string, role: Role = 'text'): Line[number] => ({ text, role });
+    let saved: { path: string };
+    try { saved = await this.setup.saveModel(id); } catch (e) {
+      this.open({ kind: 'message', title: 'The chat\'s model', lines: [[S(`It was not saved: ${e instanceof Error ? e.message : String(e)}. Nothing was changed.`, 'failure')]] });
+      return;
+    }
+    this.data.route = readRoute(this.d.env);
+    this.refreshFrame();
+    const lines: Line[] = [
+      [S('Saved '), S(id, 'strong'), S(` as the chat's OpenRouter model, in Timmy's settings (${tildePath(saved.path)}).`)],
+      [],
+      [S('WHAT CHANGED', 'secondary')],
+      [S('A chat started after this takes it: a REPL (timmy) opened from now on, and this Workbench when it starts again.')],
+      [S(`The route the settings give now: ${this.data.route.words}${this.data.route.ready ? ' (ready)' : ' (not ready)'}.`)],
+      [],
+      [S('WHAT DID NOT', 'secondary')],
+      [S('Free-only is as it was: it is never turned off from here.')],
+      [S(`A REPL already running keeps its model until /model ${id} there.`)],
+      [S('This Workbench\'s chat keeps the model its session was made with until the Workbench starts again: a session\'s model is not changed from here.')],
+      ...(this.d.env.OPENROUTER_MODEL?.trim() ? [[S('OPENROUTER_MODEL is set in this environment, and it wins over this setting wherever it is set.', 'attention')]] : []),
+      [S('Nothing was sent to any model.', 'secondary')],
+    ];
+    this.open({ kind: 'message', title: 'The chat\'s model', lines });
+    this.say(`Saved ${id} as the chat's OpenRouter model, in Timmy's settings.`, 'secondary');
+  }
+
+  /** /model on the local route: what the configured Ollama lists now; Enter on one makes it the local chat's model. */
+  private async openLocalModels(): Promise<void> {
+    this.open({ kind: 'local-models', state: 'asking' });
+    let list: OllamaList;
+    try { list = await this.setup.ollama(); } catch (e) { list = { where: 'Ollama', answered: false, models: [], listed: 0, cloud: 0, why: `Ollama was not asked: ${e instanceof Error ? e.message : String(e)}` }; }
+    if (this.ui.overlay?.kind !== 'local-models') return;
+    this.ui.overlay = list.answered && list.models.length ? { kind: 'local-models', state: 'listed', list } : { kind: 'local-models', state: 'failed', list };
+    this.ui.cursor.overlay = 0;
+    this.emit();
+  }
+
+  /** Makes `model` the local chat's model through the setup's writer, and says what that changed and what it did not. */
+  private async chooseLocal(model: string): Promise<void> {
+    const S = (text: string, role: Role = 'text'): Line[number] => ({ text, role });
+    const title = 'The local chat\'s model';
+    if (await this.setup.blank().catch(() => false)) {
+      this.open({ kind: 'message', title, lines: [[S('Timmy is not set up on this computer yet (it has no identity): timmy init, in a shell, sets it up first; then choose the local model here. Nothing was written.', 'attention')]] });
+      return;
+    }
+    let written: string[];
+    try { written = (await this.setup.setLocal(model)).written; } catch (e) {
+      this.open({ kind: 'message', title, lines: [[S(`Nothing was written: ${e instanceof Error ? e.message : String(e)}.`, 'failure')]] });
+      return;
+    }
+    this.data.route = readRoute(this.d.env);
+    try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
+    this.refreshFrame();
+    const lines: Line[] = [
+      [S('The chat is set to the local model '), S(model, 'strong'), S(', as the setup\'s answer (written as timmy init --chat local --model writes it).')],
+      ...(written.length ? [[S(`Written: ${written.map((w) => tildePath(w)).join(', ')}.`, 'secondary')]] : []),
+      [],
+      [S('WHAT CHANGED', 'secondary')],
+      [S('The chat reads its route at each message, so its next one takes it: here, and in a REPL already running.')],
+      [S(`The route as read now: ${this.data.route.words}${this.data.route.ready ? ' (ready)' : ' (not ready)'}.`)],
+      [],
+      [S('WHAT DID NOT', 'secondary')],
+      [S('A REPL whose /model chose a model for its session keeps that one there.')],
+      ...(this.d.env.TIMMY_CHAT_MODEL?.trim() ? [[S('TIMMY_CHAT_MODEL is set in this environment, and it wins over the setup\'s answer wherever it is set.', 'attention')]] : []),
+      [S('Nothing was downloaded and nothing was sent to any model: Ollama was asked for its list only.', 'secondary')],
+    ];
+    this.open({ kind: 'message', title, lines });
+    this.say(`The local chat's model is now ${model} (the setup's answer).`, 'secondary');
+  }
+
+  /** timmy workspace check, in this process: free requests only; what it asked and what answered, then the frame again. */
+  async runCheck(): Promise<void> {
+    const S = (text: string, role: Role = 'text'): Line[number] => ({ text, role });
+    const title = 'The connections, checked';
+    const since = Date.now() - 1;
+    this.open({ kind: 'message', title, lines: [[S('Asking each one once, with short timeouts: free requests only, no model called…', 'secondary')]] });
+    let res: Awaited<ReturnType<SetupDeps['check']>>;
+    try { res = await this.setup.check(); } catch (e) {
+      if (this.ui.overlay?.kind === 'message' && this.ui.overlay.title === title) this.ui.overlay = { kind: 'message', title, lines: [[S(`The check did not finish: ${e instanceof Error ? e.message : String(e)}. Nothing was recorded.`, 'failure')]] };
+      this.emit();
+      return;
+    }
+    this.refreshFrame();
+    const rows = checkRows(res.record, since);
+    const asked = rows.filter((r) => !r.words.startsWith('not asked'));
+    const lines: Line[] = [
+      [S('Checked just now, with free requests only: no model was called and nothing was spent.', 'secondary')],
+      [],
+      ...rows.map((r): Line => [S(`${r.name}  `, 'strong'), S(r.words, r.answered ? 'text' : 'secondary')]),
+      [],
+      [S(`Recorded in ${tildePath(res.path)}. Home's cards say these now; a card is live only for an answer seen in the last 30 minutes.`, 'secondary')],
+    ];
+    if (this.ui.overlay?.kind === 'message' && this.ui.overlay.title === title) this.ui.overlay = { kind: 'message', title, lines };
+    this.say(`Checked the connections: ${asked.filter((r) => r.answered).length} of ${asked.length} asked answered (free requests only).`, 'secondary');
+  }
+
+  /** timmy init …, timmy setup, /setup chat: the setup is a shell's (a key is typed there, hidden); what it asks now. */
+  private async openSetup(which: 'init' | 'chat', command: string): Promise<void> {
+    let plan: SetupPlan = { asks: null, keyFrom: null };
+    let blank: boolean | null = null;
+    try { blank = await this.setup.blank(); } catch { /* unknown: nothing that needs the setup to have run is offered */ }
+    try { plan = await this.setup.setupPlan(command); } catch { /* what it asks is then said to be unknown */ }
+    // a local model is offered here only where it can be chosen honestly: never before the setup ran (its writer would make an
+    // identity); for `timmy init --chat local …` always (Ollama is asked on Enter); otherwise where Ollama answered with models
+    // (the check accepts only an answer with one)
+    const ollama = this.data.frame?.connections.find((x) => x.id === 'ollama');
+    const local = which === 'init' && blank === false && (/--chat local\b/.test(command) || ollama?.state === 'live');
+    this.open({ kind: 'setup', which, command, asks: plan.asks, keyFrom: plan.keyFrom, local, blank: blank === true });
   }
 
   // ── NEEDS YOU, drawn here (src/repl/approvals.ts's box, its keys and its guard) ─
@@ -1427,6 +1575,18 @@ export class Controller {
         else this.say(`Not now: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary');
         this.emit();
         return;
+      // R5 (H131; the finish line, item 3): the chat's fixes, done here
+      case 'free-models': await this.openFreeModels(); return;
+      case 'check': await this.runCheck(); return;
+      case 'setup': await this.openSetup(r.which, a.command); return;
+      case 'model':
+        // the local route: choose among what Ollama lists now; on OpenRouter, /model is the REPL's (shown to copy)
+        if (this.data.route.kind === 'local') { await this.openLocalModels(); return; }
+        this.open({ kind: 'message', title: 'Run it in the REPL (timmy)', lines: [
+          [{ text: a.label, role: 'strong' }], [], [{ text: '  ' }, { text: '/model <id>', role: 'action' }], [],
+          [{ text: 'On OpenRouter, the REPL\'s /model switches its session\'s model (and says its price); /model free lists the free ones. Nothing was run from here.', role: 'secondary' }],
+        ] });
+        return;
       case 'abort': {
         const turn = chatTurnNow(this.data);
         if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); }
@@ -1466,6 +1626,10 @@ export class Controller {
         if (k.id === 'companion') { await this.showCompanion(); return; }
         if (k.id === 'studio') { await this.showStudio(); return; }
         if (!k.setup) { this.say(`${k.label}: no step sets it up or checks it from here.`, 'secondary'); return; }
+        // R5 (H131; the finish line, item 3): a step the Workbench has a path for (the check, the setup's box) goes there
+        const step = routeOf({ command: k.setup });
+        if (step.kind === 'check') { await this.runCheck(); return; }
+        if (step.kind === 'setup') { await this.openSetup(step.which, k.setup); return; }
         const where = k.setup.startsWith('/') ? 'the REPL (timmy)' : 'a shell';
         this.open({
           kind: 'message', title: `Run it in ${where}`, lines: [

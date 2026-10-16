@@ -1,30 +1,30 @@
-                ╭─────╮ ┏━━━━━━━━━━┓ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮
-TIMMY · tray1   │  1  │ ┃  2 Chat  ┃ │  3  │ │  4  │ │  5  │ │  6  │ │  7  │ │  8  │ │  9  │ │  0  │
-                ╰─────╯ ┗━━━━━━━━━━┛ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯
+                         ╭───╮ ┏━━━┓ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮
+TIMMY · tray1            │ 1 │ ┃ 2 ┃ │ 3 │ │ 4 │ │ 5 │ │ 6 │ │ 7 │ │ 8 │ │ 9 │ │ 0 │   Chat & Intent
+                         ╰───╯ ┗━━━┛ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯
 ╭─ Workflow actions ────────────────────────────────────────────────────────────── 2 Chat & Intent ╮
-│  [1 Send a message]  [2 Choose the model]  [3 Stop the turn]  [4 Show it in the companion]       │
-│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+│  [1 Send a…]  [▶ 2 Choose the local model (from what Ollama lists)]  [3 Stop th…]  [4 Show it…]  │
+│ this computer · chat: local · no model chosen                                                    │
+╰─────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
 ╭─ Pipeline · intent → predict → sandbox → receipt ────────────────────────────────────────────────╮
-│ [intent · /run APP…] → [predict · sealed…] → [sandbox · none rec…] → [✓ receipt · sealed…]       │
-│ newest run APPROVAL.md › tidy · operation oea7f5785 · from its records: the operation's…         │
+│ [intent · /run APP…] → [predict · sealed…] → [sandbox · none reco…] → [✓ receipt · sealed 1204…] │
+│ newest run APPROVAL.md › tidy · operation oc6e9fe3a · from its records: the operation's…         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Chat · conversation ━━ 1–10 of 16 ┓╭─ Event log · newest at the top ────── 1–10 of 11 ╮
-┃ Route    chat: local · no model chosen…      ┃│ RUNNING NOW (1)                                  │
-┃ Ready    not ready: /setup in the REPL…      ┃│   ● j66b3d9  FAKE job (test): sleep 300 · 12 s   │
-┃   Error: the chat is set to the local model, ┃│                                                  │
-┃   and no model is chosen.                    ┃│ EVENT LOG, NEWEST AT THE TOP                     │
-┃   Cause: the setup recorded none for Ollama  ┃│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step    │
-┃   at 127.0.0.1:11434.                        ┃│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)   │
-┃   Try: timmy init --chat local --model       ┃│ 16:10:11 [job] j3e9b07 tidy started              │
-┃   <name> (in a terminal: Timmy checks that   ┃│ 16:10:11 [job] j3e9b07 started: APPROVAL.md ›    │
-┃   Ollama lists it), or /model in the REPL    ┃│                tidy                              │
-┃   Nothing was sent to any model.             ┃│ 16:10:06 [job] j66b3d9 started: FAKE job (test): │
+┏━ ◆ tray1 / Chat · conversation ━━ 3–12 of 12 ┓╭─ Event log · newest at the top ────── 1–10 of 11 ╮
+┃          (from what Ollama lists) (workflow  ┃│ RUNNING NOW (1)                                  │
+┃          action 2, row 2)                    ┃│   ▶ running j90d179  FAKE job (test): sleep 300… │
+┃   Cause: the setup recorded none for Ollama  ┃│                                                  │
+┃   at 127.0.0.1:11434.                        ┃│ EVENT LOG, NEWEST AT THE TOP                     │
+┃                                              ┃│ 20:47:39 [job] j01b6ca completed: 1 of 1 step    │
+┃ THIS PROJECT'S CONVERSATION                  ┃│ 20:47:39 [job] j01b6ca tidy completed (exit 0)   │
+┃   No conversation is kept in this project…   ┃│ 20:47:39 [job] j01b6ca tidy started              │
+┃                                              ┃│ 20:47:39 [job] j01b6ca started: APPROVAL.md ›    │
+┃ COMPOSER                                     ┃│                tidy                              │
+┃ [Enter] Type a message (sent through the…    ┃│ 20:47:33 [job] j90d179 started: FAKE job (test): │
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰──────────────────────────────────────────────────╯
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠹ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
-│ 16:10:11 [job] j3e9b07 tidy started                                                              │
-│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show         │
+│ ▸ Activity  ⠴ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed…      [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                    │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                   │
+│ 20:47:39 [job] j01b6ca tidy started                                                              │
+│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [a] log  [?] keys         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

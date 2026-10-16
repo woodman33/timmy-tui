@@ -3,43 +3,43 @@ TIMMY · tray1     │1 Home││2 Chat & Intent││3 Workflows││4 Studio
                   ╰──────╯╰───────────────╯╰───────────╯╰────────╯╰───────────╯╰─────────────╯┗━━━━━━━━━━━━━━┛╰──────────────╯╰─────────────╯╰─────────────────╯
 ╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 7 Control Room ╮
 │  [1 What waits on you]  [2 Jobs]  [3 Stop current]  [4 Recover what a crash left]                                                                            │
-│ this computer · chat: local · no model chosen · /model                                  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭─ Context ─────────────────────────────────────────────────╮
-┃ RUNNING NOW (1)                                                                                 ┃│   Tools │ ▸ Inspector │   Files                           │
-┃ ▸ ● j66b3d9  running    FAKE job (test): sleep 300 · left running · 7.8 s · no operation · an…  ┃│                                                           │
-┃                                                                                                 ┃│ JOB                                                       │
-┃ WAITING ON YOU (0)                                                                              ┃│ Job        j66b3d9                                        │
-┃   Nothing waits on you.                                                                         ┃│ What       FAKE job (test): sleep 300                     │
-┃                                                                                                 ┃│ Judged     running                                        │
-┃ RECENT (1)                                                                                      ┃│ left running: started by a Timmy session that has ended   │
-┃   ✓ j3e9b07  completed  APPROVAL.md › tidy · 1 of 1 step · 0.2 s · oea7f5785 · this Workbench   ┃│ (pid 17464), and its process still runs. Stop ends it     │
-┃                                                                                                 ┃│ through recovery's stop (only when the process table      │
-┃ CHAT TURNS (0)                                                                                  ┃│ proves the group is the job's).                           │
-┃   No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from ┃│ Outcome    running                                        │
-┃   whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).           ┃│ Record     running                                        │
-┃   A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C ┃│ Started    16:10:06 (8 s ago)                             │
-┃   (the REPL) stops it.                                                                          ┃│ Running    7.8 s                                          │
-┃                                                                                                 ┃│ Operation  none recorded                                  │
-┃                                                                                                 ┃│ started by a Timmy session that has ended (pid 17464)     │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│ Run detail: this job names no operation.                  │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┃                                                                                                 ┃│                                                           │
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰───────────────────────────────────────────────────────────╯
+│ this computer · chat: local · no model chosen                                                                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ HARNESSES (6)          │ RUNNING NOW (1)  ·  NEWEST ENDED RUNS (1)                                                    │ WAITING ON YOU (0)                   ┃
+┃ · not installed:       │ ┏━ j90d179 ━━━━━━━━━━━━━━━━━━━━━━━━━━ 9.2 s ┓  ╭─ j01b6ca ────────────────── ended 3 s ago ╮ │ Nothing waits on you.                ┃
+┃   opencode, hermes,    │ ┃ ▶ running  FAKE job (test): sleep 300     ┃  │ ✓ completed  APPROVAL.md › tidy           │ │                                      ┃
+┃   pi, openhands,       │ ┃ left running                              ┃  │ this Workbench · oc6e9fe3a · 1 of 1 step  │ │ RUN DETAIL                           ┃
+┃   jcode, minds         │ ┃ an ended session · no operation           ┃  │ pty_run: fake-upmd.mjs runs as process…   │ │ this job names no operation          ┃
+┃                        │ ┃ nothing printed yet                       ┃  │  [1/1] Bash                               │ │                                      ┃
+┃ SURFACES (4)           │ ┃ log read every 1 s                        ┃  │   mkdir -p scratch && touch scratch/x…    │ │ RECENT (1)                           ┃
+┃ ▶ Workbench running    │ ┃                                           ┃  │ ==> tidy [block 1]                        │ │ the newest is drawn as a pane        ┃
+┃ ? REPL                 │ ┃                                           ┃  │   ✔ exited with code 0                    │ │                                      ┃
+┃   not recorded         │ ┃                                           ┃  │ exit 0 · ✓ receipt 1204a00d verified      │ │ CHAT TURNS (0)                       ┃
+┃ ○ companion configured │ ┃                                           ┃  │                                           │ │ No chat turn of this project is      ┃
+┃ ○ Studio    configured │ ┃                                           ┃  │                                           │ │ sealed yet: a turn is listed once    ┃
+┃                        │ ┃                                           ┃  │                                           │ │ its receipt is sealed, from          ┃
+┃ DEVICES (0)            │ ┃                                           ┃  │                                           │ │ whichever surface sent it (the REPL, ┃
+┃ none added: timmy      │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ╰───────────────────────────────────────────╯ │ the Workbench, the monitor, a        ┃
+┃ connect add <name>     │                                                                                              │ companion page).                     ┃
+┃ <user>@<address>       │ [x] stops the selected pane's job  ·  [Enter] its run detail  ·  [←→↑↓] between panes        │ A turn being answered now is on the  ┃
+┃                        │ Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes.  │ surface that sent it, where Esc (the ┃
+┃                        │ Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every      │ Workbench) or Ctrl+C (the REPL)      ┃
+┃                        │ pane: not in Timmy yet.                                                                      │ stops it.                            ┃
+┃                        │                                                                                              │                                      ┃
+┃                        │ Live previews (carbonyl) are not drawn here; the companion (c) shows pages.                  │                                      ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠦ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as process 17557, the leader of its own…        [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                                                                │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                                                               │
-│ 16:10:11 [job] j3e9b07 tidy started                                                                                                                          │
-│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                                                           │
-│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt 331a6236 · /op oea7f5785                     │
+│ ▸ Activity  ⠏ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4…   [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                                                                │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                                                               │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                                                          │
+│ 20:47:39 [job] j01b6ca started: APPROVAL.md › tidy                                                                                                           │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt 1204a00d · /op oc6e9fe3a                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
