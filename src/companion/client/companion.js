@@ -276,6 +276,19 @@ function mirrorHasSession() {
  * R4 (H113): another surface's turn (the monitor's, the Workbench's, a companion page's), as the bus carries it: which surface,
  * how it ended, its steps and its receipt; never its words (sealed as hashes only).
  */
+/**
+ * R5 lead (the finish line, item 3: the same state on every surface): how a turn ended, in the words the Workbench and the
+ * shared frame use (answered, stopped, failed). A sealed receipt's subject on the bus says only "cancelled" or "failed"; a
+ * turn the frame knows by its receipt takes the frame's word, a cancelled one is said stopped, and one the frame does not
+ * know yet is said ended.
+ */
+function turnEnd(turn) {
+  const f = frameDrawn();
+  const known = f && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns.find((t) => t && t.receipt === turn.receipt) : null;
+  if (known && typeof known.state === 'string') return known.state;
+  return turn.state === 'cancelled' ? 'stopped' : turn.state;
+}
+
 function surfaceTurnHtml(turn) {
   const s = SURFACES[turn.surface];
   const time = new Date(turn.at).toLocaleTimeString();
@@ -283,10 +296,10 @@ function surfaceTurnHtml(turn) {
   return `
       <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turn.state)}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEnd(turn))}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turn.state)}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEnd(turn))}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
@@ -294,7 +307,7 @@ function surfaceTurnHtml(turn) {
 function replTurnHtml(turn) {
   if (turn.surface && turn.surface !== 'repl' && SURFACES[turn.surface]) return surfaceTurnHtml(turn);
   const time = new Date(turn.at).toLocaleTimeString();
-  const state = turn.cancelled ? 'cancelled' : 'ended';
+  const state = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
   const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
   return `
       <div class="log-msg repl" data-mirror="repl-turn">
