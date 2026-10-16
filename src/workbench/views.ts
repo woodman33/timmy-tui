@@ -12,6 +12,7 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
+import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, type ActionHit, type TurnNow } from './hub.js';
@@ -296,7 +297,8 @@ export function centerView(c: ViewCtx): View {
     case 'files': return filesView(c);
     // R5 (H136): tab 3's three columns, references 03 and 12 (src/workbench/workflows-tab.ts)
     case 'workflows': return workflowsTabView(c);
-    case 'control': return controlView(c);
+    // R5 (H137): tab 7's body, the roster, the panes and what waits (src/workbench/control-tab.ts)
+    case 'control': return controlRoomView(c, c.data.control);
     case 'overview': return overviewView(c);
     case 'studio': return studioView(c);
     case 'chat': return chatView(c);
@@ -361,81 +363,8 @@ function filesView(c: ViewCtx): View {
   return { lines, items };
 }
 
-function jobLine(j: JobRow, c: ViewCtx): Line {
-  const m = markOf(j, c.g);
-  // R4 (H112): a job a session left is said in recovery's words (left running, stale, ended by recovery), never as one of ours
-  const who = j.owner === 'workbench' ? 'this Workbench' : j.owner === 'live-session' ? 'another session' : j.owner === 'ended-session' ? 'an ended session' : 'unknown';
-  const where = sameFolder(j.root, c.data.project.root) ? '' : ` ${c.g.sep} in ${j.project}`;
-  // what the row must keep comes first (a row is cut at its end): recovery's state and where it runs right after its label
-  return [
-    S(`${m.glyph} `, m.role), S(j.id, 'strong'), S(`  ${cut(j.word, 10, c.g.ellipsis).padEnd(10)} `, m.role),
-    S(j.label, 'text'), S(j.recovery && j.recovery.state !== j.word ? ` ${c.g.sep} ${j.recovery.state}` : '', 'attention'), S(where, 'secondary'),
-    S(j.blocks ? ` ${c.g.sep} ${j.blocks}` : '', 'secondary'), S(` ${c.g.sep} ${j.elapsed}`, 'secondary'),
-    S(j.operation ? ` ${c.g.sep} ${j.operation}` : ` ${c.g.sep} no operation`, 'secondary'), S(` ${c.g.sep} ${who}`, 'secondary'),
-  ];
-}
-
 /** R4 (H117): the surface a chat turn was sent from, in the Control Room's words ("from the Workbench"). */
 const TURN_SURFACE: Readonly<Record<TurnRow['surface'], string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'a companion page' };
-
-/** R4 (H117): a chat turn's mark, as a job's is marked (markOf): answered as ok, stopped as stopped, failed as failed. */
-const turnMark = (t: TurnRow, g: Glyphs): { glyph: string; role: Role } => (
-  t.state === 'answered' ? { glyph: g.ok, role: 'text' } : t.state === 'failed' ? { glyph: g.fail, role: 'failure' } : { glyph: g.unicode ? '■' : '#', role: 'text' });
-
-/** R4 (H117): one chat turn on one row, as a job's (jobLine): its receipt, how it ended and where from first. */
-function turnLine(t: TurnRow, c: ViewCtx): Line {
-  const m = turnMark(t, c.g);
-  return [
-    S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state.padEnd(10)} `, m.role), S(`from ${TURN_SURFACE[t.surface]}`, 'text'),
-    S(` ${c.g.sep} ${t.model ?? 'model not recorded'}`, 'secondary'), S(` ${c.g.sep} ${took(t.ms)}`, 'secondary'),
-    S(` ${c.g.sep} ${t.operation ?? 'no operation'}`, 'secondary'), S(` ${c.g.sep} ${ago(t.at, c.now)}`, 'secondary'),
-  ];
-}
-
-function controlView(c: ViewCtx): View {
-  const { data, g } = c;
-  const lines: Line[] = [];
-  const items: View['items'] = [];
-  const live = data.jobs.filter((j) => j.live);
-  // R4 (H112): this Workbench's runs in another project keep running when the view switches: listed here, with where
-  const away = (data.away ?? []).filter((j) => j.live);
-  const ended = data.jobs.filter((j) => !j.live).slice(0, 30);
-  const decisions = data.decisions.items;
-  // R4 (H117): every surface's chat turns of this project, from their sealed receipts (src/workbench/state.ts readTurns)
-  const turns = data.turns ?? [];
-  const total = live.length + away.length + decisions.length + ended.length + turns.length;
-  const cur = cursorOf(c.ui, 'center:control', total);
-  let i = 0;
-  lines.push(heading(`Running now (${live.length})`));
-  if (!live.length) lines.push([S('  Nothing runs in this project.', 'secondary')]);
-  for (const j of live) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  if (away.length) {
-    lines.push(blank);
-    lines.push(heading(`Running in another project, started here (${away.length})`));
-    for (const j of away) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  }
-  lines.push(blank);
-  lines.push([...heading(`Waiting on you (${data.decisions.total})`), S(data.decisions.total ? `  ${g.warn} nothing is done until you do it` : '', 'attention')]);
-  if (!decisions.length) lines.push([S('  Nothing waits on you.', 'secondary')]);
-  for (const d of decisions) {
-    items.push({ line: lines.length, item: { kind: 'decision', key: `decision:${d.key}`, decision: d } });
-    lines.push(row([S(`${g.warn} `, 'attention'), S(d.title, 'strong'), S(`  ${d.needed}`, 'secondary'), S(d.commands[0] ? `  ${d.commands[0]}` : '', 'action')], i === cur, g));
-    i += 1;
-  }
-  if (data.decisions.more) lines.push([S(`  and ${data.decisions.more} more: /decisions in the REPL lists them`, 'secondary')]);
-  lines.push(blank);
-  lines.push(heading(`Recent (${ended.length})`));
-  if (!ended.length) lines.push([S('  No job has run in this project yet.', 'secondary')]);
-  for (const j of ended) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  lines.push(blank);
-  lines.push(heading(`Chat turns (${turns.length})`));
-  if (!turns.length) lines.push(...para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', c.width, 'secondary', '  '));
-  for (const t of turns) { items.push({ line: lines.length, item: { kind: 'turn', key: `turn:${t.receipt}`, turn: t } }); lines.push(row(turnLine(t, c), i === cur, g)); i += 1; }
-  if (turns.length >= TURNS_SHOWN) lines.push([S(`  The newest ${TURNS_SHOWN} are listed.`, 'secondary')]);
-  lines.push(...para('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.', c.width, 'secondary', '  '));
-  for (const n of data.decisions.notes) lines.push(...para(n, c.width, 'failure'));
-  return { lines, items };
-}
 
 function lazyLines<T>(l: Lazy<T>, what: string, c: ViewCtx): Line[] | null {
   if (l.state === 'ready') return null;
@@ -957,6 +886,7 @@ function itemName(item: Item | null): string {
     case 'conn': return item.conn.label;
     case 'log-receipt': case 'log-op': case 'log-event': return logsItemName(item);
     case 'fleet-plan': case 'clef-decision': return fleetItemName(item);
+    case 'live-turn': return controlItemName(item);
     default: return 'an action';
   }
 }
@@ -1119,6 +1049,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     // R5 (H134): tab 0's and tab 8's rows
     case 'log-receipt': case 'log-op': case 'log-event': lines.push(...logsDetail(item, c.data.logs, w, c.g)); break;
     case 'fleet-plan': case 'clef-decision': lines.push(...fleetDetail(item, w, c.g)); break;
+    // R5 (H137): a chat turn being answered (tab 7's pane), in its hold's words
+    case 'live-turn': lines.push(...liveTurnDetail(item.live, w, c.g, c.now, c.data.turn)); break;
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
   }
   return { lines, items: [] };

@@ -261,8 +261,10 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(regionText(c, 'bottom')).toContain(`All operations [A] only ${op}`);
     await press(f.r, 'A', 'a');
     const room = f.text();
-    expect(room).toMatch(new RegExp(`${job.id}\\s+completed\\s+APPROVAL\\.md › tidy[^\\n]*${op}[^\\n]*this Workbench`));
+    // (R5 H137: with nothing running, a quiet pane: its id on the edge, its word and label, who started it with its operation)
+    expect(room).toMatch(new RegExp(`${job.id} [━─][^\\n]*\\n[^\\n]*completed {2}APPROVAL\\.md › tidy[^\\n]*\\n[^\\n]*this Workbench · ${op}`));
     await until('the run detail', () => /RUN DETAIL · o[0-9a-f]{8}/.test(f.text()), 5000, f.text);
+    await press(f.r, 'i'); // (R5 H137: tab 7's Inspector is Context's drawer, i)
     const inspector = regionText(c, 'right');
     expect(inspector).toContain(`RUN DETAIL · ${op}`);
     expect(inspector).toContain('Objective FIXTURE objective of the run');

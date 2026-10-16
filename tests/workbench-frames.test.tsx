@@ -266,7 +266,8 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
       const f = frameOf(c, 180, 50);
       await sleep(150);
       expect(f.text()).toContain(`[x] Stop current: ${job.id} FAKE job (test): sleep 60`);
-      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+FAKE job`));
+      // (R5 H137: a pane, its id on the box's edge, its mark, word and label on the row below)
+      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job`));
       // the navigation's count for Control Room (its drawer, g), in the longest words that fit whole, beside the tab's key
       await press(f.r, 'g');
       expect(f.text()).toMatch(/▸ Control Room 1 run\s+7/);

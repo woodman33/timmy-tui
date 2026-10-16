@@ -214,7 +214,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // Control Room, by the workspace search
     await find('Control');
     const control = await waitFor(/tray1 \/ Control Room[\s\S]*RUNNING NOW \(1\)/);
-    expect(control).toMatch(new RegExp(`${id}\\s+running\\s+FAKE job \\(test\\): sleep 300`));
+    // (R5 H137: a pane, its id on the box's edge, its mark, word and label on the row below)
+    expect(control).toMatch(new RegExp(`${id} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`));
 
     // 100x30: the right dock is a drawer; the project, the task, the state and Stop stay on top
     tmux('resize-window', '-t', 't', '-x', '100', '-y', '30');
@@ -340,7 +341,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
 
       // Control Room: the same job and operation; the Inspector shows its run detail
       await find('Control');
-      const room = await waitFor(new RegExp(`${run.id}\\s+completed\\s+APPROVAL\\.md › tidy`));
+      // (R5 H137: with nothing running, a quiet pane: its id on the box's edge, its word and label on the row below)
+      const room = await waitFor(new RegExp(`${run.id} [━─][^\\n]*\\n[^\\n]*completed {2}APPROVAL\\.md › tidy`));
       expect(room).toContain(op);
       // R4 lead (merged with H102's producer, src/ops/run-detail.ts): the Inspector draws that operation's real run detail
       await waitFor(/RUN DETAIL/);

@@ -174,7 +174,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
         await t.waitFor(p.title, `${p.name} at ${w}x${h}`);
         // the run's end is read (Chat's pipeline names its receipt) and the frame's waiting counts are drawn
         if (p.name === 'chat') await t.waitFor(/Pipeline · intent → predict → sandbox → receipt[\s\S]*sealed/, `Chat's pipeline with the run's sealed records at ${w}x${h}`);
-        if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId}\\s+running\\s+FAKE job \\(test\\): sleep 300`), `the FAKE job in the Control Room at ${w}x${h}`);
+        if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`), `the FAKE job's pane in the Control Room at ${w}x${h}`);
         await sleep(400); // the next second's redraw (the frame is read at most once a second), so the kept screen is settled
         const name = `${p.name}-${w}x${h}-FAKE-fixtures`;
         const txt = t.capture(name);
