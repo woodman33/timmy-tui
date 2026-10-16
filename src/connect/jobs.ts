@@ -583,10 +583,12 @@ export async function fetchFile(p: ConnectPaths, id: string, rel: string, o: { t
     if (bytes === 0) { try { unlinkSync(partial); } catch { /* gone */ } }
     const REFUSED: Record<string, string> = {
       'no-job': `${d.id} has no folder for job ${id}`,
+      'job-link': `the job's folder for ${id} on ${d.id} is a symbolic link: refused (the fetch is bounded by the real folder)`,
       link: `${rel} is or passes through a symbolic link on ${d.id}: refused`,
+      changed: `${rel} changed on ${d.id} while it was being read (swapped for another file or a link): refused, nothing was sent`,
       'not-a-file': `${rel} is not a regular file in the job's folder`,
       'not-readable': `${rel} cannot be read there`,
-      'no-copy': `${rel} could not be copied inside the job's folder on ${d.id} to be sent (a fetch sends one copy, so the file needs room for a copy there): refused`,
+      'no-identity': `${d.id} has no stat that can say what an open file is (GNU stat -c or BSD stat -f), so a swap could not be ruled out: refused`,
       'no-sha256': `${d.id} has no sha256 program (sha256sum, shasum, openssl), so its bytes could not be checked: refused`,
     };
     const why = refusal ? (REFUSED[refusal] ?? `the device said ${JSON.stringify(refusal)}`) : f?.words ?? 'the device sent no answer';
