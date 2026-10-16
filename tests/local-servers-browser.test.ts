@@ -143,7 +143,7 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own)
       await page.click('[data-tab="canvas"]');
       await page.waitForFunction(() => /Revision 0|No canvas jobs yet/.test(document.getElementById('canvas-summary')?.textContent ?? ''), null, { timeout: 15_000 });
-      expect(seen.find((s) => s.path === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
+      expect(seen.find((s) => s.path.split('?')[0] === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
       // Slate 3D's frame is given the token in its fragment, never in its address's query (R4 H92: when its tab is opened)
       expect(await page.evaluate(() => document.getElementById('slate3d-frame')?.getAttribute('src') ?? null)).toBeNull();
       await page.click('[data-tab="slate3d"]');

@@ -175,6 +175,7 @@ export function useTelemetryBridge({
 
       if (sent > 0) {
         try {
+          fs.mkdirSync(path.join(process.cwd(), 'logs'), { recursive: true });
           fs.appendFileSync(
             path.join(process.cwd(), 'logs', 'agent-events.log'),
             `[${new Date().toISOString()}] Telemetry spool drain: ${sent} offline events replayed, ${remaining.length} remaining\n`,
@@ -280,6 +281,7 @@ export function useTelemetryBridge({
         // Safe telemetry event logging
         const logFilePath = path.join(process.cwd(), 'logs', 'agent-events.log');
         try {
+          fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
           fs.appendFileSync(logFilePath, `[${new Date().toISOString()}] Telemetry sync: Endpoint=${endpoint}/telemetry Event=${item.event} Status=${res.ok ? 'SUCCESS' : 'FAILED'} HTTP_Status=${res.status}\n`, 'utf8');
         } catch {
           // ignore
@@ -294,6 +296,7 @@ export function useTelemetryBridge({
         // Safe telemetry error logging
         const logFilePath = path.join(process.cwd(), 'logs', 'agent-events.log');
         try {
+          fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
           fs.appendFileSync(logFilePath, `[${new Date().toISOString()}] Telemetry sync: Endpoint=${endpoint}/telemetry Event=${item.event} Status=ERROR Error=${errMsg}\n`, 'utf8');
         } catch {
           // ignore

@@ -1,7 +1,9 @@
 /**
- * R4 (H110): the terminal Workbench's look, Timmy Homebrew (src/theme/tokens.ts, DESIGN.md §10 B9): readable off-white text,
- * labels a step quieter, Homebrew green for commands, keys and the region that has the keyboard, blue for places to go, amber
- * only for a decision that waits on a person, red for failed or refused. No colour is chosen here: every value is a token.
+ * R4 (H110): the terminal Workbench's look, Timmy Homebrew (src/theme/tokens.ts). Since DESIGN.md §10 B10 (the operator's
+ * palette of 2026-10-15): readable off-white text, labels a step quieter (#8E8E93), amber for commands, keys, the region that
+ * has the keyboard and a decision that waits on a person, silver for places to go and for made-by-a-model, and amber with ✕
+ * and its word for failed or refused; green only for an observed live, passed or sealed state. No colour is chosen here:
+ * every value is a token.
  * Colour never carries a meaning alone: each role's meaning is also in its words, and the focused region also has its
  * marker and a heavier border (src/workbench/frame.ts).
  */
@@ -25,6 +27,8 @@ const ROLE_COLOR: Readonly<Record<Role, string>> = {
   link: HOMEBREW.link,
   attention: HOMEBREW.attention,
   failure: HOMEBREW.failure,
+  // R5 (H131): earned green only (src/workbench/text.ts Role 'live'); its word is always beside it
+  live: HOMEBREW.live,
   ai: HOMEBREW.ai,
   border: HOMEBREW.lineStrong,
   focus: HOMEBREW.accent,
@@ -34,8 +38,10 @@ const ROLE_COLOR: Readonly<Record<Role, string>> = {
 export function styleOf(s: Seg, colour: boolean): InkTextStyle {
   const role = s.role ?? 'text';
   const style: InkTextStyle = {};
-  if (colour) style.color = ROLE_COLOR[role];
-  if (s.bold || role === 'strong' || role === 'focus') style.bold = true;
+  // R5 (H131; the QA round's defect 11): on the selection's ground a quiet word takes the text's colour (grey on it measured
+  // 3.88:1, under the 4.5:1 floor), and so does a bracket drawn in the border's grey
+  if (colour) style.color = s.selected && (role === 'secondary' || role === 'border') ? HOMEBREW.text : ROLE_COLOR[role];
+  if (s.bold || role === 'strong' || role === 'focus' || role === 'live') style.bold = true;
   if (s.underline) style.underline = true;
   if (s.inverse) style.inverse = true;
   // the selected row: the selection's ground with colour; inverted without it (its marker says it too)

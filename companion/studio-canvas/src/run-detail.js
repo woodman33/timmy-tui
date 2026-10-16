@@ -8,6 +8,8 @@
 // "Run detail" is offered on an operation's group in the Project panel (./project.js) and on every drawn card that names its
 // operation (./cards.js). Until Timmy has the producer, the panel says so and gives the typed command (/op <id>).
 
+import { clockOf } from './when.js';
+
 /** One row: a label, its value in words, the record it came from (or null), and a command to type in Timmy (or null). */
 const row = (label, value, from = null, command = null) => ({ label: String(label), value: String(value ?? ''), from: typeof from === 'string' && from ? from : null, command: typeof command === 'string' && command ? command : null });
 
@@ -81,8 +83,8 @@ export function runDetailSections(d) {
 
 const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
 
-/** A time of day, as the panel says when it read the detail. */
-const clock = (d) => { try { return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return d.toISOString(); } };
+/** A time of day, as the panel says when it read the detail. R5 (H137; QA defect 6): in the one format (./when.js). */
+const clock = (d) => clockOf(d);
 
 /**
  * The side panel's Run detail (index.html #run-detail). `deps.read(op, projectId)` reads it through this page's session

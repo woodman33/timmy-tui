@@ -335,7 +335,8 @@ describe('the browser companion (timmy watch)', () => {
   it('the page itself is open: it carries no content of the operator\'s', async () => {
     const page = await call(cport, 'GET', '/');
     expect(page.status).toBe(200);
-    expect(page.body).toContain('TIMMY Browser Companion');
+    // the page's own title since H132's workspace view (e0c9732): "TIMMY · companion" (was "TIMMY Browser Companion")
+    expect(page.body).toContain('<title>TIMMY · companion</title>');
     expect(page.body).not.toContain(ctoken);
   });
 

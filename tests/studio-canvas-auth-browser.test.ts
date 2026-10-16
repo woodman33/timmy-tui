@@ -60,7 +60,8 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     port = (server.address() as AddressInfo).port;
     base = `http://127.0.0.1:${port}`;
     const jobs = join(temp('canvas-auth-jobs-'), 'jobs');
@@ -159,7 +160,9 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await page.reload({ waitUntil: 'commit' });
       asked.length = 0;
       await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'refused', null, { timeout: 30_000 });
-      expect(await page.textContent('#status')).toBe(`Not loaded: ${NO_GRANT} In Timmy: /canvas open.`);
+      // R5 (H133): the why and what to type are said once, in the middle of the page; the panel's line points there
+      expect(await page.textContent('#status')).toBe('Not loaded: why, and what to type in Timmy, are in the middle of the page.');
+      expect((await page.evaluate(() => document.body.innerText)).split(NO_GRANT).length - 1).toBe(1);
       expect(await page.isVisible('#refused')).toBe(true);
       expect(await page.textContent('#refused-words')).toBe(NO_GRANT);
       expect(((await page.textContent('#refused')) ?? '').replace(/\s+/g, ' ')).toContain('In Timmy: /canvas open opens the canvas with its project\'s cards.');
@@ -225,11 +228,24 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await page.waitForFunction(() => /revision \d+, saved$/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 15_000 });
       const doc = JSON.parse(await saved()) as { snapshot: { store: Record<string, { props?: Record<string, unknown> }> } };
       expect(doc.snapshot.store['shape:betacard'].props).toMatchObject({ projectId: projectId(other), data: detail, readAt: '2026-10-11T01:00:00.000Z' });
-      // another REPL names its project: this page's session no longer counts; its next save is refused and says so
+      // another REPL names its project: this page's session no longer counts. R6 (H139): the page is told at once and keeps its own
+      // project's board on screen, read only, saying why (it saved before; it saves nothing more), and never shows the other's
+      const before = JSON.parse(await saved()) as { revision: number };
       await nameProject(port, server.projectToken, { root: other, name: 'beta', holder: 'f'.repeat(32) });
-      await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 150, y: 700, props: { w: 40, h: 40 } }); });
       await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'refused', null, { timeout: 15_000 });
-      expect(await page.textContent('#status')).toBe('Not saved: Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project.');
+      expect(await page.textContent('#status')).toBe('Read only now. Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project.');
+      expect(await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getInstanceState: () => { isReadonly: boolean } } } }).timmyCanvas.editor.getInstanceState().isReadonly)).toBe(true);
+      expect(await page.isVisible('#switching')).toBe(true);
+      expect(await page.textContent('#switching-title')).toBe("demo's board, read only");
+      // B10: the banner needs the person (its words say what to type), so its edge is amber, as the save line's states that need them
+      expect(await page.evaluate(() => getComputedStyle(document.getElementById('switching')!).borderLeftColor)).toBe('rgb(255, 176, 0)');
+      await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 150, y: 700, props: { w: 40, h: 40 } }); });
+      await page.waitForTimeout(1200);
+      // its own board on disk (read by its id: the canvas names beta now) is as it was; nothing of it went to beta's
+      const own = await call(port, 'GET', `/api/canvas/document?project=${projectId(p.root)}`, { headers: bearer(server.projectToken) });
+      expect((own.json as { revision: number }).revision).toBe(before.revision);
+      expect((JSON.parse(await saved()) as { revision: number; snapshot: unknown }).snapshot).toBeNull();
+      expect(await page.textContent('#frame-brand')).not.toContain('beta');
       // R4 (H88; the Mac run r23): the project panel's line follows the session: its cards are diagrams now (it kept "can act")
       await page.waitForFunction(() => document.getElementById('project-acts')?.dataset.kind === 'paused', null, { timeout: 15_000 });
       expect(await page.textContent('#project-acts')).toBe('Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project. Until it counts again, this page\'s cards are diagrams: nothing on them acts.');
