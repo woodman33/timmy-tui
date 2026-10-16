@@ -54,8 +54,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    Enter; while it streams, Esc. It ends "turn stopped in the Workbench", with a receipt.
 5. **The browser companion.** `c` opens it on the same project: the same ten tabs, actions and log.
 6. **A REPL turn, stopped from the page.** In a second terminal, `./review.sh repl`, send the same counting request; on the
-   companion page press Stop the turn. The REPL stops, and the REPL, the Workbench and the page all show "turn stopped
-   (asked from the companion) in the REPL".
+   companion page press Stop the turn. The REPL's turn stops there ("Cancelled.", then its receipt), and the Workbench's
+   Chat log and the page say "turn stopped (asked from the companion) in the REPL", as its receipt records.
 7. **Studio.** In the REPL, `/canvas open`, then `Put the intent and the prediction on the board.`; answer `y` in its NEEDS
    YOU box; in Studio, Accept the amber draft: the save line says saved. `/canvas open` again reopens the saved board.
 8. **Project switching.** `p` in the Workbench → blank → Enter, then `p` → tray: the companion page and Studio follow.
@@ -96,13 +96,14 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    known to be free (`/model free`: the catalog's free models; free-only stays on, turning it off is never the fix); a key
    OpenRouter refused (`timmy init --openrouter -` reads a new one, hidden). A turn being answered shows as running on
    every surface (the Workbench, the companion, `./review.sh check`). It stops from where it was sent (Esc in the
-   Workbench's composer, Ctrl+C in the REPL) or from the companion page (its Stop the turn, and Stop this turn beside the
-   running turn): the page asks the process answering it, which stops it as its own key would, whichever surface that is.
-   Its receipt records the stop and who asked ("turn stopped (asked from the companion) in the REPL"), and every surface
-   shows that end. Every surface lists the project's sealed turns, whichever surface sent them (a receipt keeps hashes, so
-   a turn's words stay where it was sent). A reading of a connection counts only for what it asked: after the setup moves
-   Ollama, the companion or Studio to another address, or a new OpenRouter key replaces a refused one, the card says "not
-   checked at this address (with this key) yet" until a check asks again.
+   Workbench's composer, Ctrl+C in the REPL), from the companion page (its Stop the turn, and Stop this turn beside the
+   running turn), or from the Workbench for a turn the REPL is answering (x, or Enter on Stop the turn): the surface asks
+   the process answering it, which stops it as its own key would. Its receipt records the stop and who asked; the
+   Workbench and the companion say it in those words ("turn stopped (asked from the companion) in the REPL"), and the
+   REPL itself says "Cancelled." and seals the receipt. Every surface lists the project's sealed turns, whichever surface
+   sent them (a receipt keeps hashes, so a turn's words stay where it was sent). A reading of a connection counts only
+   for what it asked: after the setup moves Ollama, the companion or Studio to another address, or a new OpenRouter key
+   replaces a refused one, the card says "not checked at this address (with this key) yet" until a check asks again.
 4. **One sandbox workflow to its receipt (no spend).** In the tray project: Workflows → APPROVAL.md › tidy → its confirm → the
    NEEDS YOU box → `y`. The prediction is sealed before the run and never shown as an observed result; then the same
    operation in the Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail.
