@@ -95,6 +95,7 @@ describe.skipIf(!browserPath)('the Control Room in a real browser (headless Chro
     expect(ws.jobs.get(job)?.state).toBe('cancelled');
     expect(notes).toContain(`  board  /stop ${job}`);
     expect(await page.locator('#room-running + p.empty').textContent()).toBe('Nothing runs in this project now.');
+    if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: join(process.env.TIMMY_CAPTURE_DIR, 'board-room-job-cancelled.png'), fullPage: false }); // R6 (H140): a job's stop words, for the lead
     // Nothing from the project's folder on the page, nothing kept in the browser, no error.
     expect(await page.evaluate(() => document.body.innerText)).not.toContain(root);
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie])).toEqual([0, 0, '']);
