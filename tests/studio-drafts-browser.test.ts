@@ -42,7 +42,8 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(root, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(root, 'dist'), { licenses: root });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home, HOME: home }, root });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root });
     base = `http://127.0.0.1:${port()}`;
     mkdirSync(join(home, 'project'));
     await nameProject(port(), server.projectToken, { root: join(home, 'project'), name: 'drafts-browser' });
@@ -89,10 +90,11 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       await page.waitForSelector('#drafts:not([hidden])');
       expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · job draft-accept · from revision \d+$/);
       expect(await page.locator(`#draft-list li[data-draft="${id}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
-      // the mark covers both shapes on screen
+      // the mark covers both shapes on screen (R5 H133: on the page, as the mark's box is measured: the canvas starts under the
+      // workspace strip now, so tldraw's viewport is no longer the page's origin)
       const box = (await page.locator(`.timmy-draft-mark[data-draft="${id}"]`).boundingBox())!;
       for (const s of [a, b]) {
-        const sb = await page.evaluate((x) => { const e = (window as never as { timmyCanvas: { editor: { getShapePageBounds: (i: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToViewport: (p: { x: number; y: number }) => { x: number; y: number } } } }).timmyCanvas.editor; const r = e.getShapePageBounds(x); const p = e.pageToViewport({ x: r.minX, y: r.minY }); const q = e.pageToViewport({ x: r.maxX, y: r.maxY }); return { x: p.x, y: p.y, r: q.x, b: q.y }; }, s);
+        const sb = await page.evaluate((x) => { const e = (window as never as { timmyCanvas: { editor: { getShapePageBounds: (i: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number } } } }).timmyCanvas.editor; const r = e.getShapePageBounds(x); const p = e.pageToScreen({ x: r.minX, y: r.minY }); const q = e.pageToScreen({ x: r.maxX, y: r.maxY }); return { x: p.x, y: p.y, r: q.x, b: q.y }; }, s);
         expect(sb.x >= box.x && sb.y >= box.y && sb.r <= box.x + box.width && sb.b <= box.y + box.height, `${s} inside the mark`).toBe(true);
       }
       const jobsBefore = (await getJson<Array<{ id: string }>>('/api/canvas/jobs')).map((j) => j.id);

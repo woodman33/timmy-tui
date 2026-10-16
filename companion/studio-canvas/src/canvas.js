@@ -21,6 +21,8 @@ import { createRunDetailPanel } from './run-detail.js';
 import { timmyThemes } from './theme.js';
 import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
 import { saveState } from './save-state.js';
+// R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
+import { createFrameStrip } from './frame.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -294,7 +296,8 @@ let drawnInCall = null;
 const BESIDE_MIN = 240;
 function freeArea() {
   const margin = 16;
-  const top = 56;
+  // R5 (H133): under tldraw's own top row, inside the canvas box, which starts under the workspace strip
+  const top = (document.getElementById('root')?.getBoundingClientRect().top ?? 0) + 56;
   const side = document.getElementById('side')?.getBoundingClientRect();
   const bar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
   const bottom = (bar && bar.height > 0 ? bar.top : innerHeight - 72) - margin;
@@ -949,14 +952,46 @@ function refuseToLoad(words) {
   say(`Not loaded: ${words}${/\/canvas open/.test(words) ? '' : ' In Timmy: /canvas open.'}`, 'refused');
   document.getElementById('refused-words').textContent = words;
   document.getElementById('refused').hidden = false;
+  // R5 (H133): no workspace strip: the page has no session to read it with
+  hideFrame();
+}
+
+/**
+ * R5 (H133): the workspace strip (index.html #frame), shown at once on a page Timmy opened, so the canvas starts below it before
+ * tldraw lays out; its height is the canvas box's top (--frame-h), followed as it changes (a narrow window, a longer line).
+ */
+let frameStrip = null;
+function showFrame() {
+  const strip = document.getElementById('frame');
+  if (!strip) return;
+  strip.hidden = false;
+  const follow = () => document.documentElement.style.setProperty('--frame-h', `${strip.hidden ? 0 : Math.ceil(strip.getBoundingClientRect().height)}px`);
+  follow();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(follow).observe(strip);
+}
+function hideFrame() {
+  const strip = document.getElementById('frame');
+  if (strip) strip.hidden = true;
+  document.documentElement.style.setProperty('--frame-h', '0px');
+  frameStrip?.stop();
+  frameStrip = null;
+}
+/** R5 (H133): reads the frame with this page's session, now and every few seconds while the page is shown (./frame.js). */
+function startFrame() {
+  const strip = document.getElementById('frame');
+  if (!strip || frameStrip) return;
+  frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
 }
 
 async function start() {
   // R4 (H75): this page's grant becomes its session before anything else (before tldraw starts and before the agent's bridge
   // connects). R4 (H83): the canvas, its settings' license and its jobs are read only with it, so without one nothing loads.
   say(GRANT_AT_LOAD ? 'Loading the canvas: opening this page\'s session with Timmy' : 'Loading the canvas', 'loading');
+  // R5 (H133): a page Timmy opened draws the workspace strip at once (its space is kept before tldraw lays out below it)
+  if (GRANT_AT_LOAD) showFrame();
   const session = await cards.startSession();
   if (session.state !== 'ok') { refuseToLoad(session.words); return; }
+  startFrame();
   say('Loading the canvas: reading its settings from Timmy', 'loading');
   const settings = await cards.config();
   if (!settings.ok || !settings.body) throw new Error(`Timmy answered ${settings.status} for the canvas settings`);

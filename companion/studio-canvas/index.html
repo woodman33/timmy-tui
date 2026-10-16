@@ -14,7 +14,54 @@
      structure greys, off-white text, amber for focus, the selection and the one next step, green only for an observed live
      connection, a passed check or a verified sealed receipt). Every color is a --timmy-* token; the hex beside it is only its
      fallback. tldraw's fonts and the colors you choose for your drawing stay tldraw's: nothing here touches them. */
-  html, body, #root { margin: 0; height: 100%; }
+  html, body { margin: 0; height: 100%; }
+  /* R5 (H133): the canvas starts below the workspace strip (#frame; its height is --frame-h, 0 while it is not shown), so the strip
+     never covers tldraw's menus, its style panel or its toolbar, which tldraw lays out inside this box. Absolute, not fixed: a
+     fixed box would be a stacking context of its own, and tldraw's UI layer (z-index 300, its menus) would then sit under the
+     panel (#side, 299) instead of over it (the page never scrolls, so the two place the box alike) */
+  :root { --frame-h: 0px; }
+  #root { position: absolute; left: 0; right: 0; bottom: 0; top: var(--frame-h, 0px); }
+  /* R5 (H133): the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 Layouts), as a compact strip: TIMMY and the
+     project, the ten tabs (Studio active, a 1px amber border; the others are labels, not links), the Studio tab's actions (the one
+     primary amber, each with its command to copy) and one line of activity. Each row is 20px and scrolls sideways on a narrow
+     window. Green only for what the frame says is live (.is-live). */
+  /* under tldraw's UI layer (300) and the panel (299), which never reach into it: a tldraw menu that opens upward covers the strip,
+     never the other way round */
+  #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "acts" "activity"; gap: 2px 14px; padding: 3px 10px;
+    background: var(--timmy-surface, #070707); border-bottom: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
+    font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/18px var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #frame[hidden] { display: none; }
+  #frame-top { grid-area: top; }
+  #frame-acts { grid-area: acts; }
+  #frame-activity { grid-area: activity; }
+  /* a low window (a small laptop, a browser window made short): the strip keeps to two rows, the actions and the activity side
+     by side on the second, so Timmy's panel below it keeps room for its lists */
+  @media (max-height: 760px) {
+    #frame { grid-template-columns: minmax(0, 1fr) fit-content(40%); grid-template-areas: "top top" "acts activity"; }
+  }
+  #frame .fr-row { display: flex; align-items: center; gap: 4px 8px; margin: 0; padding: 0; min-height: 20px; white-space: nowrap; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  #frame-brand { flex: none; margin: 0; }
+  #frame-brand strong { font-weight: var(--timmy-weight-heading, 700); letter-spacing: .08em; }
+  #frame-tabs, #frame-acts { list-style: none; }
+  #frame-tabs { display: flex; gap: 4px; margin: 0; padding: 0; }
+  #frame .fr-tab { padding: 0 6px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; }
+  #frame .fr-tab.is-active { border-color: var(--timmy-accent, #FFB000); color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
+  #frame .fr-key { color: var(--timmy-text-secondary, #8E8E93); font-weight: var(--timmy-weight-body, 400); }
+  #frame .fr-count, #frame .is-waiting { color: var(--timmy-attention, #FFB000); }
+  #frame .fr-act { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; }
+  #frame .fr-act.is-primary { border-color: var(--timmy-accent, #FFB000); }
+  #frame .fr-act.is-primary .fr-label { color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  #frame .fr-n, #frame .fr-why { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-act.is-off .fr-label { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-cmd { font: inherit; line-height: 16px; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 3px; padding: 0 4px; user-select: all; }
+  #frame .fr-copy { font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; cursor: pointer; }
+  #frame .fr-copy:focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 1px; }
+  #frame-activity { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-sep { color: var(--timmy-line-strong, #444444); }
+  #frame .fr-log.is-live { color: var(--timmy-live, #28FE14); }
+  #frame .fr-log.is-attention, #frame .fr-log.is-failure { color: var(--timmy-attention, #FFB000); }
   /* R5 (H133), B10: tldraw's own chrome (its menus, toolbar, panels, tooltips, dialogs and the canvas behind the drawing) on the
      same tokens. tldraw 5.5.2 colors that chrome only through these variables (its Themes guide: the canvas's background is
      --tl-color-background); the canvas's own UI colors (the selection, its brush, snap lines, handles) come from the same
@@ -67,14 +114,14 @@
   /* R5 (H133): just under tldraw's UI layer (.tlui-layout, a stacking context at z-index 300, which holds its menus, dialogs and
      toasts), so tldraw's main menu opens over this panel instead of under it (its Preferences sat under the panel and could not be
      reached); still over the canvas, its in-front layer (250) and the drawn cards. tldraw's panels never overlap this one. */
-  #side { position: fixed; left: 8px; top: 52px; z-index: 299; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
+  #side { position: fixed; left: 8px; top: calc(var(--frame-h, 0px) + 52px); z-index: 299; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
     display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
     /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold. R4 (H100; the Mac run r24: the New board
        footer and the "Placed card" message sat on the list's cut rows): the panel itself never scrolls; its lists scroll in one
        region (#side-scroll) that ends above the message band and New board, which stay in place below it. A full panel ends
        116 px above the window's bottom (its top is at 52): tldraw's toolbar is up to 104 px tall on a narrow window, with
        its row of actions over it */
-    max-height: calc(100vh - 168px); overflow: hidden; }
+    max-height: calc(100vh - var(--frame-h, 0px) - 168px); overflow: hidden; }
   #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #444444); }
   /* R5 (H133), B10: green is earned: "Timmy connected" is an observed live connection (the bridge's socket is open), said in words */
   #status[data-kind="ready"] { border-left-color: var(--timmy-live, #28FE14); }
@@ -267,12 +314,12 @@
   .tc-block-cmd code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
   .tc :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
-  #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
+  #guide { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
     text-align: center; color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #FFB000); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
   /* R4 (H83): a page that loads no canvas (no session from Timmy) says why and what to type, in the middle of the page. */
-  #refused { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
+  #refused { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
     padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #FFB000);
     color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #refused strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; }
@@ -281,6 +328,13 @@
 </style>
 </head>
 <body>
+<!-- R5 (H133): the shared workspace frame, drawn by src/frame.js from GET /api/workspace (this page's session); shown on a page Timmy
+     opened, never on one opened without a grant -->
+<header id="frame" hidden aria-label="Timmy's workspace: this project, its tabs, Studio's next steps and what runs">
+  <div class="fr-row" id="frame-top"><p id="frame-brand"><strong>TIMMY</strong> <span aria-hidden="true">·</span> <span id="frame-project">reading the workspace…</span></p><ol id="frame-tabs" aria-label="The ten tabs; this page is Studio"></ol></div>
+  <ol class="fr-row" id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
+  <p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p>
+</header>
 <div id="root"></div>
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>

@@ -109,7 +109,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const fixtures = temp('timmy-cards-fixtures-');
     const fakePython = join(fixtures, 'fake-python');
