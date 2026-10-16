@@ -325,7 +325,7 @@ export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, fu
 /** What a terminal does not draw for this tab, and where it is drawn: R6 (H142) the companion's Tools & MCP inspector (c, then
  *  its key 9). R5 (H131) said no surface drew a schema view or a call graph; the companion draws both now. */
 export const TOOLS_NOT_HERE = 'A terminal draws no schema form, flame graph or image.';
-export const TOOLS_IN_COMPANION = 'press 9 there: its Tools & MCP inspector lists a server\'s tools with their schemas, checks a request before sending it, calls through either route, and draws each call\'s requests, answer and receipt';
+export const TOOLS_IN_COMPANION = 'its tab 9, Tools & MCP, lists a server\'s tools with their schemas, checks a request before sending it, calls through either route, and draws each call\'s requests, answer and receipt';
 function notDrawn(w: number, g: Glyphs): Line[] {
   return limitRows(TOOLS_NOT_HERE, { c: TOOLS_IN_COMPANION }, w, g);
 }

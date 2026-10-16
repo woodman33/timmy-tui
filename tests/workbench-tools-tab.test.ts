@@ -172,7 +172,7 @@ describe('tab 9: the selected call or tool', () => {
       expect(said).toMatch(/Made in Timmy's terminal \(\/mcp call\) or by its agent \(call_mcp_tool\)/);
       // R6 (H142): the companion's Tools & MCP inspector draws the schema form, the flame graph and images (R5 said no surface did)
       expect(said).toMatch(/A terminal draws no schema form, flame graph or image\./);
-      expect(said.replace(/\s+/g, ' ')).toMatch(/\[c\] Companion( · Show)?: press 9 there: its Tools & MCP inspector lists a server's tools with their schemas, checks a request before sending it, calls through either route, and draws each call's requests, answer and receipt\./);
+      expect(said.replace(/\s+/g, ' ')).toMatch(/\[c\] Companion( · Show)?: its tab 9, Tools & MCP, lists a server's tools with their schemas, checks a request before sending it, calls through either route, and draws each call's requests, answer and receipt\./);
       expect(said).not.toMatch(/No Timmy surface draws/);
       expect(rolesOf(v.lines, /^\[c\]$/)).toEqual(['action']);
       // a configured server: by its name

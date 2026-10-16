@@ -194,7 +194,7 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     expect(call).toMatch(/#\d+ ✓ verified \(verifyReceiptIn, now\) call\.json is the bytes it sealed/);
     expect(call).toContain('AGAIN /mcp call --route sdk echo {"text":"FAKE"} -- <server command>');
     // R6 (H142): what a terminal does not draw, and the companion's tab 9 that does (R5 said no surface did)
-    expect(call).toMatch(/A terminal draws no schema form, flame graph or image\. \[c\] Companion( · Show)?: press 9 there: its Tools & MCP inspector lists a server's tools with their schemas/);
+    expect(call).toMatch(/A terminal draws no schema form, flame graph or image\. \[c\] Companion( · Show)?: its tab 9, Tools & MCP, lists a server's tools with their schemas/);
     // [i]: the Inspector has the call
     c.key('i', {});
     f = c.frame(160, 45);
