@@ -13,6 +13,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Key } from 'ink';
+import { requestTurnStop, runningTurns } from '../agent/chat-turn.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
 import { TABS, tabByKey, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
@@ -21,7 +22,7 @@ import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
 import { operationRel } from '../ops/operations.js';
-import { buildWorkspaceFrame } from '../ops/workspace-frame.js';
+import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
@@ -35,7 +36,7 @@ import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
-import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
+import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -1114,7 +1115,7 @@ export class Controller {
       // R4 lead: sent once (src/contracts/chat-session.ts sendOnce): the message's key is its operation's, so nothing that
       // sends this message again (a repeat of its Enter, a retry after a timeout, another process) repeats a turn that went out
       const r = await ws.ops.run(h, () => session.sendOnce(`wb-${h.id}`, text, {
-        onText: (full) => { turn.answer = full; if (!heard) { heard = true; this.refreshFrame(); } this.emit(); },
+        onText: (full) => { turn.answer = full; if (!heard) { heard = true; this.ownTurnId(turn); this.refreshFrame(); } this.emit(); },
         onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
         askPerson: (req) => this.askPerson(req),
         signal: abort.signal,
@@ -1136,11 +1137,24 @@ export class Controller {
       this.data.chat = readChatTail(this.data.project.root);
       // R4 (H117): the turn's receipt is sealed by now: the Control Room lists it at once, not at the next reading
       this.data.turns = readTurns(this.chain(), this.data.project.root);
+      // R5 (H131; the operator's 22:32 order, item 1): its identity, from its sealed receipt (turn_id) when its hold was not read
+      const sealed = turn.receipt ? this.data.turns.find((x) => x.receipt === receiptShort(turn.receipt!)) : undefined;
+      if (sealed?.turn) turn.id = sealed.turn;
       // R5 (H131): and the pipeline shows the turn just answered; the frame no longer counts it
       this.readPipeline();
       this.refreshFrame();
       this.emit();
     }
+  }
+
+  /** R5 (H131; the operator's 22:32 order, item 1): this Workbench's turn's identity, its hold's id (taken by the chat session
+   *  before anything is sent), read while it is answered: the frame names the same id, so its end is told by identity. */
+  private ownTurnId(turn: NonNullable<Data['turn']>): void {
+    if (turn.id) return;
+    try {
+      const held = runningTurns(this.data.project.root, undefined, { readOnly: true }).filter((t) => t.mine && t.surface === 'workbench');
+      if (held.length === 1) turn.id = held[0].id;
+    } catch { /* not read: its receipt names it once sealed */ }
   }
 
   private labelOf(id: WorkspaceId): string { return id === 'overview' ? 'God\'s Eye View' : id === 'create3d' ? '3D Create' : id === 'tools' ? 'All tools' : id === 'control' ? 'Control Room' : id === 'rea' ? 'REA' : id === 'voxvision' ? 'VoxVision' : id.charAt(0).toUpperCase() + id.slice(1); }
@@ -1524,7 +1538,8 @@ export class Controller {
     if (!target) {
       // R5 (H131; the QA round's defect 1): a chat turn is what runs: this Workbench's own stops here; another surface's there
       if (named.turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
-      if (named.turn) { this.say(`Stop current: the chat turn is being answered in ${named.turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary'); return; }
+      // R5 (H131; the QA of e7f853e, item 16): another surface's turn is asked to stop, by its id, as its own key would stop it
+      if (named.turn) { this.askTurnStop(named.turn, 'x'); return; }
       this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
       return;
     }
@@ -1533,6 +1548,21 @@ export class Controller {
     const r = await stopCurrent(target, { stop: (id) => this.d.workspace.stop(id), jobs: this.d.workspace.jobs, ...(this.d.stopLeft ? { stopLeft: this.d.stopLeft } : {}) });
     this.readJobs();
     this.say(r.words, r.role);
+  }
+
+  /**
+   * R5 (H131; the QA of e7f853e, item 16): asks the chat turn another surface is answering to stop, by its identity (the
+   * frame's activity.chatTurn.id): the process answering it stops it as its own key would (src/agent/chat-turn.ts
+   * requestTurnStop, watchTurnStop) and its receipt records who asked; the frame, read again, shows its end. Refused when that
+   * turn is not being answered now (it ended, or its process has); a turn the frame names without an id stops only there.
+   */
+  private askTurnStop(turn: TurnNow, how: 'x' | 'Enter'): void {
+    const there = turnStopWords(turn.surface);
+    if (!turn.id) { this.say(`Stop current: the chat turn is being answered in ${turn.where}; it stops there (${there}), not from here: the workspace frame named no id to ask it by.`, 'secondary'); return; }
+    const r = requestTurnStop(this.data.project.root, turn.id, 'workbench');
+    if (!r.ok) { this.say(`Nothing stopped (${how}): ${r.why}.`, 'secondary'); this.refreshFrame(); return; }
+    this.say(`Stop asked of the turn being answered in ${turn.where} (${how}): it stops there as ${there} would, and its end shows here once its receipt is sealed.`, 'secondary');
+    this.refreshFrame();
   }
 
   // ── Enter ─────────────────────────────────────────────────────────────────────
@@ -1593,7 +1623,8 @@ export class Controller {
       case 'abort': {
         const turn = chatTurnNow(this.data);
         if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); }
-        else if (turn) this.say(`The chat turn is being answered in ${turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary');
+        // R5 (H131; the QA of e7f853e, item 16): Enter on Stop the turn asks another surface's turn to stop, as x does
+        else if (turn) this.askTurnStop(turn, 'Enter');
         else this.say('No chat turn is being answered: nothing to stop.', 'secondary');
         return;
       }

@@ -19,7 +19,9 @@
  * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here; the short labels
  * are the frame's labels' first words. Pure: the same frame and state always draw the same rows.
  */
+import type { ChatSurface } from '../contracts/chat-session.js';
 import { TABS, tabOf, type ConnectionState, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry } from '../contracts/workspace.js';
+import { turnOf, turnStopWords } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
 import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
@@ -230,7 +232,9 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
   // (while a turn runs the frame says where it stops, by the surface that sent it: src/ops/workspace-frame.ts turnStopCommand,
   // "Esc in the composer that sent it (the Workbench)", "Ctrl+C in the REPL that sent it", "Stop on the companion page …")
-  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does); one sent elsewhere stops there' };
+  // R5 (H131; the QA of e7f853e, item 16): and one sent elsewhere is asked to stop, by its id (src/agent/chat-turn.ts
+  // requestTurnStop), as its own key would stop it there
+  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does), or asks one sent from elsewhere to stop, as its own key would' };
   // R5 (H131; the finish line, item 3): the frame's fixes for a chat that cannot answer, done here where the Workbench can do
   // them honestly; the setup, which asks for a key, is a shell's (its command and what it asks are shown)
   if (cmd === '/model free') return { kind: 'free-models', words: 'Enter lists the free models in this computer\'s catalog; Enter on one makes it the chat\'s model (free-only stays on)' };
@@ -559,22 +563,42 @@ export interface TurnNow {
   where: string;
   /** when it began (ISO) */
   since: string;
+  /** the surface that sent it (its stop is that surface's key: src/ops/workspace-frame.ts turnStopWords) */
+  surface: ChatSurface;
+  /** R5 (H131; the operator's 22:32 order, items 1 and 2): its identity (the frame's activity.chatTurn.id, its hold's id): a
+   *  stop is asked of it by this id (src/agent/chat-turn.ts requestTurnStop); absent when the frame did not name one */
+  id?: string;
 }
 
 /**
  * R5 (H131; the QA round's defect 1): the chat turn being answered now, one fact for row 2's run state and Stop current,
  * Activity, the Chat tab's event log and its actions: this Workbench's own while it sends (known at once), else the workspace
- * frame's (any surface's, read at most once a second). A frame read before this Workbench's own turn ended, and naming a
- * Workbench's turn, names that one: it has ended and is not counted again.
+ * frame's (any surface's, read at most once a second). R5 (H131; the operator's 22:32 order, item 1): a frame's turn has
+ * ended when its identity says so, never by surface and time: it is this Workbench's own turn, now ended, or a sealed
+ * receipt (the Workbench's reading or the frame's) names it as its turn_id; a next turn taken at once is still running.
  */
-export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project'>): TurnNow | null {
+export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project' | 'turns'>): TurnNow | null {
   const own = d.turn;
-  if (own?.state === 'sending') return { mine: true, where: 'this Workbench', since: new Date(own.at).toISOString() };
+  if (own?.state === 'sending') return { mine: true, where: 'this Workbench', since: new Date(own.at).toISOString(), surface: 'workbench', ...(own.id ? { id: own.id } : {}) };
   const f = d.frame;
   const t = f && f.project.id === d.project.id ? f.activity.chatTurn : null;
   if (!f || !t) return null;
-  if (t.surface === 'workbench' && own?.ended !== undefined && Date.parse(f.at) <= own.ended) return null;
-  return { mine: false, where: SURFACE_AWAY[t.surface] ?? t.surface, since: t.since };
+  const id = t.id;
+  if (id && (id === own?.id || (d.turns ?? []).some((x) => x.turn === id) || (f.chat?.turns ?? []).some((x) => x.turn === id))) return null;
+  return { mine: false, where: SURFACE_AWAY[t.surface] ?? t.surface, since: t.since, surface: t.surface as ChatSurface, ...(id ? { id } : {}) };
+}
+
+/** R5 (H131; the QA of e7f853e, item 16): how a turn being answered stops, in the frame's words (turnStopWords) and with what
+ *  x or Enter does here: this Workbench's own stops here; another surface's is asked to stop by its id, as its own key would. */
+export function turnStopHere(t: TurnNow): string {
+  if (t.mine) return 'Esc in the composer or x stops it';
+  return t.id ? `x asks it to stop, as ${turnStopWords(t.surface)} does` : `${turnStopWords(t.surface)} stops it, there`;
+}
+
+/** R5 (H131; the QA of e7f853e, item 17): how a sealed turn ended, in the frame's words (src/ops/workspace-frame.ts turnOf):
+ *  "stopped (asked from the companion)" when a surface other than the one that sent it asked it to stop. */
+export function turnEndWords(t: Pick<TurnRow, 'state' | 'surface' | 'stoppedBy'>): string {
+  return t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? `stopped (asked from ${SURFACE_NAME[t.stoppedBy] ?? t.stoppedBy})` : t.state;
 }
 
 // ── Chat: the pipeline row and the event log ───────────────────────────────────
@@ -649,12 +673,12 @@ export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs): Line {
 const SURFACE_NAME: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
 
 /** R5 (H131; the QA round's defect 8): a sealed chat turn as a log entry: how it ended, where, the model and its receipt (its
- *  receipt keeps hashes only, and so do these words: never a word of the message or the answer). */
+ *  receipt keeps hashes only, and so do these words: never a word of the message or the answer). R5 (H131; the QA of
+ *  e7f853e, item 17): the words are the frame's own for the turn (src/ops/workspace-frame.ts turnOf), so a stop another surface
+ *  asked for reads the same everywhere: "turn stopped (asked from the companion) in the REPL · …". */
 export function turnEntry(t: TurnRow): WorkspaceLogEntry {
-  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
   return {
-    at: t.at, tag: 'chat', tone: t.state === 'failed' ? 'failure' : 'neutral',
-    words: `turn ${ended} in ${SURFACE_NAME[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+    at: t.at, tag: 'chat', tone: t.state === 'failed' ? 'failure' : 'neutral', words: turnOf(t).words,
     ...(t.operation ? { operation: t.operation } : {}), source: `receipt ${t.receipt}`,
   };
 }
@@ -677,8 +701,11 @@ export function eventLogView(c: ViewCtx): View {
   lines.push(heading(`Running now (${live.length + (turn ? 1 : 0)})`));
   if (!live.length && !turn) lines.push([S('  Nothing runs.', 'secondary')]);
   if (turn) {
+    // R5 (H131; the QA of e7f853e, the lead's batch): when it began in this Workbench's own clock (the frame's words carry
+    // none), how long it has run, and how it stops from here
     const since = Date.parse(turn.since);
-    lines.push([S(`  ${g.run} running `, 'text'), S('chat turn', 'strong'), S(`  being answered in ${turn.where}`, 'text'), S(Number.isFinite(since) ? ` ${g.sep} ${took(c.now - since)}` : '', 'secondary'), S(turn.mine ? ` ${g.sep} Esc in the composer or x stops it` : ` ${g.sep} it stops there`, 'secondary')]);
+    lines.push(...wrapSegs([S(`  ${g.run} running `, 'text'), S('chat turn', 'strong'), S(`  being answered in ${turn.where}`, 'text'),
+      S(Number.isFinite(since) ? ` ${g.sep} since ${clock(turn.since)} ${g.sep} ${took(c.now - since)}` : '', 'secondary'), S(` ${g.sep} ${turnStopHere(turn)}`, 'secondary')], width, '    '));
   }
   for (const j of live) {
     const where = sameFolder(j.root, data.project.root) ? '' : ` ${g.sep} in ${j.project}`;

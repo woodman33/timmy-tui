@@ -33,14 +33,14 @@ import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS } from '../agent/lanes.js';
 import { readConnect, type ConnectView } from '../connect/read.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import type { JobRecord } from '../jobs/index.js';
-import { LIVE_FOR_MS } from '../ops/workspace-frame.js';
+import { LIVE_FOR_MS, turnStopWords } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
 import type { Decision as WaitDecision } from '../room/decisions.js';
 import { timmyHome } from '../setup/home.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
-import { connectionMark } from './hub.js';
+import { connectionMark, turnEndWords } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
 import { lineText } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
@@ -146,7 +146,7 @@ export interface DeviceRow {
 }
 
 /** A chat turn being answered now, as its hold names it (src/agent/chat-turn.ts OtherTurn). */
-export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown' }
+export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown'; /** R5 (H131): its hold's id, the turn's identity */ id?: string }
 
 /** A pane's log: its last lines (escapes removed, homes written from ~, the project's folder as .), or why there are none.
  *  `every`: while the job runs, how often its log is read again (the Workbench's tick: no job of Timmy's tells a reader of its
@@ -346,7 +346,7 @@ export function readControl(i: ControlReadInput): ControlData {
   const notes: string[] = [];
   let turns: LiveTurnRow[] = [];
   try {
-    turns = [...(i.turns ? i.turns() : runningTurns(i.root, undefined, { readOnly: true }))].map((t) => ({ surface: t.surface, pid: t.pid, taken: t.taken, mine: t.mine, proof: t.proof }));
+    turns = [...(i.turns ? i.turns() : runningTurns(i.root, undefined, { readOnly: true }))].map((t) => ({ surface: t.surface, pid: t.pid, taken: t.taken, mine: t.mine, proof: t.proof, ...(t.id ? { id: t.id } : {}) }));
   } catch (e) { notes.push(`The chat turns being answered could not be read: ${msg(e)}`); }
   const away = i.away ?? [];
   const lanes = laneRows(i.root, env, [...i.jobs, ...away], notes);
@@ -560,8 +560,13 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
   return { title: [S(j.id, selected ? 'focus' : 'strong')], note, head, tail, foot, selected };
 }
 
-/** How a turn being answered is stopped, where it was sent from. */
-const turnStop = (s: ChatSurface): string => (s === 'workbench' ? 'Esc in its composer stops it' : s === 'repl' ? 'Ctrl+C in the REPL stops it' : `${surfaceWords(s)} stops it (Esc in its composer)`);
+/** How a turn being answered is stopped, where it was sent from, in the frame's words (src/ops/workspace-frame.ts
+ *  turnStopWords). R5 (H131; the QA of e7f853e, item 16): x here asks another surface's turn to stop, by its id. */
+const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopWords(t.surface)} stops it${t.id ? '; x here asks it to stop' : ''}`);
+
+/** R5 (H131; the operator's 22:32 order, item 1): the turns being answered, less any whose own receipt is sealed (its hold is let
+ *  go a moment after): matched by the turn's identity, never by surface and time. */
+const liveTurnsOf = (d: ControlData | undefined, sealed: readonly TurnRow[]): LiveTurnRow[] => (d?.turns ?? []).filter((t) => !t.id || !sealed.some((x) => x.turn === t.id));
 
 /** A chat turn's pane: whose surface, which process, since when; the Workbench's own turn its tools as they run (its words
  *  are drawn in Chat, never here); how it is stopped. */
@@ -579,7 +584,7 @@ function turnParts(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean):
     tail.push([S(own.answer ? `the answer so far: ${count(own.answer.length, 'character')} (2 Chat shows it)` : 'no answer yet', 'secondary')]);
   } else tail.push(...para('its words are where it was sent', inner));
   const ms = c.now - Date.parse(t.taken);
-  return { title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], head, tail, foot: para(turnStop(t.surface), inner), selected };
+  return { title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], head, tail, foot: para(turnStop(t), inner), selected };
 }
 
 /** What waits on you, one decision: its title (⚠, wrapped, never cut), what is needed, its first command. */
@@ -624,7 +629,8 @@ function sealedTurnRows(t: TurnRow, c: ControlCtx, w: number, dense: boolean): L
   const g = c.g;
   const room = w - 2;
   const m = turnMark(t, g);
-  const head: Line = [S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state}`, m.role)];
+  // R5 (H131; the QA of e7f853e, item 17): a stop another surface asked for, in the frame's words: "stopped (asked from …)"
+  const head: Line = [S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${turnEndWords(t)}`, m.role)];
   const from = `from ${TURN_SURFACE[t.surface]}`;
   const rest = [t.model ?? 'model not recorded', took(t.ms), t.operation ?? 'no operation', ago(t.at, c.now)];
   const sent: Line = [...head, S(` ${from}`, 'text')];
@@ -672,7 +678,7 @@ function detailRows(c: ControlCtx, item: ControlItem | null, w: number): Line[] 
 function surfaceRows(c: ControlCtx, d: ControlData | undefined): RosterEntry[] {
   const g = c.g;
   const out: RosterEntry[] = [{ glyph: g.next, name: 'Workbench', word: 'running (this one)', short: 'running', role: 'text' }];
-  const turns = d?.turns ?? [];
+  const turns = liveTurnsOf(d, c.data.turns ?? []);
   const repl = turns.find((t) => t.surface === 'repl');
   out.push(repl ? { glyph: g.next, name: 'REPL', word: `answering a turn (pid ${repl.pid})`, short: 'answering', role: 'text' } : { glyph: '?', name: 'REPL', word: 'not recorded', short: 'not recorded', role: 'secondary' });
   for (const t of turns.filter((x) => x.surface === 'monitor')) out.push({ glyph: g.next, name: 'monitor', word: `answering a turn (pid ${t.pid})`, short: 'answering', role: 'text' });
@@ -803,7 +809,7 @@ function columnOf(blocks: readonly Block[], sel: number, room: number, w: number
  */
 export function controlRoomView(c: ControlCtx, d: ControlData | undefined): ControlView {
   const { g, width: W } = c;
-  const liveTurns = d?.turns ?? [];
+  const liveTurns = liveTurnsOf(d, c.data.turns ?? []);
   const panes = paneJobs(c.data.jobs, c.data.away ?? [], liveTurns.length);
   const quietIds = new Set(panes.quiet.map((j) => j.id));
   const ended = c.data.jobs.filter((j) => !j.live).slice(0, RECENT_MAX);
@@ -997,7 +1003,7 @@ export function liveTurnDetail(t: LiveTurnRow, w: number, g: Glyphs, now: number
   f('Since', `${clock(t.taken)} (${ago(t.taken, now)})`);
   f('Running', `${g.next} running for ${took(now - Date.parse(t.taken))}`);
   f('Proof', t.proof === 'alive' ? 'its process runs (its start matches its hold)' : 'its process\'s start could not be read, so it is taken as running');
-  f('Stops', turnStop(t.surface));
+  f('Stops', turnStop(t));
   const mine = t.mine && t.surface === 'workbench' && own?.state === 'sending' ? own : undefined;
   if (mine) {
     if (mine.operation) f('Operation', mine.operation);

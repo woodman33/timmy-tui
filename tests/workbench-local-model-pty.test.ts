@@ -10,7 +10,9 @@
 // - the openers on PATH (`open` and `xdg-open` stubs that only log; nothing presses Show).
 // Everything else is the real program, started as the installed command starts it (src/cli.ts through tsx's loader), over a
 // sandbox of its own (HOME, the XDG folders, the Timmy home, the settings folder, the store, TMPDIR and the tmux server).
-// The screens are kept as .ansi and .txt in <tmpdir>/timmy-workbench-captures/r5-terminal, or in TIMMY_WB_CAPTURES.
+// The screens are kept as .ansi and .txt in <tmpdir>/timmy-workbench-captures/r5-terminal, or in TIMMY_WB_CAPTURES. Every wait,
+// key and kept screen goes through the shared frame helper (tests/helpers/tmux-frame.ts, R5 H136): a screen counts only as a
+// whole, settled frame, and a key is sent once the one before it was read.
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -21,6 +23,7 @@ import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { keepScreen, sendKeys, settledScreen, waitScreen, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -47,33 +50,22 @@ const FAKE_MODELS = [
 
 const cli = (args: string[], timeout = 60_000) => runAsync(process.execPath, ['--import', LOADER, CLI, ...args], { cwd: repo, env, timeout });
 
-/** A tmux server of the test's own, its screen, its keys, waits with a deadline that names what they wait for, a capture. */
+/** A tmux server of the test's own, read through the shared frame helper: waits on whole, settled frames with a deadline that
+ *  names what they wait for, keys sent one at a time once read, screens kept whole. */
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = () => tmux('capture-pane', '-p', '-t', 't');
-  const waitFor = async (re: RegExp, what: string, ms = 30_000): Promise<string> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen();
-      if (re.test(s)) return s;
-      await sleep(100);
-    }
-    throw new Error(`timed out after ${ms} ms waiting for ${what} (${re}):\n${s}`);
-  };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
+  const pane: Pane = { tmux, target: 't', folders: [box] };
+  const waitFor = (re: RegExp, what: string, ms = 30_000): Promise<string> => waitScreen(pane, { what, re, ms });
+  const keys = (...k: string[]): Promise<void> => sendKeys(pane, k);
   /** Tab until the zone titled `title` has the keyboard (its frame heavy, with ◆), as the rehearsal does */
   const focusZone = async (title: string, max = 8): Promise<boolean> => {
-    const focused = () => new RegExp(`┏━ ◆ [^━\\n]*${esc(title)}`).test(screen());
+    const focused = () => new RegExp(`┏━ ◆ [^━\\n]*${esc(title)}`).test(settledScreen(pane));
     for (let i = 0; i < max && !focused(); i++) await keys('Tab');
     return focused();
   };
-  const capture = (name: string): string => {
-    const txt = screen();
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
-  return { tmux, screen, waitFor, keys, focusZone, capture };
+  // (a notice may stand in the key-hint line's place for a few seconds after an action: the frame is kept whole either way)
+  const capture = (name: string): string => keepScreen(pane, CAPTURES, name, { foot: 'drawn' });
+  return { tmux, waitFor, keys, focusZone, capture };
 }
 
 beforeAll(async () => {
