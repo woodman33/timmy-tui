@@ -298,6 +298,26 @@ describe('tab 0: the layout at 160x45, 120x40 and 100x30', () => {
     }
   });
 
+  it('says what a terminal cannot draw (c, s), keeps the selection bar readable, and a clipped list says which rows show', () => {
+    const f = fixture();
+    const d = readLogs({ home: f.home, root: f.root, env: env() });
+    const k = indexOf(d, (e) => e.tag === 'workflow');
+    for (const [c, r] of SIZES) {
+      const v = logsView(ctxAt(c, r, k), d);
+      const all = text(v.lines);
+      // the run's output is text here: images, 3D and live previews are seen in the companion (c) or Studio (s) (the words
+      // wrapped in a narrow column)
+      expect(all).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or( live)? *\n[^\n]*│ (live )?previews here:/);
+      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action', 'action']);
+      // on the selection bar no word is in the grey secondary (below the contrast floor on charcoal)
+      const bar = v.lines.flat().filter((s) => s.selected && s.text.trim());
+      expect(bar.length).toBeGreaterThan(0);
+      expect(bar.every((s) => s.role !== 'secondary' && s.role !== 'border')).toBe(true);
+    }
+    // 100x30: the log is longer than its share of the rows, and its heading says which of its rows show
+    expect(text(logsView(ctxAt(100, 30, k), d).lines)).toMatch(/EVENT LOG · newest first +\d+–\d+ of \d+/);
+  });
+
   it('the body\'s own width decides when the terminal\'s is not given (Context beside it at 120 leaves 70 cells)', () => {
     const f = fixture();
     const d = readLogs({ home: f.home, root: f.root, env: env() });

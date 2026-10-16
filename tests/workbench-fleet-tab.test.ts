@@ -102,7 +102,11 @@ describe('tab 8, Fleet & Clef: the fleet', () => {
       expect(all).toMatch(/done 3 · failed 0/);
       expect(all).toMatch(/finished/);
       expect(all).toMatch(/planned 2 · admitted 0 · running 0/);
-      expect(rolesOf(v.lines, /^FAKE \(simulation\)$/).every((x) => x === 'secondary')).toBe(true);
+      // quiet where it is not selected; on the selection bar in the primary text colour (grey on charcoal is below the floor)
+      const fake = v.lines.flat().filter((s) => s.text === 'FAKE (simulation)');
+      expect(fake.map((s) => [!!s.selected, s.role])).toEqual(expect.arrayContaining([[true, 'text'], [false, 'secondary']]));
+      expect(fake.every((s) => s.role === (s.selected ? 'text' : 'secondary'))).toBe(true);
+      expect(v.lines.flat().filter((s) => s.selected && s.text.trim()).every((s) => s.role !== 'secondary' && s.role !== 'border')).toBe(true);
     }
     const stacked = text(fleetView(ctxAt(100, 30, 1), d, frame).lines);
     expect(stacked).toMatch(/planned 3 · admitted 3 · running 0 · done 3 · failed 0/);
@@ -239,6 +243,14 @@ describe('tab 8: Cloudflare and the services', () => {
     }
     // beside the fleet at 160: the name on its row, the mark and the frame's words under it
     expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered \d+ s ago/);
+    // what a terminal cannot draw, and where it is seen: c the companion, s Studio (the Workbench's own keys), at every size
+    for (const [c, r] of SIZES) {
+      const v = fleetView(ctxAt(c, r), d, frame);
+      expect(text(v.lines)).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or live previews( here:)?/);
+      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action', 'action']);
+      expect(text(v.lines)).toMatch(/\[c\] Companion/);
+      expect(text(v.lines)).toMatch(/\[s\] Studio/);
+    }
     const stacked = text(fleetView(ctxAt(100, 30), d, frame).lines);
     expect(stacked).toMatch(/Workers AI: not used \(Clef-Omni's transport is not Workers AI\)/);
     expect(stacked).toMatch(/not the chat provider: chat goes to OpenRouter or a local Ollama/);
@@ -277,6 +289,8 @@ describe('tab 8: the layout, the items and the Inspector', () => {
           // the fleet and Clef-Omni on the left, Cloudflare and the services on the right of the rule
           expect(plain(v.lines[2])).toMatch(/│ CLOUDFLARE · optional/);
           expect(v.lines.slice(2).every((l) => /│/.test(plain(l)))).toBe(true);
+          // a clipped column says which of its rows show (at 120 the left column does not hold everything)
+          if (c === 120) expect(text(v.lines)).toMatch(/[↑↓] \d+–\d+ of \d+ rows/);
         } else {
           expect(plain(v.lines[row(/^FLEET · plans/)])).not.toMatch(/│/);
           expect(row(/^CLEF-OMNI ·/)).toBeGreaterThan(row(/^FLEET · plans/));

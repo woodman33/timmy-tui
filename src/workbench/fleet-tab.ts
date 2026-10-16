@@ -30,7 +30,8 @@ import { knownProviders, listFleetViews, readRouteAdvice, type FleetView, type P
 import type { Glyphs } from './frame.js';
 import { connectionMark } from './hub.js';
 import {
-  bar, fieldRows, first, flow, heading, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx, type TabView,
+  bar, clipRows, fieldRows, first, flow, heading, onBar, para, previewNote, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx,
+  type TabView,
 } from './tab-columns.js';
 import { cells, clock, cut, fit, lineCells, pick, spread, wrapText, type Line, type Role, type Seg } from './text.js';
 
@@ -219,7 +220,7 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
   const ind = under(w);
   const status: Line = [S(v.needsYou.length ? `${g.warn} ${v.status}` : v.status, v.needsYou.length ? 'attention' : 'text', sel)];
   const id: Line = [selected ? S(`${g.cursor} `, 'action', sel) : S('  '), S(v.planId, 'strong', sel), S(` ${g.sep} `, 'secondary', sel), S(backendWords(v), v.simulation ? 'secondary' : 'text', sel)];
-  const all = (l: Line): Line => (selected ? l.map((s) => ({ ...s, selected: true })) : l);
+  const all = (l: Line): Line => (selected ? onBar(l) : l);
   const beside = (l: Line): boolean => lineCells(l) + 1 + lineCells(status) <= w;
   const counts = flow(countGroups(v), w, ind, ` ${g.sep} `, 'text', g.ellipsis);
   const rows: Line[] = [];
@@ -246,7 +247,8 @@ function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs):
   const ind = under(w);
   const mark = selected ? S(`${g.cursor} `, 'action', sel) : S('  ');
   const outcome: Seg = d.outcome === 'recommend' ? S('recommend', 'action', sel) : d.outcome === 'abstain' ? S(`${g.warn} a person decides`, 'attention', sel) : S('deterministic', 'text', sel);
-  const rows: Line[] = [spread([mark, S(d.id, 'strong', sel), S(` ${g.sep} ${d.kind} ${g.sep} ${clock(d.at)}`, 'secondary', sel)], [outcome], w, g.ellipsis).map((s) => (selected ? { ...s, selected: true } : s))];
+  const head = spread([mark, S(d.id, 'strong', sel), S(` ${g.sep} ${d.kind} ${g.sep} ${clock(d.at)}`, 'secondary', sel)], [outcome], w, g.ellipsis);
+  const rows: Line[] = [selected ? onBar(head) : head];
   if (d.recommended) {
     const r = d.recommended;
     const said: Line = [S(ind), S('Clef recommended ', 'text'), S(r.label, 'action')];
@@ -483,20 +485,24 @@ export function fleetView(c: TabCtx, d: FleetData | undefined, frame?: Workspace
     if (win.below) left.push(win.below);
     // a selected block cut at the column's end keeps its first rows; an item past the room is out of view
     for (const x of items) if (x.line >= lines.length + room) x.line = -1;
-    // Cloudflare first (it is asked for by name), then the services in the rows left
+    // Cloudflare first (it is asked for by name), then the services in the rows left, then what a terminal cannot draw
     const cf = cloudflareRows(d, frame, wr, g);
-    const right: Line[] = [...cf, [], ...serviceRows(frame, frameError, wr, g, room - cf.length - 1)];
-    lines.push(...sideBySide([{ w: wl, lines: rowsOf(left, wl, room, g.ellipsis) }, { w: wr, lines: rowsOf(right, wr, room, g.ellipsis) }], room, g));
+    const note = previewNote(wr, g);
+    // a row of air before the services only where every service still has its words under it
+    const air: Line[] = cf.length + 1 + 2 + 2 * (frame?.connections.length ?? 0) + note.length <= room ? [[]] : [];
+    const right: Line[] = [...cf, ...air, ...serviceRows(frame, frameError, wr, g, room - cf.length - air.length - note.length), ...note];
+    lines.push(...sideBySide([{ w: wl, lines: rowsOf(left, wl, room, g.ellipsis) }, { w: wr, lines: clipRows(right, wr, room, g) }], room, g));
     return { lines, items };
   }
 
-  // stacked: the fleet, Clef-Omni and its decisions, Cloudflare, the services; the body scrolls to the selection
+  // stacked: the fleet, Clef-Omni and its decisions, Cloudflare, the services; the body scrolls to the selection (the screen
+  // says which rows show)
   lines.push([]);
   for (const b of leftBlocks(W)) {
     if (b.at !== undefined) items[b.at] = { line: lines.length, item: all[b.at], ...(b.lines.length > 1 ? { rows: b.lines.length } : {}) };
     lines.push(...b.lines);
   }
-  lines.push([], ...cloudflareRows(d, frame, W, g), [], ...serviceRows(frame, frameError, W, g));
+  lines.push([], ...cloudflareRows(d, frame, W, g), [], ...serviceRows(frame, frameError, W, g), ...previewNote(W, g));
   return { lines: lines.map((l) => (lineCells(l) > W ? fit(l, W, g.ellipsis) : l)), items };
 }
 

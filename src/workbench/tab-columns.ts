@@ -85,9 +85,43 @@ export function windowMarked(heights: readonly number[], sel: number, room: numb
     bottom = b;
   }
   const rows = (from: number, to: number): number => heights.slice(from, to).reduce((a, h) => a + h, 0);
-  const above = win.start > 0 ? fit([S(`${g.unicode ? '↑' : '^'} ${rows(0, win.start)} more rows above`, 'secondary')], w, g.ellipsis) : null;
-  const below = win.end < heights.length ? fit([S(`${g.unicode ? '↓' : 'v'} ${rows(win.end, heights.length)} more rows below`, 'secondary')], w, g.ellipsis) : null;
+  // which rows show, as the screen says it of a clipped body (src/workbench/screen.ts rangeNote): "a–b of n", on the last mark
+  const range = `${rows(0, win.start) + 1}–${rows(0, win.end)} of ${rows(0, heights.length)} rows`;
+  const hasBelow = win.end < heights.length;
+  const above = win.start > 0 ? fit([S(hasBelow ? `${g.unicode ? '↑' : '^'} ${rows(0, win.start)} more above` : `${g.unicode ? '↑' : '^'} ${range}`, 'secondary')], w, g.ellipsis) : null;
+  const below = hasBelow ? fit([S(`${g.unicode ? '↓' : 'v'} ${range}`, 'secondary')], w, g.ellipsis) : null;
   return { ...win, above, below };
+}
+
+/**
+ * A column's rows in `room` rows: all of them when they fit; else the first room − 1 and a row saying which show ("↓ 1–N of
+ * M rows"), so a clipped column always says it is clipped.
+ */
+export function clipRows(lines: readonly Line[], w: number, room: number, g: Glyphs): Line[] {
+  if (lines.length <= room) return rowsOf(lines, w, room, g.ellipsis);
+  const shown = Math.max(0, room - 1);
+  return [...rowsOf(lines, w, shown, g.ellipsis), fit([S(`${g.unicode ? '↓' : 'v'} 1–${shown} of ${lines.length} rows`, 'secondary')], w, g.ellipsis)];
+}
+
+/**
+ * A selected row as the selection bar draws it: every segment selected, and its quiet words in the primary text colour (the
+ * grey secondary on the bar's charcoal is below the contrast floor).
+ */
+export const onBar = (l: Line): Line => l.map((s) => ({ ...s, selected: true, ...(s.role === 'secondary' || s.role === 'border' ? { role: 'text' as Role } : {}) }));
+
+/**
+ * What a terminal cannot draw, said where a tab refers to a preview, and where it is seen: [c] the companion, [s] Studio (the
+ * Workbench's own keys, from every tab). One row where it fits, else its words wrapped and the keys under them.
+ */
+export function previewNote(w: number, g: Glyphs): Line[] {
+  const key = (k: string): Seg => S(`[${k}]`, 'action');
+  const long: Line = [S('A terminal draws no images, 3D or live previews: ', 'secondary'), key('c'), S(` Companion ${g.sep} Show, `, 'secondary'), key('s'), S(` Studio ${g.sep} Show`, 'secondary')];
+  if (lineCells(long) <= w) return [long];
+  const said = 'No images, 3D or live previews here:';
+  const keys: Line = [key('c'), S(' Companion, ', 'secondary'), key('s'), S(' Studio', 'secondary')];
+  if (cells(said) + 1 + lineCells(keys) <= w) return [[S(`${said} `, 'secondary'), ...keys]];
+  const keyRows: Line[] = lineCells(keys) <= w ? [keys] : [[key('c'), S(' Companion', 'secondary')], [key('s'), S(' Studio', 'secondary')]];
+  return [...wrapText(said, Math.max(8, w)).map((t): Line => [S(t, 'secondary')]), ...keyRows.map((l) => fit(l, w, g.ellipsis))];
 }
 
 /** Rows of a column: each fitted to `w`, and at most `room` of them (blank rows below to the room when `pad`). */

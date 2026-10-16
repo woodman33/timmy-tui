@@ -48,9 +48,9 @@ export const TABS: readonly TabDef[] = [
   { id: 'voxvision', key: '5', label: 'VoxVision', workbench: ['voxvision'], refs: ['04', '05', '15', '16'], purpose: 'Every 2D and 3D vision tool with its observed status, and this project\'s observations.' },
   { id: 'create', key: '6', label: '3D & Motion', workbench: ['create3d', 'motion'], refs: ['06'], purpose: 'Native scenes, CAD, compositions and renders Timmy drives, with what each needs.' },
   { id: 'control', key: '7', label: 'Control Room', workbench: ['control'], refs: ['07', '14'], purpose: 'Devices, harnesses, jobs, chat turns and decisions: what runs, what ended, what waits.' },
-  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.' },
+  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['fleet', 'overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.' },
   { id: 'tools', key: '9', label: 'Tools & MCP', workbench: ['tools', 'rea', 'templates'], refs: ['08', '17'], purpose: 'Every capability with its rung, both MCP-to-CLI routes, REA, and public templates.' },
-  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.' },
+  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['logs', 'files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.' },
 ];
 
 export const tabOf = (id: TabId): TabDef => TABS.find((t) => t.id === id) ?? TABS[0];

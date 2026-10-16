@@ -31,7 +31,8 @@ import type { Glyphs } from './frame.js';
 import { lineText } from './output.js';
 import { readJobs, type JobRow } from './state.js';
 import {
-  card, fieldRows, heading, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowBlocks, type TabCtx, type TabView,
+  card, clipRows, fieldRows, heading, onBar, para, previewNote, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowBlocks, type TabCtx,
+  type TabView,
 } from './tab-columns.js';
 import { clock, cut, fit, lineCells, pick, spread, type Line, type Role, type Seg } from './text.js';
 
@@ -448,7 +449,7 @@ const VIA: Readonly<Record<string, string>> = { repl: 'the REPL', board: 'the bo
 function eventRows(e: LogEvent, w: number, o: { selected: boolean; linked: boolean; seqW: number; g: Glyphs }): Line[] {
   const { g } = o;
   const sel = o.selected ? { selected: true } : {};
-  const all = (l: Line): Line => (o.selected ? l.map((s) => ({ ...s, selected: true })) : l);
+  const all = (l: Line): Line => (o.selected ? onBar(l) : l);
   const mark: Seg = o.selected ? S(`${g.cursor} `, 'action', sel) : o.linked ? S(`${g.dot} `, 'secondary') : S('  ');
   const seq = e.seq !== undefined ? `#${e.seq}` : '';
   const status: Seg[] = e.status.word ? [S(statusText(e.status, g), toneRole(e.status.tone), sel)] : [];
@@ -716,16 +717,19 @@ export function logsView(c: TabCtx, d: LogsData | undefined): TabView<LogsItem> 
     // the log's heading is the columns' first row; its rows start under it
     const colA: Line[] = logBlock(wa, room - 1, lines.length + 1);
     const colB: Line[] = [opHead(d, e, g), ...(stages ? stageCards(stages, wb, room - 1, selHash, g) : noOp(wb))];
-    const raw = rawRows(d, e, wc, room - 1, g);
-    const colC: Line[] = [raw.head, ...raw.rows];
+    // the run's output as text, then what a terminal cannot draw of it and where it is seen
+    const note = previewNote(wc, g);
+    const raw = rawRows(d, e, wc, Math.max(1, room - 1 - note.length), g);
+    const colC: Line[] = [raw.head, ...raw.rows, ...note];
     lines.push(...sideBySide([
-      { w: wa, lines: rowsOf(colA, wa, room, g.ellipsis) }, { w: wb, lines: rowsOf(colB, wb, room, g.ellipsis) }, { w: wc, lines: rowsOf(colC, wc, room, g.ellipsis) },
+      { w: wa, lines: rowsOf(colA, wa, room, g.ellipsis) }, { w: wb, lines: clipRows(colB, wb, room, g) }, { w: wc, lines: clipRows(colC, wc, room, g) },
     ], room, g));
     return { lines, items };
   }
 
-  // stacked: (a), then (b), then (c), each in its share of the rows
-  const fixed = 1 + 1 + (stages ? 4 : 1) + 1;
+  // stacked: (a), then (b), then (c), each in its share of the rows; each says which of its rows show
+  const note = previewNote(W, g);
+  const fixed = 1 + 1 + (stages ? 4 : 1) + 1 + note.length;
   const rest = Math.max(2, H - lines.length - fixed);
   const logRoom = Math.max(2, Math.ceil(rest * 0.6));
   const rawRoom = Math.max(1, rest - logRoom);
@@ -735,6 +739,7 @@ export function logsView(c: TabCtx, d: LogsData | undefined): TabView<LogsItem> 
   const raw = rawRows(d, e, W - 4, rawRoom, g);
   lines.push(fit(raw.head, W, g.ellipsis));
   lines.push(...raw.rows.slice(0, rawRoom).map((l) => fit([S('    '), ...l], W, g.ellipsis)));
+  lines.push(...note);
   return { lines: lines.slice(0, Math.max(1, H)).map((l) => (lineCells(l) > W ? fit(l, W, g.ellipsis) : l)), items: items.map((x) => (x.line >= H ? { ...x, line: -1 } : x)) };
 }
 
