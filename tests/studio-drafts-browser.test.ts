@@ -92,7 +92,9 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       expect(await page.locator(`#draft-list li[data-draft="${id}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
       // R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): while the draft waits, Accept and New
       // board's Open are outlined, no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's
-      // selection), and the drafts' heading is off-white
+      // selection), and the drafts' heading is off-white. R6 (H139): the strip reads its frame once the board's project is known
+      // (the board is loaded), so it is drawn a moment later than the board: counted once it is drawn
+      await page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision), null, { timeout: 15_000 });
       const amber = await page.evaluate(() => {
         const AMBER = 'rgb(255, 176, 0)';
         const fills = [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === AMBER)

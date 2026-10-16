@@ -237,6 +237,8 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       expect(await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getInstanceState: () => { isReadonly: boolean } } } }).timmyCanvas.editor.getInstanceState().isReadonly)).toBe(true);
       expect(await page.isVisible('#switching')).toBe(true);
       expect(await page.textContent('#switching-title')).toBe("demo's board, read only");
+      // B10: the banner needs the person (its words say what to type), so its edge is amber, as the save line's states that need them
+      expect(await page.evaluate(() => getComputedStyle(document.getElementById('switching')!).borderLeftColor)).toBe('rgb(255, 176, 0)');
       await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 150, y: 700, props: { w: 40, h: 40 } }); });
       await page.waitForTimeout(1200);
       // its own board on disk (read by its id: the canvas names beta now) is as it was; nothing of it went to beta's

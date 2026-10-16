@@ -362,15 +362,18 @@
      where it goes; tldraw's own UI layer goes with the board. The side panel stays, saying what waits. */
   body[data-board="switching"] #root { visibility: hidden; }
   #switching { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 298; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
-    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #FFB000);
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-line-strong, #444444);
     color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #switching[hidden] { display: none; }
-  /* paused: the page's own project's board stays, read only; the banner sits at the canvas's top, never over the board's middle */
-  #switching[data-state="paused"] { top: calc(var(--frame-h, 0px) + 10px); transform: translateX(-50%); padding: 8px 12px; font-size: var(--timmy-size-small, 12.5px); }
+  /* switching waits for nothing a person does (structure grey); paused needs the person (its words say what to type: amber, as the
+     save line's states that need the person). Paused, the page's own project's board stays, read only; the banner sits at the
+     canvas's top, never over the board's middle */
+  #switching[data-state="paused"] { top: calc(var(--frame-h, 0px) + 10px); transform: translateX(-50%); padding: 8px 12px; font-size: var(--timmy-size-small, 12.5px); border-left-color: var(--timmy-attention, #FFB000); }
   #switching[data-state="paused"] strong { font-size: inherit; margin-bottom: 2px; }
   #switching strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; overflow-wrap: anywhere; }
   #switching p { margin: 6px 0 0; overflow-wrap: anywhere; }
-  /* R6 (H139): the drafts on hold while Studio switches: their buttons off, and why */
+  /* R6 (H139): the drafts on hold while Studio switches: their buttons off, and why; nothing waits on the person then, so no amber */
+  #drafts[data-blocked="true"] { border-color: var(--timmy-line-strong, #444444); }
   #drafts-why { margin: 0; color: var(--timmy-text, #F2EFE9); overflow-wrap: anywhere; }
   #drafts-why[hidden] { display: none; }
   #drafts button:disabled, #boards button:disabled { opacity: .55; cursor: not-allowed; }

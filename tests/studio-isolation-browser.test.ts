@@ -50,8 +50,8 @@ const CAPTURES = process.env.TIMMY_R6_CAPTURES?.trim() || '';
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 /** tldraw's rich text (as helpers.toRichText makes it), for shapes drawn by hand here */
 const rich = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
-/** A FAKE draft: three boxes, as a model's canvas_exec code would draw them. `wait`: ms its code waits before it draws. */
-const threeBoxes = (label: string, wait = 0) => `${wait ? `await new Promise((r) => setTimeout(r, ${wait})); ` : ''}const { createShapeId, toRichText } = helpers; const ids = ['a', 'b', 'c'].map(() => createShapeId()); editor.createShapes(ids.map((id, i) => ({ id, type: 'geo', x: 520 + i * 200, y: 160, props: { w: 160, h: 80, richText: toRichText('${label} ' + 'abc'[i]) } }))); return ids;`;
+/** A FAKE draft: three boxes, as a model's canvas_exec code would draw them, in a row at `y`. `wait`: ms its code waits before it draws. */
+const threeBoxes = (label: string, o: { wait?: number; y?: number } = {}) => `${o.wait ? `await new Promise((r) => setTimeout(r, ${o.wait})); ` : ''}const { createShapeId, toRichText } = helpers; const ids = ['a', 'b', 'c'].map(() => createShapeId()); editor.createShapes(ids.map((id, i) => ({ id, type: 'geo', x: 520 + i * 200, y: ${o.y ?? 160}, props: { w: 160, h: 80, richText: toRichText('${label} ' + 'abc'[i]) } }))); return ids;`;
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 describe.skipIf(!browserPath)('Studio project isolation: two projects, pending drafts, delayed responses and save/reopen, in a real browser', () => {
@@ -303,11 +303,11 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
           state: t.identity.state, switching: t.identity.switching?.name, project: t.identity.project?.name,
           readonly: t.editor.getInstanceState().isReadonly,
           root: getComputedStyle(document.getElementById('root')!).visibility,
-          cover: { hidden: document.getElementById('switching')!.hidden, title: document.getElementById('switching-title')!.textContent, words: document.getElementById('switching-words')!.textContent },
+          cover: { hidden: document.getElementById('switching')!.hidden, title: document.getElementById('switching-title')!.textContent, words: document.getElementById('switching-words')!.textContent, edge: getComputedStyle(document.getElementById('switching')!).borderLeftColor },
           header: { project: document.getElementById('frame-project')!.textContent, acts: all('#frame-acts li').length },
           panel: { name: document.getElementById('project-name')!.textContent, cards: all('#project-groups li.pcard').length },
           jobs: all('#job-list li').map((li) => li.textContent),
-          drafts: { count: document.getElementById('drafts-count')!.textContent, why: document.getElementById('drafts-why')!.textContent, rows: all('#draft-list li').map((li) => ({ line: li.querySelector('.draft-line')!.textContent, project: (li as HTMLElement).dataset.project, buttons: [...li.querySelectorAll('button')].map((b) => ({ text: b.textContent, disabled: (b as HTMLButtonElement).disabled, title: b.getAttribute('title') })) })) },
+          drafts: { count: document.getElementById('drafts-count')!.textContent, why: document.getElementById('drafts-why')!.textContent, edge: getComputedStyle(document.getElementById('drafts')!).borderTopColor, rows: all('#draft-list li').map((li) => ({ line: li.querySelector('.draft-line')!.textContent, project: (li as HTMLElement).dataset.project, buttons: [...li.querySelectorAll('button')].map((b) => ({ text: b.textContent, disabled: (b as HTMLButtonElement).disabled, title: b.getAttribute('title') })) })) },
           save: document.getElementById('save-words')!.textContent,
           open: (document.getElementById('board-open') as HTMLButtonElement).disabled,
         };
@@ -316,11 +316,12 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       const off = (label: string) => ({ text: label, disabled: true, title: why });
       expect(during).toEqual({
         state: 'switching', switching: 'blank', project: 'tray', readonly: true, root: 'hidden',
-        cover: { hidden: false, title: 'TIMMY · switching to blank…', words: "Switching to blank… tray's board, drafts and canvas jobs are saved and put away, as they are. Nothing of tray is shown here under blank's name." },
+        // B10: nothing waits on the person while switching, so no amber: the cover's edge and the drafts' frame are structure grey
+        cover: { hidden: false, title: 'TIMMY · switching to blank…', words: "Switching to blank… tray's board, drafts and canvas jobs are saved and put away, as they are. Nothing of tray is shown here under blank's name.", edge: 'rgb(68, 68, 68)' },
         header: { project: 'switching to blank…', acts: 0 },
         panel: { name: 'switching to blank…', cards: 0 },
         jobs: ['Switching to blank: its canvas jobs show once its board is loaded.'],
-        drafts: { count: "1 of tray's, on hold", why, rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · job turn-tray-draft · from revision \d+$/), project: tray.id, buttons: [off('Show'), off('Accept'), off('Discard')] }] },
+        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · job turn-tray-draft · from revision \d+$/), project: tray.id, buttons: [off('Show'), off('Accept'), off('Discard')] }] },
         save: why,
         open: true,
       });
@@ -395,7 +396,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
     }
   }, 180_000);
 
-  it("delayed responses: tray's save answered after the switch lands on tray's board only; a call for tray running across the switch is drawn, saved and recorded for tray only; a call for blank that reaches the page while it still loads blank's board runs nothing", async () => {
+  it("delayed responses: tray's save answered after the switch lands on tray's board only; a call for tray running across the switch is drawn, saved and recorded for tray only; a call for blank that reaches the page while it still loads blank's board runs nothing; a read of tray's board answered after Studio switched on is dropped", async () => {
     await repl(tray);
     const s = await open();
     const { page } = s;
@@ -426,7 +427,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       await shows(page, tray);
       const tray0 = files(tray);
       const blank1 = files(blank);
-      const slow = ask('canvas_exec', { code: threeBoxes('tray slow', 2500), jobId: 'turn-tray-slow' });
+      const slow = ask('canvas_exec', { code: threeBoxes('tray slow', { wait: 2500, y: -60 }), jobId: 'turn-tray-slow' });
       await page.waitForTimeout(600);
       workbench(blank);
       await page.waitForFunction(() => document.body.dataset.board === 'switching', null, { timeout: 10_000 });
@@ -469,6 +470,29 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(again.kept).toBeUndefined();
       await page.waitForSelector(`#draft-list li[data-draft="${again.draft!.id}"]`);
       expect(saved(blank).jobs().map((j) => [j.id, j.project])).toEqual([['turn-blank-draft', blank.id]]);
+      expect(files(tray)).toEqual(tray2);
+
+      // ── a read of tray's board answered after Studio switched on: the REPL's /project tray, then blank again before tray's board
+      // reaches the page (the server read it while tray was named; only its answer comes late) ──
+      await savedState(page);
+      const onBlank = (await board(page)).map((x) => x.id);
+      const blank3 = files(blank);
+      const trayRead = hold(page, docOf(tray), { fetchFirst: true });
+      await trayRead.install();
+      await repl(tray);
+      await page.waitForFunction(() => document.body.dataset.board === 'switching', null, { timeout: 15_000 });
+      await trayRead.until();
+      await repl(blank);
+      await shows(page, blank);
+      trayRead.release();
+      const droppedBoard = 'A reading of tray (its board) came back after Studio switched to blank: it was dropped, and nothing of it is shown here.';
+      await page.waitForFunction((w) => (window as never as Win).timmyCanvas.identity.kept.some((k) => k.words === w), droppedBoard, { timeout: 10_000 });
+      trayRead.remove();
+      expect((await board(page)).map((x) => x.id)).toEqual(onBlank);
+      expect((await board(page)).some((x) => /^tray/.test(x.text))).toBe(false);
+      expect(await text(page, '#project-name')).toBe('blank');
+      expect(await readonly(page)).toBe(false);
+      expect(files(blank)).toEqual(blank3);
       expect(files(tray)).toEqual(tray2);
       expect(s.errors).toEqual([]);
     } finally {
@@ -513,7 +537,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       await draw(page, [{ id: 'shape:blank-3', text: 'blank three', x: 800 }]);
       await savedState(page);
       const handRevision = saved(blank).peek().revision;
-      const two = await ask('canvas_exec', { code: threeBoxes('blank second'), jobId: 'turn-blank-two' });
+      const two = await ask('canvas_exec', { code: threeBoxes('blank second', { y: -60 }), jobId: 'turn-blank-two' });
       expect(two).toMatchObject({ ok: true, project: { id: blank.id }, draft: { shapes: 3, from: handRevision } });
       expect(two.error).toBeUndefined();
 
@@ -526,7 +550,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(saved(tray).drafts().some((r) => r.draft === first.id)).toBe(false);
       expect(files(tray)).toEqual(trayBefore);
       // R6 item b, after an Accept: the REPL's next draft is made from the revision the Accept's save left, so it is not refused
-      const after = await ask('canvas_exec', { code: threeBoxes('blank after accept'), jobId: 'turn-blank-after' });
+      const after = await ask('canvas_exec', { code: threeBoxes('blank after accept', { y: -280 }), jobId: 'turn-blank-after' });
       expect(after).toMatchObject({ ok: true, project: { id: blank.id }, draft: { shapes: 3, from: records[1].revision } });
       expect(after.error).toBeUndefined();
       expect(saved(blank).jobs().map((j) => j.id).sort()).toEqual(['turn-blank-after', 'turn-blank-draft', 'turn-blank-two']);
