@@ -124,7 +124,7 @@ function fixtureChat(root: string, answerOf: (text: string) => string = (t) => `
     };
     return session;
   };
-  return { state, producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: no run detail in this test' }), openChat: async () => ({ ok: true, value: openChat }) } as Producers };
+  return { state, conv, producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: no run detail in this test' }), openChat: async () => ({ ok: true, value: openChat }) } as Producers };
 }
 
 function workbench(project: { name: string; root: string; chosen: boolean }, producers: Producers): { c: Controller; ws: Workspace } {
@@ -260,6 +260,41 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(chat.state.sent).toEqual(['hello there']);
   }, 30_000);
 
+  it('R5 lead (the final QA of a77d80d, defect 3): another surface\'s stopped turn after this Workbench\'s own: each exchange is said once, this Workbench\'s stop at its own record, the other\'s as "stopped" (its record does not say who asked), and nothing again under "Your last message here"', async () => {
+    sandbox();
+    const p = trayProject('two-stops');
+    pinStore(p.root);
+    const chat = fixtureChat(p.root, undefined, { seal: { name: p.name } });
+    const { c } = workbench(p, chat.producers);
+    c.start();
+    await composer(c);
+    c.key('the Workbench message', {});
+    c.key('\r', ENTER);
+    await until('the turn being answered', () => c.data.turn?.state === 'sending' && c.data.turn.answer, 10_000, () => screen(c));
+    c.key('', ESC);
+    await until('the turn stopped', () => c.data.turn?.state === 'cancelled', 10_000, () => screen(c));
+    const own = c.data.turns?.[0];
+    expect(own).toMatchObject({ surface: 'workbench', state: 'stopped' });
+    // FIXTURE: a REPL turn after it in this project's one conversation, stopped from the companion: the REPL's agent keeps its
+    // own record of the stop (cancelRecord, which says "Cancelled by the user") and its receipt names who asked
+    chat.conv.appendMessage({ role: 'user', content: 'the REPL message' });
+    chat.conv.appendMessage({ role: 'assistant', content: cancelRecord([], 'FIXTURE: the REPL\'s first words') });
+    const repl = sealTurn({ prompt: 'the REPL message', answer: 'FIXTURE: the REPL\'s first words', steps: 0, spend: 0, costMeasured: false, ms: 200, status: 'cancelled', surface: 'repl', stoppedBy: 'companion', model: 'fixture/chat-model', project: p.name, projectId: projectId(p.root) }, projectStore(p.root));
+    await until('the REPL\'s turn in the conversation', () => region(c, 'center').includes('You the REPL message'), 10_000, () => screen(c));
+    const said = region(c, 'center');
+    // this Workbench's own stop, once, at its own record, with its receipt
+    expect(said.match(/You the Workbench message/g)).toHaveLength(1);
+    expect(said).toMatch(new RegExp(`■ stopped by you · nothing was sent to any model · receipt ${own!.receipt} · \\d\\d:\\d\\d:\\d\\d`));
+    expect(said.match(/stopped by you/g)).toHaveLength(1);
+    // the REPL's: its partial answer once, marked partial, then "stopped", never "stopped by you"
+    expect(said.match(/Timmy \(partial\) FIXTURE: the REPL's first words/g)).toHaveLength(1);
+    expect(said).toMatch(/You the REPL message .*■ stopped(?! by you)/);
+    expect(said).not.toContain('YOUR LAST MESSAGE HERE');
+    expect(said).not.toContain('[Cancelled by the user');
+    // the event log beside it says who asked, from the REPL turn's receipt
+    await until('the REPL turn in the event log', () => region(c, 'right').includes(`receipt ${repl.id}`), 10_000, () => screen(c));
+    expect(region(c, 'right')).toMatch(new RegExp(`turn stopped \\(asked from the companion\\) in the REPL · [^·]*· receipt ${repl.id}`));
+  }, 30_000);
   it('x stops this Workbench\'s own turn; a turn being answered in the REPL is asked to stop by its identity, by Enter on Stop the turn or by x (QA of e7f853e, item 16): the REPL ends it as its Ctrl+C would and its receipt says who asked, which the event log shows; a turn that has ended by then is not stopped, and the Workbench says so', async () => {
     sandbox();
     const p = trayProject('turn-stop');

@@ -476,10 +476,22 @@ function chatView(c: ViewCtx): View {
   const n = msgs.length;
   // being answered: its message may be kept already (the last one); answered: the conversation ends with it and its answer;
   // stopped: with it and Timmy's own record of the stop (src/agent/core.ts cancelRecord, isTimmyRecord)
+  // R5 lead (the final QA of a77d80d, defect 3): an ended turn's exchange is found where the conversation keeps it, its newest
+  // place, also when another surface's turn came after it (the REPL's, in this project's one conversation): it is said there,
+  // once, and not again under "Your last message here"
+  const ownAt = (() => {
+    if (!turn || turn.state === 'sending') return -1;
+    for (let k = n - 2; k >= 0; k--) {
+      if (msgs[k].role === 'user' && same(msgs[k].text, turn.text) && msgs[k + 1].role === 'assistant'
+        && (same(msgs[k + 1].text, turn.answer) || (turn.state === 'cancelled' && isTimmyRecord(msgs[k + 1].text)))) return k + 1;
+    }
+    return -1;
+  })();
   const kept = !!turn && (turn.state === 'sending'
     ? n >= 1 && msgs[n - 1].role === 'user' && same(msgs[n - 1].text, turn.text)
-    : n >= 2 && msgs[n - 2].role === 'user' && same(msgs[n - 2].text, turn.text) && msgs[n - 1].role === 'assistant'
-      && (same(msgs[n - 1].text, turn.answer) || (turn.state === 'cancelled' && isTimmyRecord(msgs[n - 1].text))));
+    : ownAt >= 0);
+  // its receipt and what came of it are said under it only while it is the conversation's newest exchange
+  const keptLast = kept && (turn?.state === 'sending' || ownAt === n - 1);
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
@@ -499,7 +511,7 @@ function chatView(c: ViewCtx): View {
     // marked partial (this Workbench's own turn's as it streamed, whole), then the stop in Timmy's own words, once
     if (m.role === 'assistant' && isTimmyRecord(m.text)) {
       const rec = timmyRecord(m.text);
-      const ownLast = !!stoppedHere && kept && i === msgs.length - 1;
+      const ownLast = !!stoppedHere && kept && i === ownAt;
       const partial = ownLast && turn?.answer.trim() ? turn.answer : rec.partial;
       const at = lines.length;
       if (partial) {
@@ -528,10 +540,13 @@ function chatView(c: ViewCtx): View {
     // a stopped turn: its stop is said once, in Timmy's own words (the session's "Cancelled…" line says the same stop)
     const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^Cancelled\b/.test(l))) : turn.lines;
     if (turn.state !== 'sending' && kept) {
-      // kept in the conversation above: its receipt and what came of it, under it (a stopped one's said there, once)
-      for (const l of said) lines.push(...para(l, c.width, 'secondary', '  '));
-      if (stoppedHere && !noted) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
-      else if (!stoppedHere) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+      // kept in the conversation above: its receipt and what came of it, under it while it is the newest exchange (a stopped
+      // one's said there, once); with another surface's turn after it, its receipt is in the log beside, and its stop at it
+      if (keptLast) {
+        for (const l of said) lines.push(...para(l, c.width, 'secondary', '  '));
+        if (stoppedHere && !noted) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
+        else if (!stoppedHere) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+      }
     } else {
       lines.push(blank);
       lines.push(heading(turn.state === 'sending' ? 'Being answered now' : 'Your last message here'));
@@ -577,7 +592,9 @@ const stopMark = (g: Glyphs): string => (g.unicode ? '■' : '#');
 function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs): Line {
   const when = at !== undefined ? ` ${g.sep} ${clock(new Date(at).toISOString())}` : '';
   if (!rec.stopped) return [S(`${stopMark(g)} not answered`, 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
-  return [S(`${stopMark(g)} stopped by you`, 'text'), S(`${rec.stands ? ` ${g.sep} what its tools did stands (nothing was rolled back)` : ''}${when}`, 'secondary')];
+  // R5 lead (the final QA of a77d80d, defect 3): an earlier record does not say who asked (a turn of another surface, or one
+  // another surface stopped: its receipt says, and the log beside names it), so it is "stopped", never "stopped by you"
+  return [S(`${stopMark(g)} stopped`, 'text'), S(`${rec.stands ? ` ${g.sep} what its tools did stands (nothing was rolled back)` : ''}${when}`, 'secondary')];
 }
 
 /** R5 (H131; the QA of e7f853e, defect 8): this Workbench's stopped turn, said once in Timmy's own words: who stopped it
