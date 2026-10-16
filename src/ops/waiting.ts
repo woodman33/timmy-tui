@@ -13,7 +13,8 @@
  *                     (src/capabilities/tools-record.ts)
  * and one more is counted:
  *   Studio drafts     a draft Timmy proposed on the project's board, waiting for Accept or Discard, counts once (the reader is
- *                     Studio's: injected as `drafts`; without it no draft is counted, and the frame says so)
+ *                     Studio's, src/studio/boards.ts pendingDrafts on r6/h139, injected as `drafts`; without it no draft is
+ *                     counted)
  * A stopped chat turn is never an item (src/room/decisions.ts toolUses: a stopped turn is no use of a row).
  */
 import type { JobRecord } from '../jobs/index.js';
