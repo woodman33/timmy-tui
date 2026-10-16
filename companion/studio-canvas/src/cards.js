@@ -537,6 +537,22 @@ export function createCards(deps) {
     return r.ok && SAFE.isArray(r.body) ? r.body : null;
   }
   /**
+   * R5 (H133): the shared workspace frame of the project named now (GET /api/workspace), read with this page's session for the
+   * strip above the canvas (./frame.js). Not asked without a session, or with one that does not count now (asked again once a
+   * reading counts, and not sooner than 30 s), as the jobs are: the answer then says why, and no request is made.
+   */
+  async function workspace() {
+    const notAsked = (why) => ({ status: 0, ok: false, body: { ok: false, error: why } });
+    if (!token) return notAsked(session.get().words);
+    if (Date.now() < notFor.until || session.get().state !== 'ok') return notAsked(notFor.why || session.get().words);
+    const r = await request('/api/workspace', 'GET', token);
+    if (r.status === 401) {
+      const why = noted(r, 'Timmy did not let this page read the workspace.');
+      if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
+    }
+    return r;
+  }
+  /**
    * A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. R4 (H109):
    * of the card's own project (a board pinned to it reads it while the canvas shows another).
    */
@@ -1230,6 +1246,8 @@ export function createCards(deps) {
     runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
+    // R5 (H133): the shared workspace frame, for the strip above the canvas
+    workspace,
     // R5 (H133): a copy of this page's canvas when a newer one is on disk, and a decision on a draft of Timmy's
     keepCopy, draftDecision,
     setPoll: (f) => { poll = f; },

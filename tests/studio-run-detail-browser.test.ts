@@ -87,8 +87,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: an operation's run detail in the si
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot, runDetail: producer });
-    serverB = await startStudioServer(0, { env: { TIMMY_HOME: homeB }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot, runDetail: producer });
+    serverB = await startStudioServer(0, { env: { TIMMY_HOME: homeB, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     baseB = `http://127.0.0.1:${(serverB.address() as AddressInfo).port}`;
     for (const [b, s] of [[base, server], [baseB, serverB]] as const) {

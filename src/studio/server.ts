@@ -24,6 +24,9 @@
  *   PUT /api/canvas/document                the token, or a session (another project's kept        a write; a withheld copy never erases what is saved
  *                                           detail is kept as saved)
  *   GET /api/canvas/jobs                    the token or a session                                 the canvas jobs (ids a model may name, receipts)
+ *   GET /api/workspace                      the token or a session                                 R5 (H133): the shared workspace frame of the project
+ *                                                                                                  named now (src/ops/workspace-frame.ts), for the strip
+ *                                                                                                  above the canvas
  *   POST /api/canvas/jobs/<job>/receipt     the token only; no Origin, no query string             a write, by the REPL that sealed the turn
  *   POST /api/canvas/exec                   the token only; no Origin, no query string; while a   code that runs in the canvas page with its rights
  *                                           project is named, the holder id of the REPL holding    (R5 H133: as a draft, when the agent asks, which
@@ -77,7 +80,7 @@ import { dropProjectToken, HOLDER_ID, mountProjectRoutes, ProjectLink, writeProj
 // Round R4 (H75): the drawn cards' actions, carried to the REPL that holds the project (this server runs none of them).
 import { CardRelay, mountCardRoutes, type RelayOptions } from './card-relay.js';
 // Round R4 (H83): who may run code, read and save the canvas, and join the bridge.
-import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, replOnly, withholdOthers } from './canvas-auth.js';
+import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, replOnly, withholdOthers, WORKSPACE_REFUSED } from './canvas-auth.js';
 // R4 (H84): the local-request rule, shared with the browser companion and `timmy logs`.
 import { isLocalRequest as isLocal } from '../utils/local-request.js';
 // R4 (H109): the canvas follows the active project of its Timmy home (state/active-project.json)
@@ -268,6 +271,23 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     });
   app.get('/api/canvas/jobs', credited(JOBS_REFUSED), (_req, res) => {
     res.set('Cache-Control', 'no-store').json(documents.jobs());
+  });
+  // R5 (H133): the shared workspace frame (src/contracts/workspace.ts) of the project named now, made from its records by
+  // src/ops/workspace-frame.ts, as the terminal Workbench and the companion read it: the strip above the canvas draws it. The
+  // token or a page session that counts now (the frame is the project's content); none while no project is named.
+  app.get('/api/workspace', credited(WORKSPACE_REFUSED), async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const named = link.project;
+    if (!named) { res.status(404).json({ ok: false, error: 'No project is named to this canvas, so it has no workspace to show. In Timmy: /canvas open.' }); return; }
+    try {
+      const { buildWorkspaceFrame } = await import('../ops/workspace-frame.js');
+      const frame = await buildWorkspaceFrame({ env, cwd: named.root, project: { name: named.name, root: named.root } });
+      res.json({ ok: true, frame });
+    } catch (e) {
+      // its code only: a message can carry a path of this computer
+      const code = e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' ? ` (${(e as { code: string }).code})` : '';
+      res.status(500).json({ ok: false, error: `Timmy could not read the workspace of ${named.name}${code}.` });
+    }
   });
   // R5 (H133): a page's version of the canvas, kept beside the canvas file when a newer version is on disk (the page may not save
   // over it). The canvas file is never touched; a copy holds what the page holds (another project's detail stays withheld in it).

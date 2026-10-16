@@ -112,7 +112,7 @@ const DOWN = '\u001b[B';
 const ESC = '\u001b';
 
 describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s reference layouts)', () => {
-  it('180x50: row 1 (TIMMY, the project, the ten tabs), row 2 (Workflow actions), the body and Activity & log; every row exactly the width; Home first; 3 opens Workflows with the tray project\'s blocks and Context; Tab moves the focus border', async () => {
+  it('180x50: row 1 (TIMMY, the project, the ten tabs), row 2 (Workflow actions), the body and Activity & log; every row exactly the width; Home first; 6 opens a workspace with Context beside it; Tab moves the focus border; 3 opens Workflows with the tray project\'s blocks across the whole width, Context its drawer', async () => {
     sandbox();
     const p = trayProject('tray-wide');
     const c = workbench(p);
@@ -135,18 +135,16 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(t).not.toMatch(/CREATE[\s\S]*OPERATE/);
     expect(t).toMatch(/Activity & log/);
     expect(t).toMatch(/Activity\s+0 running · 0 waiting on you/);
-    // 3: Workflows, its blocks, Context beside it
-    await press(f.r, '3');
+    // 6: 3D & Motion, a workspace with Context beside it (R5, H136: tab 3's body takes the whole width, below)
+    await press(f.r, '6');
     const w = f.text();
-    expect(f.lines()[1]).toContain('┃3 Workflows┃');
-    expect(w).toContain('tray-wide / Workflows · plan and run');
+    expect(f.lines()[1]).toContain('┃6 3D & Motion┃');
+    expect(w).toContain('tray-wide / 3D Create · native scenes and CAD');
     expect(w).toContain('Context');
     expect(w).toMatch(/Tools │ ▸ Inspector │\s+Files/);
-    for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(w).toContain(block);
-    expect(w).toContain('⚠ needs you before it runs');
     // Tab: the body's list has the keyboard (its heavy border and marker), the workflow actions no longer
     await press(f.r, TAB);
-    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ Workflows · plan and run/);
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D Create · native scenes and CAD/);
     expect(f.text()).not.toMatch(/◆ Workflow actions/);
     await press(f.r, TAB);
     expect(f.text()).toMatch(/◆ Context/);
@@ -159,7 +157,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
     // focus mode (z): the body's list alone, with the tabs, the actions and the log; i opens Context as a drawer; z leaves it
     await press(f.r, 'z');
-    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ Workflows · plan and run · focus mode \(z leaves it\)/);
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D Create · native scenes and CAD · focus mode \(z leaves it\)/);
     expect(f.text()).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
     expect(f.text()).toContain('TIMMY · tray-wide');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
@@ -167,6 +165,21 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(f.text()).toMatch(/◆ Context \(drawer\)/);
     await press(f.r, ESC, 'z');
     expect(f.text()).toMatch(/╭─ Context ─/);
+    // 3: Workflows, its blocks in three columns across the whole width (src/workbench/layout.ts OWN_COLUMNS): Context is no
+    // column beside it; i opens it as a drawer, Esc closes it
+    await press(f.r, '3');
+    const wf = f.text();
+    expect(f.lines()[1]).toContain('┃3 Workflows┃');
+    expect(wf).toContain('tray-wide / Workflows · plan and run');
+    expect(wf).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
+    for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wf).toContain(block);
+    expect(wf).toContain('⚠ needs you before it runs');
+    expect(wf).toMatch(/PLAN · upmd [^\n]*│ SANDBOX · where it runs[^\n]*│ [╭┏][─━] tidy\.receipt/);
+    expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
+    await press(f.r, 'i');
+    expect(f.text()).toMatch(/◆ Context \(drawer\)/);
+    await press(f.r, ESC);
+    expect(f.text()).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
   });
 
   it('110x36: a workspace tab\'s Context is a drawer ([i]); the tabs say short labels; the project, the run state and Stop stay', async () => {
