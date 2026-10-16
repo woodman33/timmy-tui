@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import type { Key } from 'ink';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
-import { TABS, tabByKey, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
+import { TABS, tabByKey, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import type { JobRecord } from '../jobs/index.js';
 import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';

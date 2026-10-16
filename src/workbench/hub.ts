@@ -25,7 +25,7 @@ import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
-import { clock, count, cut, lineCells, pick, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, lineCells, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
