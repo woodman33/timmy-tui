@@ -70,6 +70,11 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
     return !!i && i.dataset.path === p && i.complete && i.naturalWidth > 0 && !!document.querySelector('.vox-overlay')?.getAttribute('viewBox');
   }, path, { timeout: 15_000 });
   const text = (page: Page, sel: string) => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+  /** Each label drawn over the image, as laid out: its left and right inside the image's own frame (the viewBox's width). */
+  const labelsInside = (page: Page) => page.$eval('.vox-overlay', (o) => {
+    const w = Number((o.getAttribute('viewBox') ?? '').split(' ')[2]);
+    return [...o.querySelectorAll('.ov-label')].map((l) => { const b = (l as SVGTextElement).getBBox(); return b.width > 0 && b.x >= -w * 0.01 && b.x + b.width <= w * 1.01; });
+  });
 
   it('draws a record\'s image with what was measured over it, its tree, a video\'s timeline, an STL\'s views, its pipeline, receipt and commands', async () => {
     put(root, 'refs/photo.png', SMALL);
@@ -101,6 +106,7 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(await page.$$eval('.vox-overlay .ov-label', (ls) => ls.map((l) => l.textContent))).toEqual([
         'QR 1 "hello vox" · measured · constructed', 'colour region rgb(200, 10, 10) · measured · constructed', 'centroid · measured · constructed',
       ]);
+      expect(await labelsInside(page)).toEqual([true, true, true]); // each label within the 4 px frame: smaller, never cut off
       expect(await text(page, '[data-vox="caption"]')).toBe('the observed file (its bytes are the ones the record names) · drawn over it (px): 3 measured · constructed');
       expect(await text(page, '[data-vox="fake"]')).toBe('FAKE: made by a test double (timmy-look fake), not by the real tool');
 
@@ -142,6 +148,7 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
       expect(await page.$eval('.vox-overlay', (o) => o.getAttribute('viewBox'))).toBe('0 0 160 120');
       expect(await page.$eval('.vox-overlay rect', (r) => ['x', 'y', 'width', 'height'].map((k) => r.getAttribute(k)).join(' '))).toBe('112 40 32 32');
       expect(await page.$eval('.vox-overlay .ov-label', (l) => l.textContent)).toBe('colour region at 1.5 s · measured · inferred');
+      expect(await labelsInside(page)).toEqual([true, true]); // the box's label, at x 112 of 160, moved left to fit; the centroid's
       expect(await page.$$eval('.vox-tick', (ts) => ts.map((t) => t.getAttribute('aria-current')))).toEqual(['false', 'false', 'true']);
       await page.keyboard.press('ArrowLeft');
       await imageDrawn(page, `results/vox/${video}/frames/frame-000010.png`);

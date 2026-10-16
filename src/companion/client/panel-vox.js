@@ -360,8 +360,13 @@
       if (!shape) continue;
       shape.append(svg('title', null, `${o.label} · provenance ${o.provenance} · evidence ${o.evidence}`));
       kids.push(shape);
-      const y = o.shape === 'point' ? at[1] : Math.max(font, at[1] - font * 0.35);
-      kids.push(svg('text', { class: `ov-label${on ? ' is-selected' : ''}`, x: at[0], y, 'font-size': font, 'data-vox-entity': o.entity, 'data-label-for': o.id }, `${o.label} · ${o.provenance} · ${o.evidence}`));
+      // the label stays inside the image's frame: smaller when wider than the frame, moved left when it would run past its
+      // right edge (a monospace advance of 0.62 em, as Monaspace Argon's)
+      const words = `${o.label} · ${o.provenance} · ${o.evidence}`;
+      const fit = Math.min(font, W / (words.length * 0.62));
+      const x = Math.max(0, Math.min(at[0], W - words.length * fit * 0.62));
+      const y = o.shape === 'point' ? Math.min(H, at[1] - font + fit) : Math.max(fit, at[1] - fit * 0.35);
+      kids.push(svg('text', { class: `ov-label${on ? ' is-selected' : ''}`, x, y, 'font-size': fit, 'data-vox-entity': o.entity, 'data-label-for': o.id }, words));
     }
     put(over, ...kids);
   }
