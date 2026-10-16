@@ -161,14 +161,15 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
     const edge: Role = on ? 'focus' : 'border';
     const label = labelIn(t, form);
     const inner = lineCells([S(label)]) + per;
-    // what waits on you there, in the top edge (one edge cell first, then ⚠ and the count; ⚠ alone where the count does not
-    // fit: a cut number would say another count)
-    const room = Math.max(0, inner - 1);
+    // what waits on you there, in the top edge (one edge cell first where the box has room for it, then ⚠ and the count; ⚠
+    // alone where the count does not fit: a cut number would say another count)
+    const before = inner >= 2 ? 1 : 0;
+    const room = Math.max(0, inner - before);
     const counted = `${g.warn}${t.waiting}`;
     const badge = t.waiting <= 0 ? '' : lineCells([S(counted)]) <= room ? counted : lineCells([S(g.warn)]) <= room ? g.warn : '';
     const badgeW = lineCells([S(badge)]);
     top.push(...(badge
-      ? [S(`${b.tl}${b.h}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - 1 - badgeW))}${b.tr}`, edge)]
+      ? [S(`${b.tl}${b.h.repeat(before)}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - before - badgeW))}${b.tr}`, edge)]
       : [S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge)]));
     mid.push(S(b.v, edge), S(`${half}${label}${half}`, on ? 'focus' : 'text'), S(b.v, edge));
     bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));

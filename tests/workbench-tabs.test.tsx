@@ -184,7 +184,7 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
 
   it('row 1 keeps every tab where it is, at every size, whichever tab is active and whatever waits (the QA round\'s defect 4): the same cells, the waiting count in the top edge (boxes) or a cell of its own (one row)', () => {
     const g = glyphsFor(true);
-    for (const [w, rows] of [[180, 3], [160, 3], [120, 3], [100, 3], [80, 1], [60, 1]] as const) {
+    for (const [w, rows] of [[180, 3], [160, 3], [120, 3], [100, 3], [80, 1], [60, 1], [70, 3], [60, 3]] as const) {
       let first = '';
       let form = '';
       for (const active of TABS.map((t) => t.id)) {
@@ -206,7 +206,8 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
             const over = text[0].slice(h.x0, h.x1 + 1);
             const waits = waiting > 0 && (h.page === 'control' || h.page === 'home');
             expect(over.includes(g.warn), `${where}: the mark over ${h.page}`).toBe(waits);
-            if (waits && rows === 3 && waiting === 1) expect(over, where).toContain(`${g.warn}1`);
+            // the count with it where the box has room for both (and an edge cell before them)
+            if (waits && rows === 3 && waiting === 1 && h.x1 - h.x0 - 1 >= 3) expect(over, where).toContain(`${g.warn}1`);
           }
           if (rows === 3) expect(text[1], where).not.toContain(g.warn);
         }
