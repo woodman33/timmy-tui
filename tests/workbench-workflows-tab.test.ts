@@ -262,7 +262,8 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(C).toContain('[Enter] Run it here');
     expect(flat(centre)).toContain('[Enter] Run it here the REPL\'s own /run, one job; it asks first');
     expect(C).toMatch(/REPL\s+\/run PAIR\.md second/);
-    expect(flat(centre)).toContain('A browser or sandbox preview is drawn only by the companion (c); here, the run in words.');
+    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface has a run's preview; the companion has this run detail in words
+    expect(flat(centre)).toContain('No Timmy surface shows a run\'s browser or sandbox preview yet; the companion (c) shows this run detail in a browser page, in words.');
     // right: the receipt card (verified in this reading), the checks predicted against actual, the verdict, timmy op
     expect(R).toContain('second.receipt');
     expect(R).toMatch(new RegExp(`id\\s+${tab.run!.receipt!.id}`));

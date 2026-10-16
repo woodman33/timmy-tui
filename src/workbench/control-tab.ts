@@ -33,14 +33,14 @@ import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS } from '../agent/lanes.js';
 import { readConnect, type ConnectView } from '../connect/read.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import type { JobRecord } from '../jobs/index.js';
-import { LIVE_FOR_MS } from '../ops/workspace-frame.js';
+import { LIVE_FOR_MS, turnStopWords } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
 import type { Decision as WaitDecision } from '../room/decisions.js';
 import { timmyHome } from '../setup/home.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
-import { connectionMark } from './hub.js';
+import { connectionMark, turnEndWords } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
 import { lineText } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
@@ -81,7 +81,8 @@ export const RECENT_MAX = 30;
 const WEIGHTS = [25, 40, 35] as const;
 
 /** The line under the panes: a terminal draws no picture (the operator's reference 07 shows carbonyl previews). */
-export const PREVIEWS_WORDS = 'Live previews (carbonyl) are not drawn here; the companion (c) shows pages.';
+// R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws a live preview yet; the companion's page is this, in words
+export const PREVIEWS_WORDS = 'No Timmy surface draws live previews (carbonyl) yet; the companion (c) shows this tab\'s runs and chat turns in a browser page, in words.';
 /** What the references' Add harness, Remove harness, Add pane, Remove pane and Broadcast are, in Timmy now (words only: nothing
  *  here is drawn as a button). */
 export const HARNESS_WORDS = 'Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes. Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every pane: not in Timmy yet.';
@@ -145,7 +146,7 @@ export interface DeviceRow {
 }
 
 /** A chat turn being answered now, as its hold names it (src/agent/chat-turn.ts OtherTurn). */
-export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown' }
+export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown'; /** R5 (H131): its hold's id, the turn's identity */ id?: string }
 
 /** A pane's log: its last lines (escapes removed, homes written from ~, the project's folder as .), or why there are none.
  *  `every`: while the job runs, how often its log is read again (the Workbench's tick: no job of Timmy's tells a reader of its
@@ -345,7 +346,7 @@ export function readControl(i: ControlReadInput): ControlData {
   const notes: string[] = [];
   let turns: LiveTurnRow[] = [];
   try {
-    turns = [...(i.turns ? i.turns() : runningTurns(i.root, undefined, { readOnly: true }))].map((t) => ({ surface: t.surface, pid: t.pid, taken: t.taken, mine: t.mine, proof: t.proof }));
+    turns = [...(i.turns ? i.turns() : runningTurns(i.root, undefined, { readOnly: true }))].map((t) => ({ surface: t.surface, pid: t.pid, taken: t.taken, mine: t.mine, proof: t.proof, ...(t.id ? { id: t.id } : {}) }));
   } catch (e) { notes.push(`The chat turns being answered could not be read: ${msg(e)}`); }
   const away = i.away ?? [];
   const lanes = laneRows(i.root, env, [...i.jobs, ...away], notes);
@@ -559,8 +560,13 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
   return { title: [S(j.id, selected ? 'focus' : 'strong')], note, head, tail, foot, selected };
 }
 
-/** How a turn being answered is stopped, where it was sent from. */
-const turnStop = (s: ChatSurface): string => (s === 'workbench' ? 'Esc in its composer stops it' : s === 'repl' ? 'Ctrl+C in the REPL stops it' : `${surfaceWords(s)} stops it (Esc in its composer)`);
+/** How a turn being answered is stopped, where it was sent from, in the frame's words (src/ops/workspace-frame.ts
+ *  turnStopWords). R5 (H131; the QA of e7f853e, item 16): x here asks another surface's turn to stop, by its id. */
+const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopWords(t.surface)} stops it${t.id ? '; x here asks it to stop' : ''}`);
+
+/** R5 (H131; the operator's 22:32 order, item 1): the turns being answered, less any whose own receipt is sealed (its hold is let
+ *  go a moment after): matched by the turn's identity, never by surface and time. */
+const liveTurnsOf = (d: ControlData | undefined, sealed: readonly TurnRow[]): LiveTurnRow[] => (d?.turns ?? []).filter((t) => !t.id || !sealed.some((x) => x.turn === t.id));
 
 /** A chat turn's pane: whose surface, which process, since when; the Workbench's own turn its tools as they run (its words
  *  are drawn in Chat, never here); how it is stopped. */
@@ -578,7 +584,7 @@ function turnParts(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean):
     tail.push([S(own.answer ? `the answer so far: ${count(own.answer.length, 'character')} (2 Chat shows it)` : 'no answer yet', 'secondary')]);
   } else tail.push(...para('its words are where it was sent', inner));
   const ms = c.now - Date.parse(t.taken);
-  return { title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], head, tail, foot: para(turnStop(t.surface), inner), selected };
+  return { title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], head, tail, foot: para(turnStop(t), inner), selected };
 }
 
 /** What waits on you, one decision: its title (⚠, wrapped, never cut), what is needed, its first command. */
@@ -623,7 +629,8 @@ function sealedTurnRows(t: TurnRow, c: ControlCtx, w: number, dense: boolean): L
   const g = c.g;
   const room = w - 2;
   const m = turnMark(t, g);
-  const head: Line = [S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state}`, m.role)];
+  // R5 (H131; the QA of e7f853e, item 17): a stop another surface asked for, in the frame's words: "stopped (asked from …)"
+  const head: Line = [S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${turnEndWords(t)}`, m.role)];
   const from = `from ${TURN_SURFACE[t.surface]}`;
   const rest = [t.model ?? 'model not recorded', took(t.ms), t.operation ?? 'no operation', ago(t.at, c.now)];
   const sent: Line = [...head, S(` ${from}`, 'text')];
@@ -671,7 +678,7 @@ function detailRows(c: ControlCtx, item: ControlItem | null, w: number): Line[] 
 function surfaceRows(c: ControlCtx, d: ControlData | undefined): RosterEntry[] {
   const g = c.g;
   const out: RosterEntry[] = [{ glyph: g.next, name: 'Workbench', word: 'running (this one)', short: 'running', role: 'text' }];
-  const turns = d?.turns ?? [];
+  const turns = liveTurnsOf(d, c.data.turns ?? []);
   const repl = turns.find((t) => t.surface === 'repl');
   out.push(repl ? { glyph: g.next, name: 'REPL', word: `answering a turn (pid ${repl.pid})`, short: 'answering', role: 'text' } : { glyph: '?', name: 'REPL', word: 'not recorded', short: 'not recorded', role: 'secondary' });
   for (const t of turns.filter((x) => x.surface === 'monitor')) out.push({ glyph: g.next, name: 'monitor', word: `answering a turn (pid ${t.pid})`, short: 'answering', role: 'text' });
@@ -796,13 +803,13 @@ function columnOf(blocks: readonly Block[], sel: number, room: number, w: number
 
 /**
  * Tab 7's body: the roster, the panes and the right column side by side from 120 terminal columns (tab-columns.ts
- * sideBySideAt), or stacked below that; every row at most `c.width` cells. The items are the panes, what waits on you, the recent runs and the sealed chat turns, in
+ * sideBySideAt), or stacked below that; every row at most `c.width` cells. The items are the panes, what waits on you, the sealed chat turns and the recent runs (R5 H131: the turns first, in view), in
  * that order at every size: side by side, each column keeps the selection in its own rows (an item out of view has line -1;
  * one in view has the cells it is drawn in), stacked, the body scrolls as every other view does.
  */
 export function controlRoomView(c: ControlCtx, d: ControlData | undefined): ControlView {
   const { g, width: W } = c;
-  const liveTurns = d?.turns ?? [];
+  const liveTurns = liveTurnsOf(d, c.data.turns ?? []);
   const panes = paneJobs(c.data.jobs, c.data.away ?? [], liveTurns.length);
   const quietIds = new Set(panes.quiet.map((j) => j.id));
   const ended = c.data.jobs.filter((j) => !j.live).slice(0, RECENT_MAX);
@@ -814,8 +821,10 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     ...panes.away.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...panes.quiet.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...decisions.map((decision): ControlItem => ({ kind: 'decision', key: `decision:${decision.key}`, decision })),
-    ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
+    // R5 (H131; the QA of e7f853e, defect 10): the sealed chat turns before the run detail and the recent runs, so they are in
+    // view at 160x45 (they were below the fold); the items in the order drawn
     ...sealed.map((turn): ControlItem => ({ kind: 'turn', key: `turn:${turn.receipt}`, turn })),
+    ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
   ];
   const sel = selectedIn(c.ui, CONTROL_LIST, all.length);
   const selected = sel >= 0 ? all[sel] : null;
@@ -877,8 +886,11 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     const down = g.unicode ? '↓' : 'v';
     const more: Line[] = above || below ? flow([[...(above ? [`+${above} more above: ${up} moves to them`] : []), ...(below ? [`+${below} more below: ${down} moves to them`] : [])]], w, '', `  ${g.sep}  `, 'secondary', g.ellipsis) : [];
     const arrows = g.unicode ? '←→↑↓' : 'arrows';
-    const keys = oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key(arrows), S(' between panes', 'secondary')],
-      [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w), ...keyRows(arrows, 'between panes', w)]);
+    // R5 (H131; the QA of e7f853e, defect 16): the keys of the panes that exist (none with no pane; x only with a running one;
+    // the arrows only with two or more)
+    const paneKeys = ([[['x', 'stops the selected pane\'s job'], running > 0], [['Enter', 'its run detail'], paneCount > 0], [[arrows, 'between panes'], paneCount > 1]] as const)
+      .filter(([, on]) => on).map(([k]) => k);
+    const keys = paneKeys.length ? oneOr(w, paneKeys.flatMap(([k, words], i) => [...(i ? [S(`  ${g.sep}  `, 'secondary')] : []), key(k), S(` ${words}`, 'secondary')]), paneKeys.flatMap(([k, words]) => keyRows(k, words, w))) : [];
     const full: Line[] = [[], ...keys, ...para(HARNESS_WORDS, w), [], ...para(PREVIEWS_WORDS, w)];
     const least: Line[] = [[], ...para(PREVIEWS_WORDS, w)];
     const shown = r1 - r0;
@@ -906,8 +918,12 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const previewsFoot = (w: number): Line[] => [[], ...para(PREVIEWS_WORDS, w)];
   // the keys, and what the references' Add harness, Remove harness and Broadcast are here (side by side: only where they fit
   // without clipping the panes)
-  const keysBlock = (w: number): Block => ({ lines: [[], ...oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary')],
-    [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w)]), ...para(HARNESS_WORDS, w)] });
+  const keysBlock = (w: number): Block => {
+    // R5 (H131; the QA of e7f853e, defect 16): the keys of the panes that exist (none with no pane; x only with a running one)
+    const paneKeys = ([[['x', 'stops the selected pane\'s job'], running > 0], [['Enter', 'its run detail'], paneCount > 0]] as const).filter(([, on]) => on).map(([k]) => k);
+    const keys = paneKeys.length ? oneOr(w, paneKeys.flatMap(([k, words], i) => [...(i ? [S(`  ${g.sep}  `, 'secondary')] : []), key(k), S(` ${words}`, 'secondary')]), paneKeys.flatMap(([k, words]) => keyRows(k, words, w))) : [];
+    return { lines: [[], ...keys, ...para(HARNESS_WORDS, w)] };
+  };
 
   // the right column: what waits on you, the selected run's detail, the recent runs, the sealed chat turns (`dense`: each run
   // and turn on two rows, cut at their end)
@@ -920,6 +936,12 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     if (!decisions.length) b.push({ lines: para('Nothing waits on you.', w) });
     for (const x of decisions) { b.push({ lines: itemRows(decisionRows(x, w, g), i === sel, g, w), at: i }); i += 1; }
     if (c.data.decisions.more) b.push({ lines: para(`and ${c.data.decisions.more} more: /decisions in the REPL lists them`, w) });
+    // R5 (H131; the QA of e7f853e, defect 10): the sealed chat turns next, in view at 160x45 (under the run detail they were not)
+    b.push({ lines: [[], [heading(`Chat turns (${sealed.length})`)]] });
+    if (!sealed.length) b.push({ lines: para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', w) });
+    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w, dense), i === sel, g, w), at: i }); i += 1; }
+    if (sealed.length >= TURNS_SHOWN) b.push({ lines: para(`The newest ${TURNS_SHOWN} are listed.`, w) });
+    b.push({ lines: para(TURN_STOP_WORDS, w) });
     b.push({ lines: [[], ...detailRows(c, selected, w)], detail: true });
     b.push({ lines: [[], [heading(`Recent (${ended.length})`)]] });
     if (!ended.length) b.push({ lines: para('No job has run in this project yet.', w) });
@@ -929,11 +951,6 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
       b.push({ lines: itemRows(recentRows(j, c, w, dense), i === sel, g, w), at: i });
       i += 1;
     }
-    b.push({ lines: [[], [heading(`Chat turns (${sealed.length})`)]] });
-    if (!sealed.length) b.push({ lines: para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', w) });
-    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w, dense), i === sel, g, w), at: i }); i += 1; }
-    if (sealed.length >= TURNS_SHOWN) b.push({ lines: para(`The newest ${TURNS_SHOWN} are listed.`, w) });
-    b.push({ lines: para(TURN_STOP_WORDS, w) });
     for (const n of c.data.decisions.notes) b.push({ lines: para(n, w, 'failure') });
     return b;
   };
@@ -986,7 +1003,7 @@ export function liveTurnDetail(t: LiveTurnRow, w: number, g: Glyphs, now: number
   f('Since', `${clock(t.taken)} (${ago(t.taken, now)})`);
   f('Running', `${g.next} running for ${took(now - Date.parse(t.taken))}`);
   f('Proof', t.proof === 'alive' ? 'its process runs (its start matches its hold)' : 'its process\'s start could not be read, so it is taken as running');
-  f('Stops', turnStop(t.surface));
+  f('Stops', turnStop(t));
   const mine = t.mine && t.surface === 'workbench' && own?.state === 'sending' ? own : undefined;
   if (mine) {
     if (mine.operation) f('Operation', mine.operation);

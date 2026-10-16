@@ -172,7 +172,9 @@ describe('tab 5: the selected record', () => {
     expect(stacked).toMatch(/✓ verified: link, body hash and signature \(verifyReceiptIn, this reading\)/);
     expect(stacked).toMatch(/its bytes and inputs are the ones it sealed/);
     expect(stacked).toMatch(/Verdict +not recorded: a VoxVision record \(timmy\.vox\/1\) keeps no operator verdict/);
-    expect(stacked).toMatch(new RegExp(`Images, depth, voxels and 3D: Rerun's viewer \\(/vox view ${f.stl}\\) or`));
+    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws them; Rerun's own viewer does (never "or the companion")
+    expect(stacked.replace(/\s+/g, ' ')).toMatch(new RegExp(`No Timmy surface draws images, depth, voxels or 3D yet; Rerun's own viewer does, where it is installed \\(/vox view ${f.stl}\\)\\.`));
+    expect(stacked).not.toMatch(/or the companion; never drawn here/);
   });
 
   it('a receipt changed in the store: "✕ does not verify" amber with why, and nothing green', async () => {

@@ -25,7 +25,7 @@ import type { Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import type { Lazy } from './model.js';
 import { fieldRows, heading, onBar, para, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx, type TabView } from './tab-columns.js';
-import { capDetail, capItem, capRows, checkReceipt, inViewRows, lazyRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
+import { capDetail, capItem, capRows, checkReceipt, inViewRows, lazyRows, notDrawnRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
 import { clock, count, fit, lineCells, pick, spread, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -256,11 +256,10 @@ export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, fu
   return out;
 }
 
-/** A call graph or a schema view is not drawn in a terminal: [c] the companion. */
+/** A call graph or a schema view: no Timmy surface draws one yet (R5 H131, the QA of e7f853e, defect 2: the companion has the
+ *  two routes in words, not a graph). */
 function notDrawn(w: number, g: Glyphs): Line[] {
-  const one: Line = [S('A call graph or a schema view is not drawn here: ', 'secondary'), S('[c]', 'action'), S(` Companion ${g.sep} Show`, 'secondary')];
-  if (lineCells(one) <= w) return [one];
-  return [...para('A call graph or a schema view is not drawn here:', w, 'secondary'), fit([S('[c]', 'action'), S(` Companion ${g.sep} Show`, 'secondary')], w, g.ellipsis)];
+  return notDrawnRows('a call graph or a schema view', null, w, g, 'the two MCP-to-CLI routes and this tab\'s actions, in words');
 }
 
 /** A tool's detail for the body: its capability detail, the command its row names (its own words: "(/observe)"), and the

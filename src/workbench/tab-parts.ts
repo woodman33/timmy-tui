@@ -9,8 +9,8 @@ import { RUNG_MEANS } from '../capabilities/ladder.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import type { Lazy } from './model.js';
-import { fieldRows, heading, onBar, para, S } from './tab-columns.js';
-import { cells, clock, fit, lineCells, spread, took, wrapText, type Line, type Seg } from './text.js';
+import { fieldRows, heading, limitRows, onBar, para, S } from './tab-columns.js';
+import { cells, clock, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Seg } from './text.js';
 
 /**
  * Parts (each a run of segments, kept whole; one wider than a row is cut) laid on rows of `w` cells, `sep` between two on a
@@ -112,7 +112,8 @@ export function capRows(r: CapabilityRow, w: number, selected: boolean, g: Glyph
   const rows: Line[] = lineCells([mark, S(r.name)]) + 1 + lineCells([rung]) <= w
     ? [bar(spread([mark, S(r.name, 'strong', sel)], [rung], w, g.ellipsis))]
     : [bar(fit([mark, S(r.name, 'strong', sel)], w, g.ellipsis)), bar(spread([S('    ', 'text', sel)], [rung], w, g.ellipsis))];
-  if (r.rung === 'needs setup' && r.setup) rows.push(fit([S('    do: ', 'secondary'), S(r.setup, 'secondary')], w, g.ellipsis));
+  // R5 (H131; the QA of e7f853e, defect 11): the step wrapped under itself, never cut ("console.roboflow.…" lost the remedy)
+  if (r.rung === 'needs setup' && r.setup) rows.push(...wrapSegs([S('    do: ', 'secondary'), S(r.setup, 'secondary')], w, '        ').map((l) => fit(l, w, g.ellipsis)));
   return rows;
 }
 
@@ -137,12 +138,10 @@ export function lazyRows<T>(l: Lazy<T>, what: string, w: number, now: number): L
 }
 
 /**
- * What a terminal cannot draw of a tab's subject (`what`: "Images, depth, voxels and 3D"), and where it is seen (`where`: the
- * viewer's words), with [c] the companion (the Workbench's own key, from every tab): one row where it fits, else its words
- * wrapped and the key on a row of its own.
+ * What no Timmy surface draws of a tab's subject (`what`: "images, depth, voxels or 3D"), where it is seen instead (`where`:
+ * the viewer's words, or none), and what [c] the companion shows for the tab (`c`). R5 (H131; the QA of e7f853e, defect 2):
+ * the companion has no such view, so it is never named as where it is seen (tab-columns.ts limitRows).
  */
-export function notDrawnRows(what: string, where: string, w: number, g: Glyphs): Line[] {
-  const one: Line = [S(`${what}: ${where} or `, 'secondary'), S('[c]', 'action'), S(' the companion; never drawn here.', 'secondary')];
-  if (lineCells(one) <= w) return [one];
-  return [...wrapText(`${what}: ${where} or the companion; never drawn here.`, Math.max(8, w)).map((t): Line => [S(t, 'secondary')]), fit([S('[c]', 'action'), S(` Companion ${g.sep} Show`, 'secondary')], w, g.ellipsis)];
+export function notDrawnRows(what: string, where: string | null, w: number, g: Glyphs, c = 'this tab in a browser page, in words'): Line[] {
+  return limitRows(`No Timmy surface draws ${what} yet${where ? `; ${where}` : ''}.`, { c }, w, g);
 }

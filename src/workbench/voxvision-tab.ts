@@ -240,7 +240,7 @@ function metricLine(m: VoxCardMetric, w: number, g: Glyphs, indent = '  '): Line
 }
 
 /** Where a record's images, depth, voxels and 3D are seen: never in a terminal. */
-const seenRows = (id: string, w: number, g: Glyphs): Line[] => notDrawnRows('Images, depth, voxels and 3D', `Rerun's viewer (/vox view ${id})`, w, g);
+const seenRows = (id: string, w: number, g: Glyphs): Line[] => notDrawnRows('images, depth, voxels or 3D', `Rerun's own viewer does, where it is installed (/vox view ${id})`, w, g, 'this tab\'s actions in a browser page; its records do not reach the companion yet');
 
 /**
  * The selected record's detail: what it is; what failed or needs setup, each with its step; its receipt verified now or
@@ -377,7 +377,7 @@ export function voxView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: VoxData | und
 export function voxDetail(item: Extract<VoxItem, { kind: 'vox-record' }>, d: VoxData | undefined, w: number, g: Glyphs): Line[] {
   const r = item.row;
   if (!d) return [[heading('Record')], [S('Reading…', 'secondary')]];
-  const out: Line[] = [...recordDetail(r, d, w, g, 1000), ...seenRows(r.card.id, w, g)];
+  const out: Line[] = [...recordDetail(r, d, w, g, 1000)];
   const c = r.card;
   out.push([], [heading('Tools'), S(` ${g.sep} ${c.tools.length}`, 'secondary')]);
   for (const t of c.tools) out.push(...para(`${t.tool}: ${[t.name, t.version].filter(Boolean).join(' ') || 'Timmy\'s own reader'}${t.ran ? ` ${g.sep} ${t.ran === 'job' ? `job ${t.job ?? ''} ${t.state ?? ''}`.trim() : 'in Timmy\'s process'}` : ''}${t.status ? ` ${g.sep} ${t.status}` : ''}`, w, 'text', '  '));
@@ -386,5 +386,7 @@ export function voxDetail(item: Extract<VoxItem, { kind: 'vox-record' }>, d: Vox
   for (const n of c.notes.slice(0, 6)) out.push(...para(n, w, 'secondary', '  '));
   if (c.doctrine) out.push(...para('A measurement of a CAD or mesh file is never a measurement of a physical part (DOCTRINE §15).', w, 'secondary'));
   out.push(...fieldRows('Record', `${c.file}${r.seal ? ` ${g.sep} receipt ${r.seal.hash.slice(7, 19)}` : ''}`, w, 'secondary'));
+  // R5 (H131; the QA of e7f853e, defect 2): where its images and 3D are seen, last (its words are longer now, and truthful)
+  out.push([], ...seenRows(r.card.id, w, g));
   return out;
 }
