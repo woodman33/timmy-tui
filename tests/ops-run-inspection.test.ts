@@ -10,84 +10,28 @@
  *   flow receipt under the block's operation);
  * - REPORT.md is this test's FAKE workflow: its `report` block writes a text, a JSON, a PNG (made here) and a binary into
  *   out/, and prints 60 lines;
- * - a copy of the chain with one receipt's words changed (FIXTURE), to show a receipt that does not verify.
+ * - a copy of the chain with one receipt's words changed (FIXTURE), to show a receipt that does not verify;
+ * - FIXTURE swaps: a previewed file (or its folder) swapped for a link to a file outside the project between the reader's
+ *   look at it and its open (fs.openSync wrapped for that one open), to show the read refused.
  * Real: the REPL's Workspace and its /run (the operation's record, the prediction receipt, the job and its block receipts,
  * the run's receipt), its /restore, the job manager, the project's own receipt chain and Timmy's verifier. Every folder is
  * under os.tmpdir().
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import zlib from 'node:zlib';
-import { IMAGE_DATA_MAX, lineDiff, readRunDetail, readRunInspection, RUN_INSPECTION_VERSION, type InspectChange, type RunInspection } from '../src/ops/run-detail.js';
+import { IMAGE_DATA_MAX, lineDiff, PREVIEW_READ_MAX, readRunDetail, readRunInspection, RUN_INSPECTION_VERSION, type InspectChange, type RunInspection } from '../src/ops/run-detail.js';
 import { readChain, type Receipt } from '../src/utils/receipts.js';
 import type { Workspace } from '../src/repl/workspace.js';
-import { FIXTURES, LOADER, opsKit, replOf, sandbox, text, type Sandbox } from './helpers/ops-sandbox.js';
+import { opsKit, replOf, sandbox, type Sandbox } from './helpers/ops-sandbox.js';
+import { BLOB, PNG, reportProject, runOf, typed } from './helpers/run-inspect-fixture.js';
 
 const kit = opsKit();
 afterEach(async () => { await kit.cleanup(); }, 60_000);
 
-const F = '```';
-const FAKE_FLOW = path.join(FIXTURES, 'fake-params-flow.ts');
-const TRAY_PARAMS = path.resolve('templates/tray-workflow/recipes/tray.params.json');
 const sha = (b: string | Buffer): string => createHash('sha256').update(b).digest('hex');
-
-/** A small PNG (8 by 6 pixels, RGB), made here: the image the FAKE report block writes. */
-function png(w: number, h: number): Buffer {
-  const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
-  const crc = (b: Buffer): number => { let c = 0xffffffff; for (const x of b) c = table[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-  const chunk = (type: string, data: Buffer): Buffer => {
-    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-    const c = Buffer.alloc(4); c.writeUInt32BE(crc(body));
-    return Buffer.concat([len, body, c]);
-  };
-  const raw = Buffer.alloc((w * 3 + 1) * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * (w * 3 + 1) + 1 + x * 3; raw[i] = 40 * x; raw[i + 1] = 255 - 40 * y; raw[i + 2] = 180; }
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
-}
-const PNG = png(8, 6);
-
-/** The FAKE workflow: `change` (the FAKE flow), then `report`, which writes out/ and prints 60 lines. */
-const REPORT = [
-  '# FAKE report workflow (this test)', '',
-  'The change block runs a TEST DOUBLE of /iterate; the report block writes a text, a JSON, an image and a binary.', '',
-  `${F}bash [name:change]`, 'fake-params-flow 150', F, '',
-  `${F}bash [name:report, deps:change]`,
-  'mkdir -p out',
-  "printf '# Report\\n\\nThe tray is 150 mm wide now.\\nFAKE: written by the test workflow.\\n' > out/report.md",
-  "printf '{\"width\":150,\"files\":[\"out/report.md\",\"out/preview.png\"],\"ok\":true}\\n' > out/summary.json",
-  `printf '%s' '${PNG.toString('base64')}' | base64 -d > out/preview.png`,
-  "printf 'BIN\\000\\001\\002\\377' > out/blob.bin",
-  'for i in $(seq 1 60); do echo "report line $i"; done',
-  F, '',
-].join('\n');
-
-/** The project: the tray's parameter file, REPORT.md, and the FAKE flow command on PATH. */
-function reportProject(s: Sandbox): void {
-  fs.mkdirSync(path.join(s.root, 'recipes'), { recursive: true });
-  fs.copyFileSync(TRAY_PARAMS, path.join(s.root, 'recipes', 'tray.params.json'));
-  fs.writeFileSync(path.join(s.root, 'REPORT.md'), REPORT);
-  fs.writeFileSync(path.join(s.bin, 'fake-params-flow'), [
-    '#!/bin/sh',
-    '# FAKE: a TEST DOUBLE of /iterate changing the tray\'s width (tests/fixtures/fake-params-flow.ts)',
-    `exec "${process.execPath}" --import "${LOADER}" "${FAKE_FLOW}" "$@"`, '',
-  ].join('\n'), { mode: 0o755 });
-}
-
-/** `/run <doc> <block>` in the REPL, to its end: its job and operation. */
-async function runOf(ws: Workspace, doc: string, block: string): Promise<{ job: string; op: string }> {
-  const started = text(await ws.operate(`/run ${doc} ${block}`, 'repl', () => ws.run(`${doc} ${block}`)));
-  const job = /Running\s+(j[0-9a-f]{6})/.exec(started)?.[1];
-  expect(job, started).toBeDefined();
-  const h = ws.ops.latest!;
-  const done = await ws.jobs.done(job!);
-  expect(done.state, `${started}\n${ws.jobs.tail(job!, 80).join('\n')}`).toBe('completed');
-  await ws.ops.done(h);
-  return { job: job!, op: h.id };
-}
 
 const inspect = (s: Sandbox, ws: Workspace, op: string, o: { chain?: readonly Receipt[]; images?: number; lines?: number } = {}): RunInspection => {
   const r = readRunInspection(op, { project: s.root, jobs: ws.jobs.list(), chain: o.chain ?? readChain('runs', s.root), images: o.images ?? IMAGE_DATA_MAX, ...(o.lines ? { lines: o.lines } : {}) });
@@ -153,8 +97,7 @@ describe('a run inspected: a FAKE workflow run that changes a file and writes fo
     expect(change(i, 'out/report.md').preview).toMatchObject({ kind: 'text', lines: ['# Report', '', 'The tray is 150 mm wide now.', 'FAKE: written by the test workflow.'], more: 0 });
     expect(change(i, 'out/summary.json').preview).toMatchObject({ kind: 'text', json: true, lines: ['{', '  "width": 150,', '  "files": [', '    "out/report.md",', '    "out/preview.png"', '  ],', '  "ok": true', '}'] });
     expect(change(i, 'out/preview.png').preview).toMatchObject({ kind: 'image', mime: 'image/png', width: 8, height: 6, bytes: PNG.length, sha256: sha(PNG), data: `data:image/png;base64,${PNG.toString('base64')}` });
-    const blob = Buffer.from([0x42, 0x49, 0x4e, 0, 1, 2, 0xff]);
-    expect(change(i, 'out/blob.bin').preview).toMatchObject({ kind: 'binary', bytes: 7, sha256: sha(blob) });
+    expect(change(i, 'out/blob.bin').preview).toMatchObject({ kind: 'binary', bytes: 7, sha256: sha(BLOB) });
     expect(i.changes.notes.join('\n')).toContain('a block\'s own command may change files Timmy does not record');
 
     // the outputs: the run's log first (its bytes the ones the run's receipt sealed, its 60 printed lines), then its files
@@ -240,9 +183,7 @@ describe('a run inspected: a FAKE workflow run that changes a file and writes fo
     expect(act).toMatchObject({ effect: 'writes', available: true });
     // the action's command, typed in the REPL as the page tells a person to (its effect: writes)
     const args = act.command.replace(/^\/restore /, '');
-    const said = text(await ws.operate(act.command, 'repl', () => ws.restore!(args)));
-    const h = ws.ops.latest!;
-    await ws.ops.done(h);
+    const { said, op: restoreOp } = await typed(ws, act.command, () => ws.restore!(args));
     expect(said).toMatch(/restored/i);
     expect(fs.readFileSync(path.join(s.root, 'recipes', 'tray.params.json'), 'utf8')).toBe(paramsBefore);
     // the run's own change: the file is not what the run left any more, so no restore is offered
@@ -251,7 +192,7 @@ describe('a run inspected: a FAKE workflow run that changes a file and writes fo
     expect(after.restore.offered).toBe(false);
     expect(after.diff.shown).toBe(false);
     // the restore's run: its edit, drawn against the version /restore kept first (− 150, + 140), its receipt verified now
-    const r = inspect(s, ws, h.id);
+    const r = inspect(s, ws, restoreOp);
     const c = change(r, 'recipes/tray.params.json');
     expect(c).toMatchObject({ how: 'changed', now: { state: 'as recorded' }, check: { status: 'verified' } });
     expect(c.by).toMatch(/^\/restore \(from \.timmy\/flows\/f[0-9a-f]{8}\/params\.before\.json\)$/);
@@ -280,6 +221,115 @@ describe('a run inspected: a FAKE workflow run that changes a file and writes fo
     expect(r.inspection.receipts.list.every((x) => x.verified.ok)).toBe(true);
     const none = readRunInspection('o00000000', { project: s.root });
     expect(none).toMatchObject({ ok: false, refusal: 'unknown' });
+  }, 120_000);
+});
+
+describe('a preview reads through one descriptor, never through a link (R6 lead): O_NOFOLLOW, the file looked at is the file read, capped', () => {
+  const NOFOLLOW = fs.constants.O_NOFOLLOW;
+  /** FIXTURE: a folder outside the project, each file in it holding a marker no inspection may carry. */
+  const outside = (files: Record<string, string>): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-outside-'));
+    for (const [name, words] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), words);
+    return dir;
+  };
+  /** FIXTURE: runs `swap` once, inside the reader's open of `file` (an open with O_NOFOLLOW), just before that open. */
+  const swapAtOpen = (file: string, swap: () => void): { restore: () => void; swapped: () => number } => {
+    const open = fs.openSync;
+    let n = 0;
+    const spy = vi.spyOn(fs, 'openSync').mockImplementation(((p: fs.PathLike | number, flags?: fs.OpenMode, mode?: fs.Mode | null) => {
+      if (p === file && typeof flags === 'number' && (flags & NOFOLLOW) && !n) { n++; swap(); }
+      return open(p as fs.PathLike, flags, mode);
+    }) as typeof fs.openSync);
+    return { restore: () => spy.mockRestore(), swapped: () => n };
+  };
+
+  it('a previewed file swapped for a link to a file outside the project, after its look and before its open, is refused, and nothing of the outside file is shown', async () => {
+    const s = sandbox(kit, 'inspect-swap-');
+    reportProject(s);
+    const { ws } = replOf(kit, s);
+    const { op } = await runOf(ws, 'REPORT.md', 'report');
+    const away = outside({ 'report.md': 'OUTSIDE-FIXTURE: a file outside the project\n' });
+    try {
+      const real = fs.realpathSync(path.join(s.root, 'out', 'report.md'));
+      const at = swapAtOpen(real, () => { fs.renameSync(real, `${real}.moved`); fs.symlinkSync(path.join(away, 'report.md'), real); });
+      let i: RunInspection;
+      try { i = inspect(s, ws, op); } finally { at.restore(); }
+      expect(at.swapped()).toBe(1);
+      // the open met the link (O_NOFOLLOW): refused, said why; read again later, its name leads outside: refused before any open
+      expect(change(i, 'out/report.md').preview).toMatchObject({ kind: 'none', why: 'out/report.md changed while it was read (a symbolic link is at its name now): nothing of it is shown' });
+      expect(i.outputs.find((o) => o.path === 'out/report.md')!.preview).toEqual({ kind: 'none', why: 'out/report.md leads outside the project' });
+      expect(JSON.stringify(i)).not.toContain('OUTSIDE-FIXTURE');
+      // the files around it are read as before
+      expect(change(i, 'out/summary.json').preview).toMatchObject({ kind: 'text', json: true });
+    } finally { fs.rmSync(away, { recursive: true, force: true }); }
+  }, 120_000);
+
+  it('a previewed file\'s folder swapped for a link to a folder outside the project, before its open: the file opened is not the one looked at, so it is refused', async () => {
+    const s = sandbox(kit, 'inspect-swap-dir-');
+    reportProject(s);
+    const { ws } = replOf(kit, s);
+    const { op } = await runOf(ws, 'REPORT.md', 'report');
+    const away = outside({ 'summary.json': '{"OUTSIDE-FIXTURE": true}\n', 'report.md': 'OUTSIDE-FIXTURE\n', 'preview.png': 'OUTSIDE-FIXTURE\n', 'blob.bin': 'OUTSIDE-FIXTURE\n' });
+    try {
+      const real = fs.realpathSync(path.join(s.root, 'out', 'summary.json'));
+      const out = path.dirname(real);
+      // O_NOFOLLOW guards only a file's own name: a link in its folder's place is followed by the open, and caught after it
+      const at = swapAtOpen(real, () => { fs.renameSync(out, `${out}.moved`); fs.symlinkSync(away, out); });
+      let i: RunInspection;
+      try { i = inspect(s, ws, op); } finally { at.restore(); }
+      expect(at.swapped()).toBe(1);
+      expect(change(i, 'out/summary.json').preview).toMatchObject({ kind: 'none', why: 'out/summary.json changed while it was read (another file is at its name now): nothing of it is shown' });
+      // read after the swap, the folder leads outside the project: refused before any open
+      for (const o of i.outputs.filter((x) => x.kind === 'file' && x.path.startsWith('out/'))) expect(o.preview).toEqual({ kind: 'none', why: `${o.path} leads outside the project` });
+      expect(JSON.stringify(i)).not.toContain('OUTSIDE-FIXTURE');
+    } finally { fs.rmSync(away, { recursive: true, force: true }); }
+  }, 120_000);
+
+  it('a previewed file\'s folder swapped for a link to a folder outside the project before the reader looks at the file: the name, read again after the read, leads elsewhere, so nothing of it is used', async () => {
+    const s = sandbox(kit, 'inspect-swap-look-');
+    reportProject(s);
+    const { ws } = replOf(kit, s);
+    const { op } = await runOf(ws, 'REPORT.md', 'report');
+    const away = outside({ 'summary.json': '{"OUTSIDE-FIXTURE": true}\n' });
+    try {
+      const real = fs.realpathSync(path.join(s.root, 'out', 'summary.json'));
+      const out = path.dirname(real);
+      // FIXTURE: the swap comes inside the reader's own look (its lstat with bigint), after the project's checks: the look
+      // and the open then both reach the outside file, alike, and only the name resolved again after the read tells
+      const lstat = fs.lstatSync;
+      let n = 0;
+      const spy = vi.spyOn(fs, 'lstatSync').mockImplementation(((p: fs.PathLike, o?: fs.StatSyncOptions) => {
+        if (p === real && o && (o as { bigint?: boolean }).bigint && !n) { n++; fs.renameSync(out, `${out}.moved`); fs.symlinkSync(away, out); }
+        return lstat(p, o as never);
+      }) as typeof fs.lstatSync);
+      let i: RunInspection;
+      try { i = inspect(s, ws, op); } finally { spy.mockRestore(); }
+      expect(n).toBe(1);
+      expect(change(i, 'out/summary.json').preview).toMatchObject({ kind: 'none', why: 'out/summary.json changed while it was read (its name leads elsewhere now): nothing of it is shown' });
+      expect(JSON.stringify(i)).not.toContain('OUTSIDE-FIXTURE');
+    } finally { fs.rmSync(away, { recursive: true, force: true }); }
+  }, 120_000);
+
+  it('a long output is read only up to the cap and said cut; its sha256, hashed through the same descriptor, is still the one recorded', async () => {
+    const s = sandbox(kit, 'inspect-cap-');
+    reportProject(s);
+    // FAKE workflow: one block writes 6000 lines (about 420 KB) into out/long.txt
+    fs.writeFileSync(path.join(s.root, 'LONG.md'), ['# FAKE long output (this test)', '', '```bash [name:long]', 'mkdir -p out', 'for i in $(seq 1 6000); do echo "line $i of a long output, longer than a preview reads of it"; done > out/long.txt', '```', ''].join('\n'));
+    const { ws } = replOf(kit, s);
+    const { op } = await runOf(ws, 'LONG.md', 'long');
+    const bytes = fs.readFileSync(path.join(s.root, 'out', 'long.txt'));
+    expect(bytes.length).toBeGreaterThan(PREVIEW_READ_MAX);
+    const i = inspect(s, ws, op, { lines: 50 });
+    const c = change(i, 'out/long.txt');
+    expect(c.preview).toMatchObject({ kind: 'text', bytes: bytes.length, sha256: sha(bytes), cut: `only its first ${Math.round(PREVIEW_READ_MAX / 1024)} KB are read here (it has ${bytes.length} bytes)` });
+    if (c.preview?.kind !== 'text') throw new Error('not text');
+    expect(c.preview.lines).toHaveLength(50);
+    expect(c.preview.lines[0]).toBe('line 1 of a long output, longer than a preview reads of it');
+    // the lines counted past the 50 shown are those of the part read, not of the whole file
+    expect(c.preview.lines.length + c.preview.more).toBeLessThan(6000);
+    expect(c.now.state).toBe('as recorded');
+    const o = i.outputs.find((x) => x.path === 'out/long.txt')!;
+    expect(o.now).toMatchObject({ state: 'as recorded', sha256: sha(bytes) });
   }, 120_000);
 });
 

@@ -754,17 +754,17 @@ export function runRecipe(d: RunDetail, o: { jobs?: readonly JobRecord[]; jobsDi
   if (!p || !m || !doc?.sha256) return { why: 'it ran no workflow whose prediction sealed its document' };
   const [, rel, target] = m;
   const jobs = o.jobs ?? jobsIn(o.jobsDir ?? path.join(timmyHome(), 'jobs'));
-  const candidates: Array<{ abs: string; from: string }> = [];
+  // each read through one descriptor, never through a link (readHeld): the copy upmd read, then the document in the project
+  const candidates: Array<{ read: () => Read; from: string }> = [];
   for (const j of jobs.filter((x) => x.operation === d.operation && x.kind === 'workflow')) {
     const copy = j.args.find((a) => path.basename(a) === CHECKED_COPY && /^w[0-9a-f]{8}$/.test(path.basename(path.dirname(a))));
-    if (copy) candidates.push({ abs: copy, from: `the copy upmd read (job ${j.id})` });
+    if (copy) candidates.push({ read: () => readHeld(folderReal(copy), copy, SOURCE_READ_MAX), from: `the copy upmd read (job ${j.id})` });
   }
-  candidates.push({ abs: path.join(d.project.root, rel), from: `${rel} in the project` });
+  candidates.push({ read: () => readProject(d.project.root, rel, SOURCE_READ_MAX), from: `${rel} in the project` });
   for (const c of candidates) {
-    let bytes: Buffer;
-    try { bytes = fs.readFileSync(c.abs); } catch { continue; }
-    if (sha(bytes) !== doc.sha256) continue;
-    const blocks = parseWorkflow(bytes.toString('utf8'));
+    const r = c.read();
+    if (!r.ok || r.cut || r.sha256 !== doc.sha256) continue;
+    const blocks = parseWorkflow(r.buf.toString('utf8'));
     const plan = runOrder(blocks, target);
     const chosen = plan.order.map((n) => blocks.find((b) => b.name === n)).filter((b): b is WorkflowBlock => !!b);
     return { blocks: chosen, doc: rel, target, from: `${c.from}, its sha256 the one prediction receipt ${p.receipt} sealed` };
@@ -924,8 +924,14 @@ const DIFF_TEXT_MAX = 512 * 1024;
 const DIFF_CELLS = 2_250_000;
 /** The most diff lines one diff shows (the rest are counted). */
 const DIFF_LINES_MAX = 600;
-/** A file larger than this is not hashed for a preview. */
-const HASH_MAX = 64 * 1024 * 1024;
+/** The most one file costs to read here: a larger one is shown from its first (or last) bytes and not hashed. */
+const HASH_MAX = 16 * 1024 * 1024;
+/** What one inspection reads of files in all to hash them: past it, a file is shown but not hashed (said so). */
+const READ_TOTAL = 128 * 1024 * 1024;
+/** The most of a workflow document read for its blocks (as it ran, and now). */
+const SOURCE_READ_MAX = 2 * 1024 * 1024;
+/** How a file is opened to be read: never through a link at its name, never waiting on a pipe. */
+const READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 /** How many changes one inspection lists (src/review/changes.ts counts the rest). */
 const CHANGES_MAX = 60;
 /** How many outputs one inspection lists. */
@@ -1129,16 +1135,19 @@ function imageSize(ext: string, buf: Buffer): { width?: number; height?: number 
   return {};
 }
 
-interface PreviewBudget { lines: number; images: number; left: number }
+/** What one inspection may still send and read: its lines per preview, image bytes, and bytes read to hash files. */
+interface PreviewBudget { lines: number; images: number; left: number; read: number }
 
-/** A file's bytes (read whole when small enough to hash, its start otherwise) as a preview. */
-function previewOfBytes(rel: string, buf: Buffer, size: number, sha256: string | null, cut: boolean, b: PreviewBudget): FilePreview {
+const kb = (n: number): string => `${Math.round(n / 1024)} KB`;
+
+/** A file's bytes (its start, as read through one descriptor) as a preview; `max`: the most of it read. */
+function previewOfBytes(rel: string, buf: Buffer, size: number, sha256: string | null, cut: boolean, max: number, b: PreviewBudget): FilePreview {
   const ext = path.extname(rel).toLowerCase();
   const mime = IMAGE_MIME[ext];
   if (mime) {
     const dims = imageSize(ext, buf);
     const base = { kind: 'image' as const, mime, bytes: size, sha256, ...dims };
-    if (cut) return { ...base, why: `larger than ${Math.round(PREVIEW_READ_MAX / 1024)} KB read here: not drawn` };
+    if (cut) return { ...base, why: `larger than the ${kb(max)} read here: not drawn` };
     if (!b.images) return { ...base, why: 'drawn by the companion\'s run detail; a terminal shows its size and sha256' };
     if (size > b.images) return { ...base, why: `larger than ${Math.round(b.images / 1024)} KB: not drawn here` };
     if (size > b.left) return { ...base, why: 'not drawn here: this run detail already carries its most image bytes' };
@@ -1147,7 +1156,7 @@ function previewOfBytes(rel: string, buf: Buffer, size: number, sha256: string |
   }
   const text = textOfBytes(buf, cut);
   if (text === null) return { kind: 'binary', what: BINARY_WHAT[ext] ?? 'a binary file (not UTF-8 text)', bytes: size, sha256 };
-  const cutWords = cut ? `only its first ${Math.round(PREVIEW_READ_MAX / 1024)} KB are read here (it has ${size} bytes)` : undefined;
+  const cutWords = cut ? `only its first ${kb(max)} are read here (it has ${size} bytes)` : undefined;
   if (ext === '.json' && !cut) {
     try {
       const all = linesOf(JSON.stringify(JSON.parse(text), null, 2)).map(lineOf);
@@ -1161,45 +1170,95 @@ function previewOfBytes(rel: string, buf: Buffer, size: number, sha256: string |
   return { kind: 'text', lines: all.slice(0, b.lines), more: Math.max(0, all.length - b.lines), bytes: size, sha256, ...(cutWords ? { cut: cutWords } : {}) };
 }
 
-type Read = { ok: true; rel: string; buf: Buffer; size: number; sha256: string | null; cut: boolean } | { ok: false; gone: boolean; why: string };
+/** A file read (its kept bytes, its size, its sha256 when hashed, whether it was cut, the most read), or why not. */
+type Read = { ok: true; rel: string; buf: Buffer; size: number; sha256: string | null; cut: boolean; max: number; unhashed?: string } | { ok: false; gone: boolean; why: string };
 
-/** A project file, never through a link, inside the project and not private: its start (or all of it) and its sha256. */
-function readProject(root: string, rel: string, max = PREVIEW_READ_MAX): Read {
-  const at = resolveInside(root, rel);
-  if ('error' in at) return { ok: false, gone: false, why: at.error };
-  return readAt(at.path, at.rel, max);
-}
-
-/** A file by its path (a log in Timmy's jobs folder): a regular file, never through a link. */
-function readAt(abs: string, shown: string, max: number): Read {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) {
+/**
+ * A file read through one descriptor, never through a link (R6 lead: every preview reads so): its name is looked at (a
+ * regular file, no link at its end), opened with O_NOFOLLOW | O_NONBLOCK, and the open file must be the one looked at (its
+ * device and inode); once read, its name must still resolve, with no link on the way, to that same file. Else it changed
+ * while it was read, and nothing of it is used. At most `max` bytes are kept (its start, or its end with `tail`), all read
+ * through that descriptor; it is hashed through the same descriptor while it is no larger than HASH_MAX and the
+ * inspection's read budget lasts (else said why not). `abs` has no link before its name (realpath'd by the caller).
+ */
+function readHeld(abs: string, shown: string, max: number, o: { tail?: boolean; budget?: { read: number } } = {}): Read {
+  const changed = (how: string): Read => ({ ok: false, gone: false, why: `${shown} changed while it was read (${how}): nothing of it is shown` });
+  let named: fs.BigIntStats;
+  try { named = fs.lstatSync(abs, { bigint: true }); } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     return { ok: false, gone: code === 'ENOENT', why: code === 'ENOENT' ? `${shown} is not there now` : `${shown} cannot be looked at (${code ?? 'error'})` };
   }
-  if (st.isSymbolicLink()) return { ok: false, gone: false, why: `${shown} is a symbolic link: not followed` };
-  if (!st.isFile()) return { ok: false, gone: false, why: `${shown} is not a regular file` };
+  if (named.isSymbolicLink()) return { ok: false, gone: false, why: `${shown} is a symbolic link: not followed` };
+  if (!named.isFile()) return { ok: false, gone: false, why: `${shown} is not a regular file` };
+  let fd: number;
+  try { fd = fs.openSync(abs, READ_FLAGS); } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'EMLINK') return changed('a symbolic link is at its name now');
+    if (code === 'ENOENT') return { ok: false, gone: true, why: `${shown} is not there now` };
+    return { ok: false, gone: false, why: `${shown} cannot be read (${code ?? 'error'})` };
+  }
   try {
-    if (st.size <= HASH_MAX) {
-      const whole = fs.readFileSync(abs);
-      return { ok: true, rel: shown, buf: whole.length > max ? whole.subarray(0, max) : whole, size: whole.length, sha256: sha(whole), cut: whole.length > max };
+    const held = fs.fstatSync(fd, { bigint: true });
+    if (!held.isFile()) return changed('it is not a regular file now');
+    if (held.dev !== named.dev || held.ino !== named.ino) return changed('another file is at its name now');
+    const size = Number(held.size);
+    const keepLen = Math.min(size, max);
+    const keepFrom = o.tail ? size - keepLen : 0;
+    const hashes = size <= HASH_MAX && (!o.budget || o.budget.read >= size);
+    if (hashes && o.budget) o.budget.read -= size;
+    const hash = hashes ? createHash('sha256') : null;
+    const keep = Buffer.alloc(keepLen);
+    const end = hashes ? size : keepFrom + keepLen;
+    const chunk = Buffer.alloc(Math.max(1, Math.min(1024 * 1024, end)));
+    let at = hashes ? 0 : keepFrom;
+    while (at < end) {
+      const n = fs.readSync(fd, chunk, 0, Math.min(chunk.length, end - at), at);
+      if (n <= 0) break;
+      const part = chunk.subarray(0, n);
+      hash?.update(part);
+      const a = Math.max(at, keepFrom);
+      const z = Math.min(at + n, keepFrom + keepLen);
+      if (a < z) part.copy(keep, a - keepFrom, a - at, z - at);
+      at += n;
     }
-    const fd = fs.openSync(abs, 'r');
-    try {
-      const buf = Buffer.alloc(max);
-      const n = fs.readSync(fd, buf, 0, max, 0);
-      return { ok: true, rel: shown, buf: buf.subarray(0, n), size: st.size, sha256: null, cut: true };
-    } finally { fs.closeSync(fd); }
-  } catch (e) { return { ok: false, gone: false, why: `${shown} cannot be read (${(e as NodeJS.ErrnoException).code ?? 'error'})` }; }
+    const after = fs.fstatSync(fd, { bigint: true });
+    // its name still leads, with no link on the way, to the file read (a folder swapped for a link is caught here too)
+    let again: fs.BigIntStats | null = null;
+    let real = '';
+    try { again = fs.lstatSync(abs, { bigint: true }); real = fs.realpathSync(abs); } catch { /* gone meanwhile */ }
+    if (!again || again.isSymbolicLink() || again.dev !== held.dev || again.ino !== held.ino || real !== abs) return changed('its name leads elsewhere now');
+    const moved = at < end || after.size !== held.size || after.mtimeNs !== held.mtimeNs;
+    const unhashed = moved ? 'it changed while it was read: not hashed'
+      : !hashes ? (size > HASH_MAX ? `larger than ${HASH_MAX / 1024 / 1024} MB: not hashed here` : 'not hashed here: this inspection has read its most bytes') : undefined;
+    const filled = Math.max(0, Math.min(at, keepFrom + keepLen) - keepFrom);
+    return { ok: true, rel: shown, buf: keep.subarray(0, filled), size, sha256: hash && !moved ? hash.digest('hex') : null, cut: size > max, max, ...(unhashed ? { unhashed } : {}) };
+  } catch (e) {
+    return { ok: false, gone: false, why: `${shown} cannot be read (${(e as NodeJS.ErrnoException).code ?? 'error'})` };
+  } finally { fs.closeSync(fd); }
+}
+
+/** A path with the links of its folders resolved and its own name kept (so a link at its name is still seen as one). */
+function folderReal(abs: string): string {
+  try { return path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs)); } catch { return abs; }
+}
+
+/** A project file, inside the project and not private (resolveInside), read through one descriptor (readHeld); a link at
+ *  its name is not followed. */
+function readProject(root: string, rel: string, max: number, budget?: { read: number }): Read {
+  const at = resolveInside(root, rel);
+  if ('error' in at) return { ok: false, gone: false, why: at.error };
+  // its own name, before resolveInside resolved a link there: a link is not followed, even to a file in the project
+  try { if (fs.lstatSync(path.join(root, at.rel)).isSymbolicLink()) return { ok: false, gone: false, why: `${at.rel} is a symbolic link: not followed` }; } catch { /* not there: readHeld says so */ }
+  return readHeld(at.path, at.rel, max, { budget });
 }
 
 /** A read as a preview, or why there is none. */
-const previewOf = (r: Read, b: PreviewBudget): FilePreview => (r.ok ? previewOfBytes(r.rel, r.buf, r.size, r.sha256, r.cut, b) : { kind: 'none', why: r.why });
+const previewOf = (r: Read, b: PreviewBudget): FilePreview => (r.ok ? previewOfBytes(r.rel, r.buf, r.size, r.sha256, r.cut, r.max, b) : { kind: 'none', why: r.why });
 
 /** A file now against the sha256 recorded for it. */
 function nowAgainst(r: Read, recorded: string | undefined, from: string): FileNow {
   if (!r.ok) return r.gone ? { state: 'gone', words: `gone since${recorded ? ` (${from} recorded sha256 ${recorded.slice(0, 12)})` : ''}` } : { state: 'not comparable', words: r.why };
-  if (!r.sha256) return { state: 'not comparable', words: `larger than ${HASH_MAX / 1024 / 1024} MB: not hashed here` };
+  if (!r.sha256) return { state: 'not comparable', words: r.unhashed ?? 'not hashed here' };
   if (!recorded) return { state: 'not recorded', sha256: r.sha256, words: `no record names its sha256 (sha256 ${r.sha256.slice(0, 12)} now)` };
   return r.sha256 === recorded ? { state: 'as recorded', sha256: r.sha256, words: `the bytes ${from} recorded (sha256 ${r.sha256.slice(0, 12)})` }
     : { state: 'changed since', sha256: r.sha256, words: `changed since: sha256 ${r.sha256.slice(0, 12)} now, ${recorded.slice(0, 12)} as ${from} recorded` };
@@ -1336,7 +1395,7 @@ function receiptsInspected(f: Facts, verify: NonNullable<RunInspectionOptions['v
 }
 
 /** The workflow document and its blocks as upmd ran them, and the document now. */
-function sourceInspected(f: Facts, prediction: ReturnType<typeof predictionOf>): RunInspection['source'] {
+function sourceInspected(f: Facts, prediction: ReturnType<typeof predictionOf>, b: PreviewBudget): RunInspection['source'] {
   if (!prediction?.doc || !prediction.block) {
     return { none: prediction?.geometry ? 'it ran no workflow document: its prediction is a recipe build\'s (its request is its intent)' : 'it ran no workflow document: no document\'s bytes were sealed before it ran' };
   }
@@ -1348,14 +1407,14 @@ function sourceInspected(f: Facts, prediction: ReturnType<typeof predictionOf>):
   const copyAbs = job?.args.find((a) => path.basename(a) === CHECKED_COPY && /^w[0-9a-f]{8}$/.test(path.basename(path.dirname(a))));
   let asRan: Read | null = null;
   let copy: InspectSource['copy'];
-  const copyRead = copyAbs ? readAt(copyAbs, tildePath(copyAbs, f.env), 2 * 1024 * 1024) : null;
+  const copyRead = copyAbs ? readHeld(folderReal(copyAbs), tildePath(copyAbs, f.env), SOURCE_READ_MAX, { budget: b }) : null;
   if (copyRead?.ok && sealed && copyRead.sha256 === sealed) { asRan = copyRead; copy = { state: 'kept', where: copyRead.rel, words: `the copy upmd read (job ${job!.id}), its sha256 the one ${from} sealed` }; }
   else if (copyRead?.ok) copy = { state: 'differs', where: copyRead.rel, words: `the copy upmd read (job ${job!.id}) does not hold the bytes ${from} sealed (sha256 ${copyRead.sha256?.slice(0, 12) ?? 'not hashed'})` };
   else copy = { state: 'missing', words: copyAbs ? `the copy upmd read is not kept here (${copyRead && !copyRead.ok ? copyRead.why : 'not read'})` : 'its job record names no copy upmd read' };
-  const nowRead = readProject(f.root, doc, 2 * 1024 * 1024);
+  const nowRead = readProject(f.root, doc, SOURCE_READ_MAX, b);
   let now: InspectSource['now'];
   if (!nowRead.ok) now = nowRead.gone ? { state: 'gone', words: `${doc} is not in the project now` } : { state: 'unreadable', words: nowRead.why };
-  else if (!nowRead.sha256) now = { state: 'unreadable', sha256: undefined, words: `${doc} is too large to hash here` };
+  else if (!nowRead.sha256) now = { state: 'unreadable', sha256: undefined, words: `${doc}: ${nowRead.unhashed ?? 'not hashed here'}` };
   else if (sealed && nowRead.sha256 === sealed) now = { state: 'same', sha256: nowRead.sha256, words: `${doc} still holds the bytes it ran from (sha256 ${sealed.slice(0, 12)})` };
   else now = { state: 'changed', sha256: nowRead.sha256, words: `${doc} changed since the run: sha256 ${nowRead.sha256.slice(0, 12)} now, ${sealed ? sealed.slice(0, 12) : 'not recorded'} as it ran` };
   if (!asRan && nowRead.ok && now.state === 'same') { asRan = nowRead; copy = { ...copy, state: copy.state === 'missing' ? 'project' : copy.state, words: `${copy.words}; ${doc} in the project still holds the bytes ${from} sealed, and they are read from there` }; }
@@ -1392,8 +1451,8 @@ function changesInspected(f: Facts, b: PreviewBudget): RunInspection['changes'] 
     return { list: [], more: 0, notes: [`what it changed could not be read: ${f.scrub(e instanceof Error ? e.message.split('\n')[0] : String(e))}`] };
   }
   const list = review.changes.map((c: ReviewChange): InspectChange => {
-    const file = c.how === 'deleted' ? null : readProject(f.root, c.path);
-    const kept = c.kept ? readProject(f.root, c.kept.path) : null;
+    const file = c.how === 'deleted' ? null : readProject(f.root, c.path, PREVIEW_READ_MAX, b);
+    const kept = c.kept ? readProject(f.root, c.kept.path, PREVIEW_READ_MAX, b) : null;
     let diff: InspectDiff;
     if (c.diff?.shown && kept) diff = diffOfReads(kept, c.how === 'deleted' ? { ok: true, empty: true } : file!, { against: 'kept', from: c.kept!.path, to: c.how === 'deleted' ? '(deleted by the run)' : c.path });
     else if (c.diff && !c.diff.shown) diff = { shown: false, why: c.diff.why };
@@ -1430,7 +1489,7 @@ function outputsInspected(f: Facts, d: RunDetail, b: PreviewBudget): InspectOutp
     seen.add(shown);
     const r = outcomeOf(j.id);
     const sealedLog = r?.job?.log_sha256;
-    const read = readLog(j.logPath, shown);
+    const read = readHeld(folderReal(j.logPath), shown, LOG_READ_MAX, { tail: true, budget: b });
     // its end: the last LOG_READ_MAX bytes, escape sequences removed, a run of blank lines kept as one
     let preview: FilePreview;
     if (!read.ok) preview = { kind: 'none', why: read.why };
@@ -1459,32 +1518,10 @@ function outputsInspected(f: Facts, d: RunDetail, b: PreviewBudget): InspectOutp
   for (const x of files) {
     if (seen.has(x.path) || out.length >= OUTPUTS_MAX) continue;
     seen.add(x.path);
-    const read = readProject(f.root, x.path);
+    const read = readProject(f.root, x.path, PREVIEW_READ_MAX, b);
     out.push({ path: x.path, kind: 'file', what: x.what, recorded: { ...(x.sha256 ? { sha256: x.sha256 } : {}), ...(x.bytes !== undefined ? { bytes: x.bytes } : {}), from: x.from }, now: nowAgainst(read, x.sha256, x.from), preview: previewOf(read, b), open: `/open ${quoted(x.path)}` });
   }
   return out;
-}
-/** A job's log (in Timmy's jobs folder): its sha256 (when it is small enough to hash) and its last LOG_READ_MAX bytes. */
-function readLog(abs: string, shown: string): Read {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    return { ok: false, gone: code === 'ENOENT', why: code === 'ENOENT' ? `${shown} is not there now` : `${shown} cannot be looked at (${code ?? 'error'})` };
-  }
-  if (st.isSymbolicLink() || !st.isFile()) return { ok: false, gone: false, why: `${shown} is not a regular file` };
-  try {
-    if (st.size <= HASH_MAX) {
-      const whole = fs.readFileSync(abs);
-      const cut = whole.length > LOG_READ_MAX;
-      return { ok: true, rel: shown, buf: cut ? whole.subarray(whole.length - LOG_READ_MAX) : whole, size: whole.length, sha256: sha(whole), cut };
-    }
-    const fd = fs.openSync(abs, 'r');
-    try {
-      const buf = Buffer.alloc(LOG_READ_MAX);
-      const n = fs.readSync(fd, buf, 0, LOG_READ_MAX, st.size - LOG_READ_MAX);
-      return { ok: true, rel: shown, buf: buf.subarray(0, n), size: st.size, sha256: null, cut: true };
-    } finally { fs.closeSync(fd); }
-  } catch (e) { return { ok: false, gone: false, why: `${shown} cannot be read (${(e as NodeJS.ErrnoException).code ?? 'error'})` }; }
 }
 const LOG_ESCAPE = /\x1b\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]|\x1b/g;
 
@@ -1498,7 +1535,7 @@ function actionsInspected(f: Facts, d: RunDetail, source: RunInspection['source'
   const firstOut = outputs.find((o) => o.kind === 'file') ?? null;
   const openPath = firstFile?.path ?? firstOut?.path;
   if (openPath) acts.push({ id: 'open', label: `Open ${openPath}`, command: `/open ${quoted(openPath)}`, effect: 'reads', words: 'its preview here, from the file as it is now; /open shows it in Timmy\'s REPL', path: openPath, available: true, primary: false });
-  acts.push({ id: 'review', label: 'Review what it changed', command: `/review ${f.id}`, effect: 'reads', words: 'every file this run changed, each checked now against what the run left, its kept previous version and its receipt; nothing is written', available: true, primary: false });
+  acts.push({ id: 'review', label: 'Review', command: `/review ${f.id}`, effect: 'reads', words: 'every file this run changed, each checked now against what the run left, its kept previous version and its receipt; nothing is written', available: true, primary: false });
   if (changes.list.length) {
     const offered = changes.list.find((c) => c.restore.offered);
     if (offered && offered.restore.offered) acts.push({ id: 'restore', label: `Restore ${offered.path}`, command: offered.restore.command, effect: 'writes', words: `writes the kept previous version (${offered.restore.from}) back over ${offered.path}, only while it is exactly what the run left; its current version is kept first under .timmy/restore-history/, and an edit receipt is sealed`, path: offered.path, available: true, primary: false });
@@ -1507,7 +1544,7 @@ function actionsInspected(f: Facts, d: RunDetail, source: RunInspection['source'
       acts.push({ id: 'restore', label: 'Restore', command: '/restore <file> --from <kept previous version>', effect: 'writes', words: 'writes a kept previous version back over a file the run changed', available: false, why: `not now: ${why || 'no change of this run has a kept previous version'}`, primary: false });
     }
   }
-  if ('doc' in source) acts.push({ id: 'run-again', label: `Run ${source.doc} › ${source.block} again`, command: `/run ${quoted(source.doc)} ${quoted(source.block)}`, effect: 'runs', words: `a new run of ${source.doc} as it is now: Timmy predicts and seals the order before upmd starts, and a destructive block asks first in a NEEDS YOU box`, available: true, primary: false });
+  if ('doc' in source) acts.push({ id: 'run-again', label: 'Run again', command: `/run ${quoted(source.doc)} ${quoted(source.block)}`, effect: 'runs', words: `a new run of ${source.doc} as it is now: Timmy predicts and seals the order before upmd starts, and a destructive block asks first in a NEEDS YOU box`, available: true, primary: false });
   // the primary, by Timmy's verdict: a completed run's result to look at; a stopped one, or one that changed nothing, run
   // again; otherwise the run detail's own next step (see why, follow it); else /review
   const state = d.verdict.state;
@@ -1531,7 +1568,7 @@ export function readRunInspection(operationId: string, o: RunInspectionOptions =
   if (!b.ok) return b;
   const { f, detail, prediction } = b;
   const verify = o.verify ?? ((hash: string) => { const r = verifyReceiptIn(f.chain, hash); return r.ok ? { ok: true as const } : { ok: false as const, reason: r.reason }; });
-  const budget: PreviewBudget = { lines: Math.max(1, o.lines ?? PREVIEW_LINES), images: Math.max(0, o.images ?? 0), left: IMAGE_DATA_TOTAL };
+  const budget: PreviewBudget = { lines: Math.max(1, o.lines ?? PREVIEW_LINES), images: Math.max(0, o.images ?? 0), left: IMAGE_DATA_TOTAL, read: READ_TOTAL };
   const rec = f.rec?.record;
   const predictReceipt = f.receipts.find((r) => r.kind === 'predict' || r.kind === 'fleet.predict');
   const intent: RunInspection['intent'] = {
@@ -1540,7 +1577,7 @@ export function readRunInspection(operationId: string, o: RunInspectionOptions =
     from: f.rec?.rel ?? detail.objective?.from ?? 'not recorded here',
     sealed: `not a receipt: Timmy writes an operation's record and nothing seals it${predictReceipt ? `; prediction receipt ${short(predictReceipt)} seals what it ran from${predictReceipt.files?.length ? ` (${predictReceipt.files.map((x) => `${x.path} sha256 ${String(x.sha256 ?? '').slice(0, 12)}`).join(', ')})` : ''}` : ''}`,
   };
-  const source = sourceInspected(f, prediction);
+  const source = sourceInspected(f, prediction, budget);
   const changes = changesInspected(f, budget);
   const outputs = outputsInspected(f, detail, budget);
   const receipts = receiptsInspected(f, verify);
