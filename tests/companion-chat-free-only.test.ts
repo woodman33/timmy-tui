@@ -91,7 +91,9 @@ describe('the companion\'s chat under free-only: refused in the policy\'s words 
     const words = String(r.words);
     expect(words).toMatch(/^Send is off: free-only is on, and qwen\/qwen3\.8-max is not known to be free, so this message was not sent\. /);
     expect(words).toContain(`Cause: ${OPENROUTER_MODEL} costs $3 in / $15 out per 1M tokens.`);
-    expect(words).toContain('Try: choose a free model in the REPL (/model free lists them), or turn free-only off');
+    expect(words).toContain('Try: choose a free model: /model free in the REPL lists them, then /model <id>:free (free-only stays on)');
+    // R5 lead (the finish line, item 3): turning free-only off is never the fix offered
+    expect(words).not.toMatch(/free-only off|TIMMY_CHAT_FREE_ONLY=0/);
     expect(words).not.toMatch(/no OpenRouter key/);
     expect(JSON.stringify(r)).not.toContain(KEY);
     const events = await chat('FAKE: a message free-only must not send');

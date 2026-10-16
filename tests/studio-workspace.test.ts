@@ -4,15 +4,16 @@
  * token or a page session that counts now, as the canvas's own routes are; refused in words otherwise.
  *
  * Real HTTP to a real canvas server on 127.0.0.1, sessions made by its own grant and session routes (tests/helpers/canvas-auth.ts),
- * temporary folders only. The one observation of Studio is a record this test writes (FAKE: no request was made to a Studio).
+ * temporary folders only. The observations of Studio are a record a test writes (FAKE: no request was made to a Studio) and,
+ * in one test (R5 lead), the record this Studio writes when it answers its page as the Studio the frame names.
  */
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import type { AddressInfo } from 'node:net';
+import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TABS } from '../src/contracts/workspace.js';
-import { writeConnections, CONNECTIONS_SCHEMA } from '../src/ops/workspace-frame.js';
+import { writeConnections, readConnections, CONNECTIONS_SCHEMA, LIVE_FOR_MS, SELF_NOTE_MS } from '../src/ops/workspace-frame.js';
 import { projectId } from '../src/project/index.js';
 import { WORKSPACE_REFUSED } from '../src/studio/canvas-auth.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
@@ -29,11 +30,21 @@ afterEach(async () => {
 const HX = 'a'.repeat(32);
 const HY = 'b'.repeat(32);
 
-async function world() {
+/** a port nothing listens on now (asked of the system, then let go), for a Studio that is the one the frame names */
+const freePort = (): Promise<number> => new Promise((resolve, reject) => {
+  const s = createNetServer();
+  s.once('error', reject);
+  s.listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => resolve(p)); });
+});
+
+async function world(o: { framesOwnPort?: boolean } = {}) {
   const home = temp('workspace-home-');
   // the frame reads Timmy's settings: this file's own folder (tests/isolation-setup.ts), never the account's
-  const env = { TIMMY_HOME: home, HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
-  const server = await startStudioServer(0, { env });
+  const env: Record<string, string | undefined> = { TIMMY_HOME: home, HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
+  // R5 lead: by default a Studio on a port of its own (0), so not the Studio the frame names (TIMMY_STUDIO_PORT, else 4337)
+  const at = o.framesOwnPort ? await freePort() : 0;
+  if (o.framesOwnPort) env.TIMMY_STUDIO_PORT = String(at);
+  const server = await startStudioServer(at, { env });
   servers.push(server);
   const port = (server.address() as AddressInfo).port;
   const base = temp('workspace-projects-');
@@ -78,6 +89,28 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     // the same records, the same revision (a reader redraws only on a new one)
     const again = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
     expect(again.json.frame.revision).toBe(frame.revision);
+    // a Studio other than the one the frame names (its port) records nothing about Studio
+    expect(readConnections(w.env).checks.studio).toBeUndefined();
+  });
+
+  it('the Studio the frame names, answering its page, is an answer observed now: Studio answered, and its next step is to have Timmy draw', async () => {
+    const w = await world({ framesOwnPort: true });
+    const demo = w.project('demo');
+    await nameProject(w.port, w.token, { root: demo.root, name: demo.name, holder: HX });
+    const s = await pageSession(w.port, w.token);
+    const r = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
+    expect(r.status).toBe(200);
+    const frame = r.json.frame as Record<string, any>;
+    const studio = frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
+    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
+    expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'answered just now (the canvas page asked for its frame)' });
+    const noted = readConnections(w.env).checks.studio!;
+    expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame' });
+    // noted at most once in SELF_NOTE_MS: a page asking again soon leaves the record (and so the frame's revision) as it was
+    const again = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
+    expect(readConnections(w.env).checks.studio!.at).toBe(noted.at);
+    expect(again.json.frame.revision).toBe(frame.revision);
+    expect(SELF_NOTE_MS).toBeLessThan(LIVE_FOR_MS);
   });
 
   it('with Studio observed live (a FAKE check record), Studio\'s next step is to have Timmy draw on it', async () => {

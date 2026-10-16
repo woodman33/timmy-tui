@@ -90,7 +90,9 @@ describe('free-only', () => {
     expect(paid.at(-1)).toBe('Nothing was sent to any model.');
     expect(freeOnlyRefusal('acme/unlisted', modelPrice('acme/unlisted', CATALOG))![1]).toContain('price unknown');
     expect(freeOnlyRefusal(null, null)![1]).toBe('Cause: no model is named for this surface, so its price cannot be known.');
-    expect(freeOnlyRefusal('x', null, true)![2]).toMatch(/^Try: choose a free model in the REPL/);
+    expect(freeOnlyRefusal('x', null, true)![2]).toMatch(/^Try: choose a free model: \/model free in the REPL lists them/);
+    // R5 lead (the finish line, item 3): free-only stays on; turning it off is never the fix offered
+    expect(freeOnlyRefusal('x', null, true)!.join(' ')).not.toMatch(/free-only off|TIMMY_CHAT_FREE_ONLY=0/);
   });
 });
 
@@ -113,7 +115,7 @@ describe('the one chat route under free-only', () => {
         expect(s, `${surface} ${model}`).toMatchObject({ kind: 'openrouter', ready: false });
         expect(s.words).toContain('free-only: not sent');
         expect(s.refusal?.at(-1)).toBe('Nothing was sent to any model.');
-        expect(s.refusal?.[2]).toMatch(surface === 'repl' ? /^Try: \/model free/ : /^Try: choose a free model in the REPL/);
+        expect(s.refusal?.[2]).toMatch(surface === 'repl' ? /^Try: \/model free/ : /^Try: choose a free model: \/model free in the REPL/);
       }
     }
   });
