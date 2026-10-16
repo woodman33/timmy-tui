@@ -11,8 +11,8 @@
 // real program: the run detail's and the chat session's producers are absent in this revision, and the screens say so.
 //
 // The screens are kept (capture-pane -e as .ansi, plain as .txt) in <tmpdir>/timmy-workbench-captures, whose path the test
-// prints: 160x45 Workflows, 100x30 Control Room and 80x24 Files (slice A); the NEEDS YOU box, Activity after the run and
-// Control Room with the run, at 160x45 (slice B).
+// prints: 160x45 Home and Workflows, 100x30 Control Room and 80x24 Files (slice A); the NEEDS YOU box, Activity after the run
+// and Control Room with the run, at 160x45 (slice B).
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -135,6 +135,8 @@ beforeAll(async () => {
   expect(made.status, `${made.stdout}\n${made.stderr}`).toBe(0);
 }, 150_000);
 
+// R5 (H131): the hook's own retries take up to 10 s (50 x 200 ms), the default hook timeout: under a loaded machine it
+// timed out while it still had retries left (seen once in a 4-file run); it gets the time its loop needs
 afterAll(async () => {
   for (const label of ['wb', 'wbB']) { try { execFileSync('tmux', ['-L', label, 'kill-server'], { env, stdio: 'ignore' }); } catch { /* none */ } }
   for (let i = 0; ; i++) {
@@ -143,10 +145,10 @@ afterAll(async () => {
       await sleep(200);
     }
   }
-});
+}, 30_000);
 
 describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
-  it('opens tray1 at 160x45 on Workflows; Control Room and Activity show a FAKE job a session left; at 100x30 Stop names it and recovery\'s stop cancels it; at 80x24 Files shows the tree; the picker changes the active project; Ctrl+C restores the terminal', async () => {
+  it('opens tray1 at 160x45 on Home (R5: row 1 the tabs, row 2 the workflow actions); 3 shows Workflows; Control Room and Activity show a FAKE job a session left; at 100x30 Stop names it and recovery\'s stop cancels it; at 80x24 Files shows the tree; the picker changes the active project; Ctrl+C restores the terminal', async () => {
     const trayRoot = join(timmyHome, 'projects', 'tray1');
     expect(activeRoot()).toBe(trayRoot);
 
@@ -176,13 +178,19 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `stty -a > '${box}/stty-before.txt'; ${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; stty -a > '${box}/stty-after.txt'; sleep 600`);
 
-    // 160x45: every zone; the project; the tray workflow's blocks; the left job named by Stop and counted by Activity
-    const wide = await waitFor(new RegExp(`Stop current: ${id}[\\s\\S]*Activity\\s+\\S* ?1 running`));
-    expect(wide).toContain('tray1 / Workflows');
-    expect(wide).toMatch(/◆ TIMMY|TIMMY/);
-    expect(wide).toMatch(/CREATE[\s\S]*OPERATE[\s\S]*LIBRARY[\s\S]*Connections/);
-    expect(wide).toContain('Timmy Workbench');
-    expect(wide).toContain('Context');
+    // 160x45: row 1 (TIMMY, the project, the ten tabs), row 2 (the workflow actions, the run state and Stop), Home's body,
+    // Activity & log; the left job named by Stop and counted by Activity
+    const home = await waitFor(new RegExp(`Stop current: ${id}[\\s\\S]*Activity\\s+\\S* ?1 running`));
+    expect(home).toContain('TIMMY · tray1');
+    for (const label of ['1 Home', '2 Chat & Intent', '3 Workflows', '7 Control Room', '0 Logs & Receipts']) expect(home).toContain(label);
+    expect(home).toContain('Workflow actions');
+    expect(home).toContain('tray1 / Home · connections, as observed');
+    expect(home).toContain('Preview · the companion and Studio, in words');
+    expect(home).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
+    expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
+    // 3: Workflows, the tray workflow's blocks, Context beside them
+    await keys('3');
+    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*Context/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wide).toContain(block);
     expect(wide).toContain('⚠ needs you before it runs');
     expect(wide).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
@@ -248,7 +256,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(modes('stty-after.txt')).toMatch(/(^|\s)icanon(\s|$)[\s\S]*(^|\s)echo(\s|$)/);
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
 
-    console.log(`Workbench captures (160x45 Workflows, 100x30 Control Room, 80x24 Files): ${CAPTURES}`);
+    console.log(`Workbench captures (160x45 Home and Workflows, 100x30 Control Room, 80x24 Files): ${CAPTURES}`);
   }, 180_000);
 
   it('slice B: runs APPROVAL.md › tidy from Workflows in the terminal: the NEEDS YOU box drawn in the Workbench (y), the run\'s progress in Activity, one job, one operation and one workflow receipt, the same operation for the REPL\'s /op and Studio\'s cards', async () => {
@@ -282,7 +290,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       expect(box).toContain('/run APPROVAL.md tidy');
       expect(box).toContain('runs a destructive shell command on this machine: tidy');
       expect(box).toContain('mkdir -p scratch && touch scratch/x && rm scratch/x');
-      expect(box).toMatch(/Control Room ⚠ 1/);
+      // what waits on you, beside the Control Room's tab (R5: the workspace frame's count, read again within a second)
+      await waitFor(/7 Control(?: Room)? ⚠1/, 10_000);
       capture('wb-160x45-needs-you');
       // nothing of the run has started while the box waits
       expect(runsOf()).toEqual([]);

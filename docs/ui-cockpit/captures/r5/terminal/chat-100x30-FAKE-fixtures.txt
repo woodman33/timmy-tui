@@ -1,0 +1,30 @@
+                ╭─────╮ ┏━━━━━━━━━━┓ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮
+TIMMY · tray1   │  1  │ ┃  2 Chat  ┃ │  3  │ │  4  │ │  5  │ │  6  │ │  7  │ │  8  │ │  9  │ │  0  │
+                ╰─────╯ ┗━━━━━━━━━━┛ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯
+╭─ Workflow actions ────────────────────────────────────────────────────────────── 2 Chat & Intent ╮
+│  [1 Send a message]  [2 Choose the model]  [3 Stop the turn]  [4 Show it in the companion]       │
+│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Pipeline · intent → predict → sandbox → receipt ────────────────────────────────────────────────╮
+│ [intent · /run APP…] → [predict · sealed…] → [sandbox · none rec…] → [✓ receipt · sealed…]       │
+│ newest run APPROVAL.md › tidy · operation oea7f5785 · from its records: the operation's…         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Chat · conversation ━━ 1–10 of 16 ┓╭─ Event log · newest at the top ────── 1–10 of 11 ╮
+┃ Route    chat: local · no model chosen…      ┃│ RUNNING NOW (1)                                  │
+┃ Ready    not ready: /setup in the REPL…      ┃│   ● j66b3d9  FAKE job (test): sleep 300 · 12 s   │
+┃   Error: the chat is set to the local model, ┃│                                                  │
+┃   and no model is chosen.                    ┃│ EVENT LOG, NEWEST AT THE TOP                     │
+┃   Cause: the setup recorded none for Ollama  ┃│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step    │
+┃   at 127.0.0.1:11434.                        ┃│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)   │
+┃   Try: timmy init --chat local --model       ┃│ 16:10:11 [job] j3e9b07 tidy started              │
+┃   <name> (in a terminal: Timmy checks that   ┃│ 16:10:11 [job] j3e9b07 started: APPROVAL.md ›    │
+┃   Ollama lists it), or /model in the REPL    ┃│                tidy                              │
+┃   Nothing was sent to any model.             ┃│ 16:10:06 [job] j66b3d9 started: FAKE job (test): │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰──────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠹ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
+│ 16:10:11 [job] j3e9b07 tidy started                                                              │
+│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

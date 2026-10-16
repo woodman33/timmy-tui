@@ -41,7 +41,7 @@ export interface TabDef {
  * apps), so this is the one stable set: the operator's screens of the completion order, in its order, with the logs last.
  */
 export const TABS: readonly TabDef[] = [
-  { id: 'home', key: '1', label: 'Home', workbench: ['overview', 'connections'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
+  { id: 'home', key: '1', label: 'Home', workbench: ['connections', 'overview'], refs: ['01', '13'], purpose: 'The project at a glance, its connections as observed, and the one next step.' },
   { id: 'chat', key: '2', label: 'Chat & Intent', workbench: ['chat'], refs: ['02', '11'], purpose: 'One conversation with Timmy for this project, shared by every surface.' },
   { id: 'workflows', key: '3', label: 'Workflows', workbench: ['workflows'], refs: ['03', '12'], purpose: 'Intent, prediction, sandbox, review, run, logs, receipt and analysis, kept apart.' },
   { id: 'studio', key: '4', label: 'Studio', workbench: ['studio'], refs: ['06'], purpose: 'The tldraw canvas: boards, cards, drafts to accept or discard, saved and reopened.' },
@@ -137,7 +137,8 @@ export interface WorkspaceFrame {
   tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; waiting: number }>;
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
-  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string } };
+  /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
+  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string } | null };
   log: WorkspaceLogEntry[];
   surfaces: { companion: SurfaceState; studio: SurfaceState };
   unknown: Array<{ field: string; why: string }>;

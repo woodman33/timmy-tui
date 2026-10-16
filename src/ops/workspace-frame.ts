@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { OllamaProbe } from '../capabilities/ollama-row.js';
 import {
   TABS, WORKSPACE_SCHEMA, WORKSPACE_VERSION,
   type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry,
@@ -26,6 +27,7 @@ import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
+import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -162,21 +164,23 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
   }
-  if (!wb.route.ready) unknown.push({ field: 'chat', why: wb.route.refusal?.join(' ') || 'no chat route is set up' });
+  if (!wb.route.ready) unknown.push({ field: 'chat', why: sentences(wb.route.refusal ?? []) || 'no chat route is set up' });
   return out;
 }
+
+/** Lines said as one paragraph: each ends as a sentence (a line with no closing mark gets a full stop), so none runs on. */
+export const sentences = (lines: readonly string[]): string => lines.map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:)]$/.test(l) ? l : `${l}.`)).join(' ');
 
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
   const stop = wb.activity.stop_current;
-  const blocked = wb.workflows.docs.flatMap((d) => d.blocks.filter((b) => b.needs_person).map((b) => `${d.rel} › ${b.name}`));
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   const homeNext: WorkspaceAction = !routeReady
@@ -191,22 +195,35 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
       act(3, 'New project', '/project new <name>', { effect: 'local change' }),
       act(4, 'Switch project', '/project <name>'),
     ],
+    // R5 lead (the independent review, defect 1): a turn being answered is running; Stop the turn is the next step then, and a
+    // second message waits (one turn at a time per project)
     chat: [
-      act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: 'no chat route: timmy setup' }) }),
+      turns.length
+        ? act(1, 'Send a message', 'type in Chat, then Enter', { enabled: false, effect: 'network', why: `one turn at a time: a turn is being answered in ${surfaceWords(turns[0].surface as Parameters<typeof surfaceWords>[0])}` })
+        : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: 'no chat route: timmy setup' }) }),
       act(2, 'Choose the model', '/model'),
-      act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
+      turns.length
+        ? act(3, 'Stop the turn', 'Esc in the composer that sent it (Ctrl+C in the REPL)', { primary: true })
+        : act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
       act(4, 'Show it in the companion', 'timmy watch'),
     ],
     workflows: [
       firstBlock
         ? act(1, `Run ${firstBlock.doc} › ${firstBlock.block}`, `/run ${firstBlock.doc} ${firstBlock.block}`, { primary: waiting === 0 && running === 0, effect: 'local change' })
         : act(1, 'Start a workflow document', '/workflows', { primary: running === 0 }),
-      act(2, blocked.length ? `Review what needs you (${blocked.length})` : 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops', { primary: waiting > 0 && running === 0 }),
+      // R5 lead (H131's report): "needs you" has one meaning on a screen, what waits on a person now (the activity's count);
+      // a block that asks first says so on its own row of the Workflows list, not in this count
+      waiting > 0
+        ? act(2, `Answer what waits on you (${waiting})`, '/room', { primary: running === 0 })
+        : act(2, 'Review the last run', lastOp ? `/op ${lastOp}` : '/ops'),
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
+    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open)
     studio: [
-      act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
+      o.studioRunning
+        ? act(1, 'Ask Timmy to draw: /canvas open in the REPL, then ask', '/canvas open', { primary: true, effect: 'local change' })
+        : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
       act(4, 'Show the board', '/board'),
@@ -266,6 +283,10 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     const running = c?.state === 'live';
     return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
   };
+  // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one
+  const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })();
+  const turn = turns[0];
+  const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)} (since ${turn.taken.slice(11, 19)} UTC)` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
     at: e.at, tag: e.output ? 'job.output' : e.job ? 'job' : 'event', words: e.words, tone: tone(e),
     ...(e.operation ? { operation: e.operation } : {}), source: e.job ? `job ${e.job}` : e.key,
@@ -275,9 +296,13 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live' }),
     connections,
-    activity: { running: wb.activity.running, waitingOnYou: wb.activity.waiting_on_you, stopCurrent: wb.activity.stop_current },
+    activity: {
+      running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,
+      stopCurrent: wb.activity.stop_current.job || !turn ? wb.activity.stop_current : { job: null, words: `Stop current: the chat turn in ${surfaceWords(turn.surface)} (Esc in its composer)` },
+      chatTurn: turn ? { surface: turn.surface, since: turn.taken, words: turnWordsNow } : null,
+    },
     log,
     surfaces: { companion: surface('companion', settings.openCompanionAtStart), studio: surface('studio', settings.openStudioAtStart) },
     unknown,
@@ -333,7 +358,9 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
   const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama());
   const ol = await ollama();
   checks.ollama = ol.ok
-    ? { answer: 'accepted', at: stamp(), detail: `${ol.models.length} model${ol.models.length === 1 ? '' : 's'} listed` }
+    // R5 lead: the same words as /tools (src/capabilities/ollama-row.ts): local models that pass Ollama's own check, and how
+    // many more did not (the Mac rehearsal: "8 models listed" while Ollama listed 32, most of them cloud models)
+    ? { answer: 'accepted', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true }).detail }
     : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer' };
   const studio = d.studio ?? (async (u: string) => (await import('../studio/health.js')).studioHealth(u) as Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>);
   const st = await studio(studioBaseUrl(env));

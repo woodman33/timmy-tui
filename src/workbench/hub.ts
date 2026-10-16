@@ -1,0 +1,515 @@
+/**
+ * R5 (H131): the parts of the terminal Workbench drawn from the one workspace frame (src/contracts/workspace.ts, made by
+ * src/ops/workspace-frame.ts buildWorkspaceFrame, the frame the browser companion and Studio draw too), laid out as the
+ * operator's references lay them out (codex-ui-references 01, 02, 11, 12, 13 and 14):
+ *
+ *   row 1        TIMMY, the project, the ten tabs as boxed labels; the active one amber (a heavy box), a waiting count
+ *                beside a tab (⚠ and the number); under 120 columns short labels, under 100 the keys with the active label
+ *   row 2        the tab's workflow actions as numbered boxes: the one primary next step amber (filled, ▶), one not available
+ *                now quiet, its `why` said when it is selected; Enter runs it through a path the Workbench has, else shows
+ *                the command to copy (src/workbench/controller.ts runAction)
+ *   Home         the connection cards, as observed (● live green only for an observed answer; ○ configured; ✕ unreachable
+ *                or refused, amber; · not set up with its step; ? unknown), and a preview: what the companion and Studio
+ *                show, in words (the board, the files, the last run), with Companion · Show (c) to see it rendered
+ *   Chat         the pipeline row (intent → predict → sandbox → receipt) of the newest run, from its records, and the event
+ *                log, newest at the top
+ *   the log      Activity & log's newest lines, from the frame's log
+ *
+ * The tabs, the actions' labels and commands, and the connections' words are the frame's, never made here; the short labels
+ * are the frame's labels' first words. Pure: the same frame and state always draw the same rows.
+ */
+import { TABS, tabOf, type ConnectionState, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry } from '../contracts/workspace.js';
+import { sameFolder } from '../project/index.js';
+import { boxOf, type Glyphs } from './frame.js';
+import type { PipelineStage, View } from './model.js';
+import type { WorkspaceId } from './nav.js';
+import { clock, count, cut, lineCells, pick, wrapText, type Line, type Role, type Seg } from './text.js';
+import type { ViewCtx } from './views.js';
+
+const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
+const heading = (text: string): Line => [S(text.toUpperCase(), 'secondary', { bold: true })];
+const key = (k: string): Seg => S(`[${k}]`, 'action');
+const blank: Line = [];
+
+const ago = (iso: string | number | undefined | null, now: number): string => {
+  const t = typeof iso === 'number' ? iso : iso ? Date.parse(iso) : Number.NaN;
+  if (!Number.isFinite(t)) return 'at an unknown time';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`;
+};
+
+// ── the tabs and the Workbench's workspaces ────────────────────────────────────
+
+/** Home and Chat draw their own right column; every other tab shows a Workbench workspace with Context beside it. */
+export const isHub = (page: TabId): boolean => page === 'home' || page === 'chat';
+
+/** The workspace a tab opens: its first (TABS), except Home, which the Workbench draws as its connections hub. */
+export const workspaceOfPage = (page: TabId): WorkspaceId => (page === 'home' ? 'connections' : tabOf(page).workbench[0]);
+
+/** The workspaces a tab gathers, in its order: the same key again moves to the next (Home: its hub alone). */
+export const workspacesOf = (page: TabId): readonly WorkspaceId[] => (page === 'home' ? ['connections'] : tabOf(page).workbench);
+
+/** The tab a workspace belongs to: the tab that opens it, else the first that gathers it (God's Eye View: Fleet & Clef). */
+export function pageOf(ws: WorkspaceId): TabId {
+  if (ws === 'connections') return 'home';
+  const others = TABS.filter((t) => t.id !== 'home');
+  return (others.find((t) => t.workbench[0] === ws) ?? others.find((t) => t.workbench.includes(ws)) ?? TABS[0]).id;
+}
+
+/** The frame's tabs, or the contract's (no waiting count) until the frame is first read. */
+export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0 }));
+
+/** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
+export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
+
+// ── row 1: TIMMY, the project, the tabs ────────────────────────────────────────
+
+export interface PageHit { x0: number; x1: number; y0: number; y1: number; page: TabId }
+
+/** How the tabs' labels are said, the fullest first: full, the active full and the others short, short, keys with the active
+ *  label, keys only. Under 120 columns the full forms are not tried; under 100, only the keys. */
+export type TabForm = 'full' | 'mixed' | 'short' | 'keys-active' | 'keys';
+const FORMS: readonly TabForm[] = ['full', 'mixed', 'short', 'keys-active', 'keys'];
+
+function formsFor(width: number): readonly TabForm[] {
+  if (width < 100) return ['keys-active', 'keys'];
+  if (width < 120) return ['short', 'keys-active', 'keys'];
+  return FORMS;
+}
+
+function labelIn(t: WorkspaceFrame['tabs'][number], form: TabForm, active: boolean): string {
+  switch (form) {
+    case 'full': return `${t.key} ${t.label}`;
+    case 'mixed': return active ? `${t.key} ${t.label}` : `${t.key} ${shortLabel(t.label)}`;
+    case 'short': return `${t.key} ${shortLabel(t.label)}`;
+    case 'keys-active': return active ? `${t.key} ${shortLabel(t.label)}` : t.key;
+    default: return t.key;
+  }
+}
+
+/**
+ * Row 1 as `rows` rows (3: boxed labels; 1: a short terminal), exactly `width` cells each, and where each tab is (for a
+ * click). The project's name is cut before a form is given up, but never below its first few letters.
+ */
+export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: string, width: number, rows: 1 | 3, g: Glyphs): { lines: Line[]; hits: PageHit[]; form: TabForm } {
+  const warn = (n: number): string => (n > 0 ? ` ${g.warn}${n}` : '');
+  const boxW = (t: WorkspaceFrame['tabs'][number], form: TabForm): number => lineCells([S(labelIn(t, form, t.id === active))]) + lineCells([S(warn(t.waiting))]) + 2;
+  const brand = 'TIMMY';
+  const sep = ` ${g.sep} `;
+  const fits = (form: TabForm, name: string): { gap: number } | null => {
+    const prefix = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]);
+    const boxes = tabs.reduce((n, t) => n + boxW(t, form), 0);
+    if (prefix + boxes + (tabs.length - 1) <= width) return { gap: 1 };
+    if (prefix + boxes <= width) return { gap: 0 };
+    return null;
+  };
+  // the fullest form that fits with the whole name, then with the name cut (to 12, then 6 letters), then without it
+  const names = [project, cut(project, 12, g.ellipsis), cut(project, 6, g.ellipsis), ''];
+  let form: TabForm = 'keys';
+  let name = '';
+  let gap = 0;
+  outer: for (const n of names) {
+    for (const f of formsFor(width)) {
+      const ok = fits(f, n);
+      if (ok) { form = f; name = n; gap = ok.gap; break outer; }
+    }
+  }
+  // the tabs reach the row's end, as the references' do: what is left is shared out evenly inside the boxes, around their
+  // labels, and the rest goes between TIMMY's name and the first tab
+  const used = lineCells([S(`${brand}${name ? `${sep}${name}` : ''} `)]) + tabs.reduce((n, t) => n + boxW(t, form), 0) + gap * (tabs.length - 1);
+  const spare = Math.max(0, width - used);
+  const per = 2 * Math.floor(spare / (2 * tabs.length));
+  const lead = spare - per * tabs.length;
+  const prefixSegs: Seg[] = [S(brand, 'strong'), ...(name ? [S(sep, 'secondary'), S(name, 'strong')] : []), S(' '.repeat(1 + lead))];
+  const prefixW = lineCells(prefixSegs);
+  const hits: PageHit[] = [];
+  const padded = (_label: string, _i: number): { before: string; after: string } => ({ before: ' '.repeat(per / 2), after: ' '.repeat(per / 2) });
+  if (rows === 1) {
+    const line: Line = [...prefixSegs];
+    let x = prefixW;
+    tabs.forEach((t, i) => {
+      const on = t.id === active;
+      const label = labelIn(t, form, on);
+      const p = padded(label, i);
+      const segs: Seg[] = on
+        ? [S('[', 'focus'), S(`${p.before}${label}`, 'focus'), S(warn(t.waiting), 'attention'), S(`${p.after}]`, 'focus')]
+        : [S(' '), S(`${p.before}${label}`, 'text'), S(warn(t.waiting), 'attention'), S(`${p.after} `)];
+      const w = lineCells(segs);
+      hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: t.id });
+      line.push(...segs);
+      x += w;
+      if (i < tabs.length - 1 && gap) { line.push(S(' ')); x += 1; }
+    });
+    return { lines: [line], hits, form };
+  }
+  const top: Line = [S(' '.repeat(prefixW))];
+  const mid: Line = [...prefixSegs];
+  const bot: Line = [S(' '.repeat(prefixW))];
+  let x = prefixW;
+  tabs.forEach((t, i) => {
+    const on = t.id === active;
+    const b = boxOf(g, on);
+    const edge: Role = on ? 'focus' : 'border';
+    const label = labelIn(t, form, on);
+    const p = padded(label, i);
+    const inner = lineCells([S(label)]) + lineCells([S(warn(t.waiting))]) + p.before.length + p.after.length;
+    top.push(S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge));
+    mid.push(S(b.v, edge), S(`${p.before}${label}`, on ? 'focus' : 'text'), ...(t.waiting ? [S(warn(t.waiting), 'attention')] : []), S(p.after), S(b.v, edge));
+    bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
+    hits.push({ x0: x, x1: x + inner + 1, y0: 0, y1: 2, page: t.id });
+    x += inner + 2;
+    if (i < tabs.length - 1 && gap) { for (const l of [top, mid, bot]) l.push(S(' ')); x += 1; }
+  });
+  return { lines: [top, mid, bot], hits, form };
+}
+
+// ── row 2: the workflow actions ────────────────────────────────────────────────
+
+export interface ActionHit { x0: number; x1: number; i: number }
+
+/** What Enter does with an action: a path the Workbench has, or the command shown to copy. */
+export type ActionRoute =
+  | { kind: 'page'; page: TabId; words: string }
+  | { kind: 'key'; key: string; words: string }
+  | { kind: 'workspace'; ws: WorkspaceId; words: string }
+  | { kind: 'run'; doc: string; block: string; words: string }
+  | { kind: 'composer'; words: string }
+  | { kind: 'abort'; words: string }
+  | { kind: 'show'; where: 'the REPL (timmy)' | 'a shell'; words: string };
+
+/** The frame's commands this Workbench runs through a path of its own (its keys and workspaces); every other is shown. */
+const BY_KEY: Readonly<Record<string, { key: string; words: string }>> = {
+  '/stop': { key: 'x', words: 'Enter stops what Stop current names (as x does)' },
+  '/studio': { key: 's', words: 'Enter is Studio · Show (as s is)' },
+  'timmy watch': { key: 'c', words: 'Enter is Companion · Show (as c is)' },
+  '/project new <name>': { key: 'n', words: 'Enter asks the new project\'s name (as n does)' },
+  '/project <name>': { key: 'p', words: 'Enter opens the project picker (as p does)' },
+  '/project list': { key: 'p', words: 'Enter opens the project picker (as p does)' },
+};
+const BY_WORKSPACE: Readonly<Record<string, { ws: WorkspaceId; words: string }>> = {
+  '/room': { ws: 'control', words: 'Enter opens the Control Room, where what waits on you is' },
+  '/jobs': { ws: 'control', words: 'Enter opens the Control Room' },
+  '/tools': { ws: 'tools', words: 'Enter opens All tools' },
+  '/files': { ws: 'files', words: 'Enter opens Files' },
+  '/workflows': { ws: 'workflows', words: 'Enter opens Workflows' },
+  '/vox': { ws: 'voxvision', words: 'Enter opens VoxVision\'s records' },
+  '/project new <name> --from <starter>': { ws: 'templates', words: 'Enter opens Templates: Enter on a starter makes the project' },
+};
+
+export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
+  const cmd = a.command.trim();
+  const tab = /^[0-9]$/.test(cmd) ? TABS.find((t) => t.key === cmd) : undefined;
+  if (tab) return { kind: 'page', page: tab.id, words: `Enter opens ${tab.key} ${tab.label}` };
+  const k = BY_KEY[cmd];
+  if (k) return { kind: 'key', key: k.key, words: k.words };
+  const w = BY_WORKSPACE[cmd];
+  if (w) return { kind: 'workspace', ws: w.ws, words: w.words };
+  if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
+  if (cmd === 'Esc in the composer') return { kind: 'abort', words: 'Enter stops the message being sent (as Esc does)' };
+  const run = /^\/run (\S+) (\S+)$/.exec(cmd);
+  if (run && !cmd.includes('<')) return { kind: 'run', doc: run[1], block: run[2], words: 'Enter opens its Run confirm (it asks before anything runs)' };
+  const where = cmd.startsWith('/') ? 'the REPL (timmy)' as const : 'a shell' as const;
+  return { kind: 'show', where, words: `Enter shows the command to copy (it runs in ${where}; nothing is run from here)` };
+}
+
+/**
+ * Row 2's buttons: each action as a numbered box ([n label]); the primary next step filled amber with ▶; one not available now
+ * quiet; the selected one marked ▸ while the bar has the keyboard. Labels are cut evenly when they do not all fit (the whole
+ * label is on the row below, when the bar has the keyboard).
+ */
+export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focused: boolean, width: number, g: Glyphs): { line: Line; hits: ActionHit[] } {
+  if (!acts.length) return { line: [S('Nothing to do on this tab yet.', 'secondary')], hits: [] };
+  const glyph = (a: WorkspaceAction): string => (a.primary ? `${g.next} ` : '');
+  const text = (a: WorkspaceAction, room?: number): string => {
+    const label = room === undefined ? a.label : cut(a.label, Math.max(4, room), g.ellipsis);
+    return `${glyph(a)}${a.n} ${label}`;
+  };
+  // each box: its marker cell, [ , its text, ]
+  const overhead = acts.reduce((n, a) => n + 1 + 2 + lineCells([S(`${glyph(a)}${a.n} `)]), 0) + (acts.length - 1);
+  const full = acts.reduce((n, a) => n + lineCells([S(a.label)]), 0);
+  const room = overhead + full <= width ? undefined : Math.floor((width - overhead) / acts.length);
+  const line: Line = [];
+  const hits: ActionHit[] = [];
+  let x = 0;
+  acts.forEach((a, i) => {
+    const on = focused && i === sel;
+    const marker = S(on ? g.cursor : ' ', 'action');
+    const t = text(a, room);
+    const segs: Seg[] = a.primary && a.enabled
+      ? [S('[', 'action', { inverse: true, bold: true }), S(t, 'action', { inverse: true, bold: true }), S(']', 'action', { inverse: true, bold: true })]
+      : a.enabled
+        ? [S('[', 'border'), S(t, 'text'), S(']', 'border')]
+        : [S('[', 'secondary'), S(t, 'secondary'), S(']', 'secondary')];
+    const box = on && !(a.primary && a.enabled) ? segs.map((s) => ({ ...s, selected: true })) : segs;
+    const w = lineCells(box);
+    line.push(marker, ...box);
+    hits.push({ x0: x + 1, x1: x + w, i });
+    x += 1 + w;
+    if (i < acts.length - 1) { line.push(S(' ')); x += 1; }
+  });
+  return { line, hits };
+}
+
+/** The selected action's words for the row below the buttons: what it is, and what Enter does or why it is not now. */
+export function actionWords(a: WorkspaceAction | undefined, g: Glyphs): Line {
+  if (!a) return [S('No action is selected.', 'secondary')];
+  const route = routeOf(a);
+  const head: Seg[] = [S(`${a.n} ${a.label}`, a.enabled ? 'strong' : 'secondary'), S(` ${g.sep} `, 'secondary')];
+  if (!a.enabled) return [...head, S(`not now: ${a.why ?? 'not available'}`, 'secondary')];
+  // the command first (the same on every surface), then what Enter does with it here, then what it touches
+  return [...head, S(a.command, 'action'), S(` ${g.sep} ${a.effect} ${g.sep} `, 'secondary'), S(route.words, 'text')];
+}
+
+// ── the connections ────────────────────────────────────────────────────────────
+
+/** A connection's mark and word (its color never alone): ● live green only for an observed answer. */
+export function connectionMark(state: ConnectionState, g: Glyphs): { text: string; role: Role } {
+  switch (state) {
+    case 'live': return { text: `${g.bullet} live`, role: 'live' };
+    case 'configured': return { text: `${g.ring} configured`, role: 'text' };
+    case 'not set up': return { text: `${g.dot} not set up`, role: 'secondary' };
+    case 'unreachable': return { text: `${g.fail} unreachable`, role: 'failure' };
+    case 'refused': return { text: `${g.fail} refused`, role: 'failure' };
+    default: return { text: '? unknown', role: 'secondary' };
+  }
+}
+
+/** How many rows a connection card takes. */
+export const CARD_ROWS = 4;
+
+/** What this Workbench itself knows of the companion's and Studio's servers (it starts them): said beside the frame's words,
+ *  never instead of them, and never as an observation that makes the card live. */
+function serverWords(c: ViewCtx, id: WorkspaceConnection['id']): string | null {
+  if (id !== 'companion' && id !== 'studio') return null;
+  const s = id === 'companion' ? c.ui.companion : c.ui.studio;
+  const show = id === 'companion' ? '[c] Companion · Show' : '[s] Studio · Show';
+  if (s.starting) return `starting it here… ${show}`;
+  if (s.serving) return `this Workbench serves it at ${s.address} ${c.g.sep} ${show}`;
+  if (s.other) return `another Timmy serves it at ${s.address} ${c.g.sep} ${show}`;
+  return `not served by this Workbench ${c.g.sep} ${show} starts it`;
+}
+
+/** One connection as a card of CARD_ROWS rows, `width` cells wide: its name and its mark on the top edge, its words, then its
+ *  detail and the step that sets it up. The selected card's box is heavy, and amber while the list has the keyboard. */
+export function connectionCard(conn: WorkspaceConnection, selected: boolean, focused: boolean, width: number, c: ViewCtx): Line[] {
+  const g = c.g;
+  const b = boxOf(g, selected);
+  const edge: Role = selected && focused ? 'focus' : 'border';
+  const inner = Math.max(4, width - 2);
+  const mark = connectionMark(conn.state, g);
+  const markT = ` ${mark.text} `;
+  const titleRoom = Math.max(3, inner - 1 - lineCells([S(markT)]) - 2);
+  const title = ` ${cut(conn.label, titleRoom - 2, g.ellipsis)} `;
+  const fill = Math.max(0, inner - 1 - lineCells([S(title)]) - lineCells([S(markT)]) - 1);
+  const top: Line = [S(`${b.tl}${b.h}`, edge), S(title, selected && focused ? 'focus' : 'strong'), S(b.h.repeat(fill), edge), S(markT, mark.role), S(`${b.h}${b.tr}`, edge)];
+  const body = (segs: Seg[]): Line => {
+    const room = inner - 2;
+    const out: Seg[] = [];
+    let used = 0;
+    for (const s of segs) {
+      if (used >= room) break;
+      const w = lineCells([s]);
+      if (used + w <= room) { out.push(s); used += w; continue; }
+      const t = cut(s.text, room - used, g.ellipsis);
+      if (t) { out.push({ ...s, text: t }); used += lineCells([S(t)]); }
+      break;
+    }
+    return [S(b.v, edge), S(' '), ...out, S(' '.repeat(Math.max(0, room - used))), S(' '), S(b.v, edge)];
+  };
+  const step = conn.setup && conn.state !== 'live' ? conn.setup : null;
+  const extra = serverWords(c, conn.id);
+  // its step first (what to do), then its detail and what this Workbench serves
+  const detail: Seg[] = [
+    ...(step ? [S(`${g.arrow} `, 'secondary'), S(step, 'action')] : []),
+    ...(conn.detail ? [S(`${step ? `  ${g.sep} ` : ''}${conn.detail}`, 'secondary')] : []),
+    ...(extra ? [S(`${conn.detail || step ? `  ${g.sep} ` : ''}${extra}`, 'secondary')] : []),
+  ];
+  return [top, body([S(conn.words, conn.state === 'live' ? 'text' : conn.state === 'unreachable' || conn.state === 'refused' ? 'failure' : 'text')]), body(detail.length ? detail : [S(conn.observedAt ? `observed ${clock(conn.observedAt)}` : 'never observed answering here', 'secondary')]), [S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge)]];
+}
+
+/** Home's left column: the connection cards from the frame, as observed. */
+export function homeView(c: ViewCtx): View {
+  const lines: Line[] = [];
+  const items: View['items'] = [];
+  const f = c.data.frame;
+  lines.push(heading('Connections, as last observed'));
+  lines.push(...wrapText('live: an answer seen in the last 30 minutes; a setting alone is configured', Math.max(8, c.width)).map((t) => [S(t, 'secondary')]));
+  if (!f) {
+    lines.push(blank, [S(c.data.frameError ? `The workspace frame could not be read: ${c.data.frameError}. [r] reads it again.` : 'Reading the workspace frame (src/ops/workspace-frame.ts)…', c.data.frameError ? 'failure' : 'secondary')]);
+    return { lines, items };
+  }
+  const cur = Math.max(0, Math.min(f.connections.length - 1, c.ui.cursor['center:connections'] ?? 0));
+  const focused = c.ui.focus === 'center';
+  f.connections.forEach((conn, i) => {
+    items.push({ line: lines.length, item: { kind: 'conn', key: `conn:${conn.id}`, conn }, rows: CARD_ROWS });
+    lines.push(...connectionCard(conn, i === cur, focused, c.width, c));
+  });
+  lines.push(...wrapText('timmy workspace check asks each one once with free requests and records what answered (a shell command; nothing is asked from here). Enter on a card: its step.', Math.max(8, c.width)).map((t) => [S(t, 'secondary')]));
+  return { lines, items };
+}
+
+// ── Home's preview ─────────────────────────────────────────────────────────────
+
+const markOfJob = (mark: string, g: Glyphs): { glyph: string; role: Role } => (
+  mark === 'ok' ? { glyph: g.ok, role: 'text' } : mark === 'failed' ? { glyph: g.fail, role: 'failure' } : mark === 'running' ? { glyph: g.bullet, role: 'text' } : mark === 'unchanged' ? { glyph: '=', role: 'text' } : mark === 'stopped' ? { glyph: g.unicode ? '■' : '#', role: 'text' } : { glyph: '?', role: 'secondary' });
+
+/**
+ * Home's right column: what the companion and Studio show, as a terminal can say it (the board's cards, the files, the last
+ * run), and the way to see them rendered. Nothing is drawn as a picture: no canvas and no 3D in the terminal.
+ */
+export function previewView(c: ViewCtx): View {
+  const { data, g } = c;
+  const f = data.frame;
+  const lines: Line[] = [];
+  const para = (t: string, role: Role = 'secondary', indent = ''): Line[] => wrapText(t, Math.max(8, c.width - indent.length)).map((x) => [S(`${indent}${x}`, role)]);
+  const surface = (id: 'companion' | 'studio', name: string, k: string, show: string): void => {
+    const conn = f?.connections.find((x) => x.id === id);
+    const mark = conn ? connectionMark(conn.state, g) : { text: '? unknown', role: 'secondary' as Role };
+    const at = f ? (f.surfaces[id].openAtStart ? 'opens at start' : 'opens when asked') : '';
+    lines.push([S(name.padEnd(10), 'secondary', { bold: true }), S(mark.text, mark.role), S(at ? `  ${g.sep} ${at}` : '', 'secondary')]);
+    const s = id === 'companion' ? c.ui.companion : c.ui.studio;
+    lines.push([S('  '), key(k), S(` ${show}`, 'text'), S(s.serving ? `  ${g.sep} served here at ${s.address}` : s.other ? `  ${g.sep} served by another Timmy` : '  to see it rendered', 'secondary')]);
+  };
+  surface('companion', 'COMPANION', 'c', 'Companion · Show');
+  surface('studio', 'STUDIO', 's', 'Studio · Show');
+  lines.push(blank);
+  // the board: Studio's cards for this project, read from its records (src/studio/project-cards.ts)
+  const st = data.studio;
+  lines.push(heading('Board (Studio\'s cards, from this project\'s records)'));
+  if (st.state === 'ready') {
+    const v = st.value;
+    if (!v.cards.length) lines.push(...para('No card yet: a card appears for each workflow document, parameter file, flow, VoxVision record and run.', 'secondary', '  '));
+    else {
+      const kinds = ['workflow', 'params', 'flow', 'vox', 'run', 'unreadable'];
+      const names: Record<string, string> = { workflow: 'workflow', params: 'parameter', flow: 'flow', vox: 'VoxVision', run: 'run', unreadable: 'unreadable' };
+      lines.push([S(`  ${kinds.map((k) => [k, v.cards.filter((x) => x.kind === k).length] as const).filter(([, n]) => n).map(([k, n]) => count(n, names[k])).join(` ${g.sep} `)}${v.operations.length ? ` ${g.sep} ${count(v.operations.length, 'operation')}` : ''}`, 'text')]);
+      for (const card of v.cards.slice(0, 6)) lines.push([S(`  ${g.dot} `, 'secondary'), S(card.title, 'text'), S(`  ${card.state}`, 'secondary'), S(card.operation ? ` ${g.sep} ${card.operation}` : '', 'secondary')]);
+      if (v.cards.length > 6) lines.push([S(`  and ${v.cards.length - 6} more: Studio · Show (s), or 4 Studio`, 'secondary')]);
+    }
+  } else if (st.state === 'failed') lines.push(...para(`Studio's cards could not be read: ${st.why}`, 'failure', '  '));
+  else lines.push([S('  Reading Studio\'s cards…', 'secondary')]);
+  lines.push(blank);
+  // the files
+  lines.push(heading(`Files (${data.files.total})`));
+  if (!data.files.total) lines.push([S('  No files yet: this project is blank.', 'secondary')]);
+  else lines.push([S(`  ${data.files.groups.map((gr) => `${gr.files.length} ${gr.title.toLowerCase()}`).join(` ${g.sep} `)}`, 'text')], [S(`  in ${data.project.shown} ${g.sep} 0 Logs & Receipts lists them`, 'secondary')]);
+  lines.push(blank);
+  // the last run
+  lines.push(heading('Last run'));
+  const last = data.jobs[0];
+  if (!last) lines.push([S('  Nothing has run in this project yet.', 'secondary')]);
+  else {
+    const m = markOfJob(last.mark, g);
+    lines.push([S(`  ${m.glyph} `, m.role), S(last.id, 'strong'), S(`  ${last.word}`, m.role), S(`  ${last.label}`, 'text')]);
+    lines.push([S(`    ${last.live ? `running for ${last.elapsed}` : `${ago(last.endedAt ?? last.startedAt, c.now)}, took ${last.elapsed}`} ${g.sep} ${last.operation ? `operation ${last.operation}` : 'no operation'}`, 'secondary')]);
+  }
+  if (f?.unknown.length) {
+    lines.push(blank, heading('Not known'));
+    for (const u of f.unknown) lines.push(...para(`${u.field}: ${u.why}`, 'secondary', '  '));
+  }
+  lines.push(blank);
+  lines.push(...para('A terminal says these in words: the canvas, images and any 3D are drawn only by the companion and Studio (c, s), never faked here.'));
+  return { lines, items: [] };
+}
+
+// ── Chat: the pipeline row and the event log ───────────────────────────────────
+
+const STAGES: ReadonlyArray<{ id: 'intent' | 'predict' | 'sandbox' | 'receipt'; name: string }> = [
+  { id: 'intent', name: 'intent' }, { id: 'predict', name: 'predict' }, { id: 'sandbox', name: 'sandbox' }, { id: 'receipt', name: 'receipt' },
+];
+
+/** A stage's role: .intent and .predict amber when recorded; a verified receipt green; a failure amber with ✕; else quiet. */
+function stageRole(id: string, s: PipelineStage): Role {
+  if (s.state === 'failed') return 'failure';
+  if (s.state === 'not run yet' || s.state === 'none' || s.state === 'unknown') return 'secondary';
+  if (id === 'receipt') return s.verified ? 'live' : 'text';
+  if (id === 'intent' || id === 'predict') return 'action';
+  return 'text';
+}
+
+/** The Chat tab's pipeline row: intent → predict → sandbox → receipt of the newest run, from its records; two rows. */
+export function pipelineLines(c: ViewCtx, width: number): Line[] {
+  const g = c.g;
+  const p = c.data.pipeline;
+  const arrow = ` ${g.arrow} `;
+  const stages = STAGES.map((st) => {
+    const s: PipelineStage = p ? p[st.id] : { state: 'not run yet', words: 'not run yet' };
+    const mark = s.state === 'failed' ? `${g.fail} ` : st.id === 'receipt' && s.verified ? `${g.ok} ` : '';
+    return { st, s, mark, role: stageRole(st.id, s) };
+  });
+  const fixed = stages.reduce((n, x) => n + 2 + lineCells([S(`${x.mark}${x.st.name} ${g.sep} `)]), 0) + lineCells([S(arrow)]) * (stages.length - 1);
+  const room = Math.max(4, Math.floor((width - fixed) / stages.length));
+  const row: Line = [];
+  stages.forEach((x, i) => {
+    if (i) row.push(S(arrow, 'secondary'));
+    const edge: Role = x.role === 'action' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
+    row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(cut(x.s.words, room, g.ellipsis), x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
+  });
+  const source: Line = p?.operation
+    ? [S('newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} operation ${p.operation} ${g.sep} from its records: the operation's request, its predict receipt, its job, its receipt (verified here)`, 'secondary')]
+    : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows fills it, as its records are written.', 'secondary')];
+  return [row, source];
+}
+
+/** A log entry's role and mark: its tone, said in its words too (a failure amber with ✕; live green only when the frame says). */
+function toneOf(e: WorkspaceLogEntry, g: Glyphs): { role: Role; mark: string } {
+  switch (e.tone) {
+    case 'failure': return { role: 'failure', mark: `${g.fail} ` };
+    case 'attention': return { role: 'attention', mark: `${g.warn} ` };
+    case 'live': return { role: 'live', mark: `${g.ok} ` };
+    default: return { role: 'text', mark: '' };
+  }
+}
+
+/** One log entry on one row: its time, its tag, its words (cut at the row's end). */
+export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs): Line {
+  const t = toneOf(e, g);
+  const head: Seg[] = [S(`${clock(e.at)} `, 'secondary'), S(`[${e.tag}] `, 'secondary')];
+  const room = Math.max(4, width - lineCells(head));
+  return [...head, S(cut(`${t.mark}${e.words}`, room, g.ellipsis), t.role)];
+}
+
+/** The Chat tab's right column: what runs now (from the jobs), then the frame's log, the newest at the top. */
+export function eventLogView(c: ViewCtx): View {
+  const { data, g, width } = c;
+  const lines: Line[] = [];
+  const live = [...data.jobs, ...(data.away ?? [])].filter((j) => j.live);
+  lines.push(heading(`Running now (${live.length})`));
+  if (!live.length) lines.push([S('  Nothing runs.', 'secondary')]);
+  for (const j of live) {
+    const where = sameFolder(j.root, data.project.root) ? '' : ` ${g.sep} in ${j.project}`;
+    lines.push([S(`  ${g.bullet} `, 'text'), S(j.id, 'strong'), S(`  ${j.label}`, 'text'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
+  }
+  lines.push(blank, heading('Event log, newest at the top'));
+  const log = data.frame?.log ?? [];
+  if (!data.frame) lines.push([S('  Reading the workspace frame…', 'secondary')]);
+  else if (!log.length) lines.push([S('  No event yet: no job has run in this project.', 'secondary')]);
+  for (const e of log) {
+    const t = toneOf(e, g);
+    const head = `${clock(e.at)} [${e.tag}] `;
+    const [first = '', ...more] = wrapText(`${t.mark}${e.words}`, Math.max(10, width - head.length), g.ellipsis);
+    lines.push([S(clock(e.at), 'secondary'), S(` [${e.tag}] `, 'secondary'), S(first, t.role)]);
+    for (const m of more) lines.push([S(' '.repeat(head.length)), S(m, t.role)]);
+  }
+  return { lines, items: [] };
+}
+
+// ── Activity & log's newest lines, and the key-hint line ───────────────────────
+
+/** The collapsed log: the frame's newest `n` entries, the newest first, each on one row. */
+export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: number): Line[] {
+  const f = c.data.frame;
+  if (!f) return [[S(c.data.frameError ? `The log could not be read: ${c.data.frameError}` : 'Reading the log…', c.data.frameError ? 'failure' : 'secondary')]];
+  if (!f.log.length) return [[S('No event yet: no job has run in this project. [a] expands Activity (this Workbench\'s own notices too).', 'secondary')]];
+  return f.log.slice(0, n).map((e) => logLine(e, width, c.g));
+}
+
+/** The key-hint line: the keys that matter most first, each whole or left out. */
+export function hintLine(width: number, o: { tabs?: boolean } = {}): Line {
+  const h = (k: string, w: string): Line => [key(k), S(` ${w}`, 'secondary')];
+  return pick([
+    ...(o.tabs === false ? [] : [h('1–0', 'tabs')]),
+    h('Enter', 'acts'), h('Tab', 'zones'), h('x', 'Stop'), h('c', 'Companion · Show'), h('s', 'Studio · Show'), h('a', 'log'),
+    h('/', 'find'), h(',', 'settings'), h('i', 'Context'), h('?', 'keys'),
+  ], width, S('  '));
+}
