@@ -20,6 +20,7 @@ import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
+import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
@@ -51,6 +52,11 @@ function row(line: Line, selected: boolean, g: Glyphs): Line {
   const mark = selected ? `${g.cursor} ` : '  ';
   const out: Line = [S(mark, 'action', selected ? { selected: true } : {}), ...line.map((s) => (selected ? { ...s, selected: true } : s))];
   return out;
+}
+
+/** R5 (H131): a box's step to take, its words wrapped under themselves (never cut), the selection's mark on its first row. */
+function stepRows(words: Line, selected: boolean, g: Glyphs, width: number): Line[] {
+  return wrapSegs(words, Math.max(8, width - 2)).map((r, i) => (i === 0 ? row(r, selected, g) : [S('  '), ...r.map((x) => (selected ? { ...x, selected: true } : x))]));
 }
 
 /** label: value, the label quiet and padded. */
@@ -247,7 +253,7 @@ const fitTo = (line: Line, w: number, g: Glyphs): Line => {
 export function routeShown(data: Data): { words: string; ready: boolean; refusal?: readonly string[] } {
   const r = data.chatRoute ?? data.route;
   // R5 (H131; the QA round's defect 22): a route that is not ready is said without the REPL's own remedy (/setup, /model):
-  // the Workbench says one, the workspace frame's step (timmy setup), where it says what to do
+  // the Workbench says one, the workspace frame's fix (its Chat action), where it says what to do
   const words = r.ready ? r.words : r.words.replace(/ · \/(setup chat|setup|model)$/, '');
   return { words, ready: r.ready, ...(r.refusal?.length ? { refusal: r.refusal } : {}) };
 }
@@ -425,9 +431,13 @@ function chatView(c: ViewCtx): View {
   // session reads it (R4 lead: routeShown, the same words as the top line and Settings)
   const route = routeShown(data);
   lines.push(field('Route', route.words, route.ready ? 'text' : 'secondary', 8));
-  // R5 (H131; the QA round's defect 22): one remedy for a chat that is not set up, the workspace frame's step (timmy setup);
-  // the session's refusal is said for its cause only
-  lines.push(field('Ready', route.ready ? 'a message can be sent on this route' : 'not ready: timmy setup (in a shell) sets up a route', route.ready ? 'text' : 'attention', 8));
+  // R5 (H131; the QA round's defect 22): one remedy for a chat that is not set up, the workspace frame's fix (src/ops/
+  // workspace-frame.ts chatFix: the primary Chat action, which Enter carries out); with no frame read yet, the setup (timmy
+  // init; `timmy setup` makes a governed workspace's folders and asks nothing). The session's refusal is said for its cause.
+  const framed = data.frame && data.frame.project.id === data.project.id ? data.frame : null;
+  const fix = route.ready ? undefined : framed?.actions.chat?.find((a) => a.primary && a.enabled && !['composer', 'abort'].includes(routeOf(a).kind));
+  const notReady = fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (workflow action ${fix.n}, row 2)` : 'not ready: timmy init (in a shell) sets up a route';
+  lines.push(...fieldRows('Ready', route.ready ? 'a message can be sent on this route' : notReady, c.width, route.ready ? 'text' : 'attention', 8));
   if (!route.ready && route.refusal?.length) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
     for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(r, c.width, 'secondary', '  '));
@@ -748,6 +758,86 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push([key('Ctrl+C'), S(own.length ? ` Quit and stop ${own.length === 1 ? 'it' : 'them'}   ` : ' Quit   ', 'text'), key('Esc'), S(' Stay', 'text')]);
       return { lines, items };
     }
+    // R5 (H131; the finish line, item 3): the chat's fixes, done here (src/workbench/setup-paths.ts)
+    case 'free-models': {
+      lines.push(...wrapSegs([S('Choose a free model', 'strong'), S('  free-only stays on · Esc closes, nothing changed', 'secondary')], c.width), blank);
+      if (o.state === 'reading') { lines.push([S('Reading this computer\'s OpenRouter catalog…', 'secondary')]); return { lines, items }; }
+      if (o.state === 'failed') { lines.push(...para(`The catalog could not be read: ${o.why}. Nothing was changed.`, c.width, 'failure')); return { lines, items }; }
+      const cat = o.catalog;
+      lines.push(...para(catalogWords(cat), c.width));
+      if (cat.from === 'none') return { lines, items };
+      lines.push(...para('Free by the catalog\'s prices, not by a check of your account.', c.width));
+      lines.push(blank);
+      if (!cat.models.length) { lines.push(...para('That catalog lists no free model.', c.width, 'attention')); return { lines, items }; }
+      lines.push(heading(`Free models (${cat.models.length})`));
+      const cur = cursorOf(ui, 'overlay', cat.models.length);
+      const idW = Math.min(Math.max(12, Math.floor(c.width / 2)), Math.max(...cat.models.map((m) => m.id.length)) + 2);
+      cat.models.forEach((m, i) => {
+        items.push({ line: lines.length, item: { kind: 'action', key: `free:${m.id}`, action: m.id } });
+        lines.push(row([S(cut(m.id, idW - 2, g.ellipsis).padEnd(idW), 'strong'), S(modelFacts(m), 'secondary')], i === cur, g));
+      });
+      lines.push(blank);
+      lines.push(...wrapSegs([key('Enter'), S(' makes the selected one the chat\'s model (saved in Timmy\'s settings)   ', 'text'), key('Esc'), S(' closes', 'text')], c.width));
+      return { lines, items };
+    }
+    case 'local-models': {
+      lines.push(...wrapSegs([S('Choose the local model', 'strong'), S('  no key, no charge · Esc closes, nothing changed', 'secondary')], c.width), blank);
+      if (o.state === 'asking') { lines.push(...para('Asking the Ollama the setup names for its models… (no charge; nothing is downloaded)', c.width)); return { lines, items }; }
+      const l = o.list;
+      if (o.state === 'failed') {
+        const why = l.why ? `${l.why.charAt(0).toUpperCase()}${l.why.slice(1)}` : `${l.where} did not answer`;
+        lines.push(...para(l.answered
+          ? `${l.where} answered, and lists no model that runs on it (${count(l.listed, 'model')} listed${l.cloud ? `, ${l.cloud} of them cloud-backed, which send the chat off this computer` : ''}). ollama pull <model>, in a shell, adds one: Timmy downloads nothing. Nothing was changed.`
+          : `${why}. Start it (the Ollama app, or ollama serve), then check again. Nothing was changed.`, c.width, 'attention'));
+        lines.push(blank);
+        const step = stepRows([key('Enter'), S(' Check the connections again (timmy workspace check: free requests only)', 'text')], true, g, c.width);
+        items.push({ line: lines.length, item: { kind: 'action', key: 'local:check', action: 'check' }, rows: step.length });
+        lines.push(...step);
+        return { lines, items };
+      }
+      lines.push(...para(`What ${l.where} lists now (asked just now, no charge): the names timmy init --chat local --model takes.`, c.width));
+      if (l.cloud) lines.push(...para(`${count(l.cloud, 'cloud-backed model')} it lists ${l.cloud === 1 ? 'is' : 'are'} not offered here: Ollama sends that chat off this computer.`, c.width, 'secondary'));
+      lines.push(blank, heading(`Local models (${l.models.length})`));
+      const cur = cursorOf(ui, 'overlay', l.models.length);
+      const nameW = Math.min(Math.max(12, Math.floor(c.width / 2)), Math.max(...l.models.map((m) => m.name.length)) + 2);
+      l.models.forEach((m, i) => {
+        items.push({ line: lines.length, item: { kind: 'action', key: `local:${m.name}`, action: m.name } });
+        lines.push(row([S(cut(m.name, nameW - 2, g.ellipsis).padEnd(nameW), 'strong'), S(m.facts, 'secondary')], i === cur, g));
+      });
+      lines.push(blank);
+      lines.push(...wrapSegs([key('Enter'), S(' makes the selected one the local chat\'s model (the setup\'s answer, as timmy init --chat local --model writes it)   ', 'text'), key('Esc'), S(' closes', 'text')], c.width));
+      return { lines, items };
+    }
+    case 'setup': {
+      if (o.which === 'chat') {
+        lines.push([S('Set the chat\'s Ollama address', 'strong')], blank);
+        lines.push(...para('In the REPL (timmy): /setup chat asks the chat question again: the Ollama address, then a model it lists, or OpenRouter.', c.width, 'text'));
+        lines.push([S('  '), S('/setup chat', 'action')], blank);
+        lines.push(...para('Or in a shell: timmy init --ollama <host> sets the address (this computer\'s Ollama is http://127.0.0.1:11434).', c.width, 'text'));
+        lines.push([S('  '), S('timmy init --ollama <host>', 'action')]);
+      } else {
+        const local = /--chat local\b/.test(o.command);
+        const openrouter = /--chat openrouter\b/.test(o.command);
+        lines.push([S(local ? 'Set the chat to a local model' : 'Set up chat, in a shell', 'strong')], blank);
+        lines.push([S('  '), S(/^timmy init\b/.test(o.command) ? o.command : 'timmy init', 'action')], blank);
+        if (o.command === 'timmy setup') lines.push(...para('(timmy setup makes a governed workspace\'s folders and asks nothing; the setup that asks is timmy init.)', c.width), blank);
+        lines.push(...para(setupAskWords(o, openrouter, local), c.width, 'text'));
+        // a key in use that the setup's own does not replace
+        if (openrouter && (o.keyFrom === 'environment' || o.keyFrom === 'timmy-tui.config.json')) {
+          lines.push(blank, ...para(`The key in use comes from ${keyFromWords(o.keyFrom)}, which wins over the one the setup keeps: to use another key, change it there.`, c.width, 'attention'));
+        }
+      }
+      lines.push(blank);
+      lines.push(...para('A key is typed only in a terminal, hidden as you type (timmy init in a shell, or /setup key in the REPL): never into a tab, a page or this Workbench. Nothing was run from here.', c.width, 'attention'));
+      if (o.local) {
+        lines.push(blank);
+        const step = stepRows([key('Enter'), S(/--chat local\b/.test(o.command) ? ' Choose the local model here: what Ollama lists now (no key, no charge)' : ' Use a local model instead: choose one Ollama lists (no key, no charge)', 'text')], true, g, c.width);
+        items.push({ line: lines.length, item: { kind: 'action', key: 'setup:local', action: 'local' }, rows: step.length });
+        lines.push(...step);
+      }
+      lines.push(blank, [S('m gives the mouse back to the terminal, to select a command and copy it.', 'secondary')]);
+      return { lines, items };
+    }
     case 'message': {
       // R5 (H131): a line of one voice wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width:
       // "Nothing was run from here" was cut off a shown command's words); a line of several voices keeps its row
@@ -764,6 +854,18 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
     default:
       return { lines, items };
   }
+}
+
+/** R5 (H131; the finish line, item 3): what a `timmy init …` asks now, for its own flags (src/workbench/setup-paths.ts setupPlan). */
+function setupAskWords(o: Extract<NonNullable<Overlay>, { kind: 'setup' }>, openrouter: boolean, local: boolean): string {
+  if (o.blank) return `Timmy is not set up on this computer yet, so it asks each question in turn${o.asks?.length ? `: ${o.asks.join('; ')}` : ''}.`;
+  if (o.asks === null) return 'It asks the setup\'s questions that have no answer yet.';
+  if (o.asks.length) return `It asks what has no answer yet: ${o.asks.join('; ')}.`;
+  if (openrouter && o.keyFrom) {
+    return `It asks no question now: every one has an answer, and a key is set (in ${keyFromWords(o.keyFrom)}). It does not replace that key: timmy init --openrouter - does (it reads the key hidden at a terminal), or /setup key in the REPL (it asks for it hidden).`;
+  }
+  if (local) return 'It asks no question now (every one has an answer): it writes the chat as the local model you name, once that Ollama lists it (it checks the name first, and downloads nothing).';
+  return 'Every setup question has an answer, so it asks nothing now. To choose the chat again: timmy init --chat openrouter (it asks for a key, hidden, when none is kept), or timmy init --chat local --model <name> (a model Ollama lists).';
 }
 
 // ── the right dock: Tools, Inspector, Files ────────────────────────────────────
@@ -805,7 +907,12 @@ export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
     const k = item.conn;
     if (k.id === 'companion') out.push({ key: 'Enter', label: 'Companion · Show: the browser companion on 127.0.0.1', enabled: true });
     else if (k.id === 'studio') out.push({ key: 'Enter', label: 'Studio · Show: the rich canvas on this project', enabled: true });
-    else out.push({ key: 'Enter', label: k.setup ? `Its step, shown to copy: ${k.setup}` : `${k.label}: its step`, enabled: !!k.setup, ...(k.setup ? {} : { why: 'no step sets it up or checks it' }) });
+    else {
+      // R5 (H131; the finish line, item 3): the check runs from here; the setup's step shows what it asks; any other, to copy
+      const step = k.setup ? routeOf({ command: k.setup }).kind : null;
+      const label = !k.setup ? `${k.label}: its step` : step === 'check' ? `Check the connections from here: ${k.setup} (free requests only)` : step === 'setup' ? `Its step: ${k.setup} (Enter shows what it asks; it runs in a shell)` : `Its step, shown to copy: ${k.setup}`;
+      out.push({ key: 'Enter', label, enabled: !!k.setup, ...(k.setup ? {} : { why: 'no step sets it up or checks it' }) });
+    }
   }
   if (ws === 'chat') out.push({ key: 'Enter', label: 'Type a message to Timmy', enabled: c.can.chat, ...(c.can.chat ? {} : { why: c.can.chatWhy ?? 'sending is not available here' }) });
   if (ws === 'studio' || ws === 'connections') out.push({ key: 's', label: 'Studio · Show: the rich canvas on this project', enabled: true });

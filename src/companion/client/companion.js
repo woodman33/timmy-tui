@@ -720,11 +720,65 @@ function mirrorChanged() {
   updateMirrorStatus('LIVE');
 }
 
+/**
+ * R5 lead (the finish line, item 3: every surface shows the same conversation): the project's sealed turns as the shared
+ * frame carries them (frame.chat.turns, from their receipts), those this page did not see arrive: a page opened after a turn
+ * still shows it, labelled as sealed before this page connected. Its words are never here (receipts keep hashes only).
+ */
+const SURFACE_OF = { repl: { icon: '⌨', name: 'REPL', where: 'the REPL (<span class="mirror-code">timmy</span>)', words: 'Its words are in the REPL' }, ...SURFACES };
+// the mirror is drawn from the first lines this file runs, before the frame's part below is set up: until then no frame is known
+function frameDrawn() { try { return workspace.frame; } catch (e) { return null; } }
+function frameOther(f) { try { return otherProject(f); } catch (e) { return false; } }
+function frameTurnsUnseen() {
+  const f = frameDrawn();
+  if (isViewingSaved || !f || frameOther(f) || !f.chat || !Array.isArray(f.chat.turns)) return [];
+  const seen = new Set([...mirrorTurns.values()].map((t) => t.receipt));
+  return f.chat.turns.filter((t) => t && typeof t.receipt === 'string' && !seen.has(t.receipt));
+}
+function frameTurnHtml(t) {
+  const s = SURFACE_OF[t.surface] || { icon: '·', name: escapeMirrorText(t.surface), where: escapeMirrorText(t.surface), words: 'Its words are where it was sent' };
+  const op = t.operation ? `, operation <span class="mirror-code">${escapeMirrorText(t.operation)}</span>` : '';
+  return `
+      <div class="log-msg repl" data-mirror="frame-turn" data-surface="${escapeMirrorText(t.surface)}" data-state="${escapeMirrorText(t.state)}">
+        <div class="log-header repl">
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(t.state)}</span>
+          <span class="log-time">${escapeMirrorText(new Date(t.at).toLocaleTimeString())}</span>
+        </div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(t.state)}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
+      </div>
+    `;
+}
+/** A turn being answered now, as the frame says it (one turn at a time per project): where, since when, and where it stops. */
+function frameRunningHtml() {
+  const f = frameDrawn();
+  const t = !isViewingSaved && f && !frameOther(f) && f.activity ? f.activity.chatTurn : null;
+  if (!t) return '';
+  const stop = f.activity.stopCurrent && f.activity.stopCurrent.words ? ` ${escapeMirrorText(f.activity.stopCurrent.words)}.` : '';
+  return `
+      <div class="log-msg repl" data-mirror="frame-running">
+        <div class="log-header repl"><span>▶ running · ${escapeMirrorText(t.words)}</span><span class="log-time">${escapeMirrorText(new Date(t.since).toLocaleTimeString())}</span></div>
+        <div class="log-content">It is shown here when its receipt is sealed.${stop}</div>
+      </div>
+    `;
+}
+/** The mirror again when the frame's turns or its running turn changed (not on every frame: a scroll is kept otherwise). */
+let mirrorFrameKey = '';
+function frameTurnsChanged() {
+  const f = frameDrawn();
+  const key = f ? JSON.stringify([(f.chat && f.chat.turns || []).map((t) => `${t.receipt}:${t.state}`), f.activity && f.activity.chatTurn ? f.activity.chatTurn.since : null, frameOther(f)]) : '';
+  if (key === mirrorFrameKey) return;
+  mirrorFrameKey = key;
+  if (!isViewingSaved) renderConsoleLogs(activeChatHistory);
+}
+
 function renderConsoleLogs(history) {
   // R4 (H104): this session's REPL turns beside this monitor's chat, in time order (none in a saved chat's view); when
   // neither has come, words that say where chat happens (r24: an empty panel that said nothing)
   const turns = isViewingSaved ? [] : [...mirrorTurns.values()];
-  if (history.length === 0 && turns.length === 0) {
+  // R5 lead: and the project's turns sealed before this page connected (the frame's), and a turn being answered now
+  const earlier = frameTurnsUnseen();
+  const running = frameRunningHtml();
+  if (history.length === 0 && turns.length === 0 && earlier.length === 0 && !running) {
     consoleLogs.innerHTML = mirrorEmptyHtml();
     return;
   }
@@ -737,11 +791,12 @@ function renderConsoleLogs(history) {
     return { at, order: i, html: messageHtml(msg) };
   });
   turns.forEach((turn, j) => rows.push({ at: turn.at, order: history.length + j, html: replTurnHtml(turn) }));
+  earlier.forEach((t, j) => rows.push({ at: Date.parse(t.at) || 0, order: history.length + turns.length + j, html: frameTurnHtml(t) }));
   rows.sort((a, b) => (a.at - b.at) || (a.order - b.order));
   const restored = mirrorRestored && !isViewingSaved && history.length > 0
     ? '<div class="mirror-note" data-mirror="restored">RESTORED · shown below: this browser\'s own copy of chat it mirrored before this page was opened (Delete Local removes it). Chat of this session is added here as it arrives.</div>'
     : '';
-  consoleLogs.innerHTML = restored + rows.map((r) => r.html).join('');
+  consoleLogs.innerHTML = restored + rows.map((r) => r.html).join('') + running;
 
   consoleLogs.scrollTop = consoleLogs.scrollHeight;
   proofFromHistory(history);
@@ -1294,6 +1349,7 @@ function drawFrame() {
   drawActsFull(f, own);
   drawActivity(f, own);
   drawPrefs(f);
+  frameTurnsChanged();
   stripNote(otherProjectWords(f), own ? null : 'failed');
   if (workspace.tab === 'workflows') openNewestRun();
   refocus(kept);
@@ -1470,10 +1526,18 @@ function drawControl(f, own) {
   if (!box) return;
   const a = f.activity || { running: 0, waitingOnYou: 0, stopCurrent: { words: '' } };
   const waiting = (f.tabs || []).filter((t) => t.waiting > 0);
+  // R5 lead (the finish line, item 3): the chat turns, as the Workbench's Control Room lists them: a turn being answered now,
+  // then the sealed ones, newest first, each with its operation
+  const turns = own && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns : [];
   box.replaceChildren(
     h('p', { class: 'activity-words' }, `${a.running} running · `, h('span', { class: a.waitingOnYou > 0 ? 'waits' : '' }, `${a.waitingOnYou} waiting on you`)),
     h('p', { class: 'preview-note' }, own ? (a.stopCurrent && a.stopCurrent.words) || '' : 'Not shown: the frame is another project’s.'),
-    ...waiting.map((t) => h('p', { class: 'preview-note' }, `${t.label}: ${t.waiting} waiting`)));
+    ...waiting.map((t) => h('p', { class: 'preview-note' }, `${t.label}: ${t.waiting} waiting`)),
+    own ? h('p', { class: 'preview-head', 'data-control': 'chat-turns' }, `Chat turns (${turns.length})`) : null,
+    own && a.chatTurn ? h('p', { class: 'preview-note', 'data-control': 'chat-running' }, `▶ running · ${a.chatTurn.words}`) : null,
+    own ? (turns.length
+      ? h('ul', { class: 'ev-list', 'data-control': 'chat-turn-list' }, ...turns.map((t) => eventItem({ at: t.at, tag: 'chat', words: t.words, tone: t.state === 'failed' ? 'failure' : 'neutral', source: `receipt ${t.receipt}`, ...(t.operation ? { operation: t.operation } : {}) })))
+      : h('p', { class: 'preview-note' }, 'No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, whichever surface sent it.')) : null);
 }
 
 // ── a tab's actions in full: what each runs, and whether it reads, changes, sends or spends ──
@@ -1511,8 +1575,20 @@ function emptyLog(f, own) {
   return h('li', { class: 'empty' }, 'Nothing has run in this project yet.', why ? h('span', { class: 'ev-from' }, `The frame says: ${why}.`) : null);
 }
 
+/**
+ * R5 lead (the finish line, item 3): the frame's log with the project's sealed chat turns among them, the newest first: the
+ * same entries the Workbench's event log shows (src/workbench/hub.ts eventsNow), in the same words.
+ */
+function eventsOf(f, own) {
+  if (!own) return [];
+  const turns = (f.chat && Array.isArray(f.chat.turns) ? f.chat.turns : []).map((t) => ({
+    at: t.at, tag: 'chat', words: t.words, tone: t.state === 'failed' ? 'failure' : 'neutral', source: `receipt ${t.receipt}`, ...(t.operation ? { operation: t.operation } : {}),
+  }));
+  return [...(f.log || []), ...turns].sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+}
+
 function drawEvents(f, own) {
-  const log = own ? (f.log || []) : [];
+  const log = eventsOf(f, own);
   const chat = document.getElementById('chat-events');
   if (chat) chat.replaceChildren(...(log.length ? log.map((e) => eventItem(e)) : [emptyLog(f, own)]));
   const logs = document.getElementById('logs-events');
@@ -1528,7 +1604,8 @@ function drawActivity(f, own) {
     // the whole of it, where a narrow window shortens the line
     counts.title = counts.textContent;
   }
-  if (list) list.replaceChildren(...((own ? (f.log || []) : []).length ? f.log.map((e) => eventItem(e)) : [emptyLog(f, own)]));
+  const events = eventsOf(f, own);
+  if (list) list.replaceChildren(...(events.length ? events.map((e) => eventItem(e)) : [emptyLog(f, own)]));
 }
 
 function drawRuns(f, own) {

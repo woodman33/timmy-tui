@@ -193,6 +193,11 @@ export type ActionRoute =
   | { kind: 'run'; doc: string; block: string; words: string }
   | { kind: 'composer'; words: string }
   | { kind: 'abort'; words: string }
+  // R5 (H131; the finish line, item 3): the chat's fixes the Workbench carries out (src/workbench/setup-paths.ts)
+  | { kind: 'free-models'; words: string }
+  | { kind: 'model'; words: string }
+  | { kind: 'check'; words: string }
+  | { kind: 'setup'; which: 'init' | 'chat'; words: string }
   | { kind: 'show'; where: 'the REPL (timmy)' | 'a shell'; words: string };
 
 /** The frame's commands this Workbench runs through a path of its own (its keys and workspaces); every other is shown. */
@@ -225,6 +230,18 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
   // (while a turn runs the frame says whose composer: "Esc in the composer that sent it (Ctrl+C in the REPL)")
   if (/^Esc in the composer\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does)' };
+  // R5 (H131; the finish line, item 3): the frame's fixes for a chat that cannot answer, done here where the Workbench can do
+  // them honestly; the setup, which asks for a key, is a shell's (its command and what it asks are shown)
+  if (cmd === '/model free') return { kind: 'free-models', words: 'Enter lists the free models in this computer\'s catalog; Enter on one makes it the chat\'s model (free-only stays on)' };
+  if (cmd === '/model') return { kind: 'model', words: 'Enter lists what Ollama has now, to choose the local model (on OpenRouter: shows /model for the REPL)' };
+  if (cmd === 'timmy workspace check') return { kind: 'check', words: 'Enter checks the connections from here: free requests only, no model called' };
+  // every `timmy init …` (and a stray `timmy setup`, which asks nothing: it makes a governed workspace's folders) is the setup
+  if (cmd === 'timmy setup' || cmd === '/setup' || /^timmy init(?:\s|$)/.test(cmd)) {
+    return { kind: 'setup', which: 'init', words: /--chat local\b/.test(cmd)
+      ? 'Enter shows what timmy init asks, and chooses the local model here: what Ollama lists now (no key, no charge)'
+      : 'Enter shows the setup to run in a shell (timmy init) and what it asks; a key is typed there, hidden' };
+  }
+  if (cmd === '/setup chat') return { kind: 'setup', which: 'chat', words: 'Enter shows how to set the chat\'s Ollama address (the REPL\'s /setup chat, or timmy init in a shell)' };
   const run = /^\/run (\S+) (\S+)$/.exec(cmd);
   if (run && !cmd.includes('<')) return { kind: 'run', doc: run[1], block: run[2], words: 'Enter opens its Run confirm (it asks before anything runs)' };
   const where = cmd.startsWith('/') ? 'the REPL (timmy)' as const : 'a shell' as const;

@@ -2,44 +2,44 @@
 TIMMY · tray1     ┃1 Home┃│2 Chat & Intent││3 Workflows││4 Studio││5 VoxVision││6 3D & Motion││7 Control Room││8 Fleet & Clef││9 Tools & MCP││0 Logs & Receipts│
                   ┗━━━━━━┛╰───────────────╯╰───────────╯╰────────╯╰───────────╯╰─────────────╯╰──────────────╯╰──────────────╯╰─────────────╯╰─────────────────╯
 ╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 Home ╮
-│  [▶ 1 Set up chat: an OpenRouter key or a local model]  [2 Check connections (free requests)]  [3 New project]  [4 Switch project]                           │
-│ this computer · chat: local · no model chosen · /model                                  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Home · connections, as observed ━━━━━━━━━━━━━━━━━━━ 1–28 of 42 ┓╭─ Preview · the companion and Studio, in words ──────────────────────────────────╮
+│  [▶ 1 Choose the local model (from what Ollama lists)]  [2 Check connections (free requests)]  [3 New project]  [4 Switch project]                           │
+│ this computer · chat: local · no model chosen                                                                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Home · connections, as observed ━━━━━━━━━━━━━━━━━━━ 1–28 of 47 ┓╭─ Preview · the companion and Studio, in words ──────────────────────────────────╮
 ┃ CONNECTIONS, AS LAST OBSERVED                                             ┃│ COMPANION ○ configured  · opens when asked                                      │
 ┃ live: an answer seen in the last 30 minutes; a setting alone is           ┃│   [c] Companion · Show  to see it rendered                                      │
 ┃ configured                                                                ┃│ STUDIO    ○ configured  · opens when asked                                      │
 ┃ ┏━ OpenRouter (cloud chat) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ✕ refused ━┓ ┃│   [s] Studio · Show  to see it rendered                                         │
 ┃ ┃ refused when checked 5 min ago (FAKE: HTTP 401)                       ┃ ┃│                                                                                 │
-┃ ┃ → timmy setup                                                         ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S RECORDS)                             │
+┃ ┃ → timmy init --chat openrouter                                        ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S RECORDS)                             │
 ┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   2 workflows · 1 parameter · 1 run                                             │
 ┃ ╭─ Ollama (local models) ────────────────────────────────────── ● live ─╮ ┃│   · Approval: see a NEEDS YOU box  not run yet · 1 block: tidy                  │
 ┃ │ answered 3 min ago (FAKE: 2 models)                                   │ ┃│   · Tray workflow: change, inspect, result  not run yet · 4 blocks: change…     │
 ┃ │ asked at http://127.0.0.1:11434, no charge (local)                    │ ┃│   · Tray recipe parameters (recipes/tray.params.json)  saved: width 140, wall…  │
-┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│   · a task · j66b3d9  running · FAKE job (test): sleep 300                      │
-┃ ╭─ Cloudflare edge (optional) ────────────────────────── ✕ unreachable ─╮ ┃│                                                                                 │
-┃ │ no answer when checked 5 min ago (FAKE: timed out)                    │ ┃│ FILES (4)                                                                       │
-┃ │ observed 16:05:06                                                     │ ┃│   1 editable source · 2 workflows · 1 references                                │
-┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│   in ~/timmy/projects/tray1 · 0 Logs & Receipts lists them                      │
-┃ ╭─ Clef-Omni (decision recommender) ───────────────────── · not set up ─╮ ┃│                                                                                 │
-┃ │ Use Clef routing is off (the default): routes stay deterministic      │ ┃│ LAST RUN                                                                        │
-┃ │ → timmy decide mode                                                   │ ┃│   ✓ j3e9b07  completed  APPROVAL.md › tidy                                      │
-┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│     1 s ago, took 0.2 s · operation oea7f5785                                   │
-┃ ╭─ Cloudroom Core (fleet backend) ─────────────────────── · not set up ─╮ ┃│                                                                                 │
-┃ │ no Core connected; the FAKE backend is the simulation                 │ ┃│ NOT KNOWN                                                                       │
-┃ │ → timmy fleet connect cloudroom <url> --token-file <file>             │ ┃│   chat: Error: the chat is set to the local model, and no model is chosen.      │
-┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│   Cause: the setup recorded none for Ollama at 127.0.0.1:11434. Try: timmy init │
-┃ ╭─ Browser companion ──────────────────────────────────── ○ configured ─╮ ┃│   --chat local --model <name> (in a terminal: Timmy checks that Ollama lists    │
-┃ │ set up, not checked yet (a setting is not a connection)               │ ┃│   it), or /model in the REPL Nothing was sent to any model.                     │
-┃ │ → timmy watch  · opens when asked  · not served by this Workbench…    │ ┃│                                                                                 │
-┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│ A terminal says these in words: the canvas, images and any 3D are drawn only by │
-┃ ╭─ Timmy Studio (tldraw) ──────────────────────────────── ○ configured ─╮ ┃│ the companion and Studio (c, s), never faked here.                              │
+┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│   · a task · j90d179  running · FAKE job (test): sleep 300                      │
+┃ ╭─ Cloudflare edge (optional) ─────────────────────────── · not set up ─╮ ┃│                                                                                 │
+┃ │ nothing answered when checked 5 min ago (FAKE: timed out); not set up │ ┃│ FILES (4)                                                                       │
+┃ │   (optional; it is not the chat provider)                             │ ┃│   1 editable source · 2 workflows · 1 reference                                 │
+┃ │ observed 20:42:32                                                     │ ┃│   in ~/timmy/projects/tray1 · 0 Logs & Receipts lists them                      │
+┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│                                                                                 │
+┃ ╭─ Clef-Omni (decision recommender) ───────────────────── · not set up ─╮ ┃│ LAST RUN                                                                        │
+┃ │ Use Clef routing is off (the default): routes stay deterministic      │ ┃│   ✓ j01b6ca  completed  APPROVAL.md › tidy                                      │
+┃ │ → timmy decide mode                                                   │ ┃│     0 s ago, took 0.4 s · operation oc6e9fe3a                                   │
+┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│                                                                                 │
+┃ ╭─ Cloudroom Core (fleet backend) ─────────────────────── · not set up ─╮ ┃│ NOT KNOWN                                                                       │
+┃ │ no Core connected; the FAKE backend is the simulation                 │ ┃│   chat: The chat is set to the local model, and no model is chosen. Cause: the  │
+┃ │ → timmy fleet connect cloudroom <url> --token-file <file>             │ ┃│   setup recorded none for Ollama at 127.0.0.1:11434. Try: timmy init --chat     │
+┃ ╰───────────────────────────────────────────────────────────────────────╯ ┃│   local --model <name> (in a terminal: Timmy checks that Ollama lists it), or   │
+┃ ╭─ Browser companion ──────────────────────────────────── ○ configured ─╮ ┃│   /model in the REPL.                                                           │
+┃ │ set up, not checked yet (a setting is not a connection)               │ ┃│                                                                                 │
+┃ │ → timmy watch  · at http://127.0.0.1:3001/; opens when asked  · not   │ ┃│ A terminal says these in words: the canvas, images and any 3D are drawn only by │
+┃ │   served by this Workbench · [c] Companion · Show starts it           │ ┃│ the companion and Studio (c, s), never faked here.                              │
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰─────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠇ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as process 17557, the leader of its own…        [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                                                                │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                                                               │
-│ 16:10:11 [job] j3e9b07 tidy started                                                                                                                          │
-│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                                                           │
-│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt 331a6236 · /op oea7f5785                     │
+│ ▸ Activity  ⠋ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4…   [a] expand │
+│ 20:47:39 [job] j01b6ca started: APPROVAL.md › tidy                                                                                                           │
+│ 20:47:33 [job] j90d179 started: FAKE job (test): sleep 300                                                                                                   │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt 1204a00d · /op oc6e9fe3a                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
