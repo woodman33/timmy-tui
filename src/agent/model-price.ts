@@ -97,8 +97,8 @@ export function freeOnlyRefusal(model: string | null, price: ModelPrice | null, 
   return [
     `Error: free-only is on, and ${model ?? 'this chat'} is not known to be free, so this message was not sent.`,
     `Cause: ${why}.`,
-    away ? 'Try: choose a free model in the REPL (/model free lists them), or turn free-only off: /model free-only off, or TIMMY_CHAT_FREE_ONLY=0'
-      : 'Try: /model free (lists the free models this computer knows), /model <id>:free, or /model free-only off',
+    away ? 'Try: choose a free model: /model free in the REPL lists them, then /model <id>:free (free-only stays on)'
+      : 'Try: /model free (lists the free models this computer knows), then /model <id>:free (free-only stays on)',
     'Nothing was sent to any model.',
   ];
 }

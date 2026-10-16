@@ -95,16 +95,38 @@ function panelText(screen: string, title: string): string {
   return out.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-/** The panel with the keyboard (its title marked ◆): its rows below its first `fixed`, and its range note (a–b of n). */
-function focusedPanel(screen: string, fixed = 3): { rows: string[]; range: string; total: number } {
+/** The panel with the keyboard (its title marked ◆): its rows below its first `fixed`, and its range note (a–b of n); `found`
+ *  false when the screen has no such panel (a capture that landed before Ink drew it). */
+function focusedPanel(screen: string, fixed = 3): { found: boolean; rows: string[]; range: string; total: number } {
   const lines = screen.split('\n');
   const top = lines.findIndex((l) => l.includes('┏━ ◆ '));
-  if (top < 0) return { rows: [], range: '', total: 0 };
+  if (top < 0) return { found: false, rows: [], range: '', total: 0 };
   const x = lines[top].indexOf('┏━ ◆ ');
   const note = /(\d+)–(\d+) of (\d+)/.exec(lines[top].slice(x));
   const rows: string[] = [];
-  for (let y = top + 1; y < lines.length && !lines[y].slice(x).startsWith('┗'); y++) rows.push(lines[y].slice(x + 1).replace(/┃\s*$/, '').trimEnd());
-  return { rows: rows.slice(fixed), range: note ? `${note[1]}–${note[2]}` : '', total: note ? Number(note[3]) : rows.length - fixed };
+  let y = top + 1;
+  for (; y < lines.length && !lines[y].slice(x).startsWith('┗'); y++) rows.push(lines[y].slice(x + 1).replace(/┃\s*$/, '').trimEnd());
+  // (its bottom edge drawn too: a frame caught mid-draw has the title and not yet the rest)
+  return { found: y < lines.length, rows: rows.slice(fixed), range: note ? `${note[1]}–${note[2]}` : '', total: note ? Number(note[3]) : rows.length - fixed };
+}
+
+/**
+ * R5 (H131, on H136's measurement: 2 of 300 captures at load 13 landed mid-frame, before Ink had drawn Activity): the panel
+ * with the keyboard, read until it is drawn whole and two reads 150 ms apart agree, as selectBlock's settled() reads the
+ * selection; the deadline names what it waited for. Every read of the panel in this file goes through it.
+ */
+async function focusedSettled(screen: () => string, fixed = 3, ms = 10_000): Promise<ReturnType<typeof focusedPanel>> {
+  let prev = '';
+  let last = '';
+  for (const end = Date.now() + ms; Date.now() < end;) {
+    last = screen();
+    const p = focusedPanel(last, fixed);
+    const key = p.found ? JSON.stringify(p) : '';
+    if (key && key === prev) return p;
+    prev = key;
+    await sleep(150);
+  }
+  throw new Error(`timed out after ${ms} ms waiting for the panel with the keyboard, drawn whole and the same in two reads:\n${last}`);
 }
 
 /**
@@ -669,17 +691,18 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('a', 'Tab');
       await t.waitFor(/following the newest/, 5000);
       await t.waitFor(new RegExp(`${job.id} │ line 10\\b`), 15_000);
-      const activity = () => focusedPanel(t.screen());
-      expect(activity().total).toBeGreaterThan(activity().rows.length);
+      const activity = () => focusedSettled(() => t.screen());
+      const first = await activity();
+      expect(first.total).toBeGreaterThan(first.rows.length);
       // three rows up: held there
       await t.keys('Up', 'Up', 'Up');
       await t.waitFor(/held where you are \(End follows the newest\)/, 5000);
-      const before = activity();
+      const before = await activity();
       const at = before.rows.findIndex((r) => /^\s?▸ /.test(r));
       expect(at).toBeGreaterThan(0);
       // five more lines arrive (its range note counts them): the selected row, the rows above it and the range stay
-      for (const end = Date.now() + 10_000; activity().total < before.total + 5 && Date.now() < end;) await sleep(100);
-      const after = activity();
+      for (const end = Date.now() + 10_000; (await activity()).total < before.total + 5 && Date.now() < end;) await sleep(100);
+      const after = await activity();
       expect(after.total).toBeGreaterThanOrEqual(before.total + 5);
       expect(after.range).toBe(before.range);
       expect(after.rows.slice(0, at + 1)).toEqual(before.rows.slice(0, at + 1));
@@ -687,14 +710,15 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // End: the newest again, shown at the foot
       await t.keys('End');
       await t.waitFor(/following the newest/, 5000);
-      const following = activity();
+      const following = await activity();
       expect(following.range.endsWith(`–${following.total}`)).toBe(true);
       expect(following.rows.findIndex((r) => /^\s?▸ /.test(r))).toBeGreaterThan(-1);
       for (const end = Date.now() + 20_000; runsOf('STREAM.md › talk')[0]?.state === 'running' && Date.now() < end;) await sleep(200);
       expect(runsOf('STREAM.md › talk')[0].state).toBe('completed');
       // every line once, in order, whatever upmd redrew (Activity, all of it, by its rows' words)
       await sleep(1500);
-      expect(activity().range.endsWith(`–${activity().total}`)).toBe(true);
+      const ended = await activity();
+      expect(ended.range.endsWith(`–${ended.total}`)).toBe(true);
 
       // resized during a run: one frame each time, as wide as the terminal; the run and its Stop as they were
       await t.keys('BTab');
