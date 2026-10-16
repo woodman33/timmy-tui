@@ -192,6 +192,11 @@ Every outcome keeps its word (`signed and verified`, `failed`, `needs setup`),
 so color never carries a meaning alone. Timmy Night and Timmy Day are still
 there.
 
+- **The Workbench's colors.** `timmy workbench` writes these colors exactly
+  only where the terminal says it draws 24-bit color (`COLORTERM=truecolor` or
+  `24bit`). Otherwise it writes the nearest of the standard 256 colors, so its
+  off-white text comes out white, and it does not use the 16 slots the Timmy
+  Homebrew profile sets. The REPL and `timmy watch` color by those 16 slots.
 - **Your terminal.** `timmy theme install` copies the palettes where your
   terminal looks for them and prints the lines that pick Timmy Homebrew. On
   macOS Terminal it gives you a profile to open,

@@ -72,9 +72,11 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    Workbench) in the Workbench", with its receipt.
 5. **The browser companion.** `c` opens it on the same project and the same tab (from tab 5, on the record selected
    there): the same ten tabs, actions and log, and the pictures a terminal cannot draw. With the demo's tray: Home's
-   Preview leads with the newest images (the report run's
-   `out/preview.png` and the VoxVision record's annotated copy of the example image), each shown at size when you click it;
-   tab 5 draws that record; tab 3's run detail draws the report run; tab 9 lists and calls the FAKE fixture server.
+   Preview leads with the newest images, each shown at size when you click it: the newest run's first image and the
+   VoxVision record's annotated copy of the example image. Only the newest run counts: right after the demo that is the
+   report run, with its `out/preview.png`; after step 3's run, which writes no image, Home says so in its place. Tab 5
+   draws the record; tab 3's run detail opens the newest run, and choosing the report run in its list of runs draws that
+   run's image; tab 9 lists and calls the FAKE fixture server.
 6. **A REPL turn, stopped from the page.** In a second terminal, `./review.sh repl`, send the same counting request; on the
    companion page press Stop the turn. The REPL's turn stops there ("Stopped, asked from the companion.", then its
    receipt), and the Workbench's Chat log and the page say "turn stopped (asked from the companion) in the REPL", as its
@@ -89,6 +91,11 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 8. **Project switching.** `p` in the Workbench → blank → Enter: the companion page follows, and Studio covers its board
    ("TIMMY · switching to blank…": tray's board, drafts and canvas jobs are saved and put away; editing, Accept and Discard
    wait), then shows blank's own board, drafts and canvas jobs. `p` → tray: tray's board and its waiting draft come back.
+   The REPL does not follow a switch, though the Workbench's project picker says it does: it keeps the project it started
+   in. While Studio shows blank, what the tray REPL asks to draw is refused ("this REPL draws on tray, but the canvas shows
+   blank now, so nothing ran"); after `p` → tray it is refused once more ("the canvas is held by another Timmy REPL now")
+   until you type `/canvas open` in it again. To talk in blank from the REPL, `/exit` and start `./review.sh repl` again
+   from this package's folder: the launcher starts it in the active project's folder.
 9. **A long run, stopped.** `./review.sh shell` opens a shell in the active project's folder (tray); there, make the
    rehearsal's long block, then `exit`:
 
@@ -102,15 +109,16 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 
 ## What you can test today (the Workbench's keys: `?`)
 
-1. **One workspace, ten tabs.** Keys 1 to 9 and 0: Home, Chat & Intent, Workflows, Studio, VoxVision, 3D & Motion, Control
-   Room, Fleet & Clef, Tools & MCP, Logs & Receipts, each with a numbered actions bar (which tabs mark a next step: step 2
-   above). The browser companion (`c`) shows the same tabs, actions and log, and `./review.sh check` prints the same frame
-   in words, with the chat turns (how each ended and who asked, its model, receipt and time). Tabs 3, 5, 7, 8, 9 and 0 draw
-   their own columns across the whole width; there, Context (Tools, Inspector, Files) is the `i` drawer. The Control Room
-   (7) draws up to four runs as a 2×2 grid of panes at 160 columns and wider (stacked below that); its panes read their logs
-   once a second and say so. `p` switches the project: the choice is the shared active project, which `./review.sh check`
-   then names (a companion page follows it unless you pin the page). `/` finds a workspace, such as Files; Enter on a file
-   shows it in the Inspector, and `/open <file>` in the REPL shows its content.
+1. **One workspace, ten tabs.** Keys 1 to 9 and 0: Home, Chat & Intent, Workflows, Studio, VoxVision, 3D & Motion,
+   Control Room, Fleet & Clef, Tools & MCP, Logs & Receipts, each with a numbered actions bar (which tabs mark a next
+   step: step 2 above). The browser companion (`c`) shows the same tabs, actions and log, and `./review.sh check` prints
+   the same frame in words, with the chat turns (how each ended and who asked, its model, receipt and time). Tabs 3, 5,
+   7, 8, 9 and 0 draw their own columns across the whole width; there, Context (Tools, Inspector, Files) is the `i`
+   drawer. The Control Room (7) draws up to four runs as a 2×2 grid of panes at 160 columns and wider (stacked below
+   that); its panes read their logs once a second and say so. `p` switches the project: the choice is the shared active
+   project, which `./review.sh check` then names (a companion page follows it unless you pin the page, and Studio
+   follows it; a REPL keeps the project it started in: step 8 above). `/` finds a workspace, such as Files; Enter on a
+   file shows it in the Inspector, and `/open <file>` in the REPL shows its content.
 2. **Connections, honestly.** Ollama and OpenRouter are green and "live" only when a free request they answered was seen
    in the last 30 minutes; the companion and Studio only when one answered within the last 60 s, by a process that still
    runs (just started, a server is "listening"; one whose process ended is "not running" at once). While a companion page
@@ -132,14 +140,17 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    stop and who asked, and the surfaces say it alike ("turn stopped (asked from the companion) in the REPL"; the REPL
    itself: "Stopped, asked from the companion."). Every surface lists the project's sealed turns, whichever surface sent
    them (a receipt keeps hashes, so a turn's words stay where it was sent).
-4. **One workflow to its receipt (no spend).** In tray: Workflows → APPROVAL.md › tidy → its confirm → the NEEDS YOU box →
-   `y`. The prediction is sealed before the run and never shown as an observed result. The same operation is in the
-   Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail (its Workflows tab, or
-   `/run/<op>` on the page): the run's source as it ran (both hashes and a diff when the document changed since), the files
-   it changed or wrote (a line diff against the version Timmy kept, `+` green and `−` red; an image drawn; JSON laid out; a
-   binary's size and sha256), its log and outputs, and its receipts, intent → predict → run → receipt, each ✓ only where
-   Timmy's verifier verified it now. A file a block wrote with no earlier version kept has no line diff and no Restore, and
-   the page says why. The Workbench's tab 3 says the same in words (SOURCE, CHANGES, the receipt card).
+4. **One workflow to its receipt (no spend).** In tray: Workflows → APPROVAL.md › tidy → its confirm → the NEEDS YOU box
+   → `y`. The prediction is sealed before the run and never shown as an observed result. The same operation is in the
+   Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail (its Workflows tab: a run
+   in its list of runs, or the run's id in its Operation id box; the page's address then reads `/run/<op>`, but that
+   address typed by hand opens a page without the companion's token, which can read nothing, and whose words name `timmy
+   watch`: here, `c` in the Workbench opens a page that has it): the run's source as it ran (both hashes and a diff when
+   the document changed since), the files it changed or wrote (a line diff against the version Timmy kept, `+` green and
+   `−` red; an image drawn; JSON laid out; a binary's size and sha256), its log and outputs, and its receipts, intent →
+   predict → run → receipt, each ✓ only where Timmy's verifier verified it now. A file a block wrote with no earlier
+   version kept has no line diff and no Restore, and the page says why. The Workbench's tab 3 says the same in words
+   (SOURCE, CHANGES, the receipt card).
 5. **VoxVision (5).** The companion draws a record: its observed image with what was measured over it (QR and ArUco
    corners, a colour region's box and centroid, a model's boxes), each labelled with its provenance and evidence; its
    entity tree (choose an entity and it is highlighted); a video's frames on a timeline; an STL mesh's front, top and side
@@ -156,38 +167,41 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    call, and any command line typed on the page, answers NEEDS YOU with the exact line to run in Timmy's terminal. The
    Workbench's tab 9 lists the calls, the page's among them, each with its wire trace in text.
 7. **Studio (`s`).** Each project has its own board, drafts and canvas jobs (in `<Timmy home>/canvas/projects/<project
-   id>/`). In the REPL, `/canvas open` gives that REPL the canvas and names the page to open. Ask Timmy to draw: its canvas
-   tool asks in a NEEDS YOU box first, and what it draws arrives as a draft outlined in amber ("DRAFT · proposed by Timmy"):
-   Accept keeps it, Discard removes it, and neither runs a tool or a job. The save line says saved, saving, not saved yet,
-   failed (Retry), refused, or that a newer version is on disk (Reload it, or Keep a copy); it never saves over a newer
-   version. A page's grant is one-time, so a browser reload loads nothing and says so: `/canvas open` again reopens the
-   saved board. New board lists three guided blank templates first. The side panel lists the project's artifacts (its
-   VoxVision records, runs and receipts) and its images: "Place on the board" puts an artifact on the board as a card that
-   shows it (a record's image with what was measured over it, a run's outputs and receipts, a receipt's state, ✓ only when
-   it verifies now) and opens its preview; "Add to the board" copies one of the project's images into the board's own
-   folder and shows it, captioned with its file name and where it came from. Either shows only on its own project's
-   board. The Nodes palette lists the project's own cards by the node each makes (parameters, workflows, results, and an
-   operation's cards in the order they ran, linked by arrows) and adds one bound to the project; a parameter node saves
-   through the same path as the REPL's (the rules, the previous version kept, an edit receipt) and is refused in the
-   REPL's words while a flow runs in the project. Connect draws an arrow from the first selected node to the second: data
-   flows only along an operation's own links; any other arrow, drawn there or by hand, is labelled "link only · no data
-   flows" (a person's own words on an arrow are kept). The companion's tab 4 lists what the shown project's board holds
-   (artifacts, reference images, cards, notes), each image shown at size and each opening its record, run or receipt.
-   While Studio switches projects (step 8 above), a call
-   of Timmy's already drawing finishes on its own project's board; anything that comes back for the other project
-   afterwards is not drawn, and the side panel's "Kept apart" list says so. A Timmy home from before this build, with one
-   canvas for all its projects, gives that canvas once to the project it belonged to (the active project, else the one
-   project its cards name; `<Timmy home>/canvas/legacy-adopted.json` says what went where); its old files are left as they
-   were.
+   id>/`). In the REPL, `/canvas open` gives that REPL the canvas and names the page to open. Ask Timmy to draw: its
+   canvas tool asks in a NEEDS YOU box first, and what it draws arrives as a draft outlined in amber ("DRAFT · proposed
+   by Timmy"): Accept keeps it, Discard removes it, and neither runs a tool or a job. The save line says saved, saving,
+   not saved yet, failed (Retry), refused, or that a newer version is on disk (Reload it, or Keep a copy); it never
+   saves over a newer version. A page's grant is one-time, so a browser reload loads nothing and says so: `/canvas open`
+   again reopens the saved board. New board lists three guided blank templates first. The side panel lists the project's
+   artifacts (its VoxVision records, runs and receipts) and its images: "Place on the board" puts an artifact on the
+   board as a card that shows it (a record's image with what was measured over it, a run's outputs and receipts, a
+   receipt's state, ✓ only when it verifies now), with one button that opens it: Open preview (a record) or Open run
+   detail (a run), both in Studio's side panel, or Open receipt page (a receipt). Placing a card opens nothing by
+   itself. "Add to the board" copies one of the project's images into the board's own folder and shows it, captioned
+   with its file name and where it came from. Either shows only on its own project's board. The Nodes palette lists the
+   project's own cards by the node each makes (parameters, workflows, results, and an operation's cards in the order
+   they ran, linked by arrows) and adds one bound to the project; a parameter node saves through the same path as the
+   REPL's (the rules, the previous version kept, an edit receipt) and is refused in the REPL's words while a flow runs
+   in the project. Connect draws an arrow from the first selected node to the second: data flows only along an
+   operation's own links; any other arrow, drawn there or by hand, is labelled "link only · no data flows" (a person's
+   own words on an arrow are kept). The companion's tab 4 lists what the shown project's board holds (artifacts,
+   reference images, cards, notes), each image shown at size and each opening its record, run or receipt. While Studio
+   switches projects (step 8 above), a call of Timmy's already drawing finishes on its own project's board; anything
+   that comes back for the other project afterwards is not drawn, and the side panel's "Kept apart" list says so. A
+   Timmy home from before this build, with one canvas for all its projects, gives that canvas once to the project it
+   belonged to (the active project, else the one project its cards name; `<Timmy home>/canvas/legacy-adopted.json` says
+   what went where); its old files are left as they were.
 8. **Settings that follow you.** "Open the companion / Studio when the workspace starts" (Quick settings `,` in the
    Workbench, or the companion's settings): one file, checked against the workspace's revision, with a "changed elsewhere"
    path when two surfaces disagree.
-9. **Stop, quit, reconnect.** `x` stops the selected run at once and its record says so (a job "cancelled", a chat turn
-   "stopped"). Ctrl+C quits the Workbench, and the companion and Studio it started stop with it (Stop, below). A companion
-   page left open says it is reconnecting, then that it needs its token after the Workbench starts again (each start makes
-   a new one); `c` opens a connected page. An answer older than 30 minutes is said with its age ("answered 45 min ago …
-   check again to see it now"), never live; a newer chat turn that answered is weighed over an older check that saw no
-   answer.
+9. **Stop, quit, reconnect.** `x` stops the selected run at once and its record says so. A job is meant to read
+   "cancelled" and a chat turn "stopped", but this build does not keep the two words apart everywhere: `timmy op` heads
+   a cancelled job "cancelled" while its verdict, checks and next lines say "stopped", Studio's Artifacts list says
+   "stopped", and the Workbench's tab 0 calls a stopped REPL turn "cancelled". Ctrl+C quits the Workbench, and the
+   companion and Studio it started stop with it (Stop, below). A companion page left open says it is reconnecting, then
+   that it needs its token after the Workbench starts again (each start makes a new one); `c` opens a connected page. An
+   answer older than 30 minutes is said with its age ("answered 45 min ago … check again to see it now"), never live; a
+   newer chat turn that answered is weighed over an older check that saw no answer.
 
 ## What is simulated, and what needs you
 
@@ -209,19 +223,25 @@ browser: the companion draws Home's newest images, a run's images and diffs, Vox
 them and a mesh's views, and Tools & MCP's calls; Studio draws the canvas. No surface draws a 3D scene you can turn, depth
 or voxels, or replays a run.
 
-Colors are the terminal's 16 slots as the Timmy Homebrew profile sets them; every state also carries its word and glyph. The
-REPL colors a role only when your terminal answered its color question, so inside tmux (which may not answer) it can draw
-without color: `TIMMY_PALETTE=homebrew ./review.sh repl` says the Timmy Homebrew profile is installed (the launcher passes
-that one setting through).
+Every state carries its word and glyph as well as its color. The Workbench writes the system's own colors exactly
+(#F2EFE9 text, #8E8E93 secondary text, #FFB000 amber) only when the terminal says it draws 24-bit color
+(`COLORTERM=truecolor` or `24bit`, which the launcher passes through). Otherwise it writes the nearest of the standard
+256 colors: its text comes out white (#FFFFFF), its secondary text #AFAFAF, its amber #FFAF00 and its green #5FFF00, and
+it does not use the 16 slots the Timmy Homebrew profile sets. The REPL and the monitor (`watch`) do color by those 16
+slots. The REPL colors a role only when your terminal answered its color question, so inside tmux (which may not answer)
+it can draw without color: `TIMMY_PALETTE=homebrew ./review.sh repl` says the Timmy Homebrew profile is installed (the
+launcher passes that setting through too).
 
 ## Stop
 
-- **The Workbench:** Ctrl+C quits it, and the companion and Studio it started stop with it. When a job it started is still
-  running, Ctrl+C asks first ("Quit the Workbench? 1 job this Workbench started will stop with it"): Ctrl+C again quits and
-  cancels that job (the Workbench says it "was cancelled as the Workbench ended", and its record says cancelled), Esc
-  stays. A job another session started keeps running, and the box says so. The exit code says whether the quit cut
-  anything short: 0 when it stopped nothing, 130 when it stopped a job or a chat turn this Workbench started. To stop a
-  run and stay: `x` (a chat turn: Esc in its composer).
+- **The Workbench:** Ctrl+C quits it, and the companion and Studio it started stop with it. When a job it started is
+  still running, Ctrl+C asks first ("Quit the Workbench? 1 job this Workbench started will stop with it"): Ctrl+C again
+  quits and cancels that job (the Workbench says it "was cancelled as the Workbench ended", and its record says
+  cancelled), Esc stays. A job another session started keeps running: the box lists it when the box opens; when only
+  such jobs run, no box opens, and the Workbench quits at once (exit 0), naming each one as it ends ("… keeps running:
+  started by another Timmy session (pid …), which is still running"). The exit code says whether the quit cut anything
+  short: 0 when it stopped nothing, 130 when it stopped a job or a chat turn this Workbench started. To stop a run and
+  stay: `x` (a chat turn: Esc in its composer).
 - **The REPL:** `/exit`, or Ctrl+C with no turn running (Ctrl+C during a turn stops the turn).
 - **A chat turn, from anywhere:** the companion page's Stop the turn (or Stop this turn beside it) stops the turn being
   answered in the Workbench or the REPL; what its tools had already done stays done (nothing is rolled back), and its
