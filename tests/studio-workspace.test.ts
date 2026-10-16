@@ -99,7 +99,7 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const w = await world({ framesOwnPort: true });
     const address = `http://127.0.0.1:${w.port}`;
     // R5 (H137): listening, it notes so at once (as the companion does), before any page asks
-    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'its server started listening; no Studio page had opened yet', asked: address });
     // FAKE (written by the test): a check that saw Studio not running a minute ago; its page asking now is the newer observation
     writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'not running', at: new Date(Date.now() - 60_000).toISOString(), asked: address } } }, w.env);
     const demo = w.project('demo');
@@ -110,9 +110,9 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const frame = r.json.frame as Record<string, any>;
     const studio = frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
     expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
-    expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'answered just now (the canvas page asked for its frame)' });
+    expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'answered just now (a Studio page asked for its frame)' });
     const noted = readConnections(w.env).checks.studio!;
-    expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame', asked: address });
+    expect(noted).toMatchObject({ answer: 'accepted', detail: 'a Studio page asked for its frame', asked: address });
     // noted at most once in SELF_NOTE_MS: a page asking again soon leaves the record (and so the frame's revision) as it was
     const again = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
     expect(readConnections(w.env).checks.studio!.at).toBe(noted.at);

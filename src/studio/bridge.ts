@@ -11,10 +11,16 @@
  * code is sent to it. Code goes only to the newest page whose session counts now, checked again at each call, so a page whose
  * session stopped counting (another project or REPL holds the canvas, or it ended) is sent no more code; a page whose session
  * ended for good is closed (4401). An answer is taken only from the socket its call was sent to.
+ *
+ * R6 (H139; Studio project isolation): every call names the project it was made for (`project`: its id and name, the project named
+ * to the canvas when the REPL sent it), and a page runs it only on that project's board, never while it switches boards; it says
+ * when it did not (`notRun`). And when the project named changes, every page joined is told at once (announce): the project, to a
+ * page whose session counts for it; to any other, only that it cannot show it (why, in words), never which project it is.
  */
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
+import type { ProjectRef } from './boards.js';
 
 /** R4 (H83): what a page answers about (and the bridge selects): never the session. */
 export const CANVAS_PROTOCOL = 'timmy-canvas';
@@ -50,6 +56,12 @@ export interface CanvasAnswer {
   draft?: { id: string; shapes?: number; from?: number; refused?: 'stale' | 'changes'; now?: number };
   /** R5 (H133): the draft was made from a revision the canvas has left; nothing of it ran. */
   stale?: true;
+  /**
+   * R6 (H139): the project the call was made for (the canvas server's stamp), and, when the page did not run it, why: its board is
+   * another project's (`project`), or it was switching boards (`switching`). Nothing of such a call ran, on either board.
+   */
+  project?: ProjectRef;
+  notRun?: 'project' | 'switching';
 }
 
 /** R5 (H133): a call sent as a draft: its id (made by the server) and the canvas revision the agent made it from (null: now). */
@@ -80,8 +92,11 @@ export interface CanvasOutcome {
   body: CanvasAnswer;
 }
 
-/** R4 (H83): whether a page's session counts now (by its key, the sha256 of the session), and why not in words. */
-export type PageCheck = { ok: true } | { ok: false; why: string; words: string; ended: boolean };
+/**
+ * R4 (H83): whether a page's session counts now (by its key, the sha256 of the session), and why not in words. R6 (H139): `session`,
+ * the same in the words the page's own readings are told (what announce sends a page that cannot show the project named).
+ */
+export type PageCheck = { ok: true } | { ok: false; why: string; words: string; ended: boolean; session?: string };
 
 /** R4 (H83): who may join the bridge, and whether a page that joined still counts. */
 export interface BridgeGate {
@@ -96,6 +111,8 @@ interface Pending {
   jobId: string;
   /** R5 (H133): the draft the call was sent as, or null */
   draft: DraftAsk | null;
+  /** R6 (H139): the project the call was made for, or null (no project named) */
+  project: ProjectRef | null;
   done: (outcome: CanvasOutcome) => void;
   timer: NodeJS.Timeout;
 }
@@ -161,7 +178,7 @@ export class CanvasBridge {
    * Runs `code` on the open canvas (the newest page to connect whose session counts now). R5 (H133): with `draft`, the page marks
    * what it creates as that draft (only adding; refused when made from a revision the canvas has left).
    */
-  exec(code: string, jobId: string, draft: DraftAsk | null = null): Promise<CanvasOutcome> {
+  exec(code: string, jobId: string, draft: DraftAsk | null = null, project: ProjectRef | null = null): Promise<CanvasOutcome> {
     if (draft && !DRAFT_ID.test(draft.id)) return Promise.resolve({ status: 503, body: { ok: false, error: 'Not a draft id.', jobId } });
     const picked = this.pick();
     if (!picked) return Promise.resolve({ status: 503, body: { ok: false, error: NO_CANVAS, jobId } });
@@ -173,9 +190,31 @@ export class CanvasBridge {
         this.pending.delete(id);
         done({ status: 504, body: { ok: false, error: `The canvas did not answer within ${this.timeoutMs / 1000} s.`, jobId } });
       }, this.timeoutMs);
-      this.pending.set(id, { page, jobId, draft, done, timer });
-      page.send(JSON.stringify({ type: 'exec', id, code, jobId, ...(draft ? { draft: { id: draft.id, baseRevision: draft.baseRevision } } : {}) }));
+      this.pending.set(id, { page, jobId, draft, project, done, timer });
+      page.send(JSON.stringify({ type: 'exec', id, code, jobId, ...(draft ? { draft: { id: draft.id, baseRevision: draft.baseRevision } } : {}), ...(project ? { project: { id: project.id, name: project.name } } : {}) }));
     });
+  }
+
+  /**
+   * R6 (H139): the project named to the canvas changed (a REPL named it, or the server followed the active project): every page
+   * joined is told at once, so it switches boards with it. A page whose session counts for `project` is told which (its id and
+   * name); any other is told only that it cannot show the project named now, in words, never which; one whose session ended for
+   * good is closed (4401). How many pages were told the project.
+   */
+  announce(project: ProjectRef | null): number {
+    let told = 0;
+    for (const p of [...this.pages]) {
+      if (p.ws.readyState !== WebSocket.OPEN) continue;
+      const c = this.gate ? this.gate.counts(p.key) : { ok: false as const, why: 'none', words: NO_CANVAS, ended: true };
+      if (c.ok) {
+        p.ws.send(JSON.stringify({ type: 'project', project: project ? { id: project.id, name: project.name } : null }));
+        told += 1;
+      } else {
+        p.ws.send(JSON.stringify({ type: 'project', project: null, paused: c.session ?? c.words }));
+        if (c.ended) p.ws.close(SESSION_ENDED, 'session ended');
+      }
+    }
+    return told;
   }
 
   close(): void {
@@ -197,7 +236,7 @@ export class CanvasBridge {
 
   /** A page's answer: R4 (H83) taken only from the socket its call was sent to. */
   private answer(from: WebSocket, text: string): void {
-    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown; changed?: unknown; rolledBack?: unknown; restarted?: unknown; rollbackError?: unknown; draft?: unknown; stale?: unknown };
+    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown; changed?: unknown; rolledBack?: unknown; restarted?: unknown; rollbackError?: unknown; draft?: unknown; stale?: unknown; notRun?: unknown };
     try {
       m = JSON.parse(text);
     } catch {
@@ -219,6 +258,14 @@ export class CanvasBridge {
     const draft = draftAnswer(m.draft, p.draft);
     if (draft) body.draft = draft;
     if (m.ok !== true && m.stale === true && p.draft) body.stale = true;
+    // R6 (H139): the project the call was made for (never the page's word for it), and why the page did not run it
+    if (p.project) body.project = { id: p.project.id, name: p.project.name };
+    if (m.ok !== true && (m.notRun === 'project' || m.notRun === 'switching')) {
+      body.notRun = m.notRun;
+      // a call the page did not run left nothing: no revision of it is a job's
+      delete body.sourceRevision;
+      body.changed = false;
+    }
     this.settle(m.id as number, p, { status: 200, body });
   }
 

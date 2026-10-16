@@ -136,11 +136,11 @@ describe('timmy studio', () => {
     const address = `http://127.0.0.1:${port}`;
     const s = studio(['--port', String(port)], env);
     await s.line(new RegExp(`Timmy Canvas: http://127\\.0\\.0\\.1:${port}/`));
-    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'its server started listening; no Studio page had opened yet', asked: address });
     // a second run on the same port cannot listen (69), and records nothing of the Studio that holds it
     const second = studio(['--port', String(port)], env);
     expect(await second.exited).toBe(69);
-    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'its server started listening; no Studio page had opened yet', asked: address });
     s.child.kill('SIGTERM');
     expect(await s.exited).toBe(143);
     expect(readConnections(env).checks.studio).toMatchObject({ answer: 'not running', detail: 'it stopped', asked: address });
