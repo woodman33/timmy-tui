@@ -81,7 +81,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    receipt records.
 7. **Studio.** In the REPL, `/canvas open`, then `Put the intent and the prediction on the board.`; answer `y` in its NEEDS
    YOU box; in Studio, Accept the amber draft: the save line says saved. While the draft waits, every surface counts it as
-   one thing waiting on you. `/canvas open` again reopens the saved board.
+   one thing waiting on you. In Studio's side panel, Artifacts → Place on the board puts the demo's VoxVision record on
+   the board as a card that shows its image. `/canvas open` again reopens the saved board.
 8. **Project switching.** `p` in the Workbench → blank → Enter: the companion page follows, and Studio covers its board
    ("TIMMY · switching to blank…": tray's board, drafts and canvas jobs are saved and put away; editing, Accept and Discard
    wait), then shows blank's own board, drafts and canvas jobs. `p` → tray: tray's board and its waiting draft come back.
@@ -113,8 +114,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    cannot read its frame, its companion card says "✕ unreachable" and no card on it stays green. A setting alone is
    "configured"; Studio or the companion not started is "not running", with the key that starts it; an optional service
    nobody chose is "not set up", with its step. Ollama's "needs setup" follows its HTTP route at the address the chat asks,
-   not an `ollama` program on the PATH. The two MCP-to-CLI route cards say "? unknown" even after calls through them; tab 9
-   lists those calls.
+   not an `ollama` program on the PATH. Each MCP-to-CLI route card says what the project's newest call through that route
+   did ("a call through it answered …"; live while it is recent), and "? unknown" until a call is recorded.
 3. **Chat, one conversation.** With a route, Chat & Intent (2) → Enter → type → Enter sends; the REPL continues the same
    conversation, one turn at a time (a message sent while another surface's turn runs is not sent, and says so). `/model`
    in the REPL: on OpenRouter, the model's price, context and tool calling from OpenRouter's catalog with its date; on a
@@ -157,7 +158,12 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    Accept keeps it, Discard removes it, and neither runs a tool or a job. The save line says saved, saving, not saved yet,
    failed (Retry), refused, or that a newer version is on disk (Reload it, or Keep a copy); it never saves over a newer
    version. A page's grant is one-time, so a browser reload loads nothing and says so: `/canvas open` again reopens the
-   saved board. New board lists three guided blank templates first. While Studio switches projects (step 8 above), a call
+   saved board. New board lists three guided blank templates first. The side panel lists the project's artifacts (its
+   VoxVision records, runs and receipts) and its images: "Place on the board" puts an artifact on the board as a card that
+   shows it (a record's image with what was measured over it, a run's outputs and receipts, a receipt's state, ✓ only when
+   it verifies now) and opens its preview; "Add to the board" copies one of the project's images into the board's own
+   folder and shows it, captioned with its file name and where it came from. Either shows only on its own project's
+   board. While Studio switches projects (step 8 above), a call
    of Timmy's already drawing finishes on its own project's board; anything that comes back for the other project
    afterwards is not drawn, and the side panel's "Kept apart" list says so. A Timmy home from before this build, with one
    canvas for all its projects, gives that canvas once to the project it belonged to (the active project, else the one
@@ -191,8 +197,7 @@ A terminal draws text. Where the references show an image, a 3D view, a canvas o
 what is there in words (the board, the files, the run, the record, its state), and `c` or `s` shows it drawn in your
 browser: the companion draws Home's newest images, a run's images and diffs, VoxVision's images with what was measured over
 them and a mesh's views, and Tools & MCP's calls; Studio draws the canvas. No surface draws a 3D scene you can turn, depth
-or voxels, or replays a run. The Workbench's Home and tab 6 still say that no Timmy surface draws images yet: that sentence
-is older than the companion's previews in this build.
+or voxels, or replays a run.
 
 Colors are the terminal's 16 slots as the Timmy Homebrew profile sets them; every state also carries its word and glyph. The
 REPL colors a role only when your terminal answered its color question, so inside tmux (which may not answer) it can draw

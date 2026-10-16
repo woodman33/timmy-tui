@@ -60,7 +60,8 @@ project, see [the review package](scripts/review/README.md).
   inspector.
 - **Timmy Studio** (`timmy studio`, 127.0.0.1:4337): a tldraw canvas the
   agent draws on, as drafts you Accept or Discard; each project has its own
-  board.
+  board, and Studio's side panel puts the project's artifacts (VoxVision
+  records, runs, receipts) and its own images on it.
 - **`timmy watch`**, the full-screen monitor (the Command Post), and
   **`timmy workspace check`**, the frame every surface shares, in words.
 
