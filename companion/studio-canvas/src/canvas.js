@@ -835,6 +835,7 @@ async function offerBoards() {
 /** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
 function connectPanel() {
   document.getElementById('side-ready').hidden = false;
+  watchEdge(document.getElementById('side-scroll'));
   // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
   void offerBoards();
@@ -994,6 +995,24 @@ function startFrame() {
   const strip = document.getElementById('frame');
   if (!strip || frameStrip) return;
   frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
+}
+
+/**
+ * R5 (H133): the panel's scroll region marks when more of it is below its edge (data-more="below": index.html fades that edge),
+ * as it scrolls, resizes and its lists change.
+ */
+function watchEdge(region) {
+  if (!region) return;
+  const mark = () => {
+    const below = region.scrollTop + region.clientHeight < region.scrollHeight - 2;
+    const was = region.dataset.more;
+    const now = below ? 'below' : 'none';
+    if (was !== now) region.dataset.more = now;
+  };
+  region.addEventListener('scroll', mark, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(mark).observe(region);
+  if (typeof MutationObserver === 'function') new MutationObserver(mark).observe(region, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open', 'hidden'] });
+  mark();
 }
 
 async function start() {

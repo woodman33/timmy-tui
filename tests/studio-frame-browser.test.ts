@@ -1,6 +1,6 @@
 /**
  * R5 (H133): Timmy Studio draws the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 "Layouts") as a strip
- * above tldraw, and reopens a canvas with what it holds in view. In a real headless Chromium at
+ * above tldraw, reopens a canvas with what it holds in view, and marks its panel's scroll edge. In a real headless Chromium at
  * 1400 x 900, against the real canvas server and the real bundle (built here into a temporary folder), with a project of many
  * cards (tests/helpers/canvas-project.ts and 24 more workflow documents). The frame comes from GET /api/workspace with the page's
  * session; the one observation of Studio it reads is a record this test writes (FAKE: no request was made to a Studio), so the
@@ -33,7 +33,7 @@ type Win = { timmyCanvas: { document: { revision: number; savedRevision: number 
   createShapes: (s: unknown[]) => void;
 } } };
 
-describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above the canvas, the canvas reopened in view', () => {
+describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above the canvas, the canvas reopened in view, the panel\'s scroll edge', () => {
   let p: CanvasProject;
   let pageRoot = '';
   let home = '';
@@ -239,6 +239,24 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(again.errors).toEqual([]);
     } finally {
       await again.context.close();
+    }
+  }, 120_000);
+
+  it('the panel\'s list region shows its end: a thin scrollbar and a fade at the bottom edge while more is below, none at the end', async () => {
+    const { page, context, errors } = await open();
+    try {
+      await page.waitForFunction(() => document.querySelectorAll('#project-groups li.pcard').length >= 20, null, { timeout: 15_000 });
+      await page.waitForFunction(() => document.getElementById('side-scroll')?.dataset.more === 'below', null, { timeout: 10_000 });
+      await shoot(page, 'frame-panel-edge-1400x900.png');
+      const edge = await page.$eval('#side-scroll', (e) => { const s = getComputedStyle(e); return { mask: s.maskImage || s.getPropertyValue('-webkit-mask-image'), bar: s.scrollbarWidth }; });
+      expect(edge.mask).toMatch(/linear-gradient/);
+      expect(edge.bar).toBe('thin');
+      await page.$eval('#side-scroll', (e) => { e.scrollTop = e.scrollHeight; });
+      await page.waitForFunction(() => document.getElementById('side-scroll')?.dataset.more === 'none');
+      expect(await page.$eval('#side-scroll', (e) => { const s = getComputedStyle(e); return s.maskImage || s.getPropertyValue('-webkit-mask-image'); })).toBe('none');
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
     }
   }, 120_000);
 });
