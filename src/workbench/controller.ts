@@ -32,9 +32,10 @@ import { keyAt, type MouseReport } from '../tui/mouse.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
+import { readControl } from './control-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
-import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
+import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -276,16 +277,18 @@ export class Controller {
    */
   private tabError = '';
   private readTab(ws: WorkspaceId = this.ui.workspace): void {
-    if (ws !== 'logs' && ws !== 'fleet' && ws !== 'voxvision' && ws !== 'tools') return;
+    if (ws !== 'logs' && ws !== 'fleet' && ws !== 'control' && ws !== 'voxvision' && ws !== 'tools') return;
     const root = this.data.project.root;
     try {
       if (ws === 'logs') this.data.logs = readLogs({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, now: this.now() });
+      // R5 (H137): tab 7's reading: the lanes on PATH, Connect's devices, the turns being answered, each pane's log and receipt
+      else if (ws === 'control') this.data.control = readControl({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, jobs: this.data.jobs, away: this.data.away, chain: this.chain(), now: this.now() });
       else if (ws === 'voxvision') this.data.voxTab = readVox({ root, chain: this.chain(), env: this.d.env, now: this.now() });
       else if (ws === 'tools') this.data.toolsTab = readTools({ root, chain: this.chain(), env: this.d.env, now: this.now() });
       else this.data.fleet = readFleet({ home: timmyHome(this.d.env), root, env: this.d.env, now: this.now() });
       this.tabError = '';
     } catch (e) {
-      const tab = ws === 'logs' ? 'Logs & Receipts' : ws === 'voxvision' ? 'VoxVision' : ws === 'tools' ? 'Tools & MCP' : 'Fleet & Clef';
+      const tab = ws === 'logs' ? 'Logs & Receipts' : ws === 'control' ? 'Control Room' : ws === 'voxvision' ? 'VoxVision' : ws === 'tools' ? 'Tools & MCP' : 'Fleet & Clef';
       const why = `${tab} could not be read: ${e instanceof Error ? e.message : String(e)}`;
       if (why !== this.tabError) { this.tabError = why; this.say(why, 'failure'); }
     }
@@ -330,13 +333,15 @@ export class Controller {
   private readPipeline(chain: Receipt[] = this.chain()): void {
     const key = this.chainCache?.key ?? '';
     try {
+      // R5 (H131; the QA round's defect 8): a chat turn too, sealed or being answered here
+      const turn = this.data.turn;
       this.data.pipeline = readPipeline(this.data.project.root, this.data.jobs, chain, (hash) => {
         if (this.verified?.key === key && this.verified.hash === hash) return this.verified.v;
         const r = verifyReceiptIn(chain, hash);
         const v = r.ok ? { ok: true as const } : { ok: false as const, reason: r.reason };
         this.verified = { key, hash, v };
         return v;
-      });
+      }, { turns: this.data.turns ?? [], sending: turn?.state === 'sending' && turn.operation ? { operation: turn.operation, request: turn.text } : null });
     } catch (e) {
       const why = `its records could not be read: ${e instanceof Error ? e.message : String(e)}`;
       const unknown = { state: 'unknown' as const, words: why };
@@ -414,8 +419,8 @@ export class Controller {
       }, force);
     }
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
-    // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown)
-    if (ws === 'logs' || ws === 'fleet' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
+    // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown); R5 (H137): tab 7 too
+    if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
   }
 
   // ── timers ────────────────────────────────────────────────────────────────────
@@ -438,6 +443,8 @@ export class Controller {
   private onTick(): void {
     this.followProject();
     this.readJobs();
+    // R5 (H137): the Control Room's panes follow their logs and the turns being answered at the tick, while it is shown
+    if (this.ui.workspace === 'control') this.readTab('control');
     // Activity's words change with the time, and a spinner turns while something runs. R4 (H112): with the mouse given back
     // to the terminal (m), so that a person can select text, the screen is drawn again only when something new happened (a
     // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
@@ -616,7 +623,8 @@ export class Controller {
     // sealed turn has ended: its receipt is what the detail is read again for). R5 (H131): when what a detail was read for has
     // changed (or after [r]), this very frame is composed again with it said as being read: a frame never shows a detail beside
     // the records that contradict it (the recovery PTY test caught the frame that drew [r]'s notice with the verdict before it)
-    if (f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') {
+    // R5 (H137): and the Control Room's own right column, which draws the selected run's detail whether or not Context does
+    if ((f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') || (this.ui.workspace === 'control' && !this.ui.overlay)) {
       const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
       let again = false;
       if (sel?.kind === 'job' && sel.job.operation) again = this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
@@ -658,7 +666,8 @@ export class Controller {
   reselect(): void {
     if (this.ui.overlay) return;
     const c = this.ctx();
-    resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items);
+    // R5 (H131; the QA round's defect 8): the conversation's newest message is the selection until the person selects one
+    resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items, this.ui.workspace === 'chat' && !this.ui.chosen?.['center:chat'] ? { follow: true } : {});
     const right = rightView(c).items;
     resolve(this.ui, `right:${this.ui.tab}`, right);
     resolve(this.ui, 'bottom', bottomView(c).items, { follow: this.ui.activityFollow });
@@ -953,7 +962,14 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
-      if (f === 'composer' && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent (Esc)…', 'secondary'); }
+      // R5 (H131; the QA round's defect 1): Esc means one thing at a time, and says which: while this Workbench's turn is being
+      // answered it stops that turn and the composer stays open (what is typed in it is kept); otherwise it leaves the composer
+      if (f === 'composer' && this.turnAbort) {
+        this.turnAbort.abort();
+        this.say('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).', 'secondary');
+        return;
+      }
+      if (f === 'composer') this.say(`Esc: left the composer${this.ui.input.text.trim() ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
       this.ui.input = { field: null, text: '' };
       if (f === 'picker' || f === 'new') this.ui.overlay = null;
       if (f === 'tools') {
@@ -1050,7 +1066,7 @@ export class Controller {
     if (field === 'composer') {
       const why = this.can().chatWhy;
       if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
-      if (this.data.turn?.state === 'sending') { this.say('A message is still being sent: Esc stops it, or wait for its answer.', 'secondary'); return; }
+      if (this.data.turn?.state === 'sending') { this.say('One turn at a time: the chat turn is still being answered. Esc stops it, or wait for its answer.', 'secondary'); return; }
       this.ui.input = { field: 'composer', text: '' };
       await this.send(text.trim());
     }
@@ -1067,12 +1083,20 @@ export class Controller {
     this.data.turn = turn;
     const abort = new AbortController();
     this.turnAbort = abort;
+    // R5 (H131; the QA round's defect 8): the conversation follows the new turn (to its answer's end and the composer) until
+    // the person selects a message again
+    if (this.ui.chosen) delete this.ui.chosen['center:chat'];
+    // R5 (H131; the QA round's defects 1 and 8): the frame (its run count, its chat actions) and the pipeline read again for
+    // the turn now, and once its first words arrive (its hold is taken by then)
+    this.readPipeline();
+    this.refreshFrame();
+    let heard = false;
     this.emit();
     try {
       // R4 lead: sent once (src/contracts/chat-session.ts sendOnce): the message's key is its operation's, so nothing that
       // sends this message again (a repeat of its Enter, a retry after a timeout, another process) repeats a turn that went out
       const r = await ws.ops.run(h, () => session.sendOnce(`wb-${h.id}`, text, {
-        onText: (full) => { turn.answer = full; this.emit(); },
+        onText: (full) => { turn.answer = full; if (!heard) { heard = true; this.refreshFrame(); } this.emit(); },
         onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
         askPerson: (req) => this.askPerson(req),
         signal: abort.signal,
@@ -1081,17 +1105,22 @@ export class Controller {
         state: r.status, answer: r.text || turn.answer, lines: r.lines ?? [], sent: r.sent, costWords: r.costWords,
         ...(r.receipt ? { receipt: r.receipt } : {}), ...(r.model ? { model: r.model } : {}),
       });
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${r.receipt}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
-        r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary');
+      // (the receipt by its short id, as the Control Room and the event log name it)
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+        r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
-      this.say(turn.lines[0], 'failure');
+      this.say(turn.lines[0], 'failure', { operation: h.id });
     } finally {
+      turn.ended = this.now();
       if (this.turnAbort === abort) this.turnAbort = null;
       try { this.data.chatRoute = session.route(); } catch { /* as before */ }
       this.data.chat = readChatTail(this.data.project.root);
       // R4 (H117): the turn's receipt is sealed by now: the Control Room lists it at once, not at the next reading
       this.data.turns = readTurns(this.chain(), this.data.project.root);
+      // R5 (H131): and the pipeline shows the turn just answered; the frame no longer counts it
+      this.readPipeline();
+      this.refreshFrame();
       this.emit();
     }
   }
@@ -1330,8 +1359,15 @@ export class Controller {
     this.reselect();
     // R4 (H112): the target the top line names (src/workbench/views.ts stopWords: the Control Room's selected live job there),
     // so what x stops is always what was named beforehand
-    const target = stopWords(this.data, this.selected(), this.ui.workspace).target;
-    if (!target) { this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary'); return; }
+    const named = stopWords(this.data, this.selected(), this.ui.workspace);
+    const target = named.target;
+    if (!target) {
+      // R5 (H131; the QA round's defect 1): a chat turn is what runs: this Workbench's own stops here; another surface's there
+      if (named.turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
+      if (named.turn) { this.say(`Stop current: the chat turn is being answered in ${named.turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary'); return; }
+      this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
+      return;
+    }
     const where = sameFolder(target.root, this.data.project.root) ? '' : `, in ${target.project}`;
     this.say(`Stopping ${target.id} (${target.label}${where})…`, 'secondary');
     const r = await stopCurrent(target, { stop: (id) => this.d.workspace.stop(id), jobs: this.d.workspace.jobs, ...(this.d.stopLeft ? { stopLeft: this.d.stopLeft } : {}) });
@@ -1382,9 +1418,13 @@ export class Controller {
         else this.say(`Not now: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary');
         this.emit();
         return;
-      case 'abort':
-        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent…', 'secondary'); } else this.say('No message is being sent: nothing to stop.', 'secondary');
+      case 'abort': {
+        const turn = chatTurnNow(this.data);
+        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); }
+        else if (turn) this.say(`The chat turn is being answered in ${turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary');
+        else this.say('No chat turn is being answered: nothing to stop.', 'secondary');
         return;
+      }
       case 'run': {
         const doc = this.data.workflows.docs.find((d) => d.rel === r.doc);
         const block = doc?.blocks.find((b) => b.name === r.block);
@@ -1539,10 +1579,14 @@ export class Controller {
     const row = y - d.rect.y - 1 - d.fixed;
     if (row < 0 || (d.height && row >= d.height)) return -1;
     const line = row + d.scroll;
-    const exact = d.items.findIndex((it) => it.line === line);
+    // R5 (H137): an item drawn in a column of its own (`x`: a body with columns side by side) is under the pointer only within
+    // its column's cells; an item without `x` takes its whole row, as before
+    const cx = x - d.rect.x - 1 - (d.rect.w - 2 >= 6 ? 1 : 0);
+    const inCol = (it: { x?: { from: number; to: number } }): boolean => !it.x || (cx >= it.x.from && cx < it.x.to);
+    const exact = d.items.findIndex((it) => it.line === line && inCol(it));
     if (exact >= 0) return exact;
     // R5 (H131): an item of several rows (a connection card) is under every one of its rows
-    const span = d.items.findIndex((it) => (it.rows ?? 1) > 1 && line >= it.line && line < it.line + (it.rows ?? 1));
+    const span = d.items.findIndex((it) => (it.rows ?? 1) > 1 && line >= it.line && line < it.line + (it.rows ?? 1) && inCol(it));
     if (span >= 0 || !rows) return span;
     for (let i = d.items.length - 1; i >= 0; i--) if (d.items[i].line <= line) return i;
     return -1;

@@ -216,9 +216,10 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(lines).toHaveLength(24);
     expect(lines.every((l) => visibleWidth(l) <= 80)).toBe(true);
     expect(f.text()).not.toMatch(/CREATE/);
-    // under 30 rows row 1 is one row: TIMMY, the project, the keys and the active tab's label (its boxes give the body room)
+    // under 30 rows row 1 is one row: TIMMY, the project, the keys (the active one bracketed) and the active tab's name in a
+    // slot of its own at the end (R5, the QA round's defect 4: no cell grows with the active tab)
     expect(lines[0]).toContain('TIMMY · tray-narrow');
-    expect(lines[0]).toContain('3 Workflows');
+    expect(lines[0]).toMatch(/\[3\].*\bWorkflows$/);
     expect(lines[0]).not.toContain('2 Chat');
     expect(f.text()).toContain('tray-narrow / Workflows');
     expect(f.text()).toMatch(/run: idle\s+Stop current: idle/);
@@ -265,7 +266,8 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
       const f = frameOf(c, 180, 50);
       await sleep(150);
       expect(f.text()).toContain(`[x] Stop current: ${job.id} FAKE job (test): sleep 60`);
-      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+FAKE job`));
+      // (R5 H137: a pane, its id on the box's edge, its mark, word and label on the row below)
+      expect(f.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job`));
       // the navigation's count for Control Room (its drawer, g), in the longest words that fit whole, beside the tab's key
       await press(f.r, 'g');
       expect(f.text()).toMatch(/▸ Control Room 1 run\s+7/);

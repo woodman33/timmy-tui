@@ -160,7 +160,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     expect(tidy()?.state, 'the FAKE-upmd run of APPROVAL.md › tidy, by its job record').toBe('completed');
 
     const pages = [
-      { key: '1', name: 'home', title: /tray1 \/ Home · connections, as observed/ },
+      // (at 100x30 the title gives its tail to the range note, 1–N of M: QA defect 7)
+      { key: '1', name: 'home', title: /tray1 \/ Home · connections/ },
       { key: '2', name: 'chat', title: /tray1 \/ Chat · conversation/ },
       { key: '3', name: 'workflows', title: /tray1 \/ Workflows · plan and run/ },
       { key: '7', name: 'control-room', title: /tray1 \/ Control Room · jobs/ },
@@ -173,7 +174,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
         await t.waitFor(p.title, `${p.name} at ${w}x${h}`);
         // the run's end is read (Chat's pipeline names its receipt) and the frame's waiting counts are drawn
         if (p.name === 'chat') await t.waitFor(/Pipeline · intent → predict → sandbox → receipt[\s\S]*sealed/, `Chat's pipeline with the run's sealed records at ${w}x${h}`);
-        if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId}\\s+running\\s+FAKE job \\(test\\): sleep 300`), `the FAKE job in the Control Room at ${w}x${h}`);
+        if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`), `the FAKE job's pane in the Control Room at ${w}x${h}`);
         await sleep(400); // the next second's redraw (the frame is read at most once a second), so the kept screen is settled
         const name = `${p.name}-${w}x${h}-FAKE-fixtures`;
         const txt = t.capture(name);

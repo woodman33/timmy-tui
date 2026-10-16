@@ -12,9 +12,10 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
+import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, connectionMark, homeView, hintLine, newestLog, pageOf, type ActionHit } from './hub.js';
+import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, type ActionHit, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
@@ -23,7 +24,7 @@ import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type FileRow, type JobR
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
 import { stateMark, workflowsTabView } from './workflows-tab.js';
-import { clock, count, cut, lineCells, spread, took, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
   ui: Ui;
@@ -80,7 +81,7 @@ const humanBytes = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ?
 const markOf = (j: JobRow, g: Glyphs): { glyph: string; role: Role } => (
   j.mark === 'ok' ? { glyph: g.ok, role: 'text' }
     : j.mark === 'failed' ? { glyph: g.fail, role: 'failure' }
-      : j.mark === 'running' ? { glyph: g.bullet, role: 'text' }
+      : j.mark === 'running' ? { glyph: g.run, role: 'text' }
         : j.mark === 'unchanged' ? { glyph: '=', role: 'text' }
           : j.mark === 'stopped' ? { glyph: g.unicode ? '■' : '#', role: 'text' }
             : { glyph: '?', role: 'secondary' });
@@ -154,7 +155,29 @@ export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceA
   const f = c.data.frame;
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
-  return { acts: f.actions[c.ui.page] ?? [] };
+  const acts = f.actions[c.ui.page] ?? [];
+  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : acts };
+}
+
+/**
+ * R5 (H131; the QA round's defect 1): the Chat tab's actions as of now. The frame is read at most once a second, so while
+ * this Workbench's own turn is being answered and the frame read does not name it yet, its Send waits and its Stop is the next
+ * step at once (and the other way round when its turn has ended since); the labels and commands stay the frame's.
+ */
+function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
+  const turn = chatTurnNow(d);
+  const framed = !!(d.frame && d.frame.project.id === d.project.id && d.frame.activity.chatTurn);
+  if (!!turn === framed) return acts;
+  return acts.map((a) => {
+    const r = routeOf(a);
+    if (turn && r.kind === 'composer') return { ...a, primary: false, enabled: false, why: `one turn at a time: a turn is being answered in ${turn.where}` };
+    if (turn && r.kind === 'abort') {
+      const { why: _why, ...rest } = a;
+      return { ...rest, primary: true, enabled: true };
+    }
+    if (!turn && r.kind === 'abort') return { ...a, primary: false, enabled: false, why: 'only while a turn runs' };
+    return a;
+  });
 }
 
 /** R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it. */
@@ -181,24 +204,32 @@ export function finderKeys(ui: Pick<Ui, 'workspace' | 'focus' | 'input' | 'navSh
 }
 
 export function runWords(d: Data): string {
-  const r = d.activity.running;
+  // R5 (H131; the QA round's defect 1): a chat turn being answered runs too, and is named
+  const turn = chatTurnNow(d);
+  const r = d.activity.running + (turn ? 1 : 0);
   const w = d.decisions.total;
   if (!r && !w) return 'run: idle';
   const away = d.activity.away;
   const here = r - (away?.running ?? 0);
   const running = away ? [here ? `${here} running` : '', `${away.running} running in ${away.where.join(', ')}`].filter(Boolean).join(', ') : `${r} running`;
-  return `run: ${[r ? running : '', w ? `${w} waiting on you` : ''].filter(Boolean).join(', ')}`;
+  const which = turn ? ` (${r > 1 ? '1 is ' : ''}the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : '';
+  return `run: ${[r ? `${running}${which}` : '', w ? `${w} waiting on you` : ''].filter(Boolean).join(', ')}`;
 }
 
 /** Stop current's target, named before anything is pressed: in the Control Room, the selected job while it runs; else this
  *  Workbench's newest live job (R4, H112: in any project, with its project when it is not the one shown), else the project's
  *  newest live job. x stops exactly this one (src/workbench/controller.ts stop). */
-export function stopWords(d: Data, selected?: Item | null, workspace?: WorkspaceId): { text: string; target: JobRow | null } {
+export function stopWords(d: Data, selected?: Item | null, workspace?: WorkspaceId): { text: string; target: JobRow | null; turn?: TurnNow } {
   const live = d.jobs.filter((j) => j.live);
   const picked = workspace === 'control' && selected?.kind === 'job' && selected.job.live ? selected.job : null;
   const t = picked ?? live.find((j) => j.owner === 'workbench') ?? (d.away ?? []).find((j) => j.live && j.owner === 'workbench') ?? live[0] ?? null;
   const where = t && !sameFolder(t.root, d.project.root) ? ` (in ${t.project})` : '';
-  return { text: t ? `Stop current: ${t.id} ${t.label}${where}` : 'Stop current: idle', target: t };
+  if (t) return { text: `Stop current: ${t.id} ${t.label}${where}`, target: t };
+  // R5 (H131; the QA round's defect 1): no job runs, a chat turn is being answered: this Workbench's own is stopped by x (and
+  // Esc in the composer); another surface's only where it was sent
+  const turn = chatTurnNow(d);
+  if (turn) return { text: turn.mine ? 'Stop current: the chat turn being answered here' : `Stop current: the chat turn in ${turn.where} (it stops there)`, target: null, turn };
+  return { text: 'Stop current: idle', target: null };
 }
 
 const fitTo = (line: Line, w: number, g: Glyphs): Line => {
@@ -221,7 +252,10 @@ const fitTo = (line: Line, w: number, g: Glyphs): Line => {
  */
 export function routeShown(data: Data): { words: string; ready: boolean; refusal?: readonly string[] } {
   const r = data.chatRoute ?? data.route;
-  return { words: r.words, ready: r.ready, ...(r.refusal?.length ? { refusal: r.refusal } : {}) };
+  // R5 (H131; the QA round's defect 22): a route that is not ready is said without the REPL's own remedy (/setup, /model):
+  // the Workbench says one, the workspace frame's step (timmy setup), where it says what to do
+  const words = r.ready ? r.words : r.words.replace(/ · \/(setup chat|setup|model)$/, '');
+  return { words, ready: r.ready, ...(r.refusal?.length ? { refusal: r.refusal } : {}) };
 }
 
 /** The run state and Stop current, kept whole first wherever they are drawn (R4: they show at every size). */
@@ -229,7 +263,7 @@ export function stopRight(c: ViewCtx, width: number): Line {
   const { ui, data } = c;
   const stop = stopWords(data, selectedItem(c), ui.workspace);
   const state: Line = [S(runWords(data), data.decisions.total ? 'attention' : 'secondary')];
-  const stopLine: Line = stop.target ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, 'secondary')];
+  const stopLine: Line = stop.target || stop.turn?.mine ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, stop.turn ? 'text' : 'secondary')];
   // the state and Stop are kept whole first; when even they do not fit, Stop alone, cut at its end
   const fullRight: Line = [...state, S('  '), ...stopLine];
   return lineCells(fullRight) <= width ? fullRight : lineCells(stopLine) <= width ? stopLine : fitTo(stopLine, width, c.g);
@@ -240,19 +274,20 @@ export function stopRight(c: ViewCtx, width: number): Line {
  * `detail`) a row with the selected action's words while the bar has the keyboard (else this computer and the chat route), and
  * the run state and Stop current at its end, kept whole first.
  */
-export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: ActionHit[] } {
+export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: ActionHit[]; foot?: Line } {
   const { ui, data, width } = c;
   const { acts, why } = pageActions(c);
   const { at } = selectedAction(c);
   const focused = ui.focus === 'top';
   const row = acts.length ? actionsRow(acts, at, focused, width, c.g) : { line: [S(why ?? 'No action on this tab.', why?.startsWith('the workspace frame could not') ? 'failure' : 'secondary')] as Line, hits: [] };
   if (!detail) return { lines: [row.line], hits: row.hits };
-  const right = stopRight(c, width);
   const route = routeShown(data);
+  // R5 (H131; the QA round's defect 15): the selected action's words have the row to themselves (the run state and Stop
+  // current are drawn in the panel's bottom edge, src/workbench/screen.ts), and leave out their least needed words first
   const left: Line = focused && acts.length
-    ? actionWords(acts[at], c.g)
+    ? actionWords(acts[at], c.g, width)
     : [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(route.words, route.ready ? 'text' : 'secondary')];
-  return { lines: [row.line, spread(left, right, width, c.g.ellipsis)], hits: row.hits };
+  return { lines: [row.line, fit(left, width, c.g.ellipsis)], hits: row.hits, foot: stopRight(c, Math.max(8, width - 2)) };
 }
 
 // ── the center ─────────────────────────────────────────────────────────────────
@@ -264,7 +299,8 @@ export function centerView(c: ViewCtx): View {
     case 'files': return filesView(c);
     // R5 (H136): tab 3's three columns, references 03 and 12 (src/workbench/workflows-tab.ts)
     case 'workflows': return workflowsTabView(c);
-    case 'control': return controlView(c);
+    // R5 (H137): tab 7's body, the roster, the panes and what waits (src/workbench/control-tab.ts)
+    case 'control': return controlRoomView(c, c.data.control);
     case 'overview': return overviewView(c);
     case 'studio': return studioView(c);
     case 'chat': return chatView(c);
@@ -331,81 +367,8 @@ function filesView(c: ViewCtx): View {
   return { lines, items };
 }
 
-function jobLine(j: JobRow, c: ViewCtx): Line {
-  const m = markOf(j, c.g);
-  // R4 (H112): a job a session left is said in recovery's words (left running, stale, ended by recovery), never as one of ours
-  const who = j.owner === 'workbench' ? 'this Workbench' : j.owner === 'live-session' ? 'another session' : j.owner === 'ended-session' ? 'an ended session' : 'unknown';
-  const where = sameFolder(j.root, c.data.project.root) ? '' : ` ${c.g.sep} in ${j.project}`;
-  // what the row must keep comes first (a row is cut at its end): recovery's state and where it runs right after its label
-  return [
-    S(`${m.glyph} `, m.role), S(j.id, 'strong'), S(`  ${cut(j.word, 10, c.g.ellipsis).padEnd(10)} `, m.role),
-    S(j.label, 'text'), S(j.recovery && j.recovery.state !== j.word ? ` ${c.g.sep} ${j.recovery.state}` : '', 'attention'), S(where, 'secondary'),
-    S(j.blocks ? ` ${c.g.sep} ${j.blocks}` : '', 'secondary'), S(` ${c.g.sep} ${j.elapsed}`, 'secondary'),
-    S(j.operation ? ` ${c.g.sep} ${j.operation}` : ` ${c.g.sep} no operation`, 'secondary'), S(` ${c.g.sep} ${who}`, 'secondary'),
-  ];
-}
-
 /** R4 (H117): the surface a chat turn was sent from, in the Control Room's words ("from the Workbench"). */
 const TURN_SURFACE: Readonly<Record<TurnRow['surface'], string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'a companion page' };
-
-/** R4 (H117): a chat turn's mark, as a job's is marked (markOf): answered as ok, stopped as stopped, failed as failed. */
-const turnMark = (t: TurnRow, g: Glyphs): { glyph: string; role: Role } => (
-  t.state === 'answered' ? { glyph: g.ok, role: 'text' } : t.state === 'failed' ? { glyph: g.fail, role: 'failure' } : { glyph: g.unicode ? '■' : '#', role: 'text' });
-
-/** R4 (H117): one chat turn on one row, as a job's (jobLine): its receipt, how it ended and where from first. */
-function turnLine(t: TurnRow, c: ViewCtx): Line {
-  const m = turnMark(t, c.g);
-  return [
-    S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state.padEnd(10)} `, m.role), S(`from ${TURN_SURFACE[t.surface]}`, 'text'),
-    S(` ${c.g.sep} ${t.model ?? 'model not recorded'}`, 'secondary'), S(` ${c.g.sep} ${took(t.ms)}`, 'secondary'),
-    S(` ${c.g.sep} ${t.operation ?? 'no operation'}`, 'secondary'), S(` ${c.g.sep} ${ago(t.at, c.now)}`, 'secondary'),
-  ];
-}
-
-function controlView(c: ViewCtx): View {
-  const { data, g } = c;
-  const lines: Line[] = [];
-  const items: View['items'] = [];
-  const live = data.jobs.filter((j) => j.live);
-  // R4 (H112): this Workbench's runs in another project keep running when the view switches: listed here, with where
-  const away = (data.away ?? []).filter((j) => j.live);
-  const ended = data.jobs.filter((j) => !j.live).slice(0, 30);
-  const decisions = data.decisions.items;
-  // R4 (H117): every surface's chat turns of this project, from their sealed receipts (src/workbench/state.ts readTurns)
-  const turns = data.turns ?? [];
-  const total = live.length + away.length + decisions.length + ended.length + turns.length;
-  const cur = cursorOf(c.ui, 'center:control', total);
-  let i = 0;
-  lines.push(heading(`Running now (${live.length})`));
-  if (!live.length) lines.push([S('  Nothing runs in this project.', 'secondary')]);
-  for (const j of live) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  if (away.length) {
-    lines.push(blank);
-    lines.push(heading(`Running in another project, started here (${away.length})`));
-    for (const j of away) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  }
-  lines.push(blank);
-  lines.push([...heading(`Waiting on you (${data.decisions.total})`), S(data.decisions.total ? `  ${g.warn} nothing is done until you do it` : '', 'attention')]);
-  if (!decisions.length) lines.push([S('  Nothing waits on you.', 'secondary')]);
-  for (const d of decisions) {
-    items.push({ line: lines.length, item: { kind: 'decision', key: `decision:${d.key}`, decision: d } });
-    lines.push(row([S(`${g.warn} `, 'attention'), S(d.title, 'strong'), S(`  ${d.needed}`, 'secondary'), S(d.commands[0] ? `  ${d.commands[0]}` : '', 'action')], i === cur, g));
-    i += 1;
-  }
-  if (data.decisions.more) lines.push([S(`  and ${data.decisions.more} more: /decisions in the REPL lists them`, 'secondary')]);
-  lines.push(blank);
-  lines.push(heading(`Recent (${ended.length})`));
-  if (!ended.length) lines.push([S('  No job has run in this project yet.', 'secondary')]);
-  for (const j of ended) { items.push({ line: lines.length, item: { kind: 'job', key: `job:${j.id}`, job: j } }); lines.push(row(jobLine(j, c), i === cur, g)); i += 1; }
-  lines.push(blank);
-  lines.push(heading(`Chat turns (${turns.length})`));
-  if (!turns.length) lines.push(...para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', c.width, 'secondary', '  '));
-  for (const t of turns) { items.push({ line: lines.length, item: { kind: 'turn', key: `turn:${t.receipt}`, turn: t } }); lines.push(row(turnLine(t, c), i === cur, g)); i += 1; }
-  if (turns.length >= TURNS_SHOWN) lines.push([S(`  The newest ${TURNS_SHOWN} are listed.`, 'secondary')]);
-  lines.push(...para('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.', c.width, 'secondary', '  '));
-  for (const n of data.decisions.notes) lines.push(...para(n, c.width, 'failure'));
-  return { lines, items };
-}
 
 function lazyLines<T>(l: Lazy<T>, what: string, c: ViewCtx): Line[] | null {
   if (l.state === 'ready') return null;
@@ -468,40 +431,82 @@ function chatView(c: ViewCtx): View {
   // session reads it (R4 lead: routeShown, the same words as the top line and Settings)
   const route = routeShown(data);
   lines.push(field('Route', route.words, route.ready ? 'text' : 'secondary', 8));
-  lines.push(field('Ready', route.ready ? 'a message can be sent on this route' : 'not ready: /setup in the REPL chooses a route', route.ready ? 'text' : 'attention', 8));
-  if (!route.ready && route.refusal?.length) for (const r of route.refusal) lines.push(...para(r, c.width, 'secondary', '  '));
+  // R5 (H131; the QA round's defect 22): one remedy for a chat that is not set up, the workspace frame's step (timmy setup);
+  // the session's refusal is said for its cause only
+  lines.push(field('Ready', route.ready ? 'a message can be sent on this route' : 'not ready: timmy setup (in a shell) sets up a route', route.ready ? 'text' : 'attention', 8));
+  if (!route.ready && route.refusal?.length) {
+    const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
+    for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(r, c.width, 'secondary', '  '));
+  }
   lines.push(blank);
   const t = data.chat;
+  const turn = data.turn;
+  // R5 (H131; the QA round's defect 21): the newest exchange is said once: while it is being answered, below the conversation
+  // (a message of it already kept there is not said twice); once answered and kept there, there, with its receipt under it
+  const same = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
+  let msgs = t.messages;
+  const n = msgs.length;
+  // being answered: its message may be kept already (the last one); answered: the conversation ends with it and its answer
+  const kept = !!turn && (turn.state === 'sending'
+    ? n >= 1 && msgs[n - 1].role === 'user' && same(msgs[n - 1].text, turn.text)
+    : n >= 2 && msgs[n - 2].role === 'user' && same(msgs[n - 2].text, turn.text) && msgs[n - 1].role === 'assistant' && same(msgs[n - 1].text, turn.answer));
+  if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
-  else if (!t.messages.length) lines.push([S('  No conversation is kept in this project yet (.sessions).', 'secondary')]);
-  const cur = cursorOf(c.ui, 'center:chat', t.messages.length);
-  t.messages.forEach((m, i) => {
-    items.push({ line: lines.length, item: { kind: 'message', key: `msg:${i}`, role: m.role, text: m.text } });
+  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet (.sessions).', 'secondary')]);
+  const cur = cursorOf(c.ui, 'center:chat', msgs.length);
+  // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
+  msgs.forEach((m, i) => {
     const who = m.role === 'user' ? 'You' : 'Timmy';
-    lines.push(row([S(`${who.padEnd(6)}`, m.role === 'user' ? 'strong' : 'ai'), S(m.text.replace(/\s+/g, ' '), 'text')], i === cur, g));
+    const body = messageRows(m.text, Math.max(8, c.width - 2 - 6));
+    const sel = i === cur;
+    items.push({ line: lines.length, item: { kind: 'message', key: `msg:${i}`, role: m.role, text: m.text }, rows: body.length });
+    body.forEach((b, k) => lines.push(k === 0
+      ? row([S(who.padEnd(6), m.role === 'user' ? 'strong' : 'ai'), S(b, 'text')], sel, g)
+      : [S('  ', 'text', sel ? { selected: true } : {}), S(' '.repeat(6), 'text', sel ? { selected: true } : {}), S(b, 'text', sel ? { selected: true } : {})]));
   });
-  // the composer's last message, as its turn went (the session's own words)
-  const turn = data.turn;
+  // the composer's turn, as it went (the session's own words)
   if (turn) {
-    lines.push(blank);
-    lines.push(heading(turn.state === 'sending' ? 'Sending now' : 'Your last message here'));
-    lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
-    if (turn.answer) lines.push(...para(`Timmy: ${turn.answer}`, c.width, 'text'));
-    for (const t of turn.tools.slice(-4)) lines.push([S(`  ${t.phase === 'start' ? g.bullet : g.ok} ${t.name}`, 'secondary'), S(t.outcome ? ` ${t.outcome}` : t.phase === 'start' ? ' running' : '', 'secondary')]);
-    for (const l of turn.lines) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
-    const after = turn.state === 'sending'
-      ? [`sending${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc stops it']
-      : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', turn.receipt ? `receipt ${turn.receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
-    lines.push(...para(after.filter(Boolean).join(` ${g.sep} `), c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+    const receipt = turn.receipt ? receiptShort(turn.receipt) : '';
+    const status = turn.state === 'sending'
+      ? [`being answered${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc in the composer, or x, stops it']
+      : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', receipt ? `receipt ${receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
+    const statusRole: Role = turn.state === 'failed' ? 'failure' : 'secondary';
+    if (turn.state !== 'sending' && kept) {
+      // kept in the conversation above: its receipt and what came of it, under it
+      for (const l of turn.lines) lines.push(...para(l, c.width, 'secondary', '  '));
+      lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+    } else {
+      lines.push(blank);
+      lines.push(heading(turn.state === 'sending' ? 'Being answered now' : 'Your last message here'));
+      lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
+      if (turn.answer) lines.push(...para(`Timmy: ${turn.answer}`, c.width, 'text'));
+      for (const x of turn.tools.slice(-4)) lines.push([S(`  ${x.phase === 'start' ? `${g.run} running` : `${g.ok} done`} ${x.name}`, 'secondary'), S(x.outcome ? ` ${x.outcome}` : '', 'secondary')]);
+      for (const l of turn.lines) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+      lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+    }
   }
   lines.push(blank);
   lines.push(heading('Composer'));
-  if (ui.input.field === 'composer') lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], [S('  Enter sends · Esc leaves the composer', 'secondary')]);
+  if (ui.input.field === 'composer') {
+    lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+    // R5 (H131; the QA round's defect 1): what Esc does now, one thing at a time
+    lines.push([S(turn?.state === 'sending' ? '  Esc stops the turn being answered · Enter sends once it is answered' : '  Enter sends · Esc leaves the composer', 'secondary')]);
+  }
   // R5 (H131): the conversation is the body's left column now: the hint is short enough for it
   else lines.push([key('Enter'), S(c.can.chat ? ' Type a message (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
   return { lines, items };
+}
+
+/** R5 (H131; the QA round's defect 8): the conversation's view follows its newest rows (an answer's end, its receipt and the
+ *  composer) until the person selects a message; while the composer is open it is always in view. */
+export const chatFollows = (ui: Pick<Ui, 'chosen' | 'input'>): boolean => !ui.chosen?.['center:chat'] || ui.input.field === 'composer';
+
+/** R5 (H131): a message's words as rows of at most `width` cells, its paragraphs kept (one blank row between them). */
+function messageRows(text: string, width: number): string[] {
+  const rows = wrapText(text.trim() || '(empty)', width);
+  return rows.filter((r, i) => r !== '' || (i > 0 && rows[i - 1] !== ''));
 }
 
 function capLine(r: CapabilityRow, g: Glyphs): Line {
@@ -521,6 +526,10 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   const total = rows.length + records.length;
   const cur = cursorOf(c.ui, `center:${ws}`, total);
   let i = 0;
+  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw, and which keys show it rendered
+  if (ws === 'create3d' || ws === 'motion') {
+    lines.push(...wrapSegs([S('A terminal cannot draw images, 3D or live previews: ', 'secondary'), key('c'), S(' Companion · Show, ', 'secondary'), key('s'), S(' Studio · Show.', 'secondary')], c.width, '  '), blank);
+  }
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -580,8 +589,11 @@ function toolsSearch(ui: Ui): ToolsSearch {
 
 // ── the overlays (drawn in the center) ─────────────────────────────────────────
 
+/** The keys sheet's key column: the longest key and a cell of air. */
+const KEY_COLUMN = 17;
+
 export const HELP: ReadonlyArray<[string, string]> = [
-  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace'],
+  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace. Row 1 says their full labels where they fit, else their first words, else their keys with the open tab\'s name at the end; a tab never moves, and ⚠ with a count over a tab is what waits on you there'],
   ['Tab / Shift+Tab', 'the next or previous zone: the body\'s columns, Activity & log, the workflow actions (the one with the keyboard has a heavy amber border and ◆)'],
   ['↑ ↓ or k j', 'move within the zone; PgUp PgDn a page'],
   ['← →', 'the workflow actions (row 2); Context\'s tabs (Tools, Inspector, Files)'],
@@ -604,7 +616,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['?', 'these keys'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
   ['Mouse', 'a click picks a tab, selects an action, a card or a row, or presses a [key]; a click never runs or allows anything (Enter, the key, runs; y allows); the wheel scrolls the list under the pointer'],
-  ['Marks', '● live (green: an answer seen in the last 30 min)  ○ configured (a setting, not seen answering)  ✕ unreachable or refused (amber)  · not set up  ? unknown; green is only ever live, passed or verified'],
+  ['Marks', '● live (green: an answer seen in the last 30 min)  ○ configured (a setting, not seen answering)  ✕ unreachable, refused or failed (amber)  · not set up  ? unknown  ▶ running  … waiting its turn  ⚠ waits on you; each mark has its word beside it, and green is only ever live, passed or verified'],
   ['Activity', 'collapsed: the log\'s newest lines, the newest first; expanded: oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
 ];
 
@@ -614,8 +626,13 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
   const items: View['items'] = [];
   switch (o.kind) {
     case 'help':
-      lines.push([S('Keys', 'strong'), S('  Esc closes. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], blank);
-      for (const [k, w] of HELP) lines.push([S(k.padEnd(16), 'action'), S(w, 'text')]);
+      // R5 (H131; the QA round's defect 5): every entry whole, its words wrapped under themselves (the body is a column of
+      // about half the width on Home and Chat)
+      lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
+      for (const [k, w] of HELP) {
+        const words = wrapText(w, Math.max(8, c.width - KEY_COLUMN));
+        words.forEach((r, i) => lines.push(i === 0 ? [S(k.padEnd(KEY_COLUMN), 'action'), S(r, 'text')] : [S(' '.repeat(KEY_COLUMN)), S(r, 'text')]));
+      }
       return { lines, items };
     case 'picker': {
       lines.push([S('Switch project', 'strong'), S('  type to search; Enter chooses; a path (with /) opens that folder; Esc keeps this one', 'secondary')]);
@@ -661,27 +678,33 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       const s = ui.settings.settings;
       const n = SETTING_LABELS.length + PRESETS.length;
       const cur = cursorOf(ui, 'overlay', n);
+      // R5 (H131; the QA round's defects 5 and 25): each row whole, wrapped under its label (a selected one keeps its ground on
+      // every row); the settings file's path from ~ where it can be, broken at its separators
+      const wrapped = (line: Line, sel: boolean, indent: string): Line[] => wrapSegs(line, Math.max(8, c.width - 2), indent).map((r, k) => (k === 0 ? row(r, sel, g) : [S('  ', 'text', sel ? { selected: true } : {}), ...r.map((x) => (sel ? { ...x, selected: true } : x))]));
       SETTING_LABELS.forEach((x, i) => {
-        items.push({ line: lines.length, item: { kind: 'action', key: `setting:${x.key}`, action: x.key } });
-        lines.push(row([S(s[x.key] ? g.check : g.uncheck, 'action'), S(` ${x.label}`, 'strong'), S(`  ${x.about}`, 'secondary')], i === cur, g));
+        const rows = wrapped([S(s[x.key] ? g.check : g.uncheck, 'action'), S(` ${x.label}`, 'strong'), S(`  ${x.about}`, 'secondary')], i === cur, ' '.repeat(lineCells([S(`${g.check} `)])));
+        items.push({ line: lines.length, item: { kind: 'action', key: `setting:${x.key}`, action: x.key }, rows: rows.length });
+        lines.push(...rows);
       });
       lines.push(blank);
       lines.push(heading('Presets (the startup choices)'));
       PRESETS.forEach((p, j) => {
-        items.push({ line: lines.length, item: { kind: 'action', key: `preset:${p.id}`, action: p.id } });
-        lines.push(row([S(p.label, 'strong'), S(`  ${p.about}`, 'secondary')], SETTING_LABELS.length + j === cur, g));
+        const rows = wrapped([S(p.label, 'strong'), S(`  ${p.about}`, 'secondary')], SETTING_LABELS.length + j === cur, '  ');
+        items.push({ line: lines.length, item: { kind: 'action', key: `preset:${p.id}`, action: p.id }, rows: rows.length });
+        lines.push(...rows);
       });
       lines.push(blank);
-      lines.push(...para(`Kept in ${tildePath(ui.settings.path)}. Show acts now; the startup choices apply when timmy workbench starts at a terminal, never for --json, --help or a script.`, c.width));
+      lines.push(...wrapSegs([S('Kept in ', 'secondary'), S(`${tildePath(ui.settings.path)}.`, 'secondary'), S(' Show acts now; the startup choices apply when timmy workbench starts at a terminal, never for --json, --help or a script.', 'secondary')], c.width));
       return { lines, items };
     }
     case 'confirm-run':
       lines.push([S('Run ', 'strong'), S(`${o.doc} › ${o.block}`, 'strong'), S('?', 'strong')]);
       lines.push(blank);
-      lines.push(field('Runs', o.order.join(` ${g.arrow} `)));
-      lines.push(field('How', 'the REPL\'s own /run: its prediction sealed first, upmd runs each block after the blocks it needs'));
-      lines.push(field('Where', `${data.project.name} (${data.project.shown}), on this computer`));
-      if (o.risky.length) lines.push(field('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, 'attention'));
+      // R5 (H131; the QA round's defect 15): each field whole, wrapped under itself
+      lines.push(...fieldRows('Runs', o.order.join(` ${g.arrow} `), c.width));
+      lines.push(...fieldRows('How', 'the REPL\'s own /run: its prediction sealed first, upmd runs each block after the blocks it needs', c.width));
+      lines.push(...fieldRows('Where', `${data.project.name} (${data.project.shown}), on this computer`, c.width));
+      if (o.risky.length) lines.push(...fieldRows('Needs you', `${o.risky.map((r) => r.name).join(', ')}: a destructive command; its NEEDS YOU box asks first`, c.width, 'attention'));
       {
         // R4 (H112): a run of it that goes on now: Enter starts nothing (one press, one operation, one job)
         const going = runOfBlock(c, o.doc, o.block);
@@ -800,6 +823,8 @@ export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
   if (ws === 'tools' || ws === 'voxvision' || ws === 'create3d' || ws === 'motion' || ws === 'rea') out.push({ key: 'r', label: 'Check the tools again (local checks only)', enabled: true });
   else out.push({ key: 'r', label: `Read ${c.data.project.name}'s records again`, enabled: true });
   if (stop.target) out.push({ key: 'x', label: `Stop current: ${stop.target.id} ${stop.target.label}`, enabled: true });
+  else if (stop.turn?.mine) out.push({ key: 'x', label: 'Stop current: the chat turn being answered here', enabled: true });
+  else if (stop.turn) out.push({ key: 'x', label: 'Stop current', enabled: false, why: `the chat turn is being answered in ${stop.turn.where}, and stops there` });
   else out.push({ key: 'x', label: 'Stop current', enabled: false, why: 'nothing runs in this project' });
   return out.filter((a, i, all) => all.findIndex((b) => b.key === a.key && b.label === a.label) === i);
 }
@@ -828,6 +853,7 @@ function itemName(item: Item | null): string {
     case 'fleet-plan': case 'clef-decision': return fleetItemName(item);
     case 'vox-record': return voxItemName(item);
     case 'mcp-call': return toolsItemName(item);
+    case 'live-turn': return controlItemName(item);
     default: return 'an action';
   }
 }
@@ -900,7 +926,8 @@ function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx): Line[] {
 function inspectorTab(c: ViewCtx, item: Item | null): View {
   const lines: Line[] = [];
   const w = c.width;
-  if (!item) return { lines: [heading('Inspector'), [S('Nothing is selected: choose a row in the center.', 'secondary')]], items: [] };
+  // R5 (H131; the QA round's defect 17): the body's list, wherever it is drawn (there is no center column on every layout)
+  if (!item) return { lines: [heading('Inspector'), [S('Nothing is selected: choose a row in the list.', 'secondary')]], items: [] };
   const f = (l: string, v: string, r: Role = 'text'): void => { lines.push(...fieldRows(l, v, w, r, 10)); };
   switch (item.kind) {
     case 'file': {
@@ -939,7 +966,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       lines.push(...para(j.ownerWords, w, 'secondary'));
       if (j.error) lines.push(...para(j.error, w, 'failure'));
       if (j.note) lines.push(...para(j.note, w, 'secondary'));
-      for (const s of j.steps.slice(0, 8)) lines.push([S(`  ${s.state === 'completed' ? c.g.ok : s.state === 'failed' ? c.g.fail : c.g.bullet} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`, 'secondary')]);
+      // (R5, H131: each mark has one meaning: ▶ runs, … waits its turn; the word is beside it)
+      for (const s of j.steps.slice(0, 8)) lines.push([S(`  ${s.state === 'completed' ? c.g.ok : s.state === 'failed' ? c.g.fail : s.state === 'running' ? c.g.run : c.g.wait} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`, 'secondary')]);
       lines.push(blank, ...(j.operation ? detailLines(c.data.details[j.operation], c) : para('Run detail: this job names no operation.', w)));
       break;
     }
@@ -993,6 +1021,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     // R5 (H134): tab 5's records and tab 9's calls, in full
     case 'vox-record': lines.push(...voxDetail(item, c.data.voxTab, w, c.g)); break;
     case 'mcp-call': lines.push(...mcpCallInspector(item, c.data.toolsTab, w, c.g)); break;
+    // R5 (H137): a chat turn being answered (tab 7's pane), in its hold's words
+    case 'live-turn': lines.push(...liveTurnDetail(item.live, w, c.g, c.now, c.data.turn)); break;
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
   }
   return { lines, items: [] };
@@ -1059,22 +1089,32 @@ export function rightView(c: ViewCtx): View {
  * them. `foot` is the key-hint line, drawn last (a fresh notice takes its place for a few seconds). `fixed`: the rows at the top
  * that do not scroll.
  */
-export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line } {
+export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
   const { ui, data, g, width } = c;
   const fresh = ui.flash && c.now - ui.flash.at < 6000 ? ui.flash : null;
-  const foot: Line = fresh ? [S(fresh.text, fresh.role)] : hintLine(width);
+  // R5 (H131; the QA round's defect 15): a notice wider than the row takes the row above the hints too (for its few seconds),
+  // so its words are read to their end ("…so Timmy asks once" was cut); a longer one is cut at the second row's end
+  const said = fresh ? wrapSegs([S(fresh.text, fresh.role)], width) : null;
+  const foot: Line = !said ? hintLine(width) : said.length === 1 ? said[0] : fit(said.slice(1).flatMap((r, i) => (i ? [S(' '), ...r] : r)), width, g.ellipsis);
+  const footAbove = said && said.length > 1 ? said[0] : undefined;
   const a = data.activity;
-  const last = a.last ? `${clock(a.last.at)} ${a.last.words}` : 'nothing yet';
-  const motion = !ui.settings.settings.reducedMotion && a.running ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][Math.floor(c.now / 250) % 10] : '';
+  // R5 (H131; the QA round's defect 9): the newest event in words; a line a job printed (its raw output) is tab 0's
+  const newest = a.events.find((e) => !e.output) ?? null;
+  const last = newest ? `${clock(newest.at)} ${newest.words}` : 'nothing yet';
+  // R5 (H131; the QA round's defect 1): a chat turn being answered runs too
+  const turn = chatTurnNow(data);
+  const runningN = a.running + (turn ? 1 : 0);
+  const motion = !ui.settings.settings.reducedMotion && runningN ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][Math.floor(c.now / 250) % 10] : '';
   // R4 (H112): this Workbench's runs in another project count as running, with where they run
-  const running = a.away ? `${a.running} running (${a.away.running} in ${a.away.where.join(', ')})` : `${a.running} running`;
+  const turnWords = turn ? `, the chat turn${turn.mine ? '' : ` in ${turn.where}`}` : '';
+  const running = a.away ? `${runningN} running (${a.away.running} in ${a.away.where.join(', ')}${turnWords})` : `${runningN} running${turn ? ` (${turnWords.slice(2)})` : ''}`;
   // the newest of this Workbench's own Activity (a notice of what it did, a job's line) stays on the first row, as R4 drew it;
   // the rows under it, collapsed, are the shared log's
   const strip: Line = [
     S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'action'), S('Activity  ', 'strong'),
     S(`${motion && g.unicode ? `${motion} ` : ''}${running}`, 'text'), S(` ${g.sep} `, 'secondary'),
     S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'),
-    S(` ${g.sep} last: `, 'secondary'), S(last, a.last?.failed ? 'failure' : 'text'),
+    S(` ${g.sep} last: `, 'secondary'), S(last, newest?.failed ? 'failure' : 'text'),
   ];
   const toggle: Line = [key('a'), S(ui.activityOpen ? ' collapse' : ' expand', 'secondary')];
   // on a short terminal row 2 has no row for the run state and Stop: they are here, kept whole first
@@ -1084,7 +1124,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   if (!ui.activityOpen) {
     const n = Math.max(0, o.logLines ?? 3);
     lines.push(...newestLog(c, n, width).slice(0, n));
-    return { lines, items, fixed: lines.length, foot };
+    return { lines, items, fixed: lines.length, foot, ...(footAbove ? { footAbove } : {}) };
   }
   {
     const sel = selectedItem(c);
@@ -1109,5 +1149,5 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
       for (const rest of more) lines.push([S(' '.repeat(2 + at.length)), S(rest, role)]);
     });
   }
-  return { lines, items, fixed: 2, foot };
+  return { lines, items, fixed: 2, foot, ...(footAbove ? { footAbove } : {}) };
 }

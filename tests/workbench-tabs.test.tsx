@@ -22,10 +22,10 @@ import { visibleWidth } from '../src/term/width.js';
 import { WorkbenchApp } from '../src/workbench/app.js';
 import { Controller } from '../src/workbench/controller.js';
 import { glyphsFor, screenText } from '../src/workbench/frame.js';
-import { workspaceOfPage } from '../src/workbench/hub.js';
+import { frameTabs, tabBar, workspaceOfPage } from '../src/workbench/hub.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
-import type { Role, Seg } from '../src/workbench/text.js';
+import { lineCells, plain, type Role, type Seg } from '../src/workbench/text.js';
 import { styleOf } from '../src/workbench/theme.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -182,6 +182,39 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     expect(c.ui.page).toBe('control');
   }, 60_000);
 
+  it('row 1 keeps every tab where it is, at every size, whichever tab is active and whatever waits (the QA round\'s defect 4): the same cells, the waiting count in the top edge (boxes) or a cell of its own (one row)', () => {
+    const g = glyphsFor(true);
+    for (const [w, rows] of [[180, 3], [160, 3], [120, 3], [100, 3], [80, 1], [60, 1], [70, 3], [60, 3]] as const) {
+      let first = '';
+      let form = '';
+      for (const active of TABS.map((t) => t.id)) {
+        for (const waiting of [0, 1, 12]) {
+          const tabs = frameTabs(undefined).map((t) => ({ ...t, waiting: t.id === 'control' || t.id === 'home' ? waiting : 0 }));
+          const bar = tabBar(tabs, active, 'tray-stable', w, rows, g);
+          const where = `${w} columns, ${active} active, ${waiting} waiting`;
+          const cellsAt = JSON.stringify(bar.hits.map((h) => [h.x0, h.x1]));
+          first ||= cellsAt;
+          form ||= bar.form;
+          expect(cellsAt, where).toBe(first);
+          expect(bar.form, where).toBe(form);
+          expect(bar.lines).toHaveLength(rows);
+          for (const l of bar.lines) expect(lineCells(l), where).toBe(w);
+          const text = bar.lines.map(plain);
+          // what waits is drawn over its own tab, and nowhere else; the labels' row never carries it on a boxed bar
+          for (const h of bar.hits) {
+            // a boxed tab's top edge, or a one-row bar's cell (its last cell is kept for the mark)
+            const over = text[0].slice(h.x0, h.x1 + 1);
+            const waits = waiting > 0 && (h.page === 'control' || h.page === 'home');
+            expect(over.includes(g.warn), `${where}: the mark over ${h.page}`).toBe(waits);
+            // the count with it where the box has room for both (and an edge cell before them)
+            if (waits && rows === 3 && waiting === 1 && h.x1 - h.x0 - 1 >= 3) expect(over, where).toContain(`${g.warn}1`);
+          }
+          if (rows === 3) expect(text[1], where).not.toContain(g.warn);
+        }
+      }
+    }
+  });
+
   it('row 2 draws each tab\'s workflow actions as the frame names them: at most one primary next step, amber (filled, ▶), exactly the frame\'s; no action is ever green', async () => {
     sandbox();
     const p = trayProject('tabs-actions');
@@ -297,6 +330,15 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     const none = c.frame(160, 70);
     expect(cells(none).filter((s) => s.role === 'live' && s.text.trim())).toEqual([]);
   }, 60_000);
+
+  it('on the selection\'s ground a quiet word takes the text\'s colour (the QA round\'s defect 11: grey on it measured 3.88:1); elsewhere it stays quiet', () => {
+    for (const role of ['secondary', 'border'] as const) {
+      expect(styleOf({ text: 'x', role, selected: true }, true)).toMatchObject({ color: HOMEBREW.text, backgroundColor: HOMEBREW.accentSoft });
+      expect(styleOf({ text: 'x', role }, true).color).not.toBe(HOMEBREW.text);
+    }
+    // the roles that carry a meaning keep their colour on it (their word says it too)
+    for (const role of ['action', 'attention', 'failure', 'live', 'ai', 'link'] as const) expect(styleOf({ text: 'x', role, selected: true }, true).color).toBe(styleOf({ text: 'x', role }, true).color);
+  });
 
   it('only the role `live` is green: every other role\'s colour is not Homebrew\'s green (B10)', () => {
     const roles: Role[] = ['text', 'secondary', 'strong', 'action', 'link', 'attention', 'failure', 'live', 'ai', 'border', 'focus'];

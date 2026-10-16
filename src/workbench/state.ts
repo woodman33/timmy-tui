@@ -93,7 +93,18 @@ export const KIND_WORD: Readonly<Record<FileKind, string>> = {
 export const KIND_ORDER: readonly FileKind[] = ['source', 'workflow', 'reference', 'results', 'records', 'other'];
 
 export interface FileRow extends ProjectFile { kind: FileKind }
-export interface FilesView { total: number; truncated: boolean; groups: Array<{ kind: FileKind; title: string; files: FileRow[] }> }
+export interface FilesView {
+  total: number; truncated: boolean; groups: Array<{ kind: FileKind; title: string; files: FileRow[] }>;
+  /** R5 (H131): of `total`, the logs Timmy itself writes in the folder (TIMMY_LOGS) */
+  timmyLogs?: number;
+}
+
+/**
+ * R5 (H131; the QA round's defect 24): the logs Timmy itself writes into the folder it runs in (src/utils/logger.ts makes them,
+ * empty, when it is loaded, in the working folder): they are not the project's files, so Home counts them apart. Named here,
+ * not imported: loading that module makes them.
+ */
+export const TIMMY_LOGS: ReadonlySet<string> = new Set(['logs/timmy-tui.log', 'logs/companion.log', 'logs/browser-launcher.log', 'logs/workspace-launcher.log', 'logs/agent-events.log']);
 
 export function readFiles(root: string): FilesView {
   const { files, truncated } = listProjectFiles(root);
@@ -101,10 +112,15 @@ export function readFiles(root: string): FilesView {
   return {
     total: rows.length, truncated,
     groups: KIND_ORDER.map((kind) => ({ kind, title: KIND_TITLE[kind], files: rows.filter((f) => f.kind === kind) })).filter((g) => g.files.length),
+    timmyLogs: rows.filter((f) => TIMMY_LOGS.has(f.rel)).length,
   };
 }
 
 // ── workflows ──────────────────────────────────────────────────────────────────
+
+/** R5 (H131; the QA round's defect 18): a block's mark in the terminal, one meaning each: ▶ running and … waiting its turn (the
+ *  board's ● and ○ say live and configured here); the board's own marks for every other state. The word is always beside it. */
+const BLOCK_GLYPH: Partial<Record<NodeWord, string>> = { running: '▶', waiting: '…' };
 
 export interface BlockRow {
   doc: string;
@@ -164,7 +180,7 @@ export function readWorkflows(root: string, o: { jobs: readonly JobRecord[]; cha
           const n = c?.nodes[i];
           const word: NodeWord = n?.word ?? 'not run yet';
           return {
-            doc: r.rel, key: n?.key ?? String(b.index ?? i + 1), name: b.name, lang: b.lang ?? '', needs: [...b.deps], word, glyph: NODE_GLYPH[word], detail: n?.detail ?? '',
+            doc: r.rel, key: n?.key ?? String(b.index ?? i + 1), name: b.name, lang: b.lang ?? '', needs: [...b.deps], word, glyph: BLOCK_GLYPH[word] ?? NODE_GLYPH[word], detail: n?.detail ?? '',
             ...(n?.run ? { run: n.run } : {}), order: n?.order ?? [b.name], missing: n?.missing ?? [], ...(n?.cycle ? { cycle: n.cycle } : {}), risky: n?.risky ?? [],
             ...(n?.command !== undefined ? { command: n.command } : {}),
           };
@@ -463,9 +479,15 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
  * operation's own receipt, verified here by `verify` (its chain link, body hash and signature: src/utils/receipts.ts
  * verifyReceiptIn). What no record says is said so; nothing is guessed. Reads only.
  */
-export function readPipeline(root: string, rows: readonly JobRow[], chain: readonly Receipt[], verify: (hash: string) => { ok: true } | { ok: false; reason: string }): PipelineView {
+export function readPipeline(root: string, rows: readonly JobRow[], chain: readonly Receipt[], verify: (hash: string) => { ok: true } | { ok: false; reason: string }, o: PipelineTurns = {}): PipelineView {
   const none = (words: string): PipelineStage => ({ state: 'not run yet', words });
   const job = rows.find((j) => j.operation);
+  // R5 (H131; the QA round's defect 8): the newest operation, a chat turn too: one being answered now, else the newest of the
+  // newest job's and the newest sealed turn's, by when each began
+  if (o.sending?.operation) return turnPipeline(root, o.sending.operation, chain, verify, { live: true, surface: 'workbench', ...(o.sending.request ? { request: o.sending.request } : {}) });
+  const turn = o.turns?.find((t) => t.operation);
+  const began = (t: TurnRow): number => Date.parse(t.at) - (t.ms ?? 0);
+  if (turn?.operation && (!job || began(turn) >= Date.parse(job.startedAt))) return turnPipeline(root, turn.operation, chain, verify, { live: false, surface: turn.surface, state: turn.state });
   if (!job?.operation) {
     return { operation: null, label: null, intent: none('not run yet'), predict: none('not run yet'), sandbox: none('not run yet'), receipt: none('not run yet') };
   }
@@ -490,7 +512,43 @@ export function readPipeline(root: string, rows: readonly JobRow[], chain: reado
       ? { state: 'done', words: `sealed ${shortReceipt(own)} · verified here`, verified: true }
       : { state: 'failed', words: `sealed ${shortReceipt(own)} · does not verify: ${v.reason}` };
   }
-  return { operation: op, label: job.label, intent, predict, sandbox, receipt };
+  return { operation: op, label: job.label, kind: 'job', intent, predict, sandbox, receipt };
+}
+
+/** R5 (H131): the chat turns readPipeline weighs: the project's sealed turns (newest first) and this Workbench's own turn being
+ *  answered now. */
+export interface PipelineTurns { turns?: readonly TurnRow[]; sending?: { operation?: string; request?: string } | null }
+
+const SURFACE_NAME: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+
+/** R5 (H131): a chat turn's operation as the pipeline row says it, from its records: its request, a prediction if one was
+ *  sealed, what answered it, and its own receipt (verified here). A turn being answered has no receipt yet. */
+function turnPipeline(root: string, op: string, chain: readonly Receipt[], verify: (hash: string) => { ok: true } | { ok: false; reason: string }, t: { live: boolean; surface: string; state?: TurnRow['state']; request?: string }): PipelineView {
+  const where = SURFACE_NAME[t.surface] ?? t.surface;
+  const rec = readOperationRecord(root, op);
+  // (a turn being answered here: its operation's record is written as its receipt is sealed; until then its request is the
+  // message this Workbench sent)
+  const intent: PipelineStage = rec.ok ? { state: 'done', words: rec.record.request }
+    : t.live && t.request ? { state: 'done', words: t.request }
+      : { state: 'unknown', words: `its operation record could not be read (${rec.error})` };
+  const mine = chain.filter((r) => r.operation_id === op);
+  const predicted = [...mine].reverse().find((r) => r.kind === 'predict');
+  const predict: PipelineStage = predicted ? { state: 'done', words: `sealed before it ran (${shortReceipt(predicted)})` } : { state: 'none', words: 'none recorded for this turn' };
+  const word = t.live ? 'being answered' : t.state ?? 'ended';
+  const sandbox: PipelineStage = {
+    state: t.live ? 'running' : t.state === 'failed' ? 'failed' : 'done',
+    words: `none recorded: a chat turn in ${where} · ${word}`,
+  };
+  const own = [...mine].reverse().find((r) => chatTurnOf(r)) ?? [...mine].reverse().find((r) => r.kind !== 'predict');
+  let receipt: PipelineStage;
+  if (!own) receipt = t.live ? { state: 'running', words: 'not sealed yet: it is being answered' } : { state: 'none', words: 'none sealed for this turn' };
+  else {
+    const v = verify(own.hash);
+    receipt = v.ok
+      ? { state: 'done', words: `sealed ${shortReceipt(own)} · verified here`, verified: true }
+      : { state: 'failed', words: `sealed ${shortReceipt(own)} · does not verify: ${v.reason}` };
+  }
+  return { operation: op, label: `chat turn in ${where}`, kind: 'chat', ...(t.live ? { live: true } : {}), intent, predict, sandbox, receipt };
 }
 
 // ── each tool workspace's records in this project ──────────────────────────────

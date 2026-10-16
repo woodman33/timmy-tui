@@ -10,6 +10,7 @@ import type { ApprovalRequest } from '../repl/approvals.js';
 import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.js';
 import type { ProjectCard, ProjectOperation } from '../studio/project-cards.js';
 import type { BoardTemplate } from '../studio/templates.js';
+import type { ControlData, LiveTurnRow } from './control-tab.js';
 import type { FleetData, FleetItem } from './fleet-tab.js';
 import type { LogsData, LogsItem } from './logs-tab.js';
 import type { WorkspaceId } from './nav.js';
@@ -57,6 +58,8 @@ export interface TurnView {
   operation?: string;
   tools: Array<{ name: string; phase: 'start' | 'end'; outcome?: string }>;
   at: number;
+  /** R5 (H131): when its answer ended (this process's clock): a workspace frame read before then still names the turn */
+  ended?: number;
 }
 
 /**
@@ -131,6 +134,8 @@ export interface Data {
    *  each made only while its tab is shown */
   voxTab?: VoxData;
   toolsTab?: ToolsData;
+  /** R5 (H137): tab 7's reading (src/workbench/control-tab.ts readControl), made only while the tab is shown */
+  control?: ControlData;
   /** R5 (H136): tab 3's reading of the selected block's newest run (src/workbench/workflows-tab.ts readWorkflowsTab), made
    *  each frame only while the tab is shown */
   workflowsTab?: WorkflowsTabData;
@@ -149,8 +154,12 @@ export interface PipelineStage {
 /** R5 (H131): the Chat tab's pipeline row: intent → predict → sandbox → receipt, of the project's newest run. */
 export interface PipelineView {
   operation: string | null;
-  /** the run's job, by its label */
+  /** the run's job, by its label (a chat turn: "chat turn in the Workbench") */
   label: string | null;
+  /** R5 (H131; the QA round's defect 8): what the newest operation is: a job's run, or a chat turn (answered, or being answered) */
+  kind?: 'job' | 'chat';
+  /** R5 (H131): a chat turn being answered here now (its request is the message this Workbench sent; no receipt yet) */
+  live?: boolean;
   intent: PipelineStage;
   predict: PipelineStage;
   sandbox: PipelineStage;
@@ -182,10 +191,14 @@ export type Item =
   | Extract<ToolsItem, { kind: 'mcp-call' }>
   /** R5 (H134): tab 0's rows (a receipt, an operation, another event) and tab 8's (a fleet plan, a decision) */
   | LogsItem
-  | FleetItem;
+  | FleetItem
+  /** R5 (H137): a chat turn being answered, as its hold names it (tab 7's pane) */
+  | { kind: 'live-turn'; key: string; live: LiveTurnRow };
 
-/** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one. */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number }>; note?: string }
+/** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one; `x`
+ *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in
+ *  another column is not on it). */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number } }>; note?: string }
 
 export type Overlay =
   | null

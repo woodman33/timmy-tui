@@ -129,10 +129,12 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       shown = await acts();
       expect(shown.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open', border: AMBER })]);
       expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBeUndefined();
-      // a new revision that changes nothing the strip shows (the check's age, "N s ago", is in the frame, not in the strip) is
-      // read, and nothing is redrawn: a focused Copy button stays where it is
+      // a new revision that changes nothing the strip shows is read, and nothing is redrawn: a focused Copy button stays where
+      // it is. R5 lead: the frame's time words change at most once a minute now (58ee2d5), so the check's age no longer makes a
+      // new revision within the wait; the check's own words do (they are in the frame's connections, not in the strip)
       const live = await page.getAttribute('#frame', 'data-revision');
       await page.evaluate(() => { (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept = true; });
+      writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date().toISOString(), detail: 'FAKE: written by the test, a second time' } } }, { TIMMY_HOME: home });
       await page.waitForFunction((r) => document.getElementById('frame')?.dataset.revision !== r, live, { timeout: 20_000 });
       expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
       expect(await page.getAttribute('#frame', 'data-stale')).toBe('false');
