@@ -12,7 +12,8 @@
 //   3. the row above it is the key-hint line (a kept capture), or for a wait either that line or the notice drawn in its place
 //      for a few seconds (src/workbench/views.ts bottomView);
 //   4. two reads, one poll apart, are the same.
-// Once the Workbench has left its screen (it quit), the terminal's own screen is read: two reads the same.
+// Once the Workbench has ended (no process of it under the pane's shell, whether it quit or was killed, and whether or not it
+// left its screen), the terminal's own screen is read: two reads the same (the shell's EXIT line, say).
 //
 // Keys go one at a time: each is sent once the Workbench has read every byte of the one before (FIONREAD on the pane's
 // terminal, which the Workbench holds in raw mode, is 0 on two reads), so two keys never arrive as one and a key is never
@@ -37,8 +38,9 @@ export interface Pane {
   diagnose?: () => string;
 }
 
-/** One read of a pane: its screen as capture-pane prints it, its size, and whether its program has its own screen up. */
-export interface Read { text: string; cols: number; rows: number; alternate: boolean }
+/** One read of a pane: its screen as capture-pane prints it, its size, whether its program has its own screen up, and the
+ *  pane's own process (the shell the Workbench runs under). */
+export interface Read { text: string; cols: number; rows: number; alternate: boolean; pid: number }
 
 /** What the row above the bottom border must be: the key-hint line itself, or that line or a notice in its place. */
 export type Foot = 'hints' | 'drawn';
@@ -52,12 +54,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // (the synchronous reads' poll: a wait that blocks its caller, as a synchronous screen read does)
 const pause = (ms: number): void => { execFileSync('sleep', [String(ms / 1000)]); };
 
-/** The pane's size, whether its program's screen is up, and its screen: one tmux call, so the three are of one moment. */
+/** The pane's size, whether its program's screen is up, its shell and its screen: one tmux call, so they are of one moment. */
 export function readPane(p: Pane, target = p.target): Read {
-  const out = p.tmux('display-message', '-p', '-t', target, '#{pane_width} #{pane_height} #{alternate_on}', ';', 'capture-pane', '-p', '-t', target);
+  const out = p.tmux('display-message', '-p', '-t', target, '#{pane_width} #{pane_height} #{alternate_on} #{pane_pid}', ';', 'capture-pane', '-p', '-t', target);
   const nl = out.indexOf('\n');
-  const [cols, rows, alternate] = out.slice(0, nl).trim().split(/\s+/).map(Number);
-  return { text: out.slice(nl + 1), cols, rows, alternate: alternate === 1 };
+  const [cols, rows, alternate, pid] = out.slice(0, nl).trim().split(/\s+/).map(Number);
+  return { text: out.slice(nl + 1), cols, rows, alternate: alternate === 1, pid };
+}
+
+/** Whether the Workbench still runs in the pane: a process under the pane's shell started as `… workbench`. */
+export function workbenchRuns(r: Read): boolean {
+  try { execFileSync('pgrep', ['-P', String(r.pid), '-f', '(^| )workbench( |$)'], { stdio: 'ignore', timeout: 5000 }); return true; } catch { return false; }
 }
 
 /** Why a read is not a whole Workbench frame (null when it is one). */
@@ -101,16 +108,17 @@ export interface Until {
   frame?: boolean;
 }
 
-/** Why a read does not count yet (null: it does): a whole frame while the Workbench's screen is up, and the condition. */
+/** Why a read does not count yet (null: it does): a whole frame while the Workbench runs with its screen up, and the condition. */
 function notYet(r: Read, o: Until): string | null {
   const problem = r.alternate && o.frame !== false ? frameProblem(r, o.foot) : null;
-  if (problem) return problem;
+  // (a screen that is not a whole frame counts against a read only while the Workbench is still there to draw one)
+  if (problem && workbenchRuns(r)) return problem;
   if (o.re && !o.re.test(r.text)) return `${o.re} does not match it`;
   if (o.test && !o.test(r.text)) return 'its condition does not hold of it';
   return null;
 }
 
-/** Waits until the pane shows a whole frame (or, once the Workbench quit, a screen) that meets `o`, the same in two reads. */
+/** Waits until the pane shows a whole frame (or, once the Workbench has ended, its screen) that meets `o`, the same in two reads. */
 export async function waitScreen(p: Pane, o: Until): Promise<string> {
   const ms = o.ms ?? 30_000;
   let prev: string | null = null;
