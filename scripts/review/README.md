@@ -30,8 +30,10 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 (any command), `./review.sh where` (folders and ports), `./review.sh clean` (removes ./sandbox only, after you type yes).
 
 - **Chat needs a route.** `./review.sh ollama 127.0.0.1:11434 <a model your Ollama lists>` sets your own local Ollama (no key,
-  no charge). For OpenRouter, give the sandbox a key yourself: `./review.sh timmy init` asks for it, hidden. The launcher
-  runs Timmy with `env -i` and its own list, so no key in your shell reaches it.
+  no charge). Or set only its address, `./review.sh timmy init --yes --chat local --ollama 127.0.0.1:11434`, and choose the
+  model in the Workbench: Home's next step is then "Choose the local model", and Enter on it lists what your Ollama has
+  now. For OpenRouter, give the sandbox a key yourself: `./review.sh timmy init` asks for it, hidden. The launcher runs
+  Timmy with `env -i` and its own list, so no key in your shell reaches it.
 - **Ports, 127.0.0.1 only:** Studio 4440, the log companion 4441, the browser companion 4442 (set `TIMMY_STUDIO_PORT`,
   `TIMMY_LOGS_PORT` or `TIMMY_COMPANION_PORT` before a command to change them). The Workbench prints each address when it
   starts that surface.
@@ -45,6 +47,11 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 1. **One workspace, ten tabs.** Keys 1 to 9 and 0: Home, Chat & Intent, Workflows, Studio, VoxVision, 3D & Motion, Control
    Room, Fleet & Clef, Tools & MCP, Logs & Receipts. Each tab has a numbered actions bar with one amber next step; the
    browser companion (`c`) shows the same tabs, actions and log. `./review.sh check` prints the same frame in words.
+   Tabs 3, 5, 7, 8, 9 and 0 draw their own columns across the whole width; there, Context (Tools, Inspector, Files) is
+   the `i` drawer. The Control Room (7) draws up to four runs as a 2×2 grid of panes at 160 columns and wider (stacked
+   below that); its panes read their logs once a second and say so. `p` switches the project: the choice is the shared
+   active project, which `./review.sh check` then names (a companion page follows it unless you pin the page). `/` finds
+   a workspace, such as Files; Enter on a file shows it in the Inspector, and `/open <file>` in the REPL shows its content.
 2. **Connections, honestly.** A connection is green and "live" only when a free request it answered was seen in the last
    30 minutes; a setting alone is "configured"; Studio or the companion not started is "not running", with the key that
    starts it; an optional service nobody chose is "not set up", with its step.
@@ -54,6 +61,15 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    context and tool calling from OpenRouter's catalog with its date; on a local Ollama, the models it has. `/model free`
    lists the catalog's free models; `/model free-only on` refuses any OpenRouter model not known to be free, on every
    surface, with its cause (an unknown price is refused, never passed). Off by default; a local model costs nothing.
+   When chat cannot answer, Home and Chat name the one fix for that problem, and Enter on it does it where the Workbench
+   can: no route (`timmy init --chat openrouter`, in a shell, asks for a key, typed hidden; or a local model); no local
+   model chosen (`/model`: what your Ollama has now; Enter chooses one); an Ollama address Timmy does not use
+   (`/setup chat`); Ollama not answering (start it; Enter checks again, free requests only); free-only on and a model not
+   known to be free (`/model free`: the catalog's free models; free-only stays on, turning it off is never the fix); a key
+   OpenRouter refused (`timmy init --openrouter -` reads a new one, hidden). A turn being answered shows as running on
+   every surface (the Workbench, the companion, `./review.sh check`); Esc in the composer that sent it stops it (Ctrl+C in
+   the REPL), and its operation and receipt record the stop. Every surface lists the project's sealed turns, whichever
+   surface sent them (a receipt keeps hashes, so a turn's words stay where it was sent).
 4. **One sandbox workflow to its receipt (no spend).** In the tray project: Workflows → APPROVAL.md › tidy → its confirm → the
    NEEDS YOU box → `y`. The prediction is sealed before the run and never shown as an observed result; then the same
    operation in the Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail.
@@ -66,6 +82,11 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 6. **Settings that follow you.** "Open the companion / Studio when the workspace starts" (Quick settings `,` in the
    Workbench, or the companion's settings): one file, checked against the workspace's revision, with a "changed elsewhere"
    path when two surfaces disagree.
+7. **Stop, quit, reconnect.** `x` stops the selected run at once and its record says so; Ctrl+C with nothing running
+   quits the Workbench, and the companion and Studio it started stop with it. A companion page left open says it is
+   reconnecting, then that it needs its token after the Workbench starts again (each start makes a new one); `c` opens a
+   connected page. An answer older than 30 minutes is said with its age ("answered 45 min ago … check again to see it
+   now"), never live; a newer chat turn that answered is weighed over an older check that saw no answer.
 
 ## What is simulated, and what needs you
 
@@ -86,5 +107,10 @@ one setting through).
 
 ## Stop
 
-Ctrl+C in the Workbench quits it; the companion and Studio it started stop with it. A run still going on keeps its record,
-and the Control Room (7) shows it with Stop next time. `./review.sh clean` removes the sandbox, after you type yes.
+- **The Workbench:** Ctrl+C with nothing running quits it, and the companion and Studio it started stop with it. With
+  something running, `x` stops the selected run first (a chat turn: Esc in its composer). A run still going on keeps its
+  record, and the Control Room (7) shows it with Stop next time.
+- **The REPL:** `/exit`, or Ctrl+C with no turn running (Ctrl+C during a turn stops the turn).
+- **A browser page:** close it; nothing runs in the page itself.
+- **Everything:** close the windows above, then `./review.sh clean` removes the sandbox, after you type yes. Nothing outside
+  this folder was installed or started.
