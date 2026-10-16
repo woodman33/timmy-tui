@@ -176,7 +176,7 @@ const act = (n: number, label: string, command: string, o: Partial<Pick<Workspac
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = []): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
@@ -219,8 +219,11 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
+    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open)
     studio: [
-      act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
+      o.studioRunning
+        ? act(1, 'Ask Timmy to draw: /canvas open in the REPL, then ask', '/canvas open', { primary: true, effect: 'local change' })
+        : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
       act(4, 'Show the board', '/board'),
@@ -293,7 +296,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb, turns),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live' }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,

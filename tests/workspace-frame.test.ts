@@ -171,6 +171,10 @@ describe('the primary next step follows the records', () => {
     expect(a.workflows[0]).toMatchObject({ primary: true, command: '/run plan.up.md build' });
     expect(a.workflows[2]).toMatchObject({ enabled: false, why: 'nothing runs' });
   });
+  it('R5 lead: with Studio running, Studio\'s next step is to have Timmy draw on it, not to open it again', () => {
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 })).studio[0]).toMatchObject({ label: 'Open Studio', command: '/studio', primary: true });
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [], { studioRunning: true }).studio[0]).toMatchObject({ command: '/canvas open', primary: true });
+  });
   it('R5 lead: "needs you" has one meaning: Workflows counts what waits on a person now, never the blocks that ask first', () => {
     const docs = [{ rel: 'APPROVAL.md', blocks: [{ name: 'tidy', needs_person: true }] }];
     const quiet = actionsOf(wb({ ready: true, waiting: 0, running: 0, docs }));
