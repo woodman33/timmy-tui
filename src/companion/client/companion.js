@@ -1101,7 +1101,7 @@ async function copyCommand(text, button) {
 
 // The page's buttons: one click handler for all of them (the page allows no inline handler).
 document.addEventListener('click', (event) => {
-  const el = event.target instanceof Element ? event.target.closest('[data-stop-turn], [data-tab], [data-ws-tab], [data-act], [data-open-run], [data-action], [data-copy]') : null;
+  const el = event.target instanceof Element ? event.target.closest('[data-stop-turn], [data-tab], [data-ws-tab], [data-act], [data-open-run], [data-open-vox], [data-action], [data-copy]') : null;
   if (!el) return;
   // R5 lead (the operator's 22:32 order, item 2): Stop for the chat turn being answered, whichever surface sent it
   if (el.dataset.stopTurn !== undefined) { stopTurn(el); return; }
@@ -1110,6 +1110,8 @@ document.addEventListener('click', (event) => {
   if (el.dataset.wsTab) { showWorkspaceTab(el.dataset.wsTab); return; }
   if (el.dataset.act !== undefined) { runAction(el); return; }
   if (el.dataset.openRun) { showRun(el.dataset.openRun); return; }
+  // R6 lead: a VoxVision record to open (Home's newest images): its tab, with the record chosen there (panel-vox.js)
+  if (el.dataset.openVox) { document.dispatchEvent(new CustomEvent('timmy:vox-show', { detail: { id: el.dataset.openVox } })); showWorkspaceTab('voxvision'); return; }
   if (el.dataset.copy) { copyCommand(el.dataset.copy, el); return; }
   let chatId = null;
   try { chatId = el.dataset.chat ? decodeURIComponent(el.dataset.chat) : null; } catch (e) { return; }
@@ -1269,7 +1271,7 @@ function otherProjectWords(f) {
 function focusKey() {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
-  for (const attr of ['data-act', 'data-connection', 'data-copy', 'data-open-run']) {
+  for (const attr of ['data-act', 'data-connection', 'data-copy', 'data-open-run', 'data-open-vox', 'data-enlarge']) {
     if (el.hasAttribute(attr)) return { attr, value: el.getAttribute(attr), within: el.parentElement?.closest('[id]')?.id || null };
   }
   return null;
@@ -1500,10 +1502,121 @@ function studioItem(f) {
     h('p', { class: 'preview-note' }, s.openAtStart ? 'Opens when the workspace starts.' : 'Opens when asked.'));
 }
 
+// ── R6 lead (reference 01; the operator's R6 order: a requested preview is drawn, not described): Home's newest images ──
+// The shown project's newest work, drawn: the newest run's first image (an output, or a file it changed, as the run detail's
+// inspection draws it) and the newest VoxVision record's image (its annotated copy when the record has one it can show, else
+// the observed file). Each is a thumbnail that shows it at size (panels.js TimmyEnlarge), with the action that opens it: the
+// run in Workflows, the record in VoxVision. They are read with the page's token from the routes those tabs read: a run once
+// (kept while it is the newest), the records list at most every 10 s while Home is on screen. Nothing is drawn of another
+// project, and an image that cannot be read says why.
+const homeImages = { project: '', run: { key: '', item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
+const HOME_VOX_EVERY_MS = 10_000;
+
+function homeImagesReset(project) {
+  if (homeImages.project === project) return;
+  homeImages.project = project;
+  homeImages.run = { key: '', item: null, asking: false };
+  homeImages.vox = { key: '', item: null, asking: false, at: 0 };
+}
+
+async function homeJson(url) {
+  const r = await companion.fetch(url);
+  const body = await r.json().catch(() => null);
+  if (!body || body.ok !== true) throw new Error((body && body.error) || `the companion answered HTTP ${r.status}`);
+  return body;
+}
+
+/** The newest run's first image: { op, path, src, words } or { op, none: why }. */
+async function homeRunImage(op, project) {
+  const body = await homeJson(`/api/run/${encodeURIComponent(op)}${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+  const insp = body.inspection;
+  if (!insp) return { op, none: body.inspectionWhy || 'the run was not inspected' };
+  const files = [...(insp.outputs || []), ...((insp.changes && insp.changes.list) || [])];
+  const hit = files.find((x) => x && x.preview && x.preview.kind === 'image' && typeof x.preview.data === 'string' && x.preview.data.startsWith('data:image/'));
+  if (!hit) return { op, none: 'no image among what it wrote or changed' };
+  const p = hit.preview;
+  return { op, path: hit.path, src: p.data, words: `run ${op} · ${hit.path}${p.width && p.height ? ` · ${p.width} × ${p.height}` : ''}` };
+}
+
+/** The newest VoxVision record's image: { id, path, src, words } or { id, none: why }, or null with no record. */
+async function homeVoxImage(project) {
+  const q = project ? `project=${encodeURIComponent(project)}` : '';
+  const list = await homeJson(`/api/panel/voxvision/records${q ? `?${q}` : ''}`);
+  const rec = (list.records || [])[0];
+  if (!rec) return null;
+  if (homeImages.vox.item && homeImages.vox.item.id === rec.id) return homeImages.vox.item;
+  const body = await homeJson(`/api/panel/voxvision/record?id=${encodeURIComponent(rec.id)}${q ? `&${q}` : ''}`);
+  const images = (body.preview && body.preview.images) || [];
+  const im = images.find((x) => x.servable && x.role === 'highlight') || images.find((x) => x.servable);
+  if (!im) return { id: rec.id, none: images.length ? 'none of its images can be shown (VoxVision says why)' : 'it observed no image' };
+  const r = await companion.fetch(`/api/panel/voxvision/file?id=${encodeURIComponent(rec.id)}&path=${encodeURIComponent(im.path)}${q ? `&${q}` : ''}`);
+  if (!r.ok) {
+    const b = await r.json().catch(() => null);
+    return { id: rec.id, none: (b && b.error) || `the companion answered HTTP ${r.status}` };
+  }
+  const blob = await r.blob();
+  const src = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error('the image could not be read in the page'));
+    fr.readAsDataURL(blob);
+  });
+  return { id: rec.id, path: im.path, src, words: `VoxVision ${rec.id} · ${rec.action} · ${im.path}` };
+}
+
+function homeFigure(kind, it) {
+  if (!it) return null;
+  if (it.none) return h('p', { class: 'preview-note', 'data-home-image': kind }, kind === 'run' ? `Run ${it.op}: ${it.none}.` : `VoxVision ${it.id}: ${it.none}.`);
+  return h('figure', { class: 'home-thumb', 'data-home-image': kind },
+    h('button', { type: 'button', class: 'home-thumb-btn', 'data-enlarge': it.words, title: 'Show it at size' }, h('img', { src: it.src, alt: it.words })),
+    h('figcaption', null, it.words),
+    kind === 'run'
+      ? h('button', { type: 'button', class: 'btn-action tiny', 'data-open-run': it.op }, `Open run ${it.op}`)
+      : h('button', { type: 'button', class: 'btn-action tiny', 'data-open-vox': it.id }, `Open ${it.id} in VoxVision`));
+}
+
+function homeImagesItem(own) {
+  const figs = own ? [homeFigure('run', homeImages.run.item), homeFigure('vox', homeImages.vox.item)].filter(Boolean) : [];
+  const asking = homeImages.run.asking || homeImages.vox.asking;
+  return h('div', { class: 'preview-item', 'data-preview': 'images' },
+    h('div', { class: 'preview-head' }, h('span', null, 'The newest images')),
+    figs.length ? h('div', { class: 'home-thumbs' }, ...figs)
+      : h('p', { class: 'preview-words' }, !own ? 'Not shown: the frame is another project’s.' : asking ? 'Reading the newest run and VoxVision record…' : 'No image yet: a run that writes one, or a VoxVision record (/detect <image>), shows here.'));
+}
+
+/** Reads what changed (a newer run, a newer record) and draws the item again when it is read. */
+function homeImagesRefresh(f, own) {
+  const project = shownProjectId();
+  homeImagesReset(project);
+  if (!own || !companion.token || companion.refused) return;
+  const redraw = () => {
+    if (homeImages.project !== project) return;
+    const old = document.querySelector('#home-preview [data-preview="images"]');
+    if (old) old.replaceWith(homeImagesItem(true));
+  };
+  const run = newestRunOf(f);
+  if (run && run.operation && run.operation !== homeImages.run.key && !homeImages.run.asking) {
+    const key = run.operation;
+    homeImages.run.asking = true;
+    homeRunImage(key, project).then((it) => { if (homeImages.project === project) homeImages.run = { key, item: it, asking: false }; },
+      (e) => { if (homeImages.project === project) homeImages.run = { key, item: { op: key, none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }; })
+      .finally(redraw);
+  }
+  if (!homeImages.vox.asking && Date.now() - homeImages.vox.at >= HOME_VOX_EVERY_MS) {
+    homeImages.vox.asking = true;
+    homeImages.vox.at = Date.now();
+    homeVoxImage(project).then((it) => { if (homeImages.project === project) Object.assign(homeImages.vox, { key: it ? it.id : '', item: it, asking: false }); },
+      (e) => { if (homeImages.project === project) Object.assign(homeImages.vox, { item: { id: homeImages.vox.key || 'records', none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }); })
+      .finally(redraw);
+  }
+}
+
 function drawHome(f, own) {
   const box = document.getElementById('home-preview');
   if (!box) return;
-  const items = [studioItem(f)];
+  // R6 lead: the newest images first (reference 01 leads with the work itself), then Studio, the newest run, what runs
+  const items = [homeImagesItem(own), studioItem(f)];
+  homeImagesRefresh(f, own);
   const run = own ? newestRunOf(f) : null;
   items.push(h('div', { class: 'preview-item', 'data-preview': 'run' },
     h('div', { class: 'preview-head' }, h('span', null, 'The newest run'), run ? h('time', { class: 'ev-time', datetime: run.at }, clockOf(run.at)) : null),

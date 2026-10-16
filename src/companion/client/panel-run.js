@@ -160,8 +160,12 @@ function rvPreview(p, o = {}) {
   if (p.kind === 'image') {
     const facts = `${p.mime}${p.width && p.height ? ` · ${p.width} × ${p.height}` : ''} · ${rvBytes(p.bytes)}${p.sha256 ? ` · sha256 ${rvShort(p.sha256)}` : ''}`;
     if (!p.data) return rvEl('div', { class: 'rv-image is-absent' }, rvEl('p', null, facts), rvEl('p', { class: 'rv-why' }, p.why || 'not drawn here'));
-    // a small image is drawn larger, its pixels kept square (its colors as they are)
-    return rvEl('figure', { class: `rv-image${p.width && p.width < 96 && p.height && p.height < 96 ? ' is-small' : ''}` }, rvEl('img', { src: p.data, alt: o.alt || 'the image as the server read it', 'data-rv-image': '' }), rvEl('figcaption', null, o.caption ? `${o.caption} · ` : '', facts));
+    // a small image is drawn larger, its pixels kept square (its colors as they are). R6 lead: drawn to fit the viewer, and
+    // a press on it shows it at size (panels.js TimmyEnlarge: data-enlarge names what it is)
+    const words = `${o.caption ? `${o.caption} · ` : ''}${facts}`;
+    return rvEl('figure', { class: `rv-image${p.width && p.width < 96 && p.height && p.height < 96 ? ' is-small' : ''}` },
+      rvEl('button', { type: 'button', class: 'rv-enlarge', 'data-enlarge': words, title: 'Show it at size' }, rvEl('img', { src: p.data, alt: o.alt || 'the image as the server read it', 'data-rv-image': '' })),
+      rvEl('figcaption', null, o.caption ? `${o.caption} · ` : '', facts));
   }
   if (p.kind === 'binary') return rvEl('p', { class: 'rv-binary', 'data-rv-binary': '' }, `${p.what} · ${rvBytes(p.bytes)}${p.sha256 ? ` · sha256 ${p.sha256}` : ' · not hashed here'}`);
   const first = o.firstLine || 1;

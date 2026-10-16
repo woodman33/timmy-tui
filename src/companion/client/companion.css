@@ -794,8 +794,10 @@ body.slate-absent p { max-width: 72ch; }
 .box-body.vox-acts { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
 .vox-act { display: inline-flex; gap: 6px; align-items: baseline; font-size: 11px; }
 .vox-act-label { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
-.vox-act.is-next { border-color: var(--timmy-accent); }
-.vox-act.is-next .vox-act-label, .vox-act.is-next .vox-act-cmd { color: var(--timmy-accent); }
+/* R6 lead (B10: one amber next step per screen): the record's own next step is a brighter neutral, as the run detail's is;
+   the strip's primary is the page's one amber next step, and amber marks this button only with focus */
+.vox-act.is-next { border-color: var(--timmy-text-secondary); }
+.vox-act.is-next .vox-act-label, .vox-act.is-next .vox-act-cmd { color: var(--timmy-text); }
 .vox-act[aria-disabled="true"] { border-style: dashed; cursor: not-allowed; }
 .vox-act[aria-disabled="true"] .vox-act-label, .vox-act[aria-disabled="true"] .vox-act-cmd { color: var(--timmy-text-secondary); }
 .vox-act-why { width: 100%; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
@@ -1157,3 +1159,29 @@ body.slate-absent p { max-width: 72ch; }
   .rv-lower > .rv-scroll { max-height: 50vh; }
   .rv-viewer { min-height: 0; }
 }
+
+/* ==========================================================================================================================
+   R6 lead: the round's consistency pass over the panels (the lead's capture of the candidate at 1376x768, 12:40 PT).
+   A preview seen at size: the dialog panels.js TimmyEnlarge opens from a thumbnail marked data-enlarge. The run viewer's image
+   fits the box it is seen in (about 84 px tall at 1376x768: an image laid out at its own height showed only its top, a black
+   band for the review demo's image) and is a button that shows it at size.
+   ========================================================================================================================== */
+.enlarge { max-width: 96vw; max-height: 94vh; padding: 10px 12px; background: var(--timmy-ground); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 6px; }
+.enlarge::backdrop { background: var(--timmy-ground); opacity: 0.86; }
+.enlarge-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.enlarge-img { display: block; max-width: calc(96vw - 34px); max-height: calc(94vh - 96px); width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
+.enlarge-cap { font-size: 11.5px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; max-width: 88ch; text-align: center; }
+.enlarge-close { display: block; margin: 8px auto 0; }
+.rv-enlarge { display: block; padding: 0; margin: 0; border: 0; background: none; cursor: zoom-in; max-width: 100%; }
+.rv-enlarge:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+@media (min-width: 861px) {
+  .rv-v-body > .rv-scroll { container-type: size; }
+  .rv-v-body .rv-image:not(.is-small) img { max-height: max(4.5em, calc(100cqh - 3.2em)); }
+}
+/* Home's newest images (reference 01): each a thumbnail that shows it at size, its words, and the action that opens it */
+.home-thumbs { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 4px; }
+.home-thumb { margin: 0; flex: 1 1 180px; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.home-thumb-btn { display: block; padding: 0; margin: 0; border: 0; background: none; cursor: zoom-in; max-width: 100%; }
+.home-thumb-btn img { display: block; max-width: 100%; max-height: 7.5em; width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
+.home-thumb-btn:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
+.home-thumb figcaption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
