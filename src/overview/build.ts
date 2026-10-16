@@ -10,10 +10,11 @@
  * home folder as "~". Nothing here runs, stops, writes or seals anything.
  */
 import { withProcessTable } from '../ops/process-proof.js';
+import { fleetNeeds, fleetPart } from './fleet.js'; // R4 (lead)
 import { buildMap } from './map.js';
 import {
-  ITEMS_MAX, MAP_LABEL, OVERVIEW_SCHEMA, SECTION_TITLE,
-  type AgentsSection, type AppsSection, type CostsSection, type DevicesSection, type HistorySection, type HostingSection, type NeedsSection,
+  FLEET_TITLE, ITEMS_MAX, MAP_LABEL, OVERVIEW_SCHEMA, SECTION_TITLE,
+  type AgentsSection, type AppsSection, type CostsSection, type DevicesSection, type FleetSection, type HistorySection, type HostingSection, type NeedsSection,
   type Overview, type OverviewSectionId, type ProjectSection, type SpatialSection, type WorkflowsSection,
 } from './model.js';
 import { costsSection, devicesSection, hostingSection } from './remote.js'; // R4 (H93)
@@ -52,8 +53,13 @@ export function buildOverview(projectRoot: string, opts: OverviewOptions = {}): 
 
 function buildOverviewNow(projectRoot: string, opts: OverviewOptions): Overview {
   const s = readSources(projectRoot, opts);
+  // R4 (lead): the project's fleet plans, only when it has one; what waits on a person in a real fleet goes to Needs you too
+  let fleet: FleetSection | undefined;
+  try { fleet = fleetPart(s); } catch (e) {
+    fleet = { id: 'fleet', title: FLEET_TITLE, as_of: s.asOf, state: 'unknown', why: `this part could not be built: ${s.scrub(message(e))}`, summary: 'not known', counts: [], unreadable: [], notes: [], items: [], more: 0 };
+  }
   const project = guarded('project', s, () => projectSection(s));
-  const needs = guarded('needs', s, () => needsSection(s));
+  const needs = guarded('needs', s, () => needsSection(s, fleetNeeds(fleet)));
   const agents = guarded('agents', s, () => agentsSection(s));
   const workflows = guarded('workflows', s, () => workflowsSection(s));
   const apps = guarded('apps', s, () => appsSection(s));
@@ -68,7 +74,7 @@ function buildOverviewNow(projectRoot: string, opts: OverviewOptions): Overview 
     map = { label: MAP_LABEL, words: `The map could not be drawn: ${s.scrub(message(e))}`, columns: [], edges: [] };
   }
   return {
-    schema: OVERVIEW_SCHEMA, as_of: s.asOf, project, needs, devices, hosting, costs, agents, workflows, apps, spatial, history, map,
+    schema: OVERVIEW_SCHEMA, as_of: s.asOf, project, needs, devices, hosting, costs, agents, workflows, apps, spatial, history, ...(fleet ? { fleet } : {}), map,
     notes: [
       'God\'s Eye View reads the records the Control Room, Workflows, VoxVision, Results and Memory read; it runs, stops, writes and seals nothing.',
       `Every list shows at most ${ITEMS_MAX} items (the rest are counted); the board sections and commands named beside each item show it in full.`,

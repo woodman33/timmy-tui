@@ -88,6 +88,11 @@ export interface Receipt {
   output_sha256?: string;
   manifest_sha256?: string;
   sources?: unknown[];
+  /** Round R4 (lead): a fleet plan's prediction (sealed before it runs) or its run (src/fleet/**): the plan, the backend as it
+   *  labels itself (FAKE for the offline backend), the isolation it gives, the counts kept apart (a delivery is never a
+   *  verification), and whether this was a simulation. Upstream allocation, session and request ids stay in the plan's
+   *  ledger, named by `outputs` with their sha256. */
+  fleet?: { plan: string; provider: string; backend: string; isolation: string; workers: number; concurrency: number; harness: string; model: string; status?: string; counts?: Record<string, number>; ceiling_usd?: number | null; simulation: boolean; note: string };
   /** Round R4 (H52): an OpenHands run's container (its image, name and labels), the worker that ran, its copy and what was written back from it */
   openhands?: { image: string; image_id?: string; container: string; labels: Record<string, string>; worker_sha256: string; sdk_reported: string | null; copy: { files: number; bytes: number; kept: boolean }; writeback: { state: string; written: number; not_written: number }; stop?: { why: string; result: string; by?: string; steps?: Array<{ command: string; exit: number | null }>; client?: string; limit?: string } }; // R4 (H62): stop's by, steps, client, limit
   max_spend?: number;
@@ -106,6 +111,10 @@ export interface Receipt {
   outcome_rule?: number;
   cancelled_at?: 'before-tools' | 'during-tool' | 'after-tools';
   rollback?: 'none';
+  /** R5 lead: a chat turn's identity, its hold's id (src/agent/chat-turn.ts): a turn being answered is matched to it */
+  turn_id?: string;
+  /** R5 lead: a cancelled chat turn another surface asked to stop: that surface (src/agent/chat-turn.ts requestTurnStop) */
+  stopped_by?: 'repl' | 'monitor' | 'workbench' | 'companion' | 'unknown';
   error_class?: string; // exec|missing_source|schema|env|replay_drift|http_4xx|http_5xx|network|approval|unresolved_model|no_key|…
   exit_code?: number;
   partial_artifacts?: string[];
@@ -303,7 +312,8 @@ export function appendReceipt(stream: string, input: ReceiptInput, dir?: string)
     mkdirSync(dirname(p), { recursive: true });
     appendFileSync(p, JSON.stringify(rec) + '\n', 'utf8');
     // CONTROL PLANE: every seal also publishes onto the runs.jsonl event bus
-    busPublish('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch }, dir);
+    // R5 lead: a chat turn's identity too (turn_id), so a page that saw the turn being answered matches its end by identity
+    busPublish('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch, ...(rec.turn_id ? { turn_id: rec.turn_id } : {}) }, dir);
     return rec;
   });
 }

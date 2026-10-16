@@ -259,11 +259,21 @@ function checkRows(m: Matrix): void {
   }
 }
 
-/** Every absolute local path this computer could leak, and the home-style patterns, as the generator's own guard knows them. */
+/**
+ * Every absolute local path this computer could leak, and the home-style patterns. This run's own folders (each one this file
+ * made with mkdtemp, real path too) and each `extra` path count anywhere in the text. The temporary folder and the home folder
+ * themselves count as the generator's guard counts them (namesLocalPath; the rule is written out here, not imported, so this
+ * check stays independent of it): a folder of one segment, as /tmp, only as the start of a longer path, so /tmp/<anything>
+ * is a leak and a checklist row's words "a patch file under /tmp" are not (R5 H130: this check took those words, unchanged
+ * since 537e898, for a leak wherever the temporary folder is /tmp); a longer folder anywhere.
+ */
 function leaks(text: string, extra: string[]): string[] {
   const out: string[] = [];
-  const literal = new Set([homedir(), tmpdir(), realpathSync(tmpdir()), ...extra].filter((p) => p.length > 1));
-  for (const p of literal) if (text.includes(p)) out.push(`the local path ${p}`);
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
+  for (const p of new Set([...made, ...made.map(real), ...extra].filter((x) => x.length > 1))) if (text.includes(p)) out.push(`the local path ${p}`);
+  for (const p of new Set([homedir(), tmpdir(), real(tmpdir())].filter((x) => x.length > 1))) {
+    if (/^\/[^/]+$/.test(p) ? text.includes(`${p}/`) : text.includes(p)) out.push(`the local path ${p}`);
+  }
   for (const re of [/\/Users\/[A-Za-z0-9._-]+/, /\/home\/[A-Za-z0-9._-]+/, /[A-Za-z]:\\Users\\/]) { const m = re.exec(text); if (m) out.push(m[0]); }
   return out;
 }
@@ -542,6 +552,20 @@ describe('the inventory generator on this repository', () => {
       expect(leaks(text, [REPO.replace(/\/$/, ''), realpathSync(REPO), outA, ...target]), name).toEqual([]);
       expect(two[name], name).toBe(text);
     }
+  });
+});
+
+describe('this file\'s own check for a leaked local path (a negative control, R5 H130)', () => {
+  it('passes words that name the temporary folder, and fails a real temporary path: this run\'s own folder, a file in it, any path under the temporary folder', () => {
+    const words = (folder: string): string => `Codex wrote a patch file under ${folder}, which its sandbox then allowed; a ${folder} write refused`;
+    expect(leaks(words('/tmp'), [])).toEqual([]);
+    if (/^\/[^/]+$/.test(tmpdir())) expect(leaks(words(tmpdir()), [])).toEqual([]);
+    const mine = temp('inv-leak-control-');
+    expect(leaks(`kept in ${mine}`, [])).toContain(`the local path ${mine}`);
+    expect(leaks(`kept in ${join(mine, 'notes.txt')}`, [])).toContain(`the local path ${mine}`);
+    // a temporary path this run did not make: still a leak (the temporary folder followed by a path)
+    expect(leaks(`kept in ${join(tmpdir(), 'inv-elsewhere-0', 'notes.txt')}`, [])).toContain(`the local path ${tmpdir()}`);
+    expect(leaks(`kept in ${join(realpathSync(tmpdir()), 'inv-elsewhere-0')}`, [])).toContain(`the local path ${realpathSync(tmpdir())}`);
   });
 });
 

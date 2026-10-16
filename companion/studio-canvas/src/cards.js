@@ -36,9 +36,10 @@
 // the order they ran, linked by arrows bound to them; a second press adds only what ran since and leaves alone what the
 // person did (./operations.js has its rules).
 //
-// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
-// below run in Node's tests too.
+// Nothing here imports anything but ./operations.js (pure rules) and ./when.js (the one time format): canvas.js hands in React
+// and tldraw's classes, so the rules below run in Node's tests too.
 import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
+import { clockOf } from './when.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -71,6 +72,9 @@ const SAFE = G.Object.freeze({
   WebSocket: typeof G.WebSocket === 'function' ? G.WebSocket : null,
   iterator: G.Symbol.iterator,
   blob: G.Response ? G.Response.prototype.blob : null,
+  // R5 (H137): a highlight's answer is an image, or (a paused session) the server's words as JSON
+  blobType: descriptor(G.Blob && G.Blob.prototype, 'type')?.get ?? null,
+  blobText: G.Blob ? G.Blob.prototype.text : null,
   objectURL: G.URL && typeof G.URL.createObjectURL === 'function' ? G.URL.createObjectURL : null,
   revokeURL: G.URL && typeof G.URL.revokeObjectURL === 'function' ? G.URL.revokeObjectURL : null,
   URL: G.URL,
@@ -201,9 +205,11 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
  * /api/project?detail=1 with this page's session, or (R4 H81) the plain card list with `detail: false` and `detailWhy` when
  * the page has no session that reads the detail. `session` whether this page holds one. A result card is always a diagram.
  */
-export function cardMode(type, props, answer, session) {
+export function cardMode(type, props, answer, session, meta = null) {
   const diagram = (words, follows = false) => ({ executable: false, badge: 'diagram', words, follows });
   const name = props.project || 'its project';
+  // R5 (H133): a card Timmy proposed as a draft acts only once a person accepts it (./drafts.js; the panel's Drafts)
+  if (meta && meta.timmyDraft && typeof meta.timmyDraft === 'object') return { ...diagram('A draft proposed by Timmy: nothing on it acts until you accept it in Timmy\'s panel (Drafts).'), draft: true };
   // R4 (H83): a card of another project, its kept detail withheld from this page: it says so, and how to read it
   const withheld = withheldData(props.data);
   if (withheld) return { ...diagram(one(withheld.words)), withheld: true };
@@ -368,10 +374,9 @@ export function stillRunning(detail) {
   return detail.verdict && detail.verdict.tone === 'running';
 }
 
-/** A time as a card says it: the clock time (the full time is its tooltip). */
+/** A time as a card says it: the clock time (the full time is its tooltip). R5 (H137; QA defect 6): in the one format. */
 function clock(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso || '') : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return clockOf(iso) || String(iso || '');
 }
 
 // ── the shapes and their runtime (the browser only) ────────────────────────────
@@ -447,6 +452,13 @@ export function createCards(deps) {
   }
 
   /**
+   * R5 (H137): the server's answer to a reading this page makes by itself, when its session is paused (another project, or another
+   * REPL, holds the canvas now: src/studio/session-pause.ts): a plain 200 that says why (`session`: project or holder), with
+   * nothing of the project, so the browser logs no failed request. It pauses the session as the 401 it replaced did.
+   */
+  const pausedAnswer = (r) => !!(r && r.ok && r.body && r.body.ok === false && (r.body.session === 'project' || r.body.session === 'holder'));
+
+  /**
    * R4 (H83): a refusal the server gave this page's session. One that ended (or that the server never made, or no longer keeps)
    * is let go for good: the page then loads, saves and acts no more, and says so. Returns the words.
    */
@@ -457,7 +469,7 @@ export function createCards(deps) {
       token = null;
       session.set({ state: 'refused', words: why });
       onSession();
-    } else if (r && r.status === 401 && (said.session === 'project' || said.session === 'holder')) notNow(why); // R4 (H88)
+    } else if (r && (r.status === 401 || pausedAnswer(r)) && (said.session === 'project' || said.session === 'holder')) notNow(why); // R4 (H88)
     return why;
   }
 
@@ -476,7 +488,7 @@ export function createCards(deps) {
     if (Date.now() < notFor.until) return refusedReading(notFor.why);
     const r = await request('/api/project?detail=1', 'GET', token);
     if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; countsAgain(); return { ...r.body, detail: true }; }
-    if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
+    if (r.status !== 401 && !pausedAnswer(r)) throw new Error(`Timmy answered ${r.status} for the project`);
     const why = noted(r, 'Timmy did not let this page read the project.');
     if (token) {
       // given for another project, or by another REPL: asked again in 30 s
@@ -499,10 +511,12 @@ export function createCards(deps) {
       if (said.pinned !== true) { notFor.until = 0; countsAgain(); }
       return { ...said, detail: true, pinned: true };
     }
-    if (r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
+    // R5 (H137): a paused session's refusal comes as a plain 200 (pausedAnswer), and reads as the 401 did
+    const refusedNow = r.status === 401 || pausedAnswer(r);
+    if (refusedNow && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none' || said.pinned !== true)) {
       return { ...refusedReading(noted(r, 'Timmy did not let this page read the project.')), pinned: true, pinnedId: id };
     }
-    if (r.status === 401 || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
+    if (refusedNow || r.status === 404) return { ...refusedReading(one(said.error) || `Timmy answered ${r.status} for this board's project.`), pinned: true, pinnedId: id };
     throw new Error(`Timmy answered ${r.status} for this board's project`);
   }
 
@@ -528,22 +542,51 @@ export function createCards(deps) {
   async function jobs() {
     if (!token || Date.now() < notFor.until) return null;
     const r = await request('/api/canvas/jobs', 'GET', token, undefined, { array: true });
-    if (r.status === 401) {
+    // R5 (H137): a paused session's refusal is a plain 200 with no jobs (pausedAnswer)
+    if (r.status === 401 || pausedAnswer(r)) {
       const why = noted(r, 'Timmy did not let this page read the canvas jobs.');
       if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
     }
     return r.ok && SAFE.isArray(r.body) ? r.body : null;
   }
   /**
+   * R5 (H133): the shared workspace frame of the project named now (GET /api/workspace), read with this page's session for the
+   * strip above the canvas (./frame.js). Not asked without a session, or with one that does not count now (asked again once a
+   * reading counts, and not sooner than 30 s), as the jobs are: the answer then says why, and no request is made.
+   */
+  async function workspace() {
+    const notAsked = (why) => ({ status: 0, ok: false, body: { ok: false, error: why } });
+    if (!token) return notAsked(session.get().words);
+    if (Date.now() < notFor.until || session.get().state !== 'ok') return notAsked(notFor.why || session.get().words);
+    const r = await request('/api/workspace', 'GET', token);
+    // R5 (H137): a paused session's refusal is a plain 200 with no frame (pausedAnswer); the strip says why (./frame.js)
+    if (r.status === 401 || pausedAnswer(r)) {
+      const why = noted(r, 'Timmy did not let this page read the workspace.');
+      if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
+    }
+    return r;
+  }
+  /**
    * A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. R4 (H109):
-   * of the card's own project (a board pinned to it reads it while the canvas shows another).
+   * of the card's own project (a board pinned to it reads it while the canvas shows another). R5 (H137): the shown project's are
+   * not asked while the session is paused (the server would refuse them), and a paused session's refusal (a plain 200 with the
+   * server's words as JSON, not an image) pauses it as a reading's does.
    */
   async function image(path, projectId = null) {
     if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL) return null;
     const of = typeof projectId === 'string' && /^[0-9a-f]{16}$/.test(projectId) ? `&project=${projectId}` : '';
+    if (!of && session.get().state !== 'ok') return null;
     const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}${of}`, requestInit('GET', token));
     if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
     const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\//.test(type)) {
+      let body = null;
+      try { body = SAFE.parse(await SAFE.apply(SAFE.blobText, b, [])); } catch { body = null; }
+      const answer = { status: 200, ok: true, body: body && typeof body === 'object' && !SAFE.isArray(body) ? body : null };
+      if (!of && pausedAnswer(answer)) noted(answer, 'Timmy did not let this page read the highlight.');
+      return null;
+    }
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
   }
   const forget = (url) => { if (url && SAFE.revokeURL) { try { SAFE.apply(SAFE.revokeURL, SAFE.URL, [url]); } catch { /* gone */ } } };
@@ -559,6 +602,23 @@ export function createCards(deps) {
     const r = await request(`/api/project/run-detail?op=${op}${of}`, 'GET', token);
     const said = r.body || {};
     if (r.status === 401 && (said.other !== true || said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) noted(r, 'Timmy did not let this page read the run detail.');
+    return r;
+  }
+  /**
+   * R5 (H133): keeps this page's version of the canvas as a copy beside the canvas file (POST /api/canvas/document/copy), when a
+   * newer version is on disk and this page may not save over it. `text`: the document as JSON text, written by canvas.js.
+   */
+  async function keepCopy(text) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/document/copy', 'POST', token, undefined, { raw: text });
+    if (r.status === 401) noted(r, 'Timmy refused to keep this page\'s copy.');
+    return r;
+  }
+  /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
+  async function draftDecision(body) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/drafts', 'POST', token, body);
+    if (r.status === 401) noted(r, 'Timmy refused to record the decision.');
     return r;
   }
   /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
@@ -620,7 +680,7 @@ export function createCards(deps) {
     const shape = editor ? editor.getShape(rec.shapeId) : null;
     if (!shape || !isDrawnCard(shape) || TYPE_OF_SHAPE[shape.type] !== rec.type || shape.props.card !== rec.card || shape.props.projectId !== rec.projectId) return;
     const now = live.get().answer;
-    const mode = cardMode(rec.type, shape.props, now, token !== null);
+    const mode = cardMode(rec.type, shape.props, now, token !== null, shape.meta);
     if (!mode.executable) return;
     const card = (now.cards || []).find((c) => c.id === rec.card);
     if (!offeredNow(rec.act, card && card.detail)) return;
@@ -941,7 +1001,7 @@ export function createCards(deps) {
     const own = useValue('timmy cards: this card\'s action', () => acts.get()[shape.id] ?? null, [shape.id]);
     const sess = useValue('timmy cards: session', () => session.get(), []);
     const p = shape.props;
-    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null);
+    const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null, shape.meta);
     const card = mode.follows ? (now.cards || []).find((c) => c.id === p.card) : null;
     // R4 (H83): a withheld card has no detail here (only the words and commands its marker holds)
     const detail = mode.withheld ? null : (card && card.detail) || p.data;
@@ -1211,6 +1271,10 @@ export function createCards(deps) {
     runDetail,
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
+    // R5 (H133): the shared workspace frame, for the strip above the canvas
+    workspace,
+    // R5 (H133): a copy of this page's canvas when a newer one is on disk, and a decision on a draft of Timmy's
+    keepCopy, draftDecision,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },

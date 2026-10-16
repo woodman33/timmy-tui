@@ -47,7 +47,7 @@ import { OPERATION_ID } from './context.js';
 import { readRecords, runningFlowStates, sealOf, type RecordRead } from './evidence.js';
 import { listOperationRecords, OPERATIONS_DIR, readOperationRecord, type OperationRecord, type OperationState } from './operations.js';
 import { decideState, type RunOutcome } from './operations.js';
-import { flowClaims, flowOutcome, jobOutcome, voxOutcome } from './outcome.js';
+import { flowClaims, flowOutcome, jobOutcome, readProjectRecord, voxOutcome } from './outcome.js';
 import { writerState } from './process-proof.js';
 
 export type { RunDetail } from '../contracts/run-detail.js';
@@ -675,7 +675,13 @@ export function readRunDetail(operationId: string, o: RunDetailOptions = {}): Ru
   }
   // the source revision the run started from: the recipe's bytes as sealed before it ran, or the editable source's before a change
   let sourceRevision: RunDetail['sourceRevision'] = null;
-  if (prediction?.doc && prediction.docSha) sourceRevision = { value: `${prediction.doc} sha256:${prediction.docSha} (the document the prediction sealed before upmd ran; no git revision is recorded)`, from: `receipt ${short(prediction.receipt)}` };
+  // R4 lead: a fleet run's prediction receipt names its plan, and the plan records the git revision it was made at
+  const fleetPredict = f.receipts.find((r) => r.kind === 'fleet.predict' && typeof (r as unknown as { fleet?: { plan?: unknown } }).fleet?.plan === 'string');
+  const fleetPlanId = fleetPredict ? String((fleetPredict as unknown as { fleet: { plan: string } }).fleet.plan) : undefined;
+  const fleetPlan = fleetPlanId && /^f[0-9a-f]{8}$/.test(fleetPlanId) ? readProjectRecord(f.root, `.timmy/fleet/${fleetPlanId}/plan.json`) : undefined;
+  const fleetProject = fleetPlan?.ok ? obj(obj(fleetPlan.value)?.project) : undefined;
+  if (fleetPlanId && str(fleetProject?.revision)) sourceRevision = { value: `git ${str(fleetProject?.revision)}${fleetProject?.dirty === true ? ' with uncommitted changes' : ''} (the revision the fleet plan was made at)`, from: `.timmy/fleet/${fleetPlanId}/plan.json` };
+  else if (prediction?.doc && prediction.docSha) sourceRevision = { value: `${prediction.doc} sha256:${prediction.docSha} (the document the prediction sealed before upmd ran; no git revision is recorded)`, from: `receipt ${short(prediction.receipt)}` };
   else {
     const fl = f.flows.find((x) => str(obj(obj(x.value.parameters)?.before)?.sha256) || str(obj(obj(x.value.script)?.before)?.sha256));
     if (fl) {
@@ -696,6 +702,8 @@ export function readRunDetail(operationId: string, o: RunDetailOptions = {}): Ru
     };
   } else if (prediction?.geometry) {
     predictionOut = { words: `the recipe's prediction: ${prediction.geometry.bounds.map(mm).join(' × ')} mm, ${mm(prediction.geometry.volume)} mm³`, receipt: short(prediction.receipt), frozenAt: prediction.receipt.ts ?? null };
+  } else if (fleetPredict) {
+    predictionOut = { words: f.scrub(String(fleetPredict.subject ?? `fleet ${fleetPlanId}`)), receipt: short(fleetPredict), frozenAt: fleetPredict.ts ?? null };
   } else f.unknown.push({ field: 'prediction', why: 'no prediction receipt of this operation: it ran no workflow and no recipe build (nothing was predicted before it ran)' });
   if (time.endedAt === null && verdict.state !== 'running' && verdict.state !== 'queued' && verdict.state !== 'needs you') f.unknown.push({ field: 'time.endedAt', why: 'its records do not say when it ended' });
   for (const u of f.unreadable) f.unknown.push({ field: 'records', why: `${u.rel} could not be read (${u.why}): whether it is this operation's is not known` });

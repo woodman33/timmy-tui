@@ -224,8 +224,9 @@ describe('companion connection and chat mirror', () => {
     c.receive({ type: 'bus', event: turn(since + 2_000, 'repl · cancelled · 1 step') });
     c.receive({ type: 'bus.tail', events: [first] });
     expect(rows(c.consoleLogs.innerHTML)).toBe(2);
-    expect(c.consoleLogs.innerHTML).toContain('⌨ REPL turn · cancelled');
-    expect(c.consoleLogs.innerHTML).toContain('cancelled (1 step);');
+    // R5 lead: said stopped, the word the Workbench and the shared frame use for a turn its person stopped
+    expect(c.consoleLogs.innerHTML).toContain('⌨ REPL turn · stopped');
+    expect(c.consoleLogs.innerHTML).toContain('stopped (1 step);');
     // a subject that is not the REPL's: the row says only that a turn ended, and nothing of it is markup
     c.receive({ type: 'bus', event: turn(since + 3_000, '<img src=x onerror=alert(1)>') });
     expect(rows(c.consoleLogs.innerHTML)).toBe(3);

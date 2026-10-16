@@ -312,7 +312,8 @@ function agentRow(name: unknown, local: boolean): string | undefined {
 /** The /tools rows of the app steps of a flow of each kind. */
 const FLOW_ROWS: Readonly<Record<string, string[]>> = { tray: ['recipe-tray'], scad: ['openscad'], freecad: ['freecad'], blender: ['blender'], ae: ['afterfx', 'aerender'] };
 
-interface ToolUse { row: string; by: string; at: number; operation?: string }
+/** R5 lead: `answered`, a chat turn the model answered (sealed ok, its response hashed): the route worked when it was sent */
+interface ToolUse { row: string; by: string; at: number; operation?: string; answered?: boolean }
 
 /** Which /tools rows this project's own runs used or tried, each with its newest run. */
 export function toolUses(c: Pick<DecisionContext, 'root' | 'chain' | 'projectId' | 'scrub'>, flows: BoardFlows): Map<string, ToolUse> {
@@ -363,7 +364,11 @@ export function toolUses(c: Pick<DecisionContext, 'root' | 'chain' | 'projectId'
     if (r.kind === 'observe') add({ row: 'look', by, at: time(r.ts), ...op });
     // A chat turn asked the model through the REPL's key. R4 (H103): one sealed via ollama asked the chat's local route
     // (Ollama), never OpenRouter. R4 lead: the surface's own row too (the REPL's, the monitor's; one a surface has)
-    if (turn) { add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), ...op }); add({ row: turn.surface, by, at: time(r.ts), ...op }); }
+    if (turn) {
+      const answered = r.status === 'ok' && typeof r.response_hash === 'string' && r.response_hash.length > 0;
+      add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), answered, ...op });
+      add({ row: turn.surface, by, at: time(r.ts), answered, ...op });
+    }
   }
   return uses;
 }
@@ -400,6 +405,11 @@ function setupItems(c: DecisionContext, flows: BoardFlows): { items: Decision[];
       if (row.rung !== 'needs setup') continue;
       const use = uses.get(row.id);
       if (!use) { other++; continue; }
+      // R5 lead: a turn the model answered after this check shows the route worked then, so a check older than that answer
+      // asks for no setup step (the review build's Control Room said the REPL and Ollama "need setup" after a chat setup that
+      // other surfaces then used, from a check made before it). A use that was not answered still asks.
+      const checked = time(c.tools.checkedAt);
+      if (use.answered && checked > 0 && use.at > checked) continue;
       items.push({
         key: `setup:${row.id}`, kind: 'setup', blocks: false,
         title: `${row.name.trim()} needs setup`,
