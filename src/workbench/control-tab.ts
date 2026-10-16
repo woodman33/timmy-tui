@@ -42,7 +42,7 @@ import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import { connectionMark, tookWords, turnEndWords } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
-import { lineText } from './output.js';
+import { lineText, ruleWords } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
 import {
   card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx,
@@ -553,7 +553,8 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
   const tail: Line[] = !t ? [[S('reading its log…', 'secondary')]]
     : 'why' in t ? para(t.why, inner)
       : !t.lines.length ? [[S(quiet ? 'it printed nothing' : 'nothing printed yet', 'secondary')]]
-        : t.lines.slice(-tailRows).map((l): Line => [S(cut(l, inner, g.ellipsis), quiet ? 'secondary' : 'text')]);
+        // R6 (H141): a rule the job printed is said as its output (src/workbench/output.ts ruleWords), never drawn across the pane
+        : t.lines.slice(-tailRows).map((l): Line => { const rule = ruleWords(l); return [S(cut(rule ?? l, inner, g.ellipsis), rule || quiet ? 'secondary' : 'text')]; });
   // how its lines come: read again at each tick while it runs (said, as the reading is a look, not a stream)
   const foot: Line[] = quiet ? exitAndReceipt(j, d, g, inner) : t?.every ? [[S(`log read every ${seconds(t.every)}`, 'secondary')]] : [];
   const note = [S(j.live ? j.elapsed : `ended ${ago(j.endedAt ?? j.startedAt, c.now)}`, 'secondary')];

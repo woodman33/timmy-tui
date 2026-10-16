@@ -43,6 +43,7 @@ import { findUpmd, findWorkflowDocs } from '../workflows/upmd.js';
 import { readOperationRecord } from '../ops/operations.js';
 import type { PipelineStage, PipelineView, TurnRow } from './model.js';
 import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
+import { ruleWords } from './output.js';
 import { took } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -349,7 +350,8 @@ export function jobEvents(rows: readonly JobRow[], max = 60, shown?: string): Ac
 /** R4 (H112): the lines jobs printed, as Activity's events (src/workbench/output.ts OutputWatch keeps them as first seen). */
 export function outputEvents(lines: ReadonlyArray<{ job: string; n: number; text: string; at: string; operation?: string }>, o: { where?: (job: string) => string; bar?: string } = {}): ActivityEvent[] {
   const bar = o.bar ?? '│';
-  return lines.map((l) => ({ at: l.at, key: `out:${l.job}:${l.n}`, seq: l.n, job: l.job, ...(l.operation ? { operation: l.operation } : {}), words: `${l.job} ${bar} ${l.text}${o.where?.(l.job) ?? ''}`, output: true }));
+  // R6 (H141): a rule the job printed is said as its output, not drawn as a line across Activity (src/workbench/output.ts ruleWords)
+  return lines.map((l) => ({ at: l.at, key: `out:${l.job}:${l.n}`, seq: l.n, job: l.job, ...(l.operation ? { operation: l.operation } : {}), words: `${l.job} ${bar} ${ruleWords(l.text) ?? l.text}${o.where?.(l.job) ?? ''}`, output: true }));
 }
 
 /** How many events Activity keeps (the newest). */
