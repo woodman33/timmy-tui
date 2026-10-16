@@ -173,17 +173,22 @@
         </section>
         <!-- R4 (H104, second part): one operation's run detail, opened by its operation id: this page's address /run/<id> (from
              the terminal Workbench's Activity or a Timmy Studio card), a run on the left, or the box below. Drawn from Timmy's
-             records as its producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing. -->
+             records as its producer gives them (src/contracts/run-detail.ts); this page checks and decides nothing.
+             R6 (H144): with the run inspected (its source, changes, outputs and receipts, each receipt verified on the
+             companion's server when it answers), drawn by panel-run.js; the run detail fills the box, each column scrolling
+             on its own and saying "more below" while it has more. -->
         <div id="tab-run" class="tab-panel active" role="region" aria-label="Run detail" data-ws="workflows">
           <section id="run-card" class="box" aria-labelledby="run-card-title">
             <h2 id="run-card-title" class="box-title">Run detail · intent → prediction → run → receipt</h2>
             <div class="box-body">
-            <form id="run-form" class="run-form" autocomplete="off">
-              <label for="run-op" class="run-label">Operation id</label>
-              <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
-              <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
-            </form>
-            <p id="run-hint" class="run-hint">An operation id is o and 8 hex digits, as Timmy prints it. This page's address for one is <code>/run/&lt;operation id&gt;</code> on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.</p>
+            <div class="rv-top">
+              <form id="run-form" class="run-form" autocomplete="off">
+                <label for="run-op" class="run-label">Operation id</label>
+                <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
+                <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
+              </form>
+              <p id="run-hint" class="run-hint" title="This page's address for a run is /run/&lt;operation id&gt; on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.">An operation id is o and 8 hex digits, as Timmy prints it; this page's address for one is <code>/run/&lt;operation id&gt;</code>.</p>
+            </div>
             <div id="run-detail" class="run-detail" aria-live="polite">
               <p class="run-empty">No run detail opened yet.</p>
             </div>
@@ -407,6 +412,8 @@
   <script src="/panel-studio.js"></script>
   <script src="/panel-vox.js"></script>
   <script src="/panel-tools.js"></script>
+  <!-- R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts) -->
+  <script src="/panel-run.js"></script>
   <script src="/companion.js"></script>
   <script type="module" src="/web/island/companion-chat.js"></script>
 </body>

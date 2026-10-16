@@ -994,3 +994,166 @@ body.slate-absent p { max-width: 72ch; }
   .tools-routes { grid-template-columns: minmax(0, 1fr); }
   .tools-step { flex: 1 1 40%; }
 }
+
+/* ======================================================================================================================
+   R6 (H144): the Workflows tab's run detail, inspected (src/companion/client/panel-run.js; references 03, 12 and 10).
+   Its box is filled: a head row (the run, its verdict, when its receipts were checked), the pipeline intent → predict →
+   run → receipt, the run's actions (neutral: the strip's primary stays the page's one amber next step, so the run's own
+   primary is marked only by a brighter neutral border; amber comes on with focus, and on the file the viewer shows, the
+   selection), then three columns, each scrolling on its own and saying "more below ↓" on its lower edge
+   while it has more. Green only for what the server verified or found as recorded (.is-verified); amber with ✕ and its
+   word for what did not (.is-failed); diff markers keep + green and − red (DESIGN.md §10 B5). Images keep their colors.
+   ====================================================================================================================== */
+
+.cols-flow { grid-template-columns: minmax(0, 17fr) minmax(0, 83fr); }
+#run-card > .box-body { overflow: hidden; gap: 6px; }
+.rv-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; flex-shrink: 0; }
+/* the form shrinks in its row (its label, field and button wrap) so a narrow window never scrolls sideways */
+#run-card .rv-top > .run-form { flex-shrink: 1; min-width: 0; }
+.rv-top .run-hint { flex: 1 1 22em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#run-detail { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#run-detail > .run-view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
+.rv-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; flex-shrink: 0; }
+.rv-head .run-title { margin: 0; }
+.rv-verdict { font-size: 11px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 6px; }
+.rv-checked { font-size: 11px; color: var(--timmy-text-secondary); }
+
+/* the pipeline: .intent and .predict amber (before the run); a stage green only when the server verified its receipts */
+.rv-pipe { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; flex-shrink: 0; margin: 0; }
+.rv-pipe-step { font-size: 11px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 7px; }
+.rv-pipe-step + .rv-pipe-step::before { content: '→ '; color: var(--timmy-text-secondary); }
+.rv-pipe-step .rv-stage { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.rv-pipe-step.is-intent, .rv-pipe-step[data-stage="predict"] { border-color: var(--timmy-accent); }
+.rv-pipe-step.is-intent .rv-stage, .rv-pipe-step[data-stage="predict"] .rv-stage { color: var(--timmy-accent); }
+.rv-pipe-step.is-verified { color: var(--timmy-live); }
+.rv-pipe-step.is-verified:not([data-stage="predict"]) { border-color: var(--timmy-live); }
+.rv-pipe-step.is-failed { color: var(--timmy-failure); }
+
+/* the run's actions: each its label and what it does (its command on the line under them); neutral, the primary's border
+   brighter; amber only on focus (B10: the strip's primary is the page's one amber next step) */
+.rv-acts-row { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.rv-acts { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0; }
+.rv-acts > li { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 100%; }
+.rv-act { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 1px 6px; max-width: 100%; background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 2px 8px; font-size: 11.5px; font-weight: var(--timmy-weight-strong); text-align: left; cursor: pointer; }
+.rv-act:hover { border-color: var(--timmy-text-secondary); }
+.rv-act.is-primary { border-color: var(--timmy-text); }
+.rv-act[aria-disabled="true"] { color: var(--timmy-text-secondary); border-style: dashed; cursor: not-allowed; }
+.rv-act-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
+.rv-acts-cmd { flex: 1 1 100%; min-width: 0; margin: 0; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.rv-cmd-now { color: var(--timmy-text); font-family: var(--timmy-font-mono); }
+.rv-effect { font-size: 10px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em; }
+.rv-effect.is-writes, .rv-effect.is-runs { color: var(--timmy-text); border-color: var(--timmy-text-secondary); }
+.rv-acts-note { flex: 1 1 100%; margin: 0; font-size: 11px; color: var(--timmy-text); min-width: 0; overflow-wrap: anywhere; }
+.rv-acts-note:empty { display: none; }
+
+/* the three columns: before the run, the run, after it; each scrolls with its cue (the run: its viewer and its lower box) */
+/* its bottom padding holds the cue each column hangs on its lower edge, so the run card itself never has more below */
+.rv-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 26fr) minmax(0, 48fr) minmax(0, 26fr); gap: 10px; padding-bottom: 10px; }
+.rv-cols > .rd-col { display: flex; flex-direction: column; min-height: 0; padding: 12px 0 2px; margin-top: 8px; }
+.rv-cols > .rd-col > .rv-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 10px 8px; }
+.rv-split-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 0 10px 8px; }
+.rv-hold { position: relative; }
+.rv-hold[data-more]::after {
+  content: 'more below ↓';
+  position: absolute;
+  right: 10px;
+  bottom: -0.8em;
+  padding: 0 6px;
+  background: var(--timmy-ground);
+  color: var(--timmy-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.run-view .rv-scroll:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: -2px; }
+.run-view .is-verified { color: var(--timmy-live); }
+.run-view .is-failed { color: var(--timmy-failure); }
+.rv-why, .rv-now, .rv-kept, .rv-by, .rv-check, .rv-of { font-size: 11.5px; margin: 2px 0; overflow-wrap: anywhere; }
+.rv-why { color: var(--timmy-text-secondary); }
+
+/* cards: .intent and .predict amber; the run's .receipt green only when the server verified it */
+.rv-card { border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 5px 8px 6px; margin-bottom: 8px; background: var(--timmy-ground); }
+.rv-card h6 { font-size: 12px; font-weight: var(--timmy-weight-strong); margin: 0 0 3px; color: var(--timmy-text); overflow-wrap: anywhere; }
+.rv-card p { margin: 2px 0; overflow-wrap: anywhere; }
+.rv-card.is-intent, .rv-card.is-predict { border-color: var(--timmy-accent); }
+.rv-card.is-intent h6 { color: var(--timmy-accent); }
+.rv-card.is-receipt.is-verified { border-color: var(--timmy-live); }
+.rv-card.is-receipt.is-failed { border-color: var(--timmy-failure); }
+.rv-card.is-receipt h6 { color: var(--timmy-text); }
+.rv-verified { font-size: 11.5px; margin: 3px 0 0; font-weight: var(--timmy-weight-strong); }
+.rv-checked-words { font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); }
+
+/* the source: each block as it ran, with its lines' numbers in the document */
+.rv-block { border-top: 1px solid var(--timmy-line); padding-top: 4px; margin-top: 5px; }
+.rv-block-head { font-size: 11.5px; margin: 0 0 2px; }
+.rv-sealed { font-size: 11px; margin: 2px 0 0; }
+.rv-code, .rv-text, .rv-diff { margin: 0; font-family: var(--timmy-font-mono); font-size: 11.5px; line-height: 1.5; overflow-x: auto; color: var(--timmy-text); background: var(--timmy-surface); border-radius: 3px; padding: 3px 0; }
+.rv-tl, .rv-dl, .rv-hunk { display: block; white-space: pre; padding: 0 6px; }
+.rv-ln { display: inline-block; min-width: 3.5ch; margin-right: 1.2ch; text-align: right; color: var(--timmy-text-secondary); user-select: none; }
+.rv-hunk { color: var(--timmy-text-secondary); }
+.rv-dl { border-left: 2px solid transparent; }
+.rv-mark { display: inline-block; width: 1.6ch; }
+.rv-dl[data-op="add"] { border-left-color: var(--timmy-diff-add); }
+.rv-dl[data-op="add"] .rv-mark, .rv-add-n { color: var(--timmy-diff-add); }
+.rv-dl[data-op="del"] { border-left-color: var(--timmy-diff-remove); }
+.rv-dl[data-op="del"] .rv-mark, .rv-del-n { color: var(--timmy-diff-remove); }
+.rv-diff-head, .rv-text-head { font-size: 11px; color: var(--timmy-text-secondary); margin: 3px 0; }
+/* a diff's head on one line (all of it in its title), so its first lines show in a short viewer */
+.rv-diff-head { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the viewer: the chosen file (its diff, its image, its text), its facts and what can be done with it */
+.rv-viewer { flex: 1 1 64%; min-height: 8em; display: flex; flex-direction: column; gap: 4px; }
+.rv-v-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; flex-shrink: 0; }
+.rv-v-path { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
+.rv-v-tag { font-size: 10.5px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; }
+.rv-v-acts { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-left: auto; }
+.rv-v-body { flex: 1 1 auto; min-height: 0; border: 1px solid var(--timmy-line); border-radius: 4px; }
+.rv-v-body > .rv-scroll, .rv-lower > .rv-scroll { height: 100%; overflow: auto; padding: 4px 8px 8px; }
+.rv-lower { flex: 1 1 36%; min-height: 6em; border: 1px solid var(--timmy-line); border-radius: 4px; }
+.rv-copy { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 1px 7px; font-size: 11px; font-weight: var(--timmy-weight-strong); cursor: pointer; display: inline-flex; align-items: baseline; gap: 5px; flex-wrap: wrap; text-align: left; }
+.rv-copy:hover { border-color: var(--timmy-text-secondary); }
+.rv-v-facts { border-top: 1px solid var(--timmy-line); margin-top: 6px; padding-top: 3px; }
+.rv-not-now { font-size: 11px; color: var(--timmy-text-secondary); }
+.rv-image { margin: 4px 0; }
+.rv-image img { display: block; max-width: 100%; max-height: 16em; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
+.rv-image.is-small img { width: 12em; max-height: none; image-rendering: pixelated; }
+.rv-image figcaption, .rv-binary { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 2px; overflow-wrap: anywhere; }
+.rv-pair { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* the files: what the run changed, its log and outputs; the one shown in the viewer outlined amber (the selection) */
+.rv-files h5 { margin: 4px 0 3px; }
+.rv-picks { list-style: none; display: flex; flex-direction: column; gap: 3px; margin: 0 0 6px; }
+.rv-pick { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 3px 7px; font-size: 11.5px; cursor: pointer; }
+.rv-pick:hover { border-color: var(--timmy-text-secondary); }
+.rv-pick[aria-current="true"] { border-color: var(--timmy-accent); }
+.rv-pick-how { font-size: 10.5px; color: var(--timmy-text-secondary); min-width: 6ch; }
+.rv-pick-path { overflow-wrap: anywhere; }
+.rv-pick-what { font-size: 11px; color: var(--timmy-text-secondary); }
+.rv-notes { margin: 0 0 6px; padding-left: 16px; font-size: 11px; color: var(--timmy-text-secondary); }
+
+/* the receipts: intent → predict → run → receipt, each verified now (green) or not (amber with ✕) */
+.rv-chain { list-style: none; display: flex; flex-direction: column; gap: 5px; margin: 0 0 6px; }
+.rv-chain > li { border-left: 2px solid var(--timmy-line-strong); padding-left: 7px; font-size: 11.5px; overflow-wrap: anywhere; }
+.rv-chain > li[data-stage="intent"] { border-left-color: var(--timmy-accent); }
+.rv-chain > li[data-verified="true"] { border-left-color: var(--timmy-live); }
+.rv-chain > li[data-verified="false"] { border-left-color: var(--timmy-failure); }
+.rv-chain .rv-stage { font-weight: var(--timmy-weight-strong); }
+.rv-chain-words { font-size: 11.5px; margin: 2px 0 8px; overflow-wrap: anywhere; }
+
+/* a narrower desktop: two columns, the receipts under them */
+@media (max-width: 1180px) {
+  .rv-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); }
+  .rv-cols > .rd-after { grid-column: 1 / -1; }
+}
+/* a narrow screen: one column, the page scrolls; the viewer and the lower box keep a height of their own */
+@media (max-width: 860px) {
+  .cols-flow { grid-template-columns: minmax(0, 1fr); }
+  #run-card > .box-body { overflow: visible; }
+  .rv-top .run-hint { white-space: normal; }
+  .rv-cols { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
+  .rv-cols > .rd-after { grid-column: auto; }
+  .rv-cols > .rd-col > .rv-scroll { overflow: visible; }
+  .rv-v-body > .rv-scroll { max-height: 50vh; }
+  .rv-lower > .rv-scroll { max-height: 50vh; }
+  .rv-viewer { min-height: 0; }
+}
