@@ -102,6 +102,7 @@ import { ActiveFollower, activeProjectFile } from './active-follow.js';
 import { mountRunDetailRoute, type RunDetailProducer } from './run-detail-route.js';
 // R6 (H145): the shown project's artifacts, for the board's artifact cards
 import { mountArtifactRoutes } from './artifacts.js';
+import { mountReferenceRoutes } from './references.js';
 import { timmyHome } from '../setup/home.js';
 import { receiptsDir } from '../utils/receipts.js';
 
@@ -611,6 +612,9 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   // R6 (H145): the shown project's artifacts (its VoxVision records, runs and receipts) for the board's artifact cards, read
   // only, for the project named now (src/studio/artifacts.ts)
   mountArtifactRoutes(app, { link, relay, env });
+  // R6 (H145): reference images from the project's own files, copied into its board's folder and shown from there
+  // (src/studio/references.ts)
+  mountReferenceRoutes(app, { link, relay, canvasRoot: savedIn });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
   // Checked on every request, so building while Timmy runs needs only a reload.

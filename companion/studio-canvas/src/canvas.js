@@ -10,7 +10,7 @@
 // a glyph, with a recovery path (./save-state.js); and the guided blank templates open as text and empty frames.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { AccessibilityMenu, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
+import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { band, createProjectPanel } from './project.js';
@@ -27,8 +27,9 @@ import { createFrameStrip } from './frame.js';
 import { clockOf, dateTimeOf } from './when.js';
 // R6 (H139): whose board is on screen, and the switch from one project's board to another's
 import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, projectOf, sameProject, SWITCH_WAIT_MS, switchedWords, switchingTo } from './identity.js';
-// R6 (H145): the shown project's artifacts, as cards on its board, and Studio's VoxVision preview
+// R6 (H145): the shown project's artifacts, as cards on its board, and Studio's VoxVision preview; its reference images
 import { createArtifacts } from './artifacts.js';
+import { createReferences } from './references.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -163,6 +164,25 @@ const artifacts = createArtifacts({
   place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
   say: (text, bad = false) => band(text, bad),
   render: (host, element) => renderInto(host, element),
+});
+
+/**
+ * R6 (H145): reference images from the project's own files (./references.js): copied into its board's folder by Timmy, shown from
+ * that copy through the board's asset store (with this page's session), for the board on screen only.
+ */
+const references = createReferences({
+  editor: () => current,
+  scope: () => ({ project: identity.project, state: identity.state, switching: identity.switching, paused: identity.paused }),
+  ticket: () => identity.ticket(),
+  current: (t) => identity.current(t),
+  kept: (of, detail) => identity.note(keptWords('reading', projectOf(of) ?? of, identity.switching ?? identity.project, detail)),
+  files: (projectId) => cards.referenceFiles(projectId),
+  copy: (projectId, path) => cards.referenceCopy(projectId, path),
+  image: (projectId, file) => cards.refImage(projectId, file),
+  forget: (url) => cards.forget(url),
+  AssetRecordType, createShapeId, toRichText,
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  say: (text, bad = false) => band(text, bad),
 });
 
 /** R5 (H133): the save in words for the status line's end (the save line, #save, says it in full). */
@@ -1079,8 +1099,10 @@ function connectPanel() {
     runDetail: (op, projectId) => showRunDetail(op, projectId),
   });
   cards.setPoll(() => projectPanel.poll());
-  // R6 (H145): the side panel's Artifacts (the shown project's), read now and every 5 s while the page is shown
+  // R6 (H145): the side panel's Artifacts (the shown project's), read now and every 5 s while the page is shown; and its
+  // reference images
   artifacts.connect();
+  references.connect();
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
   cards.setSessionListener(showSession);
   showSession();
@@ -1203,6 +1225,8 @@ function mount(snapshot, b = canvas) {
             // R6 (H145): an artifact of the project as its card (as the Artifacts list's Place on the board does), and the list read
             placeArtifact: (id) => artifacts.place(String(id)),
             artifacts: () => artifacts.list(),
+            // R6 (H145): one of the project's images as a reference image (as the panel's Add to the board does)
+            placeReference: (path) => references.add(String(path)),
           };
           attachEditor(editor, b);
           followEditor(editor);
@@ -1358,8 +1382,9 @@ async function start() {
   // R6 (H139): the board of the project the canvas shows (its answer says which), on a state of its own
   canvas = newBoard(projectOf(saved.project), saved);
   identity.show(canvas.project);
-  // R6 (H145): the artifact cards and the Artifacts list follow the board on screen
+  // R6 (H145): the artifact cards, the Artifacts list and the reference images follow the board on screen
   artifacts.scopeChanged();
+  references.scopeChanged();
   // R5 (H133): the strip reads the frame now; R6 (H139): once the board's project is known, so it draws that project's frame only
   startFrame();
   if (typeof saved.board === 'string' && saved.board) document.getElementById('guide-dir').textContent = saved.board;
@@ -1367,6 +1392,8 @@ async function start() {
   tldrawProps = {
     // R4 (H75): Timmy's drawn cards beside tldraw's own shapes. R6 (H145): and the artifact card
     shapeUtils: [...cards.utils, artifacts.util],
+    // R6 (H145): a reference image is shown from its board's copy, read with this page's session (tldraw's own inline upload else)
+    assets: references.assetStore(inlineBase64AssetStore),
     licenseKey: config.licenseKey ?? undefined,
     // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
     assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),
@@ -1467,8 +1494,10 @@ function showBlocked() {
   for (const id of ['board-open', 'save-retry', 'conflict-reload', 'conflict-keep']) { const b = document.getElementById(id); if (b) b.disabled = true; }
   if (current) { showStatus(current); showDrafts(current); showJobs(current); }
   projectPanel?.hold();
-  // R6 (H145): the artifact cards show nothing, the Artifacts list is held and the VoxVision preview closes
+  // R6 (H145): the artifact cards show nothing, the Artifacts list is held and the VoxVision preview closes; no reference image
+  // of the board before is shown
   artifacts.scopeChanged();
+  references.scopeChanged();
   // the header says "switching to <project>…" while switching; paused, it stays the page's own project's, marked as not read now
   if (state === 'switching') frameStrip?.hold(holdWords());
 }
@@ -1542,8 +1571,9 @@ async function switchTo(to) {
   band(`${switchedWords(from, got)}${typeof saved.oldLayout === 'string' && saved.oldLayout ? ` ${saved.oldLayout}` : ''}`);
   frameStrip?.release(got.name);
   projectPanel?.reset();
-  // R6 (H145): the new board's artifacts, read for it
+  // R6 (H145): the new board's artifacts and reference images, read for it
   artifacts.scopeChanged();
+  references.scopeChanged();
   showStatus(current);
   showDrafts(current);
   showJobs(current);

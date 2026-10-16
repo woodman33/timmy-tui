@@ -184,6 +184,8 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
   async function shows(page: Page, p: Project): Promise<void> {
     await page.waitForFunction((id) => { const t = (window as never as Win).timmyCanvas; return t?.identity.state === 'shown' && t.identity.project?.id === id && t.project?.id === id; }, p.id, { timeout: 20_000 });
     await page.waitForFunction((n) => (document.getElementById('artifacts-name')?.textContent ?? '').startsWith(`${n} · `), p.name, { timeout: 20_000 });
+    // the Artifacts list starts folded (the panel keeps its room): a person opens it
+    if (!(await page.evaluate(() => (document.getElementById('artifacts') as HTMLDetailsElement).open))) await page.click('#artifacts > summary');
   }
   const savedState = (page: Page) => page.waitForFunction(() => document.getElementById('save')?.dataset.state === 'saved', null, { timeout: 15_000 });
   async function capture(page: Page, name: string): Promise<void> {

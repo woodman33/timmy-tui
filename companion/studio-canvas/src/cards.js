@@ -669,6 +669,32 @@ export function createCards(deps) {
     if (!/^image\//.test(type)) return null;
     return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
   }
+  /**
+   * R6 (H145): the reference images of project `projectId` (src/studio/references.ts), with this page's session: its image files
+   * (`files`), a copy of one into its board's folder (`copy`), and a copy's bytes shown from memory (`refImage`: an object URL, null
+   * when not read). Each for the board on screen's project only (the server refuses another, 409).
+   */
+  async function referenceFiles(projectId) {
+    if (!token || !/^[0-9a-f]{16}$/.test(String(projectId))) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request(`/api/project/reference-files?project=${projectId}`, 'GET', token);
+    if (r.status === 401 || pausedAnswer(r)) noted(r, 'Timmy did not let this page read the project\'s images.');
+    return r;
+  }
+  async function referenceCopy(projectId, path) {
+    if (!token || !/^[0-9a-f]{16}$/.test(String(projectId))) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/project/reference', 'POST', token, { project: String(projectId), path: String(path) });
+    if (r.status === 401) noted(r, 'Timmy refused to copy the reference image.');
+    return r;
+  }
+  async function refImage(projectId, file) {
+    if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL || !/^[0-9a-f]{16}$/.test(String(projectId)) || !/^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(String(file))) return null;
+    const r = await SAFE.fetch(`/api/canvas/ref/${projectId}/${file}`, requestInit('GET', token));
+    if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
+    const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(type)) return null;
+    return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
+  }
   /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
   async function draftDecision(body) {
     if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
@@ -1332,8 +1358,9 @@ export function createCards(deps) {
     keepCopy, draftDecision,
     // R6 (H139): a board's saved revision, and which project the canvas shows now
     health, active,
-    // R6 (H145): the shown project's artifacts and a VoxVision record's images, with this page's session (./artifacts.js)
-    artifactRead, artifactImage, forget,
+    // R6 (H145): the shown project's artifacts and a VoxVision record's images, with this page's session (./artifacts.js); its
+    // reference images (./references.js)
+    artifactRead, artifactImage, forget, referenceFiles, referenceCopy, refImage,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },

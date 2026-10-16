@@ -436,6 +436,11 @@
   .ta-section { display: grid; gap: 2px; }
   .ta-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
   .ta :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+  #references-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.ritem { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 0; }
+  #side li.ritem + li.ritem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .ritem-path { overflow-wrap: anywhere; }
+  #side .ritem-size, #side .ritem-empty { color: var(--timmy-text-secondary, #8E8E93); }
   #artifact-preview-images { display: grid; gap: 8px; }
   #artifact-preview-images figure, #artifact-preview-images ul { margin: 0; }
   #artifact-preview-images .ta-legend, #artifact-preview-images .ta-caption { font-size: 12px; }
@@ -484,6 +489,17 @@
       </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
       <details id="kept" hidden><summary>Kept apart (<span id="kept-count">0</span>)</summary><ol id="kept-list" aria-label="What came back for another board than the one on screen, the newest first"></ol></details>
+      <!-- R6 (H145): the shown project's artifacts (src/artifacts.js): its VoxVision records, runs and receipts, each placed on its
+           board as a card that shows it and opens its preview -->
+      <details id="artifacts"><summary>Artifacts <span id="artifacts-name">reading…</span></summary>
+        <p id="artifacts-note" hidden></p>
+        <ol id="artifact-list" aria-label="This project's artifacts: its VoxVision records, runs and receipts"></ol>
+      </details>
+      <!-- R6 (H145): the shown project's images (src/references.js): one added is copied into its board's folder and shown on the
+           board with its file name and where it came from -->
+      <details id="references"><summary>Reference images <span id="references-name">reading…</span></summary>
+        <ol id="reference-list" aria-label="This project's images (PNG, JPEG, WebP, GIF) to add to its board"></ol>
+      </details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>
@@ -494,12 +510,6 @@
           <div id="project-by" role="group" aria-label="Group the project's cards" hidden><button type="button" data-by="kind" aria-pressed="true">By kind</button><button type="button" data-by="operation" aria-pressed="false">By operation</button></div>
         </div>
         <div id="project-groups"></div>
-      </details>
-      <!-- R6 (H145): the shown project's artifacts (src/artifacts.js): its VoxVision records, runs and receipts, each placed on its
-           board as a card that shows it and opens its preview -->
-      <details id="artifacts" open><summary>Artifacts <span id="artifacts-name">reading…</span></summary>
-        <p id="artifacts-note" hidden></p>
-        <ol id="artifact-list" aria-label="This project's artifacts: its VoxVision records, runs and receipts"></ol>
       </details>
     </div>
     <p id="project-said" role="status"></p>
