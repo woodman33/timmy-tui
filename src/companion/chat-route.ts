@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chatRouteNow, localRouteWords } from '../agent/chat-route.js';
+import { modelPrice } from '../agent/model-price.js';
 import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
@@ -43,7 +44,9 @@ export type KeyFrom = 'environment' | 'timmy-tui.config.json' | 'providers.json'
  */
 export type PageRoute =
   | { kind: 'local'; ready: true; label: string; words: string; model: string; host: string; cloud: boolean; loopback: boolean; numCtx?: number }
-  | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom }
+  /** R5 (H132): `price`, what this computer knows of the model's price (src/agent/model-price.ts, never a guess); `freeOnly`,
+   *  the free-only policy is on and passed (the model is known to be free) */
+  | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom; price: string; freeOnly: boolean }
   | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[] };
 
 /** Where chat with Timmy happens, whatever this page can do (the end of every "Send is off" sentence). */
@@ -78,7 +81,9 @@ export function openRouterKey(env: Env, cwd: string): { key: string; from: KeyFr
  * the page's own, about what its Send does.
  */
 export function pageRoute(env: Env, cwd: string): PageRoute {
-  const now = chatRouteNow({ env, cwd, surface: 'companion' });
+  // R5 (H132, the lead's free-only policy, 39d21ec): the page's own model is named, so its price can be known; without one,
+  // free-only refuses (unknown is never free)
+  const now = chatRouteNow({ env, cwd, surface: 'companion', openRouterModel: OPENROUTER_MODEL });
   const r = now.route;
   const refusal = [...(now.state.refusal ?? [])];
   if (r.kind === 'local') {
@@ -100,6 +105,15 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
       words: `Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
     };
   }
+  // R5 (H132): free-only is on and the page's model is not known to be free: Send is off, in the policy's own words (its
+  // refusal: what, Cause, Try), never "no key" (the key is there; the policy refuses)
+  if (now.state.kind === 'openrouter' && !now.state.ready) {
+    const lines = refusal.map((l) => l.trim()).filter(Boolean);
+    const first = (lines.find((l) => /^Error:/.test(l)) ?? lines[0] ?? 'free-only is on, and this model is not known to be free.').replace(/^Error:\s*/, '');
+    const said = [first, lines.find((l) => /^Cause:/.test(l)), lines.find((l) => /^Try:/.test(l))].filter(Boolean).join(' ');
+    return { kind: 'none', ready: false, chat: 'openrouter', refusal, label: 'free-only · Send is off',
+      words: `Send is off: ${said} Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
+  }
   // the page's own request needs the key itself (where it was found is said, never the key); the one route found it where
   // this does (src/utils/model-key.ts and openRouterKey look in the same places, in the same order)
   const key = now.state.ready ? openRouterKey(env, cwd) : null;
@@ -109,10 +123,17 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
     return { kind: 'none', ready: false, chat: chat === 'openrouter' ? 'openrouter' : null, refusal, label: 'no chat route here · Send is off',
       words: `Send is off: ${chose}, and no OpenRouter key is set (not in this companion's environment or .env, a timmy-tui.config.json, the Timmy home's providers.json or the monitor's settings), so this page asks no model. \`timmy init\` keeps a key, or chooses the local model. ${CHAT_HAPPENS}` };
   }
+  // R5 (H132): the model's price as this computer knows it (src/agent/model-price.ts); free-only passed says so (the one
+  // route's words end in "· free-only" when it did)
+  const price = modelPrice(OPENROUTER_MODEL);
+  const freeOnly = /· free-only$/.test(now.state.words);
+  const found = key.from === 'environment' ? 'the environment' : key.from;
   return {
-    kind: 'openrouter', ready: true, model: OPENROUTER_MODEL, keyFrom: key.from,
-    label: `${OPENROUTER_MODEL} · OpenRouter · each message spends credits`,
-    words: `Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${key.from === 'environment' ? 'the environment' : key.from}): each message spends its credits.`,
+    kind: 'openrouter', ready: true, model: OPENROUTER_MODEL, keyFrom: key.from, price: price.words, freeOnly,
+    label: freeOnly ? `${OPENROUTER_MODEL} · OpenRouter · free-only: free` : `${OPENROUTER_MODEL} · OpenRouter · each message spends credits`,
+    words: freeOnly
+      ? `Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}). Free-only is on, and this model is free: ${price.words}.`
+      : `Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}): each message spends its credits. Its price: ${price.words}.`,
   };
 }
 
