@@ -27,6 +27,7 @@ import type { ChainEvidence, RunMark } from './evidence.js';
 import type { Ladder, NotReached, Rung } from './ladder.js';
 import { ladderFor, type Probes, type Timed } from './ladder-rows.js';
 import { ollamaRow, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
+import type { OllamaFrom } from './ollama-route.js'; // R6 (H140)
 import type { ChatRoute } from '../agent/chat-route.js'; // R4 (H103): the REPL row's route
 import { atWords } from '../setup/ollama-models.js';
 
@@ -124,6 +125,10 @@ export interface ProbeDeps {
   qualificationRoot?: () => string | undefined;
   /** R4 (H76): the local Ollama's address, as its probe asks it (said in the reachable evidence). */
   ollamaBase?: string;
+  /** R6 (H140): where that address came from (the chat setup's record, a variable, the default): a wrong address's step names it */
+  ollamaFrom?: OllamaFrom;
+  /** R6 (H140): this computer's platform, so an install step fits it (Homebrew only on macOS); process.platform when absent */
+  platform?: NodeJS.Platform;
   /**
    * R4 (H103): the chat's route as the REPL resolves it (src/agent/chat-route.ts resolveChatRoute): the REPL's row says it (the
    * local model needs no key). Absent: the row says the model key only, as before.
@@ -217,8 +222,9 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     'not-asked': { id: 'openrouter', kind: 'model', name: 'OpenRouter', rung: 'installed', detail: 'key set; not contacted' },
   };
   add(or[openrouter]);
-  // R4 (H82): from the server's own answer; the command's absence said on its own (src/capabilities/ollama-row.ts)
-  add(ollamaRow(ollama, { cli: d.onPath('ollama'), ...(d.ollamaBase ? { base: d.ollamaBase } : {}) }));
+  // R4 (H82): from the server's own answer; the command's absence said on its own (src/capabilities/ollama-row.ts). R6 (H140):
+  // its rung follows that answer alone, and its step fits this computer
+  add(ollamaRow(ollama, { cli: d.onPath('ollama'), ...(d.ollamaBase ? { base: d.ollamaBase } : {}), ...(d.platform ? { platform: d.platform } : {}), ...(d.ollamaFrom ? { from: d.ollamaFrom } : {}) }));
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });

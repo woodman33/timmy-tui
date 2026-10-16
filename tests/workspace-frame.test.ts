@@ -475,6 +475,10 @@ describe('R5 lead: the QA round on the installed build (defects 3, 4, 9)', () =>
     const fix = chatFix({ kind: 'local', ready: false, refusal: noModel }, down)!;
     expect(fix).toMatchObject({ problem: 'ollama-unreachable', command: 'timmy workspace check', effect: 'network' });
     expect(fix.words).toMatch(/start it \(ollama serve\), check again, then choose one with \/model\.$/);
+    // R6 (H140): how it is started fits this computer (no program here, Linux: its install, never Homebrew)
+    const linux = chatFix({ kind: 'local', ready: true }, down, [], { start: 'install Ollama: ollama.com/download/linux; then ollama pull <model>' })!;
+    expect(linux.words).toBe('Ollama: no answer when checked 2 min ago. Start it (install Ollama: ollama.com/download/linux; then ollama pull <model>), then check again.');
+    expect(linux.words).not.toMatch(/brew/);
     // Ollama answered (or not checked yet): choose the model among what it lists
     expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'live', words: 'answered just now' }])).toMatchObject({ problem: 'no-local-model', command: '/model' });
     expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'configured', words: 'set up, not checked yet' }])).toMatchObject({ problem: 'no-local-model' });

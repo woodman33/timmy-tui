@@ -31,7 +31,8 @@ import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
-import { resolveChatRoute } from '../agent/chat-route.js';
+import { ollamaAddress, ollamaStartStep } from '../capabilities/ollama-route.js';
+import { onPath as onPathNow } from '../utils/on-path.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -189,15 +190,10 @@ export function connectionOf(
  * R5 lead (H131's finding): the Ollama address the check asks and the card names: the one the local chat asks (the setup's
  * record, src/agent/chat-route.ts resolveChatRoute) when the chat is set to the local model, else OLLAMA_HOST (or
  * OLLAMA_BASE_URL), else Ollama's default. Before, the card and the check asked OLLAMA_HOST or the default while the chat
- * asked the recorded address, so a chat answering at its own address could be said "no answer".
+ * asked the recorded address, so a chat answering at its own address could be said "no answer". R6 (H140): one function for
+ * /tools and the frame alike (src/capabilities/ollama-route.ts), so /tools asks that address too.
  */
-export function ollamaAddress(env: Env = process.env): string {
-  try {
-    const r = resolveChatRoute({ env });
-    if (r.kind === 'local' && !('error' in r.at)) return r.at.origin;
-  } catch { /* the setup's record not readable: the address below */ }
-  return (env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-}
+export { ollamaAddress };
 
 function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown']): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
@@ -282,7 +278,10 @@ export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>
 export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'free-only' | 'key-refused';
 export interface ChatFix { problem: ChatProblem; label: string; command: string; effect: WorkspaceAction['effect']; words: string }
 
-export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = []): ChatFix | null {
+export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = [], o: { start?: string } = {}): ChatFix | null {
+  // R6 (H140): how Ollama is started here (src/capabilities/ollama-route.ts ollamaStartStep: `ollama serve` with its program,
+  // else this platform's install); `ollama serve` when the caller does not say
+  const start = o.start ?? 'ollama serve';
   // R5 lead (the rehearsal): the project's newest chat turn on that route that ended by itself (answered or failed; a stopped
   // turn says nothing about the route) is a newer observation than an older check: answered after the check, no fix is
   // offered for the failure the check saw (the connection keeps the check's own words and time); failed, the check stands.
@@ -301,18 +300,18 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
     if (/no model is chosen/i.test(first)) {
       // R5 lead (the QA round, defect 3): the models to choose from are what Ollama lists, so while the last check found
       // nothing answering at the address the chat asks, starting Ollama comes first (choosing one would list nothing)
-      const o = conn('ollama');
-      if (o && (o.state === 'unreachable' || o.state === 'refused') && !answeredSince(o, 'ollama')) {
-        return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (ollama serve), check again, then choose one with /model.` };
+      const ol = conn('ollama');
+      if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
+        return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (${start}), check again, then choose one with /model.` };
       }
       return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
     }
     return { problem: 'ollama-address', label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change', words: chatNotReady(route) };
   }
   if (route.kind === 'local' && route.ready) {
-    const o = conn('ollama');
-    if (o && (o.state === 'unreachable' || o.state === 'refused') && !answeredSince(o, 'ollama')) {
-      return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. Start it (ollama serve), then check again.` };
+    const ol = conn('ollama');
+    if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
+      return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. Start it (${start}), then check again.` };
     }
     return null;
   }
@@ -341,7 +340,7 @@ const act = (n: number, label: string, command: string, o: Partial<Pick<Workspac
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] } = {}): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[]; ollamaStart?: string } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
@@ -349,7 +348,7 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   // R5 lead (the finish line, item 3): what keeps chat from answering, and its own fix (null: nothing known to be wrong)
-  const fix = chatFix(wb.route, o.connections ?? [], o.recentTurns ?? []);
+  const fix = chatFix(wb.route, o.connections ?? [], o.recentTurns ?? [], o.ollamaStart ? { start: o.ollamaStart } : {});
   const homeNext: WorkspaceAction = fix
     ? act(1, fix.label, fix.command, { primary: true, effect: fix.effect })
     : waiting > 0
@@ -451,8 +450,13 @@ export function turnOf(t: TurnRow): WorkspaceTurn {
   };
 }
 
+/** R6 (H140): whether the `ollama` program is on this PATH (the caller's lookup, else the PATH itself): it only words a step. */
+const ollamaCli = (d: StateDeps, env: Env): boolean => {
+  try { return d.onPath ? d.onPath('ollama') !== null : onPathNow('ollama', env); } catch { return false; }
+};
+
 /** The frame. Reads the records only; the same inputs give the same revision. */
-export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}): Promise<WorkspaceFrame> {
+export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platform?: NodeJS.Platform } = {}): Promise<WorkspaceFrame> {
   const env = d.env ?? process.env;
   const cwd = d.cwd ?? process.cwd();
   const now = d.now ?? Date.now();
@@ -486,7 +490,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns }),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns, ollamaStart: ollamaStartStep({ cli: ollamaCli(d, env), platform: d.platform ?? process.platform }) }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,

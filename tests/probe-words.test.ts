@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getLocalOllamaBaseUrl, probeOllama } from '../src/agent/providers.js';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { liveDeps } from '../src/capabilities/live.js';
+import { ollamaStartStep } from '../src/capabilities/ollama-route.js';
 import { causeLine, DOCKER_PROBE_MS, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { OPENHANDS_SDK } from '../src/code-agents/openhands.js';
 
@@ -106,14 +107,35 @@ describe('Ollama: the probe\'s states told apart; the row says what the server a
     expect(r.ollama).toMatchObject({ rung: 'installed', detail: `Ollama answered at 127.0.0.1:${port}: it lists 2 local models and 1 cloud model, which Timmy does not use as local ones; no model was checked within 1.5 s; the ollama command is not on PATH` });
   });
 
-  it('nothing answers: with no ollama command, needs setup, both said; with the command on PATH, installed: ollama serve', async () => {
+  it('nothing answers: needs setup with the ollama command or without it (R6, H140: the rung follows the HTTP answer, never the PATH); the step fits this computer', async () => {
     const port = await closedPort();
     vi.stubEnv('OLLAMA_HOST', `127.0.0.1:${port}`);
     expect(await probeOllama()).toMatchObject({ ok: false, models: [], answer: { state: 'no answer', why: 'the connection failed (ECONNREFUSED)' } });
-    expect((await tools(temp('h82-bin-'))).ollama).toMatchObject({ rung: 'needs setup', detail: `the ollama command is not on PATH, and nothing answered at 127.0.0.1:${port} (the connection failed (ECONNREFUSED))` });
+    // no program: this platform's install (Homebrew only on macOS), never "installed"
+    const bare = (await tools(temp('h82-bin-'))).ollama;
+    expect(bare).toMatchObject({ rung: 'needs setup', detail: `the ollama command is not on PATH, and nothing answered at 127.0.0.1:${port} (the connection failed (ECONNREFUSED))`, setup: ollamaStartStep({ cli: false, platform: process.platform }) });
+    if (process.platform !== 'darwin') expect(bare.setup).not.toMatch(/brew/);
+    // the program on PATH (a FAKE that is never run) and nothing answering: still needs setup, its step `ollama serve`
     const bin = temp('h82-bin-');
     script(bin, 'ollama', 'echo "FAKE ollama: never run by /tools" >&2; exit 9');
-    expect((await tools(bin)).ollama).toMatchObject({ rung: 'installed', detail: `nothing answered at 127.0.0.1:${port} (the connection failed (ECONNREFUSED)): ollama serve` });
+    expect((await tools(bin)).ollama).toMatchObject({ rung: 'needs setup', detail: `nothing answered at 127.0.0.1:${port} (the connection failed (ECONNREFUSED))`, setup: 'ollama serve, then ollama pull <model>' });
+  });
+
+  it('R6 (H140): asks the address the chat asks (the chat setup\'s record), not OLLAMA_HOST\'s: a FAKE Ollama answering there is reachable with no ollama command on PATH', async () => {
+    const port = await fakeOllama({ models: ['qwen3:8b'] });
+    // OLLAMA_HOST names a port where nothing listens; the chat setup (FAKE record, as timmy init writes it) names the FAKE's
+    vi.stubEnv('OLLAMA_HOST', `127.0.0.1:${await closedPort()}`);
+    const home = temp('h140-timmy-home-');
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'FAKE', chat: 'local', ollama: `http://127.0.0.1:${port}`, model: 'qwen3:8b' } }));
+    const r = (await tools(temp('h140-bin-'), { TIMMY_HOME: home })).ollama;
+    expect(r).toMatchObject({ rung: 'reachable', detail: '1 local model; the ollama command is not on PATH' });
+    expect(r.setup).toBeUndefined();
+    expect(r.ladder!.reachable).toMatchObject({ asked: `GET http://127.0.0.1:${port}/api/tags, then each local model's details`, answer: '1 local model passed its /api/show check (it lists 1 model)' });
+    // nothing answering at the recorded address: the step names the setting that holds the address (the chat setup's)
+    const gone = await closedPort();
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'FAKE', chat: 'local', ollama: `http://127.0.0.1:${gone}`, model: 'qwen3:8b' } }));
+    const down = (await tools(temp('h140-bin-'), { TIMMY_HOME: home })).ollama;
+    expect(down).toMatchObject({ rung: 'needs setup', detail: `the ollama command is not on PATH, and nothing answered at 127.0.0.1:${gone} (the connection failed (ECONNREFUSED))` });
   });
 
   it('R4 (H88; r23): OLLAMA_HOST=127.0.0.1:9: fetch refuses that port itself, so the request was not sent: said so (never "nothing answered"); a closed port still says nothing answered', async () => {
