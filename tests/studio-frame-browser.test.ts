@@ -430,7 +430,10 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(entries.map((e) => e.tag)).toEqual(['✕ [chat]', '[job]', '[chat]', '✕ [job]', '[chat]', '[job]', '[chat]', '[job]']);
       expect(entries.every((e) => /^\d\d:\d\d:\d\d$/.test(e.time))).toBe(true);
       expect(entries[4].op).toBe('o1234abcd');
-      // open, the strip is taller: the canvas and the panel start under it, and the panel's foot stays where it was
+      // open, the strip is taller: the canvas and the panel start under it, and the panel's foot stays where it was. R6 lead (CI
+      // at 90e4820 and once before: the canvas 157 px above the strip's foot): the canvas follows the strip through a
+      // ResizeObserver (--frame-h), which runs at the page's next rendering step, so it is read once that step has run
+      await page.waitForFunction(() => Math.abs(document.getElementById('root')!.getBoundingClientRect().top - document.getElementById('frame')!.getBoundingClientRect().bottom) <= 1, null, { timeout: 5_000 }).catch(() => {});
       const opened = await page.evaluate(() => ({ strip: document.getElementById('frame')!.getBoundingClientRect().bottom, root: document.getElementById('root')!.getBoundingClientRect().top, side: document.getElementById('side')!.getBoundingClientRect() }));
       expect(opened.strip).toBeGreaterThan(closed.strip);
       expect(Math.abs(opened.root - opened.strip)).toBeLessThanOrEqual(1);

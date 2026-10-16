@@ -211,6 +211,11 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
     let release: () => void = () => {};
     const gate = new Promise<void>((done) => { release = done; });
     let seen = false;
+    // R6 lead (CI at e6b4da5 and once before): with fetchFirst, until() returned once the request was seen, before the server
+    // had answered it; the test's next step (the REPL's /project for the other board) could then reach the server first, so the
+    // server refused the held read (409: the canvas shows another project) and the late answer the test waits for never came.
+    // until() now waits for the server's answer too: the read is answered while its project is named, as the case says.
+    let answeredNow = false;
     const all = () => true;
     const handler = async (route: Route): Promise<void> => {
       const req = route.request();
@@ -218,6 +223,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       seen = true;
       if (o.fetchFirst) {
         const answered = await route.fetch();
+        answeredNow = true;
         await gate;
         await route.fulfill({ response: answered });
       } else {
@@ -225,11 +231,16 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
         await route.continue();
       }
     };
+    const ready = () => seen && (!o.fetchFirst || answeredNow);
     return {
       install: () => page.route(all, handler),
       release: () => release(),
       remove: () => page.unroute(all, handler),
-      until: async () => { for (let i = 0; i < 100 && !seen; i++) await page.waitForTimeout(100); expect(seen).toBe(true); },
+      until: async () => {
+        for (let i = 0; i < 100 && !ready(); i++) await page.waitForTimeout(100);
+        expect(seen).toBe(true);
+        if (o.fetchFirst) expect(answeredNow, 'the server answered the held request').toBe(true);
+      },
     };
   }
   const docOf = (p: Project) => (u: URL, m: string) => m === 'GET' && u.pathname === '/api/canvas/document' && u.searchParams.get('project') === p.id;
