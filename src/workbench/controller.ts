@@ -848,6 +848,14 @@ export class Controller {
       if (d) this.wheel('right', d, delta);
       return;
     }
+    // R6 (H141; the interaction review of a77d80d, defect 6): a box with no rows to select (the Keys list, a message) scrolls by
+    // the keys it lists, as the wheel scrolls it: ↑ ↓ (k j) a row, PgUp PgDn a page, Home End to its first or last rows; its
+    // title says which rows it shows (a–b of n)
+    if (region === 'center' && this.ui.overlay && !this.itemsNow('center')?.length) {
+      const d = this.last?.regions.center;
+      if (d) this.wheel('center', d, delta);
+      return;
+    }
     const list = this.listOf(region);
     // R4 (H112): the selection is the item moved to (by its key, src/workbench/select.ts); the wheel's view is let go
     const items = this.itemsNow(region);
@@ -1802,8 +1810,11 @@ export class Controller {
   /** R4 (H112): the wheel over a region scrolls its list by `delta` rows: the view only (no selection, no focus moves). */
   private wheel(region: Region, d: NonNullable<Frame['regions'][Region]>, delta: number): void {
     const max = Math.max(0, d.total - d.height);
-    const next = Math.max(0, Math.min(max, d.scroll + delta));
-    if (next === d.scroll) return;
+    // R6 (H141): from where the last key or tick left it (two keys read before the next frame was drawn scroll twice, never
+    // twice from the frame drawn before them), else where the last frame drew it
+    const from = Math.max(0, Math.min(max, this.ui.scroll[d.list] ?? d.scroll));
+    const next = Math.max(0, Math.min(max, from + delta));
+    if (next === from) return;
     this.ui.scroll[d.list] = next;
     this.ui.wheel[d.list] = true;
     delete this.ui.anchor[d.list];
