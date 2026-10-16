@@ -960,13 +960,15 @@ function mount(snapshot) {
 
 /**
  * R4 (H83): a page without a session that counts (opened by its address, a bookmark or a reload, or its grant refused) loads no
- * canvas: it says so plainly, in the status and in the middle of the page, with the command that opens one; nothing else starts.
+ * canvas: it says so plainly in the middle of the page, with the command that opens one, and the status says where (R5 H133);
+ * nothing else starts.
  */
 function refuseToLoad(words) {
-  say(`Not loaded: ${words}${/\/canvas open/.test(words) ? '' : ' In Timmy: /canvas open.'}`, 'refused');
+  // R5 (H133): said once, in the middle of the page (why, and what to type); the panel's line points there (it had the same
+  // paragraph twice). No workspace strip: the page has no session to read it with.
+  say('Not loaded: why, and what to type in Timmy, are in the middle of the page.', 'refused');
   document.getElementById('refused-words').textContent = words;
   document.getElementById('refused').hidden = false;
-  // R5 (H133): no workspace strip: the page has no session to read it with
   hideFrame();
 }
 

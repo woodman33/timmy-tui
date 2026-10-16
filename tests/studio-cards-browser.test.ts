@@ -340,7 +340,12 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     const { page, context, errors } = await open({ grant: false });
     try {
       // R4 (H83): no canvas, no cards, no project: the page says it needs /canvas open, and starts nothing else
-      expect(await text(page, '#status')).toBe('Not loaded: This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none. In Timmy: /canvas open.');
+      // R5 (H133): said once, in the middle of the page (it had been in the panel's line too); the line points there
+      expect(await text(page, '#status')).toBe('Not loaded: why, and what to type in Timmy, are in the middle of the page.');
+      expect(await text(page, '#refused-words')).toBe('This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none.');
+      expect((await page.evaluate(() => document.body.innerText)).split('This page was opened without a grant from Timmy').length - 1).toBe(1);
+      // and no workspace strip: the page has no session to read it with
+      expect(await page.isHidden('#frame')).toBe(true);
       expect(await page.isVisible('#refused')).toBe(true);
       expect(await page.isHidden('#side-ready')).toBe(true);
       expect(await page.locator('[data-timmy-card]').count()).toBe(0);
