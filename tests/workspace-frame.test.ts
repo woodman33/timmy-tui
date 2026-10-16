@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TABS, WORKSPACE_SCHEMA, tabByKey, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import {
-  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, checkConnections, connectionOf, connectionsPath, readConnections, writeConnections,
+  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
 
@@ -170,6 +170,15 @@ describe('the primary next step follows the records', () => {
     expect(a.workflows[0]).toMatchObject({ primary: true, command: '/run plan.up.md build' });
     expect(a.workflows[2]).toMatchObject({ enabled: false, why: 'nothing runs' });
   });
+  it('R5 lead: "needs you" has one meaning: Workflows counts what waits on a person now, never the blocks that ask first', () => {
+    const docs = [{ rel: 'APPROVAL.md', blocks: [{ name: 'tidy', needs_person: true }] }];
+    const quiet = actionsOf(wb({ ready: true, waiting: 0, running: 0, docs }));
+    expect(quiet.workflows[1]).toMatchObject({ label: 'Review the last run', primary: false });
+    expect(JSON.stringify(quiet)).not.toMatch(/needs you/i);
+    const waits = actionsOf(wb({ ready: true, waiting: 2, running: 0, docs }));
+    expect(waits.workflows[1]).toMatchObject({ label: 'Answer what waits on you (2)', command: '/room', primary: true });
+    expect(waits.workflows.filter((x) => x.primary)).toHaveLength(1);
+  });
 });
 
 describe('timmy workspace check', () => {
@@ -231,7 +240,7 @@ describe('timmy workspace check', () => {
       edge: async () => null,
     });
     expect(record.checks.openrouter).toBeUndefined();
-    expect(record.checks.ollama).toMatchObject({ answer: 'accepted', detail: '1 model listed' });
+    expect(record.checks.ollama).toMatchObject({ answer: 'accepted', detail: '1 local model' });
     expect(record.checks.studio).toMatchObject({ answer: 'not running' });
     expect(record.checks.companion).toMatchObject({ answer: 'not running' });
     const f = await frame(NOW + 1000);
@@ -260,5 +269,33 @@ describe('the command', () => {
     (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => { chunks.push(s); return true; };
     try { expect(await workspaceMain(['launch'])).toBe(2); } finally { (process.stderr as unknown as { write: typeof write }).write = write; }
     expect(chunks.join('')).toContain('Usage: timmy workspace [check] [--json] [--help]');
+  });
+});
+
+describe('R5 lead: H131\'s contract notes', () => {
+  it('a refusal said as one paragraph ends each line as a sentence, so "…/model in the REPL" never runs into the next line', () => {
+    expect(sentences(['Error: no model is chosen.', 'Try: timmy init --chat local --model <name>, or /model in the REPL', 'Nothing was sent to any model.']))
+      .toBe('Error: no model is chosen. Try: timmy init --chat local --model <name>, or /model in the REPL. Nothing was sent to any model.');
+    expect(sentences(['  ', 'Cause: none recorded (see above)'])).toBe('Cause: none recorded (see above)');
+  });
+  it('a frame can be read for the project the caller names, whichever project another surface made active', async () => {
+    const other = join(home, 'other');
+    mkdirSync(other, { recursive: true });
+    mkdirSync(join(home, 'timmy', 'state'), { recursive: true });
+    writeFileSync(join(home, 'timmy', 'state', 'active-project.json'), JSON.stringify({ name: 'other', root: other }));
+    const saved = process.env.TIMMY_HOME;
+    process.env.TIMMY_HOME = env.TIMMY_HOME;
+    try {
+      const active = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => [], onPath: () => null, now: NOW });
+      expect(active.project.name).toBe('other');
+      const named = await buildWorkspaceFrame({ env, cwd: project, project: { name: 'proj', root: project }, jobs: () => [], chain: () => [], onPath: () => null, now: NOW });
+      expect(named.project.name).toBe('proj');
+      expect(named.project.id).not.toBe(active.project.id);
+    } finally {
+      if (saved === undefined) delete process.env.TIMMY_HOME; else process.env.TIMMY_HOME = saved;
+    }
+  });
+  it('Home lists its connections first, as every surface draws it', () => {
+    expect(TABS[0]).toMatchObject({ id: 'home', workbench: ['connections', 'overview'] });
   });
 });

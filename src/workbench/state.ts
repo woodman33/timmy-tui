@@ -566,13 +566,16 @@ export interface StateDeps {
   /** the job records (a test's); absent: read from jobsDir through the job store */
   jobs?: () => JobRecord[];
   chain?: () => Receipt[];
+  /** R5 lead (H131's report): the project to read, named by the caller (a Workbench pinned to its own while another surface
+   * chose another); absent: the active project (src/project readActiveProject: the one chosen, else the folder here) */
+  project?: { name: string; root: string };
 }
 
 /** The shell's state model: what `timmy workbench --json` prints and what the app starts from. Reads only. */
 export async function workbenchJson(d: StateDeps = {}): Promise<WorkbenchJson> {
   const env = d.env ?? process.env;
   const cwd = d.cwd ?? process.cwd();
-  const project = activeProject(cwd, env);
+  const project = d.project ? projectView({ name: d.project.name, root: d.project.root, chosen: true }, env) : activeProject(cwd, env);
   const jobsDir = d.jobsDir ?? join(timmyHome(env), 'jobs');
   let records: JobRecord[] = [];
   if (d.jobs) records = d.jobs();

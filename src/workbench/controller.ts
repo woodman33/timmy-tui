@@ -11,6 +11,7 @@
  * them (src/workbench/producers.ts); until then the Inspector and the composer say so.
  */
 import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Key } from 'ink';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
@@ -19,6 +20,7 @@ import type { JobRecord } from '../jobs/index.js';
 import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
+import { operationRel } from '../ops/operations.js';
 import { buildWorkspaceFrame } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
@@ -116,8 +118,13 @@ export class Controller {
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
   private readonly output = new OutputWatch();
-  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed) */
+  /** R4 (H112): each run detail's job record as it was when the detail was read (wantDetail reads it again once it changed).
+   *  R5 (H131): and its operation's own record (see wantDetail) */
   private readonly detailSig = new Map<string, string>();
+  /** R5 (H131): each run detail's reading: its number (only the newest one's result is kept) and the records it was for */
+  private readonly detailRead = new Map<string, { n: number; sig: string; busy: boolean }>();
+  /** R5 (H131): each drawn run detail's operation record as the tick last saw it (onTick draws again once per change) */
+  private readonly detailOpSeen = new Map<string, string>();
   /** R5 (H131): the workspace frame's reading: one at a time, at most every FRAME_EVERY_MS, once more when asked meanwhile */
   private readonly frameRead: { running: boolean; again: boolean; at: number; timer: NodeJS.Timeout | null } = { running: false, again: false, at: 0, timer: null };
   /** R5 (H131): the receipts this Workbench verified (src/utils/receipts.ts verifyReceiptIn), by the chain as read and the hash */
@@ -288,7 +295,9 @@ export class Controller {
     r.running = true;
     r.at = Date.now();
     const root = this.data.project.root;
-    void buildWorkspaceFrame({ env: this.d.env, cwd: root, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
+    // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
+    // another, its actions are still its project's)
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
       .then((f) => {
         if (this.disposed || !sameFolder(root, this.data.project.root)) return;
         const before = this.data.frame?.revision;
@@ -366,6 +375,19 @@ export class Controller {
     // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
     const sig = JSON.stringify([this.data.jobs.map((j) => [j.id, j.state, j.steps.length, j.word]), this.data.away.map((j) => [j.id, j.state, j.steps.length]), this.data.activity.last?.words, this.ui.flash?.at]);
     const ticking = this.data.activity.running > 0 && this.ui.mouse;
+    // R5 (H131): the operation record of a run detail drawn changed (a later session's recovery ends it after the job's
+    // record): the next frame reads it again (wantDetail), whether or not a job changed
+    // (once for each change: a detail no longer shown is not drawn again every second)
+    const root = this.data.project.root;
+    let opChanged = false;
+    for (const [op, was] of this.detailSig) {
+      if (this.data.details[op]?.state !== 'ready') continue;
+      const now = this.operationSig(root, op);
+      if (this.detailOpSeen.get(op) === now) continue;
+      this.detailOpSeen.set(op, now);
+      if (!was.endsWith(` ${now}`)) opChanged = true;
+    }
+    if (opChanged) this.emit();
     if (sig !== this.signature) {
       // R5 (H131): a job started, moved or ended: the workspace frame (its log, its counts, its actions) and the newest run's
       // pipeline are read again (the frame at most once a second)
@@ -446,26 +468,59 @@ export class Controller {
    * The run detail of an operation the Inspector shows: read once, and again while its run goes on. R4 (H112): and again once
    * its job's record changed since (`sig`: a run that ended, one a later session's recovery ended), and after [r] (found in
    * tmux: a detail read while a run was stale still said "left running" after /recover had ended it).
+   *
+   * R5 (H131; the recovery PTY test's flake, reproduced here under load): a later session's recovery ends the job's record
+   * first and the operation's record after it. A reading between the two said "left running" (the operation's record still
+   * open, its writer gone), and it stayed drawn beside the job's "ended by recovery": the job's record did not change again,
+   * and [r] read the detail again while the old one stayed on screen until the new one came, so a screen read meanwhile said
+   * what the records no longer said. Now (1) the operation's own record is part of what a detail is read for, so its change
+   * reads the detail again; (2) once what it was read for has changed (or after [r]), the old detail is not drawn as if it
+   * were so: "reading…" until the new one comes, from the very frame that sees the change (true: frame() composes that frame
+   * again); (3) one reading at a time for the same records, and only the newest reading's result is kept (an older one that
+   * ends later is dropped). A live run read again with the same records keeps its detail on screen meanwhile (nothing has
+   * contradicted it).
    */
-  private wantDetail(op: string, live: boolean, sig = ''): void {
-    if (!this.detailOf?.ok) return;
-    const cur = this.data.details[op];
-    if (cur?.state === 'loading') return;
-    const same = this.detailSig.get(op) === sig;
-    if (cur && (cur.state === 'ready' || cur.state === 'failed') && same && (!live || this.now() - cur.at < 1000)) return;
-    this.detailSig.set(op, sig);
-    const of = this.detailOf.value;
+  private wantDetail(op: string, live: boolean, sig = ''): boolean {
+    if (!this.detailOf?.ok) return false;
     const root = this.data.project.root;
-    this.data.details[op] = cur?.state === 'ready' ? cur : { state: 'loading', since: this.now() };
+    const full = `${sig} ${this.operationSig(root, op)}`;
+    const cur = this.data.details[op];
+    const read = this.detailRead.get(op);
+    const changed = this.detailSig.get(op) !== full;
+    // a reading of these very records is on its way
+    if (read?.busy && read.sig === full) return false;
+    if (!changed && cur && (cur.state === 'ready' || cur.state === 'failed') && (!live || this.now() - cur.at < 1000)) return false;
+    this.detailSig.set(op, full);
+    const n = (read?.n ?? 0) + 1;
+    this.detailRead.set(op, { n, sig: full, busy: true });
+    // what is drawn changes: the frame being drawn is composed again (frame())
+    let drawn = false;
+    if (changed || cur?.state !== 'ready') {
+      drawn = cur?.state !== 'loading';
+      this.data.details[op] = { state: 'loading', since: this.now() };
+    }
+    const of = this.detailOf.value;
     void (async () => {
+      let next: Data['details'][string];
       try {
         const got = checkDetail(await of(op, { root }), op);
-        this.data.details[op] = got.ok ? { state: 'ready', value: got.detail, at: this.now() } : { state: 'failed', why: got.why, at: this.now() };
+        next = got.ok ? { state: 'ready', value: got.detail, at: this.now() } : { state: 'failed', why: got.why, at: this.now() };
       } catch (e) {
-        this.data.details[op] = { state: 'failed', why: `the producer failed: ${e instanceof Error ? e.message : String(e)}`, at: this.now() };
+        next = { state: 'failed', why: `the producer failed: ${e instanceof Error ? e.message : String(e)}`, at: this.now() };
       }
+      // a newer reading was asked for meanwhile (its records changed, or [r]): this one's result is dropped
+      const now = this.detailRead.get(op);
+      if (this.disposed || now?.n !== n) return;
+      now.busy = false;
+      this.data.details[op] = next;
       this.emit();
     })();
+    return drawn;
+  }
+
+  /** R5 (H131): an operation's own record as it is on disk now (its size and time), for wantDetail; '' when it has none. */
+  private operationSig(root: string, op: string): string {
+    try { const st = statSync(join(root, operationRel(op))); return `${st.size}:${st.mtimeMs}`; } catch { return ''; }
   }
 
   frame(columns: number, rows: number): Frame {
@@ -480,7 +535,19 @@ export class Controller {
     this.ui.navShown = this.ui.navOpen;
     // R4 (H112): each list's selection is found again by its item, wherever the records moved it, before anything is drawn
     this.reselect();
-    const f = frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
+    const compose = (): Frame => frameOf({ ui: this.ui, data: this.data, g: this.d.glyphs, columns, rows, now: this.now(), can: this.can() });
+    let f = compose();
+    // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
+    // sealed turn has ended: its receipt is what the detail is read again for). R5 (H131): when what a detail was read for has
+    // changed (or after [r]), this very frame is composed again with it said as being read: a frame never shows a detail beside
+    // the records that contradict it (the recovery PTY test caught the frame that drew [r]'s notice with the verdict before it)
+    if (f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') {
+      const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
+      let again = false;
+      if (sel?.kind === 'job' && sel.job.operation) again = this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
+      if (sel?.kind === 'turn' && sel.turn.operation) again = this.wantDetail(sel.turn.operation, false, sel.turn.receipt) || again;
+      if (again) f = compose();
+    }
     // and the next frame keeps each list's selected item, and its anchor on the same row
     for (const d of Object.values(f.regions)) {
       if (!d || d.list === 'top') continue;
@@ -489,13 +556,6 @@ export class Controller {
         if (active >= 0) this.ui.cursor.nav = active;
       }
       rememberList(this.ui, d.list, d.items, d.scroll);
-    }
-    // the Inspector, when it shows a job of an operation, draws that operation's run detail; R4 (H117): a chat turn's too (a
-    // sealed turn has ended: its receipt is what the detail is read again for)
-    if (f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') {
-      const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
-      if (sel?.kind === 'job' && sel.job.operation) this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
-      if (sel?.kind === 'turn' && sel.turn.operation) this.wantDetail(sel.turn.operation, false, sel.turn.receipt);
     }
     if (this.ui.focus === 'nav' && !f.regions.nav) this.ui.focus = 'center';
     if (this.ui.focus === 'right' && !f.regions.right) this.ui.focus = 'center';
@@ -803,7 +863,8 @@ export class Controller {
   }
 
   refresh(): void {
-    // R4 (H112): each run detail is read again too, when next shown (until then the one read before stays on screen)
+    // R4 (H112): each run detail is read again too, when next shown. R5 (H131): meanwhile it says "reading…", not what the
+    // reading before said (wantDetail)
     this.detailSig.clear();
     this.readAll();
     // R5 (H131): and the workspace frame (at most once a second)

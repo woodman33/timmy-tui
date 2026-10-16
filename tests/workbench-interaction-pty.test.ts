@@ -436,16 +436,16 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       t.start(160, 45);
       await t.waitFor(/trayA \/ [\s\S]*Activity/);
       await t.find('Workflows');
-      await t.waitFor(/trayA \/ Workflows/, 5000);
+      await t.waitFor(/trayA \/ Workflows/, 15_000);
       await selectBlock(t, 'SLOW.md', 'long');
       await t.keys('Enter');
-      await t.waitFor(/Run SLOW\.md › long\?/, 5000);
+      await t.waitFor(/Run SLOW\.md › long\?/, 15_000);
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
       [quit] = runsOf('SLOW.md › long');
       await blockStarted(quit.id);
       await t.keys('C-c');
-      const asked = await t.waitFor(/Quit the Workbench\?/, 5000);
+      const asked = await t.waitFor(/Quit the Workbench\?/, 15_000);
       expect(asked).toContain(`${quit.id} SLOW.md › long`);
       await t.keys('C-c');
       await t.waitFor(/EXIT=130/, 30_000);
@@ -472,10 +472,10 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       k.start(160, 45);
       await k.waitFor(/trayA \/ [\s\S]*Activity/);
       await k.find('Workflows');
-      await k.waitFor(/trayA \/ Workflows/, 5000);
+      await k.waitFor(/trayA \/ Workflows/, 15_000);
       await selectBlock(k, 'SLOW.md', 'long');
       await k.keys('Enter');
-      await k.waitFor(/Run SLOW\.md › long\?/, 5000);
+      await k.waitFor(/Run SLOW\.md › long\?/, 15_000);
       await k.keys('Enter');
       await k.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
       killed = runsOf('SLOW.md › long').find((j) => j.state === 'running')!;
@@ -501,26 +501,26 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await w.find('Control');
       const stale = await w.waitFor(new RegExp(`${killed.id}\\s+stale\\s+SLOW\\.md › long · 1 of 1 step`), 10_000);
       // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files)
-      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/)); await w.waitFor(/▸ Inspector/, 5000); }
+      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/)); await w.waitFor(/▸ Inspector/, 15_000); }
       expect(stale).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       expect(stale).toContain('Stop current: idle');
       // the one quit with its Workbench: ended by its own stop, said as its record says (no recovery words)
       expect(stale).toMatch(new RegExp(`${quit.id}\\s+cancelled\\s+SLOW\\.md › long · 1 of 1 step[^\\n]*${quitOp.id}`));
       await w.click(w.cellOf(`${quit.id}  cancelled`));
-      const quitDock = panelText(await w.waitFor(new RegExp(`Job\\s+${quit.id}`), 5000), 'Context');
+      const quitDock = panelText(await w.waitFor(new RegExp(`Job\\s+${quit.id}`), 15_000), 'Context');
       expect(quitDock).toContain(`Operation ${quitOp.id}`);
       expect(quitDock).toContain('Record cancelled');
       expect(quitDock).not.toMatch(/left running|stale|ended by recovery/);
       w.capture('wb-recover-160x45-quit-inspector');
       // the stale one, selected
       await w.click(w.cellOf(`${killed.id}  stale`));
-      const staleDock = panelText(await w.waitFor(new RegExp(`Job\\s+${killed.id}`), 5000), 'Context');
+      const staleDock = panelText(await w.waitFor(new RegExp(`Job\\s+${killed.id}`), 15_000), 'Context');
       expect(staleDock).toContain('stale: its record says it runs, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it (nothing is run again).');
       expect(staleDock).toContain('Record running, stale');
       expect(staleDock).toContain(`Operation ${killedOp.id}`);
       w.capture('wb-recover-160x45-stale-inspector');
       await w.keys('x');
-      await w.waitFor(/Stop current: nothing runs in trayA\./, 5000);
+      await w.waitFor(/Stop current: nothing runs in trayA\./, 15_000);
       expect(recordOf(killed.id)).toMatchObject({ state: 'running' });
 
       // the REPL's recovery: it records the interrupted run (nothing is run again); [r]: ended by recovery, in its words
@@ -530,14 +530,29 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(recordOf(killed.id)).toMatchObject({ state: 'cancelled' });
       expect(opOf(killed.id)).toMatchObject({ state: 'interrupted' });
       await w.keys('r');
+      // R5 (H131; this test's flake under load): [r] was taken, as its notice says. From then on the run detail is read again,
+      // and until that reading comes the Inspector says "reading…", never the verdict read before: a reading made between
+      // recovery's two writes (the job's record ended, the operation's not yet) said "left running", and it stayed drawn
+      // (src/workbench/controller.ts wantDetail; step by step in tests/workbench-run-detail.test.ts)
+      await w.waitFor(/Read trayA's records again at \d\d:\d\d:\d\d\./, 10_000);
       const ended = await w.waitFor(new RegExp(`${killed.id}\\s+cancelled\\s+SLOW\\.md › long · ended by recovery`), 10_000);
       expect(panelText(ended, 'Context')).toMatch(/ended by recovery: a later session's recovery wrote its end from what it found \(.+\); nothing was run again\./);
       // whether to run it again still waits on the person (upmd resumes nothing), now with its record's own words
       expect(ended).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
-      // its operation's run detail, read again since its record changed (the wheel over the Inspector shows its foot)
+      // its operation's run detail, read after [r]: while it is read, nothing to scroll to; then the wheel over the Inspector
+      // brings its verdict into view, one step at a time, each step's effect waited for on the screen
       const inspector = w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/);
-      for (let i = 0; i < 60 && !/Verdict \S+ · \S+/.test(panelText(w.screen(), 'Context')); i++) await w.wheel({ x: inspector.x, y: inspector.y + 8 }, true);
-      const detail = panelText(await w.waitFor(/RUN DETAIL[\s\S]*Verdict/, 10_000), 'Context');
+      const verdictAfterR = async (): Promise<string> => {
+        for (const end = Date.now() + 20_000; Date.now() < end;) {
+          const text = panelText(w.screen(), 'Context');
+          if (/RUN DETAIL[\s\S]*Verdict \S+ · \S+/.test(text)) return text;
+          if (/Run detail: reading…/.test(text)) { await sleep(100); continue; }
+          await w.wheel({ x: inspector.x, y: inspector.y + 8 }, true);
+          for (const moved = Date.now() + 3000; panelText(w.screen(), 'Context') === text && Date.now() < moved;) await sleep(50);
+        }
+        throw new Error(`timed out after 20 s waiting for the run detail's verdict, read after [r], in the Inspector:\n${w.screen()}`);
+      };
+      const detail = await verdictAfterR();
       expect(detail).toMatch(new RegExp(`RUN DETAIL · ${killedOp.id} Objective /run SLOW\\.md long Verdict recovered · interrupted`));
       expect(detail).not.toContain('left running');
       w.capture('wb-recover-160x45-ended-by-recovery');
@@ -571,7 +586,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       const running = await w.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${leftId}\\s+running\\s+FAKE job \\(test\\): sleep 300 · left running`), 10_000);
       expect(running).toContain(`Stop current: ${leftId} FAKE job (test): sleep 300`);
       await w.click(w.cellOf(`${leftId}  running`));
-      const leftDock = panelText(await w.waitFor(new RegExp(`Job\\s+${leftId}`), 5000), 'Context');
+      const leftDock = panelText(await w.waitFor(new RegExp(`Job\\s+${leftId}`), 15_000), 'Context');
       expect(leftDock).toContain(`left running: started by a Timmy session that has ended (pid ${helperPid}), and its process still runs. Stop ends it through recovery's stop (only when the process table proves the group is the job's).`);
       expect(leftDock).toContain(`Operation ${leftOp}`);
       expect(leftDock).toContain('Record running');

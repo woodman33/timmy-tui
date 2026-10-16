@@ -1,0 +1,30 @@
+                ┏━━━━━━━━━━┓ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮
+TIMMY · tray1   ┃  1 Home  ┃ │  2  │ │  3  │ │  4  │ │  5  │ │  6  │ │  7  │ │  8  │ │  9  │ │  0  │
+                ┗━━━━━━━━━━┛ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────────────── 1 Home ╮
+│  [▶ 1 Set up chat: an…]  [2 Check connection…]  [3 New project]  [4 Switch project]              │
+│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Home · connections, as observed ━━┓╭─ Preview · the companion and Studio, in words ───╮
+┃ CONNECTIONS, AS LAST OBSERVED                ┃│ COMPANION ○ configured  · opens when asked       │
+┃ live: an answer seen in the last 30 minutes; ┃│   [c] Companion · Show  to see it rendered       │
+┃ a setting alone is configured                ┃│ STUDIO    ○ configured  · opens when asked       │
+┃ ┏━ OpenRouter (cloud chat) ━━━━ ✕ refused ━┓ ┃│   [s] Studio · Show  to see it rendered          │
+┃ ┃ refused when checked 5 min ago (FAKE…    ┃ ┃│                                                  │
+┃ ┃ → timmy setup                            ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S…      │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   2 workflows · 1 parameter · 1 run              │
+┃ ╭─ Ollama (local models) ───────── ● live ─╮ ┃│   · Approval: see a NEEDS YOU box  not run yet…  │
+┃ │ answered 3 min ago (FAKE: 2 models)      │ ┃│   · Tray workflow: change, inspect, result  not… │
+┃ │ asked at http://127.0.0.1:11434, no…     │ ┃│   · Tray recipe parameters (recipes/tray.params… │
+┃ ╰──────────────────────────────────────────╯ ┃│   · a task · j66b3d9  running · FAKE job…        │
+┃ ╭─ Cloudflare edge… ─────── ✕ unreachable ─╮ ┃│                                                  │
+┃ │ no answer when checked 5 min ago…        │ ┃│ FILES (11)                                       │
+┃ │ observed 16:05:06                        │ ┃│   1 editable source · 2 workflows · 1…           │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰──────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠇ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
+│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
+│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
+│ 16:10:11 [job] j3e9b07 tidy started                                                              │
+│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s…            │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

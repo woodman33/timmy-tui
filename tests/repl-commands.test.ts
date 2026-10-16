@@ -125,7 +125,23 @@ describe('slash commands', () => {
     ]);
     printed.length = 0;
     runSlash('/model free-only', c);
-    expect(printed).toEqual(['  Free-only: on · a message to a model not known to be free is not sent']);
+    expect(printed).toEqual(['  Free-only: on · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)']);
+    vi.unstubAllEnvs();
+  });
+  it('R5 lead: on the local route, /model free and /model free-only are the policy\'s, never taken as an Ollama model\'s name', async () => {
+    vi.stubEnv('TIMMY_CHAT_FREE_ONLY', '1');
+    const asked: string[] = [];
+    const { c, printed } = ctx();
+    const local = { ...c, chatModel: (args: string) => { asked.push(args); return Promise.resolve([[{ text: `  FAKE local list for "${args}"` }]]); } };
+    runSlash('/model free-only', local);
+    runSlash('/model free', local);
+    expect(asked).toEqual([]);
+    expect(printed[0]).toBe('  Free-only: on · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)');
+    expect(printed[1]).toMatch(/^ {2}(Free models in the OpenRouter catalog|No free model in the catalog this computer has\.)/);
+    printed.length = 0;
+    await runSlash('/model qwen3:8b', local);
+    expect(asked).toEqual(['qwen3:8b']);
+    expect(printed).toEqual(['  FAKE local list for "qwen3:8b"']);
     vi.unstubAllEnvs();
   });
   it('R4 (H88; r23): /quit is /exit, and /help says so (it was unknown, and suggested /edit)', () => {
