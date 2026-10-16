@@ -35,6 +35,8 @@ import { turnEndWords } from '../contracts/stop-words.js';
 import { ollamaAddress, ollamaStartStep } from '../capabilities/ollama-route.js';
 import { onPath as onPathNow } from '../utils/on-path.js';
 import { THIS_PROCESS, withProcessTable, writerState } from './process-proof.js';
+import { readMcpCalls, type McpCallRead } from '../connectors/mcp-records.js';
+import type { Receipt } from '../utils/receipts.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -291,7 +293,7 @@ function surfaceReading(
  */
 export { ollamaAddress };
 
-function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}): WorkspaceConnection[] {
+function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}, mcpCalls: readonly McpCallRead[] = []): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
@@ -346,8 +348,25 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   });
   out.push(studio.connection);
   surfaces.studio = studio.now;
-  for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
-    out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
+  // R6 lead (H146's finding: after calls through both routes, `timmy workspace check` still said "? unknown · this computer
+  // keeps no check of it yet"): each MCP-to-CLI route is said from the project's own call records (<project>/.timmy/mcp, H142's):
+  // its newest call that answered or failed is its last observation, live only within the bound, as every other connection's
+  // answer; with none recorded it is unknown, and says how to make one. A record sealed by a receipt that names its bytes says so.
+  for (const [id, route, label, cmd] of [['mcp-sdk', 'sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
+    const timeOf = (x: McpCallRead): number => { const t = Date.parse(x.record.ended_at); return Number.isFinite(t) ? t : Date.parse(x.record.started_at) || 0; };
+    const c = mcpCalls.filter((x) => x.record.route === route && (x.record.outcome === 'answered' || x.record.outcome === 'failed')).sort((a, b) => timeOf(b) - timeOf(a))[0];
+    if (!c) {
+      out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; no call through it is recorded in this project yet' });
+      continue;
+    }
+    const r = c.record;
+    const at = Number.isFinite(Date.parse(r.ended_at)) ? r.ended_at : r.started_at;
+    const sealed = c.check.status === 'verified' ? `its record sealed by receipt ${c.check.receipt}` : `its record not sealed by a receipt that names it (${c.check.reason})`;
+    const detail = `${r.tool} on ${r.server}${r.outcome === 'answered' && r.isError ? ', which answered with an error' : ''}${r.outcome === 'failed' && r.error ? ` (${String(r.error).slice(0, 120)})` : ''}; ${sealed}`;
+    const when = ago(at, now);
+    if (r.outcome === 'failed') out.push({ id, label, state: 'unreachable', observedAt: at, setup: cmd, detail, words: `the newest call through it failed ${when}` });
+    else if (now - Date.parse(at) <= LIVE_FOR_MS) out.push({ id, label, state: 'live', observedAt: at, setup: cmd, detail, words: `a call through it answered ${when}; live: ${LIVE_FOR_WORDS}` });
+    else out.push({ id, label, state: 'configured', observedAt: at, setup: cmd, detail, words: `a call through it answered ${when}; a new call shows it now` });
   }
   if (!wb.route.ready) unknown.push({ field: 'chat', why: chatNotReady(wb.route) });
   return out;
@@ -570,7 +589,11 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   const unknown: WorkspaceFrame['unknown'] = [];
   // R6 (H140): one reading of the process table for the frame's notes (src/ops/process-proof.ts withProcessTable)
   const read: Partial<Record<'companion' | 'studio', SurfaceNow>> = {};
-  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read));
+  // R6 lead: the project's chain, read once (the MCP routes' records and the chat turns are checked against it)
+  let chainRead: Receipt[] | null = null;
+  const chainOnce = (): Receipt[] => (chainRead ??= d.chain ? d.chain() : chainOf(wb.project.root, env));
+  const mcpCalls = (() => { try { return readMcpCalls(wb.project.root, chainOnce(), 12).list; } catch { return []; } })();
+  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls));
   const settings = readWorkbenchSettings(env).settings;
   // R6 (H140): a surface runs when it answered within the bound (live), or while the process that noted it listening runs (it
   // listens; nothing has asked it yet); not running when a check or its own note says so, or its process is gone; else unknown
@@ -582,7 +605,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   };
   // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
   // an older check
-  const recentTurns = (() => { try { return readTurns(d.chain ? d.chain() : chainOf(wb.project.root, env), wb.project.root); } catch { return []; } })();
+  const recentTurns = (() => { try { return readTurns(chainOnce(), wb.project.root); } catch { return []; } })();
   // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one (a
   // hold whose process has ended is no running turn). R5 lead (the QA round, defect 9; the operator's 22:32 order, item 1):
   // a hold whose own receipt is sealed has ended (the hold is let go a moment after): matched by the turn's identity, its

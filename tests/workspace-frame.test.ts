@@ -233,6 +233,35 @@ describe('the frame', () => {
     expect(f.connections.find((c) => c.id === 'mcp-sdk')?.state).toBe('unknown');
     expect(f.connections.find((c) => c.id === 'mcporter')?.state).toBe('unknown');
   });
+  it('R6 lead (H146\'s finding): says each MCP route from the project\'s own newest call record: live within the bound, older configured, failed unreachable', async () => {
+    const { writeMcpCall } = await import('../src/connectors/mcp-records.js');
+    const { appendReceipt, readChain } = await import('../src/utils/receipts.js');
+    const seal = (input: Parameters<typeof appendReceipt>[1]): string => appendReceipt('runs', input, project).hash.slice(7, 15);
+    const call = (route: 'sdk' | 'mcporter', at: number, outcome: 'answered' | 'failed', tool: string): void => {
+      const w = writeMcpCall({ root: project, project: 'proj', seal }, {
+        route, server: { name: 'node fake-fixture-server.js', transport: 'stdio' }, tool, args: { text: 'FAKE' },
+        startedAt: new Date(at - 1500).toISOString(), endedAt: new Date(at).toISOString(), ms: 1500, outcome, called: true,
+        isError: outcome === 'answered' ? false : null, ...(outcome === 'failed' ? { error: 'FAKE: the server closed' } : {}),
+        annotations: null, notes: ['FAKE: written by tests/workspace-frame.test.ts'],
+      });
+      expect(w.ok).toBe(true);
+    };
+    // the SDK route answered 2 min ago, then (older) mcporter answered 2 h ago; a failed mcporter call older still
+    call('mcporter', NOW - 3 * 3600_000, 'failed', 'fake_fail');
+    call('mcporter', NOW - 2 * 3600_000, 'answered', 'fake_echo');
+    call('sdk', NOW - 2 * 60_000, 'answered', 'fake_echo');
+    const chain = readChain('runs', project);
+    const f = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain, onPath: () => null, now: NOW });
+    const sdk = f.connections.find((c) => c.id === 'mcp-sdk')!;
+    const mcporter = f.connections.find((c) => c.id === 'mcporter')!;
+    expect(sdk).toMatchObject({ state: 'live', observedAt: new Date(NOW - 2 * 60_000).toISOString(), words: expect.stringMatching(/^a call through it answered 2 min ago; live: /) });
+    expect(sdk.detail).toMatch(/^fake_echo on node fake-fixture-server\.js; its record sealed by receipt [0-9a-f]{8}$/);
+    expect(mcporter).toMatchObject({ state: 'configured', words: 'a call through it answered 2 h ago; a new call shows it now' });
+    // a failed call, the newest of its route: unreachable, with what failed
+    call('mcporter', NOW - 60_000, 'failed', 'fake_fail');
+    const g = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => readChain('runs', project), onPath: () => null, now: NOW });
+    expect(g.connections.find((c) => c.id === 'mcporter')).toMatchObject({ state: 'unreachable', words: 'the newest call through it failed 1 min ago', detail: expect.stringContaining('fake_fail on node fake-fixture-server.js (FAKE: the server closed)') });
+  });
   it('gives the same revision for the same records, a new one when a record changes, and never counts its own time', async () => {
     const a = await frame(NOW);
     const b = await frame(NOW);
