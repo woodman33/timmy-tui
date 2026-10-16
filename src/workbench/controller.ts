@@ -35,7 +35,7 @@ import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
-import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
+import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
@@ -326,13 +326,15 @@ export class Controller {
   private readPipeline(chain: Receipt[] = this.chain()): void {
     const key = this.chainCache?.key ?? '';
     try {
+      // R5 (H131; the QA round's defect 8): a chat turn too, sealed or being answered here
+      const turn = this.data.turn;
       this.data.pipeline = readPipeline(this.data.project.root, this.data.jobs, chain, (hash) => {
         if (this.verified?.key === key && this.verified.hash === hash) return this.verified.v;
         const r = verifyReceiptIn(chain, hash);
         const v = r.ok ? { ok: true as const } : { ok: false as const, reason: r.reason };
         this.verified = { key, hash, v };
         return v;
-      });
+      }, { turns: this.data.turns ?? [], sending: turn?.state === 'sending' && turn.operation ? { operation: turn.operation, request: turn.text } : null });
     } catch (e) {
       const why = `its records could not be read: ${e instanceof Error ? e.message : String(e)}`;
       const unknown = { state: 'unknown' as const, words: why };
@@ -657,7 +659,8 @@ export class Controller {
   reselect(): void {
     if (this.ui.overlay) return;
     const c = this.ctx();
-    resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items);
+    // R5 (H131; the QA round's defect 8): the conversation's newest message is the selection until the person selects one
+    resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items, this.ui.workspace === 'chat' && !this.ui.chosen?.['center:chat'] ? { follow: true } : {});
     const right = rightView(c).items;
     resolve(this.ui, `right:${this.ui.tab}`, right);
     resolve(this.ui, 'bottom', bottomView(c).items, { follow: this.ui.activityFollow });
@@ -952,7 +955,14 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
-      if (f === 'composer' && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent (Esc)…', 'secondary'); }
+      // R5 (H131; the QA round's defect 1): Esc means one thing at a time, and says which: while this Workbench's turn is being
+      // answered it stops that turn and the composer stays open (what is typed in it is kept); otherwise it leaves the composer
+      if (f === 'composer' && this.turnAbort) {
+        this.turnAbort.abort();
+        this.say('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).', 'secondary');
+        return;
+      }
+      if (f === 'composer') this.say(`Esc: left the composer${this.ui.input.text.trim() ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
       this.ui.input = { field: null, text: '' };
       if (f === 'picker' || f === 'new') this.ui.overlay = null;
       if (f === 'tools') {
@@ -1049,7 +1059,7 @@ export class Controller {
     if (field === 'composer') {
       const why = this.can().chatWhy;
       if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
-      if (this.data.turn?.state === 'sending') { this.say('A message is still being sent: Esc stops it, or wait for its answer.', 'secondary'); return; }
+      if (this.data.turn?.state === 'sending') { this.say('One turn at a time: the chat turn is still being answered. Esc stops it, or wait for its answer.', 'secondary'); return; }
       this.ui.input = { field: 'composer', text: '' };
       await this.send(text.trim());
     }
@@ -1066,12 +1076,20 @@ export class Controller {
     this.data.turn = turn;
     const abort = new AbortController();
     this.turnAbort = abort;
+    // R5 (H131; the QA round's defect 8): the conversation follows the new turn (to its answer's end and the composer) until
+    // the person selects a message again
+    if (this.ui.chosen) delete this.ui.chosen['center:chat'];
+    // R5 (H131; the QA round's defects 1 and 8): the frame (its run count, its chat actions) and the pipeline read again for
+    // the turn now, and once its first words arrive (its hold is taken by then)
+    this.readPipeline();
+    this.refreshFrame();
+    let heard = false;
     this.emit();
     try {
       // R4 lead: sent once (src/contracts/chat-session.ts sendOnce): the message's key is its operation's, so nothing that
       // sends this message again (a repeat of its Enter, a retry after a timeout, another process) repeats a turn that went out
       const r = await ws.ops.run(h, () => session.sendOnce(`wb-${h.id}`, text, {
-        onText: (full) => { turn.answer = full; this.emit(); },
+        onText: (full) => { turn.answer = full; if (!heard) { heard = true; this.refreshFrame(); } this.emit(); },
         onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
         askPerson: (req) => this.askPerson(req),
         signal: abort.signal,
@@ -1080,17 +1098,22 @@ export class Controller {
         state: r.status, answer: r.text || turn.answer, lines: r.lines ?? [], sent: r.sent, costWords: r.costWords,
         ...(r.receipt ? { receipt: r.receipt } : {}), ...(r.model ? { model: r.model } : {}),
       });
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${r.receipt}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
-        r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary');
+      // (the receipt by its short id, as the Control Room and the event log name it)
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+        r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
-      this.say(turn.lines[0], 'failure');
+      this.say(turn.lines[0], 'failure', { operation: h.id });
     } finally {
+      turn.ended = this.now();
       if (this.turnAbort === abort) this.turnAbort = null;
       try { this.data.chatRoute = session.route(); } catch { /* as before */ }
       this.data.chat = readChatTail(this.data.project.root);
       // R4 (H117): the turn's receipt is sealed by now: the Control Room lists it at once, not at the next reading
       this.data.turns = readTurns(this.chain(), this.data.project.root);
+      // R5 (H131): and the pipeline shows the turn just answered; the frame no longer counts it
+      this.readPipeline();
+      this.refreshFrame();
       this.emit();
     }
   }
@@ -1329,8 +1352,15 @@ export class Controller {
     this.reselect();
     // R4 (H112): the target the top line names (src/workbench/views.ts stopWords: the Control Room's selected live job there),
     // so what x stops is always what was named beforehand
-    const target = stopWords(this.data, this.selected(), this.ui.workspace).target;
-    if (!target) { this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary'); return; }
+    const named = stopWords(this.data, this.selected(), this.ui.workspace);
+    const target = named.target;
+    if (!target) {
+      // R5 (H131; the QA round's defect 1): a chat turn is what runs: this Workbench's own stops here; another surface's there
+      if (named.turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
+      if (named.turn) { this.say(`Stop current: the chat turn is being answered in ${named.turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary'); return; }
+      this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
+      return;
+    }
     const where = sameFolder(target.root, this.data.project.root) ? '' : `, in ${target.project}`;
     this.say(`Stopping ${target.id} (${target.label}${where})…`, 'secondary');
     const r = await stopCurrent(target, { stop: (id) => this.d.workspace.stop(id), jobs: this.d.workspace.jobs, ...(this.d.stopLeft ? { stopLeft: this.d.stopLeft } : {}) });
@@ -1381,9 +1411,13 @@ export class Controller {
         else this.say(`Not now: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary');
         this.emit();
         return;
-      case 'abort':
-        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the message being sent…', 'secondary'); } else this.say('No message is being sent: nothing to stop.', 'secondary');
+      case 'abort': {
+        const turn = chatTurnNow(this.data);
+        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); }
+        else if (turn) this.say(`The chat turn is being answered in ${turn.where}; it stops there (Esc in its composer, Ctrl+C in the REPL), not from here.`, 'secondary');
+        else this.say('No chat turn is being answered: nothing to stop.', 'secondary');
         return;
+      }
       case 'run': {
         const doc = this.data.workflows.docs.find((d) => d.rel === r.doc);
         const block = doc?.blocks.find((b) => b.name === r.block);

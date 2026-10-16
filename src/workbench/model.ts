@@ -56,6 +56,8 @@ export interface TurnView {
   operation?: string;
   tools: Array<{ name: string; phase: 'start' | 'end'; outcome?: string }>;
   at: number;
+  /** R5 (H131): when its answer ended (this process's clock): a workspace frame read before then still names the turn */
+  ended?: number;
 }
 
 /**
@@ -146,8 +148,12 @@ export interface PipelineStage {
 /** R5 (H131): the Chat tab's pipeline row: intent → predict → sandbox → receipt, of the project's newest run. */
 export interface PipelineView {
   operation: string | null;
-  /** the run's job, by its label */
+  /** the run's job, by its label (a chat turn: "chat turn in the Workbench") */
   label: string | null;
+  /** R5 (H131; the QA round's defect 8): what the newest operation is: a job's run, or a chat turn (answered, or being answered) */
+  kind?: 'job' | 'chat';
+  /** R5 (H131): a chat turn being answered here now (its request is the message this Workbench sent; no receipt yet) */
+  live?: boolean;
   intent: PipelineStage;
   predict: PipelineStage;
   sandbox: PipelineStage;

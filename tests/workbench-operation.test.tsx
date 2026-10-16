@@ -142,13 +142,29 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top'
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
   const out: string[] = [];
-  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+  // R5 (H131): row 2 draws the run state and Stop current in its bottom edge, so the top region is read to that edge
+  const last = region === 'top' ? rect.y + rect.h - 1 : rect.y + rect.h - 2;
+  for (let y = rect.y + 1; y <= last; y++) {
     let x = 0;
     let row = '';
     for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
-    out.push(row);
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
   }
   return out.join(' ').replace(/\s+/g, ' ');
+}
+
+/** R5 (H131; the QA round's defect 4): what waits on you over a tab, as row 1 draws it without moving a tab: ⚠ and the count
+ *  in the top edge of the box whose label starts with `label` ('' when nothing is drawn there). */
+function badgeOver(rows: readonly string[], label: string): string {
+  for (let y = 1; y < Math.min(3, rows.length); y++) {
+    const at = rows[y].indexOf(label);
+    if (at < 0) continue;
+    const left = Math.max(rows[y].lastIndexOf('│', at), rows[y].lastIndexOf('┃', at));
+    const ends = ['│', '┃'].map((b) => rows[y].indexOf(b, at)).filter((i) => i >= 0);
+    if (left < 0 || !ends.length) return '';
+    return /⚠\d*/.exec(rows[y - 1].slice(left, Math.min(...ends) + 1))?.[0] ?? '';
+  }
+  return '';
 }
 
 describe('the terminal Workbench, slice B: one connected operation (R4 H110)', () => {
@@ -186,7 +202,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
     // what waits on you shows beside the Control Room's tab and Home's (R5, H131: the workspace frame's counts, read again
     // within a second of the box)
-    await until('the waiting counts on the tabs', () => /7 Control(?: Room)? ⚠1/.test(f.text()) && /1 Home ⚠1/.test(f.text()), 5000, f.text);
+    await until('the waiting counts on the tabs', () => badgeOver(f.lines(), '7 Control') === '⚠1' && badgeOver(f.lines(), '1 Home') === '⚠1', 5000, f.text);
     expect(ws.jobs.list().filter((j) => j.root === p.root)).toEqual([]);
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
     // Follow selected artifact (Quick settings): the run, once it starts, is what the Inspector and Activity show

@@ -13,7 +13,7 @@ import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
 import { fit, type Line } from './text.js';
-import { bottomView, centerView, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
+import { bottomView, centerView, chatFollows, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
 
 export interface RegionDraw {
   rect: Rect;
@@ -77,7 +77,7 @@ export function frameOf(a: FrameAsk): Frame {
     const lines: Line[] = [
       [{ text: `${data.project.name} / ${tabOf(ui.page).label} / ${navItem(ui.workspace).label}`, role: 'strong' }],
       [{ text: runWords(data), role: data.decisions.total ? 'attention' : 'secondary' }],
-      stop.target ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
+      stop.target || stop.turn?.mine ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
       [{ text: `The Workbench needs at least ${MIN_COLUMNS}×${MIN_ROWS}; this terminal is ${a.columns}×${a.rows}. Make it larger, or use timmy (the REPL). Ctrl+C quits.`, role: 'secondary' }],
     ];
     const top = layout.tabs.h;
@@ -90,7 +90,7 @@ export function frameOf(a: FrameAsk): Frame {
     const c = ctx(layout.top);
     const t = topLines(c, layout.topDetail);
     const tab = tabOf(ui.page);
-    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}` }, layout.top, g) });
+    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}`, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
     regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
     // where each button is drawn: inside the border and its one cell of air
     const x0 = layout.top.x + 1 + (layout.top.w - 2 >= 6 ? 1 : 0);
@@ -124,7 +124,11 @@ export function frameOf(a: FrameAsk): Frame {
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
     const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
-    const scroll = scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
+    // R5 (H131; the QA round's defect 8): the conversation follows its newest rows until the person selects a message
+    const follow = list === 'center:chat' && chatFollows(ui);
+    const scroll = follow
+      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: c.height, total: v.lines.length })
+      : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
     const title = ui.overlay ? overlayTitle(ui) : `${bodyTitle(ui, data)}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
     placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
     regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
@@ -176,7 +180,10 @@ export function frameOf(a: FrameAsk): Frame {
     const i = items.length ? cursorOf(ui, 'bottom', items.length) : -1;
     const scroll = scrollFor(ui, 'bottom', items, { ...(i >= 0 ? { at: items[i].line, end: endOf(items, i, rest.length) } : {}), height: Math.max(1, body), total: rest.length });
     const shown = rest.slice(scroll, scroll + body);
-    const lines = [...v.lines.slice(0, fixed), ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => []), v.foot];
+    const above = [...v.lines.slice(0, fixed), ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => [])];
+    // R5 (H131): a notice two rows long takes the row above the hints for its few seconds (never Activity's first row)
+    if (v.footAbove && above.length > 1) above[above.length - 1] = v.footAbove;
+    const lines = [...above, v.foot];
     const note = ui.activityOpen ? rangeNote(scroll, Math.max(1, body), rest.length) : undefined;
     placed.push({ rect: layout.bottom, rows: panel({ title: 'Activity & log', lines, focused: ui.focus === 'bottom', ...(note ? { note } : {}) }, layout.bottom, g) });
     regions.bottom = { rect: layout.bottom, list: 'bottom', items, scroll, fixed, height: Math.max(1, body), total: rest.length };
