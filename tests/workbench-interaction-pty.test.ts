@@ -200,7 +200,8 @@ function terminal(label: string) {
   const capture = (name: string, t = 't'): string => keepScreen(pane, CAPTURES, name, { target: t, foot: 'drawn' });
   const start = (w: number, h: number, raw?: string) => {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', String(w), '-y', String(h), '-c', repo, 'bash', '--norc', '-c',
-      `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
+      // R6 (H141): after the Workbench, what is left typed in its terminal for the shell is read and said (LEFT=[…])
+      `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; read -r -t 1 -n 64 left; echo "LEFT=[$left]"; sleep 600`);
     if (raw) tmux('pipe-pane', '-o', '-t', 't', `cat >> '${raw}'`);
   };
   /** The Workbench's own process (the pane's shell's child). */
@@ -348,7 +349,8 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('m');
       await t.keys('C-c');
       const after = await t.waitFor(/EXIT=(\d+)/, 20_000);
-      expect(after.match(/EXIT=(\d+)/)![1]).toBe('130');
+      // R6 (H141): a quit that stopped nothing reports no interruption
+      expect(after.match(/EXIT=(\d+)/)![1]).toBe('0');
       expect(t.modes()).toBe('0 0 0 0');
       const bytes = readFileSync(raw, 'utf8');
       expect(bytes.includes('\x1b[?1000h') && bytes.includes('\x1b[?1006h')).toBe(true);
@@ -421,7 +423,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(operations().length).toBe(ops);
       // the second one quits at once (nothing of its own runs); the run goes on
       await t.keysTo('t:1', 'C-c');
-      await t.waitFor(/EXIT=130/, 20_000, 't:1');
+      await t.waitFor(/EXIT=0\b/, 20_000, 't:1');
       expect(runsOf('SLOW.md › wait')[0].state).toBe('running');
       expect(sealedBefore).toBeLessThan(storeLines()); // only the first run's prediction (and nothing of the second window)
 
@@ -451,7 +453,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(runsOf('SLOW.md › wait', join(timmyHome, 'projects', 'trayB'))).toEqual([]);
       await t.waitFor(/Stop current: idle/, 10_000);
       await t.keys('C-c');
-      await t.waitFor(/EXIT=130/, 20_000);
+      await t.waitFor(/EXIT=0\b/, 20_000);
     } finally {
       await endHeldWait();
       t.close();
@@ -480,12 +482,17 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('C-c');
       const asked = await t.waitFor(/Quit the Workbench\?/, 15_000);
       expect(asked).toContain(`${quit.id} SLOW.md › long`);
+      // R6 (H141; the interaction review of a77d80d, defect 15: a stray "7" once sat before the shell's next prompt after a quit
+      // with a box open): a key typed while the box is up is the Workbench's, never left for the shell
+      await t.typed('7');
       await t.keys('C-c');
+      // R6 (H141): this quit stopped a run of its own, so it reports the interruption (130)
       const ended = await t.waitFor(/EXIT=130/, 30_000);
       // R5 (H136): the terminal is given back and the run's end is said there. Seen once at b303c1b: EXIT=130 written over
       // the Workbench's last frame, its own screen still up, no closing line; such an end fails here, not passes unnoticed
       expect(t.modes().split(' ')[3], `the alternate screen is left once the Workbench ends:\n${scrub(ended, [box])}`).toBe('0');
       expect(ended).toContain(`${quit.id} (SLOW.md › long) was stopped as the Workbench ended.`);
+      expect(await t.waitFor(/LEFT=\[[^\]]*\]/, 10_000, 't', { frame: false })).toContain('LEFT=[]');
     } finally {
       t.close();
     }
@@ -649,7 +656,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(alive(leftPid)).toBe(false);
       await w.waitFor(/Stop current: idle/, 10_000);
       await w.keys('C-c');
-      await w.waitFor(/EXIT=130/, 20_000);
+      await w.waitFor(/EXIT=0\b/, 20_000);
     } finally {
       w.close();
     }
@@ -760,7 +767,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(chain.filter((k) => k === 'receipt.sealed')).toHaveLength(3);
       expect(t.screen()).not.toContain('⚠ NEEDS YOU');
       await t.keys('C-c');
-      await t.waitFor(/EXIT=130/, 20_000);
+      await t.waitFor(/EXIT=0\b/, 20_000);
     } finally {
       await endHeldWait();
       t.close();
@@ -812,7 +819,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       const there = await t.waitFor(/trayA \/ Templates/, 5000);
       expect(widest(there)).toBeLessThanOrEqual(80);
       await t.keys('C-c');
-      await t.waitFor(/EXIT=130/, 20_000);
+      await t.waitFor(/EXIT=0\b/, 20_000);
     } finally {
       t.close();
     }

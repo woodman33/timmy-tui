@@ -536,18 +536,18 @@ describe('jobs a session left, in recovery\'s words (R4 H112, slice C item 4)', 
 });
 
 describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)', () => {
-  it('Ctrl+C reads the job store as it is then: while a run of its own goes on, the box names it; a run that ends while the box waits is said to have ended, and Ctrl+C then quits stopping nothing; a Ctrl+C just after a run ended, before the next read, quits at once', async () => {
+  it('Ctrl+C reads the job store as it is then: while a run of its own goes on, the box names it; a run that ends while the box waits is said to have ended, and Ctrl+C then quits stopping nothing (exit 0); a Ctrl+C just after a run ended, before the next read, quits at once (exit 0); a quit that stops a run of its own exits 130 (R6 H141)', async () => {
     sandbox();
     const p = trayProject('quitting');
-    writeFileSync(join(p.root, 'NAP.md'), '# Nap (FAKE workflow, this test)\n\n```bash [name:nap]\nsleep 2\n```\n');
-    const runNap = async (c: Controller, f: ReturnType<typeof frameOf>): Promise<string> => {
+    writeFileSync(join(p.root, 'NAP.md'), '# Nap (FAKE workflow, this test)\n\n```bash [name:nap]\nsleep 2\n```\n\n```bash [name:long-nap]\nsleep 30\n```\n');
+    const runNap = async (c: Controller, f: ReturnType<typeof frameOf>, block = 'nap'): Promise<string> => {
       c.selectWorkspace('workflows');
       c.ui.focus = 'center';
-      for (let i = 0; i < 12 && !(c.selected()?.kind === 'block' && (c.selected() as { block: { name: string } }).block.name === 'nap'); i++) await press(f.r, '\u001b[B');
-      expect(c.selected()).toMatchObject({ kind: 'block', block: { name: 'nap' } });
+      for (let i = 0; i < 12 && !(c.selected()?.kind === 'block' && (c.selected() as { block: { name: string } }).block.name === block); i++) await press(f.r, '\u001b[B');
+      expect(c.selected()).toMatchObject({ kind: 'block', block: { name: block } });
       const before = new Set(c.data.jobs.map((j) => j.id));
       await press(f.r, ENTER, ENTER);
-      const job = await until('the run', () => c.data.jobs.find((j) => j.live && j.label === 'NAP.md › nap' && !before.has(j.id)), 10_000, f.text);
+      const job = await until('the run', () => c.data.jobs.find((j) => j.live && j.label === `NAP.md › ${block}` && !before.has(j.id)), 10_000, f.text);
       return job.id;
     };
 
@@ -568,7 +568,8 @@ describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)
     expect(regionText(one.c, 'center')).toContain('[Ctrl+C] Quit [Esc] Stay');
     await press(f1.r, '\u0003');
     await until('the quit', () => exits.length > 0, 10_000, f1.text);
-    expect(exits).toEqual([130]);
+    // R6 (H141; the interaction review of a77d80d, defect 15): it stopped nothing, so it reports no interruption
+    expect(exits).toEqual([0]);
     expect(JSON.parse(readFileSync(join(jobsDir, `${first}.json`), 'utf8'))).toMatchObject({ state: 'completed' });
 
     // 2. a run that has just ended, while the Workbench's last read still has it running (set here: as a tick that has not
@@ -586,7 +587,24 @@ describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)
     await press(f2.r, '\u0003');
     expect(two.c.ui.overlay?.kind).not.toBe('quit');
     await until('the quit', () => quits.length > 0, 10_000, f2.text);
-    expect(quits).toEqual([130]);
+    expect(quits).toEqual([0]);
     expect(JSON.parse(readFileSync(join(jobsDir, `${second}.json`), 'utf8'))).toMatchObject({ state: 'completed' });
-  }, 60_000);
+
+    // 3. R6 (H141): a run of its own goes on: the box names it; Ctrl+C again quits and stops it, and the exit says the quit
+    // interrupted it (130); the words after the quit say it was stopped, and its record says so
+    const ends: Array<{ code: number; after: string[] }> = [];
+    const three = workbench(p, { onExit: (code, after) => { ends.push({ code, after }); } });
+    three.c.start();
+    const f3 = frameOf(three.c, 180, 50);
+    await sleep(150);
+    const third = await runNap(three.c, f3, 'long-nap');
+    await press(f3.r, '\u0003');
+    expect(three.c.ui.overlay?.kind).toBe('quit');
+    expect(regionText(three.c, 'center')).toContain('[Ctrl+C] Quit and stop it [Esc] Stay');
+    await press(f3.r, '\u0003');
+    await until('the quit', () => ends.length > 0, 15_000, f3.text);
+    expect(ends).toEqual([{ code: 130, after: [`${third} (NAP.md › long-nap) was stopped as the Workbench ended.`] }]);
+    await until('its record ended', () => JSON.parse(readFileSync(join(jobsDir, `${third}.json`), 'utf8')).state !== 'running', 15_000);
+    expect(JSON.parse(readFileSync(join(jobsDir, `${third}.json`), 'utf8'))).toMatchObject({ state: 'cancelled' });
+  }, 90_000);
 });

@@ -187,7 +187,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
       }
     }
     await t.keys('C-c');
-    await t.waitFor(/EXIT=130/, 'the Workbench quitting at Ctrl+C (the FAKE job is another session\'s: it is left running, and named)', 20_000);
+    await t.waitFor(/EXIT=0\b/, 'the Workbench quitting at Ctrl+C (the FAKE job is another session\'s: it is left running, and named; R6 H141: it stopped nothing, so exit 0)', 20_000);
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
     console.log(`Workbench captures (R5, ${kept.length} screens, .ansi and .txt): ${CAPTURES}\n  ${kept.join('\n  ')}`);
   }, 300_000);

@@ -65,7 +65,8 @@ export function workbenchHelp(): string {
     '  Closing the companion or Studio never cancels a job.',
     '',
     'EXIT',
-    '  0 --json or --help · 78 no terminal (run it in one, or use --json) · 130 quit with Ctrl+C · 2 usage',
+    '  0 --json or --help, or Ctrl+C that stopped nothing (another session\'s work keeps running) · 130 Ctrl+C that stopped',
+    '  a job or a chat turn this Workbench started · 78 no terminal (run it in one, or use --json) · 2 usage',
     '',
   ].join('\n');
 }

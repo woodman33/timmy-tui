@@ -751,6 +751,8 @@ export class Controller {
   // ── keys ──────────────────────────────────────────────────────────────────────
 
   key(input: string, k: Partial<Key>): void {
+    // R6 (H141): once the Workbench is ending, a key acts on nothing (it is read, so it is not left for the shell either)
+    if (this.disposed) return;
     const o = this.ui.overlay;
     // a NEEDS YOU box takes every key until it is answered; Ctrl+C denies it (a second Ctrl+C then quits)
     if (o?.kind === 'needs-you') { this.needsYouKey(o, input, k); return; }
@@ -1792,7 +1794,7 @@ export class Controller {
    */
   mouse(m: MouseReport): void {
     const f = this.last;
-    if (!f || !this.ui.mouse) return;
+    if (!f || !this.ui.mouse || this.disposed) return;
     const x = m.x - 1;
     const y = m.y - 1;
     const hit = (Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>).find(([, d]) => x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h);
@@ -1908,11 +1910,17 @@ export class Controller {
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
     const after = others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`);
     if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was stopped as the Workbench ended.`));
+    // R6 (H141; the interaction review of a77d80d, defect 15): a chat turn being answered here stops with the Workbench too
+    const turnHere = this.data.turn?.state === 'sending' && this.turnAbort !== null;
+    if (turnHere) after.push('The chat turn being answered here was stopped as the Workbench ended.');
     this.dispose();
     try { await this.d.workspace.close({ by: 'as the Workbench ended' }); } catch { /* said below */ }
     try { await this.d.companion.stopServing(); } catch { /* ends with the process */ }
     try { await this.d.studio.stopServing(); } catch { /* ends with the process */ }
-    this.d.onExit?.(130, after);
+    // R6 (H141; the interaction review of a77d80d, defect 15): the exit code says whether the quit cut anything short: 130 when it
+    // stopped a job or a chat turn this Workbench started (they were interrupted), 0 when it stopped nothing (another session's
+    // work keeps running). Every quit exited 130 before, the documented one with nothing running included.
+    this.d.onExit?.(own.length || turnHere ? 130 : 0, after);
   }
 }
 

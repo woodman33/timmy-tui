@@ -256,10 +256,11 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await waitFor(/demo \/ Files/);
     expect(activeRoot()).toBe(join(timmyHome, 'projects', 'demo'));
 
-    // Ctrl+C: nothing of the Workbench's own runs, so it quits at once (130); the terminal is as it was
+    // Ctrl+C: nothing of the Workbench's own runs, so it quits at once; R6 (H141): it stopped nothing, so it exits 0 (no
+    // interruption); the terminal is as it was
     await keys('C-c');
     const after = await waitFor(/EXIT=(\d+)/, 20_000);
-    expect(after.match(/EXIT=(\d+)/)![1]).toBe('130');
+    expect(after.match(/EXIT=(\d+)/)![1]).toBe('0');
     for (const end = Date.now() + 5000; !existsSync(join(box, 'stty-after.txt')) && Date.now() < end;) await sleep(100);
     expect(tmux('display-message', '-p', '-t', 't', '#{alternate_on} #{cursor_flag} #{mouse_any_flag}').trim()).toBe('0 1 0');
     // the terminal's modes as before (its first line, speed and size, differs only by the resizes above)
@@ -360,7 +361,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       capture('wb-160x45-control-run');
 
       await keys('C-c');
-      expect((await waitFor(/EXIT=(\d+)/, 20_000)).match(/EXIT=(\d+)/)![1]).toBe('130');
+      expect((await waitFor(/EXIT=(\d+)/, 20_000)).match(/EXIT=(\d+)/)![1]).toBe('0');
     } finally {
       close();
     }

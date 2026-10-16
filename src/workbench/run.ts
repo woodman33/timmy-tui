@@ -6,6 +6,7 @@
  * overview. It recovers nothing at start (the REPL does).
  */
 import React from 'react';
+import { closeSync, constants, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from 'ink';
 import { projectId, readActiveProject } from '../project/index.js';
@@ -100,7 +101,32 @@ export async function runWorkbench(): Promise<number> {
   controller.start();
 
   const code = await done;
+  // R6 (H141; the interaction review of a77d80d, defect 15): what was typed while the Workbench was ending is read here and
+  // dropped, while the terminal is still raw: given back to the shell, it sat before the shell's next prompt (a stray "7")
+  dropTypedAhead();
   session.restore();
   for (const line of after) process.stdout.write(`${line}\n`);
   return code;
+}
+
+/**
+ * R6 (H141): reads and drops the bytes typed into this terminal that no one has read yet (a terminal of its own, opened
+ * non-blocking: a read with nothing waiting ends at once). Where there is no such terminal (another platform, no controlling
+ * terminal), nothing is done.
+ */
+export function dropTypedAhead(path = '/dev/tty'): number {
+  let fd: number | undefined;
+  let dropped = 0;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+    const buf = Buffer.alloc(4096);
+    for (let i = 0; i < 64; i++) {
+      const n = readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      dropped += n;
+    }
+  } catch { /* nothing waiting (EAGAIN), or no terminal to read */ } finally {
+    if (fd !== undefined) { try { closeSync(fd); } catch { /* closed */ } }
+  }
+  return dropped;
 }
