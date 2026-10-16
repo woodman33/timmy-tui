@@ -934,9 +934,10 @@ function canvasSummaryHtml(s, hostname) {
   const base = String(s.open || 'http://127.0.0.1:4337/');
   // R4 (H92): opened apart from this page, with no referrer; looks by class (the page allows no style attribute)
   const link = (href, text) => here ? `<a href="${canvasEsc(href)}" target="_blank" rel="noopener noreferrer">${canvasEsc(text)}</a>` : canvasEsc(text);
-  const head = s.unreadable
+  const whose = s.project ? `<p class="canvas-whose">The board of ${canvasEsc(s.project)} (each project has its own)</p>` : '';
+  const head = whose + (s.unreadable
     ? '<p>The saved canvas could not be read. Open the canvas on the computer that runs Timmy: it keeps the file aside and starts blank.</p>'
-    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(canvasWhen(s.savedAt))}` : ''}</p>`;
+    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(canvasWhen(s.savedAt))}` : ''}</p>`);
   const jobs = (s.jobs || []).map((j) => `<li>${j.ok ? '<span class="canvas-ok">✓ done</span>' : '<span class="canvas-fail">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
   const open = here ? `<p>${link(base, 'Open Timmy Canvas')}</p>` : `<p>Open ${canvasEsc(base)} on the computer that runs Timmy.</p>`;
   return head + (jobs ? `<ol class="canvas-jobs">${jobs}</ol>` : '<p>No canvas jobs yet.</p>') + open;
@@ -947,7 +948,9 @@ async function refreshCanvas() {
   // R4 (H84): with the page's token; without it the companion answers nothing
   if (!companion.token || companion.refused) { box.textContent = 'The canvas is read with the companion’s token, which this page does not have.'; return; }
   try {
-    const r = await companion.fetch('/api/canvas');
+    // R6 lead: the board of the project this page shows (each project has its own since H139)
+    const project = shownProjectId();
+    const r = await companion.fetch(`/api/canvas${project ? `?project=${encodeURIComponent(project)}` : ''}`);
     if (!r.ok) throw new Error(String(r.status));
     box.innerHTML = canvasSummaryHtml(await r.json(), location.hostname);
   } catch {
@@ -1423,6 +1426,7 @@ function drawFrame() {
   frameTurnsChanged();
   frameNote(f);
   if (workspace.tab === 'workflows') openNewestRun();
+  if (workspace.tab === 'studio') refreshCanvas();
   drawPanel(workspace.tab, f);
   refocus(kept);
   markOverflow();

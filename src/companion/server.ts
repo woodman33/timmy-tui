@@ -474,8 +474,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // Serve Clerk publishable key dynamically
   // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
   // read-only, never the drawing (with --lan, this server can be reached from a phone on the network).
-  app.get('/api/canvas', withToken, (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(canvasSummary(process.env));
+  // R6 lead: the board of the project the page shows (?project=<id>, else the one followed): each project has its own (H139)
+  app.get('/api/canvas', withToken, (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    res.set('Cache-Control', 'no-store').json({ ...canvasSummary(process.env, project.root), project: project.name });
   });
   app.get('/api/clerk-config', withToken, (_req, res) => {
     res.json({
