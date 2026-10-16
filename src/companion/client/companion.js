@@ -766,6 +766,12 @@ function frameRunningHtml() {
   const f = frameDrawn();
   const t = !isViewingSaved && f && !frameOther(f) && f.activity ? f.activity.chatTurn : null;
   if (!t) return '';
+  // a turn of that surface sealed at or after this one began is this one, ended: the frame's reading of its hold is older
+  // than its receipt (the hold goes after the seal), so nothing is said running for it
+  const since = Date.parse(t.since);
+  const sealed = Number.isFinite(since) && ([...mirrorTurns.values()].some((m) => m.surface === t.surface && m.at >= since)
+    || (f.chat && Array.isArray(f.chat.turns) ? f.chat.turns : []).some((x) => x && x.surface === t.surface && Date.parse(x.at) >= since));
+  if (sealed) return '';
   const stop = f.activity.stopCurrent && f.activity.stopCurrent.words ? ` ${escapeMirrorText(f.activity.stopCurrent.words)}.` : '';
   return `
       <div class="log-msg repl" data-mirror="frame-running">
