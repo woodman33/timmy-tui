@@ -17,6 +17,8 @@ import type { RightTab, SettingsRead } from './settings.js';
 import type {
   ActivityEvent, ActivityView, BlockRow, ChatTail, FileRow, FilesView, JobRow, ProjectChoice, ProjectView, RecordRow, RouteView, WorkflowDoc, WorkflowsView,
 } from './state.js';
+import type { ToolsData, ToolsItem } from './tools-tab.js';
+import type { VoxData, VoxItem } from './voxvision-tab.js';
 import type { WorkflowsTabData } from './workflows-tab.js';
 import type { Line, Role } from './text.js';
 
@@ -125,6 +127,10 @@ export interface Data {
   logs?: LogsData;
   /** R5 (H134): tab 8's reading (src/workbench/fleet-tab.ts readFleet), made only while the tab is shown */
   fleet?: FleetData;
+  /** R5 (H134): tab 5's reading (src/workbench/voxvision-tab.ts readVox) and tab 9's (src/workbench/tools-tab.ts readTools),
+   *  each made only while its tab is shown */
+  voxTab?: VoxData;
+  toolsTab?: ToolsData;
   /** R5 (H136): tab 3's reading of the selected block's newest run (src/workbench/workflows-tab.ts readWorkflowsTab), made
    *  each frame only while the tab is shown */
   workflowsTab?: WorkflowsTabData;
@@ -171,6 +177,9 @@ export type Item =
   | { kind: 'action'; key: string; action: string }
   /** R5 (H131): a connection card of Home, as the workspace frame has it */
   | { kind: 'conn'; key: string; conn: WorkspaceConnection }
+  /** R5 (H134): tab 5's VoxVision records and tab 9's MCP calls (their tools are `cap` rows) */
+  | Extract<VoxItem, { kind: 'vox-record' }>
+  | Extract<ToolsItem, { kind: 'mcp-call' }>
   /** R5 (H134): tab 0's rows (a receipt, an operation, another event) and tab 8's (a fleet plan, a decision) */
   | LogsItem
   | FleetItem;

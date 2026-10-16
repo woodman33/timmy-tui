@@ -35,7 +35,7 @@ import {
   clipRows, fieldRows, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx, type TabView,
 } from './tab-columns.js';
 import {
-  capDetail, capItem, capRows, checkReceipt, chips, lazyRows, notDrawnRows, notHere, verdictSegs, type CapItem, type ReceiptVerdict,
+  capDetail, capItem, capRows, checkReceipt, chips, inViewRows, lazyRows, notDrawnRows, notHere, verdictSegs, type CapItem, type ReceiptVerdict,
 } from './tab-parts.js';
 import { clock, fit, lineCells, spread, type Line, type Role, type Seg } from './text.js';
 
@@ -348,21 +348,22 @@ export function voxView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: VoxData | und
   }
 
   // stacked: the pipeline, the records (the selected one's detail under it), then the tools (the selected one's under it);
-  // the body scrolls to the selection, and the screen says which rows show
+  // the body scrolls to the selection (opening at its top while the selection starts on the first page), and the screen says
+  // which rows show
   lines.push(...pipelineRows(caps, W, g), []);
   lines.push(recordsHead(W));
   if (!nRec) lines.push(...emptyRecords(W));
   d.rows.forEach((row, i) => {
     const block = recordRows(row, W, i === sel, g);
     const more = i === sel ? [...recordDetail(row, d, W - 4, g, 8), ...seenRows(row.card.id, W - 4, g)].map((l) => [S('    '), ...l]) : [];
-    items[i] = { line: lines.length, item: all[i], rows: block.length + more.length };
+    items[i] = { line: lines.length, item: all[i], rows: i === sel ? inViewRows(lines.length, block.length + more.length, H) : block.length };
     lines.push(...block, ...more);
   });
   lines.push(...unread(W), [], toolsHead(W), ...toolRows(W));
   tools.forEach((r, k) => {
     const block = capRows(r, W, nRec + k === sel, g);
-    const more = nRec + k === sel ? [...capDetail(r, W - 4, g).slice(2), ...seenRows('<record id>', W - 4, g)].map((l) => [S('    '), ...l]) : [];
-    items[nRec + k] = { line: lines.length, item: all[nRec + k], rows: block.length + more.length };
+    const more = nRec + k === sel ? [...capDetail(r, W - 4, g, false), ...seenRows('<record id>', W - 4, g)].map((l) => [S('    '), ...l]) : [];
+    items[nRec + k] = { line: lines.length, item: all[nRec + k], rows: nRec + k === sel ? inViewRows(lines.length, block.length + more.length, H) : block.length };
     lines.push(...block, ...more);
   });
   if (sel < 0) lines.push([], ...seenRows('<record id>', W, g));

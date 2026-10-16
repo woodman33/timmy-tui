@@ -25,7 +25,7 @@ import type { Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import type { Lazy } from './model.js';
 import { fieldRows, heading, onBar, para, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx, type TabView } from './tab-columns.js';
-import { capDetail, capItem, capRows, checkReceipt, lazyRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
+import { capDetail, capItem, capRows, checkReceipt, inViewRows, lazyRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
 import { clock, count, fit, lineCells, pick, spread, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -265,9 +265,9 @@ function notDrawn(w: number, g: Glyphs): Line[] {
 
 /** A tool's detail for the body: its capability detail, the command its row names (its own words: "(/observe)"), and the
  *  command that shows it in full. */
-function toolDetail(r: CapabilityRow, w: number, g: Glyphs): Line[] {
+function toolDetail(r: CapabilityRow, w: number, g: Glyphs, titled = true): Line[] {
   const own = /\((\/[a-z][^)]*)\)/.exec(r.name)?.[1];
-  return [...capDetail(r, w, g), ...(own ? fieldRows('Run it', own, w, 'strong', 8) : []), ...fieldRows('In full', `/tools ${r.name.trim().replace(/\s*\(.*$/, '')}`, w, 'secondary', 8), ...notDrawn(w, g)];
+  return [...capDetail(r, w, g, titled), ...(own ? fieldRows('Run it', own, w, 'strong', 8) : []), ...fieldRows('In full', `/tools ${r.name.trim().replace(/\s*\(.*$/, '')}`, w, 'secondary', 8), ...notDrawn(w, g)];
 }
 
 /**
@@ -304,7 +304,7 @@ export function toolsView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: ToolsData |
         at[i] = out.length;
         out.push(...capRows(r, w, i === sel, g));
         // stacked: the selected tool's detail under it
-        if (!detailBeside && i === sel) out.push(...toolDetail(r, w - 4, g).map((l) => [S('    '), ...l]));
+        if (!detailBeside && i === sel) out.push(...toolDetail(r, w - 4, g, false).map((l) => [S('    '), ...l]));
         i += 1;
       }
     }
@@ -324,18 +324,23 @@ export function toolsView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: ToolsData |
     const height = Math.max(H - top, left.lines.length, centre.lines.length, right.length);
     lines.push(...sideBySide([{ w: wl, lines: left.lines }, { w: wc, lines: centre.lines }, { w: wr, lines: right }], height, g));
     rows.forEach((_, i) => {
-      // a tool's rows; the selected one with its detail beside it, so the screen scrolls to show both
+      // a tool's rows; the selected one with its detail beside it, so the screen scrolls to show both (on the first page, the
+      // body stays at its top: the search's rows above the list)
       const own = (left.at[i + 1] ?? left.lines.length) - left.at[i];
-      items[i] = { line: top + left.at[i], item: all[i], rows: i === sel ? Math.max(own, Math.min(detail.length, H - top)) : own };
+      items[i] = { line: top + left.at[i], item: all[i], rows: i === sel ? inViewRows(top + left.at[i], Math.max(own, detail.length), H) : own };
     });
     return { lines, items };
   }
 
-  // stacked: the tools (the selected one's detail under it), then the routes and their calls (the selected call's under it)
+  // stacked: the tools (the selected one's detail under it), then the routes and their calls (the selected call's under it);
+  // the body scrolls to the selection, and opens at its top (the search's rows) while the selection starts on the first page
   const left = toolColumn(W, false);
   const start = lines.length;
   lines.push(...left.lines);
-  rows.forEach((_, i) => { items[i] = { line: start + left.at[i], item: all[i], rows: (left.at[i + 1] ?? left.lines.length) - left.at[i] }; });
+  rows.forEach((_, i) => {
+    const own = (left.at[i + 1] ?? left.lines.length) - left.at[i];
+    items[i] = { line: start + left.at[i], item: all[i], rows: i === sel ? inViewRows(start + left.at[i], own, H) : own };
+  });
   lines.push([]);
   const centre = routeRows(caps, d ?? { at: '', root: '', calls: [], more: 0, receipts: [], checks: new Map() }, W, selCall, g, 8);
   for (let k = 0; k < centre.lines.length; k++) {
@@ -345,7 +350,7 @@ export function toolsView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: ToolsData |
     const [c, b] = call;
     const idx = rows.length + calls.indexOf(c);
     const more = c === selCall ? callDetail(c, d!, W - 4, g).map((l) => [S('    '), ...l]) : [];
-    items[idx] = { line: lines.length, item: all[idx], rows: b.rows + more.length };
+    items[idx] = { line: lines.length, item: all[idx], rows: idx === sel ? inViewRows(lines.length, b.rows + more.length, H) : b.rows };
     lines.push(...centre.lines.slice(k, k + b.rows), ...more);
     k += b.rows - 1;
   }

@@ -21,7 +21,7 @@ import {
   DECIDE_COMMAND, FLEET_LIST, fleetDetail, fleetView, PLAN_COMMAND, readFleet, type FleetData, type FleetItem,
 } from '../src/workbench/fleet-tab.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
-import { layoutFor } from '../src/workbench/layout.js';
+import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
 import { fixture as clefFixture } from './fixtures/clef-omni/fake.js';
@@ -33,8 +33,10 @@ afterEach(() => { vi.restoreAllMocks(); });
 const g = glyphsFor(true);
 const SIZES = [[160, 45], [120, 40], [100, 30]] as const;
 
+/** The body's inner size at a terminal size, as the Workbench lays this tab out (src/workbench/layout.ts OWN_COLUMNS: the
+ *  whole width at every size, Context the [i] drawer). */
 function bodyAt(columns: number, rows: number): { width: number; height: number } {
-  const l = layoutFor({ columns, rows, body: 'workspace' });
+  const l = layoutFor({ columns, rows, body: bodyKind(false, 'fleet') });
   return { width: innerWidth(l.center!.w), height: l.center!.h - 2 };
 }
 const ctxAt = (columns: number, rows: number, cursor = 0) => ({ ui: { cursor: { [FLEET_LIST]: cursor } }, g, ...bodyAt(columns, rows), now: Date.now(), columns });
@@ -132,8 +134,11 @@ describe('tab 8, Fleet & Clef: the fleet', () => {
     // the frame is another home's (no Core there): this reading's own words, never the frame's mark for another home's Core
     const all = text(fleetView(ctxAt(100, 30), recorded, frame).lines);
     expect(all).toMatch(/Cloudroom Core ○ recorded · not checked here \(no live call is authorized\)/);
-    expect(text(fleetView(ctxAt(160, 45), recorded, frame).lines)).toMatch(/Cloudroom Core ○ recorded, not checked/);
-    expect(text(fleetView(ctxAt(120, 40), recorded, frame).lines)).toMatch(/Cloudroom Core ○ recorded/);
+    // (the tab takes the whole width: src/workbench/layout.ts OWN_COLUMNS; the short form where the column is narrower)
+    expect(text(fleetView(ctxAt(160, 45), recorded, frame).lines)).toMatch(/Cloudroom Core ○ recorded · not checked here \(no live call is authorized\)/);
+    expect(text(fleetView(ctxAt(120, 40), recorded, frame).lines)).toMatch(/Cloudroom Core ○ recorded, not checked/);
+    // beside an open drawer (i at 120 columns: 78 cells)
+    expect(text(fleetView({ ...ctxAt(120, 40), width: 78 }, recorded, frame).lines)).toMatch(/Cloudroom Core ○ recorded, not checked/);
     for (const [c, r] of SIZES) expect(greens(fleetView(ctxAt(c, r), recorded, frame).lines)).toEqual([]);
   });
 
@@ -241,8 +246,13 @@ describe('tab 8: Cloudflare and the services', () => {
       expect(greens(v.lines)).toEqual(['● live']);
       expect(rolesOf(v.lines, /○ configured/).every((x) => x === 'text')).toBe(true);
     }
-    // beside the fleet at 160: the name on its row, the mark and the frame's words under it
-    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered (just now|\d+ min ago)/);
+    // beside the fleet at 160 (the whole width: src/workbench/layout.ts OWN_COLUMNS): the mark and the name on a row, the
+    // frame's words under the name
+    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +answered (just now|\d+ min ago)/);
+    // beside an open drawer (i at 120 columns: 78 cells), with rows to spare: the name on its row, the mark and the words
+    // under it; short of rows, the name and the mark on one row
+    expect(text(fleetView({ ...ctxAt(120, 60), width: 78 }, d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered (just now|\d+ min ago)/);
+    expect(text(fleetView({ ...ctxAt(120, 40), width: 78 }, d, frame).lines)).toMatch(/│ +Browser companion +● live *$/m);
     // what a terminal cannot draw, and where it is seen: c the companion, s Studio (the Workbench's own keys), at every size
     for (const [c, r] of SIZES) {
       const v = fleetView(ctxAt(c, r), d, frame);

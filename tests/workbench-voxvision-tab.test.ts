@@ -13,7 +13,7 @@ import { appendReceipt, readChain, receiptsPath, type ReceiptInput } from '../sr
 import { resetLookChecks } from '../src/vision/look.js';
 import { voxCapabilityRows } from '../src/vox/tools.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
-import { layoutFor } from '../src/workbench/layout.js';
+import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Lazy } from '../src/workbench/model.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
@@ -26,8 +26,10 @@ afterEach(async () => { resetLookChecks(); vi.restoreAllMocks(); await kit.clean
 const g = glyphsFor(true);
 const SIZES = [[160, 45], [120, 40], [100, 30]] as const;
 
+/** The body's inner size at a terminal size, as the Workbench lays this tab out (src/workbench/layout.ts OWN_COLUMNS: the
+ *  whole width at every size, Context the [i] drawer). */
 function bodyAt(columns: number, rows: number): { width: number; height: number } {
-  const l = layoutFor({ columns, rows, body: 'workspace' });
+  const l = layoutFor({ columns, rows, body: bodyKind(false, 'voxvision') });
   return { width: innerWidth(l.center!.w), height: l.center!.h - 2 };
 }
 const ctxAt = (columns: number, rows: number, cursor = 0) => ({ ui: { cursor: { [VOX_LIST]: cursor } }, g, ...bodyAt(columns, rows), now: Date.now(), columns });

@@ -108,9 +108,15 @@ describe('tabs 0 and 8 in the terminal Workbench (R5 H134)', () => {
     expect(logs).toMatch(/✓ chain verified: 1 receipt/);
     expect(logs).toMatch(/EVENT LOG[^\n]*│ OPERATION[^\n]*│ RAW OUTPUT/);
     expect(logs).toMatch(/#1 run/);
-    // the Inspector has the selected row's detail (the receipt, its raw line whole)
+    // the tab draws its own columns (src/workbench/layout.ts OWN_COLUMNS): the whole width, Context no column beside it
+    expect(f.regions.right).toBeFalsy();
+    // [i] opens Context as a drawer: the Inspector has the selected row's detail (the receipt, its raw line whole); [i] closes it
+    c.key('i', {});
+    f = c.frame(160, 45);
     expect(text(f, 'right')).toMatch(/RECEIPT/);
-    expect(text(f, 'right')).toMatch(/FAKE run: doctor\.pass, 12 checks/);
+    expect(text(f, 'right').replace(/\s+/g, ' ')).toMatch(/FAKE run: doctor\.pass, 12 checks/);
+    c.key('i', {});
+    expect(c.frame(160, 45).regions.right).toBeFalsy();
     // the same key again: the tab's second workspace (the project's files), then back
     c.key('0', {});
     expect([c.ui.page, c.ui.workspace]).toEqual(['logs', 'files']);

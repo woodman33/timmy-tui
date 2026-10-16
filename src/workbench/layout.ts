@@ -21,8 +21,10 @@ import type { WorkspaceId } from './nav.js';
 export type BodyKind = 'hub' | 'workspace' | 'columns';
 
 /** R5 (H136; the lead, 2026-10-15): the workspaces whose body draws its own columns side by side (tab 3 Workflows: the plan,
- *  the sandbox and the run, the receipt and its review): one rule for every such body; another joins by its name here. */
-export const OWN_COLUMNS: ReadonlySet<WorkspaceId> = new Set<WorkspaceId>(['workflows']);
+ *  the sandbox and the run, the receipt and its review): one rule for every such body; another joins by its name here.
+ *  R5 (H134): tab 0 Logs & Receipts, tab 8 Fleet & Clef, tab 5 VoxVision and tab 9 Tools & MCP, each with its own detail
+ *  column beside its lists (src/workbench/logs-tab.ts, fleet-tab.ts, voxvision-tab.ts, tools-tab.ts). */
+export const OWN_COLUMNS: ReadonlySet<WorkspaceId> = new Set<WorkspaceId>(['workflows', 'logs', 'fleet', 'voxvision', 'tools']);
 
 /** The body's kind for the active tab (a hub or not) and the workspace it shows. */
 export const bodyKind = (hub: boolean, ws: WorkspaceId): BodyKind => (hub ? 'hub' : OWN_COLUMNS.has(ws) ? 'columns' : 'workspace');

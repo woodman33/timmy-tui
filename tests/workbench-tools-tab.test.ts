@@ -14,7 +14,7 @@ import { mcpCapabilityRows } from '../src/connectors/mcp-cli.js';
 import { writeMcpCall, type McpCallFacts } from '../src/connectors/mcp-records.js';
 import { appendReceipt, readChain, receiptsPath, type ReceiptInput } from '../src/utils/receipts.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
-import { layoutFor } from '../src/workbench/layout.js';
+import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Lazy } from '../src/workbench/model.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
@@ -27,8 +27,10 @@ afterEach(() => { vi.restoreAllMocks(); });
 const g = glyphsFor(true);
 const SIZES = [[160, 45], [120, 40], [100, 30]] as const;
 
+/** The body's inner size at a terminal size, as the Workbench lays this tab out (src/workbench/layout.ts OWN_COLUMNS: the
+ *  whole width at every size, Context the [i] drawer). */
 function bodyAt(columns: number, rows: number): { width: number; height: number } {
-  const l = layoutFor({ columns, rows, body: 'workspace' });
+  const l = layoutFor({ columns, rows, body: bodyKind(false, 'tools') });
   return { width: innerWidth(l.center!.w), height: l.center!.h - 2 };
 }
 const ctxAt = (columns: number, rows: number, cursor = 0) => ({ ui: { cursor: { [TOOLS_LIST]: cursor } }, g, ...bodyAt(columns, rows), now: Date.now(), columns });
@@ -184,7 +186,8 @@ describe('tab 9: the selected call or tool', () => {
     const k = (caps as Extract<typeof caps, { state: 'ready' }>).value.filter((x) => x.kind === 'tool').findIndex((x) => x.id === 'fake-observe');
     for (const [c, r] of SIZES) {
       const said = words(toolsView(ctxAt(c, r, k), caps, d, LIST).lines);
-      expect(said).toMatch(/TOOL · an agent tool FAKE observer \(\/observe\)/);
+      // beside the list the detail says what the tool is; stacked, it is under the tool's own row (its name and rung)
+      expect(said).toMatch(c >= COLUMNS_FROM ? /TOOL · an agent tool FAKE observer \(\/observe\)/ : /▸ FAKE observer \(\/observe\) needs setup do: FAKE: install python3 Rung needs setup/);
       expect(said).toMatch(/Rung needs setup: Timmy has the code; do the step/);
       expect(said).toMatch(/Step FAKE: install python3/);
       expect(said).toMatch(/Run it \/observe/);

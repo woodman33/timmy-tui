@@ -48,6 +48,14 @@ export function chips(parts: readonly Line[], w: number, o: { sep: Seg; ellipsis
   return rows.map((r) => fit(r.line, w, o.ellipsis));
 }
 
+/**
+ * The rows of a selected item the screen keeps in view (src/workbench/select.ts keepInView), from `line`: all of them, or,
+ * when the item starts on the first page, only those the first page shows. A stacked body carries the selected row's detail
+ * under it; counted whole, a detail taller than the page would scroll the body past its top (the search, the pipeline) as
+ * soon as the tab opens. Below the first page an item keeps all its rows, so the screen brings its start into view.
+ */
+export const inViewRows = (line: number, rows: number, height: number): number => (line < height ? Math.max(1, Math.min(rows, height - line)) : rows);
+
 // ── receipts, verified in this reading ─────────────────────────────────────────
 
 /** Whether a receipt verifies where it stands on one reading's chain (verifyReceiptIn: its link and body hash from its
@@ -109,9 +117,10 @@ export function capRows(r: CapabilityRow, w: number, selected: boolean, g: Glyph
 }
 
 /** A capability's detail for a body's column: its rung with what it means (src/capabilities/ladder.ts, as /tools says it), its
- *  state, its step, what it covers, and when a sealed run of Timmy's last used it. */
-export function capDetail(r: CapabilityRow, w: number, g: Glyphs): Line[] {
-  const out: Line[] = [[heading('Tool'), S(` ${g.sep} ${KIND_WORDS[r.kind] ?? r.kind}`, 'secondary')], ...para(r.name.trim(), w, 'strong')];
+ *  state, its step, what it covers, and when a sealed run of Timmy's last used it. `titled`: its heading and name first (not
+ *  under its own row in a stacked list, which already says them). */
+export function capDetail(r: CapabilityRow, w: number, g: Glyphs, titled = true): Line[] {
+  const out: Line[] = titled ? [[heading('Tool'), S(` ${g.sep} ${KIND_WORDS[r.kind] ?? r.kind}`, 'secondary')], ...para(r.name.trim(), w, 'strong')] : [];
   out.push(...fieldRows('Rung', `${r.rung}: ${RUNG_MEANS[r.rung]}`, w, notHere(r) ? 'secondary' : 'text', 8));
   out.push(...fieldRows('State', r.detail, w, 'secondary', 8));
   if (r.setup) out.push(...fieldRows('Step', r.setup, w, 'text', 8));
