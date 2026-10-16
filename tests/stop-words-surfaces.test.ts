@@ -21,6 +21,7 @@ import { runWord, stateMark } from '../src/workbench/workflows-tab.js';
 import { verdictWord } from '../src/ops/op-cli.js';
 import { turnOf } from '../src/ops/workspace-frame.js';
 import { projectId } from '../src/project/index.js';
+import { projectCards } from '../src/studio/project-cards.js';
 import type { Receipt } from '../src/utils/receipts.js';
 
 class Sink { writes: string[] = []; constructor(public isTTY: boolean, public columns = 100) {} write(s: string) { this.writes.push(s); return true; } get text() { return this.writes.join(''); } }
@@ -91,6 +92,16 @@ describe('a workflow job is "cancelled"; the step a cancel ended is cancelled', 
     const runs = view.groups.flatMap((g) => [...g.running, ...g.recent]).filter((r) => r.id === 'j0c0ffee');
     expect(runs.length).toBeGreaterThan(0);
     for (const r of runs) expect(r.state).toMatch(new RegExp(`^${JOB_CANCELLED}\\b`));
+  });
+  it('Studio\'s Board: a run card reads the Control Room\'s words: a stopped chat turn with who asked, a cancelled job', () => {
+    const pid = projectId(root);
+    const chain = [{ kind: 'turn', subject: 'repl · cancelled · 0 steps', status: 'cancelled', stopped_by: 'workbench', cancelled_at: 'before-tools', rollback: 'none', project_id: pid, ts: '2026-10-16T10:22:00.000Z', ms: 700, hash: `sha256_${'e'.repeat(64)}` }] as unknown as Receipt[];
+    const job = { id: 'j0dec0de', kind: 'workflow', label: 'LONG.md › wait', command: 'upmd', args: [], state: 'cancelled', startedAt: '2026-10-16T10:25:00.000Z', endedAt: '2026-10-16T10:25:06.000Z', root, steps: [{ name: 'wait', state: 'stopped' }] };
+    const runs = projectCards({ root, name: 'p', jobs: null, receipts: null }, { chain, jobs: [job as never] }).cards.filter((k) => k.kind === 'run');
+    const turn = runs.find((k) => k.id.startsWith('run:chat:'));
+    const cancelled = runs.find((k) => k.id === 'run:job:j0dec0de');
+    expect(turn?.state.startsWith(`${turnStoppedWords({ surface: 'repl', stoppedBy: 'workbench' })}, ${turnStopStage('before-tools')}`)).toBe(true);
+    expect(cancelled?.state.startsWith(JOB_CANCELLED)).toBe(true);
   });
   it('timmy op: an operation whose chat turn was stopped says stopped; one whose job was cancelled, cancelled', () => {
     const verdict = { state: 'cancelled' as const, words: 'stopped: FAKE', from: 'FAKE' };
