@@ -37,8 +37,9 @@ export function newHostKey(): HostKey {
   return { type: 'ssh-ed25519', blob: b.toString('base64') };
 }
 
-/** The programs a FAKE "macOS-like" device has on its PATH: no setsid and no sha256sum (macOS has neither). */
-const MAC_PROGRAMS = ['sh', 'dash', 'perl', 'ps', 'sed', 'awk', 'date', 'sleep', 'head', 'cut', 'tail', 'tr', 'wc', 'cat', 'mkdir', 'mv', 'rm', 'rmdir', 'grep', 'uname', 'id', 'shasum', 'touch', 'env', 'ls', 'kill', 'printf', 'echo', 'true', 'false', 'pwd'];
+/** The programs a FAKE "macOS-like" device has on its PATH: no setsid and no sha256sum (macOS has neither), but `stat`
+ *  (macOS's is BSD; here it is the host's, so a FAKE mac device identifies an open file through whatever this box has). */
+const MAC_PROGRAMS = ['sh', 'dash', 'perl', 'ps', 'sed', 'awk', 'date', 'sleep', 'head', 'cut', 'tail', 'tr', 'wc', 'cat', 'mkdir', 'mv', 'rm', 'rmdir', 'grep', 'uname', 'id', 'shasum', 'stat', 'touch', 'env', 'ls', 'kill', 'printf', 'echo', 'true', 'false', 'pwd'];
 
 export interface Kit {
   root: string;

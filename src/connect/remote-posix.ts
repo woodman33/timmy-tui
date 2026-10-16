@@ -62,6 +62,34 @@ const HELPERS: readonly string[] = [
   '  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 < "$1" | sed \'s/^.*= *//\'',
   '  fi',
   '}',
+  // the sha256 of this function's stdin (a descriptor), so a fetch hashes the open file it will send, not a path it
+  // re-opens
+  'timmy_sha256_stdin() {',
+  '  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -c1-64',
+  '  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-64',
+  '  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 | sed \'s/^.*= *//\'',
+  '  fi',
+  '}',
+  // which `stat` the device has, decided once by fstat-ing this function's stdin (an open descriptor): GNU coreutils
+  // (`stat -c '%d:%i'`), BSD/macOS (`stat -f '%d:%i'`), or none (busybox and the like) — then a fetch cannot say what an
+  // open file is and refuses. Given a path, both forms report the link itself (lstat), never what it points to.
+  'timmy_stat_mode=',
+  'timmy_detect_stat() {',
+  '  if [ -n "$timmy_stat_mode" ]; then [ "$timmy_stat_mode" != none ]; return; fi',
+  '  v=$(stat -c \'%d:%i\' - 2>/dev/null)',
+  '  case $v in \'\'|*[!0-9:]*) ;; *) case $v in *:*) timmy_stat_mode=gnu; return 0 ;; esac ;; esac',
+  '  v=$(stat -f \'%d:%i\' 2>/dev/null)',
+  '  case $v in \'\'|*[!0-9:]*) ;; *) case $v in *:*) timmy_stat_mode=bsd; return 0 ;; esac ;; esac',
+  '  timmy_stat_mode=none; return 1',
+  '}',
+  // dev:inode:size of the file open on this function's stdin (fstat), and dev:inode of a path without following a final
+  // link (lstat); the form is whichever timmy_detect_stat found
+  'timmy_statfd() {',
+  '  case $timmy_stat_mode in gnu) stat -c \'%d:%i:%s\' - 2>/dev/null ;; bsd) stat -f \'%d:%i:%z\' 2>/dev/null ;; *) return 1 ;; esac',
+  '}',
+  'timmy_statpath() {',
+  '  case $timmy_stat_mode in gnu) stat -c \'%d:%i\' "$1" 2>/dev/null ;; bsd) stat -f \'%d:%i\' "$1" 2>/dev/null ;; *) return 1 ;; esac',
+  '}',
   // what Timmy reads back about one job ($job): whose its folder is, where it is, its status file's own keys, whether its
   // first process still runs (the same one: its start time) and runs this job's supervisor, whether the status file still
   // names the process Timmy recorded, the stop it recorded, and its last output lines (prefixed, so none can pass for a key
@@ -156,6 +184,8 @@ export function posixProbeScript(remoteDir: string): string {
       '  elif command -v shasum >/dev/null 2>&1; then echo "sha256=shasum"',
       '  elif command -v openssl >/dev/null 2>&1; then echo "sha256=openssl"',
       '  else echo "sha256=none"; fi',
+      // which stat can identify an open file here (fstat of a descriptor): a fetch needs it to rule out a swap
+      '  timmy_stat_mode=; timmy_detect_stat </dev/null; echo "identity=$timmy_stat_mode"',
       '  if [ -n "$(timmy_start_of $$)" ]; then echo "start_time=yes"; else echo "start_time=no"; fi',
       `  for p in ${POSIX_PROGRAMS.join(' ')}; do if command -v "$p" >/dev/null 2>&1; then echo "found=$p"; else echo "missing=$p"; fi; done`,
       '  echo "TIMMY-PROBE-END"',
@@ -320,13 +350,21 @@ export function posixWaitScript(remoteDir: string, id: string, known: Known = {}
 }
 
 /**
- * Sends one file of a job's folder. Each folder on its path is entered on its own (`cd -P`), refused when it is a symbolic
- * link or when the folder reached is not inside the job's folder; the file is refused when it is a link or not a regular
- * file. Then it is copied once inside the job's folder without following a link (`cp -RP`, into a folder of this call's
- * own), and what is hashed and sent is that copy, whatever the path holds afterwards (a job that swaps a link in while it is
- * fetched gets a refusal, never the link's target sent); the copy is removed after. Refused too when no sha256 program is
- * there, or the copy cannot be made (room for one copy is needed there). Its answer: a header line (TIMMY-FETCH ok
- * <sha256> <bytes>) and then the copy's bytes.
+ * Sends one file of a job's folder, never a byte from outside it, by any link, swap or race. Each folder on the path is
+ * entered on its own (`cd -P`), refused when it is a symbolic link or when the folder reached is not inside the job's
+ * folder; the file is refused when it is a link or not a regular file; the job's folder itself is refused when it is a
+ * link. Then, with no copy anywhere, the file is opened once on a descriptor and its identity is pinned: the descriptor's
+ * dev:inode (fstat) must equal the name's dev:inode read without following a link (lstat), and the name must not be a
+ * link — so a swap between the checks above and the open is caught (the opened file and the name would then differ).
+ * The sha256 and the size come from that descriptor; then a second descriptor is opened on the name and checked to be the
+ * same dev:inode as the first and as the name again, and its bytes are sent. A swap landing anywhere is caught by the
+ * dev:inode comparison and refused; this does not depend on `cp` (GNU cp happens to lstat-then-open-O_NOFOLLOW, but BSD/
+ * macOS cp opens following, which the old copy-first path could be raced into following out of the folder). Refused when
+ * the device has no sha256 program, or no `stat` that can identify an open file (`no-identity`: a swap could not be ruled
+ * out). If the file's own bytes change between the hash and the send, this computer's sha256 check fails it and keeps the
+ * job's own bytes as `.partial` — never outside bytes. Its answer: a header line (TIMMY-FETCH ok <sha256> <bytes>) and the
+ * file's bytes. A hard link the job itself makes inside its folder is a file of its folder: its bytes are fetched like any
+ * other of its files.
  */
 export function posixFetchScript(remoteDir: string, id: string, rel: string): string {
   return [
@@ -334,6 +372,7 @@ export function posixFetchScript(remoteDir: string, id: string, rel: string): st
     wholeOrNothing('timmy_fetch', [
       jobVar(remoteDir, id),
       `  rel=${shQuote(rel)}`,
+      '  if [ -L "$job" ]; then echo "TIMMY-FETCH job-link"; return 0; fi',
       '  if [ ! -d "$job" ] || ! cd -P "$job" 2>/dev/null; then echo "TIMMY-FETCH no-job"; return 0; fi',
       '  top=$(pwd -P)',
       '  name=${rel##*/}; dirs=; case $rel in */*) dirs=${rel%/*} ;; esac',
@@ -348,17 +387,28 @@ export function posixFetchScript(remoteDir: string, id: string, rel: string): st
       '  if [ -L "./$name" ]; then echo "TIMMY-FETCH link"; return 0; fi',
       '  if [ ! -f "./$name" ]; then echo "TIMMY-FETCH not-a-file"; return 0; fi',
       '  if [ ! -r "./$name" ]; then echo "TIMMY-FETCH not-readable"; return 0; fi',
-      '  t="$top/.fetch.$$.$(date +%s)"',
-      '  if ! (umask 077; mkdir "$t") 2>/dev/null; then echo "TIMMY-FETCH no-copy"; return 0; fi',
-      '  if ! cp -RP "./$name" "$t/f" 2>/dev/null; then rm -rf "$t"; echo "TIMMY-FETCH no-copy"; return 0; fi',
-      '  if [ -L "$t/f" ]; then rm -rf "$t"; echo "TIMMY-FETCH link"; return 0; fi',
-      '  if [ ! -f "$t/f" ]; then rm -rf "$t"; echo "TIMMY-FETCH not-a-file"; return 0; fi',
-      '  sum=$(timmy_sha256 "$t/f")',
-      '  if [ -z "$sum" ]; then rm -rf "$t"; echo "TIMMY-FETCH no-sha256"; return 0; fi',
-      '  size=$(wc -c < "$t/f" | tr -d \' \')',
+      // open the file once; `command exec` so a failed open does not kill the shell, and the descriptor stays open so its
+      // inode cannot be reused while Timmy checks and sends it
+      '  if ! { command exec 3<"./$name"; } 2>/dev/null; then echo "TIMMY-FETCH not-readable"; return 0; fi',
+      '  if ! timmy_detect_stat <&3; then echo "TIMMY-FETCH no-identity"; command exec 3<&-; return 0; fi',
+      '  s3=$(timmy_statfd <&3); ino3=${s3%:*}; size=${s3##*:}',
+      '  case $ino3 in \'\'|*[!0-9:]*) echo "TIMMY-FETCH no-identity"; command exec 3<&-; return 0 ;; esac',
+      '  case $size in \'\'|*[!0-9]*) echo "TIMMY-FETCH no-identity"; command exec 3<&-; return 0 ;; esac',
+      '  lp=$(timmy_statpath "./$name")',
+      // the open file is the name, read without following (lstat), and the name is not a link: a swap between the path
+      // checks above and this open is caught here (the opened inode and the name's inode differ)
+      '  if [ -L "./$name" ] || [ -z "$lp" ] || [ "$ino3" != "$lp" ]; then echo "TIMMY-FETCH changed"; command exec 3<&-; return 0; fi',
+      '  sum=$(timmy_sha256_stdin <&3)',
+      '  if [ -z "$sum" ]; then echo "TIMMY-FETCH no-sha256"; command exec 3<&-; return 0; fi',
+      // a second descriptor to send from: it must be the same file (dev:inode) as the one hashed, and the name still it,
+      // still not a link — otherwise a swap landed between the hash and the send and nothing is sent
+      '  if ! { command exec 4<"./$name"; } 2>/dev/null; then echo "TIMMY-FETCH changed"; command exec 3<&-; return 0; fi',
+      '  s4=$(timmy_statfd <&4); ino4=${s4%:*}',
+      '  lp2=$(timmy_statpath "./$name")',
+      '  if [ -L "./$name" ] || [ "$ino4" != "$ino3" ] || [ "$lp2" != "$ino3" ]; then echo "TIMMY-FETCH changed"; command exec 3<&- 4<&-; return 0; fi',
       '  echo "TIMMY-FETCH ok $sum $size"',
-      '  cat < "$t/f"',
-      '  rm -rf "$t"',
+      '  cat <&4',
+      '  command exec 3<&- 4<&-',
     ]),
   ].join('\n');
 }
