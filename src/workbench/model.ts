@@ -85,6 +85,10 @@ export interface TurnRow {
   /** its receipt names its Ollama endpoint (src/room/index.ts turnOllama): true on this computer, false off it; absent: the
    *  receipt names no endpoint (a turn on the OpenRouter route) */
   local?: boolean;
+  /** R5 lead: the turn's identity (its receipt's turn_id, its hold's id: src/agent/chat-turn.ts); absent on older receipts */
+  turn?: string;
+  /** R5 lead: a stopped turn another surface asked to stop: that surface (its receipt's stopped_by) */
+  stoppedBy?: string;
 }
 
 export interface Data {

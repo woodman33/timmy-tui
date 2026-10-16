@@ -67,9 +67,14 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    (`/setup chat`); Ollama not answering (start it; Enter checks again, free requests only); free-only on and a model not
    known to be free (`/model free`: the catalog's free models; free-only stays on, turning it off is never the fix); a key
    OpenRouter refused (`timmy init --openrouter -` reads a new one, hidden). A turn being answered shows as running on
-   every surface (the Workbench, the companion, `./review.sh check`); Esc in the composer that sent it stops it (Ctrl+C in
-   the REPL), and its operation and receipt record the stop. Every surface lists the project's sealed turns, whichever
-   surface sent them (a receipt keeps hashes, so a turn's words stay where it was sent).
+   every surface (the Workbench, the companion, `./review.sh check`). It stops from where it was sent (Esc in the
+   Workbench's composer, Ctrl+C in the REPL) or from the companion page (its Stop the turn, and Stop this turn beside the
+   running turn): the page asks the process answering it, which stops it as its own key would, whichever surface that is.
+   Its receipt records the stop and who asked ("turn stopped (asked from the companion) in the REPL"), and every surface
+   shows that end. Every surface lists the project's sealed turns, whichever surface sent them (a receipt keeps hashes, so
+   a turn's words stay where it was sent). A reading of a connection counts only for what it asked: after the setup moves
+   Ollama, the companion or Studio to another address, or a new OpenRouter key replaces a refused one, the card says "not
+   checked at this address (with this key) yet" until a check asks again.
 4. **One sandbox workflow to its receipt (no spend).** In the tray project: Workflows → APPROVAL.md › tidy → its confirm → the
    NEEDS YOU box → `y`. The prediction is sealed before the run and never shown as an observed result; then the same
    operation in the Control Room, Logs & Receipts, `./review.sh timmy op <id>`, and the companion's run detail.
@@ -111,6 +116,10 @@ one setting through).
   something running, `x` stops the selected run first (a chat turn: Esc in its composer). A run still going on keeps its
   record, and the Control Room (7) shows it with Stop next time.
 - **The REPL:** `/exit`, or Ctrl+C with no turn running (Ctrl+C during a turn stops the turn).
+- **A chat turn, from anywhere:** the companion page's Stop the turn (or Stop this turn beside it) stops the turn being
+  answered in the Workbench or the REPL; what its tools had already done stays done (nothing is rolled back), and its
+  receipt says it was stopped and who asked. A job (a workflow run) stops only from the Workbench or REPL that started it
+  (`x`, `/stop <job>`); the page shows it running and has no Stop for it (not in this build).
 - **A browser page:** close it; nothing runs in the page itself.
 - **Everything:** close the windows above, then `./review.sh clean` removes the sandbox, after you type yes. Nothing outside
   this folder was installed or started.

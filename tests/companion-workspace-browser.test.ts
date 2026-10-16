@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { WorkspaceFrame } from '../src/contracts/workspace.js';
 import { CONNECTIONS_SCHEMA, buildWorkspaceFrame, writeConnections, type ConnectionsRecord } from '../src/ops/workspace-frame.js';
 import { startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { DEFAULT_SETTINGS, readSettings, saveSettings, settingsPath } from '../src/workbench/settings.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -466,7 +467,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     ];
     const withTurns = await start({ frame: async (o) => {
       const f = await buildWorkspaceFrame({ ...o, now: NOW });
-      return { ...f, chat: { turns }, activity: { ...f.activity, running: f.activity.running + 1, stopCurrent: { job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' }, chatTurn: { surface: 'workbench', since: ago(5), words: 'a chat turn is being answered in the Workbench (since 11:59:55 UTC)' } } };
+      return { ...f, chat: { turns }, activity: { ...f.activity, running: f.activity.running + 1, stopCurrent: { job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' }, chatTurn: { surface: 'workbench', since: ago(5), words: 'a chat turn is being answered in the Workbench' } } };
     } });
     const { page, context, errors, outside } = await open({ on: withTurns });
     try {
@@ -490,8 +491,68 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       expect(await page.textContent('#control-now [data-control="chat-turns"]')).toBe('Chat turns (2)');
       expect(await page.textContent('#control-now [data-control="chat-running"]')).toContain('being answered in the Workbench');
       expect(await page.$$eval('#control-now [data-control="chat-turn-list"] .ev', (els) => els.length)).toBe(2);
+      // R5 lead (the QA round, defects 5 and 6): no raw value in the words, and one 24-hour clock for every time shown
+      expect(await page.textContent('#control-now')).not.toMatch(/\bnull\b|undefined/);
+      expect(await page.textContent('#control-now [data-control="chat-running-words"]')).toMatch(/· since \d{2}:\d{2}:\d{2}$/);
+      const times = await page.$$eval('#control-now .ev-time, #console-logs .log-time', (els) => els.map((e) => (e.textContent ?? '').trim()));
+      expect(times.length).toBeGreaterThanOrEqual(3);
+      for (const t of times) expect(t).toMatch(/^\d{2}:\d{2}:\d{2}$/);
       expect(errors).toEqual([]);
       expect(outside).toEqual([]);
+    } finally { await context.close(); }
+  });
+  it('R5 lead (the operator\'s 22:32 order, item 2): the page\'s Stop asks the turn it shows to stop, by its id: the strip\'s Stop the turn, the mirror\'s and the Control Room\'s Stop; the answer is said on the strip', async () => {
+    // a turn of the project held now, as the Workbench holds the one it answers (this process holds it; no model is asked)
+    const t = takeTurnHold(root, 'workbench');
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    const stopFile = join(root, '.timmy', 'chat-turns', `${t.hold.id}.stop`);
+    const { page, context, errors, outside } = await open();
+    try {
+      await openTab(page, 'chat');
+      const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      expect(await btn.textContent()).toMatch(/^3\.Stop the turnfrom this page, or Esc in the composer that sent it \(the Workbench\)$/);
+      expect(await btn.getAttribute('class')).toContain('is-primary');
+      await page.waitForSelector(`#console-logs [data-mirror="frame-running"] [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      await openTab(page, 'control');
+      await page.waitForSelector(`#control-now [data-control="chat-running"] [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      await page.click(`#control-now [data-stop-turn="${t.hold.id}"]`);
+      await page.waitForFunction(() => /^Stop asked of the turn being answered in the Workbench: /.test(document.getElementById('ws-strip-note')?.textContent ?? ''), null, { timeout: 10_000 });
+      // the request lies beside the turn's hold, where the process answering it watches (src/agent/chat-turn.ts watchTurnStop)
+      expect(existsSync(stopFile)).toBe(true);
+      // the words stay while the frames come (each second), so they can be read
+      await page.waitForTimeout(2_500);
+      expect(await page.textContent('#ws-strip-note')).toMatch(/^Stop asked of the turn being answered in the Workbench: /);
+      expect(errors).toEqual([]);
+      expect(outside).toEqual([]);
+    } finally {
+      t.hold.release();
+      rmSync(stopFile, { force: true });
+      await context.close();
+    }
+  });
+  it('R5 lead (the QA round, defect 5): with many chat turns the Control Room\'s boxes each keep room, none drawn over another, and a cut list is shaded at its edge', async () => {
+    const many: NonNullable<WorkspaceFrame['chat']>['turns'] = Array.from({ length: 8 }, (_, i) => ({
+      receipt: `${i}`.repeat(8), surface: i % 2 ? 'repl' : 'workbench', state: 'answered', model: 'qwen3:8b', at: ago(60 * (i + 1)), ms: 900, operation: `o${`${i}`.repeat(8)}`, route: 'local', words: `turn answered in the ${i % 2 ? 'REPL' : 'Workbench'} · qwen3:8b · receipt ${`${i}`.repeat(8)} · 0.9 s`,
+    }));
+    const on = await start({ frame: async (o) => ({ ...(await buildWorkspaceFrame({ ...o, now: NOW })), chat: { turns: many } }) });
+    const { page, context, errors } = await open({ on, viewport: { width: 1376, height: 768 } });
+    try {
+      await openTab(page, 'control');
+      await page.waitForSelector('#control-now [data-control="chat-turn-list"]', { timeout: 15_000 });
+      const boxes = await page.$$eval('#ws-control .col-stack > .box', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; }));
+      expect(boxes).toHaveLength(2);
+      for (const b of boxes) expect(b.height).toBeGreaterThan(80);
+      expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);
+      const strip = await page.$eval('.ws-activity', (e) => e.getBoundingClientRect().top);
+      expect(strip).toBeGreaterThanOrEqual(boxes[1].bottom);
+      // the turns go on below the first box's edge: it scrolls inside, and its bottom border says so until the end is in view
+      const fit = '#ws-control .col-stack > .box.box-fit';
+      expect(await page.$eval(`${fit} > .box-body`, (e) => e.scrollHeight > e.clientHeight + 1)).toBe(true);
+      expect(await page.$eval(fit, (e) => [(e as HTMLElement).dataset.more, getComputedStyle(e, '::after').content])).toEqual(['1', '"more below ↓"']);
+      await page.$eval(`${fit} > .box-body`, (e) => { e.scrollTop = e.scrollHeight; });
+      await page.waitForFunction((sel) => (document.querySelector(sel) as HTMLElement).dataset.more === undefined, fit, { timeout: 5_000 });
+      expect(errors).toEqual([]);
     } finally { await context.close(); }
   });
   it('at 390 px wide every tab fits the window (nothing scrolls sideways), and Home\'s columns stack', async () => {
