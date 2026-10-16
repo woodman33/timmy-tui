@@ -64,6 +64,20 @@ export function artifactProps(row, project, now = new Date()) {
 }
 
 /**
+ * Whether a change of a record is an artifact card fitting its own content (`a` before, `b` after): the card writes only its
+ * height (Frame below), and it does so while a call of Timmy's may be running. Such a change is the page's, never the call's, so
+ * it never refuses a draft (drafts.js followed() says the same of a drawn card's own following; canvas.js applies both).
+ */
+export function artifactFollowed(a, b) {
+  if (!a || !b || a.typeName !== 'shape' || a.type !== ARTIFACT_SHAPE || b.type !== ARTIFACT_SHAPE) return false;
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (k !== 'props' && JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  const pa = a.props || {};
+  const pb = b.props || {};
+  for (const k of new Set([...Object.keys(pa), ...Object.keys(pb)])) if (k !== 'h' && JSON.stringify(pa[k]) !== JSON.stringify(pb[k])) return false;
+  return true;
+}
+
+/**
  * What a card can show now. `scope`: the board on screen ({ project: { id, name } | null, state: 'shown' | 'switching' | 'paused'
  * | 'none', switching, paused }). It follows its artifact (`follows`) only while its own project's board is on screen.
  */

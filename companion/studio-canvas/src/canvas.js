@@ -28,7 +28,7 @@ import { clockOf, dateTimeOf } from './when.js';
 // R6 (H139): whose board is on screen, and the switch from one project's board to another's
 import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, projectOf, sameProject, SWITCH_WAIT_MS, switchedWords, switchingTo } from './identity.js';
 // R6 (H145): the shown project's artifacts, as cards on its board, and Studio's VoxVision preview; its reference images
-import { createArtifacts } from './artifacts.js';
+import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
@@ -623,6 +623,9 @@ function connectBridge() {
         if (answer.ok && !crash && draft) {
           const after = getSnapshot(editor.store);
           const changes = documentChanges(before.document.store, after.document.store);
+          // R6 (H145): an artifact card fitting its height to its content while the call ran is the page's own change, as a drawn
+          // card's following is (drafts.js followed): it never refuses a draft
+          changes.changed = changes.changed.filter((id) => !artifactFollowed(before.document.store[id], after.document.store[id]));
           const refusal = draftRefusal(changes, before.document.store, after.document.store);
           if (refusal) {
             answer = { ok: false, error: refusal, draft: { id: draft.id, refused: 'changes' } };

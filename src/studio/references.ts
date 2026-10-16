@@ -118,6 +118,27 @@ export function copyReference(root: string, board: string, project: { id: string
   };
 }
 
+/** What a board's copy `file` (refs/<sha256>.<ext>) answers: its bytes and type, or why it is not shown (with the status to send). */
+export type BoardRefAnswer = { ok: true; body: Buffer; ext: RasterExt; mime: string } | { ok: false; status: number; error: string };
+
+/**
+ * A copy in board folder `board` (refs/<sha256>.<ext>), read through one descriptor and shown only when it is what its name
+ * says: its bytes' sha256, and the type it was copied as. `name`: the board's project, for the words. Studio's board route and the
+ * browser companion's tab 4 (src/companion/panels/studio.ts) both read a copy here.
+ */
+export function readBoardRef(board: string, file: string, name: string): BoardRefAnswer {
+  const m = REF_FILE.exec(file);
+  if (!m) return { ok: false, status: 400, error: 'A reference image is named by its bytes\' sha256 and its type: <sha256>.<png|jpg|gif|webp>.' };
+  const read = readPlainInside(board, `refs/${file}`, REF_MAX);
+  if (!read.ok) return { ok: false, status: read.why === 'missing' ? 404 : 403, error: `No reference image ${file.slice(0, 12)}… on ${name}'s board (${read.words}).` };
+  const ext = m[2] as RasterExt;
+  if (createHash('sha256').update(read.body).digest('hex') !== m[1] || sniffRaster(read.body) !== ext) return { ok: false, status: 409, error: `The copy ${file.slice(0, 12)}… on ${name}'s board is not the bytes its name says, so it is not shown.` };
+  return { ok: true, body: read.body, ext, mime: RASTER[ext] };
+}
+
+/** The headers a copy is sent with: no caching, nothing run, never sniffed as another type, no referrer, this origin only. */
+export const REF_HEADERS = { 'Cache-Control': 'no-store', 'Content-Security-Policy': POLICY, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cross-Origin-Resource-Policy': 'same-origin' } as const;
+
 export interface ReferenceRoutes {
   link: ProjectLink;
   relay: CardRelay;
@@ -187,12 +208,10 @@ export function mountReferenceRoutes(app: express.Express, o: ReferenceRoutes): 
     if (!PROJECT_ID.test(id) || !REF_FILE.test(file)) { res.status(400).set('Cache-Control', 'no-store').json({ ok: false, error: 'A reference image is asked for as /api/canvas/ref/<project id>/<sha256>.<png|jpg|gif|webp>.' }); return; }
     const p = projectOf(req, res, id);
     if (!p) return;
-    const read = readPlainInside(boardDir(o.canvasRoot, p.id), `refs/${file}`, REF_MAX);
-    if (!read.ok) { res.status(read.why === 'missing' ? 404 : 403).json({ ok: false, error: `No reference image ${file.slice(0, 12)}… on ${p.name}'s board (${read.words}).` }); return; }
-    const [, sha, ext] = REF_FILE.exec(file)!;
     // the copy is what its name says: its bytes' sha256, and the type it was copied as
-    if (createHash('sha256').update(read.body).digest('hex') !== sha || sniffRaster(read.body) !== ext) { res.status(409).json({ ok: false, error: `The copy ${file.slice(0, 12)}… on ${p.name}'s board is not the bytes its name says, so it is not shown.` }); return; }
-    res.set({ 'Content-Security-Policy': POLICY, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cross-Origin-Resource-Policy': 'same-origin' }).type(RASTER[ext as RasterExt]).send(read.body);
+    const ref = readBoardRef(boardDir(o.canvasRoot, p.id), file, p.name);
+    if (!ref.ok) { res.status(ref.status).json({ ok: false, error: ref.error }); return; }
+    res.set(REF_HEADERS).type(ref.mime).send(ref.body);
   });
 }
 

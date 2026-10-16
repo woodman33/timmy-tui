@@ -1186,3 +1186,51 @@ body.slate-absent p { max-width: 72ch; }
 .home-thumb-btn img { display: block; max-width: 100%; max-height: 7.5em; width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
 .home-thumb-btn:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
 .home-thumb figcaption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+
+/* ==========================================================================================================================
+ * R6 (H145): the Studio panel (tab 4; reference 06), drawn by src/companion/client/panel-studio.js into
+ * data-panel-host="studio": what is on the shown project's own board, in reading order, each item with its thumbnail (a button:
+ * the page shows the image at size), its kind, title, excerpt, page, draft mark, and what it opens. On a wide screen the board
+ * list takes the tab's right column (CSS only: the page's boxes keep their order in the markup). Colors (B10): structure grey;
+ * a draft waiting on you, FAKE and a failure amber (the palette has no red), with their words; links silver; no green here (the
+ * panel verifies nothing itself: an artifact's state is its card's words as placed); an image keeps its own colors.
+ * ========================================================================================================================== */
+#ws-studio .studio-host { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+#ws-studio .studio-host > .box.sb-box { flex: 1 1 auto; min-height: 0; margin-top: 8px; }
+/* the tab's layout on a wide screen: the board list takes the wide right column, whole height; the Studio state, the canvas's
+   revision and jobs, and the tab's actions stack on the left (each box scrolls inside). A narrow screen keeps the page's order. */
+@media (min-width: 861px) {
+  #ws-studio > .cols-two { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+  #ws-studio > .cols-two > .col-stack { display: contents; }
+  #ws-studio section[aria-labelledby="studio-state-title"] { grid-column: 1; grid-row: 1; max-height: none; }
+  #ws-studio #tab-canvas { grid-column: 1; grid-row: 2; }
+  #ws-studio section[aria-labelledby="studio-acts-title"] { grid-column: 1; grid-row: 3; }
+  #ws-studio .studio-host { grid-column: 2; grid-row: 1 / span 3; }
+}
+.sb-summary { color: var(--timmy-text); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.sb-summary.tone-failed { color: var(--timmy-failure); }
+.sb-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.sb-list:empty { display: none; }
+.sb-item { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 10px; align-items: start; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 6px 8px; }
+.sb-item.no-thumb { grid-template-columns: minmax(0, 1fr); }
+.sb-item.kind-other-project { background: var(--timmy-ground); border-style: dashed; }
+.sb-thumb { width: 120px; height: 80px; padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; cursor: zoom-in; }
+.sb-thumb:hover { border-color: var(--timmy-text-secondary); }
+.sb-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.sb-thumb-failed { width: 120px; height: 80px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--timmy-failure); border-radius: 3px; color: var(--timmy-failure); font-size: 12px; cursor: help; }
+.sb-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sb-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; color: var(--timmy-text-secondary); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.sb-fake, .sb-draft { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+.sb-title { color: var(--timmy-text); font-size: 12px; font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
+.sb-excerpt { color: var(--timmy-text); font-size: 12px; overflow-wrap: anywhere; }
+.sb-where { color: var(--timmy-text-secondary); font-size: 11px; }
+.sb-acts { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; margin-top: 3px; }
+.sb-link { color: var(--timmy-silver); text-decoration: underline; font-size: 11px; overflow-wrap: anywhere; }
+.sb-addr { color: var(--timmy-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.sb-foot { color: var(--timmy-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.sb-foot:empty { display: none; }
+@media (max-width: 860px) {
+  #ws-studio .studio-host { flex: none; }
+  .sb-item { grid-template-columns: 64px minmax(0, 1fr); }
+  .sb-thumb, .sb-thumb-failed { width: 64px; height: 44px; }
+}
