@@ -556,9 +556,9 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       w.start(160, 45);
       await w.waitFor(/trayA \/ [\s\S]*Activity/);
       await w.find('Control');
-      // (R5 H137: with nothing running, the newest ended runs are quiet panes: the id on the box's edge, the word and label
-      // below, then who started it, its operation and its blocks)
-      const stale = await w.waitFor(new RegExp(`${killed.id} [━─][^\\n]*\\n[^\\n]*stale {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*1 of 1 step`), 10_000);
+      // (R5 H137: with nothing running, the newest ended runs are quiet panes, two to a row at 160 columns: the id on the box's
+      // edge, the word, label and blocks below on one row where they fit, then who started it and its operation)
+      const stale = await w.waitFor(new RegExp(`${killed.id} [━─][^\\n]*\\n[^\\n]*stale {2}SLOW\\.md › long · 1 of 1 step`), 10_000);
       // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files); R5 (H137): tab 7
       // draws its own columns, so Context is its drawer (i), shut again before a pane is clicked
       await drawer(w, true);
@@ -567,7 +567,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(controlColumn(stale, 2)).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       expect(stale).toContain('Stop current: idle');
       // the one quit with its Workbench: ended by its own stop, said as its record says (no recovery words)
-      expect(stale).toMatch(new RegExp(`${quit.id} [━─][^\\n]*\\n[^\\n]*cancelled {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*${quitOp.id} · 1 of 1 step`));
+      expect(stale).toMatch(new RegExp(`${quit.id} [━─][^\\n]*\\n[^\\n]*cancelled {2}SLOW\\.md › long · 1 of 1 step[^\\n]*\\n[^\\n]*${quitOp.id}`));
       await w.click(w.cellOf(`─ ${quit.id} `));
       await drawer(w, true);
       const quitDock = panelText(await w.waitFor(new RegExp(`Job\\s+${quit.id}`), 15_000), 'Context');
