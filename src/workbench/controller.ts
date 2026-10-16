@@ -1625,8 +1625,18 @@ export class Controller {
 
   async showCompanion(why = ''): Promise<void> {
     this.say(`Companion · Show${why ? ` ${why}` : ''}: starting it on 127.0.0.1 if this Workbench has none…`, 'secondary');
-    const w = await this.d.companion.show();
+    const w = await this.d.companion.show(this.companionWhere());
     this.say(w, /did not start|failed/.test(w) ? 'failure' : 'text');
+  }
+
+  /**
+   * R6 (H141; the lead's ask, after 66a1323): where Companion · Show opens the page: on the tab shown here (the page has the same
+   * ten tabs, by the same ids), and from tab 5 on the VoxVision record selected there (H143's vox=<id>, which the page's
+   * VoxVision panel opens).
+   */
+  private companionWhere(): string {
+    const sel = this.ui.page === 'voxvision' ? this.selected() : null;
+    return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
   }
 
   async showStudio(why = ''): Promise<void> {
