@@ -528,8 +528,10 @@ export class Controller {
       this.readPipeline();
     }
     if (this.ui.workspace === 'control') this.readTab('control');
-    this.refreshFrame();
     this.emit();
+    // the frame's reading (a heavy one) a moment later, so the run line is drawn first
+    const t = setTimeout(() => this.refreshFrame(), 40);
+    t.unref?.();
   }
 
   /** R6 (H141): the holds read now, before a key that acts on a turn answers (x, Enter on Stop the turn). */
