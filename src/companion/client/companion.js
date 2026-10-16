@@ -17,7 +17,13 @@
 // it, or when the companion says it is not its token, the page loads nothing more and says how to open it from Timmy.
 const companion = (() => {
   let token = '';
+  // R6 lead: the tab the address asks for (?tab=<id>, or &tab=<id> beside the token after #), read before the token is taken
+  // out of the address; the start code opens it (a Workbench tab's `c` opens the companion on the same tab)
+  let askedTab = '';
   try {
+    const fromQuery = new URLSearchParams(location.search).get('tab');
+    const fromHash = /(?:^#|&)tab=([a-z]{2,16})(?:&|$)/.exec(location.hash);
+    askedTab = (fromHash ? fromHash[1] : fromQuery || '').toLowerCase();
     const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
     if (m) {
       token = m[1];
@@ -27,6 +33,7 @@ const companion = (() => {
   const OPEN_FROM_TIMMY = 'Open it from Timmy: in `timmy watch`, press q on HOME; it shows the companion’s address with its token.';
   const c = {
     token,
+    askedTab,
     refused: false,
     protocols: () => ['timmy-companion', 'timmy-token.' + token],
     say(words) {
@@ -1942,9 +1949,11 @@ setInterval(() => { if (!document.hidden) readFrame(); }, WS_POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) readFrame(); });
 
 (() => {
-  // the tab this browser tab showed last (a run's address opens Workflows instead)
+  // the tab the address asks for (R6 lead: ?tab=<id>, or tab=<id> beside the token), else the one this browser tab showed
+  // last (a run's address opens Workflows instead)
   let tab = 'home';
   try { tab = sessionStorage.getItem(WS_TAB_KEY) || 'home'; } catch (e) { tab = 'home'; }
+  if (companion.askedTab && document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(companion.askedTab)}"]`)) tab = companion.askedTab;
   if (!/^\/run\//.test(location.pathname)) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'home');
   let folded = false;
   try { folded = localStorage.getItem('timmy.companion.activity') === 'folded'; } catch (e) { folded = false; }
