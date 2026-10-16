@@ -20,6 +20,7 @@
  * are the frame's labels' first words. Pure: the same frame and state always draw the same rows.
  */
 import type { ChatSurface } from '../contracts/chat-session.js';
+import type { RunDetail } from '../contracts/run-detail.js';
 import { TABS, tabOf, type ConnectionState, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry } from '../contracts/workspace.js';
 import { turnOf, turnStopWords } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
@@ -404,6 +405,31 @@ function serverWords(c: ViewCtx, id: WorkspaceConnection['id']): string | null {
   return `not served by this Workbench ${c.g.sep} ${show} starts it`;
 }
 
+/**
+ * R5 (H131; the QA of e7f853e, defect 24): the run detail's time, labelled: the operation's, from its record, and the job's or
+ * the turn's own when the item is one (from its own record), with the time between them said for what it holds: the
+ * prediction, any wait on you and the receipts, none of which is recorded apart (so no part of it is said to be the wait).
+ */
+export function tookWords(time: RunDetail['time'], own?: { kind: 'job' | 'turn'; ms: number | null | undefined; running?: boolean }): string {
+  const op = time.elapsedMs;
+  const opWords = op === null ? 'the operation\'s time is not recorded' : time.endedAt ? `operation took ${took(op)}` : `operation running for ${took(op)}`;
+  if (!own || own.ms === null || own.ms === undefined || !Number.isFinite(own.ms)) return opWords;
+  const mine = own.kind === 'job' ? (own.running ? `job running for ${took(own.ms)}` : `job ran ${took(own.ms)}`) : `turn took ${took(own.ms)}`;
+  const gap = op !== null && time.endedAt && !own.running ? op - own.ms : null;
+  return `${mine} · ${opWords}${gap !== null && gap >= 100 ? `, ${took(gap)} of it around the ${own.kind} (its prediction, any wait on you, its receipts: not recorded apart)` : ''}`;
+}
+
+/** The frame's words for free-only being on, in the OpenRouter connection's detail (src/ops/workspace-frame.ts). */
+const FREE_ONLY_WORDS = /; free-only on \(a model not known to be free is refused\)/;
+
+/** R5 (H131; the QA of e7f853e, defect 20): free-only as the frame's OpenRouter detail says it: on when it says so; off when it
+ *  names the key and not free-only (the frame says free-only only while it is on); null when it says neither (no key). */
+export function freeOnlyOf(conn: Pick<WorkspaceConnection, 'id' | 'detail'>): 'on' | 'off' | null {
+  if (conn.id !== 'openrouter' || !conn.detail) return null;
+  if (/\bfree-only on\b/.test(conn.detail)) return 'on';
+  return /^key from /.test(conn.detail) ? 'off' : null;
+}
+
 /** One connection as a card of CARD_ROWS rows or more, `width` cells wide: its name and its mark on the top edge, its words, then its
  *  detail and the step that sets it up. The selected card's box is heavy, and amber while the list has the keyboard. */
 export function connectionCard(conn: WorkspaceConnection, selected: boolean, focused: boolean, width: number, c: ViewCtx): Line[] {
@@ -433,11 +459,16 @@ export function connectionCard(conn: WorkspaceConnection, selected: boolean, foc
   };
   const step = conn.setup && conn.state !== 'live' ? conn.setup : null;
   const extra = serverWords(c, conn.id);
-  // its step first (what to do), then its detail and what this Workbench serves
+  // R5 (H131; the QA of e7f853e, defect 20): the OpenRouter card says free-only first, on or off, as the frame's detail has it
+  // (src/ops/workspace-frame.ts: "key from …; free-only on (…)" when it is on; with a key and no such words, it is off)
+  const free = freeOnlyOf(conn);
+  const said = free === 'on' && conn.detail ? conn.detail.replace(FREE_ONLY_WORDS, '') : conn.detail;
+  // its step first (what to do), then free-only, its detail and what this Workbench serves
   const detail: Seg[] = [
     ...(step ? [S(`${g.arrow} `, 'secondary'), S(step, 'action')] : []),
-    ...(conn.detail ? [S(`${step ? `  ${g.sep} ` : ''}${conn.detail}`, 'secondary')] : []),
-    ...(extra ? [S(`${conn.detail || step ? `  ${g.sep} ` : ''}${extra}`, 'secondary')] : []),
+    ...(free ? [S(`${step ? `  ${g.sep} ` : ''}free-only ${free}`, 'strong'), S(free === 'on' ? ': a model not known to be free is refused' : ': a paid model can be asked', 'secondary')] : []),
+    ...(said ? [S(`${step || free ? `  ${g.sep} ` : ''}${said}`, 'secondary')] : []),
+    ...(extra ? [S(`${said || step || free ? `  ${g.sep} ` : ''}${extra}`, 'secondary')] : []),
   ];
   const wordsRole: Role = conn.state === 'unreachable' || conn.state === 'refused' ? 'failure' : 'text';
   const room = inner - 2;

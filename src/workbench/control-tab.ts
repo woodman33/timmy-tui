@@ -40,7 +40,7 @@ import { timmyHome } from '../setup/home.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
-import { connectionMark, turnEndWords } from './hub.js';
+import { connectionMark, tookWords, turnEndWords } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
 import { lineText } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
@@ -665,7 +665,8 @@ function detailRows(c: ControlCtx, item: ControlItem | null, w: number): Line[] 
   const now = r.stage.current ?? (r.time.endedAt !== null ? 'ended' : 'no step named yet');
   out.push(...f('Stage', `${now} ${g.sep} ${r.stage.total === null ? `${r.stage.done} done` : `${r.stage.done} of ${r.stage.total} done`}`));
   for (const e of r.exits.slice(0, 2)) out.push(...f('Exit', `${e.who}: ${e.code ?? 'none'}${e.state ? ` (${e.state})` : ''}`, 'secondary'));
-  out.push(...f('Elapsed', took(r.time.elapsedMs)));
+  // R5 (H131; the QA of e7f853e, defect 24): each duration labelled with what it measures
+  out.push(...f('Took', tookWords(r.time, item.kind === 'job' ? { kind: 'job', ms: item.job.elapsedMs, running: item.job.live } : item.kind === 'turn' ? { kind: 'turn', ms: item.turn.ms } : undefined)));
   if (r.receipts.length) out.push(...f('Receipts', r.receipts.slice(0, 3).map((x) => x.id).join(', '), 'secondary'));
   if (r.next) out.push(...f('Next', `${r.next.words}${r.next.command ? `: ${r.next.command}` : ''}`, 'action'));
   for (const u of r.unknown.slice(0, 1)) out.push(...f('Unknown', `${u.field}: ${u.why}`, 'secondary'));

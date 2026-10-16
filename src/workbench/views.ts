@@ -17,7 +17,7 @@ import { turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
+import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -1108,7 +1108,7 @@ function toolsTab(c: ViewCtx, item: Item | null): View {
   return { lines, items };
 }
 
-function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx): Line[] {
+function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx, own?: Parameters<typeof tookWords>[1]): Line[] {
   if (!c.can.detail) return para(`Run detail: ${c.can.detailWhy ?? 'not available here'}`, c.width, 'secondary');
   if (!d || d.state === 'idle') return [[S('Run detail: Enter reads it', 'secondary')]];
   if (d.state === 'loading') return [[S('Run detail: reading…', 'secondary')]];
@@ -1127,7 +1127,8 @@ function detailLines(d: Lazy<RunDetail> | undefined, c: ViewCtx): Line[] {
   for (const e of r.exits.slice(0, 4)) out.push(...fieldRows('Exit', `${e.who}: ${e.code ?? 'none'}${e.state ? ` (${e.state})` : ''}`, c.width, 'secondary', 10));
   out.push(...fieldRows('Freshness', `${r.freshness.state}: ${r.freshness.why}`, c.width, 'text', 10));
   out.push(...fieldRows('Accepted', r.acceptance.state, c.width, 'text', 10));
-  out.push(...fieldRows('Elapsed', took(r.time.elapsedMs), c.width, 'text', 10));
+  // R5 (H131; the QA of e7f853e, defect 24): each duration labelled with what it measures (the job's or turn's own, the operation's)
+  out.push(...fieldRows('Took', tookWords(r.time, own), c.width, 'text', 10));
   out.push(...fieldRows('Cost', r.cost.measured ? `$${r.cost.usd} (reported)` : `unknown: ${r.cost.why}`, c.width, 'text', 10));
   if (r.prediction) out.push(...fieldRows('Predicted', r.prediction.words, c.width, 'secondary', 10));
   for (const ch of r.checks.slice(0, 4)) out.push(...fieldRows('Check', `${ch.name}: ${ch.actual}${ch.differs ? ' (differs)' : ''}`, c.width, ch.differs ? 'attention' : 'secondary', 10));
@@ -1189,7 +1190,7 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
         const word = claimed ? 'running, as its record says (no process of it runs)' : `${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`;
         lines.push(...wrapSegs([S(`  ${mark} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${word}`, 'secondary')], w, '    '));
       }
-      lines.push(blank, ...(j.operation ? detailLines(c.data.details[j.operation], c) : para('Run detail: this job names no operation.', w)));
+      lines.push(blank, ...(j.operation ? detailLines(c.data.details[j.operation], c, { kind: 'job', ms: j.elapsedMs, running: j.live }) : para('Run detail: this job names no operation.', w)));
       break;
     }
     case 'turn': {
@@ -1203,7 +1204,7 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
           : 'not recorded on its receipt (it names the model, not the endpoint that answered)');
       f('When', `${clock(t.at)} (${ago(t.at, c.now)})`); f('Took', took(t.ms)); f('Operation', t.operation ?? 'none recorded');
       lines.push(...para('Its receipt keeps the message and the answer as hashes, never their words.', w, 'secondary'));
-      lines.push(blank, ...(t.operation ? detailLines(c.data.details[t.operation], c) : para('Run detail: this turn names no operation.', w)));
+      lines.push(blank, ...(t.operation ? detailLines(c.data.details[t.operation], c, { kind: 'turn', ms: t.ms }) : para('Run detail: this turn names no operation.', w)));
       break;
     }
     case 'decision': {
