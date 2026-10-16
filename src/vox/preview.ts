@@ -413,6 +413,14 @@ export function voxPreview(i: PreviewInput, id: string): { ok: true; preview: Vo
   return { ok: true, preview: buildPreview(i, read.card, read.operation, { light: false }, read.raw) };
 }
 
+/**
+ * A record's preview from a card the caller has read already (the Workbench's tab 5: src/workbench/voxvision-tab.ts readVox),
+ * light: no mesh drawn and no recording read (the companion draws those), everything else as the page has it.
+ */
+export function previewOfCard(i: PreviewInput, card: VoxCard, raw: Record<string, unknown> = {}, operation?: string): VoxPreview {
+  return buildPreview(i, card, operation, { light: true }, raw);
+}
+
 /** The preview of a card. `light`: the list's reading (no mesh drawn, no recording read). */
 function buildPreview(i: PreviewInput, c: VoxCard, operation: string | undefined, o: { light: boolean }, raw: Obj): VoxPreview {
   const pid = projectId(i.root);

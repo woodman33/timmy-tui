@@ -22,6 +22,9 @@
   const LIST_EVERY_MS = 2000;
   const LIST_AT_LEAST_MS = 10000;
   const CACHE_MAX = 24;
+  // the record an address names (…?vox=<id> or …#t=…&vox=<id>, as the Workbench's c can give it: src/workbench/voxvision-tab.ts
+  // voxCompanionHint), read as this script loads, before the page takes the fragment out of the address
+  const HINT = (() => { try { const m = /[?#&]vox=(v[0-9a-f]{8})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? m[1] : ''; } catch (e) { return ''; } })();
 
   const S = {
     project: null, root: null, ctx: null, revision: null, listAt: 0, listSig: '', list: null, asking: null,
@@ -52,9 +55,7 @@
   function reset(project) {
     S.project = project; S.listSig = ''; S.list = null; S.sel = ''; S.preview = null; S.previewSig = ''; S.image = ''; S.entity = ''; S.frame = -1; S.listAt = 0;
     S.urls.clear();
-    if (S.wanted === null) {
-      try { S.wanted = new URLSearchParams(location.search).get('vox') || ''; } catch (e) { S.wanted = ''; }
-    }
+    if (S.wanted === null) S.wanted = HINT;
   }
 
   // ── the skeleton: three columns of boxes ──

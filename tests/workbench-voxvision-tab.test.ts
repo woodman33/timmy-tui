@@ -17,8 +17,9 @@ import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Lazy } from '../src/workbench/model.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
-import { INSPECT_COMMAND, readVox, VOX_LIST, voxDetail, voxView, type VoxData, type VoxItem } from '../src/workbench/voxvision-tab.js';
+import { INSPECT_COMMAND, readVox, VOX_LIST, voxCompanionHint, voxDetail, voxView, type VoxData, type VoxItem } from '../src/workbench/voxvision-tab.js';
 import { cubeStl, png, put, settled, tempKit, workspace } from './helpers/vox-fakes.js';
+import { act as voxAct, fakeVideoRecord, SMALL } from './helpers/vox-panel-kit.js';
 
 const kit = tempKit();
 afterEach(async () => { resetLookChecks(); vi.restoreAllMocks(); await kit.cleanup(); });
@@ -172,9 +173,11 @@ describe('tab 5: the selected record', () => {
     expect(stacked).toMatch(/✓ verified: link, body hash and signature \(verifyReceiptIn, this reading\)/);
     expect(stacked).toMatch(/its bytes and inputs are the ones it sealed/);
     expect(stacked).toMatch(/Verdict +not recorded: a VoxVision record \(timmy\.vox\/1\) keeps no operator verdict/);
-    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws them; Rerun's own viewer does (never "or the companion")
-    expect(stacked.replace(/\s+/g, ' ')).toMatch(new RegExp(`No Timmy surface draws images, depth, voxels or 3D yet; Rerun's own viewer does, where it is installed \\(/vox view ${f.stl}\\)\\.`));
-    expect(stacked).not.toMatch(/or the companion; never drawn here/);
+    // R6 (H143): the companion draws its image, what was measured over it, its frames and its mesh views (c); no Timmy
+    // surface draws depth or voxels; Rerun's own viewer shows its files where it is installed
+    expect(stacked.replace(/\s+/g, ' ')).toMatch(/A terminal draws no image\. \[c\] Companion(?: · Show)?: this record's image with what was measured over it, its frames and its mesh views \(tab 5\)\./);
+    expect(stacked.replace(/\s+/g, ' ')).toMatch(new RegExp(`No Timmy surface draws depth or voxels \\(no adapter here\\)\\. Rerun's own viewer shows its files, where it is installed \\(/vox view ${f.stl}\\)\\.`));
+    expect(stacked).not.toMatch(/do not reach the companion/);
   });
 
   it('a receipt changed in the store: "✕ does not verify" amber with why, and nothing green', async () => {
@@ -271,5 +274,41 @@ describe('tab 5: the layout, the items and the Inspector', () => {
     for (const [c, r] of SIZES) for (let k = 0; k < 4; k++) voxView(ctxAt(c, r, k), capsOf(f.root), d);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(files(f.root)).toBe(before);
+  });
+});
+
+describe('tab 5: the record the companion draws, in words (R6 H143)', () => {
+  // FAKE, labelled: Look (tests/helpers/vox-fakes.ts, not OpenCV) and the video record of tests/helpers/vox-panel-kit.ts;
+  // real: the REPL's record writer for /detect, the receipts on the per-test chain, src/vox/preview.ts
+  it('its entities with provenance and evidence, a video\'s frames with what was measured at each, its files and where each is drawn', async () => {
+    const root = kit.temp('wb-vox-r6-');
+    put(root, 'refs/photo.png', SMALL);
+    const detect = await voxAct(kit, root, (ws) => ws.detect('refs/photo.png color 200,10,10'), { FAKE_QR: 'hello vox' });
+    const video = fakeVideoRecord(root).id;
+    const d = readVox({ root, chain: readChain('runs'), env: env() });
+    expect(d.rows.map((r) => r.card.id)).toEqual([detect, video]);
+    const items = voxView(ctxAt(160, 45, 0), capsOf(root), d).items.map((x) => x.item);
+    const of = (id: string) => items.find((x) => x.kind === 'vox-record' && x.row.card.id === id) as Extract<VoxItem, { kind: 'vox-record' }>;
+
+    const t = text(voxDetail(of(detect), d, 96, g));
+    expect(t).toMatch(/ENTITIES 2/);
+    expect(t).toContain('/observations/qr/1 QR 1 "hello vox" · measured · constructed');
+    expect(t).toContain('4 corners in px (QR codes decoded) · provenance measured · evidence constructed');
+    expect(t).toContain('/observations/color_region colour region rgb(200, 10, 10) · measured · constructed');
+    expect(t.replace(/\s+/g, ' ')).toContain('2 px (0.25 of the image) · box 1, 0, 3, 1 px · centroid 1.5, 0.5 px · provenance measured · evidence constructed');
+    expect(t).toMatch(/FILES 2/);
+    expect(t).toContain('refs/photo.png · the observed image · drawn in the companion');
+    expect(t).toContain(`results/vox/${detect}/annotated.png · annotated copy · drawn in the companion`);
+    expect(t).not.toMatch(/FRAMES/);
+
+    const v = text(voxDetail(of(video), d, 110, g));
+    expect(v).toMatch(/FRAMES 3/);
+    expect(v.replace(/\s+/g, ' ')).toContain("0.5 s · frame 5; 1 s · frame 10; 1.5 s · frame 15: the companion draws each with what was measured there, on a timeline (each frame's box and centroid are under ENTITIES)");
+    expect(v).toContain('/observations/frames/15 t = 1.5 s (frame 15) · measured · inferred');
+    expect(v).toContain('box 112, 40, 144, 72 · centroid 128, 56 (video px) · provenance measured · evidence inferred · estimated');
+    expect(v).toContain(`results/vox/${video}/frames/frame-000010.png · frame 10 · drawn in the companion`);
+    // c opens the companion on this tab with this record (the address hint panel-vox.js reads)
+    expect(voxCompanionHint(of(video))).toBe(`tab=voxvision&vox=${video}`);
+    expect(voxCompanionHint(undefined)).toBe('tab=voxvision');
   });
 });

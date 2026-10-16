@@ -184,6 +184,28 @@ describe.skipIf(!browserPath)('the companion\'s VoxVision panel, in a real brows
     } finally { await page.close(); }
   });
 
+  it('an address naming a record (?vox=<id>, as the Workbench\'s c gives it) opens the panel on that record, not the newest', async () => {
+    put(root, 'refs/photo.png', SMALL);
+    const older = await act(kit, root, (ws) => ws.detect('refs/photo.png color 200,10,10'), { FAKE_QR: 'hello vox' });
+    put(root, 'refs/cube.stl', cubeStl(10));
+    const newer = await act(kit, root, (ws) => ws.measure('refs/cube.stl'));
+    const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    try {
+      const u = new URL(companion.url);
+      u.search = `?vox=${older}`;
+      await page.goto(u.toString());
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      await page.keyboard.press('5');
+      await page.waitForFunction((x) => (document.querySelector('[data-vox="tree-title"]')?.textContent ?? '') === `Entity tree · ${x}`, older, { timeout: 15_000 });
+      expect(await page.$eval(`.vox-rec[data-vox-record="${older}"]`, (b) => b.getAttribute('aria-current'))).toBe('true');
+      expect(await page.$eval(`.vox-rec[data-vox-record="${newer}"]`, (b) => b.getAttribute('aria-current'))).toBe('false');
+      expect(page.url()).not.toContain('#t='); // the page took its token out of the address, as ever
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
   it('at 390 px wide the tab stacks its columns and nothing scrolls sideways', async () => {
     put(root, 'refs/photo.png', SMALL);
     await act(kit, root, (ws) => ws.detect('refs/photo.png color 200,10,10'), { FAKE_QR: 'hello vox' });
