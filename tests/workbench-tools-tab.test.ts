@@ -19,6 +19,7 @@ import type { Lazy } from '../src/workbench/model.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
 import { MCP_ROUTES, mcpCallInspector, readTools, TOOLS_LIST, toolsView, type ToolsData, type ToolsItem, type ToolsSearch } from '../src/workbench/tools-tab.js';
+import { FROM_PAGE } from '../src/mcp/call-views.js';
 
 const boxes: string[] = [];
 afterAll(() => { for (const b of boxes) rmSync(b, { recursive: true, force: true }); });
@@ -152,7 +153,7 @@ describe('tab 9: the two routes and their calls', () => {
 });
 
 describe('tab 9: the selected call or tool', () => {
-  it('a call: its arguments, outcome and receipt, the command that runs it again, and that a call graph is not drawn here (c)', () => {
+  it('a call: its arguments, outcome and receipt, where it was made, the command that runs it again, and what the companion draws (c)', () => {
     const p = project();
     const d = read(p.root);
     const n = toolRows();
@@ -167,9 +168,12 @@ describe('tab 9: the selected call or tool', () => {
       expect(said).toMatch(/call\.json is the bytes it sealed/);
       expect(said).toMatch(/AGAIN \/mcp call --route sdk echo \{"text":"FAKE"\} -- <server command>/);
       expect(said).toMatch(/the record names the server "node fake-server\.js", not its whole command line/);
-      // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws one; the companion has the two routes, in words
-      expect(said).toMatch(/No Timmy surface draws a call graph or a schema view yet\./);
-      expect(said.replace(/\s+/g, ' ')).toMatch(/\[c\] Companion( · Show)?: the two MCP-to-CLI routes and this tab's actions, in words\./);
+      // R6 (H142): where it was made, as its record says (this one: not from the companion)
+      expect(said).toMatch(/Made in Timmy's terminal \(\/mcp call\) or by its agent \(call_mcp_tool\)/);
+      // R6 (H142): the companion's Tools & MCP inspector draws the schema form, the flame graph and images (R5 said no surface did)
+      expect(said).toMatch(/A terminal draws no schema form, flame graph or image\./);
+      expect(said.replace(/\s+/g, ' ')).toMatch(/\[c\] Companion( · Show)?: press 9 there: its Tools & MCP inspector lists a server's tools with their schemas, checks a request before sending it, calls through either route, and draws each call's requests, answer and receipt\./);
+      expect(said).not.toMatch(/No Timmy surface draws/);
       expect(rolesOf(v.lines, /^\[c\]$/)).toEqual(['action']);
       // a configured server: by its name
       const w = words(toolsView(ctxAt(c, r, callAt(d, n, p.ids.list)), capsOf(), d, LIST).lines);
@@ -178,6 +182,56 @@ describe('tab 9: the selected call or tool', () => {
       const x = toolsView(ctxAt(c, r, callAt(d, n, p.ids.boom)), capsOf(), d, LIST);
       expect(words(x.lines)).toMatch(/Error FAKE: the server said no/);
       expect(rolesOf(x.lines, /^FAKE: the/)).toContain('failure');
+    }
+  });
+
+  it('R6 (H142): a call made from the companion says so, and its wire trace is drawn as text: one bar per JSON-RPC request with its time', () => {
+    const p = project(false);
+    // FAKE: a wire trace in the tap's own lines (src/mcp/wire-tap.ts), as a call through the mcporter route leaves one:
+    // MCPorter's name check (server start 1), then the call (server start 2); no server ran, the times are made up here
+    const t = Date.now() - 2000;
+    const trace = [
+      { session: 11, seq: 0, t, kind: 'start', program: 'node' },
+      { session: 11, seq: 1, t: t + 1, dir: 'to-server', bytes: 160, kind: 'request', id: 0, method: 'initialize' },
+      { session: 11, seq: 2, t: t + 501, dir: 'to-client', bytes: 220, kind: 'result', id: 0, method: 'initialize' },
+      { session: 11, seq: 3, t: t + 502, dir: 'to-server', bytes: 40, kind: 'request', id: 1, method: 'tools/list' },
+      { session: 11, seq: 4, t: t + 505, dir: 'to-client', bytes: 3000, kind: 'result', id: 1, method: 'tools/list' },
+      { session: 11, seq: 5, t: t + 520, kind: 'end', exit: { code: 0, signal: null } },
+      { session: 12, seq: 0, t: t + 600, kind: 'start', program: 'node' },
+      { session: 12, seq: 1, t: t + 601, dir: 'to-server', bytes: 160, kind: 'request', id: 0, method: 'initialize' },
+      { session: 12, seq: 2, t: t + 1101, dir: 'to-client', bytes: 220, kind: 'result', id: 0, method: 'initialize' },
+      { session: 12, seq: 3, t: t + 1102, dir: 'to-server', bytes: 120, kind: 'request', id: 1, method: 'tools/call' },
+      { session: 12, seq: 4, t: t + 1112, dir: 'to-client', bytes: 90, kind: 'result', id: 1, method: 'tools/call' },
+      { session: 12, seq: 5, t: t + 1130, kind: 'end', exit: { code: 0, signal: null } },
+    ].map((l) => JSON.stringify({ v: 1, ...l })).join('\n');
+    const w = writeMcpCall({ root: p.root, project: 'tray', seal: (input: ReceiptInput): string => appendReceipt('runs', input, p.root).hash }, {
+      ...facts({ route: 'mcporter', tool: 'fake_measure', outcome: 'answered', server: { name: 'node fake-fixture-server.js', transport: 'stdio' }, args: { width_mm: 120, height_mm: 80 } }),
+      notes: [FROM_PAGE, 'FAKE: no MCP server ran; a test wrote this record'],
+      wire: { kept: Buffer.from(`${trace}\n`), frames: 8, sessions: 2 },
+    });
+    if (!w.ok) throw new Error(w.error);
+    const d = read(p.root);
+    expect(d.calls.length).toBe(1);
+    expect(d.calls[0].fromPage).toBe(true);
+    expect(d.calls[0].wire).toMatchObject({ sessions: 2, check: 'matches' });
+    expect(d.calls[0].wire!.spans.map((s) => [s.method, s.ms])).toEqual([['initialize', 500], ['tools/list', 3], ['initialize', 500], ['tools/call', 10]]);
+    const n = toolRows();
+    for (const [c, r] of SIZES) {
+      // the call's row says it was made in the companion, after its receipt; a narrow column cuts the time first
+      expect(words(toolsView(ctxAt(c, r), capsOf(), d, LIST).lines)).toMatch(/#\d+ ✓ verified · companion( · \d\d:\d\d(:\d\d)?|…)/);
+      if (c >= 160) expect(words(toolsView(ctxAt(c, r), capsOf(), d, LIST).lines)).toMatch(/#\d+ ✓ verified · companion · \d\d:\d\d(:\d\d)?/);
+      const v = toolsView(ctxAt(c, r, callAt(d, n, w.id)), capsOf(), d, LIST);
+      const said = words(v.lines);
+      expect(said).toMatch(/Made in the companion \(tab 9, Tools & MCP\), through its wire tap/);
+      expect(said).toMatch(/WIRE each JSON-RPC request, as the wire tap timed it/);
+      expect(said).toMatch(/server start 1 \(MCPorter checks the tool's name\) initialize ▬+ 500 ms tools\/list ▬+ 3\.0 ms server start 2 \(the call\) initialize ▬+ 500 ms tools\/call ▬+ 10 ms/);
+      expect(said).toMatch(/the server is Timmy's FAKE fixture \(every answer made up\): the companion's tab 9 copies the whole line, its command line included/);
+      // the longest request's bar is the longest; the bars are structure, never green
+      const bars = v.lines.flat().filter((s) => /^▬+$/.test(s.text));
+      expect(bars.map((s) => s.role)).toEqual(['secondary', 'secondary', 'secondary', 'secondary']);
+      expect(bars[0].text.length).toBeGreaterThan(bars[1].text.length);
+      expect(bars[1].text.length).toBeLessThanOrEqual(bars[3].text.length);
+      for (const s of greens(v.lines)) expect(s).toBe('✓ verified');
     }
   });
 

@@ -23,8 +23,9 @@ import { deflateSync, crc32 } from 'node:zlib';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
+import { FAKE_FIXTURE_NAME } from './call-views.js';
 
-export const FAKE_FIXTURE_NAME = 'timmy-fake-fixture';
+export { FAKE_FIXTURE_NAME };
 export const FAKE_FIXTURE_VERSION = '1.0.0';
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
