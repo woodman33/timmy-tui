@@ -145,7 +145,9 @@
     max-height: calc(100vh - var(--frame-h, 0px) - 52px - var(--side-foot, 116px)); overflow: hidden; }
   #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #444444); }
   /* R5 (H133), B10: green is earned: "Timmy connected" is an observed live connection (the bridge's socket is open), said in words */
-  #status[data-kind="ready"] { border-left-color: var(--timmy-live, #28FE14); }
+  /* R5 (H137; QA defect 26): the bar stays neutral: its line holds facts that are not live observations (the version, the
+     license, the save). Only "Timmy connected", while the bridge's socket is open now (observed), carries the live mark: ● in green */
+  #status .is-live { color: var(--timmy-live, #28FE14); white-space: nowrap; }
   #status[data-kind="error"] { border-left-color: var(--timmy-failure, #FFB000); }
   /* R4 (H83): Timmy refused this page (no session that counts now): what to do, in words. */
   #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #FFB000); }
@@ -186,8 +188,9 @@
   #boards { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; padding-top: 6px; border-top: 1px solid var(--timmy-line, #333333); }
   #side select { width: 100%; min-width: 0; }
   #side button { justify-self: start; cursor: pointer; }
-  /* The primary next step is amber (B10), with black ink on it. */
-  #side #board-open, #side .primary { background: var(--timmy-accent, #FFB000); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  /* R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): New board's Open and a box's first button
+     are outlined, never filled (their weight says which comes first) */
+  #side #board-open, #side .primary { font-weight: var(--timmy-weight-strong, 600); }
   /* R5 (H133): the save line: one state at a time, in words and a glyph (src/save-state.js); amber when it needs you, never green */
   #save { flex: none; margin: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
   #save #save-glyph { flex: none; width: 1.2em; text-align: center; color: var(--timmy-text-secondary, #8E8E93); }
@@ -202,10 +205,10 @@
   #conflict p { margin: 0; overflow-wrap: anywhere; }
   #conflict .conflict-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
   #side button[disabled] { opacity: .55; cursor: default; }
-  /* R5 (H133): drafts Timmy proposed, waiting for you: each with Show, Accept (the next step, amber) and Discard */
+  /* R5 (H133): drafts Timmy proposed, waiting for you: each with Show, Accept and Discard (R5 H137: Accept outlined, below) */
   #drafts { flex: none; display: grid; gap: 4px; padding: 6px 8px; border: 1px dashed var(--timmy-accent, #FFB000); border-radius: 4px; background: var(--timmy-raised, #070707); max-height: 34vh; overflow-y: auto; overscroll-behavior: contain; }
   #drafts[hidden] { display: none; }
-  #drafts h2 { margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #FFB000); text-transform: uppercase; letter-spacing: .04em; }
+  #drafts h2 { margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text, #F2EFE9); text-transform: uppercase; letter-spacing: .04em; }
   #drafts #drafts-count { font-weight: var(--timmy-weight-body, 400); text-transform: none; letter-spacing: 0; color: var(--timmy-text, #F2EFE9); }
   #drafts ol { margin: 0; }
   #drafts li.draft { display: grid; gap: 3px; padding: 4px 0; }
@@ -213,7 +216,8 @@
   #drafts .draft-line, #drafts .draft-where { margin: 0; overflow-wrap: anywhere; }
   #drafts .draft-where { color: var(--timmy-text-secondary, #8E8E93); }
   #drafts .draft-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
-  #side button.draft-accept { background: var(--timmy-accent, #FFB000); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
+  /* R5 (H137; QA defect 13): Accept is outlined (the strip's primary is the one amber next step; the frame names no draft) */
+  #side button.draft-accept { font-weight: var(--timmy-weight-strong, 600); }
   #side button.draft-show { border: 0; padding: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; }
   #side :focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 2px; }
   /* R4 (H55): the project the REPL named, as cards: title, state in words, what is behind it, its command, and actions. */
@@ -315,7 +319,8 @@
   .tc-w-failed, .tc-w-interrupted { border-left-color: var(--timmy-failure); }
   .tc-name { font-weight: var(--timmy-weight-strong); }
   .tc-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 2px; }
-  .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-accent); color: var(--timmy-accent-ink); border: 1px solid var(--timmy-accent); border-radius: 4px; padding: 0 8px; cursor: pointer; }
+  /* R5 (H137; QA defect 13): a drawn card's action is outlined too: a board of cards would show as many amber fills as cards */
+  .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-raised); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 0 8px; cursor: pointer; }
   .tc-btn[disabled] { opacity: .55; cursor: default; }
   .tc-btn.tc-quiet { background: var(--timmy-raised); color: var(--timmy-text); border-color: var(--timmy-line-strong); font-weight: var(--timmy-weight-body); }
   .tc-cmd { font: inherit; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
@@ -342,7 +347,8 @@
   /* While the board is blank: what to do first. Never in the way of the canvas. */
   #guide { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
     text-align: center; color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
-  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #FFB000); margin-bottom: 6px; }
+  /* R5 (H137; QA defect 13): headings off-white (amber is focus and the one next step) */
+  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text, #F2EFE9); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
   /* R4 (H83): a page that loads no canvas (no session from Timmy) says why and what to type, in the middle of the page. */
   #refused { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));

@@ -160,8 +160,13 @@ export function drawFrame(root, view) {
   const parts = [running];
   // R5 (H137; the lead's ask): a chat turn being answered now is named on the line, as the companion's mirror names it
   if (act.turn) parts.push(sep(), el('span', 'fr-turn', `▶ ${act.turn}`));
-  parts.push(sep(), el('span', `fr-waiting${act.waiting ? ' is-waiting' : ''}`, `${act.waiting} waiting on you`), sep(), el('span', 'fr-stop', act.stop.words || 'Stop current: idle'));
-  if (act.stop.job) parts.push(commandOf('/stop'));
+  parts.push(sep(), el('span', `fr-waiting${act.waiting ? ' is-waiting' : ''}`, `${act.waiting} waiting on you`));
+  // R5 (H137; QA defect 9): Stop current in the frame's own words, as each frame gives them (none made here: a frame without
+  // them shows none), with /stop to copy while it names a job
+  if (act.stop.words) {
+    parts.push(sep(), el('span', 'fr-stop', act.stop.words));
+    if (act.stop.job) parts.push(commandOf('/stop'));
+  }
   parts.push(sep());
   if (act.newest) {
     const failed = act.newest.tone === 'failure';

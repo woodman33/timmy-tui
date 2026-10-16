@@ -29,9 +29,6 @@ const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '
   .find((p): p is string => Boolean(p) && existsSync(p!));
 if (!browserPath) console.warn('studio-show-page-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
 
-/** The page's readings come every 4 s (the strip) and 5 s (the jobs, the cards): two rounds of each. */
-const TWO_ROUNDS_MS = 11_000;
-
 const freePort = (): Promise<number> => new Promise((resolve) => {
   const s = createServer();
   s.listen(0, '127.0.0.1', () => { const port = (s.address() as AddressInfo).port; s.close(() => resolve(port)); });
@@ -88,17 +85,26 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
     return JSON.parse(html.match(/location\.replace\(("[^"]+")\)/)![1]) as string;
   };
 
-  /** The readings the page makes by itself: its strip's frame, the canvas jobs, the project's cards. */
+  /** The readings the page makes by itself (every 4 s the strip's frame, every 5 s the canvas jobs and the project's cards). */
   const READINGS = new Set(['/api/workspace', '/api/canvas/jobs', '/api/project']);
   type Answer = { at: number; path: string; status: number; body: unknown };
+  /** The fewest answers any one of the page's readings has had among `answers` (the rounds of its readings seen). */
+  const rounds = (answers: Answer[]): number => Math.min(...[...READINGS].map((path) => answers.filter((a) => a.path === path).length));
+  const isPaused = (a: Answer): boolean => (a.body as { session?: unknown } | null)?.session === 'holder';
 
-  /** A page at `url`, every failed response and console error of it counted (anything not to 127.0.0.1 is aborted, and counted). */
-  async function watched(url: string): Promise<{ page: Page; context: BrowserContext; errors: string[]; failed: string[]; elsewhere: string[]; answers: Answer[] }> {
+  /**
+   * A page at `url`, every failed response and console error of it counted (anything not to 127.0.0.1 is aborted, and counted),
+   * and every reading it asks. `clock`: the page's timers on Playwright's clock (installed before the page loads, and running at
+   * the real pace), so a test can run them ahead instead of waiting a fixed time.
+   */
+  async function watched(url: string, o: { clock?: boolean } = {}): Promise<{ page: Page; context: BrowserContext; errors: string[]; failed: string[]; elsewhere: string[]; answers: Answer[]; asked: string[] }> {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    if (o.clock) await context.clock.install();
     const errors: string[] = [];
     const failed: string[] = [];
     const elsewhere: string[] = [];
     const answers: Answer[] = [];
+    const asked: string[] = [];
     await context.route('**/*', (route) => {
       const u = new URL(route.request().url());
       if (u.origin === base || /^(data|blob):/.test(u.protocol)) return route.continue();
@@ -108,6 +114,7 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('request', (r) => { const path = new URL(r.url()).pathname; if (READINGS.has(path)) asked.push(path); });
     page.on('response', async (r) => {
       const path = new URL(r.url()).pathname;
       if (r.status() >= 400) failed.push(`${r.status()} ${path}`);
@@ -117,7 +124,7 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
       answers.push({ at: Date.now(), path, status: r.status(), body });
     });
     await page.goto(url);
-    return { page, context, errors, failed, elsewhere, answers };
+    return { page, context, errors, failed, elsewhere, answers, asked };
   }
 
   it('opened by Studio · Show (its launch page\'s grant), the page loads the canvas, and over two rounds of every reading it makes by itself no request fails and nothing is logged as an error', async () => {
@@ -133,7 +140,7 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
       // two rounds of each of its readings: the strip's frame, the canvas jobs, the project's cards
       const asked = { workspace: 0, jobs: 0, project: 0 };
       w.page.on('request', (r) => { const path = new URL(r.url()).pathname; if (path === '/api/workspace') asked.workspace += 1; if (path === '/api/canvas/jobs') asked.jobs += 1; if (path === '/api/project') asked.project += 1; });
-      await expect.poll(() => Math.min(asked.workspace, asked.jobs, asked.project), { timeout: 30_000, intervals: [500] }).toBeGreaterThanOrEqual(2);
+      await expect.poll(() => Math.min(asked.workspace, asked.jobs, asked.project), { timeout: 30_000, interval: 500 }).toBeGreaterThanOrEqual(2);
       expect(w.failed).toEqual([]);
       expect(w.errors).toEqual([]);
       expect(w.elsewhere).toEqual([]);
@@ -142,7 +149,7 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
     }
   }, 120_000);
 
-  it("a REPL's /canvas open takes the canvas while the page is open: the page is paused and says why, in its panel and its strip, and still no request fails and nothing is logged; no canvas job reached it while paused; the REPL's own page loads with none either", async () => {
+  it("a REPL's /canvas open takes the canvas while the page is open: the page is paused and says why, in its panel and its strip, and still no request fails and nothing is logged, also when it asks again after its 30 s wait; no canvas job reached it while paused; the REPL's own page loads with none either", async () => {
     await control.show();
     const w = await watched(launched(opened.at(-1)!));
     try {
@@ -163,25 +170,30 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
       await w.page.waitForFunction(() => /given by another Timmy REPL/.test(document.getElementById('project-acts')?.textContent ?? ''), null, { timeout: 20_000 });
       await w.page.waitForFunction(() => document.getElementById('frame')?.dataset.stale === 'true', null, { timeout: 20_000 });
       expect(await w.page.textContent('#frame-note')).toMatch(/^ · Workspace not read now: .*given by another Timmy REPL.* Shown as last read at \d\d:\d\d:\d\d\.$/);
-      // the reading that told it was answered with a plain 200 that says why, with nothing of the project in it
-      const paused = w.answers.filter((a) => a.at >= takenAt && (a.body as { session?: unknown } | null)?.session === 'holder');
-      expect(paused.length).toBeGreaterThanOrEqual(1);
-      for (const a of paused) {
+      // Once paused, the page asks none of its readings for 30 s (./cards.js notFor; the strip not until a reading counts again),
+      // then asks again. Waited for by what it asks (no fixed time): a reading answered paused at least 20 s after the first one is
+      // that asking again. Every answer since the first paused one is a plain 200 that says why, with nothing of the project in it
+      // (no canvas job or card reaches the paused page), and nothing fails or is logged as an error meanwhile.
+      const pausedSince = (): Answer[] => w.answers.filter((a) => a.at >= takenAt && isPaused(a));
+      await expect.poll(() => pausedSince().length, { timeout: 20_000, interval: 250 }).toBeGreaterThanOrEqual(1);
+      const firstPaused = Math.min(...pausedSince().map((a) => a.at));
+      await expect.poll(() => pausedSince().filter((a) => a.at >= firstPaused + 20_000).length, { timeout: 60_000, interval: 500 }).toBeGreaterThanOrEqual(1);
+      const since = w.answers.filter((a) => a.at >= firstPaused);
+      expect(since.filter((a) => a.at >= firstPaused + 20_000).map((a) => a.path).every((path) => path === '/api/canvas/jobs' || path === '/api/project')).toBe(true);
+      for (const a of since) {
         expect(a.status, a.path).toBe(200);
         expect(a.body, a.path).toEqual({ ok: false, session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
       }
-      // and over two more rounds of its readings, nothing fails, and no canvas job or card reaches the paused page
-      await w.page.waitForTimeout(TWO_ROUNDS_MS);
       expect(w.failed).toEqual([]);
       expect(w.errors).toEqual([]);
-      const lastPause = Math.max(...paused.map((a) => a.at));
-      for (const a of w.answers.filter((x) => x.at > lastPause)) expect(a.body, `${a.path} after the pause`).toMatchObject({ ok: false });
-      // the REPL's own page: it counts (the REPL holds the canvas now), and loads with no failed request either
+      // the REPL's own page: it counts (the REPL holds the canvas now), and over two rounds of its own readings (each answered
+      // with the project) no request fails and nothing is logged either
       const mine = await watched(replPage.target);
       try {
         await mine.page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
         await mine.page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 20_000 });
-        await mine.page.waitForTimeout(6000);
+        await expect.poll(() => rounds(mine.answers), { timeout: 40_000, interval: 500 }).toBeGreaterThanOrEqual(2);
+        for (const a of mine.answers) expect((a.body as { ok?: unknown } | null)?.ok, `${a.path} on the REPL's page`).not.toBe(false);
         expect(mine.failed).toEqual([]);
         expect(mine.errors).toEqual([]);
       } finally {
@@ -190,16 +202,26 @@ describe.skipIf(!browserPath)("the Studio page the Workbench's Studio · Show op
     } finally {
       await w.context.close();
     }
-  }, 150_000);
+  }, 200_000);
 
   it('a page opened by the bare address (no grant: a bookmark, a reload) loads no canvas and says so, and asks nothing it would be refused: no request fails and nothing is logged', async () => {
     await control.show();
-    const w = await watched(`${base}/`);
+    const w = await watched(`${base}/`, { clock: true });
     try {
       await w.page.waitForFunction(() => document.getElementById('refused')?.hidden === false, null, { timeout: 30_000 });
       expect(await w.page.textContent('#refused-words')).toMatch(/opened without a grant from Timmy/);
       expect(await w.page.isHidden('#frame')).toBe(true);
-      await w.page.waitForTimeout(6000);
+      // the page loaded whole (its document and what it loads), then its own timers run 12 s ahead on its clock (no time waited
+      // here): the strip's 4 s and the panel's 5 s readings would have been asked by then had the refused page started any. A
+      // fence after them, the test's own request from the page to the open health route, is answered after anything they asked.
+      // It asked none of them, no request failed, and nothing was logged as an error.
+      await w.page.waitForLoadState('load');
+      await w.page.clock.runFor(12_000);
+      const fence = w.page.waitForResponse((r) => new URL(r.url()).pathname === '/api/canvas/health');
+      expect(await w.page.evaluate(() => fetch('/api/canvas/health', { cache: 'no-store' }).then((r) => r.status))).toBe(200);
+      await fence;
+      expect(w.asked).toEqual([]);
+      expect(w.answers).toEqual([]);
       expect(w.failed).toEqual([]);
       expect(w.errors).toEqual([]);
     } finally {

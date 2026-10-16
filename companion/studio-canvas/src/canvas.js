@@ -36,8 +36,20 @@ const GRANT_AT_LOAD = (() => {
 /** The tldraw version this bundle was built from (scripts/canvas/build.mjs). */
 const BUILT_WITH = __TLDRAW_VERSION__;
 const status = document.getElementById('status');
+/**
+ * The panel's status line. R5 (H137; QA defect 26): `text` may be a list of its parts, a part `{ live }` being an observed live
+ * connection (the bridge's socket open now): only that part is marked live, ● in green (index.html #status .is-live).
+ */
 const say = (text, kind) => {
-  status.textContent = text;
+  if (Array.isArray(text)) {
+    status.replaceChildren(...text.map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const live = document.createElement('span');
+      live.className = 'is-live';
+      live.textContent = `● ${part.live}`;
+      return live;
+    }));
+  } else status.textContent = text;
   status.dataset.kind = kind;
 };
 
@@ -108,9 +120,15 @@ function showStatus(editor) {
     say(`Not saved: ${canvas.refused}`, 'refused');
     return;
   }
-  const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${savedWords(saveState(canvas))}`;
+  // R5 (H137; QA defect 26): "Timmy connected" is the one observed live part (the bridge's socket is open now): it alone carries
+  // the live mark; the version, the license and the save are facts, not live observations
+  const text = [
+    `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · `,
+    canvas.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
+    ` · ${savedWords(saveState(canvas))}`,
+  ];
   // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
-  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
+  say(text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
   if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 

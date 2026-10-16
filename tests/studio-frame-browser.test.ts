@@ -98,12 +98,27 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     return { page, context, errors, frames: () => read };
   }
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
-  /** A screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind otherwise). */
+  /**
+   * A screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind otherwise). It says
+   * on itself that what it shows is FAKE test data (a label at the canvas's bottom right, there for the shot only).
+   */
   const shoot = async (page: Page, name: string): Promise<void> => {
     const shots = process.env.TIMMY_CANVAS_SHOTS;
     if (!shots) return;
     mkdirSync(shots, { recursive: true });
-    await page.screenshot({ path: join(shots, name) });
+    await page.evaluate(() => {
+      const label = document.createElement('div');
+      label.id = 'fake-shot-label';
+      label.textContent = 'FAKE test data (tests/helpers/canvas-project.ts and this test), not a real project';
+      label.setAttribute('style', 'position:fixed;right:8px;bottom:100px;z-index:2147483647;pointer-events:none;max-width:calc(100vw - 16px);box-sizing:border-box;'
+        + 'padding:2px 6px;font:12px/16px ui-monospace,monospace;color:#F2EFE9;background:#070707;border:1px solid #444444;border-radius:4px');
+      document.body.append(label);
+    });
+    try {
+      await page.screenshot({ path: join(shots, name) });
+    } finally {
+      await page.evaluate(() => document.getElementById('fake-shot-label')?.remove());
+    }
   };
 
   it('draws TIMMY · the project, the ten tabs with Studio active, Studio\'s actions with the frame\'s one primary in amber and each command to copy, and one activity line; green only where it is earned; two rows on a low window', async () => {
@@ -379,6 +394,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       f.chat = { turns };
       f.activity.running = 1;
       f.activity.chatTurn = { surface: 'workbench', since: ago(0), words: turnNow };
+      // the same FAKE turn as what Stop current stops (so the picture says one thing)
+      f.activity.stopCurrent = { job: null, words: 'Stop current: the chat turn in the Workbench [FAKE]' };
     });
     try {
       await page.waitForFunction((w) => (document.getElementById('frame-activity')?.textContent ?? '').includes(w), turnNow, { timeout: 20_000 });
@@ -419,6 +436,38 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       await page.waitForSelector('#frame-log', { state: 'visible' });
       await page.click('#frame-activity-toggle');
       await page.waitForSelector('#frame-log', { state: 'hidden' });
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
+  it('R5 (H137; QA defect 9): the line says Stop current and what runs in the frame\'s own words, as each frame gives them, and follows them: a turn sealed is no longer named or counted, and a frame without the words shows none (FAKE frames)', async () => {
+    await demo();
+    let phase = 1;
+    // FAKE (written by this test into each frame the server sent): a REPL turn being answered, then sealed, then no stop words at all
+    const { page, context, errors } = await open({ width: 1440, height: 900 }, (f) => {
+      const a = f.activity;
+      if (phase === 1) {
+        Object.assign(a, { running: 1, stopCurrent: { job: null, words: 'Stop current: the chat turn in the REPL (Ctrl+C in the REPL) [FAKE frame words]' } });
+        a.chatTurn = { surface: 'repl', since: new Date().toISOString(), words: 'a chat turn is being answered in the REPL [FAKE frame words]' };
+      } else {
+        Object.assign(a, { running: 0, stopCurrent: { job: null, words: phase === 2 ? 'Stop current: idle [FAKE frame words]' : '' }, chatTurn: null });
+      }
+    });
+    const line = (): Promise<string> => text(page, '#frame-activity');
+    try {
+      await page.waitForFunction(() => (document.getElementById('frame-activity')?.textContent ?? '').includes('[FAKE frame words]'), null, { timeout: 20_000 });
+      expect(await line()).toMatch(/^1 running · ▶ a chat turn is being answered in the REPL \[FAKE frame words\] · 0 waiting on you · Stop current: the chat turn in the REPL \(Ctrl\+C in the REPL\) \[FAKE frame words\] · newest: /);
+      // the turn sealed: the next frame names none and counts none, and the line says so as soon as it is read
+      phase = 2;
+      await page.waitForFunction(() => /Stop current: idle \[FAKE frame words\]/.test(document.getElementById('frame-activity')?.textContent ?? ''), null, { timeout: 20_000 });
+      expect(await line()).toMatch(/^0 running · 0 waiting on you · Stop current: idle \[FAKE frame words\] · newest: /);
+      expect(await line()).not.toMatch(/chat turn/);
+      // a frame without Stop current words: the line shows none (the page makes none up)
+      phase = 3;
+      await page.waitForFunction(() => !/Stop current/.test(document.getElementById('frame-activity')?.textContent ?? ''), null, { timeout: 20_000 });
+      expect(await line()).toMatch(/^0 running · 0 waiting on you · newest: /);
       expect(errors).toEqual([]);
     } finally {
       await context.close();

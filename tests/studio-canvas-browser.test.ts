@@ -80,7 +80,18 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it('loads nothing from any host but 127.0.0.1, and says it is ready, saved', async () => {
     const { page, context, origins, errors } = await open();
     expect([...origins]).toEqual([base]);
-    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · Timmy connected · revision 0, saved$/);
+    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · ● Timmy connected · revision 0, saved$/);
+    // R5 (H137; QA defect 26): the bar beside the line is neutral (its facts are not live observations); only "● Timmy connected",
+    // the bridge's socket open now, is green, and only that part
+    const look = await page.evaluate(() => {
+      const st = document.getElementById('status')!;
+      const parts = [...st.querySelectorAll('*')].map((e) => ({ text: e.textContent, color: getComputedStyle(e).color }));
+      return { bar: getComputedStyle(st).borderLeftColor, line: getComputedStyle(st).color, parts };
+    });
+    const greens = ['rgb(40, 254, 20)', 'rgb(0, 215, 0)'];
+    expect(greens).not.toContain(look.bar);
+    expect(greens).not.toContain(look.line);
+    expect(look.parts).toEqual([{ text: '● Timmy connected', color: expect.stringMatching(/^rgb\((40, 254, 20|0, 215, 0)\)$/) }]);
     expect(errors).toEqual([]);
     await context.close();
   }, 60_000);
@@ -91,6 +102,14 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       await page.waitForSelector('#guide:not([hidden])');
       expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas'));
       expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
+      // R5 (H137; QA defect 13): its heading is off-white (amber is focus and the one next step), and New board's Open is outlined:
+      // no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's selection)
+      const look = await page.evaluate(() => ({
+        heading: getComputedStyle(document.querySelector('#guide strong')!).color, text: getComputedStyle(document.getElementById('side')!).color,
+        fills: [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').map((e) => e.id || e.tagName),
+      }));
+      expect(look.heading).toBe(look.text);
+      expect(look.fills).toEqual([]);
     } finally {
       await context.close();
     }
