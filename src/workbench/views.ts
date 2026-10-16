@@ -12,8 +12,10 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
+import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, connectionMark, homeView, hintLine, newestLog, pageOf, type ActionHit } from './hub.js';
+import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
@@ -31,6 +33,8 @@ export interface ViewCtx {
   now: number;
   /** slice B: whether this Workbench can run a block itself (the REPL's /run path) and send a chat message */
   can: { run: boolean; runWhy?: string; chat: boolean; chatWhy?: string; detail: boolean; detailWhy?: string };
+  /** R5 (H134): the terminal's width, where the caller knows it: tabs 0 and 8 draw their columns side by side from 120 */
+  columns?: number;
 }
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -265,6 +269,9 @@ export function centerView(c: ViewCtx): View {
     case 'tools': return toolsView(c);
     // R5 (H131): Home's left column, the connection cards from the workspace frame (src/workbench/hub.ts)
     case 'connections': return homeView(c);
+    // R5 (H134): tab 0 and tab 8 (src/workbench/logs-tab.ts, src/workbench/fleet-tab.ts)
+    case 'logs': return logsView(c, c.data.logs);
+    case 'fleet': return fleetView(c, c.data.fleet, c.data.frame, c.data.frameError);
     default: return { lines: [], items: [] };
   }
 }
@@ -905,6 +912,8 @@ function itemName(item: Item | null): string {
     case 'event': return item.event.words;
     case 'project': return item.choice.name;
     case 'conn': return item.conn.label;
+    case 'log-receipt': case 'log-op': case 'log-event': return logsItemName(item);
+    case 'fleet-plan': case 'clef-decision': return fleetItemName(item);
     default: return 'an action';
   }
 }
@@ -917,6 +926,8 @@ const operationOf = (item: Item | null): string | null => {
   if (item.kind === 'operation') return item.op.id;
   if (item.kind === 'decision') return item.decision.operation ?? null;
   if (item.kind === 'record') return item.rec.operation ?? null;
+  if (item.kind === 'log-receipt' || item.kind === 'log-op' || item.kind === 'log-event') return item.event.operation ?? null;
+  if (item.kind === 'fleet-plan' || item.kind === 'clef-decision') return fleetItemOperation(item);
   return null;
 };
 
@@ -1059,6 +1070,9 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       lines.push(blank, ...para('Live only when a request it answered was seen in the last 30 minutes (timmy workspace check asks each one once, with free requests); a setting alone is configured.', w));
       break;
     }
+    // R5 (H134): tab 0's and tab 8's rows
+    case 'log-receipt': case 'log-op': case 'log-event': lines.push(...logsDetail(item, c.data.logs, w, c.g)); break;
+    case 'fleet-plan': case 'clef-decision': lines.push(...fleetDetail(item, w, c.g)); break;
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
   }
   return { lines, items: [] };
