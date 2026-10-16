@@ -737,6 +737,9 @@ function connect() {
     if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
     // R4 (H84): a socket refused for its token closes like a lost one; the companion is asked, and a refusal stops the retries
     companion.check();
+    // R6 (H140): and, while the page is seen, the frame is asked at once: a companion that is gone makes the read fail, and its
+    // card says so now (a page not seen reads nothing; seen again, it reads)
+    if (!document.hidden) { try { readFrame(); } catch (e) { /* the frame's part of the page is not set up yet */ } }
     setTimeout(connect, 2000);
   };
 
@@ -1289,6 +1292,9 @@ const workspace = {
   asking: null,
   /** why the last read failed, in words (null: it did not) */
   failed: null,
+  /** R6 (H140): when this page's reads began to fail (null: they do not), and when the companion last answered one */
+  failedAt: null,
+  answeredAt: null,
   /** the operation the Workflows tab shows, once one was opened there */
   run: null,
   /** the start-up settings: idle, saving, saved, failed or conflict, and their words */
@@ -1334,13 +1340,22 @@ function readFrame() {
       const r = await companion.fetch(`/api/workspace${project ? `?project=${encodeURIComponent(project)}` : ''}`);
       const body = await r.json().catch(() => null);
       if (!r.ok || !body || body.schema !== 'timmy.workspace/1') throw new Error((body && body.error) || `the companion answered HTTP ${r.status}`);
+      // R6 (H140): the companion answered this page now; a page whose reads had failed draws the whole frame again
+      const had = workspace.failed !== null;
       workspace.failed = null;
-      takeFrame(body);
+      workspace.failedAt = null;
+      workspace.answeredAt = new Date().toISOString();
+      takeFrame(body, had);
     } catch (err) {
       workspace.failed = err && err.message ? err.message : String(err);
+      if (!workspace.failedAt) workspace.failedAt = new Date().toISOString();
       stripNote(workspace.frame
         ? `The companion did not answer at ${clockOf(new Date().toISOString())} (${workspace.failed}); this is the frame read before.`
         : `The workspace frame could not be read: ${workspace.failed}`, 'failed');
+      // R6 (H140): the cards say so at once (shownConnections): the companion's is not live, no other stays green
+      if (workspace.frame) {
+        try { drawConnections(workspace.frame); drawHome(workspace.frame, !otherProject(workspace.frame)); drawStudio(workspace.frame); } catch (e) { /* the frame's part of the page is not set up yet */ }
+      }
     } finally { workspace.asking = null; }
   })();
   return workspace.asking;
@@ -1564,8 +1579,27 @@ function connectionCard(c, where) {
     c.setup ? h('p', { class: 'conn-setup' }, h('span', { class: 'cmd-label' }, 'step:'), h('button', { type: 'button', class: 'cmd', 'data-copy': c.setup, title: 'Copies the command for Timmy’s terminal' }, c.setup)) : null);
 }
 
+/**
+ * R6 (H140; the R5 interaction review, claim c: the page kept "● live · answered just now" for its own companion for 2.5 min
+ * after the Workbench that served it quit, beside "COMPANION SOCKET · RECONNECTING"): the connections as this page can say
+ * them now. While its own reads of the frame fail, the companion's card is not live: it says that this page's reads fail,
+ * since when and why, and when the companion last answered this page. No other card stays green on a frame the page cannot
+ * read again: each says it is not known now, and what the frame said when it was last read.
+ */
+function shownConnections(f) {
+  const all = (f && f.connections) || [];
+  if (!workspace.failed) return all;
+  const last = workspace.answeredAt ? `it last answered this page at ${clockOf(workspace.answeredAt)}` : 'it has not answered this page';
+  const since = workspace.failedAt ? ` since ${clockOf(workspace.failedAt)}` : '';
+  return all.map((c) => {
+    if (c.id === 'companion') return { ...c, state: 'unreachable', words: `not answering this page: its reads of the frame fail${since} (${workspace.failed}); ${last}` };
+    if (c.state === 'live') return { ...c, state: 'unknown', words: `not known now: this page cannot read the frame; when it last could${workspace.answeredAt ? ` (${clockOf(workspace.answeredAt)})` : ''}, the frame said: ${c.words}` };
+    return c;
+  });
+}
+
 function drawConnections(f) {
-  const all = f.connections || [];
+  const all = shownConnections(f);
   const home = document.getElementById('home-connections');
   if (home) home.replaceChildren(...(all.length ? all.map((c) => connectionCard(c, 'home')) : [h('p', { class: 'empty' }, 'The frame lists no connections.')]));
   for (const box of document.querySelectorAll('[data-conns-for]')) {
@@ -1583,7 +1617,7 @@ const unknownWhy = (f, field) => ((f.unknown || []).find((u) => u.field === fiel
 /** Timmy Studio, as the frame says it: open it where it runs, else the Studio tab's own step. */
 function studioItem(f) {
   const s = (f.surfaces && f.surfaces.studio) || { state: 'unknown', url: null, openAtStart: false };
-  const c = (f.connections || []).find((x) => x.id === 'studio');
+  const c = shownConnections(f).find((x) => x.id === 'studio');
   const [glyph, cls] = c ? (CONN_GLYPH[c.state] || ['?', 'is-unknown']) : ['?', 'is-unknown'];
   const step = ((f.actions && f.actions.studio) || []).find((a) => a.primary) || ((f.actions && f.actions.studio) || [])[0];
   return h('div', { class: 'preview-item', 'data-preview': 'studio' },

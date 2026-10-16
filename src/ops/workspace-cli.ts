@@ -9,7 +9,8 @@
  *                                     what answered in <Timmy home>/state/connections.json, then prints the frame
  *
  * No model is called and nothing is spent. A connection is `live` only when one of those requests was answered within the
- * last 30 minutes; a setting alone is `configured`.
+ * last 30 minutes (R6, H140: the browser companion and Studio within the last 60 s, by a process that still runs); a setting
+ * alone is `configured`.
  */
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,7 +38,8 @@ export function workspaceHelp(): string {
     '  --json                   the frame as JSON (schema timmy.workspace/1), one object',
     '',
     'WORDS',
-    '  live         a request it answered was observed in the last 30 minutes (and when, is said)',
+    '  live         a request it answered was observed in the last 30 minutes (and when, is said); the browser',
+    '               companion and Timmy Studio: in the last 60 s, by a process that still runs (a start is no answer)',
     '  configured   set up, not observed answering lately: a setting is not a connection',
     '  not set up   with the step that sets it up',
     '  unreachable  asked, and nothing answered · refused: asked, and it answered no (a rejected key)',
