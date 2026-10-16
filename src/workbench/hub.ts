@@ -608,14 +608,26 @@ export interface TurnNow {
  * ended when its identity says so, never by surface and time: it is this Workbench's own turn, now ended, or a sealed
  * receipt (the Workbench's reading or the frame's) names it as its turn_id; a next turn taken at once is still running.
  */
-export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project' | 'turns'>): TurnNow | null {
+export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project' | 'turns' | 'holds'>): TurnNow | null {
   const own = d.turn;
   if (own?.state === 'sending') return { mine: true, where: 'this Workbench', since: new Date(own.at).toISOString(), surface: 'workbench', ...(own.id ? { id: own.id } : {}) };
   const f = d.frame;
+  // a turn whose receipt is sealed has ended (its hold is let go a moment after), by its identity
+  const sealed = (id: string | undefined): boolean => !!id && (id === own?.id || (d.turns ?? []).some((x) => x.turn === id) || (f?.chat?.turns ?? []).some((x) => x.turn === id));
+  // R6 (H141; the interaction review of a77d80d, defect 3): the holds as this Workbench read them (src/workbench/turn-holds.ts,
+  // a few hundred ms ago at most, at once on x or Enter), when no older than the frame: another process's turn is known as soon
+  // as its hold is written, and its end as soon as the hold is let go, not at the frame's next reading. This Workbench's own
+  // hold is its own turn's (above).
+  const h = d.holds;
+  const frameAt = f ? Date.parse(f.at) : Number.NaN;
+  if (h && sameFolder(h.root, d.project.root) && !(frameAt > h.at)) {
+    const held = h.turns.find((x) => !(x.mine && x.surface === 'workbench') && !sealed(x.id));
+    return held ? { mine: false, where: SURFACE_AWAY[held.surface] ?? held.surface, since: held.taken, surface: held.surface, id: held.id } : null;
+  }
   const t = f && f.project.id === d.project.id ? f.activity.chatTurn : null;
   if (!f || !t) return null;
   const id = t.id;
-  if (id && (id === own?.id || (d.turns ?? []).some((x) => x.turn === id) || (f.chat?.turns ?? []).some((x) => x.turn === id))) return null;
+  if (sealed(id)) return null;
   return { mine: false, where: SURFACE_AWAY[t.surface] ?? t.surface, since: t.since, surface: t.surface as ChatSurface, ...(id ? { id } : {}) };
 }
 

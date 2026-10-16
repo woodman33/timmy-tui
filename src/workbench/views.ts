@@ -739,7 +739,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['c  s', 'Companion · Show  ·  Studio · Show (each starts once, on 127.0.0.1); closing a view never stops a job'],
   ['C  S', 'stop serving the Companion  ·  Studio (only what this Workbench started)'],
   [',', 'Quick settings (saved in Timmy\'s settings folder): open the Companion or Studio at start, and more'],
-  ['x', 'Stop current: the job it names'],
+  ['x', 'Stop current: what row 2 names, a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked to stop there, as its own key would)'],
   ['i  g', 'Context (Tools, Inspector, Files) as a drawer  ·  the navigation (CREATE, OPERATE, LIBRARY) as a drawer'],
   ['z', 'focus mode: the body\'s list alone, with the tabs, the actions and the log; z or Esc leaves it'],
   ['a  A', 'Activity & log: expand or collapse  ·  all operations or the selected one'],
@@ -761,7 +761,8 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
     case 'help':
       // R5 (H131; the QA round's defect 5): every entry whole, its words wrapped under themselves (the body is a column of
       // about half the width on Home and Chat)
-      lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
+      // R6 (H141; the interaction review of a77d80d, defect 6): it scrolls from the keyboard, and says how
+      lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. ↑ ↓ (k j) scroll this list, PgUp PgDn a page, Home End to its start or end; the title says which rows show. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
       for (const [k, w] of HELP) {
         const words = wrapText(w, Math.max(8, c.width - KEY_COLUMN));
         words.forEach((r, i) => lines.push(i === 0 ? [S(k.padEnd(KEY_COLUMN), 'action'), S(r, 'text')] : [S(' '.repeat(KEY_COLUMN)), S(r, 'text')]));

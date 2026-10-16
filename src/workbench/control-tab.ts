@@ -681,7 +681,13 @@ function surfaceRows(c: ControlCtx, d: ControlData | undefined): RosterEntry[] {
   const out: RosterEntry[] = [{ glyph: g.next, name: 'Workbench', word: 'running (this one)', short: 'running', role: 'text' }];
   const turns = liveTurnsOf(d, c.data.turns ?? []);
   const repl = turns.find((t) => t.surface === 'repl');
-  out.push(repl ? { glyph: g.next, name: 'REPL', word: `answering a turn (pid ${repl.pid})`, short: 'answering', role: 'text' } : { glyph: '?', name: 'REPL', word: 'not recorded', short: 'not recorded', role: 'secondary' });
+  // R6 (H141; the interaction review of a77d80d, defect 12): no REPL turn being answered: what the records say of the REPL (its
+  // newest sealed turn), never "not recorded" beside the REPL's own turns on the same screen; whether a REPL is open is not
+  // recorded (a REPL leaves no record of itself), so its mark stays ?
+  const last = (c.data.turns ?? []).find((t) => t.surface === 'repl');
+  out.push(repl
+    ? { glyph: g.next, name: 'REPL', word: `answering a turn (pid ${repl.pid})`, short: 'answering', role: 'text' }
+    : { glyph: '?', name: 'REPL', word: `no turn now ${g.sep} ${last ? `last turn ${clock(last.at)} ${turnEndWords(last)}` : 'none recorded in this project'}`, short: 'no turn now', role: 'secondary' });
   for (const t of turns.filter((x) => x.surface === 'monitor')) out.push({ glyph: g.next, name: 'monitor', word: `answering a turn (pid ${t.pid})`, short: 'answering', role: 'text' });
   // a job another live session started: a session that runs (whether it is a REPL is not recorded)
   const pids = [...new Set([...(c.data.jobs ?? []), ...(c.data.away ?? [])].filter((j) => j.live && j.owner === 'live-session').map((j) => /\(pid (\d+)\)/.exec(j.ownerWords)?.[1] ?? '?'))];

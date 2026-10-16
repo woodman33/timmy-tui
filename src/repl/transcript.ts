@@ -83,10 +83,26 @@ const RISK_ROLE: Record<StepLabel['risk'], Role> = { read: 'strong', write: 'est
 const DIFF_LINES = 12;
 const PREVIEW_CAP = 200;
 
+/**
+ * R6 (H141): a word of a prose line: where it ends in the raw line (markup included; a span's last word, after its closing
+ * marker), where it starts (a span's first word, at its opening marker), and whether it starts inside a span (a later word of
+ * one: the line cannot be cut there and still read the same).
+ */
+type RawWord = Segment & { end: number; start: number; inSpan: boolean };
+/** R6 (H141): a wrapped row of prose, with its first word's start and its last word's end in the raw line. */
+type ProseRow = { segs: Segment[]; start: number; end: number; inSpan: boolean };
+
 export class Transcript {
   private readonly emitted = new Map<string, number>();
   private textId: string | null = null;
   private tail = '';
+  /**
+   * R6 (H141; the interaction review of a77d80d, defect 4): the start of the line being streamed is already in scrollback, as
+   * the rows of it that could no longer change (settle); `tail` is that line from the start of a row (whose first rows may be
+   * in scrollback), and `cutAt` where in `tail` the part not yet in scrollback begins (the end of the last row kept).
+   */
+  private contd = false;
+  private cutAt = 0;
   private inFence = false;
   private group: Step[] = [];
   /** The last plain line written to each destination (prose and the log can be different streams). */
@@ -272,6 +288,13 @@ export class Transcript {
   }
 
   // ── streamed text ─────────────────────────────────────────────────────────
+  /**
+   * A snapshot of a message's text (the whole text so far). Its complete lines go to scrollback, wrapped. R6 (H141; the
+   * interaction review of a77d80d, defect 4): so does each row of the line still being streamed once it can no longer change
+   * (settle), and the rest of that line is drawn wrapped below them, so a long paragraph keeps visibly streaming at any width
+   * and its newest words stay in view. Before, the line was one live row cut at the terminal's width: at 160 columns it grew
+   * to 159 characters, then nothing changed on screen until the paragraph ended.
+   */
   private text(id: string, snapshot: string): void {
     this.flushGroup();
     if (id !== this.textId) {
@@ -285,14 +308,110 @@ export class Transcript {
     this.emitted.set(id, snapshot.length);
     const parts = this.tail.split('\n');
     this.tail = parts.pop() ?? '';
-    for (const raw of parts) this.textLine(raw);
-    this.show(this.tail ? [this.line(this.inline(this.tail))] : []);
+    for (const raw of parts) this.lineEnd(raw);
+    this.settle();
+    this.show(this.tailRows());
   }
 
   private flushText(): void {
-    if (this.tail) this.textLine(this.tail);
+    // R6 (H141): the live rows of the line being streamed go with it, as it goes to scrollback (a stop's tmux capture showed its
+    // last row drawn again under the cancel line, until the turn's receipt)
+    if (this.tail || this.contd) this.show([]);
+    if (this.tail) this.lineEnd(this.tail);
     this.tail = '';
+    this.contd = false;
+    this.cutAt = 0;
     this.textId = null;
+  }
+
+  /**
+   * A line has ended (its newline came, or its message ended). R6 (H141): a line whose first rows are in scrollback ends as
+   * prose: its rows after the last one kept (the whole line wrapped, as it would be written at once).
+   */
+  private lineEnd(raw: string): void {
+    if (!this.contd) return this.textLine(raw);
+    const from = this.cutAt;
+    this.contd = false;
+    this.cutAt = 0;
+    for (const row of this.wrapWords(this.rawWords(raw), this.proseWidth)) {
+      if (row.end > from) this.commit([this.line(row.segs)], [row.segs.map((s) => s.text).join('')], 'prose');
+    }
+  }
+
+  /**
+   * R6 (H141): whether the line being streamed is prose already (rows of it can settle): not inside a code fence, not a fence
+   * or a heading line, and not a start that could still become one ("`", "##", blanks).
+   */
+  private streamsProse(raw: string): boolean {
+    if (this.contd) return true;
+    if (this.inFence) return false;
+    const t = raw.replace(/^\s+/, '');
+    if (!t || /^`{1,2}$/.test(t) || /^```/.test(t)) return false;
+    if (/^#{1,3}(\s|$)/.test(raw)) return false;
+    return true;
+  }
+
+  /**
+   * R6 (H141): where the part of a streamed line ends whose look cannot change with what comes next: before the first `**` or
+   * backtick that is not closed yet (the rest may become strong text, which takes no markers' width), and before a last `*`
+   * (it may be the first of a `**`).
+   */
+  private safeEnd(raw: string): number {
+    const opener = (from: number, to: number): number => {
+      for (let i = from; i < to; i++) {
+        if (raw[i] === '`') return i;
+        if (raw[i] === '*' && (raw[i + 1] === '*' || i === raw.length - 1)) return i;
+      }
+      return -1;
+    };
+    let at = 0;
+    for (const m of raw.matchAll(/\*\*([^*]+)\*\*|`([^`]+)`/g)) {
+      const open = opener(at, m.index!);
+      if (open >= 0) return open;
+      at = m.index! + m[0].length;
+    }
+    const open = opener(at, raw.length);
+    return open >= 0 ? open : raw.length;
+  }
+
+  /**
+   * R6 (H141): the rows of the line being streamed that can no longer change go to scrollback now: every row of its settled
+   * part (safeEnd) but the last, which may still grow. Greedy wrapping decides a row only from the words before its break, and
+   * the settled part is drawn as the whole line will be (markup that closes later starts after it), so these rows are the very
+   * rows the whole line wraps to: a paragraph streamed reads the same in scrollback as one written at once.
+   */
+  private settle(): void {
+    if (!this.tail || !this.streamsProse(this.tail)) return;
+    const rows = this.wrapWords(this.rawWords(this.tail.slice(0, this.safeEnd(this.tail))), this.proseWidth);
+    const last = rows.length - 1;
+    const fresh = rows.slice(0, Math.max(0, last)).filter((r) => r.end > this.cutAt);
+    if (!fresh.length) return;
+    if (this.needBlank) {
+      this.blank('prose');
+      this.needBlank = false;
+    }
+    for (const row of fresh) this.commit([this.line(row.segs)], [row.segs.map((s) => s.text).join('')], 'prose');
+    this.contd = true;
+    this.cutAt = fresh[fresh.length - 1].end;
+    // what is kept is let go of where the next row starts outside a span (the rest reads the same from there), so each chunk
+    // wraps only the line's last rows; inside a span the line is kept whole, and `cutAt` says where the rest begins
+    const next = rows[rows.indexOf(fresh[fresh.length - 1]) + 1];
+    if (next && !next.inSpan) {
+      this.tail = this.tail.slice(next.start);
+      this.cutAt = 0;
+    }
+  }
+
+  /**
+   * R6 (H141): the part of the line being streamed that is not in scrollback, as the live region draws it: prose wrapped (one
+   * cell narrower than the terminal, as the region draws every row), so its newest words are in view; a code line or a heading
+   * as one row, as it will be kept.
+   */
+  private tailRows(): string[] {
+    if (!this.tail) return [];
+    if (!this.streamsProse(this.tail)) return [this.line(this.inFence ? [{ text: this.tail, role: 'secondary' }] : this.inline(this.tail))];
+    const width = Math.max(10, Math.min(this.proseWidth, this.opts.columns - 1));
+    return this.wrapWords(this.rawWords(this.tail).filter((w) => w.end > this.cutAt), width).map((row) => this.line(row.segs));
   }
 
   private textLine(raw: string): void {
@@ -314,8 +433,9 @@ export class Transcript {
       return this.commit([this.line([{ text: heading[1], role: 'strong' }])], [heading[1]], 'prose');
     }
     if (raw.trim() === '') return this.blank('prose');
-    for (const row of this.wrapSegments(this.inline(raw), this.proseWidth)) {
-      this.commit([this.line(row)], [row.map((s) => s.text).join('')], 'prose');
+    // R6 (H141): the one wrap a streamed line's settled rows use too (settle), so both read the same
+    for (const row of this.wrapWords(this.rawWords(raw), this.proseWidth)) {
+      this.commit([this.line(row.segs)], [row.segs.map((s) => s.text).join('')], 'prose');
     }
   }
 
@@ -333,32 +453,62 @@ export class Transcript {
     return out;
   }
 
-  /** Greedy word wrap over styled segments, by display width. */
-  private wrapSegments(segments: Segment[], width: number): Segment[][] {
-    const words: Segment[] = [];
-    for (const s of segments) for (const w of s.text.split(/(\s+)/)) if (w) words.push({ text: w, role: s.role });
-    const rows: Segment[][] = [[]];
+  /**
+   * A prose line's words as inline() styles them (`**bold**` and `code` strong, the markers left out), split at whitespace
+   * runs; R6 (H141): each with the offset in the raw line its last character ends at (a span's last word: after its closing
+   * marker), so a streamed line's settled rows can be cut off it (settle).
+   */
+  private rawWords(raw: string): RawWord[] {
+    const out: RawWord[] = [];
+    // a piece of the line: its words from raw offset `from` (a span's inner text, after its opening marker at `open`) to `to`
+    const push = (text: string, role: Role | undefined, from: number, to: number, open?: number): void => {
+      let k = 0;
+      for (const w of text.split(/(\s+)/)) {
+        if (!w) continue;
+        const first = k === 0;
+        k += w.length;
+        const start = open !== undefined && first ? open : from + k - w.length;
+        out.push({ text: w, role, start, end: k === text.length ? to : from + k, inSpan: open !== undefined && !first });
+      }
+    };
+    let at = 0;
+    for (const m of raw.matchAll(/\*\*([^*]+)\*\*|`([^`]+)`/g)) {
+      const i = m.index!;
+      if (i > at) push(raw.slice(at, i), undefined, at, i);
+      push(m[1] ?? m[2], 'strong', i + (m[1] !== undefined ? 2 : 1), i + m[0].length, i);
+      at = i + m[0].length;
+    }
+    if (at < raw.length) push(raw.slice(at), undefined, at, raw.length);
+    return out;
+  }
+
+  /** Greedy word wrap over styled words, by display width; R6 (H141): each row with where its words start and end in the raw line. */
+  private wrapWords(words: RawWord[], width: number): ProseRow[] {
+    const rows: ProseRow[] = [{ segs: [], start: 0, end: 0, inSpan: false }];
     let used = 0;
     for (const w of words) {
       const ww = visibleWidth(w.text);
       const isSpace = /^\s+$/.test(w.text);
       if (isSpace) {
         if (used > 0 && used + 1 <= width) {
-          rows[rows.length - 1].push({ text: ' ', role: w.role });
+          rows[rows.length - 1].segs.push({ text: ' ', role: w.role });
           used += 1;
         }
         continue;
       }
       if (used > 0 && used + ww > width) {
-        const row = rows[rows.length - 1];
+        const row = rows[rows.length - 1].segs;
         while (row.length && /^\s+$/.test(row[row.length - 1].text)) row.pop();
-        rows.push([]);
+        rows.push({ segs: [], start: 0, end: 0, inSpan: false });
         used = 0;
       }
-      rows[rows.length - 1].push(w.text.length && ww > width ? { ...w, text: this.cut(w.text, width) } : w);
+      const row = rows[rows.length - 1];
+      if (!row.segs.length) { row.start = w.start; row.inSpan = w.inSpan; }
+      row.segs.push({ text: w.text.length && ww > width ? this.cut(w.text, width) : w.text, role: w.role });
+      row.end = w.end;
       used += Math.min(ww, width);
     }
-    return rows.filter((r) => r.length).map((r) => this.merge(r));
+    return rows.filter((r) => r.segs.length).map((r) => ({ ...r, segs: this.merge(r.segs) }));
   }
 
   private merge(row: Segment[]): Segment[] {

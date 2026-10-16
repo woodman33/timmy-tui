@@ -1,0 +1,239 @@
+// R6 (H141; the interaction review of a77d80d, defect 3): the Workbench learns of a chat turn another process of its project
+// answers as soon as the turn's hold is written (src/workbench/turn-holds.ts), not at its next workspace-frame reading: the run
+// line says it runs and Stop current names it within half a second; x and Enter on Stop the turn read the holds before they
+// answer, so x never says "nothing runs" while a turn is held, even before the watch has looked; the turn's end shows as soon
+// as its hold is let go; a hold whose writer has ended is no running turn, and is left where it is. The review saw x answer
+// "Stop current: nothing runs in tray." for the first 1 to 4.5 s of a REPL turn, which went on.
+//
+// Drawn by the Workbench's own frame (Controller.frame, the rows Ink prints) over a real Timmy home in a temporary folder: a
+// tray-workflow project made by the starter code and the REPL's own Workspace; the turns' receipts sealed for real (signed and
+// chained) by sealTurn into the project's pinned store. FAKE or FIXTURE here, each labelled where it is made:
+// - a turn being answered in the REPL is a hold this test takes with the REPL's own takeTurnHold (no REPL runs: the real
+//   terminal's is tests/workbench-turn-holds-pty.test.ts); a FAKE REPL answers a stop asked of it as the REPL's own turn does
+//   (watchTurnStop): a cancelled turn's receipt (FIXTURE facts) naming its turn_id and who asked, then its hold let go;
+// - a stale hold is a hold file this test writes for a process that does not run;
+// - the run detail's and the chat session's producers have none; the browser opener and the server starts are FAKE.
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { projectStore } from '../src/agent/chat-session.js';
+import { CHAT_HOLD_SCHEMA, CHAT_TURNS_DIR, takeTurnHold, watchTurnStop, type TurnHold } from '../src/agent/chat-turn.js';
+import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
+import { copyStarter } from '../src/project/starters.js';
+import { sealTurn } from '../src/repl/seal.js';
+import { Workspace } from '../src/repl/workspace.js';
+import { glyphSet } from '../src/term/glyphs.js';
+import { visibleWidth } from '../src/term/width.js';
+import { Controller } from '../src/workbench/controller.js';
+import { glyphsFor, screenText } from '../src/workbench/frame.js';
+import { routeOf } from '../src/workbench/hub.js';
+import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
+import { HOLDS_EVERY_MS } from '../src/workbench/turn-holds.js';
+import { pageActions } from '../src/workbench/views.js';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const FAKE_OPENER: Opener = { program: null, open: () => ({ ok: false, why: 'FAKE opener: nothing is opened in this test' }) };
+
+let box = '';
+let home = '';
+let jobsDir = '';
+const opened: Controller[] = [];
+const spaces: Workspace[] = [];
+const holds: TurnHold[] = [];
+
+beforeAll(() => {
+  box = mkdtempSync(join(tmpdir(), 'wb-turn-holds-'));
+  home = join(box, 'timmy');
+  jobsDir = join(home, 'jobs');
+  mkdirSync(home, { recursive: true });
+});
+afterAll(() => { rmSync(box, { recursive: true, force: true }); });
+afterEach(async () => {
+  for (const h of holds.splice(0)) h.release();
+  for (const c of opened.splice(0)) c.dispose();
+  for (const ws of spaces.splice(0)) await ws.close({ by: 'as the test ended' });
+  vi.unstubAllEnvs();
+});
+
+function trayProject(name: string): { name: string; root: string; chosen: boolean } {
+  vi.stubEnv('TIMMY_HOME', home);
+  vi.stubEnv('TIMMY_SETTINGS_DIR', join(box, 'settings'));
+  vi.stubEnv('OPENROUTER_API_KEY', '');
+  const made = createProject(name);
+  if ('error' in made) throw new Error(made.error);
+  const copied = copyStarter('tray-workflow', made.root);
+  if ('error' in copied) throw new Error(copied.error);
+  saveActiveProject(made);
+  // the project's store, pinned in its folder: the chain the Workbench reads when TIMMY_STORE is not set
+  mkdirSync(join(made.root, '.timmy'), { recursive: true });
+  writeFileSync(join(made.root, '.timmy', 'store-pin'), join(made.root, '.timmy', 'receipts'));
+  return made;
+}
+
+/** A Workbench on the project. `slowMs` an hour: no slow reading reads the frame again while a test runs; `watch` false: the
+ *  holds' watch never looks on its own (only x and Enter read them). */
+function workbench(p: { name: string; root: string; chosen: boolean }, o: { watch?: boolean } = {}): Controller {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.TIMMY_STORE;
+  const ws = new Workspace({ glyphs: glyphSet(true), env, onPath: () => null, notify: () => undefined, openWeb: () => '', link: (t) => t, seal: () => undefined, jobsDir, recoverAtStart: false, chdir: () => undefined }, p);
+  spaces.push(ws);
+  const c = new Controller({
+    env, jobsDir, onPath: () => null, glyphs: glyphsFor(true), workspace: ws,
+    producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: none' }), openChat: async () => ({ ok: false, why: 'FIXTURE: no chat session in this test' }) },
+    companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started in this test'); } }),
+    studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(box, 'store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) }),
+    capabilities: async () => [], tickMs: 100, slowMs: 3_600_000,
+    ...(o.watch === false ? { holdsEveryMs: 3_600_000, holdWatch: false } : {}),
+  });
+  opened.push(c);
+  return c;
+}
+
+async function until<T>(what: string, get: () => T | undefined | false | null, ms = 10_000, show?: () => string): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = get();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}${show ? `:\n${show()}` : ''}`);
+    await sleep(20);
+  }
+}
+
+/** Row 2's words as drawn at 160x45 (through its bottom edge: the run state and Stop current). */
+function top(c: Controller): string {
+  const fr = c.frame(160, 45);
+  const rect = fr.regions.top!.rect;
+  const text = screenText(fr.screen);
+  const out: string[] = [];
+  for (let y = rect.y + 1; y <= rect.y + rect.h - 1; y++) {
+    let x = 0;
+    let row = '';
+    for (const ch of text[y] ?? '') { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
+  }
+  return out.join(' ').replace(/\s+/g, ' ');
+}
+const screen = (c: Controller): string => screenText(c.frame(160, 45).screen).join('\n');
+
+/** A turn being answered "in the REPL": its hold, as the REPL takes it; with `answers`, a FAKE REPL ends it when a stop is asked
+ *  of it, as the REPL's own turn does (its receipt sealed cancelled, naming the turn and who asked; then the hold let go). */
+function replTurn(p: { name: string; root: string }, asked: Array<string | null>, answers = true): TurnHold {
+  const held = takeTurnHold(p.root, 'repl');
+  if (!held.ok) throw new Error(held.lines.join(' '));
+  const hold = held.hold;
+  holds.push(hold);
+  if (answers) {
+    const watch = watchTurnStop(p.root, hold.id, (by) => {
+      asked.push(by);
+      sealTurn({ prompt: 'FIXTURE: a REPL question', answer: '', steps: 0, spend: 0, costMeasured: false, ms: 500, status: 'cancelled', surface: 'repl', model: 'fixture/chat-model', project: p.name, projectId: projectId(p.root), turnId: hold.id, stoppedBy: by ?? 'unknown' }, projectStore(p.root));
+      watch.close();
+      hold.release();
+    }, 20);
+  }
+  return hold;
+}
+
+describe('the Workbench sees another process\'s chat turn at once (R6 H141; the interaction review of a77d80d, defect 3)', () => {
+  it('a turn held by another surface shows in the run line and Stop current within half a second, with no frame reading in between; x asks it to stop; its end shows within half a second of its hold let go', async () => {
+    const p = trayProject('holds-watch');
+    const c = workbench(p);
+    c.start();
+    await until('the frame', () => c.data.frame, 10_000, () => screen(c));
+    expect(top(c)).toContain('run: idle');
+    const framed = c.data.frame!.revision;
+
+    const asked: Array<string | null> = [];
+    const taken = Date.now();
+    const turn = replTurn(p, asked);
+    await until('the run line naming the REPL\'s turn', () => top(c).includes('run: 1 running (the chat turn in the REPL)'), 2000, () => top(c));
+    const seenIn = Date.now() - taken;
+    expect(seenIn, `the run line named the turn ${seenIn} ms after its hold was written`).toBeLessThan(500);
+    expect(top(c)).toContain('[x] Stop current: the chat turn in the REPL (x asks it to stop, as Ctrl+C in the REPL does)');
+    // the frame, read again since (its log and actions follow, at most once a second), names the same turn by its identity
+    await until('the frame naming the turn', () => c.data.frame?.activity.chatTurn?.id === turn.id, 5000, () => screen(c));
+    expect(c.data.frame!.revision).not.toBe(framed);
+
+    // x: the turn is asked to stop by its identity; the FAKE REPL ends it, seals its receipt and lets its hold go
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    await until('the stop answered by the REPL', () => asked.length === 1, 5000);
+    expect(asked).toEqual(['workbench']);
+    const released = Date.now();
+    await until('the run line idle again', () => top(c).includes('run: idle'), 2000, () => top(c));
+    expect(Date.now() - released, 'the run line idle again after the hold was let go').toBeLessThan(500);
+    // its end as its receipt says it, read as its hold was let go (not at a slow reading)
+    expect(c.data.turns?.find((t) => t.turn === turn.id)).toMatchObject({ surface: 'repl', state: 'stopped', stoppedBy: 'workbench' });
+  }, 30_000);
+
+  it('x before the watch has looked: the holds are read before x answers, so a turn just held is asked to stop, never "nothing runs"; with no turn held x says nothing runs; a turn the screen named that has ended since is asked, and x says it had ended', async () => {
+    const p = trayProject('holds-x');
+    const c = workbench(p, { watch: false });
+    c.start();
+    await until('the frame', () => c.data.frame, 10_000, () => screen(c));
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Stop current: nothing runs in holds-x.');
+
+    const asked: Array<string | null> = [];
+    replTurn(p, asked);
+    // nothing has looked since: the screen still says idle
+    expect(top(c)).toContain('run: idle');
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    await until('the stop answered by the REPL', () => asked.length === 1, 5000);
+    expect(asked).toEqual(['workbench']);
+
+    // a turn the screen names (read by x a moment ago) that ends before the next x: x asks it, and says it had ended
+    const second = replTurn(p, asked, false);
+    await c.stop();
+    expect(c.ui.flash?.text).toMatch(/^Stop asked of the turn being answered in the REPL \(x\)/);
+    expect(top(c)).toContain('run: 1 running (the chat turn in the REPL)');
+    second.release();
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Nothing stopped (x): that chat turn is not being answered now (it ended, or it was never this project\'s).');
+    expect(top(c)).toContain('run: idle');
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Stop current: nothing runs in holds-x.');
+  }, 30_000);
+
+  it('Enter on Stop the turn reads the holds first: drawn not available a moment before (no reading had seen the turn), it asks the turn to stop', async () => {
+    const p = trayProject('holds-enter');
+    const c = workbench(p, { watch: false });
+    c.start();
+    c.selectPage('chat');
+    await until('the frame', () => c.data.frame, 10_000, () => screen(c));
+    const stopAction = () => pageActions(c).acts.find((a) => routeOf(a).kind === 'abort');
+    expect(stopAction()).toMatchObject({ enabled: false });
+    const asked: Array<string | null> = [];
+    replTurn(p, asked);
+    // the bar as drawn before any reading saw the turn: Stop the turn not available; Enter on it reads the holds, then asks
+    const drawn = stopAction()!;
+    expect(drawn.enabled).toBe(false);
+    await c.runAction(drawn);
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (Enter): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    await until('the stop answered by the REPL', () => asked.length === 1, 5000);
+    // the FAKE REPL has let its hold go: Enter again stops nothing (the bar may still name the turn that just ended: it is
+    // asked by its identity and refused, as x is), and nothing more is asked of the REPL
+    await c.runAction(stopAction()!);
+    expect(c.ui.flash?.text).toMatch(/^Nothing stopped \(Enter\): that chat turn is not being answered now \(it ended, or it was never this project's\)\.$|^3 Stop the turn: not now: only while a turn runs$|^No chat turn is being answered: nothing to stop\.$/);
+    expect(asked).toEqual(['workbench']);
+  }, 30_000);
+
+  it('a hold whose writer has ended is no running turn: the run line stays idle, x says nothing runs, and the hold is left where it is (read only)', async () => {
+    const p = trayProject('holds-stale');
+    const c = workbench(p);
+    c.start();
+    await until('the frame', () => c.data.frame, 10_000, () => screen(c));
+    // FIXTURE: a hold written for a process that does not run (pid 2^22 + 7, started in 2001)
+    const dir = join(p.root, CHAT_TURNS_DIR);
+    mkdirSync(dir, { recursive: true });
+    const name = `t${2 ** 22 + 7}-0badc0de.json`;
+    writeFileSync(join(dir, name), `${JSON.stringify({ schema: CHAT_HOLD_SCHEMA, surface: 'repl', owner: { pid: 2 ** 22 + 7, started: '2001-01-01T00:00:00.000Z' }, taken: '2001-01-01T00:00:01.000Z' })}\n`);
+    await sleep(HOLDS_EVERY_MS * 3);
+    expect(c.data.holds?.turns).toEqual([]);
+    expect(top(c)).toContain('run: idle');
+    await c.stop();
+    expect(c.ui.flash?.text).toBe('Stop current: nothing runs in holds-stale.');
+    expect(readdirSync(dir)).toContain(name);
+  }, 30_000);
+});

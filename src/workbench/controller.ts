@@ -26,7 +26,7 @@ import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
-import { projectCards } from '../studio/project-cards.js';
+import { projectCards, type ProjectCard, type ProjectOperation } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
 import { keyAt, type MouseReport } from '../tui/mouse.js';
@@ -57,6 +57,7 @@ import {
 import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPlan } from './setup-paths.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
+import { HoldWatch, type HoldsReading } from './turn-holds.js';
 import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
 import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
 
@@ -96,6 +97,10 @@ export interface ControllerDeps {
   tickMs?: number;
   /** how often the files, workflows and decisions are read (ms) */
   slowMs?: number;
+  /** R6 (H141): the chat-turn holds' watch (src/workbench/turn-holds.ts): how often their names are listed (ms), and a test's
+   *  FAKE reading of them; `holdWatch: false` watches through the listing alone */
+  holdsEveryMs?: number;
+  holdWatch?: boolean;
   /** R5 (H131; the finish line, item 3): the chat's fixes done here (absent: the real modules; a test gives FAKE ones) */
   setup?: Partial<SetupDeps>;
 }
@@ -142,8 +147,18 @@ export class Controller {
   private readonly frameRead: { running: boolean; again: boolean; at: number; timer: NodeJS.Timeout | null } = { running: false, again: false, at: 0, timer: null };
   /** R5 (H131): the receipts this Workbench verified (src/utils/receipts.ts verifyReceiptIn), by the chain as read and the hash */
   private verified: { key: string; hash: string; v: { ok: true } | { ok: false; reason: string } } | null = null;
+  /**
+   * R6 (H141; the interaction review of a77d80d, defect 3): the project's chat-turn holds, watched (src/workbench/turn-holds.ts):
+   * another process's turn shows in the run line and is what x stops as soon as its hold is written, and its end as soon as
+   * the hold is let go, not at the frame's next reading; x and Enter on Stop the turn read them again before they answer.
+   */
+  private readonly holds: HoldWatch;
 
   constructor(private readonly d: ControllerDeps) {
+    this.holds = new HoldWatch({
+      root: () => this.data.project.root, now: () => this.now(), onChange: (r) => this.onHolds(r),
+      ...(d.holdsEveryMs ? { everyMs: d.holdsEveryMs } : {}), ...(d.holdWatch === false ? { watch: false } : {}),
+    });
     this.setup = { ...realSetupDeps(d.env), ...(d.setup ?? {}) };
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
     const project = projectView(d.workspace.project, d.env);
@@ -412,6 +427,20 @@ export class Controller {
     this.emit();
   }
 
+  /** Studio's cards for the project shown (src/studio/project-cards.ts), from the records as this Workbench read them. */
+  private cardsNow(): { cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] } {
+    const p = this.data.project;
+    const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
+    return { cards: r.cards, notes: r.notes, operations: r.operations ?? [] };
+  }
+
+  /** R6 (H141): Studio's cards read again once they have been read (a job started, moved or ended); the cards as read stay drawn
+   *  meanwhile, and when a reading fails. */
+  private refreshCards(): void {
+    if (this.data.studio.state !== 'ready') return;
+    try { this.data.studio = { state: 'ready', value: this.cardsNow(), at: this.now() }; } catch { /* the cards as last read */ }
+  }
+
   /** What a workspace reads when it is first opened (and again on [r]). */
   private loadFor(ws: WorkspaceId, force = false): void {
     if (ws === 'overview') {
@@ -421,13 +450,7 @@ export class Controller {
       }, force);
     }
     // R5 (H131): Home's preview says Studio's board too
-    if (ws === 'studio' || ws === 'connections') {
-      void this.lazy('studio', async () => {
-        const p = this.data.project;
-        const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
-        return { cards: r.cards, notes: r.notes, operations: r.operations ?? [] };
-      }, force);
-    }
+    if (ws === 'studio' || ws === 'connections') void this.lazy('studio', async () => this.cardsNow(), force);
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
     // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown); R5 (H137): tab 7 too
     if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
@@ -437,6 +460,8 @@ export class Controller {
 
   start(): void {
     void this.loadProducers();
+    // R6 (H141): the chat-turn holds, watched from now on
+    this.holds.start();
     const tick = this.d.tickMs ?? 1000;
     const slow = this.d.slowMs ?? 5000;
     this.timers.push(setInterval(() => this.onTick(), tick));
@@ -478,8 +503,38 @@ export class Controller {
       // pipeline are read again (the frame at most once a second)
       this.readPipeline();
       this.refreshFrame();
+      // R6 (H141; REMAINING-DEFECTS #31): and Studio's cards, which Home's preview and Studio draw: read once when first shown,
+      // they said a workflow was "not run yet" above LAST RUN's "completed" for the same run
+      this.refreshCards();
     }
     if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
+  }
+
+  /**
+   * R6 (H141; the interaction review of a77d80d, defect 3): the project's chat-turn holds differ from the last reading: a turn
+   * began or ended in another process. The run line, Stop current and the chat's actions follow at once (src/workbench/hub.ts
+   * chatTurnNow reads the holds when they are no older than the frame); a hold let go is a turn that has ended, its receipt
+   * sealed by then, so the turns, the conversation and the pipeline are read again for its end; the frame follows (at most
+   * once a second).
+   */
+  private onHolds(r: HoldsReading): void {
+    if (this.disposed || !sameFolder(r.root, this.data.project.root)) return;
+    const before = this.data.holds;
+    this.data.holds = r;
+    if ((before?.turns ?? []).some((t) => !r.turns.some((x) => x.id === t.id))) {
+      const root = this.data.project.root;
+      try { this.data.turns = readTurns(this.chain(), root); } catch { /* the next reading */ }
+      this.data.chat = readChatTail(root);
+      this.readPipeline();
+    }
+    if (this.ui.workspace === 'control') this.readTab('control');
+    this.refreshFrame();
+    this.emit();
+  }
+
+  /** R6 (H141): the holds read now, before a key that acts on a turn answers (x, Enter on Stop the turn). */
+  private holdsNow(): void {
+    this.data.holds = this.holds.readNow();
   }
 
   /** Follow active project: a project chosen in another surface moves this Workbench (else it says it is pinned). */
@@ -497,6 +552,7 @@ export class Controller {
     if (this.ui.overlay?.kind === 'needs-you') this.ui.overlay.answer('deny');
     this.turnAbort?.abort();
     this.disposed = true;
+    this.holds.close();
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
     if (this.frameRead.timer) { clearTimeout(this.frameRead.timer); this.frameRead.timer = null; }
@@ -846,6 +902,14 @@ export class Controller {
     if (region === 'right' && this.hubColumn()) {
       const d = this.last?.regions.right;
       if (d) this.wheel('right', d, delta);
+      return;
+    }
+    // R6 (H141; the interaction review of a77d80d, defect 6): a box with no rows to select (the Keys list, a message) scrolls by
+    // the keys it lists, as the wheel scrolls it: ↑ ↓ (k j) a row, PgUp PgDn a page, Home End to its first or last rows; its
+    // title says which rows it shows (a–b of n)
+    if (region === 'center' && this.ui.overlay && !this.itemsNow('center')?.length) {
+      const d = this.last?.regions.center;
+      if (d) this.wheel('center', d, delta);
       return;
     }
     const list = this.listOf(region);
@@ -1536,10 +1600,15 @@ export class Controller {
     const named = stopWords(this.data, this.selected(), this.ui.workspace);
     const target = named.target;
     if (!target) {
+      // R6 (H141; the interaction review of a77d80d, defect 3): the holds read now, before x answers: a turn another process
+      // began since the last look is what x stops, so x never says nothing runs while a turn is held. A turn the screen named
+      // that has ended since is still the one asked (its process refuses, and x says it had ended).
+      this.holdsNow();
+      const turn = stopWords(this.data, this.selected(), this.ui.workspace).turn ?? named.turn;
       // R5 (H131; the QA round's defect 1): a chat turn is what runs: this Workbench's own stops here; another surface's there
-      if (named.turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
+      if (turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
       // R5 (H131; the QA of e7f853e, item 16): another surface's turn is asked to stop, by its id, as its own key would stop it
-      if (named.turn) { this.askTurnStop(named.turn, 'x'); return; }
+      if (turn) { this.askTurnStop(turn, 'x'); return; }
       this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
       return;
     }
@@ -1595,6 +1664,9 @@ export class Controller {
    */
   async runAction(a: WorkspaceAction | undefined): Promise<void> {
     if (!a) { this.say(pageActions(this.ctx()).why ? `No action: ${pageActions(this.ctx()).why}` : 'No action on this tab.', 'secondary'); return; }
+    // R6 (H141; the interaction review of a77d80d, defect 3): Stop the turn reads the holds before it answers, even where the bar
+    // drew it not available a moment before (a turn another process began since the last look)
+    if (routeOf(a).kind === 'abort') { this.stopTurnAction(a); return; }
     if (!a.enabled) { this.say(`${a.n} ${a.label}: not now: ${a.why ?? 'not available'}`, 'secondary'); return; }
     const r = routeOf(a);
     switch (r.kind) {
@@ -1620,14 +1692,7 @@ export class Controller {
           [{ text: 'On OpenRouter, the REPL\'s /model switches its session\'s model (and says its price); /model free lists the free ones. Nothing was run from here.', role: 'secondary' }],
         ] });
         return;
-      case 'abort': {
-        const turn = chatTurnNow(this.data);
-        if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); }
-        // R5 (H131; the QA of e7f853e, item 16): Enter on Stop the turn asks another surface's turn to stop, as x does
-        else if (turn) this.askTurnStop(turn, 'Enter');
-        else this.say('No chat turn is being answered: nothing to stop.', 'secondary');
-        return;
-      }
+      case 'abort': this.stopTurnAction(a); return;
       case 'run': {
         const doc = this.data.workflows.docs.find((d) => d.rel === r.doc);
         const block = doc?.blocks.find((b) => b.name === r.block);
@@ -1648,6 +1713,20 @@ export class Controller {
         this.open({ kind: 'message', title: `Run it in ${r.where}`, lines });
       }
     }
+  }
+
+  /**
+   * Enter on Stop the turn (the chat's action): this Workbench's own turn stops here; another surface's is asked to stop by its
+   * identity, as x does (R5, H131; the QA of e7f853e, item 16). R6 (H141): the holds are read first, so a turn another process
+   * began since the last look is stopped, and a turn the bar named that has ended since is asked (its process says it ended).
+   */
+  private stopTurnAction(a: WorkspaceAction): void {
+    const shown = chatTurnNow(this.data);
+    this.holdsNow();
+    const turn = chatTurnNow(this.data) ?? shown;
+    if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); return; }
+    if (turn) { this.askTurnStop(turn, 'Enter'); return; }
+    this.say(a.enabled ? 'No chat turn is being answered: nothing to stop.' : `${a.n} ${a.label}: not now: ${a.why ?? 'no chat turn is being answered'}`, 'secondary');
   }
 
   /** What Enter does to the selection: the action its words name. */
@@ -1802,8 +1881,11 @@ export class Controller {
   /** R4 (H112): the wheel over a region scrolls its list by `delta` rows: the view only (no selection, no focus moves). */
   private wheel(region: Region, d: NonNullable<Frame['regions'][Region]>, delta: number): void {
     const max = Math.max(0, d.total - d.height);
-    const next = Math.max(0, Math.min(max, d.scroll + delta));
-    if (next === d.scroll) return;
+    // R6 (H141): from where the last key or tick left it (two keys read before the next frame was drawn scroll twice, never
+    // twice from the frame drawn before them), else where the last frame drew it
+    const from = Math.max(0, Math.min(max, this.ui.scroll[d.list] ?? d.scroll));
+    const next = Math.max(0, Math.min(max, from + delta));
+    if (next === from) return;
     this.ui.scroll[d.list] = next;
     this.ui.wheel[d.list] = true;
     delete this.ui.anchor[d.list];
