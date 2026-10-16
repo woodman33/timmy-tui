@@ -326,7 +326,8 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         "with the record and receipt behind it kept in the note's meta. The cards are the project's workflow documents, parameter files, /iterate flows, " +
         'VoxVision records and Control Room runs, read from their records by the board\'s own readers once the REPL has named the project to the canvas (/canvas open). ' +
         'Call it without a card to list the cards (nothing is placed); then with one card\'s id as listed, for example flow:f1a2b3c4d. ' +
-        'R5: a placed card arrives as a draft the person accepts or discards on the board.',
+        'R5: a placed card arrives as a draft the person accepts or discards on the board. ' +
+        "R6: the list also names the project's artifacts (artifact:vox:v…, artifact:run:o…, artifact:receipt:…): one placed is a card that shows it (a VoxVision record's image with what was measured over it, a run's outputs and receipts, a receipt verified now) and opens its preview.",
       inputSchema: z.object({ card: z.string().min(1).max(400).optional().describe('A card id as the list gives it; leave it out to list the cards') }),
       outputSchema: answer,
       // R5 (H133): placing a card is a write, so a draft; listing the cards draws nothing

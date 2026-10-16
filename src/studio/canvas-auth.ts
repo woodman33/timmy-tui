@@ -28,8 +28,11 @@ import { CardRelay, type SessionCheck } from './card-relay.js';
 import type { NamedProject, ProjectLink } from './project-link.js';
 import { pausedRefusal } from './session-pause.js';
 
-/** The tldraw shape types of Timmy Canvas's drawn cards (companion/studio-canvas/src/cards.js CARD_SHAPES). */
-export const DRAWN_CARD_TYPES: ReadonlySet<string> = new Set(['timmy-workflow', 'timmy-params', 'timmy-result']);
+/**
+ * The tldraw shape types of Timmy Canvas's drawn cards (companion/studio-canvas/src/cards.js CARD_SHAPES). R6 (H145): and the
+ * artifact card (companion/studio-canvas/src/artifacts.js), whose props name its project the same way.
+ */
+export const DRAWN_CARD_TYPES: ReadonlySet<string> = new Set(['timmy-workflow', 'timmy-params', 'timmy-result', 'timmy-artifact']);
 /**
  * A drawn card's identity and kept detail: what a page session of another project neither reads (data, readAt) nor changes
  * (all of them). `data` is the kept detail (each block's command, each parameter's value, a result's facts); the rest name the

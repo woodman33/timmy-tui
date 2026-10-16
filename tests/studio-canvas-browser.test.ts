@@ -125,7 +125,9 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       await page.waitForTimeout(300);
       // Timmy's own elements: the status and the panel. tldraw's zones present at this size (no waiting for absent ones).
       const zones: Array<[string, Box]> = [];
-      for (const zone of ['.tlui-menu-zone', '.tlui-style-panel__wrapper', '.tlui-main-toolbar', '.tlui-navigation-panel']) {
+      // R6 (H145): the toolbar as drawn (.tlui-main-toolbar__inner), as R5 (H137) ruled in tests/studio-panel-layout-browser.test.ts:
+      // .tlui-main-toolbar is a full-width row that draws nothing at the left, where the panel may reach down to the navigation panel
+      for (const zone of ['.tlui-menu-zone', '.tlui-style-panel__wrapper', '.tlui-main-toolbar__inner', '.tlui-navigation-panel']) {
         const box = await (await page.$(zone))?.boundingBox();
         if (box) zones.push([zone, box]);
       }

@@ -383,6 +383,69 @@
   #kept ol { margin: 6px 0 0; }
   #kept li { color: var(--timmy-text, #F2EFE9); }
   #kept time { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R6 (H145): the shown project's artifacts (src/artifacts.js). B10: the chrome on the tokens; the observed image keeps its own
+     colours; what was measured over it is drawn in silver (generated dashed, not vouched for dotted), each labelled in words; green
+     only for a receipt that verifies now (✓ with its words); a receipt that does not verify is amber with ✕; FAKE said in words. */
+  #artifacts-note { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #artifacts-note[hidden] { display: none; }
+  #artifacts-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.aitem { display: grid; gap: 2px; padding: 5px 0; }
+  #side li.aitem + li.aitem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .aitem-kind { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .aitem-title { font-weight: var(--timmy-weight-strong, 600); }
+  #side .aitem-fake, .ta-fake { font-size: 11px; letter-spacing: .06em; padding: 0 5px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; color: var(--timmy-text, #F2EFE9); }
+  #side .aitem-state, #side .aitem-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #side .aitem-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .ta-r-verified { color: var(--timmy-live, #28FE14); }
+  .ta-r-failed { color: var(--timmy-failure, #FFB000); }
+  .ta-r-none { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview { display: grid; gap: 4px; padding: 6px 8px; border: 1px solid var(--timmy-line-strong, #444444); border-left: 3px solid var(--timmy-line-strong, #444444); border-radius: 4px; background: var(--timmy-raised, #070707); overflow-wrap: anywhere; }
+  #artifact-preview[hidden] { display: none; }
+  #artifact-preview h2 { flex: 1 1 auto; margin: 0; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); }
+  #artifact-preview h3 { margin: 6px 0 2px; font-size: inherit; font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-dl { margin: 0; display: grid; gap: 1px; }
+  #artifact-preview .rd-dl dt { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-dl dd { margin: 0 0 4px 8px; }
+  #artifact-preview .rd-note { margin: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview .rd-refused { color: var(--timmy-attention, #FFB000); }
+  #artifact-preview .rd-cmd { font: inherit; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 4px; padding: 0 4px; user-select: text; }
+  .ap-fake, .ta-fake-words { margin: 0; padding-left: 6px; border-left: 3px solid var(--timmy-line-strong, #444444); color: var(--timmy-text, #F2EFE9); }
+  .ap-fake[hidden] { display: none; }
+  .ap-receipt { margin: 0; }
+  /* the artifact card on the board */
+  .ta { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
+    font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
+  .ta-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
+  .ta p, .ta ul, .ta figure { margin: 0; }
+  .ta-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  .ta-title { flex: 1 1 auto; font-weight: var(--timmy-weight-heading); overflow-wrap: anywhere; }
+  .ta-badge { flex: none; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); }
+  .ta-project, .ta-note, .ta-read, .ta-caption, .ta-k, .ta-mode { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  .ta-warn { color: var(--timmy-attention); }
+  .ta-state, .ta-verdict, .ta-path { overflow-wrap: anywhere; }
+  .ta-figure { display: grid; gap: 4px; }
+  .ta-stage { position: relative; line-height: 0; background: var(--timmy-ground); border: 1px solid var(--timmy-line); }
+  .ta-stage img { display: block; width: 100%; height: auto; }
+  .ta-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .ta-ov { fill: none; stroke: var(--timmy-silver, #E8E4D9); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .ta-ov.is-generated { stroke-dasharray: 7 4; }
+  .ta-ov.is-unverified { stroke-dasharray: 2 4; stroke: var(--timmy-text-secondary); }
+  .ta-legend { list-style: none; padding: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
+  .ta-ov-mark { color: var(--timmy-silver, #E8E4D9); }
+  .ta-files { list-style: none; padding: 0; display: grid; gap: 2px; }
+  .ta-section { display: grid; gap: 2px; }
+  .ta-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
+  .ta :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+  #references-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side li.ritem { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 0; }
+  #side li.ritem + li.ritem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .ritem-path { overflow-wrap: anywhere; }
+  #side .ritem-size, #side .ritem-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #artifact-preview-images { display: grid; gap: 8px; }
+  #artifact-preview-images figure, #artifact-preview-images ul { margin: 0; }
+  #artifact-preview-images .ta-legend, #artifact-preview-images .ta-caption { font-size: 12px; }
+  /* the preview needs room for its images: the panel is wider while it is open (the canvas keeps the rest) */
+  #side:has(#artifact-preview:not([hidden])) { width: min(560px, calc(100vw - 16px)); }
 </style>
 </head>
 <body>
@@ -416,8 +479,27 @@
         <p id="run-detail-read" class="rd-note"></p>
         <div id="run-detail-body"></div>
       </section>
+      <!-- R6 (H145): Studio's VoxVision preview of an artifact card's record (src/artifacts.js openVox) -->
+      <section id="artifact-preview" hidden aria-labelledby="artifact-preview-title">
+        <div class="rd-head"><h2 id="artifact-preview-title">Preview</h2><button id="artifact-preview-close" type="button" title="Closes this preview">Close</button></div>
+        <p id="artifact-preview-read" class="rd-note"></p>
+        <p id="artifact-preview-fake" class="ap-fake" hidden></p>
+        <div id="artifact-preview-images"></div>
+        <div id="artifact-preview-body"></div>
+      </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
       <details id="kept" hidden><summary>Kept apart (<span id="kept-count">0</span>)</summary><ol id="kept-list" aria-label="What came back for another board than the one on screen, the newest first"></ol></details>
+      <!-- R6 (H145): the shown project's artifacts (src/artifacts.js): its VoxVision records, runs and receipts, each placed on its
+           board as a card that shows it and opens its preview -->
+      <details id="artifacts"><summary>Artifacts <span id="artifacts-name">reading…</span></summary>
+        <p id="artifacts-note" hidden></p>
+        <ol id="artifact-list" aria-label="This project's artifacts: its VoxVision records, runs and receipts"></ol>
+      </details>
+      <!-- R6 (H145): the shown project's images (src/references.js): one added is copied into its board's folder and shown on the
+           board with its file name and where it came from -->
+      <details id="references"><summary>Reference images <span id="references-name">reading…</span></summary>
+        <ol id="reference-list" aria-label="This project's images (PNG, JPEG, WebP, GIF) to add to its board"></ol>
+      </details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>
