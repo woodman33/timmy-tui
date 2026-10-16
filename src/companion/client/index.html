@@ -330,19 +330,25 @@
       </div>
     </section>
 
-    <!-- 9 · Tools & MCP (references 08, 17) -->
-    <section id="ws-tools" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-tools" data-ws-page="tools" hidden>
-      <div class="cols cols-two">
+    <!-- 9 · Tools & MCP (references 08, 17). R6 (H142): the inspector, drawn by panel-tools.js into the host below (its routes:
+         src/companion/panels/tools.ts): the servers and their tools, a request checked against its schema, calls through both
+         MCP-to-CLI routes with their wire trace, record and receipt, and the project's newest calls. It fills the tab; under it
+         (the tab scrolls) the workspace frame's own words for the two routes and this tab's actions in full. -->
+    <section id="ws-tools" class="ws-page ws-tools-page" role="tabpanel" aria-labelledby="ws-tab-tools" data-ws-page="tools" hidden>
+      <div data-panel-host="tools" class="tools-host"><p class="empty">Reading the inspector…</p></div>
+      <div class="cols cols-two tools-frame-cols">
         <section class="box" aria-labelledby="tools-conn-title">
-          <h2 id="tools-conn-title" class="box-title">MCP to CLI: both routes</h2>
-          <div class="box-body"><div class="conn-grid" data-conns-for="tools"><p class="empty">Reading the workspace…</p></div></div>
+          <h2 id="tools-conn-title" class="box-title">MCP to CLI: both routes, as the workspace frame words them</h2>
+          <div class="box-body">
+            <p class="empty">The frame's word is about a connection, which Timmy keeps no check of; the inspector above says each route's rung (installed or not) and its last call as this project's records hold it.</p>
+            <div class="conn-grid" data-conns-for="tools"><p class="empty">Reading the workspace…</p></div>
+          </div>
         </section>
         <section class="box" aria-labelledby="tools-acts-title">
           <h2 id="tools-acts-title" class="box-title">This tab's actions, in full</h2>
           <div class="box-body"><div class="acts-full" data-acts-for="tools"></div></div>
         </section>
       </div>
-      <div data-panel-host="tools"></div>
     </section>
 
     <!-- 0 · Logs & Receipts (reference 10): raw lines as they reached this page, structured events, and the latest receipt -->

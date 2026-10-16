@@ -695,3 +695,135 @@ body.slate-absent p { max-width: 72ch; }
   .log-msg { animation: none; }
   *, ::before, ::after { transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ==========================================================================================================================
+   R6 (H142): the Tools & MCP inspector (tab 9; references 08 and 17; drawn by panel-tools.js). Its steps and its four panes
+   fill the tab (Ingest & tools, Request, the JSON-RPC wire & schema gate, Result & receipt); under them the tab scrolls to the
+   project's newest calls and the frame's own words for the routes. Amber: the one primary next step, the next step, what is
+   picked, NEEDS YOU and a failure (with ✕ and its word). Green only through .is-live (an answer observed now) and
+   .is-verified (a passed check, a receipt verified now). The flame graph's bars are structure and text colors.
+   ========================================================================================================================== */
+
+.ws-tools-page { overflow-y: auto; overflow-x: hidden; }
+/* the host and the panel lay out nothing of their own: their parts are the tab's own rows */
+.ws-tools-page > .tools-host, .tools-host > .tools-panel { display: contents; }
+.tools-steps { flex: 0 0 auto; list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.tools-step { display: flex; flex-direction: column; gap: 0; min-width: 0; flex: 1 1 0; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 3px 8px; font-size: 11px; color: var(--timmy-text-secondary); }
+.tools-step-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); white-space: nowrap; }
+.tools-step-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools-step.is-done .tools-step-n { color: var(--timmy-text); }
+.tools-step.is-next { border-color: var(--timmy-accent); }
+.tools-step.is-next .tools-step-n { color: var(--timmy-accent); }
+.tools-step.is-verified { border-color: var(--timmy-live); }
+.tools-step.is-verified .tools-step-n { color: var(--timmy-live); }
+.tools-grid { flex: 0 0 calc(100% - 46px); min-height: 340px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; }
+.tools-grid > .box { margin-top: 8px; min-height: 0; }
+.tools-callsbox, .tools-frame-cols { flex: 0 0 auto; }
+.tools-frame-cols { margin-bottom: 4px; }
+.tools-frame-cols > .box { max-height: 46vh; }
+
+/* words */
+.tools-panel .is-live, .tools-panel .is-verified { color: var(--timmy-live); }
+.tools-sub { font-size: 11px; font-weight: var(--timmy-weight-strong); letter-spacing: 0.06em; color: var(--timmy-text-secondary); margin-top: 4px; }
+.tools-small { font-size: 11px; color: var(--timmy-text-secondary); line-height: 1.5; overflow-wrap: anywhere; }
+.tools-dim { color: var(--timmy-text-secondary); }
+.tools-attn { color: var(--timmy-failure); }
+.tools-break { overflow-wrap: anywhere; word-break: break-word; }
+.tools-pre { font-family: var(--timmy-font-mono); font-size: 11px; line-height: 1.5; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 6px 8px; color: var(--timmy-text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.tools-pre.tools-attn { color: var(--timmy-failure); }
+.tools-details > summary { cursor: pointer; font-size: 11px; color: var(--timmy-text-secondary); padding: 2px 0; }
+.tools-details > summary:hover { color: var(--timmy-text); }
+
+/* ingest: the modes, the routes, the servers */
+.tools-modes { display: flex; flex-direction: column; gap: 2px; }
+.tools-modegrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 14px; }
+.tools-mode { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 6px; align-items: baseline; font-size: 12px; cursor: pointer; color: var(--timmy-text); }
+.tools-oneline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tools-sub.row-between { align-items: baseline; }
+.tools-tool strong .tools-small { font-weight: var(--timmy-weight-body); margin-left: 4px; }
+.tools-mode input[type="radio"] { accent-color: var(--timmy-accent); }
+.tools-mode.is-off { cursor: default; color: var(--timmy-text-secondary); }
+.tools-mode-state { font-size: 11px; color: var(--timmy-text); justify-self: end; white-space: nowrap; }
+.tools-mode-state.is-off { color: var(--timmy-text-secondary); }
+.tools-mode-words { grid-column: 2 / -1; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.tools-routes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.tools-routes > .tools-sub { grid-column: 1 / -1; }
+.tools-route { border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 4px 8px; font-size: 12px; background: var(--timmy-surface); min-width: 0; }
+.tools-rung { font-size: 11px; color: var(--timmy-text); white-space: nowrap; }
+.tools-servers { display: flex; flex-direction: column; gap: 4px; }
+.tools-server, .tools-tool { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 4px 8px; font-size: 12px; cursor: pointer; font-family: var(--timmy-font-mono); }
+.tools-server:hover, .tools-tool:hover { border-color: var(--timmy-text-secondary); }
+.tools-server.is-picked, .tools-tool.is-picked { border-color: var(--timmy-accent); }
+.tools-server-name { overflow-wrap: anywhere; }
+.tools-transport { font-size: 11px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+.tools-typedrow { display: flex; gap: 6px; align-items: center; }
+.tools-typed, .tools-field input, .tools-field select, .tools-field textarea { flex: 1 1 auto; min-width: 0; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text); border-radius: 4px; padding: 3px 8px; font-size: 12px; font-family: var(--timmy-font-mono); }
+.tools-typed::placeholder, .tools-field textarea::placeholder { color: var(--timmy-text-secondary); }
+.tools-listctl, .tools-callctl { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.tools-switch { display: inline-flex; gap: 0; border: 1px solid var(--timmy-line-strong); border-radius: 4px; overflow: hidden; }
+.tools-switch-btn { background: var(--timmy-ground); color: var(--timmy-text-secondary); border: 0; border-right: 1px solid var(--timmy-line-strong); padding: 2px 10px; font-size: 11px; font-weight: var(--timmy-weight-strong); cursor: pointer; font-family: var(--timmy-font-mono); }
+.tools-switch-btn:last-child { border-right: 0; }
+.tools-switch-btn.is-picked { color: var(--timmy-text); box-shadow: inset 0 0 0 1px var(--timmy-accent); }
+.tools-switch-btn:disabled { cursor: not-allowed; text-decoration: line-through; }
+/* the panel's actions: structure grey with their words; the one primary next step is the only amber fill */
+.tools-go { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text); padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: var(--timmy-weight-strong); cursor: pointer; font-family: var(--timmy-font-mono); text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.tools-go:hover { border-color: var(--timmy-text-secondary); }
+.tools-go.is-primary { background: var(--timmy-accent); border-color: var(--timmy-accent); color: var(--timmy-accent-ink); }
+.tools-go:disabled { color: var(--timmy-text-secondary); border-style: dashed; cursor: not-allowed; background: var(--timmy-ground); }
+.tools-toollist { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.tools-schematable { border-collapse: collapse; width: 100%; font-size: 11px; }
+.tools-schematable th, .tools-schematable td { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--timmy-line); vertical-align: top; overflow-wrap: anywhere; }
+.tools-schematable th { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); }
+.tools-schematable code { color: var(--timmy-text); }
+
+/* the request */
+.tools-form { display: flex; flex-direction: column; gap: 6px; }
+.tools-field { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid var(--timmy-line-strong); padding-left: 8px; }
+.tools-field label { font-size: 12px; color: var(--timmy-text); }
+.tools-field.is-invalid { border-left-color: var(--timmy-failure); }
+.tools-fielderr { font-size: 11px; color: var(--timmy-failure); overflow-wrap: anywhere; }
+.tools-fielderr:empty { display: none; }
+.tools-rule { font-size: 11px; color: var(--timmy-text); line-height: 1.5; overflow-wrap: anywhere; }
+.tools-rule.is-waiting { color: var(--timmy-attention); }
+.tools-cli { display: flex; flex-direction: column; gap: 4px; }
+.tools-cliline { display: flex; flex-direction: column; gap: 1px; }
+.tools-cliline .cmd { font-size: 11px; }
+
+/* the wire: one bar per request, its time; the gate's checks */
+.tools-flame { width: 100%; height: auto; display: block; font-family: var(--timmy-font-mono); }
+.tools-flame-label { fill: var(--timmy-text); font-size: 10.5px; }
+.tools-flame-label.is-session, .tools-flame-label.is-call { fill: var(--timmy-text-secondary); }
+.tools-flame-bar { fill: var(--timmy-line-strong); stroke: var(--timmy-text-secondary); stroke-width: 0.6; }
+.tools-flame-bar.is-tools-call { fill: var(--timmy-text); }
+.tools-flame-bar.is-session { fill: var(--timmy-surface); stroke: var(--timmy-line-strong); }
+.tools-flame-bar.is-call { fill: none; stroke: var(--timmy-text-secondary); stroke-dasharray: 3 2; }
+.tools-flame-bar.is-error { stroke: var(--timmy-failure); stroke-width: 1.2; }
+.tools-flame-axis { fill: var(--timmy-text-secondary); font-size: 10px; }
+.tools-spans, .tools-checks, .tools-notes { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--timmy-text); }
+.tools-notes { color: var(--timmy-text-secondary); }
+
+/* the result and its receipt */
+.tools-result { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.tools-outcome { display: flex; flex-direction: column; gap: 2px; }
+.tools-figure { display: flex; flex-direction: column; gap: 2px; }
+.tools-img { max-width: 100%; width: 192px; height: auto; image-rendering: pixelated; border: 1px solid var(--timmy-line); background: var(--timmy-ground); }
+.tools-receipt { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 6px 8px; background: var(--timmy-surface); }
+.tools-needs { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--timmy-attention); border-radius: 4px; padding: 8px 10px; background: var(--timmy-surface); color: var(--timmy-text); font-size: 12px; }
+.tools-needs strong { color: var(--timmy-attention); letter-spacing: 0.06em; }
+.tools-refused { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--timmy-failure); border-radius: 4px; padding: 8px 10px; font-size: 12px; }
+.tools-refused strong { color: var(--timmy-failure); }
+
+/* the newest calls */
+.tools-callstable { border-collapse: collapse; width: 100%; font-size: 11px; }
+.tools-callstable th, .tools-callstable td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--timmy-line); vertical-align: baseline; }
+.tools-callstable th { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); }
+.tools-callstable tr.is-shown td { background: var(--timmy-surface); }
+.tools-callstable tr.is-shown td:first-child { box-shadow: inset 2px 0 0 var(--timmy-accent); }
+
+/* a narrow screen: the panes stack and the page scrolls (the rule for every tab above) */
+@media (max-width: 860px) {
+  .ws-tools-page { overflow: visible; }
+  .tools-grid { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .tools-routes { grid-template-columns: minmax(0, 1fr); }
+  .tools-step { flex: 1 1 40%; }
+}
