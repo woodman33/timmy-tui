@@ -139,8 +139,9 @@ describe('the `?` Keys list in a terminal scrolls from the keyboard (R6 H141; tm
         await waitScreen(pane, { what: `the Keys list closed (${w}x${h})`, test: (s) => keysPanel(s) === null, ms: 10_000 });
       }
       await keys('C-c');
+      // (it stopped nothing: R6 H141, exit 0)
       const after = await waitScreen(pane, { what: 'the Workbench ended', re: /EXIT=\d+/, ms: 20_000 });
-      expect(after).toMatch(/EXIT=\d+/);
+      expect(after).toMatch(/EXIT=0\b/);
     } finally {
       try { tmux('kill-server'); } catch { /* gone */ }
     }

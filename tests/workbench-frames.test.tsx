@@ -321,12 +321,14 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(hrefs).toEqual([]); // nothing opens before the press
     await press(f.r, 'c');
     await sleep(150);
-    expect(f.text()).toContain('The Companion opened in your browser (http://127.0.0.1:4321/), through a private page that carries its key');
+    // (R6 H141: on the tab shown here, Home: the page opens the tab its address names)
+    expect(f.text()).toContain('The Companion opened in your browser (http://127.0.0.1:4321/?tab=home), through a private page that carries its key');
     expect(f.text()).not.toContain(key);
     expect(hrefs).toHaveLength(1);
     expect(hrefs[0]).toMatch(/^file:\/\//);
     const page = fileURLToPath(hrefs[0]);
     expect(readFileSync(page, 'utf8')).toContain(key);
+    expect(readFileSync(page, 'utf8')).toContain(`http://127.0.0.1:4321/?tab=home#token=${key}`);
     expect(statSync(page).mode & 0o777).toBe(0o600);
     // a second press opens the same server again: one start
     await press(f.r, 'c');
