@@ -121,10 +121,14 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         const region = (await box(page, '#side-scroll'))!;
         const said = (await box(page, '#project-said'))!;
         const foot = (await box(page, '#boards'))!;
-        // the panel on screen, above tldraw's toolbar; it never scrolls as a whole
+        // the panel on screen, above tldraw's toolbar; it never scrolls as a whole. R5 (H137): the toolbar as drawn (its inner part;
+        // .tlui-main-toolbar is a full-width container that draws nothing at the left), and tldraw's navigation panel: whichever is
+        // under the panel, the panel ends above it (on a wide window it now reaches down to the navigation panel)
         expect(side.left >= 0 && side.top >= 0 && side.right <= size.width && side.bottom <= size.height, JSON.stringify(side)).toBe(true);
-        const toolbar = await box(page, '.tlui-main-toolbar');
-        if (toolbar && toolbar.w > 0 && toolbar.left < side.right) expect(side.bottom, 'above the toolbar').toBeLessThanOrEqual(toolbar.top);
+        for (const sel of ['.tlui-main-toolbar__inner', '.tlui-navigation-panel']) {
+          const under = await box(page, sel);
+          if (under && under.w > 0 && under.left < side.right && under.right > side.left) expect(side.bottom, `above ${sel}`).toBeLessThanOrEqual(under.top);
+        }
         expect(await page.$eval('#side', (e) => e.scrollHeight <= e.clientHeight + 1)).toBe(true);
         // one region scrolls, and no list scrolls inside it
         expect(await page.$eval('#side-scroll', (e) => e.scrollHeight > e.clientHeight)).toBe(true);

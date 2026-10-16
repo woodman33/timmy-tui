@@ -90,6 +90,19 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       await page.waitForSelector('#drafts:not([hidden])');
       expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · job draft-accept · from revision \d+$/);
       expect(await page.locator(`#draft-list li[data-draft="${id}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
+      // R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): while the draft waits, Accept and New
+      // board's Open are outlined, no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's
+      // selection), and the drafts' heading is off-white
+      const amber = await page.evaluate(() => {
+        const AMBER = 'rgb(255, 176, 0)';
+        const fills = [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === AMBER)
+          .map((e) => `${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ''}${typeof (e as HTMLElement).className === 'string' && (e as HTMLElement).className ? `.${(e as HTMLElement).className}` : ''}`);
+        const accept = document.querySelector('#draft-list button.draft-accept')!;
+        return { fills, accept: getComputedStyle(accept).backgroundColor, open: getComputedStyle(document.getElementById('board-open')!).backgroundColor, heading: getComputedStyle(document.querySelector('#drafts h2')!).color, primaries: document.querySelectorAll('#frame-acts li.is-primary').length };
+      });
+      expect(amber.fills).toEqual([]);
+      expect([amber.accept, amber.open, amber.heading]).not.toContain('rgb(255, 176, 0)');
+      expect(amber.primaries).toBe(1);
       // the mark covers both shapes on screen (R5 H133: on the page, as the mark's box is measured: the canvas starts under the
       // workspace strip now, so tldraw's viewport is no longer the page's origin)
       const box = (await page.locator(`.timmy-draft-mark[data-draft="${id}"]`).boundingBox())!;

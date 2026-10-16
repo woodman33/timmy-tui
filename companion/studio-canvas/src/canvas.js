@@ -23,6 +23,8 @@ import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draf
 import { saveState } from './save-state.js';
 // R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
 import { createFrameStrip } from './frame.js';
+// R5 (H137; the QA round, defect 6): one time format, as the terminal Workbench and the companion show it
+import { clockOf, dateTimeOf } from './when.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -36,8 +38,20 @@ const GRANT_AT_LOAD = (() => {
 /** The tldraw version this bundle was built from (scripts/canvas/build.mjs). */
 const BUILT_WITH = __TLDRAW_VERSION__;
 const status = document.getElementById('status');
+/**
+ * The panel's status line. R5 (H137; QA defect 26): `text` may be a list of its parts, a part `{ live }` being an observed live
+ * connection (the bridge's socket open now): only that part is marked live, ● in green (index.html #status .is-live).
+ */
 const say = (text, kind) => {
-  status.textContent = text;
+  if (Array.isArray(text)) {
+    status.replaceChildren(...text.map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const live = document.createElement('span');
+      live.className = 'is-live';
+      live.textContent = `● ${part.live}`;
+      return live;
+    }));
+  } else status.textContent = text;
   status.dataset.kind = kind;
 };
 
@@ -108,9 +122,15 @@ function showStatus(editor) {
     say(`Not saved: ${canvas.refused}`, 'refused');
     return;
   }
-  const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${savedWords(saveState(canvas))}`;
+  // R5 (H137; QA defect 26): "Timmy connected" is the one observed live part (the bridge's socket is open now): it alone carries
+  // the live mark; the version, the license and the save are facts, not live observations
+  const text = [
+    `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · `,
+    canvas.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
+    ` · ${savedWords(saveState(canvas))}`,
+  ];
   // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
-  say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
+  say(text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
   if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 
@@ -507,15 +527,15 @@ let jobs = [];
 function selectedJobs(editor) {
   return new Set(editor.getSelectedShapes().map((shape) => shape.meta?.timmyJob).filter(Boolean));
 }
-/** A job's time: the clock time when it is today's, the date and time when it is older. The full time is the tooltip. */
+/**
+ * A job's time: the clock time when it is today's, the date and time when it is older. The full time is the tooltip. R5 (H137;
+ * the QA round, defect 6): in the one format (./when.js): 21:18:36, or 2026-10-14 21:18:36.
+ */
 function jobTime(at) {
   const when = new Date(at);
   if (Number.isNaN(when.getTime())) return { text: String(at), iso: String(at) };
   const today = new Date().toDateString() === when.toDateString();
-  const text = today
-    ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return { text, iso: at };
+  return { text: today ? clockOf(when) : dateTimeOf(when), iso: at };
 }
 /** What the Canvas row said the last time it could not show a job (no shapes of it on this page), by job. */
 const jobNotes = new Map();
@@ -951,6 +971,8 @@ function mount(snapshot) {
           attachEditor(editor);
           followEditor(editor);
           showStatus(editor);
+          // R5 (H137): the panel ends just above what tldraw draws under it
+          watchFoot();
           resolve(editor);
         },
       }),
@@ -997,6 +1019,44 @@ function startFrame() {
   const strip = document.getElementById('frame');
   if (!strip || frameStrip) return;
   frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
+}
+
+/**
+ * R5 (H137; the rehearsal: the panel's list ended 116 px above the window's foot, with room below it, on a wide window): where
+ * the panel may end (index.html #side, --side-foot): 8 px above the highest of tldraw's own bottom parts that sit under the panel
+ * (its navigation panel and minimap on a wide window; its toolbar and the row of actions over it on a narrow one), else 8 px above
+ * the window's foot. Measured once tldraw has laid them out, and again as they or the window change size.
+ */
+const FOOT_PARTS = '.tlui-navigation-panel, .tlui-minimap, .tlui-main-toolbar__inner, .tlui-help-menu';
+let footWatch = null;
+function measureFoot() {
+  const side = document.getElementById('side');
+  if (!side) return;
+  const s = side.getBoundingClientRect();
+  let top = window.innerHeight;
+  for (const part of document.querySelectorAll(FOOT_PARTS)) {
+    const b = part.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.right <= s.left || b.left >= s.right || b.top >= window.innerHeight) continue;
+    top = Math.min(top, b.top);
+  }
+  const foot = `${Math.max(8, Math.ceil(window.innerHeight - top) + 8)}px`;
+  if (document.documentElement.style.getPropertyValue('--side-foot') !== foot) document.documentElement.style.setProperty('--side-foot', foot);
+}
+function watchFoot() {
+  if (!footWatch) {
+    footWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => measureFoot()) : { observe() {}, disconnect() {} };
+    window.addEventListener('resize', () => requestAnimationFrame(measureFoot), { passive: true });
+  }
+  // tldraw lays its parts out after it mounts (and again for each board): they are looked for over the next frames, each watched
+  footWatch.disconnect();
+  let frames = 0;
+  const look = () => {
+    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom`)) footWatch.observe(part);
+    measureFoot();
+    frames += 1;
+    if (frames < 30 || (!document.querySelector('.tlui-main-toolbar__inner') && frames < 240)) requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
 }
 
 /**

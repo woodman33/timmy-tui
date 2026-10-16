@@ -137,23 +137,29 @@ describe('Timmy Canvas follows the active project, unless a board is pinned', ()
     // its own REPL names another project (its /project): the page follows
     await nameProject(w.port, w.token, { root: e.root, name: 'epsilon', holder: H });
     expect((await call(w.port, 'GET', '/api/project?detail=1', { headers: page })).json).toMatchObject({ project: { name: 'epsilon' }, via: 'repl' });
-    // another REPL names its project: refused, as before (the session was given by another REPL)
+    // another REPL names its project: refused, as before (the session was given by another REPL); R5 (H137): the session is
+    // paused, so the panel's reading is answered with a plain 200 that says why, and nothing of phi (src/studio/session-pause.ts)
     await nameProject(w.port, w.token, { root: f.root, name: 'phi', holder: H2 });
     const other = await call(w.port, 'GET', '/api/project?detail=1', { headers: page });
-    expect(other.status).toBe(401);
-    expect(other.json).toMatchObject({ session: 'project', error: expect.stringMatching(/given for another project/) });
+    expect(other.status).toBe(200);
+    expect(other.json).toEqual({ ok: false, session: 'project', error: expect.stringMatching(/given for another project/) });
+    expect(other.body).not.toContain('phi');
     // ... while a board pinned to a project it reached still reads it, and is not told which project the canvas shows
     const still = await call(w.port, 'GET', `/api/project?detail=1&project=${e.id}`, { headers: page });
     expect(still.status).toBe(200);
     expect(still.json).toMatchObject({ project: { name: 'epsilon' }, pinned: true, shown: null });
     expect(still.body).not.toContain('phi');
-    // a project the page never counted for: refused, with why; one this server never named: unknown
+    // a project the page never counted for: refused, with why; one this server never named: unknown. R5 (H137): a pinned board's
+    // reading is the panel's own too: to a session this server keeps, a plain 200 that says why, and nothing of the project
     const s2 = await pageSession(w.port, w.token);
     const never = await call(w.port, 'GET', `/api/project?detail=1&project=${a.id}`, { headers: bearer(s2) });
-    expect(never.status).toBe(401);
-    expect(never.json).toMatchObject({ ok: false, session: 'project', error: PIN_WORDS, pinned: true });
+    expect(never.status).toBe(200);
+    expect(never.json).toEqual({ ok: false, session: 'project', error: PIN_WORDS, pinned: true });
     const unknown = await call(w.port, 'GET', `/api/project?detail=1&project=${'0'.repeat(16)}`, { headers: page });
-    expect(unknown.status).toBe(401);
+    expect(unknown.status).toBe(200);
+    expect(unknown.json).toMatchObject({ ok: false, session: 'project', pinned: true });
+    // a session this server never made, refused as before (401)
+    expect((await call(w.port, 'GET', `/api/project?detail=1&project=${a.id}`, { headers: bearer('f'.repeat(64)) })).status).toBe(401);
     const unknownByToken = await call(w.port, 'GET', `/api/project?detail=1&project=${'0'.repeat(16)}`, { headers: bearer(w.token) });
     expect(unknownByToken.status).toBe(404);
     expect(unknownByToken.json).toMatchObject({ ok: false, error: PIN_UNKNOWN });
