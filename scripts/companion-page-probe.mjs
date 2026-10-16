@@ -152,8 +152,13 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
       return w;
     };
     const until = (fn, arg) => page.waitForFunction(fn, arg, { timeout: timeoutMs });
+    // R5 (H132's layout): a panel lives under one of the workspace's ten tabs (its data-ws), and the chat's two views
+    // under Chat's view switch; a package without workspace tabs keeps its flat buttons
     const tab = async (name) => {
-      await page.click(`[data-tab="${name}"]`);
+      const ws = await page.getAttribute(`#tab-${name}`, 'data-ws').catch(() => null);
+      if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+      if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+      else if (!ws) await page.click(`[data-tab="${name}"]`);
       await until((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p && p.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name);
     };
 
