@@ -3,27 +3,9 @@ import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync, readFil
 import { join } from 'path';
 import { theme } from '../tui/theme.js';
 
-// Ensure logs/ directory and all bounded log files exist automatically upon initialization
-try {
-  if (!existsSync('logs')) {
-    mkdirSync('logs');
-  }
-  const logFiles = [
-    'timmy-tui.log',
-    'companion.log',
-    'browser-launcher.log',
-    'workspace-launcher.log',
-    'agent-events.log'
-  ];
-  for (const file of logFiles) {
-    const logPath = join('logs', file);
-    if (!existsSync(logPath)) {
-      writeFileSync(logPath, '', 'utf-8');
-    }
-  }
-} catch (e) {
-  // Fail silently
-}
+// R5 lead: nothing is made when this module loads. Before, every process that imported it made logs/ and five empty log
+// files in whatever folder it started in (a project's Files listed them as its own); writeLog makes logs/ and a file when a
+// line is written, and each reader takes a missing file as an empty log.
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

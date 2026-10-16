@@ -15,12 +15,13 @@ import { dirname, join } from 'node:path';
 import type { OllamaProbe } from '../capabilities/ollama-row.js';
 import {
   TABS, WORKSPACE_SCHEMA, WORKSPACE_VERSION,
-  type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry,
+  type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry, type WorkspaceTurn,
 } from '../contracts/workspace.js';
 import { timmyHome } from '../setup/home.js';
 import { readSettings as readWorkbenchSettings } from '../workbench/settings.js';
 import { chainOf, readTurns, workbenchJson, type StateDeps, type WorkbenchJson } from '../workbench/state.js';
 import type { TurnRow } from '../workbench/model.js';
+import { took } from '../workbench/text.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
@@ -29,6 +30,7 @@ import { studioBaseUrl } from '../studio/config.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
+import { resolveChatRoute } from '../agent/chat-route.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -147,6 +149,20 @@ export function connectionOf(
   return { ...base, state: 'configured', words: 'set up, not checked yet (a setting is not a connection)', observedAt: null };
 }
 
+/**
+ * R5 lead (H131's finding): the Ollama address the check asks and the card names: the one the local chat asks (the setup's
+ * record, src/agent/chat-route.ts resolveChatRoute) when the chat is set to the local model, else OLLAMA_HOST (or
+ * OLLAMA_BASE_URL), else Ollama's default. Before, the card and the check asked OLLAMA_HOST or the default while the chat
+ * asked the recorded address, so a chat answering at its own address could be said "no answer".
+ */
+export function ollamaAddress(env: Env = process.env): string {
+  try {
+    const r = resolveChatRoute({ env });
+    if (r.kind === 'local' && !('error' in r.at)) return r.at.origin;
+  } catch { /* the setup's record not readable: the address below */ }
+  return (env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+}
+
 function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown']): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
@@ -155,7 +171,7 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
     configured: key !== null, setupWords: 'no key: timmy init --chat openrouter asks for it (typed hidden), or set OPENROUTER_API_KEY', setup: key ? 'timmy workspace check' : 'timmy init --chat openrouter',
     check: checks.openrouter, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}` } : {}),
   }));
-  const ollamaBase = env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+  const ollamaBase = ollamaAddress(env);
   // set up when the chat route is the local model, or when an address for it is set; otherwise it is optional
   const ollamaChosen = wb.route.kind === 'local' || Boolean(env.OLLAMA_HOST || env.OLLAMA_BASE_URL);
   out.push(connectionOf('ollama', 'Ollama (local models)', {
@@ -252,7 +268,9 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
   }
   if (route.kind === 'openrouter' && route.ready) {
     const k = conn('openrouter');
-    if (k?.state === 'refused' && !answeredSince(k, 'openrouter')) return { problem: 'key-refused', label: 'Give a working OpenRouter key (asked hidden)', command: 'timmy init --chat openrouter', effect: 'local change', words: `OpenRouter: ${k.words}. timmy init --chat openrouter asks for a key, typed hidden.` };
+    // R5 lead (H131's finding): with a key stored, `timmy init --chat openrouter` asks nothing and keeps the refused key;
+    // `timmy init --openrouter -` replaces it (read hidden at a terminal), as the REPL's /setup key does
+    if (k?.state === 'refused' && !answeredSince(k, 'openrouter')) return { problem: 'key-refused', label: 'Give a working OpenRouter key (read hidden)', command: 'timmy init --openrouter -', effect: 'local change', words: `OpenRouter: ${k.words}. timmy init --openrouter - reads a new key hidden at a terminal (or /setup key in the REPL); a key set in OPENROUTER_API_KEY or timmy-tui.config.json is used before the stored one.` };
   }
   return null;
 }
@@ -357,6 +375,20 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
 
 const tone = (e: { attention?: boolean; failed?: boolean }): LogTone => (e.failed ? 'failure' : e.attention ? 'attention' : 'neutral');
 
+const TURN_SURFACE: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+/**
+ * R5 lead (the finish line, item 3): a sealed chat turn as the frame carries it to every surface, in the words the Workbench's
+ * log gives it (src/workbench/hub.ts turnEntry): how it ended, where, the model, its receipt and how long it took.
+ */
+export function turnOf(t: TurnRow): WorkspaceTurn {
+  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
+  return {
+    receipt: t.receipt, surface: t.surface, state: t.state, model: t.model, at: t.at, ...(t.ms !== undefined ? { ms: t.ms } : {}),
+    operation: t.operation, route: t.local === true ? 'local' : t.local === false ? 'remote' : 'openrouter',
+    words: `turn ${ended} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+  };
+}
+
 /** The frame. Reads the records only; the same inputs give the same revision. */
 export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}): Promise<WorkspaceFrame> {
   const env = d.env ?? process.env;
@@ -395,6 +427,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
       chatTurn: turn ? { surface: turn.surface, since: turn.taken, words: turnWordsNow } : null,
     },
     log,
+    chat: { turns: recentTurns.map(turnOf) },
     surfaces: { companion: surface('companion', settings.openCompanionAtStart), studio: surface('studio', settings.openStudioAtStart) },
     unknown,
   };
@@ -446,7 +479,7 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
   else if (or === 'rejected') checks.openrouter = { answer: 'refused', at: stamp(), detail: 'the key endpoint rejected the key' };
   else if (or === 'unreachable') checks.openrouter = { answer: 'no answer', at: stamp(), detail: 'the key endpoint did not answer' };
   else delete checks.openrouter;
-  const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama());
+  const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama(1500, ollamaAddress(env)));
   const ol = await ollama();
   checks.ollama = ol.ok
     // R5 lead: the same words as /tools (src/capabilities/ollama-row.ts): local models that pass Ollama's own check, and how

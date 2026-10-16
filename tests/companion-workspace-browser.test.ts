@@ -458,6 +458,42 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     } finally { await context.close(); }
   });
 
+  it('R5 lead (the finish line, item 3): the project\'s sealed chat turns and a turn being answered, as the frame carries them: in the conversation mirror, the event log and the Control Room, never their words', async () => {
+    // FAKE: two sealed turns and a third being answered, laid into the real producer's frame (no model, no receipt written)
+    const turns: NonNullable<WorkspaceFrame['chat']>['turns'] = [
+      { receipt: 'd61b3006', surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: ago(60), ms: 4100, operation: 'of1057412', route: 'local', words: 'turn stopped in the Workbench · qwen3:8b · receipt d61b3006 · 4.1 s' },
+      { receipt: 'fd970711', surface: 'repl', state: 'answered', model: 'qwen3:8b', at: ago(120), ms: 40, operation: null, route: 'local', words: 'turn answered in the REPL · qwen3:8b · receipt fd970711 · 0.0 s' },
+    ];
+    const withTurns = await start({ frame: async (o) => {
+      const f = await buildWorkspaceFrame({ ...o, now: NOW });
+      return { ...f, chat: { turns }, activity: { ...f.activity, running: f.activity.running + 1, stopCurrent: { job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' }, chatTurn: { surface: 'workbench', since: ago(5), words: 'a chat turn is being answered in the Workbench (since 11:59:55 UTC)' } } };
+    } });
+    const { page, context, errors, outside } = await open({ on: withTurns });
+    try {
+      await openTab(page, 'chat');
+      await page.waitForSelector('#console-logs [data-mirror="frame-turn"]', { timeout: 15_000 });
+      const mirror = await page.$$eval('#console-logs [data-mirror="frame-turn"]', (els) => els.map((e) => ({ surface: (e as HTMLElement).dataset.surface, state: (e as HTMLElement).dataset.state, text: e.textContent ?? '' })));
+      // oldest first, as a conversation reads; each names its receipt, and says its words are not here
+      expect(mirror.map((m) => [m.surface, m.state])).toEqual([['repl', 'answered'], ['workbench', 'stopped']]);
+      expect(mirror[1].text).toContain('d61b3006');
+      expect(mirror[1].text).toContain('of1057412');
+      expect(mirror[1].text).toContain('sealed before this page connected');
+      expect(mirror[1].text).toContain('not shown here');
+      expect(await page.textContent('#console-logs [data-mirror="frame-running"]')).toContain('a chat turn is being answered in the Workbench');
+      expect(await page.textContent('#console-logs [data-mirror="frame-running"]')).toContain('Esc in its composer');
+      // the event log beside it: the same entries the Workbench's log shows, newest first
+      const events = await page.$$eval('#chat-events .ev', (els) => els.map((e) => e.textContent ?? ''));
+      expect(events.findIndex((e) => e.includes('turn stopped in the Workbench'))).toBeLessThan(events.findIndex((e) => e.includes('turn answered in the REPL')));
+      expect(events.filter((e) => e.includes('[chat]'))).toHaveLength(2);
+      // the Control Room lists the turns and the one being answered
+      await openTab(page, 'control');
+      expect(await page.textContent('#control-now [data-control="chat-turns"]')).toBe('Chat turns (2)');
+      expect(await page.textContent('#control-now [data-control="chat-running"]')).toContain('being answered in the Workbench');
+      expect(await page.$$eval('#control-now [data-control="chat-turn-list"] .ev', (els) => els.length)).toBe(2);
+      expect(errors).toEqual([]);
+      expect(outside).toEqual([]);
+    } finally { await context.close(); }
+  });
   it('at 390 px wide every tab fits the window (nothing scrolls sideways), and Home\'s columns stack', async () => {
     const f = await frameNow();
     const { page, context } = await open({ viewport: { width: 390, height: 844 } });

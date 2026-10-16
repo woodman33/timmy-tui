@@ -143,10 +143,12 @@ function notSentWhy(err: unknown, signal: AbortSignal): string | undefined {
 }
 
 /** Only verified local completion models are reported as fallback candidates. */
-export async function probeOllama(timeoutMs = 1500): Promise<OllamaProbeResult> {
+/** `baseUrl`: the address to ask (R5 lead: the one the local chat asks, as `timmy workspace check` does); absent, OLLAMA_HOST or
+ *  127.0.0.1:11434. Only a loopback address is asked (getLocalOllamaBaseUrl), another is said "not asked" with why. */
+export async function probeOllama(timeoutMs = 1500, baseUrl?: string): Promise<OllamaProbeResult> {
   let base: string;
   let signal: AbortSignal;
-  try { base = getLocalOllamaBaseUrl(); signal = deadline(timeoutMs); } catch (err) {
+  try { base = getLocalOllamaBaseUrl(baseUrl); signal = deadline(timeoutMs); } catch (err) {
     return { ok: false, models: [], answer: { state: 'not asked', why: err instanceof Error ? err.message : String(err) } };
   }
   const start = Date.now();
