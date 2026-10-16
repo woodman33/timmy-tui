@@ -51,7 +51,7 @@ describe('a connection', () => {
     const c = connectionOf('ollama', 'Ollama', { ...base, check: { answer: 'accepted', at: at(60_000), detail: '2 models listed' } });
     expect(c.state).toBe('live');
     expect(c.observedAt).toBe(at(60_000));
-    expect(c.words).toContain('answered 60 s ago');
+    expect(c.words).toContain('answered 1 min ago');
     expect(c.words).toContain('2 models listed');
   });
   it('is configured, not live, once the answer is older than the window, and asks for a new check', () => {
@@ -75,12 +75,12 @@ describe('a connection', () => {
   it('a surface started on demand that is not running is set up, not failed, and says how to start it', () => {
     const c = connectionOf('studio', 'Studio', { ...base, startWords: 's starts it', check: { answer: 'not running', at: at(5000) } });
     expect(c.state).toBe('configured');
-    expect(c.words).toBe('not running when checked 5 s ago; s starts it');
+    expect(c.words).toBe('not running when checked under a minute ago; s starts it');
   });
   it('an optional service nobody chose that does not answer is not set up, with its step, not a failure', () => {
     const c = connectionOf('ollama', 'Ollama', { ...base, configured: false, setupWords: 'optional: run Ollama', check: { answer: 'no answer', at: at(2000), detail: 'connection refused' } });
     expect(c.state).toBe('not set up');
-    expect(c.words).toBe('nothing answered when checked 2 s ago (connection refused); optional: run Ollama');
+    expect(c.words).toBe('nothing answered when checked under a minute ago (connection refused); optional: run Ollama');
     expect(c.observedAt).toBe(at(2000));
   });
   it('ignores an observation whose time is not a time', () => {
@@ -326,5 +326,21 @@ describe('R5 lead: a chat turn being answered (the independent review, defect 1)
     expect(after.activity.running).toBe(0);
     expect(after.activity.chatTurn).toBeNull();
     expect(after.actions.chat[2]).toMatchObject({ enabled: false, primary: false });
+  });
+});
+
+describe('R5 lead: H132\'s notes on the frame', () => {
+  it('a revision does not tick with the clock: the same records a few seconds apart give the same revision', async () => {
+    writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date(NOW - 5_000).toISOString(), detail: 'running' } } }, env);
+    const a = await frame(NOW);
+    const b = await frame(NOW + 20_000);
+    expect(b.revision).toBe(a.revision);
+    expect(a.connections.find((c) => c.id === 'studio')?.words).toContain('under a minute ago');
+    const c = await frame(NOW + 70_000);
+    expect(c.connections.find((x) => x.id === 'studio')?.words).toContain('1 min ago');
+  });
+  it('each tab carries its purpose', async () => {
+    const f = await frame();
+    for (const t of f.tabs) expect(t.purpose, t.id).toBe(TABS.find((x) => x.id === t.id)?.purpose);
   });
 });

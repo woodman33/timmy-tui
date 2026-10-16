@@ -84,13 +84,17 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
   return file;
 }
 
+/**
+ * How long ago, in words that change at most once a minute (R5 lead, H132's note: words in seconds changed the frame's
+ * revision every second, so a revision check went stale by itself). The exact time is the connection's observedAt.
+ */
 const ago = (at: string, now: number): string => {
-  const s = Math.max(0, Math.round((now - Date.parse(at)) / 1000));
-  if (s < 90) return `${s} s ago`;
-  const m = Math.round(s / 60);
+  const s = Math.max(0, Math.floor((now - Date.parse(at)) / 1000));
+  if (s < 60) return 'under a minute ago';
+  const m = Math.floor(s / 60);
   if (m < 90) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h ago` : `${Math.floor(h / 24)} d ago`;
 };
 
 /** A connection's state from its setting and its last observation (pure: the frame's tests drive it with FAKE checks). */
@@ -295,7 +299,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
   const body = {
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
-    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
+    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
     actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live' }),
     connections,
     activity: {
