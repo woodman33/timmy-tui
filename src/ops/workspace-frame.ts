@@ -84,6 +84,27 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
   return file;
 }
 
+/** R5 lead: how often a surface that answers its own page notes it (noteAnswered); well inside LIVE_FOR_MS. */
+export const SELF_NOTE_MS = 5 * 60_000;
+
+/**
+ * R5 lead (H133's note: Studio's own page showed "Open Studio" as its next step until a `timmy workspace check` had seen
+ * Studio): a local surface that just answered a request records that answer, as a check made then would have seen it. At
+ * most once in SELF_NOTE_MS, so a page asking every few seconds writes little; true when it wrote. A record that cannot be
+ * written leaves the frame as the last check left it (nothing is said that was not observed).
+ */
+export function noteAnswered(id: 'studio' | 'companion', detail: string, env: Env = process.env, now = Date.now()): boolean {
+  try {
+    const rec = readConnections(env);
+    const last = rec.checks[id];
+    if (last?.answer === 'accepted' && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail } } }, env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * How long ago, in words that change at most once a minute (R5 lead, H132's note: words in seconds changed the frame's
  * revision every second, so a revision check went stale by itself): "just now", then minutes, hours, days. The exact time is the connection's observedAt.

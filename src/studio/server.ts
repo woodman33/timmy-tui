@@ -70,7 +70,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
-import { STUDIO_PORT, TLDRAW_VERSION, studioConfig } from './config.js';
+import { STUDIO_PORT, TLDRAW_VERSION, studioConfig, studioPort } from './config.js';
 import { studioHealth } from './health.js';
 import { CanvasDocuments, DRAFT_ID, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { guidedTemplates, publicTemplates } from './templates.js';
@@ -280,7 +280,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     const named = link.project;
     if (!named) { res.status(404).json({ ok: false, error: 'No project is named to this canvas, so it has no workspace to show. In Timmy: /canvas open.' }); return; }
     try {
-      const { buildWorkspaceFrame } = await import('../ops/workspace-frame.js');
+      const { buildWorkspaceFrame, noteAnswered } = await import('../ops/workspace-frame.js');
+      // R5 lead: this Studio answering its page is an answer observed now, so the frame (on every surface) says Studio answered
+      // and its next step is no longer to open it. Only for the Studio the frame names: its port, no other URL set.
+      if (!env.TIMMY_STUDIO_URL?.trim() && cardWiring.port() === studioPort(env)) noteAnswered('studio', 'the canvas page asked for its frame', env);
       const frame = await buildWorkspaceFrame({ env, cwd: named.root, project: { name: named.name, root: named.root } });
       res.json({ ok: true, frame });
     } catch (e) {
