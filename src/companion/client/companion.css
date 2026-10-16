@@ -1166,7 +1166,8 @@ body.slate-absent p { max-width: 72ch; }
    fits the box it is seen in (about 84 px tall at 1376x768: an image laid out at its own height showed only its top, a black
    band for the review demo's image) and is a button that shows it at size.
    ========================================================================================================================== */
-.enlarge { max-width: 96vw; max-height: 94vh; padding: 10px 12px; background: var(--timmy-ground); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 6px; }
+/* margin: auto puts back what the page's reset (* { margin: 0 }) takes from a modal dialog: it sits in the middle */
+.enlarge { margin: auto; max-width: 96vw; max-height: 94vh; padding: 10px 12px; background: var(--timmy-ground); color: var(--timmy-text); border: 1px solid var(--timmy-line-strong); border-radius: 6px; }
 .enlarge::backdrop { background: var(--timmy-ground); opacity: 0.86; }
 .enlarge-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .enlarge-img { display: block; max-width: calc(96vw - 34px); max-height: calc(94vh - 96px); width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }

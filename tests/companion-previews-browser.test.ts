@@ -110,13 +110,18 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
       // ── a thumbnail pressed: the image at size; Esc closes it and gives the keyboard back ──
       await page.click(`${thumbs} [data-home-image="run"] .home-thumb-btn`);
       await page.waitForSelector('dialog.enlarge[open]');
-      const shown = await page.$eval('dialog.enlarge', (d) => ({
-        natural: (d.querySelector('img') as HTMLImageElement).naturalWidth,
-        width: (d.querySelector('img') as HTMLImageElement).clientWidth, // its own pixels, not scaled up (the border aside)
-        words: (d.querySelector('figcaption')?.textContent ?? '').trim(),
-        focus: document.activeElement?.className ?? '',
-      }));
-      expect(shown).toEqual({ natural: 640, width: 640, words: `run ${op} · out/shot.png · 640 × 360`, focus: 'btn-action enlarge-close' });
+      const shown = await page.$eval('dialog.enlarge', (d) => {
+        const r = d.getBoundingClientRect();
+        return {
+          natural: (d.querySelector('img') as HTMLImageElement).naturalWidth,
+          width: (d.querySelector('img') as HTMLImageElement).clientWidth, // its own pixels, not scaled up (the border aside)
+          words: (d.querySelector('figcaption')?.textContent ?? '').trim(),
+          focus: document.activeElement?.className ?? '',
+          // in the middle of the window, not in its corner (the lead's capture at e6b4da5 found it at the top left)
+          centred: Math.abs(r.left - (innerWidth - r.right)) <= 2 && Math.abs(r.top - (innerHeight - r.bottom)) <= 2,
+        };
+      });
+      expect(shown).toEqual({ natural: 640, width: 640, words: `run ${op} · out/shot.png · 640 × 360`, focus: 'btn-action enlarge-close', centred: true });
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => !document.querySelector('dialog.enlarge')?.hasAttribute('open'));
       expect(await page.evaluate(() => document.activeElement?.closest('[data-home-image]')?.getAttribute('data-home-image'))).toBe('run');
