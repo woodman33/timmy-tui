@@ -107,6 +107,26 @@ function focusedPanel(screen: string, fixed = 3): { rows: string[]; range: strin
   return { rows: rows.slice(fixed), range: note ? `${note[1]}–${note[2]}` : '', total: note ? Number(note[3]) : rows.length - fixed };
 }
 
+/**
+ * R5 (H137): one column of the Control Room's body on a screen (0 the roster, 1 the panes, 2 the right column), its wrapped rows
+ * joined: the body is split at its rules, the cells holding │ on every row that has one (a pane's edge is not on its column's
+ * heading row), so the split holds at any width.
+ */
+function controlColumn(screen: string, k: number): string {
+  const rows = screen.split('\n');
+  const head = /[╭┏][─━] (?:◆ )?\S+ \/ Control Room/;
+  const top = rows.findIndex((l) => head.test(l));
+  if (top < 0) return '';
+  const x = rows[top].search(head);
+  const right = rows[top].slice(x + 1).search(/[╮┓]/) + x + 1;
+  const body: string[][] = [];
+  for (let y = top + 1; y < rows.length && !/^[╰┗]/.test(rows[y].slice(x)); y++) body.push([...rows[y].slice(x + 1, right)]);
+  const ruled = body.filter((r) => r.includes('│'));
+  const rules = ruled.length ? [...ruled[0].keys()].filter((i) => ruled.every((r) => r[i] === '│')) : [];
+  const edges = [-1, ...rules, Number.POSITIVE_INFINITY];
+  return body.map((r) => r.slice(edges[k] + 1, edges[k + 1]).join('')).join(' ').replace(/\s+/g, ' ').trim();
+}
+
 /** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, its mouse and a kept capture. */
 function terminal(label: string) {
   servers.push(label);
@@ -214,6 +234,14 @@ async function selectBlock(t: ReturnType<typeof terminal>, doc: string, block: s
     if (await settled() === want) return;
   }
   throw new Error(`${want} is not selected:\n${t.screen(w)}`);
+}
+
+/** R5 (H137): Context as tab 7's drawer (i): opened, its title waited for on the screen; shut, its title waited away. */
+async function drawer(t: ReturnType<typeof terminal>, open: boolean): Promise<void> {
+  await t.keys('i');
+  if (open) { await t.waitFor(/◆ Context \(drawer\)/, 5000); return; }
+  for (const end = Date.now() + 5000; /Context \(drawer\)/.test(t.screen()) && Date.now() < end;) await sleep(100);
+  expect(t.screen()).not.toMatch(/Context \(drawer\)/);
 }
 
 beforeAll(async () => {
@@ -368,7 +396,8 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       t.tmux('send-keys', '-t', 't:1', '-l', 'Control');
       await sleep(300);
       t.tmux('send-keys', '-t', 't:1', 'Enter');
-      const second = await t.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+SLOW\\.md › wait[^\\n]*another session`), 10_000, 't:1');
+      // (R5 H137: its pane: its id on the box's edge, its mark, word and label below, then who started it)
+      const second = await t.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*another session`), 10_000, 't:1');
       // R4 lead (CI at f22e044): the frame matched above can be caught while it is still being drawn (its lower rows blank), so
       // the Activity line is waited for, not read from that same capture
       expect(second).toMatch(/RUNNING NOW \(1\)/);
@@ -505,21 +534,29 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       w.start(160, 45);
       await w.waitFor(/trayA \/ [\s\S]*Activity/);
       await w.find('Control');
-      const stale = await w.waitFor(new RegExp(`${killed.id}\\s+stale\\s+SLOW\\.md › long · 1 of 1 step`), 10_000);
-      // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files)
-      if (!/▸ Inspector/.test(stale)) { await w.click(w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/)); await w.waitFor(/▸ Inspector/, 15_000); }
-      expect(stale).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
+      // (R5 H137: with nothing running, the newest ended runs are quiet panes: the id on the box's edge, the word and label
+      // below, then who started it, its operation and its blocks)
+      const stale = await w.waitFor(new RegExp(`${killed.id} [━─][^\\n]*\\n[^\\n]*stale {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*1 of 1 step`), 10_000);
+      // the right dock on its Inspector (a layout remembered from an earlier Workbench may have it on Files); R5 (H137): tab 7
+      // draws its own columns, so Context is its drawer (i), shut again before a pane is clicked
+      await drawer(w, true);
+      if (!/▸ Inspector/.test(w.screen())) { await w.click(w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/)); await w.waitFor(/▸ Inspector/, 15_000); }
+      await drawer(w, false);
+      expect(controlColumn(stale, 2)).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       expect(stale).toContain('Stop current: idle');
       // the one quit with its Workbench: ended by its own stop, said as its record says (no recovery words)
-      expect(stale).toMatch(new RegExp(`${quit.id}\\s+cancelled\\s+SLOW\\.md › long · 1 of 1 step[^\\n]*${quitOp.id}`));
-      await w.click(w.cellOf(`${quit.id}  cancelled`));
+      expect(stale).toMatch(new RegExp(`${quit.id} [━─][^\\n]*\\n[^\\n]*cancelled {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*${quitOp.id} · 1 of 1 step`));
+      await w.click(w.cellOf(`─ ${quit.id} `));
+      await drawer(w, true);
       const quitDock = panelText(await w.waitFor(new RegExp(`Job\\s+${quit.id}`), 15_000), 'Context');
       expect(quitDock).toContain(`Operation ${quitOp.id}`);
       expect(quitDock).toContain('Record cancelled');
       expect(quitDock).not.toMatch(/left running|stale|ended by recovery/);
       w.capture('wb-recover-160x45-quit-inspector');
       // the stale one, selected
-      await w.click(w.cellOf(`${killed.id}  stale`));
+      await drawer(w, false);
+      await w.click(w.cellOf(`─ ${killed.id} `));
+      await drawer(w, true);
       const staleDock = panelText(await w.waitFor(new RegExp(`Job\\s+${killed.id}`), 15_000), 'Context');
       expect(staleDock).toContain('stale: its record says it runs, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it (nothing is run again).');
       expect(staleDock).toContain('Record running, stale');
@@ -541,10 +578,10 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // recovery's two writes (the job's record ended, the operation's not yet) said "left running", and it stayed drawn
       // (src/workbench/controller.ts wantDetail; step by step in tests/workbench-run-detail.test.ts)
       await w.waitFor(/Read trayA's records again at \d\d:\d\d:\d\d\./, 10_000);
-      const ended = await w.waitFor(new RegExp(`${killed.id}\\s+cancelled\\s+SLOW\\.md › long · ended by recovery`), 10_000);
+      const ended = await w.waitFor(new RegExp(`${killed.id} [━─][^\\n]*\\n[^\\n]*cancelled {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*ended by recovery`), 10_000);
       expect(panelText(ended, 'Context')).toMatch(/ended by recovery: a later session's recovery wrote its end from what it found \(.+\); nothing was run again\./);
       // whether to run it again still waits on the person (upmd resumes nothing), now with its record's own words
-      expect(ended).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
+      expect(controlColumn(ended, 2)).toMatch(new RegExp(`⚠ workflow run ${killed.id} \\(SLOW\\.md › long\\) was interrupted`));
       // its operation's run detail, read after [r]: while it is read, nothing to scroll to; then the wheel over the Inspector
       // brings its verdict into view, one step at a time, each step's effect waited for on the screen
       const inspector = w.cellOnRow('Inspector', /Tools │\s+(?:▸ )?Inspector/);
@@ -589,9 +626,11 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       const helperPid = recordOf(leftId).owner!.pid;
       expect(alive(helperPid)).toBe(false);
       await w.keys('r');
-      const running = await w.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${leftId}\\s+running\\s+FAKE job \\(test\\): sleep 300 · left running`), 10_000);
+      const running = await w.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${leftId} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300[^\\n]*\\n[^\\n]*left running`), 10_000);
       expect(running).toContain(`Stop current: ${leftId} FAKE job (test): sleep 300`);
-      await w.click(w.cellOf(`${leftId}  running`));
+      await drawer(w, false);
+      await w.click(w.cellOf(`─ ${leftId} `));
+      await drawer(w, true);
       const leftDock = panelText(await w.waitFor(new RegExp(`Job\\s+${leftId}`), 15_000), 'Context');
       expect(leftDock).toContain(`left running: started by a Timmy session that has ended (pid ${helperPid}), and its process still runs. Stop ends it through recovery's stop (only when the process table proves the group is the job's).`);
       expect(leftDock).toContain(`Operation ${leftOp}`);

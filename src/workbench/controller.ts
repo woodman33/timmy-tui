@@ -32,6 +32,7 @@ import { keyAt, type MouseReport } from '../tui/mouse.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
+import { readControl } from './control-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { isHub, pageOf, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
@@ -272,14 +273,16 @@ export class Controller {
    */
   private tabError = '';
   private readTab(ws: WorkspaceId = this.ui.workspace): void {
-    if (ws !== 'logs' && ws !== 'fleet') return;
+    if (ws !== 'logs' && ws !== 'fleet' && ws !== 'control') return;
     const root = this.data.project.root;
     try {
       if (ws === 'logs') this.data.logs = readLogs({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, now: this.now() });
+      // R5 (H137): tab 7's reading: the lanes on PATH, Connect's devices, the turns being answered, each pane's log and receipt
+      else if (ws === 'control') this.data.control = readControl({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, jobs: this.data.jobs, away: this.data.away, chain: this.chain(), now: this.now() });
       else this.data.fleet = readFleet({ home: timmyHome(this.d.env), root, env: this.d.env, now: this.now() });
       this.tabError = '';
     } catch (e) {
-      const why = `${ws === 'logs' ? 'Logs & Receipts' : 'Fleet & Clef'} could not be read: ${e instanceof Error ? e.message : String(e)}`;
+      const why = `${ws === 'logs' ? 'Logs & Receipts' : ws === 'control' ? 'Control Room' : 'Fleet & Clef'} could not be read: ${e instanceof Error ? e.message : String(e)}`;
       if (why !== this.tabError) { this.tabError = why; this.say(why, 'failure'); }
     }
   }
@@ -408,7 +411,7 @@ export class Controller {
     }
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
     // R5 (H134): tab 0 and tab 8 read when opened (then with the slow reading while they are shown)
-    if (ws === 'logs' || ws === 'fleet') this.readTab(ws);
+    if (ws === 'logs' || ws === 'fleet' || ws === 'control') this.readTab(ws);
   }
 
   // ── timers ────────────────────────────────────────────────────────────────────
@@ -431,6 +434,8 @@ export class Controller {
   private onTick(): void {
     this.followProject();
     this.readJobs();
+    // R5 (H137): the Control Room's panes follow their logs and the turns being answered at the tick, while it is shown
+    if (this.ui.workspace === 'control') this.readTab('control');
     // Activity's words change with the time, and a spinner turns while something runs. R4 (H112): with the mouse given back
     // to the terminal (m), so that a person can select text, the screen is drawn again only when something new happened (a
     // job's state, a block, a line, a notice), never for the spinner or a running time alone: a selection holds between events
@@ -609,7 +614,8 @@ export class Controller {
     // sealed turn has ended: its receipt is what the detail is read again for). R5 (H131): when what a detail was read for has
     // changed (or after [r]), this very frame is composed again with it said as being read: a frame never shows a detail beside
     // the records that contradict it (the recovery PTY test caught the frame that drew [r]'s notice with the verdict before it)
-    if (f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') {
+    // R5 (H137): and the Control Room's own right column, which draws the selected run's detail whether or not Context does
+    if ((f.regions.right && (f.layout.rightAs === 'column' || f.layout.rightAs === 'drawer') && this.ui.tab === 'inspector') || (this.ui.workspace === 'control' && !this.ui.overlay)) {
       const sel = selectedItem({ ui: this.ui, data: this.data, g: this.d.glyphs, width: 40, height: 10, now: this.now(), can: this.can() });
       let again = false;
       if (sel?.kind === 'job' && sel.job.operation) again = this.wantDetail(sel.job.operation, sel.job.live, `${sel.job.state} ${sel.job.endedAt ?? ''} ${sel.job.stale}`);
@@ -1532,10 +1538,14 @@ export class Controller {
     const row = y - d.rect.y - 1 - d.fixed;
     if (row < 0 || (d.height && row >= d.height)) return -1;
     const line = row + d.scroll;
-    const exact = d.items.findIndex((it) => it.line === line);
+    // R5 (H137): an item drawn in a column of its own (`x`: a body with columns side by side) is under the pointer only within
+    // its column's cells; an item without `x` takes its whole row, as before
+    const cx = x - d.rect.x - 1 - (d.rect.w - 2 >= 6 ? 1 : 0);
+    const inCol = (it: { x?: { from: number; to: number } }): boolean => !it.x || (cx >= it.x.from && cx < it.x.to);
+    const exact = d.items.findIndex((it) => it.line === line && inCol(it));
     if (exact >= 0) return exact;
     // R5 (H131): an item of several rows (a connection card) is under every one of its rows
-    const span = d.items.findIndex((it) => (it.rows ?? 1) > 1 && line >= it.line && line < it.line + (it.rows ?? 1));
+    const span = d.items.findIndex((it) => (it.rows ?? 1) > 1 && line >= it.line && line < it.line + (it.rows ?? 1) && inCol(it));
     if (span >= 0 || !rows) return span;
     for (let i = d.items.length - 1; i >= 0; i--) if (d.items[i].line <= line) return i;
     return -1;

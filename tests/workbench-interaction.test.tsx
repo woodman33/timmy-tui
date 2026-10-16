@@ -467,14 +467,14 @@ describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)',
     expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › nap', 'SLOW.md › wait']);
     expect(c.selected()).toMatchObject({ kind: 'job', job: { label: 'SLOW.md › nap' } });
     // the person chooses the first run (a click on its row); a third run starts above it: the selection stays on the chosen
-    await click(f.r, cellOf(c, `${firstId}  running`));
+    await click(f.r, cellOf(c, `─ ${firstId} `)); // (R5 H137: its pane, by the id on its edge)
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
     await runBlock('doze');
     c.selectWorkspace('control');
     await sleep(300);
     expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › doze', 'SLOW.md › nap', 'SLOW.md › wait']);
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
-    expect(f.text()).toMatch(new RegExp(`▸ [^\\n]*${firstId}\\s+running\\s+SLOW\\.md › wait`));
+    expect(f.text()).toMatch(new RegExp(`┏━ ${firstId} ━[^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait`)); // (the selected pane: heavy)
     expect(f.text()).toContain(`[x] Stop current: ${firstId} SLOW.md › wait`);
     // x stops exactly what was named
     await press(f.r, 'x');
@@ -514,17 +514,21 @@ describe('jobs a session left, in recovery\'s words (R4 H112, slice C item 4)', 
     expect(stale).toMatchObject({ live: false, stale: true, word: 'stale', mark: 'unknown', recovery: { state: 'stale' } });
     const recovered = c.data.jobs.find((j) => j.id === ended.id)!;
     expect(recovered.recovery?.state).toBe('ended by recovery');
-    expect(f.text()).toMatch(new RegExp(`${quick.id}\\s+stale\\s+FAKE\\.md › stale ·`));
-    expect(f.text()).toMatch(new RegExp(`${ended.id}\\s+failed\\s+FAKE\\.md › recovered · ended by recovery ·`));
+    // (R5 H137: with nothing running, each is a quiet pane: its id on the edge, its word and label, recovery's words below)
+    expect(f.text()).toMatch(new RegExp(`${quick.id} [━─][^\\n]*\\n[^\\n]*stale {2}FAKE\\.md › stale`));
+    expect(f.text()).toMatch(new RegExp(`${ended.id} [━─][^\\n]*\\n[^\\n]*failed {2}FAKE\\.md › recovered[^\\n]*\\n[^\\n]*ended by recovery`));
     expect(f.text()).toContain('Stop current: idle');
     // the Inspector, on the stale one, says it in recovery's words, with what settles it
     await press(f.r, TAB);
     for (let i = 0; i < 6 && c.selected()?.kind !== 'job'; i++) await press(f.r, '\u001b[B');
     const pick = async (id: string) => { for (let i = 0; i < 8 && !(c.selected()?.kind === 'job' && (c.selected() as { job: { id: string } }).job.id === id); i++) await press(f.r, '\u001b[B'); };
     await pick(quick.id);
+    await press(f.r, 'i'); // (R5 H137: tab 7's Inspector is Context's drawer: i opens it, i again closes it)
     expect(regionText(c, 'right')).toContain('stale: its record says it runs, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it');
+    await press(f.r, 'i');
     await press(f.r, '\u001b[A', '\u001b[A', '\u001b[A');
     await pick(ended.id);
+    await press(f.r, 'i');
     expect(regionText(c, 'right')).toContain('ended by recovery: a later session\'s recovery wrote its end from what it found (interrupted: its Workbench ended while wait was running; its process is gone)');
   });
 });
