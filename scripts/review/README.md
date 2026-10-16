@@ -42,6 +42,34 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 - **FAKE:** every lane program (`fake-lanes/`: opencode, hermes, pi, openhands, jcode, minds) is a stand-in that notes its
   call in `sandbox/fake-lanes.log` and waits, so no real lane starts.
 
+## A short walkthrough (about 15 minutes; a terminal of at least 160×45)
+
+1. **Install and set chat.** After the launch steps above: `./review.sh ollama 127.0.0.1:11434 <a model your Ollama lists>`
+   (local, no charge), then `./review.sh workbench`.
+2. **The ten tabs.** Press 1 to 9 and 0. Each tab has its actions bar with one amber next step; `?` lists the keys.
+3. **A sandbox run to its receipt.** 3 (Workflows) → select APPROVAL.md › tidy → Enter → Enter → the NEEDS YOU box → `y`.
+   The plan (.intent, .predict), the sandbox and the sealed receipt fill the three columns. Then 7 (Control Room) shows the
+   run, and 0 (Logs & Receipts) shows the chain verified.
+4. **A chat turn, stopped where it was sent.** 2 (Chat & Intent) → Enter → `Count from 1 to 200, one number per line.` →
+   Enter; while it streams, Esc. It ends "turn stopped in the Workbench", with a receipt.
+5. **The browser companion.** `c` opens it on the same project: the same ten tabs, actions and log.
+6. **A REPL turn, stopped from the page.** In a second terminal, `./review.sh repl`, send the same counting request; on the
+   companion page press Stop the turn. The REPL stops, and the REPL, the Workbench and the page all show "turn stopped
+   (asked from the companion) in the REPL".
+7. **Studio.** In the REPL, `/canvas open`, then `Put the intent and the prediction on the board.`; answer `y` in its NEEDS
+   YOU box; in Studio, Accept the amber draft: the save line says saved. `/canvas open` again reopens the saved board.
+8. **Project switching.** `p` in the Workbench → blank → Enter, then `p` → tray: the companion page and Studio follow.
+9. **A long run, stopped.** `./review.sh shell` opens a shell in the active project's folder (tray); there, make the
+   rehearsal's long block, then `exit`:
+
+   ````bash
+   printf '# Long\n\n```bash [name:wait]\nfor i in 1 2 3 4 5; do echo "tick $i"; sleep 5; done\n```\n' > LONG.md
+   ````
+
+   Then run LONG.md › wait from 3, open 7, and press `x`: it is cancelled at once, with its receipt.
+10. **Quit.** Ctrl+C in the Workbench with nothing running: it quits, and the companion and Studio it started stop.
+    `./review.sh clean` removes the sandbox when you are done.
+
 ## What you can test today (the Workbench's keys: `?`)
 
 1. **One workspace, ten tabs.** Keys 1 to 9 and 0: Home, Chat & Intent, Workflows, Studio, VoxVision, 3D & Motion, Control

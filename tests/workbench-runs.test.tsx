@@ -320,9 +320,11 @@ describe('a project switch during a run (R4 H112, slice C item 3)', () => {
     // the switch's own words (the controls row shows their start; Activity keeps them whole)
     expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b') && e.words.includes(`: ${job.id} (SLOW.md › wait) keeps running in tray-a. Stop still names it.`))).toBe(true);
     c.selectWorkspace('control');
-    await sleep(200);
-    // (R5 H137: its pane under that title, its id on the edge, its word and label, then where it runs)
-    expect(f.text()).toMatch(new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\)[^\\n]*\\n[^\\n]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*in tray-a`));
+    // (R5 H137: its pane under that title, its id on the edge, its word and label, then where it runs). R5 lead: waited for
+    // as a condition (the Control Room drawn with that pane), not a fixed 200 ms that a loaded machine can outlast
+    const elsewhere = new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\)[^\\n]*\\n[^\\n]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*in tray-a`);
+    await until('the Control Room with the pane of the run in tray-a', () => elsewhere.test(f.text()), 5000, f.text);
+    expect(f.text()).toMatch(elsewhere);
     expect(runsOf(a.root, 'SLOW.md › wait')[0].state).toBe('running');
     // back in A: it ends there, normally, and once
     await press(f.r, 'p', ...'tray-a', ENTER);

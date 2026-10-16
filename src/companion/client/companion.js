@@ -135,6 +135,13 @@ const pTools = document.getElementById('proof-tools');
 const pChanged = document.getElementById('proof-changed');
 const pHash = document.getElementById('proof-hash');
 const pPath = document.getElementById('proof-path');
+/** R5 lead (QA-R5E defect 28): the rows show once a receipt reached this page; until then one sentence says none has. */
+function proofShown() {
+  const box = document.getElementById('proof-box');
+  const none = document.getElementById('proof-none');
+  if (box) box.hidden = false;
+  if (none) none.hidden = true;
+}
 
 let wsConnection = null;
 let activeChatHistory = [];
@@ -705,6 +712,7 @@ function connect() {
       } else if (msg.type === 'receipt' || (msg.data && msg.data.manifestHash)) {
         const r = msg.data;
         if (r) {
+          proofShown();
           pRunId.textContent = r.runId || pRunId.textContent;
           pPrompt.textContent = r.prompt || pPrompt.textContent;
           pAgent.textContent = r.agent || pAgent.textContent;
@@ -893,6 +901,7 @@ function proofFromHistory(history) {
     const text = receiptMsg.content;
     const hashMatch = text.match(/sha256_[0-9a-fA-F]+/);
     const runIdMatch = text.match(/run_[a-zA-Z0-9_]+/);
+    if (hashMatch || runIdMatch) proofShown();
     if (hashMatch) pHash.textContent = hashMatch[0];
     if (runIdMatch) {
       pRunId.textContent = runIdMatch[0];
