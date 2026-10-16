@@ -149,25 +149,32 @@ describe('the frame', () => {
   it('offers no "start Ollama" or "give a key" fix when a turn on that route answered after the check that saw it fail (the rehearsal)', () => {
     const checked = '2026-10-15T18:00:00.000Z';
     const after = '2026-10-15T18:05:00.000Z';
+    const later = '2026-10-15T18:06:00.000Z';
     const before = '2026-10-15T17:55:00.000Z';
     const down = [{ id: 'ollama', state: 'unreachable' as const, words: 'no answer when checked 20 min ago', observedAt: checked }];
     const local = { kind: 'local', ready: true } as const;
     // an Ollama turn (its receipt names the endpoint, on this computer or off it) answered after the check: no fix
-    expect(chatFix(local, down, { state: 'answered', at: after, local: true })).toBeNull();
-    expect(chatFix(local, down, { state: 'answered', at: after, local: false })).toBeNull();
-    // answered before the check, stopped or failed after it, or an OpenRouter turn: the check stands
-    expect(chatFix(local, down, { state: 'answered', at: before, local: true })).toMatchObject({ problem: 'ollama-unreachable' });
-    expect(chatFix(local, down, { state: 'stopped', at: after, local: true })).toMatchObject({ problem: 'ollama-unreachable' });
-    expect(chatFix(local, down, { state: 'failed', at: after, local: true })).toMatchObject({ problem: 'ollama-unreachable' });
-    expect(chatFix(local, down, { state: 'answered', at: after })).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, down, [{ state: 'answered', at: after, local: true }])).toBeNull();
+    expect(chatFix(local, down, [{ state: 'answered', at: after, local: false }])).toBeNull();
+    // a turn stopped since says nothing about the route: the answered one before it still outdates the check
+    expect(chatFix(local, down, [{ state: 'stopped', at: later, local: true }, { state: 'answered', at: after, local: true }])).toBeNull();
+    // a turn that failed since: the check stands
+    expect(chatFix(local, down, [{ state: 'failed', at: later, local: true }, { state: 'answered', at: after, local: true }])).toMatchObject({ problem: 'ollama-unreachable' });
+    // answered before the check, only stopped or failed turns after it, an OpenRouter turn, or no turn: the check stands
+    expect(chatFix(local, down, [{ state: 'answered', at: before, local: true }])).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, down, [{ state: 'stopped', at: after, local: true }])).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, down, [{ state: 'failed', at: after, local: true }])).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, down, [{ state: 'answered', at: after }])).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, down, [])).toMatchObject({ problem: 'ollama-unreachable' });
     // a check with no time is never outdated by a turn
-    expect(chatFix(local, [{ id: 'ollama', state: 'unreachable', words: 'x' }], { state: 'answered', at: after, local: true })).toMatchObject({ problem: 'ollama-unreachable' });
+    expect(chatFix(local, [{ id: 'ollama', state: 'unreachable', words: 'x' }], [{ state: 'answered', at: after, local: true }])).toMatchObject({ problem: 'ollama-unreachable' });
     // the key: an OpenRouter turn (no Ollama endpoint) answered after the refusal outdates it; an Ollama turn does not
     const refused = [{ id: 'openrouter', state: 'refused' as const, words: 'refused when checked 20 min ago', observedAt: checked }];
     const cloud = { kind: 'openrouter', ready: true } as const;
-    expect(chatFix(cloud, refused, { state: 'answered', at: after })).toBeNull();
-    expect(chatFix(cloud, refused, { state: 'answered', at: after, local: true })).toMatchObject({ problem: 'key-refused' });
-    expect(chatFix(cloud, refused, { state: 'answered', at: before })).toMatchObject({ problem: 'key-refused' });
+    expect(chatFix(cloud, refused, [{ state: 'answered', at: after }])).toBeNull();
+    expect(chatFix(cloud, refused, [{ state: 'answered', at: later, local: true }, { state: 'answered', at: after }])).toBeNull();
+    expect(chatFix(cloud, refused, [{ state: 'answered', at: after, local: true }])).toMatchObject({ problem: 'key-refused' });
+    expect(chatFix(cloud, refused, [{ state: 'answered', at: before }])).toMatchObject({ problem: 'key-refused' });
   });
   it('drops "Start Ollama" from Home and Chat once a newer Ollama turn answered, and keeps it while the check is the newest word', () => {
     const wb = { activity: { waiting_on_you: 0, running: 0, stop_current: { job: null, words: '' } }, workflows: { docs: [] }, jobs: [],
@@ -175,7 +182,7 @@ describe('the frame', () => {
     const connections = [{ id: 'ollama', state: 'unreachable' as const, words: 'no answer when checked 20 min ago', observedAt: '2026-10-15T18:00:00.000Z' }];
     const stale = actionsOf(wb, [], { connections });
     expect(stale.home.filter((x) => x.primary)).toEqual([expect.objectContaining({ command: 'timmy workspace check' })]);
-    const fresh = actionsOf(wb, [], { connections, lastTurn: { state: 'answered', at: '2026-10-15T18:05:00.000Z', local: true } });
+    const fresh = actionsOf(wb, [], { connections, recentTurns: [{ state: 'stopped', at: '2026-10-15T18:06:00.000Z', local: true }, { state: 'answered', at: '2026-10-15T18:05:00.000Z', local: true }] });
     expect(fresh.home.find((x) => x.primary)?.command).not.toBe('timmy workspace check');
     expect(fresh.chat.find((x) => x.primary)?.command).not.toBe('timmy workspace check');
   });

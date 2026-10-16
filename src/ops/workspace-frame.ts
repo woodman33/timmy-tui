@@ -221,14 +221,16 @@ export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>
 export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'free-only' | 'key-refused';
 export interface ChatFix { problem: ChatProblem; label: string; command: string; effect: WorkspaceAction['effect']; words: string }
 
-export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], lastTurn: Pick<TurnRow, 'state' | 'at' | 'local'> | null = null): ChatFix | null {
-  // R5 lead (the rehearsal): a chat turn on that route answered after the check is a newer observation than the check, so no
-  // fix is offered for a failure the check saw before it (the connection keeps the check's own words and time). A turn's
-  // receipt names its Ollama endpoint (TurnRow.local true or false) on the Ollama route and none on OpenRouter's; a stopped or
-  // failed turn is no answer, and a check with no time is never outdated by one.
-  const answeredSince = (c: { observedAt?: string | null } | undefined, via: 'ollama' | 'openrouter') => Boolean(
-    lastTurn && lastTurn.state === 'answered' && (via === 'ollama' ? lastTurn.local !== undefined : lastTurn.local === undefined)
-    && c?.observedAt && Date.parse(lastTurn.at) > Date.parse(c.observedAt));
+export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = []): ChatFix | null {
+  // R5 lead (the rehearsal): the project's newest chat turn on that route that ended by itself (answered or failed; a stopped
+  // turn says nothing about the route) is a newer observation than an older check: answered after the check, no fix is
+  // offered for the failure the check saw (the connection keeps the check's own words and time); failed, the check stands.
+  // A turn's receipt names its Ollama endpoint (TurnRow.local true or false) on the Ollama route and none on OpenRouter's,
+  // recentTurns come newest first, and a check with no time is never outdated by a turn.
+  const answeredSince = (c: { observedAt?: string | null } | undefined, via: 'ollama' | 'openrouter') => {
+    const t = recentTurns.find((x) => x.state !== 'stopped' && (via === 'ollama' ? x.local !== undefined : x.local === undefined));
+    return Boolean(t && t.state === 'answered' && c?.observedAt && Date.parse(t.at) > Date.parse(c.observedAt));
+  };
   const first = (route.refusal ?? [])[0] ?? '';
   const conn = (id: string) => conns.find((c) => c.id === id);
   if (route.kind === 'none') {
@@ -260,7 +262,7 @@ const act = (n: number, label: string, command: string, o: Partial<Pick<Workspac
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; lastTurn?: Pick<TurnRow, 'state' | 'at' | 'local'> | null } = {}): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
@@ -268,7 +270,7 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   // R5 lead (the finish line, item 3): what keeps chat from answering, and its own fix (null: nothing known to be wrong)
-  const fix = chatFix(wb.route, o.connections ?? [], o.lastTurn ?? null);
+  const fix = chatFix(wb.route, o.connections ?? [], o.recentTurns ?? []);
   const homeNext: WorkspaceAction = fix
     ? act(1, fix.label, fix.command, { primary: true, effect: fix.effect })
     : waiting > 0
@@ -372,8 +374,9 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
   // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one
   const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })();
   const turn = turns[0];
-  // R5 lead: the project's newest sealed chat turn (its receipt), a newer observation of the chat route than an older check
-  const lastTurn = (() => { try { return readTurns(d.chain ? d.chain() : chainOf(wb.project.root, env), wb.project.root, 1)[0] ?? null; } catch { return null; } })();
+  // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
+  // an older check
+  const recentTurns = (() => { try { return readTurns(d.chain ? d.chain() : chainOf(wb.project.root, env), wb.project.root); } catch { return []; } })();
   const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)} (since ${turn.taken.slice(11, 19)} UTC)` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
     at: e.at, tag: e.output ? 'job.output' : e.job ? 'job' : 'event', words: e.words, tone: tone(e),
@@ -384,7 +387,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, lastTurn }),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,
