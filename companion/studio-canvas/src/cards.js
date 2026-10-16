@@ -538,11 +538,13 @@ export function createCards(deps) {
   }
   /**
    * R5 (H133): the shared workspace frame of the project named now (GET /api/workspace), read with this page's session for the
-   * strip above the canvas (./frame.js); null when it is not asked now: no session, a session that does not count now (asked
-   * again once a reading counts, and not sooner than 30 s), as the jobs are.
+   * strip above the canvas (./frame.js). Not asked without a session, or with one that does not count now (asked again once a
+   * reading counts, and not sooner than 30 s), as the jobs are: the answer then says why, and no request is made.
    */
   async function workspace() {
-    if (!token || Date.now() < notFor.until || session.get().state !== 'ok') return null;
+    const notAsked = (why) => ({ status: 0, ok: false, body: { ok: false, error: why } });
+    if (!token) return notAsked(session.get().words);
+    if (Date.now() < notFor.until || session.get().state !== 'ok') return notAsked(notFor.why || session.get().words);
     const r = await request('/api/workspace', 'GET', token);
     if (r.status === 401) {
       const why = noted(r, 'Timmy did not let this page read the workspace.');

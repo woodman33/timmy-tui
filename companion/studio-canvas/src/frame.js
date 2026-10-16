@@ -8,6 +8,10 @@
 // others say where they open, and none is a link); the Studio tab's actions, each with its command to copy, the one primary
 // amber; and one line of activity: what runs, what waits on you, Stop current and the newest log line. No key is bound here
 // (tldraw's keys stay tldraw's). Every text is set as text. Imports nothing.
+//
+// It redraws only when what it shows changed: the frame's revision also follows what the strip does not show (a connection's
+// age, "12 s ago"), and a redraw takes a focused Copy button from under a person. A frame that is not read now stays drawn and
+// says so at the line's end: why, and when it was last read.
 
 /** The tab this page is. */
 export const STUDIO_TAB = 'studio';
@@ -138,40 +142,49 @@ export async function copyText(text) {
   }
 }
 
-/** Why a reading of the frame did not draw, in words (a 401's own words come from the server). */
+/** Why a reading of the frame did not draw, in words (a refusal's own words come from the server, or from the page's session). */
 function notRead(r) {
+  if (r && r.ok && r.body && r.body.ok === true) return `the frame Timmy sent is not one this page draws (it draws ${FRAME_SCHEMA}).`;
   const said = r && r.body && typeof r.body === 'object' ? one(r.body.error) : '';
   return said || `Timmy answered ${r ? r.status : 'nothing'} for the workspace.`;
 }
 
 /**
- * The strip: reads the frame now and every FRAME_EVERY_MS while the page is shown, and draws it only when its revision is new.
- * `read` gives { status, ok, body } (./cards.js workspace), or null when it is not asked now. A reading that fails keeps the last
- * frame drawn and says why at the line's end.
+ * The strip: reads the frame now and every FRAME_EVERY_MS while the page is shown, one reading at a time, and redraws it only when
+ * what it shows changed (`data-revision` is the frame last read). `read` gives { status, ok, body } (./cards.js workspace; one not
+ * asked now says why in body.error). A reading that does not count keeps the last frame drawn, marks it (`data-stale`) and says at
+ * the line's end why, and when it was last read.
  */
 export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_EVERY_MS }) {
-  let shown = '';
+  let drawn = '';
+  let readAt = '';
   let busy = false;
   const note = (words) => {
     const n = root.querySelector('#frame-note');
     if (n) n.textContent = words ? ` · ${words}` : '';
     else if (words) root.querySelector('#frame-activity').textContent = words;
   };
+  const stale = (why) => {
+    root.dataset.stale = 'true';
+    note(readAt ? `${why} Shown as last read at ${readAt}.` : why);
+  };
   async function tick() {
     if (busy || document.visibilityState !== 'visible') return;
     busy = true;
     try {
       const r = await read();
-      if (!r) return;
-      const view = r.ok && r.body && r.body.ok === true ? frameView(r.body.frame) : null;
-      if (!view) { note(`Workspace not read now: ${notRead(r)}`); return; }
-      if (view.revision !== shown) {
+      const view = r && r.ok && r.body && r.body.ok === true ? frameView(r.body.frame) : null;
+      if (!view) { stale(`Workspace not read now: ${notRead(r)}`); return; }
+      readAt = clock(new Date().toISOString());
+      root.dataset.revision = view.revision;
+      root.dataset.stale = 'false';
+      const shows = JSON.stringify({ ...view, revision: '' });
+      if (shows !== drawn) {
         drawFrame(root, view);
-        shown = view.revision;
-        root.dataset.revision = shown;
+        drawn = shows;
       } else note('');
     } catch (e) {
-      note(`Workspace not read now: ${e instanceof Error ? e.message : String(e)}`);
+      stale(`Workspace not read now: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       busy = false;
     }
@@ -188,5 +201,5 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   const timer = setInterval(() => { void tick(); }, everyMs);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void tick(); });
   void tick();
-  return { tick, stop: () => clearInterval(timer), get revision() { return shown; } };
+  return { tick, stop: () => clearInterval(timer), get revision() { return root.dataset.revision ?? ''; } };
 }

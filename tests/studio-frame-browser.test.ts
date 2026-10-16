@@ -1,6 +1,7 @@
 /**
  * R5 (H133): Timmy Studio draws the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 "Layouts") as a strip
- * above tldraw, reopens a canvas with what it holds in view, and marks its panel's scroll edge. In a real headless Chromium at
+ * above tldraw (and keeps a frame it cannot read now as last read, saying so), reopens a canvas with what it holds in view, and
+ * marks its panel's scroll edge. In a real headless Chromium at
  * 1400 x 900, against the real canvas server and the real bundle (built here into a temporary folder), with a project of many
  * cards (tests/helpers/canvas-project.ts and 24 more workflow documents). The frame comes from GET /api/workspace with the page's
  * session; the one observation of Studio it reads is a record this test writes (FAKE: no request was made to a Studio), so the
@@ -128,6 +129,13 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       shown = await acts();
       expect(shown.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open', border: AMBER })]);
       expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBeUndefined();
+      // a new revision that changes nothing the strip shows (the check's age, "N s ago", is in the frame, not in the strip) is
+      // read, and nothing is redrawn: a focused Copy button stays where it is
+      const live = await page.getAttribute('#frame', 'data-revision');
+      await page.evaluate(() => { (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept = true; });
+      await page.waitForFunction((r) => document.getElementById('frame')?.dataset.revision !== r, live, { timeout: 20_000 });
+      expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBe(true);
+      expect(await page.getAttribute('#frame', 'data-stale')).toBe('false');
 
       // each command is there to copy: Copy puts it on the clipboard
       await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
@@ -255,6 +263,29 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       await page.waitForFunction(() => document.getElementById('side-scroll')?.dataset.more === 'none');
       expect(await page.$eval('#side-scroll', (e) => { const s = getComputedStyle(e); return s.maskImage || s.getPropertyValue('-webkit-mask-image'); })).toBe('none');
       expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
+  it('a frame not read now stays as last read, and says why and when: another REPL named another project to the canvas', async () => {
+    const { page, context, errors } = await open();
+    try {
+      await page.waitForFunction(() => document.getElementById('frame')?.dataset.stale === 'false');
+      // this page's session was given for demo; another project named now (by another REPL) is not this page's to read
+      const other = join(p.base, 'other-project');
+      mkdirSync(other, { recursive: true });
+      await nameProject(port, server.projectToken, { root: other, name: 'beta', holder: 'd'.repeat(32) });
+      await page.waitForFunction(() => document.getElementById('frame')?.dataset.stale === 'true', null, { timeout: 20_000 });
+      expect(await text(page, '#frame-note')).toMatch(/^· Workspace not read now: Refused: this canvas page's session was given for another project than the one the canvas shows now\. .* Shown as last read at \d\d:\d\d:\d\d\.$/);
+      // the last frame stays drawn: demo's, and nothing of the project named now
+      expect(await text(page, '#frame-brand')).toBe('TIMMY · demo');
+      expect(await page.$$eval('#frame-tabs li', (ls) => ls.length)).toBe(10);
+      const strip = await page.$eval('#frame', (e) => e.outerHTML);
+      expect(strip).not.toContain('beta');
+      expect(strip).not.toContain(other);
+      // Chromium logs the server's refusals (401); nothing else went wrong
+      expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
     } finally {
       await context.close();
     }
