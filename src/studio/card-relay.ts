@@ -64,6 +64,7 @@ import { voxFileFor } from '../repl/board-vox.js';
 import { inProject } from './card-detail.js';
 import { cardText, readRunsChain } from './project-cards.js';
 import { HOLDER_ID, readBody, type NamedProject, type ProjectLink } from './project-link.js';
+import { pausedRefusal } from './session-pause.js';
 
 /** The actions a canvas card sends: the live board's run and rebuild actions and its two parameter saves. */
 export const CARD_ACTS = ['run', 'rebuild', 'set-params', 'set-scad-params'] as const;
@@ -495,6 +496,9 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     const p: NamedProject | null = pinned ? o.link.knownProject(asked!) : o.link.project;
     if (!o.link.authorized(req.headers.authorization)) {
       const s = pinned ? o.relay.reaches(req.headers.authorization, asked!) : o.relay.sessionFor(req.headers.authorization, p);
+      // R5 (H137): a card draws its highlight by itself: to a paused session, a plain 200 that says why, and no image
+      // (src/studio/session-pause.ts); to anyone else, 401
+      if (!s.ok && pausedRefusal(s.why)) { res.status(200).json({ ok: false, error: s.words, session: s.why }); return; }
       if (!s.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').type('text/plain').send(s.why === 'none' ? IMAGE_REFUSED : s.words); return; }
     }
     const rel = inProject(String(req.query.p ?? ''));

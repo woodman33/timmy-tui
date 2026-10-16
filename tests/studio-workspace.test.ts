@@ -144,8 +144,10 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const other = w.project('other');
     await nameProject(w.port, w.token, { root: other.root, name: other.name, holder: HY });
     const r = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
-    expect(r.status).toBe(401);
-    expect(r.json).toMatchObject({ ok: false, session: 'project' });
+    // R5 (H137): the strip reads it by itself, and the page hears of the pause only now: a plain 200 that says why, with no frame
+    // (src/studio/session-pause.ts), so the browser logs no failed request
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ ok: false, session: 'project', error: expect.stringMatching(/given for another project/) });
     expect(r.body).not.toContain(other.root);
     expect(r.json.frame).toBeUndefined();
   });

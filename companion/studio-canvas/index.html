@@ -23,45 +23,64 @@
   #root { position: absolute; left: 0; right: 0; bottom: 0; top: var(--frame-h, 0px); }
   /* R5 (H133): the shared workspace frame (src/contracts/workspace.ts; DESIGN.md §10 B10 Layouts), as a compact strip: TIMMY and the
      project, the ten tabs (Studio active, a 1px amber border; the others are labels, not links), the Studio tab's actions (the one
-     primary amber, each with its command to copy) and one line of activity. Each row is 20px and scrolls sideways on a narrow
-     window. Green only for what the frame says is live (.is-live). */
+     primary amber, each with its command to copy) and one line of activity. Green only for what the frame says is live (.is-live).
+     R5 (H137): the tabs' row and the activity's line are 20px and scroll sideways on a narrow window; the actions never do: they
+     wrap onto more rows, each whole (its number, its label wrapped under itself where the window is narrower than it, its command,
+     shortened with an ellipsis there, and Copy). The activity opens (its button) to the frame's newest entries, under the line. */
   /* under tldraw's UI layer (300) and the panel (299), which never reach into it: a tldraw menu that opens upward covers the strip,
      never the other way round */
   #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "top" "acts" "activity"; gap: 2px 14px; padding: 3px 10px;
+    grid-template-areas: "top" "acts" "activity" "log"; gap: 2px 14px; padding: 3px 10px;
     background: var(--timmy-surface, #070707); border-bottom: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
     font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/18px var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #frame[hidden] { display: none; }
   #frame-top { grid-area: top; }
-  #frame-acts { grid-area: acts; }
-  #frame-activity { grid-area: activity; }
-  /* a low window (a small laptop, a browser window made short): the strip keeps to two rows, the actions and the activity side
-     by side on the second, so Timmy's panel below it keeps room for its lists */
-  @media (max-height: 760px) {
-    #frame { grid-template-columns: minmax(0, 1fr) fit-content(40%); grid-template-areas: "top top" "acts activity"; }
-  }
   #frame .fr-row { display: flex; align-items: center; gap: 4px 8px; margin: 0; padding: 0; min-height: 20px; white-space: nowrap; overflow-x: auto; overflow-y: hidden;
     scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
   #frame-brand { flex: none; margin: 0; }
   #frame-brand strong { font-weight: var(--timmy-weight-heading, 700); letter-spacing: .08em; }
-  #frame-tabs, #frame-acts { list-style: none; }
+  #frame-tabs, #frame-acts, #frame-log { list-style: none; }
   #frame-tabs { display: flex; gap: 4px; margin: 0; padding: 0; }
   #frame .fr-tab { padding: 0 6px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; }
   #frame .fr-tab.is-active { border-color: var(--timmy-accent, #FFB000); color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
   #frame .fr-key { color: var(--timmy-text-secondary, #8E8E93); font-weight: var(--timmy-weight-body, 400); }
   #frame .fr-count, #frame .is-waiting { color: var(--timmy-attention, #FFB000); }
-  #frame .fr-act { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; }
+  /* R5 (H137): the actions' rows: as many as the window needs, nothing past its edge */
+  #frame-acts { grid-area: acts; display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px 8px; margin: 0; padding: 0; min-width: 0; }
+  /* an action's words flow as a line of text: its label wraps under itself, and its command with Copy follows on the line where
+     they fit, else on the next, kept together (shortened with an ellipsis only where a whole line is narrower than they are) */
+  #frame .fr-act { box-sizing: border-box; display: block; max-width: 100%; min-width: 0; min-height: 20px; overflow-wrap: break-word;
+    padding: 0 6px; border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; }
+  #frame .fr-do { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: top; }
+  /* a narrow window: a long command is shown shortened (Copy copies it whole; it is the command's title and in Copy's name), so
+     two actions share a row where they can */
+  @media (max-width: 1000px) { #frame .fr-cmd { max-width: 18ch; } }
   #frame .fr-act.is-primary { border-color: var(--timmy-accent, #FFB000); }
   #frame .fr-act.is-primary .fr-label { color: var(--timmy-accent, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
   #frame .fr-n, #frame .fr-why { color: var(--timmy-text-secondary, #8E8E93); }
   #frame .fr-act.is-off .fr-label { color: var(--timmy-text-secondary, #8E8E93); }
-  #frame .fr-cmd { font: inherit; line-height: 16px; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 3px; padding: 0 4px; user-select: all; }
-  #frame .fr-copy { font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; cursor: pointer; }
-  #frame .fr-copy:focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 1px; }
-  #frame-activity { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-cmd { box-sizing: border-box; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: inherit; line-height: 16px; color: var(--timmy-text, #F2EFE9); background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line, #333333); border-radius: 3px; padding: 0 4px; user-select: all; }
+  #frame .fr-copy { flex: none; font: inherit; padding: 0 2px; border: 0; background: none; color: var(--timmy-link, #E8E4D9); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+  #frame .fr-copy:focus-visible, #frame .fr-toggle:focus-visible { outline: 2px solid var(--timmy-accent, #FFB000); outline-offset: 1px; }
+  /* R5 (H137): the activity's line and the button that opens its entries */
+  #frame-activity-row { grid-area: activity; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #frame-activity { flex: 1 1 auto; min-width: 0; color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-toggle { flex: none; font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-text, #F2EFE9); background: none;
+    border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  #frame .fr-toggle[aria-expanded="true"] { border-color: var(--timmy-text-secondary, #8E8E93); }
   #frame .fr-sep { color: var(--timmy-line-strong, #444444); }
   #frame .fr-log.is-live { color: var(--timmy-live, #28FE14); }
   #frame .fr-log.is-attention, #frame .fr-log.is-failure { color: var(--timmy-attention, #FFB000); }
+  /* R5 (H137): the open activity: the frame's newest entries, one a row (its words wrapped under themselves), scrolled in place
+     on a low window */
+  #frame-log { grid-area: log; display: grid; gap: 1px; margin: 0; padding: 3px 0 2px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
+    border-top: 1px solid var(--timmy-line, #333333); scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
+  #frame-log[hidden] { display: none; }
+  #frame .fr-entry { overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
+  #frame .fr-time, #frame .fr-op, #frame .fr-tag, #frame .fr-empty { color: var(--timmy-text-secondary, #8E8E93); }
+  #frame .fr-tag.is-live { color: var(--timmy-live, #28FE14); }
+  #frame .fr-tag.is-attention, #frame .fr-tag.is-failure { color: var(--timmy-attention, #FFB000); }
   /* R5 (H133), B10: tldraw's own chrome (its menus, toolbar, panels, tooltips, dialogs and the canvas behind the drawing) on the
      same tokens. tldraw 5.5.2 colors that chrome only through these variables (its Themes guide: the canvas's background is
      --tl-color-background); the canvas's own UI colors (the selection, its brush, snap lines, handles) come from the same
@@ -118,10 +137,12 @@
     display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
     /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold. R4 (H100; the Mac run r24: the New board
        footer and the "Placed card" message sat on the list's cut rows): the panel itself never scrolls; its lists scroll in one
-       region (#side-scroll) that ends above the message band and New board, which stay in place below it. A full panel ends
-       116 px above the window's bottom (its top is at 52): tldraw's toolbar is up to 104 px tall on a narrow window, with
-       its row of actions over it */
-    max-height: calc(100vh - var(--frame-h, 0px) - 168px); overflow: hidden; }
+       region (#side-scroll) that ends above the message band and New board, which stay in place below it. R5 (H137; the
+       rehearsal: the list lost the strip's height and ended 116 px above the window's foot with room below it): the panel spans
+       from 52 px under the strip (the strip's height taken off once, at its top) to the window's foot, less --side-foot: what
+       tldraw draws under the panel there (its navigation panel on a wide window, its toolbar and the row of actions over it on a
+       narrow one), measured by canvas.js watchFoot, 8 px apart; 116 px until it is measured */
+    max-height: calc(100vh - var(--frame-h, 0px) - 52px - var(--side-foot, 116px)); overflow: hidden; }
   #status { flex: none; overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #444444); }
   /* R5 (H133), B10: green is earned: "Timmy connected" is an observed live connection (the bridge's socket is open), said in words */
   #status[data-kind="ready"] { border-left-color: var(--timmy-live, #28FE14); }
@@ -337,8 +358,9 @@
      opened, never on one opened without a grant -->
 <header id="frame" hidden aria-label="Timmy's workspace: this project, its tabs, Studio's next steps and what runs">
   <div class="fr-row" id="frame-top"><p id="frame-brand"><strong>TIMMY</strong> <span aria-hidden="true">·</span> <span id="frame-project">reading the workspace…</span></p><ol id="frame-tabs" aria-label="The ten tabs; this page is Studio"></ol></div>
-  <ol class="fr-row" id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
-  <p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p>
+  <ol id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
+  <div id="frame-activity-row"><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button><p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p></div>
+  <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
 </header>
 <div id="root"></div>
 <aside id="side" aria-label="Timmy">

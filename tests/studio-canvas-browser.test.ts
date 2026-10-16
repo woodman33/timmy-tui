@@ -157,17 +157,19 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(rb.receipt).toBe('Receipt not linked yet');
         expect(rb.receiptHref).toBeNull();
         // Readable: nothing clipped or sideways, the panel inside the screen and clear of tldraw's toolbar, text at 12px or more.
+        // R5 (H137): the toolbar as drawn (its inner part: .tlui-main-toolbar is a full-width container that draws nothing at the
+        // left), and the navigation panel at the bottom left: the panel now reaches down to whichever is under it, never over it
         const fit = await page.evaluate(() => {
           const side = document.getElementById('side')!;
           const sideBox = side.getBoundingClientRect();
-          const toolbar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+          const parts = [...document.querySelectorAll('.tlui-main-toolbar__inner, .tlui-navigation-panel')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
           const rows = [...document.querySelectorAll('#job-list li *')].filter((el) => el.children.length === 0 && el.textContent);
           return {
             sideway: side.scrollWidth > side.clientWidth + 1,
             clipped: rows.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
             smallest: Math.min(...rows.map((el) => parseFloat(getComputedStyle(el).fontSize))),
             inside: sideBox.left >= 0 && sideBox.right <= innerWidth && sideBox.bottom <= innerHeight,
-            overToolbar: toolbar ? sideBox.bottom > toolbar.top && sideBox.top < toolbar.bottom && sideBox.right > toolbar.left && sideBox.left < toolbar.right : false,
+            overToolbar: parts.some((b) => sideBox.bottom > b.top && sideBox.top < b.bottom && sideBox.right > b.left && sideBox.left < b.right),
           };
         });
         expect(fit, `${size.width}px`).toEqual({ sideway: false, clipped: [], smallest: expect.any(Number), inside: true, overToolbar: false });

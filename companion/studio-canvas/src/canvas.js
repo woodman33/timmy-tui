@@ -951,6 +951,8 @@ function mount(snapshot) {
           attachEditor(editor);
           followEditor(editor);
           showStatus(editor);
+          // R5 (H137): the panel ends just above what tldraw draws under it
+          watchFoot();
           resolve(editor);
         },
       }),
@@ -997,6 +999,44 @@ function startFrame() {
   const strip = document.getElementById('frame');
   if (!strip || frameStrip) return;
   frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
+}
+
+/**
+ * R5 (H137; the rehearsal: the panel's list ended 116 px above the window's foot, with room below it, on a wide window): where
+ * the panel may end (index.html #side, --side-foot): 8 px above the highest of tldraw's own bottom parts that sit under the panel
+ * (its navigation panel and minimap on a wide window; its toolbar and the row of actions over it on a narrow one), else 8 px above
+ * the window's foot. Measured once tldraw has laid them out, and again as they or the window change size.
+ */
+const FOOT_PARTS = '.tlui-navigation-panel, .tlui-minimap, .tlui-main-toolbar__inner, .tlui-help-menu';
+let footWatch = null;
+function measureFoot() {
+  const side = document.getElementById('side');
+  if (!side) return;
+  const s = side.getBoundingClientRect();
+  let top = window.innerHeight;
+  for (const part of document.querySelectorAll(FOOT_PARTS)) {
+    const b = part.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.right <= s.left || b.left >= s.right || b.top >= window.innerHeight) continue;
+    top = Math.min(top, b.top);
+  }
+  const foot = `${Math.max(8, Math.ceil(window.innerHeight - top) + 8)}px`;
+  if (document.documentElement.style.getPropertyValue('--side-foot') !== foot) document.documentElement.style.setProperty('--side-foot', foot);
+}
+function watchFoot() {
+  if (!footWatch) {
+    footWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => measureFoot()) : { observe() {}, disconnect() {} };
+    window.addEventListener('resize', () => requestAnimationFrame(measureFoot), { passive: true });
+  }
+  // tldraw lays its parts out after it mounts (and again for each board): they are looked for over the next frames, each watched
+  footWatch.disconnect();
+  let frames = 0;
+  const look = () => {
+    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom`)) footWatch.observe(part);
+    measureFoot();
+    frames += 1;
+    if (frames < 30 || (!document.querySelector('.tlui-main-toolbar__inner') && frames < 240)) requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
 }
 
 /**

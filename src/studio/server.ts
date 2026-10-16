@@ -53,6 +53,12 @@
  *   GET /api/project/inbox, POST ../<id>    the token; no Origin; the holder id                    the REPL's own actions
  *   GET /receipts/<id>                      nothing more (open; see below)                         C-13's receipt pages
  *
+ * R5 (H137; the rehearsal's one console error): a reading a canvas page makes by itself (GET /api/canvas/jobs, /api/workspace,
+ * /api/project, /api/project/image) refuses a paused session (one this server keeps, given for another project or by another
+ * REPL than the one holding the project now: a REPL's /canvas open took the canvas while the page was open) with a plain 200,
+ * `{ ok: false, error, session }` and nothing of the project (canvas-auth.ts refuseReading): the page cannot know it was paused
+ * before it asks. No credential, a forged one and a session that ended are still refused with 401, as every write and action is.
+ *
  * The receipt pages (C-13, src/studio/receipt-page.ts) stay open: a person opens them by clicking a link (the REPL's receipt
  * line and its "where to inspect" rows, /web <id>, the canvas page's jobs panel, a receipt page's previous-receipt link), a
  * browser navigation that cannot carry an Authorization header, so a credential would break each of those links. They show
@@ -80,7 +86,7 @@ import { dropProjectToken, HOLDER_ID, mountProjectRoutes, ProjectLink, writeProj
 // Round R4 (H75): the drawn cards' actions, carried to the REPL that holds the project (this server runs none of them).
 import { CardRelay, mountCardRoutes, type RelayOptions } from './card-relay.js';
 // Round R4 (H83): who may run code, read and save the canvas, and join the bridge.
-import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, replOnly, withholdOthers, WORKSPACE_REFUSED } from './canvas-auth.js';
+import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, refuseReading, replOnly, withholdOthers, WORKSPACE_REFUSED } from './canvas-auth.js';
 // R4 (H84): the local-request rule, shared with the browser companion and `timmy logs`.
 import { isLocalRequest as isLocal } from '../utils/local-request.js';
 // R4 (H109): the canvas follows the active project of its Timmy home (state/active-project.json)
@@ -245,6 +251,15 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.locals.by = c.by;
     next();
   };
+  // R5 (H137): a reading the canvas page makes by itself, every few seconds (its jobs, its workspace strip): a paused session's
+  // refusal is a plain 200 with nothing of the project (canvas-auth.ts refuseReading), so a page another REPL took the canvas from
+  // logs no failed request; anyone else's is the 401 above
+  const creditedReading = (refused: string): express.RequestHandler => (req, res, next) => {
+    const c = callerOf(req.headers.authorization, link, relay, refused);
+    if (!c.ok) { refuseReading(res, c); return; }
+    res.locals.by = c.by;
+    next();
+  };
   app.get('/api/canvas/document', credited(DOCUMENT_REFUSED), (req, res) => {
     const state = documents.load();
     res.set('Cache-Control', 'no-store');
@@ -269,13 +284,13 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
       const status = saved.ok ? 200 : 'conflict' in saved ? 409 : 'tooLarge' in saved ? 413 : 400;
       res.status(status).set('Cache-Control', 'no-store').json(saved);
     });
-  app.get('/api/canvas/jobs', credited(JOBS_REFUSED), (_req, res) => {
+  app.get('/api/canvas/jobs', creditedReading(JOBS_REFUSED), (_req, res) => {
     res.set('Cache-Control', 'no-store').json(documents.jobs());
   });
   // R5 (H133): the shared workspace frame (src/contracts/workspace.ts) of the project named now, made from its records by
   // src/ops/workspace-frame.ts, as the terminal Workbench and the companion read it: the strip above the canvas draws it. The
   // token or a page session that counts now (the frame is the project's content); none while no project is named.
-  app.get('/api/workspace', credited(WORKSPACE_REFUSED), async (_req, res) => {
+  app.get('/api/workspace', creditedReading(WORKSPACE_REFUSED), async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     const named = link.project;
     if (!named) { res.status(404).json({ ok: false, error: 'No project is named to this canvas, so it has no workspace to show. In Timmy: /canvas open.' }); return; }
