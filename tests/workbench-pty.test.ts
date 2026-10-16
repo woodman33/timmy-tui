@@ -284,7 +284,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, pane, waitFor, keys, find, capture, close } = terminal('wbB');
+    const { tmux, pane, screen, waitFor, keys, find, capture, close } = terminal('wbB');
     let runId = '';
     let op = '';
     try {
