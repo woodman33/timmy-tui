@@ -102,7 +102,7 @@ export async function showModel(at: OllamaAt, model: string, signal?: AbortSigna
   const both = signal ? AbortSignal.any([signal, timer]) : timer;
   let res: Response;
   try {
-    res = await fetch(`${at.origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }), signal: both, redirect: 'error' });
+    res = await unlessCancelled(fetch(`${at.origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }), signal: both, redirect: 'error' }), signal);
   } catch (err) {
     if (signal?.aborted) throw cancelled();
     const f = failure(err, timer.aborted, timeoutMs);
@@ -135,9 +135,35 @@ function apiTool(t: unknown): { type: 'function'; function: { name: string; desc
   return { type: 'function', function: { name: String(f.name), description: typeof f.description === 'string' ? f.description : '', parameters: convertZodToJsonSchema(f.inputSchema as never) } };
 }
 
-/** JSON lines from a streamed body, each parsed; a line too long, or a body over the limit, is refused. */
-async function* jsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<Record<string, unknown>> {
+/**
+ * The fetch's answer, or a cancel the moment `signal` aborts, whether or not the fetch itself takes the abort (R5 lead, the
+ * Mac walk at aa247e5: there a turn's signal was aborted and its request read on to the answer's end). An answer that comes
+ * after the cancel is closed unread, so Ollama does not go on making it for a turn that has ended.
+ */
+function unlessCancelled(sent: Promise<Response>, signal?: AbortSignal): Promise<Response> {
+  if (!signal) return sent;
+  const closeLate = (): void => { sent.then((r) => r.body?.cancel().catch(() => undefined), () => undefined); };
+  if (signal.aborted) { closeLate(); return Promise.reject(cancelled()); }
+  return new Promise<Response>((resolve, reject) => {
+    const onAbort = (): void => { closeLate(); reject(cancelled()); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    sent.then(
+      (r) => { signal.removeEventListener('abort', onAbort); resolve(r); },
+      (err: unknown) => { signal.removeEventListener('abort', onAbort); reject(err); },
+    );
+  });
+}
+
+/**
+ * JSON lines from a streamed body, each parsed; a line too long, or a body over the limit, is refused. A cancel ends it at
+ * once, mid-read too, and whether or not the fetch takes the abort (R5 lead): the read is cancelled, which closes the
+ * connection, so Ollama stops making the answer.
+ */
+async function* jsonLines(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<Record<string, unknown>> {
   const reader = body.getReader();
+  // a cancel resolves a pending read as done; the check after each read says it was a cancel, not the answer's end
+  const onAbort = (): void => { reader.cancel().catch(() => undefined); };
+  signal?.addEventListener('abort', onAbort, { once: true });
   const decoder = new TextDecoder('utf-8');
   let buffered = '';
   let total = 0;
@@ -146,7 +172,9 @@ async function* jsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<Reco
   };
   try {
     for (;;) {
+      if (signal?.aborted) throw cancelled();
       const { done, value } = await reader.read();
+      if (signal?.aborted) throw cancelled();
       if (done) break;
       total += value.length;
       if (total > MAX_STEP_BYTES) throw new Error(`its answer is longer than ${MAX_STEP_BYTES / 1024 / 1024} MiB`);
@@ -161,6 +189,7 @@ async function* jsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<Reco
     buffered += decoder.decode();
     if (buffered.trim()) yield parse(buffered.trim());
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     // an answer left before its end (an error line, a cancel) is not read further: its connection is closed now
     await reader.cancel().catch(() => undefined);
   }
@@ -244,7 +273,7 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       const body = { model, messages, stream: true, ...(toolsOn ? { tools: apiTools } : {}), ...(o.numCtx ? { options: { num_ctx: o.numCtx } } : {}) };
       let res: Response;
       try {
-        res = await fetch(`${at.origin}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: o.signal, redirect: 'error' });
+        res = await unlessCancelled(fetch(`${at.origin}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: o.signal, redirect: 'error' }), o.signal);
       } catch (err) {
         if (aborted()) throw cancelled();
         const f = failure(err, false, 0);
@@ -276,7 +305,12 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       let doneReason: string | undefined;
       const asked: OllamaCall[] = [];
       try {
-        for await (const chunk of jsonLines(res.body)) {
+        for await (const chunk of jsonLines(res.body, o.signal)) {
+          // R5 lead (the Mac walk at aa247e5): a cancel is taken here and in every read of the answer, not only through the
+          // fetch's own abort. There, Esc set the turn's signal and the answer read on to its end (300 lines, 1.5 min) before
+          // the turn ended as stopped: the fetch never took the abort. Leaving closes the connection (jsonLines cancels the
+          // reader), so Ollama stops generating; the OpenRouter route already checks its signal per item.
+          if (aborted()) throw cancelled();
           if (chunk.error !== undefined && chunk.error !== null) {
             throw new LocalChatError(`${atWords(at)} stopped the answer with an error.`, `its words: ${said(chunk.error) || 'none'}`, `send again; if it repeats, see Ollama's own log; ${NOWHERE_ELSE}`);
           }

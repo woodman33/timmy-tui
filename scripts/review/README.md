@@ -34,6 +34,10 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
   model in the Workbench: Home's next step is then "Choose the local model", and Enter on it lists what your Ollama has
   now. For OpenRouter, give the sandbox a key yourself: `./review.sh timmy init` asks for it, hidden. The launcher runs
   Timmy with `env -i` and its own list, so no key in your shell reaches it.
+- **Node:** `./review.sh install` records the node it ran on (in `sandbox/node.path`), and every later command runs Timmy on
+  that node, whatever node a terminal or a tmux pane puts first on its PATH (shell startup files can put an older one
+  first). `./review.sh where` names it, with the shell's own node beside it. If that node is gone, or older than Node 24,
+  the launcher stops and says to install again.
 - **Ports, 127.0.0.1 only:** Studio 4440, the log companion 4441, the browser companion 4442 (set `TIMMY_STUDIO_PORT`,
   `TIMMY_LOGS_PORT` or `TIMMY_COMPANION_PORT` before a command to change them). The Workbench prints each address when it
   starts that surface.
