@@ -642,7 +642,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const decl = /(?:^|[;{\s])((?:background|border|outline|box-shadow|text-decoration|caret|scrollbar|column-rule)(?:-[a-z-]+)?|color|fill|stroke)\s*:\s*([^;}]+)/g;
     for (const [, prop, value] of css.matchAll(decl)) {
       if (/^(?:border(?:-[a-z]+)*-(?:width|style|radius|collapse|spacing)|border-(?:top|right|bottom|left)-(?:width|style)|scrollbar-width|text-decoration-(?:line|thickness|style)|background-(?:clip|image|position|repeat|size)|outline-(?:offset|width|style))$/.test(prop)) continue;
-      const rest = value.replace(/var\(--timmy-[a-z-]+\)/g, '').replace(/!important|\b(?:solid|dashed|dotted|none|transparent|currentColor|inherit|underline|thin|auto)\b|-?\d*\.?\d+(?:px|em|rem|%)?/g, '').trim();
+      // R6 lead: `inset` (a box-shadow's side) and `line-through` (a decoration's line) are keywords, not colors (H142's tab 9)
+      const rest = value.replace(/var\(--timmy-[a-z-]+\)/g, '').replace(/!important|\b(?:solid|dashed|dotted|none|transparent|currentColor|inherit|underline|line-through|inset|thin|auto)\b|-?\d*\.?\d+(?:px|em|rem|%)?/g, '').trim();
       expect(rest, `${prop}: ${value}`).toBe('');
     }
   });
