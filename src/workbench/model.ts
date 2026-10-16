@@ -59,8 +59,12 @@ export interface TurnView {
   operation?: string;
   tools: Array<{ name: string; phase: 'start' | 'end'; outcome?: string }>;
   at: number;
-  /** R5 (H131): when its answer ended (this process's clock): a workspace frame read before then still names the turn */
+  /** R5 (H131): when its answer ended (this process's clock) */
   ended?: number;
+  /** R5 (H131; the operator's 22:32 order, item 1): the turn's identity, its hold's id (src/agent/chat-turn.ts TURN_ID), as
+   *  the workspace frame names a turn being answered (activity.chatTurn.id) and its receipt seals it (turn_id): read from its
+   *  hold while it is answered here, else from its sealed receipt; absent while neither has been read */
+  id?: string;
 }
 
 /**

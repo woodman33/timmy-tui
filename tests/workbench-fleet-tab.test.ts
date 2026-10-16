@@ -25,6 +25,8 @@ import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
 import { fixture as clefFixture } from './fixtures/clef-omni/fake.js';
+/** The last column of a view's rows (side by side: after the row's last rule; stacked: the whole row), its words joined. */
+const lastColumn = (lines: Line[]): string => lines.map((l) => { const parts = l.map((s) => s.text).join('').split('│'); return parts[parts.length - 1]; }).join(' ').replace(/\s+/g, ' ');
 
 const boxes: string[] = [];
 afterAll(() => { for (const b of boxes) rmSync(b, { recursive: true, force: true }); });
@@ -256,10 +258,10 @@ describe('tab 8: Cloudflare and the services', () => {
     // what a terminal cannot draw, and where it is seen: c the companion, s Studio (the Workbench's own keys), at every size
     for (const [c, r] of SIZES) {
       const v = fleetView(ctxAt(c, r), d, frame);
-      expect(text(v.lines)).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or live previews( here:)?/);
-      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action', 'action']);
-      expect(text(v.lines)).toMatch(/\[c\] Companion/);
-      expect(text(v.lines)).toMatch(/\[s\] Studio/);
+      // R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws of it, and what c shows for it in truth
+      // (read in its own column: side by side, its rows sit beside the other column's)
+      expect(lastColumn(v.lines)).toMatch(/No Timmy surface draws fleet previews yet\. \[c\] Companion( · Show)?: these cards in words\./);
+      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action']);
     }
     const stacked = text(fleetView(ctxAt(100, 30), d, frame).lines);
     expect(stacked).toMatch(/Workers AI: not used \(Clef-Omni's transport is not Workers AI\)/);

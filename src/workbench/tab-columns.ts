@@ -7,7 +7,7 @@
  */
 import type { View } from './model.js';
 import { boxOf, type Glyphs } from './frame.js';
-import { cells, cut, fit, lineCells, wrapText, type Line, type Role, type Seg } from './text.js';
+import { cells, cut, fit, lineCells, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
 
@@ -110,18 +110,26 @@ export function clipRows(lines: readonly Line[], w: number, room: number, g: Gly
 export const onBar = (l: Line): Line => l.map((s) => ({ ...s, selected: true, ...(s.role === 'secondary' || s.role === 'border' ? { role: 'text' as Role } : {}) }));
 
 /**
- * What a terminal cannot draw, said where a tab refers to a preview, and where it is seen: [c] the companion, [s] Studio (the
- * Workbench's own keys, from every tab). One row where it fits, else its words wrapped and the keys under them.
+ * R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws yet of a tab's subject (`none`: never a promise that
+ * another surface has it), then what the Workbench's own keys show for that tab in truth: [c] the companion's page of the tab
+ * (its records in words, in a browser), [s] Studio's canvas where it applies. Wrapped under themselves, never cut.
  */
-export function previewNote(w: number, g: Glyphs): Line[] {
+export function limitRows(none: string, show: { c: string; s?: string }, w: number, g: Glyphs): Line[] {
   const key = (k: string): Seg => S(`[${k}]`, 'action');
-  const long: Line = [S('A terminal draws no images, 3D or live previews: ', 'secondary'), key('c'), S(` Companion ${g.sep} Show, `, 'secondary'), key('s'), S(` Studio ${g.sep} Show`, 'secondary')];
-  if (lineCells(long) <= w) return [long];
-  const said = 'No images, 3D or live previews here:';
-  const keys: Line = [key('c'), S(' Companion, ', 'secondary'), key('s'), S(' Studio', 'secondary')];
-  if (cells(said) + 1 + lineCells(keys) <= w) return [[S(`${said} `, 'secondary'), ...keys]];
-  const keyRows: Line[] = lineCells(keys) <= w ? [keys] : [[key('c'), S(' Companion', 'secondary')], [key('s'), S(' Studio', 'secondary')]];
-  return [...wrapText(said, Math.max(8, w)).map((t): Line => [S(t, 'secondary')]), ...keyRows.map((l) => fit(l, w, g.ellipsis))];
+  // the keys by their full names ("Companion · Show"), or their short ones where those keep the words to fewer rows
+  const line = (full: boolean): Line => [S(`${none} `, 'secondary'), key('c'), S(` Companion${full ? ` ${g.sep} Show` : ''}: ${show.c}${show.s ? '; ' : '.'}`, 'secondary'), ...(show.s ? [key('s'), S(` Studio${full ? ` ${g.sep} Show` : ''}: ${show.s}.`, 'secondary')] : [])];
+  const width = Math.max(8, w);
+  const full = wrapSegs(line(true), width);
+  const short = wrapSegs(line(false), width);
+  return short.length < full.length ? short : full;
+}
+
+/**
+ * What a terminal cannot draw, said where a tab refers to a preview, and what the Workbench's keys show for it in truth
+ * (limitRows): R5 (H131; the QA of e7f853e, defect 2): never "[c] the companion draws it" where the companion has no such view.
+ */
+export function previewNote(w: number, g: Glyphs, none = 'A terminal draws no images, 3D or live previews, and no Timmy surface draws them for this tab yet.', c = 'this tab in a browser page, in words'): Line[] {
+  return limitRows(none, { c }, w, g);
 }
 
 /** Rows of a column: each fitted to `w`, and at most `room` of them (blank rows below to the room when `pad`). */

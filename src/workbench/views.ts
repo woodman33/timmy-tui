@@ -7,24 +7,27 @@
  * outcome src/ops/outcome.ts's (no change is said as such); a cost is a reported number or unknown; an action that cannot
  * run says what it needs; a label says what an action does and to what.
  */
+import { isTimmyRecord } from '../agent/core.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
+import { turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, type ActionHit, type TurnNow } from './hub.js';
+import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
-import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
+import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
+import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
-import { stateMark, workflowsTabView } from './workflows-tab.js';
+import { selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -153,7 +156,27 @@ export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceA
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
   const acts = f.actions[c.ui.page] ?? [];
-  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : acts };
+  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : c.ui.page === 'workflows' || c.ui.page === 'control' ? jobActionsNow(acts, c) : acts };
+}
+
+/**
+ * R5 (H131; the QA of e7f853e, defect 15): tab 3's and tab 7's actions as of now. The run action names the block selected in
+ * Workflows' list (the frame names the document's first block: "Run APPROVAL.md › tidy" stayed with LONG.md › wait selected),
+ * and while a job of this project runs, Stop current (x) is the one next step, as a chat turn's Stop is; what waits on you stays
+ * first (a job may be waiting on it). The frame's labels and commands otherwise.
+ */
+function jobActionsNow(acts: WorkspaceAction[], c: Pick<ViewCtx, 'ui' | 'data'>): WorkspaceAction[] {
+  let out = acts;
+  if (c.ui.page === 'workflows') {
+    const sel = selectedBlock(c);
+    const command = sel ? `/run ${sel.doc.rel} ${sel.block.name}` : '';
+    if (sel && !/\s/.test(sel.doc.rel) && !/\s/.test(sel.block.name)) out = out.map((a) => (routeOf(a).kind === 'run' && a.command !== command ? { ...a, label: `Run ${sel.doc.rel} › ${sel.block.name}`, command } : a));
+  }
+  if (stopWords(c.data).target && !c.data.decisions.total) {
+    const stop = out.findIndex((a) => a.command === '/stop' && a.enabled);
+    if (stop >= 0) out = out.map((a, i) => ({ ...a, primary: i === stop }));
+  }
+  return out;
 }
 
 /**
@@ -226,9 +249,10 @@ export function stopWords(d: Data, selected?: Item | null, workspace?: Workspace
   const where = t && !sameFolder(t.root, d.project.root) ? ` (in ${t.project})` : '';
   if (t) return { text: `Stop current: ${t.id} ${t.label}${where}`, target: t };
   // R5 (H131; the QA round's defect 1): no job runs, a chat turn is being answered: this Workbench's own is stopped by x (and
-  // Esc in the composer); another surface's only where it was sent
+  // Esc in the composer). R5 (H131; the QA of e7f853e, item 16): another surface's is asked to stop by x, by its id, as its own
+  // key there would (src/agent/chat-turn.ts requestTurnStop); a turn the frame names without an id only where it was sent
   const turn = chatTurnNow(d);
-  if (turn) return { text: turn.mine ? 'Stop current: the chat turn being answered here' : `Stop current: the chat turn in ${turn.where} (it stops there)`, target: null, turn };
+  if (turn) return { text: turn.mine ? 'Stop current: the chat turn being answered here' : `Stop current: the chat turn in ${turn.where} (${turnStopHere(turn)})`, target: null, turn };
   return { text: 'Stop current: idle', target: null };
 }
 
@@ -263,7 +287,7 @@ export function stopRight(c: ViewCtx, width: number): Line {
   const { ui, data } = c;
   const stop = stopWords(data, selectedItem(c), ui.workspace);
   const state: Line = [S(runWords(data), data.decisions.total ? 'attention' : 'secondary')];
-  const stopLine: Line = stop.target || stop.turn?.mine ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, stop.turn ? 'text' : 'secondary')];
+  const stopLine: Line = stop.target || stop.turn?.mine || stop.turn?.id ? [key('x'), S(` ${stop.text}`, 'strong')] : [S(stop.text, stop.turn ? 'text' : 'secondary')];
   // the state and Stop are kept whole first; when even they do not fit, Stop alone, cut at its end
   const fullRight: Line = [...state, S('  '), ...stopLine];
   return lineCells(fullRight) <= width ? fullRight : lineCells(stopLine) <= width ? stopLine : fitTo(stopLine, width, c.g);
@@ -450,24 +474,49 @@ function chatView(c: ViewCtx): View {
   const same = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
   let msgs = t.messages;
   const n = msgs.length;
-  // being answered: its message may be kept already (the last one); answered: the conversation ends with it and its answer
+  // being answered: its message may be kept already (the last one); answered: the conversation ends with it and its answer;
+  // stopped: with it and Timmy's own record of the stop (src/agent/core.ts cancelRecord, isTimmyRecord)
   const kept = !!turn && (turn.state === 'sending'
     ? n >= 1 && msgs[n - 1].role === 'user' && same(msgs[n - 1].text, turn.text)
-    : n >= 2 && msgs[n - 2].role === 'user' && same(msgs[n - 2].text, turn.text) && msgs[n - 1].role === 'assistant' && same(msgs[n - 1].text, turn.answer));
+    : n >= 2 && msgs[n - 2].role === 'user' && same(msgs[n - 2].text, turn.text) && msgs[n - 1].role === 'assistant'
+      && (same(msgs[n - 1].text, turn.answer) || (turn.state === 'cancelled' && isTimmyRecord(msgs[n - 1].text))));
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
   else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet (.sessions).', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
+  const bodyW = Math.max(8, c.width - 2 - 6);
+  const under = (b: string, sel: boolean, role: Role = 'text'): Line => [S('  ', 'text', sel ? { selected: true } : {}), S(' '.repeat(6), 'text', sel ? { selected: true } : {}), S(b, role, sel ? { selected: true } : {})];
+  // R5 (H131; the QA of e7f853e, defect 8): the stopped turn of this Workbench, said once: the stop in Timmy's own words
+  const stoppedHere = turn && turn.state === 'cancelled' ? stoppedNote(turn, data, g) : null;
+  let noted = false;
   msgs.forEach((m, i) => {
-    const who = m.role === 'user' ? 'You' : 'Timmy';
-    const body = messageRows(m.text, Math.max(8, c.width - 2 - 6));
     const sel = i === cur;
-    items.push({ line: lines.length, item: { kind: 'message', key: `msg:${i}`, role: m.role, text: m.text }, rows: body.length });
-    body.forEach((b, k) => lines.push(k === 0
-      ? row([S(who.padEnd(6), m.role === 'user' ? 'strong' : 'ai'), S(b, 'text')], sel, g)
-      : [S('  ', 'text', sel ? { selected: true } : {}), S(' '.repeat(6), 'text', sel ? { selected: true } : {}), S(b, 'text', sel ? { selected: true } : {})]));
+    const item: Item = { kind: 'message', key: `msg:${i}`, role: m.role, text: m.text };
+    // R5 (H131; the QA of e7f853e, defect 8): Timmy's own record of a turn that ended without its answer (src/agent/core.ts
+    // isTimmyRecord) is not the model's words: never under the speaker's label. The partial answer it quotes is shown once,
+    // marked partial (this Workbench's own turn's as it streamed, whole), then the stop in Timmy's own words, once
+    if (m.role === 'assistant' && isTimmyRecord(m.text)) {
+      const rec = timmyRecord(m.text);
+      const ownLast = !!stoppedHere && kept && i === msgs.length - 1;
+      const partial = ownLast && turn?.answer.trim() ? turn.answer : rec.partial;
+      const at = lines.length;
+      if (partial) {
+        messageRows(partial, Math.max(8, bodyW - 10)).forEach((b, k) => lines.push(k === 0
+          ? row([S('Timmy'.padEnd(6), 'ai'), S('(partial) ', 'secondary'), S(b, 'text')], sel, g)
+          : under(`${' '.repeat(10)}${b}`, sel)));
+      }
+      const note = ownLast && stoppedHere ? stoppedHere : recordNote(rec, m.at, g);
+      if (ownLast) noted = true;
+      wrapSegs(note, Math.max(8, c.width - 2), '  ').forEach((r, k) => lines.push(k === 0 && !partial ? row(r, sel, g) : [S('  ', 'text', sel ? { selected: true } : {}), ...r.map((x) => (sel ? { ...x, selected: true } : x))]));
+      items.push({ line: at, item, rows: lines.length - at });
+      return;
+    }
+    const who = m.role === 'user' ? 'You' : 'Timmy';
+    const body = messageRows(m.text, bodyW);
+    items.push({ line: lines.length, item, rows: body.length });
+    body.forEach((b, k) => lines.push(k === 0 ? row([S(who.padEnd(6), m.role === 'user' ? 'strong' : 'ai'), S(b, 'text')], sel, g) : under(b, sel)));
   });
   // the composer's turn, as it went (the session's own words)
   if (turn) {
@@ -476,18 +525,22 @@ function chatView(c: ViewCtx): View {
       ? [`being answered${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc in the composer, or x, stops it']
       : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', receipt ? `receipt ${receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
     const statusRole: Role = turn.state === 'failed' ? 'failure' : 'secondary';
+    // a stopped turn: its stop is said once, in Timmy's own words (the session's "Cancelled…" line says the same stop)
+    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^Cancelled\b/.test(l))) : turn.lines;
     if (turn.state !== 'sending' && kept) {
-      // kept in the conversation above: its receipt and what came of it, under it
-      for (const l of turn.lines) lines.push(...para(l, c.width, 'secondary', '  '));
-      lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+      // kept in the conversation above: its receipt and what came of it, under it (a stopped one's said there, once)
+      for (const l of said) lines.push(...para(l, c.width, 'secondary', '  '));
+      if (stoppedHere && !noted) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
+      else if (!stoppedHere) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     } else {
       lines.push(blank);
       lines.push(heading(turn.state === 'sending' ? 'Being answered now' : 'Your last message here'));
       lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
-      if (turn.answer) lines.push(...para(`Timmy: ${turn.answer}`, c.width, 'text'));
+      if (turn.answer) lines.push(...para(`Timmy${stoppedHere ? ' (partial)' : ''}: ${turn.answer}`, c.width, 'text'));
       for (const x of turn.tools.slice(-4)) lines.push([S(`  ${x.phase === 'start' ? `${g.run} running` : `${g.ok} done`} ${x.name}`, 'secondary'), S(x.outcome ? ` ${x.outcome}` : '', 'secondary')]);
-      for (const l of turn.lines) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
-      lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+      for (const l of said) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+      if (stoppedHere) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
+      else lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     }
   }
   lines.push(blank);
@@ -500,7 +553,47 @@ function chatView(c: ViewCtx): View {
   // R5 (H131): the conversation is the body's left column now: the hint is short enough for it
   else lines.push([key('Enter'), S(c.can.chat ? ' Type a message (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
+  // R5 (H131; the QA of e7f853e, defect 2 and reference 02's difference 3): what a terminal cannot draw here, as the other
+  // tabs say it, and what c and s show for it in truth
+  lines.push(blank, ...limitRows('No Timmy surface draws a chat\'s previews or images yet.', { c: 'this project\'s turns, each as its receipt', s: 'the canvas, where Timmy draws when asked' }, c.width, g));
   return { lines, items };
+}
+
+/** R5 (H131; the QA of e7f853e, defect 8): what Timmy's own record of a turn that ended without its answer says
+ *  (src/agent/core.ts cancelRecord, UNANSWERED): stopped, or left unanswered; the partial answer it quotes; whether what its
+ *  tools did stands. */
+function timmyRecord(text: string): { stopped: boolean; partial?: string; stands: boolean } {
+  const stopped = text.startsWith('[Cancelled by the user before I');
+  let partial: string | undefined;
+  const quoted = /What I had written so far: ("(?:[^"\\]|\\.)*")\./.exec(text);
+  if (quoted) { try { const p = JSON.parse(quoted[1]) as unknown; if (typeof p === 'string' && p.trim()) partial = p; } catch { /* not quoted as cancelRecord writes it */ } }
+  return { stopped, ...(partial ? { partial } : {}), stands: /\bNothing was rolled back\./.test(text) };
+}
+
+/** A stop's mark, as the Control Room's stopped turn has it (■). */
+const stopMark = (g: Glyphs): string => (g.unicode ? '■' : '#');
+
+/** R5 (H131; the QA of e7f853e, defect 8): an earlier record's note, in Timmy's own words, with when it was kept. */
+function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs): Line {
+  const when = at !== undefined ? ` ${g.sep} ${clock(new Date(at).toISOString())}` : '';
+  if (!rec.stopped) return [S(`${stopMark(g)} not answered`, 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
+  return [S(`${stopMark(g)} stopped by you`, 'text'), S(`${rec.stands ? ` ${g.sep} what its tools did stands (nothing was rolled back)` : ''}${when}`, 'secondary')];
+}
+
+/** R5 (H131; the QA of e7f853e, defect 8): this Workbench's stopped turn, said once in Timmy's own words: who stopped it
+ *  (its receipt's stopped_by when another surface asked: src/ops/workspace-frame.ts turnOf), whether anything was sent, its
+ *  receipt and when it stopped, in this Workbench's clock. */
+function stoppedNote(turn: NonNullable<Data['turn']>, d: Data, g: Glyphs): Line {
+  const short = turn.receipt ? receiptShort(turn.receipt) : '';
+  const sealed = short ? (d.turns ?? []).find((x) => x.receipt === short) : undefined;
+  const how = sealed && sealed.stoppedBy && sealed.stoppedBy !== sealed.surface ? turnEndWords(sealed) : 'stopped by you';
+  const rest = [
+    turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model: what it did stands, nothing was rolled back' : '',
+    turn.sent && turn.costWords ? turn.costWords : '',
+    short ? `receipt ${short}` : 'no receipt sealed',
+    turn.ended !== undefined ? clock(new Date(turn.ended).toISOString()) : '',
+  ].filter(Boolean);
+  return [S(`${stopMark(g)} ${how}`, 'text'), S(` ${g.sep} ${rest.join(` ${g.sep} `)}`, 'secondary')];
 }
 
 /** R5 (H131; the QA round's defect 8): the conversation's view follows its newest rows (an answer's end, its receipt and the
@@ -522,18 +615,23 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   const { data, g } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
-  const match = FAMILY_ROWS[ws];
+  // R5 (H131; the QA of e7f853e, defect 23): tab 6's two views (6, then 6 again) list the tab's every app, their own first:
+  // After Effects is the tab's action 3, so it is in the 3D view's list too
+  const tab6 = ws === 'create3d' || ws === 'motion';
+  const families: WorkspaceId[] = tab6 ? (ws === 'motion' ? ['motion', 'create3d'] : ['create3d', 'motion']) : [ws];
   let rows: CapabilityRow[] = [];
   const wait = lazyLines(data.caps, 'Timmy\'s tools', c);
-  if (!wait && data.caps.state === 'ready' && match) rows = data.caps.value.filter((r) => match(r.id, r.kind));
-  const records = ws === 'voxvision' ? data.vox : data.native[ws] ?? [];
+  if (!wait && data.caps.state === 'ready') {
+    const caps = data.caps.value;
+    rows = families.flatMap((f) => { const m = FAMILY_ROWS[f]; return m ? caps.filter((r) => m(r.id, r.kind)) : []; });
+  }
+  const records = ws === 'voxvision' ? data.vox : tab6 ? families.flatMap((f) => data.native[f] ?? []) : data.native[ws] ?? [];
   const total = rows.length + records.length;
   const cur = cursorOf(c.ui, `center:${ws}`, total);
   let i = 0;
-  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw, and which keys show it rendered
-  if (ws === 'create3d' || ws === 'motion') {
-    lines.push(...wrapSegs([S('A terminal cannot draw images, 3D or live previews: ', 'secondary'), key('c'), S(' Companion · Show, ', 'secondary'), key('s'), S(' Studio · Show.', 'secondary')], c.width, '  '), blank);
-  }
+  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw; the QA of e7f853e, defect 2: and what
+  // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own)
+  if (tab6) lines.push(...limitRows('No Timmy surface draws 3D, images or a motion timeline yet: each app below draws its own, once it is set up.', { c: 'this tab\'s actions, in words', s: 'the canvas (2D shapes and cards)' }, c.width, g), blank);
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -541,10 +639,24 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
       ? 'No REA capability is registered in this revision: REA\'s core (src/rea) is being built separately, so nothing here runs REA yet.'
       : 'No registered tool belongs here in this revision.', c.width));
   }
-  for (const r of rows) { items.push({ line: lines.length, item: { kind: 'cap', key: `cap:${r.id}`, row: r } }); lines.push(row(capLine(r, g), i === cur, g)); i += 1; }
+  // R5 (H131; the QA of e7f853e, defect 11): a tool's row wraps under itself: its step is never cut off
+  for (const r of rows) {
+    const body = wrapSegs(capLine(r, g), Math.max(8, c.width - 2), '    ');
+    items.push({ line: lines.length, item: { kind: 'cap', key: `cap:${r.id}`, row: r }, rows: body.length });
+    body.forEach((b, k) => lines.push(k === 0 ? row(b, i === cur, g) : [S('  '), ...b.map((x) => (i === cur ? { ...x, selected: true } : x))]));
+    i += 1;
+  }
+  const missing = NOT_IN_TIMMY[tab6 ? 'create3d' : ws] ?? [];
+  if (missing.length) {
+    lines.push(blank, heading(`Not in Timmy yet (${missing.length})`));
+    for (const m of missing) lines.push(...wrapSegs([S(`  ${m.name}`, 'strong'), S(`  ${m.why}`, 'secondary')], Math.max(8, c.width), '    '));
+  }
   lines.push(blank);
   lines.push(heading(`This project's records (${records.length})`));
-  if (!records.length) lines.push([S(ws === 'voxvision' ? '  No VoxVision record yet: /inspect <file> in the REPL makes one.' : ws === 'rea' ? '  No REA record in this project.' : '  No run of these apps in this project yet.', 'secondary')]);
+  if (!records.length) {
+    lines.push(...para(ws === 'voxvision' ? 'No VoxVision record yet: /inspect <file> in the REPL makes one.' : ws === 'rea' ? 'No REA record in this project.'
+      : 'No run of these apps in this project yet: /blender, /scad or /ae in the REPL (the actions above) starts one, once its app is set up (each row above says what it needs).', c.width, 'secondary', '  '));
+  }
   for (const rec of records) {
     items.push({ line: lines.length, item: { kind: 'record', key: `rec:${rec.record}`, rec } });
     lines.push(row([S(rec.id, 'strong'), S(`  ${rec.what}`, 'text'), S(`  ${rec.state}`, rec.state.startsWith('failed') ? 'failure' : 'secondary'), S(rec.at ? ` ${g.sep} ${ago(rec.at, c.now)}` : '', 'secondary')], i === cur, g));
@@ -839,13 +951,14 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       return { lines, items };
     }
     case 'message': {
-      // R5 (H131): a line of one voice wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width:
-      // "Nothing was run from here" was cut off a shown command's words); a line of several voices keeps its row
+      // R5 (H131): a line wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width: "Nothing was
+      // run from here" was cut off a shown command's words). QA of e7f853e: a line of several voices too, each word in its
+      // own voice, the rows after the first indented under it ("The chat is set to the local model …" was cut)
       const fitted = o.lines.flatMap((l): Line[] => {
         if (lineCells(l) <= c.width) return [l];
         const voiced = l.filter((s) => s.text.trim());
         const role = voiced[0]?.role ?? 'text';
-        if (voiced.some((s) => (s.role ?? 'text') !== role)) return [l];
+        if (voiced.some((s) => (s.role ?? 'text') !== role)) return wrapSegs(l, c.width, '  ');
         return para(l.map((s) => s.text).join('').trim(), c.width, role);
       });
       lines.push([S(o.title, 'strong')], blank, ...fitted, blank, [key('Esc'), S(' Close', 'text')]);
@@ -925,7 +1038,8 @@ export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
   else out.push({ key: 'r', label: `Read ${c.data.project.name}'s records again`, enabled: true });
   if (stop.target) out.push({ key: 'x', label: `Stop current: ${stop.target.id} ${stop.target.label}`, enabled: true });
   else if (stop.turn?.mine) out.push({ key: 'x', label: 'Stop current: the chat turn being answered here', enabled: true });
-  else if (stop.turn) out.push({ key: 'x', label: 'Stop current', enabled: false, why: `the chat turn is being answered in ${stop.turn.where}, and stops there` });
+  else if (stop.turn?.id) out.push({ key: 'x', label: `Stop current: ask the chat turn in ${stop.turn.where} to stop`, enabled: true });
+  else if (stop.turn) out.push({ key: 'x', label: 'Stop current', enabled: false, why: `the chat turn is being answered in ${stop.turn.where}, and stops there (${turnStopWords(stop.turn.surface)})` });
   else out.push({ key: 'x', label: 'Stop current', enabled: false, why: 'nothing runs in this project' });
   return out.filter((a, i, all) => all.findIndex((b) => b.key === a.key && b.label === a.label) === i);
 }
@@ -1082,7 +1196,7 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       // R4 (H117): a chat turn as its sealed receipt says it, whichever surface sent it
       const t = item.turn;
       lines.push(heading('Chat turn'));
-      f('Receipt', t.receipt, 'strong'); f('From', TURN_SURFACE[t.surface]); f('Ended', t.state, t.state === 'failed' ? 'failure' : 'strong');
+      f('Receipt', t.receipt, 'strong'); f('From', TURN_SURFACE[t.surface]); f('Ended', turnEndWords(t), t.state === 'failed' ? 'failure' : 'strong');
       f('Model', t.model ?? 'not recorded on its receipt');
       f('Route', t.local === true ? 'local endpoint, no charge: Ollama on this computer'
         : t.local === false ? 'Ollama, which sent it off this computer (another computer, or a cloud-backed model): no cost comes back'
@@ -1108,7 +1222,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     case 'starter': lines.push(heading('Project starter')); f('Name', item.name); lines.push(...para(item.about, w)); lines.push(...para('Enter makes a new project from it; it asks a name.', w, 'action')); break;
     case 'board': lines.push(heading('Studio board template')); f('Id', item.board.id); f('Title', item.board.title); f('Domain', item.board.domain); lines.push(...para(`Capabilities: ${item.board.caps.join(', ')}`, w)); break;
     case 'server': { const s = item.which === 'companion' ? c.ui.companion : c.ui.studio; lines.push(heading(item.which === 'companion' ? 'Companion' : 'Studio')); f('Serving', s.serving ? `yes, at ${s.address}` : s.other ? `another Timmy, at ${s.address}` : 'no'); if (s.last) lines.push(...para(s.last, w)); break; }
-    case 'message': lines.push(heading(item.role === 'user' ? 'Your message' : 'Timmy\'s answer')); lines.push(...para(item.text, w, 'text')); break;
+    // R5 (H131; the QA of e7f853e, defect 8): Timmy's own record of a turn that ended without its answer is not an answer
+    case 'message': lines.push(heading(item.role === 'user' ? 'Your message' : isTimmyRecord(item.text) ? 'Timmy\'s own record (no answer)' : 'Timmy\'s answer')); lines.push(...para(item.text, w, 'text')); break;
     case 'event': lines.push(heading('Activity')); f('When', clock(item.event.at)); lines.push(...para(item.event.words, w, 'text')); if (item.event.job) f('Job', item.event.job); if (item.event.operation) f('Operation', item.event.operation); break;
     case 'conn': {
       // R5 (H131): a connection as the workspace frame has it (src/ops/workspace-frame.ts), never as a setting alone

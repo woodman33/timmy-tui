@@ -167,7 +167,9 @@ describe('tab 9: the selected call or tool', () => {
       expect(said).toMatch(/call\.json is the bytes it sealed/);
       expect(said).toMatch(/AGAIN \/mcp call --route sdk echo \{"text":"FAKE"\} -- <server command>/);
       expect(said).toMatch(/the record names the server "node fake-server\.js", not its whole command line/);
-      expect(said).toMatch(/A call graph or a schema view is not drawn here:/);
+      // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws one; the companion has the two routes, in words
+      expect(said).toMatch(/No Timmy surface draws a call graph or a schema view yet\./);
+      expect(said.replace(/\s+/g, ' ')).toMatch(/\[c\] Companion( · Show)?: the two MCP-to-CLI routes and this tab's actions, in words\./);
       expect(rolesOf(v.lines, /^\[c\]$/)).toEqual(['action']);
       // a configured server: by its name
       const w = words(toolsView(ctxAt(c, r, callAt(d, n, p.ids.list)), capsOf(), d, LIST).lines);

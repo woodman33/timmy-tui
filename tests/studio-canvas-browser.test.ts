@@ -80,7 +80,18 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it('loads nothing from any host but 127.0.0.1, and says it is ready, saved', async () => {
     const { page, context, origins, errors } = await open();
     expect([...origins]).toEqual([base]);
-    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · Timmy connected · revision 0, saved$/);
+    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · ● Timmy connected · revision 0, saved$/);
+    // R5 (H137; QA defect 26): the bar beside the line is neutral (its facts are not live observations); only "● Timmy connected",
+    // the bridge's socket open now, is green, and only that part
+    const look = await page.evaluate(() => {
+      const st = document.getElementById('status')!;
+      const parts = [...st.querySelectorAll('*')].map((e) => ({ text: e.textContent, color: getComputedStyle(e).color }));
+      return { bar: getComputedStyle(st).borderLeftColor, line: getComputedStyle(st).color, parts };
+    });
+    const greens = ['rgb(40, 254, 20)', 'rgb(0, 215, 0)'];
+    expect(greens).not.toContain(look.bar);
+    expect(greens).not.toContain(look.line);
+    expect(look.parts).toEqual([{ text: '● Timmy connected', color: expect.stringMatching(/^rgb\((40, 254, 20|0, 215, 0)\)$/) }]);
     expect(errors).toEqual([]);
     await context.close();
   }, 60_000);
@@ -91,6 +102,14 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       await page.waitForSelector('#guide:not([hidden])');
       expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas'));
       expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
+      // R5 (H137; QA defect 13): its heading is off-white (amber is focus and the one next step), and New board's Open is outlined:
+      // no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's selection)
+      const look = await page.evaluate(() => ({
+        heading: getComputedStyle(document.querySelector('#guide strong')!).color, text: getComputedStyle(document.getElementById('side')!).color,
+        fills: [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').map((e) => e.id || e.tagName),
+      }));
+      expect(look.heading).toBe(look.text);
+      expect(look.fills).toEqual([]);
     } finally {
       await context.close();
     }
@@ -149,7 +168,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(ra.state).toBe('✓ done');
         expect(rb.state).toBe('✖ failed');
         expect(ra.time.datetime).toBe(a.at);
-        expect(ra.time.text).toMatch(/^(\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?|.+ \d{1,2}:\d{2})/i);
+        // R5 (H137; the QA round, defect 6): the one time format, this computer's 24-hour clock (the date too on another day)
+        expect(ra.time.text).toMatch(/^(\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d$/);
         expect(ra.canvas).toBe(`Canvas job ${tag}-a, rev ${a.revision}`);
         expect(rb.canvas).toBe(`Canvas job ${tag}-b, rev ${b.revision}`);
         expect(ra.receipt).toBe('Receipt a1b2c3d4');
@@ -157,17 +177,19 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(rb.receipt).toBe('Receipt not linked yet');
         expect(rb.receiptHref).toBeNull();
         // Readable: nothing clipped or sideways, the panel inside the screen and clear of tldraw's toolbar, text at 12px or more.
+        // R5 (H137): the toolbar as drawn (its inner part: .tlui-main-toolbar is a full-width container that draws nothing at the
+        // left), and the navigation panel at the bottom left: the panel now reaches down to whichever is under it, never over it
         const fit = await page.evaluate(() => {
           const side = document.getElementById('side')!;
           const sideBox = side.getBoundingClientRect();
-          const toolbar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+          const parts = [...document.querySelectorAll('.tlui-main-toolbar__inner, .tlui-navigation-panel')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
           const rows = [...document.querySelectorAll('#job-list li *')].filter((el) => el.children.length === 0 && el.textContent);
           return {
             sideway: side.scrollWidth > side.clientWidth + 1,
             clipped: rows.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
             smallest: Math.min(...rows.map((el) => parseFloat(getComputedStyle(el).fontSize))),
             inside: sideBox.left >= 0 && sideBox.right <= innerWidth && sideBox.bottom <= innerHeight,
-            overToolbar: toolbar ? sideBox.bottom > toolbar.top && sideBox.top < toolbar.bottom && sideBox.right > toolbar.left && sideBox.left < toolbar.right : false,
+            overToolbar: parts.some((b) => sideBox.bottom > b.top && sideBox.top < b.bottom && sideBox.right > b.left && sideBox.left < b.right),
           };
         });
         expect(fit, `${size.width}px`).toEqual({ sideway: false, clipped: [], smallest: expect.any(Number), inside: true, overToolbar: false });

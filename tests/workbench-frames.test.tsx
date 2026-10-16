@@ -139,12 +139,13 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     await press(f.r, '6');
     const w = f.text();
     expect(f.lines()[1]).toContain('┃6 3D & Motion┃');
-    expect(w).toContain('tray-wide / 3D Create · native scenes and CAD');
+    // (R5 H131, the QA of e7f853e, defect 23: the pane says the tab's own name)
+    expect(w).toContain('tray-wide / 3D & Motion · scenes, CAD and compositions');
     expect(w).toContain('Context');
     expect(w).toMatch(/Tools │ ▸ Inspector │\s+Files/);
     // Tab: the body's list has the keyboard (its heavy border and marker), the workflow actions no longer
     await press(f.r, TAB);
-    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D Create · native scenes and CAD/);
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D & Motion · scenes, CAD and compositions/);
     expect(f.text()).not.toMatch(/◆ Workflow actions/);
     await press(f.r, TAB);
     expect(f.text()).toMatch(/◆ Context/);
@@ -157,7 +158,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(f.text()).toMatch(/Tools │ {3}Inspector │ ▸ Files/);
     // focus mode (z): the body's list alone, with the tabs, the actions and the log; i opens Context as a drawer; z leaves it
     await press(f.r, 'z');
-    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D Create · native scenes and CAD · focus mode \(z leaves it\)/);
+    expect(f.text()).toMatch(/┏━ ◆ tray-wide \/ 3D & Motion · scenes, CAD and compositions · focus mode \(z leaves it\)/);
     expect(f.text()).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
     expect(f.text()).toContain('TIMMY · tray-wide');
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);

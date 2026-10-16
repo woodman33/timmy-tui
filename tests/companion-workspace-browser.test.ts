@@ -555,6 +555,17 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   });
+  it('R5 lead (the QA round, defect 28): with no receipt sent to the page, Logs & Receipts says so in one sentence, not seven "none received yet" rows', async () => {
+    const { page, context, errors } = await open({ viewport: { width: 1376, height: 768 } });
+    try {
+      await openTab(page, 'logs');
+      await page.waitForSelector('#proof-none', { state: 'visible', timeout: 15_000 });
+      expect(await page.$eval('#proof-none', (e) => (e.textContent || '').trim())).toBe('No receipt has been sent to this page since it opened. The project\'s sealed receipts so far are in Structured events, as the frame read them.');
+      expect(await page.$eval('#proof-box', (e) => getComputedStyle(e).display)).toBe('none');
+      expect(await page.evaluate(() => document.body.innerText.includes('none received yet'))).toBe(false);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  });
   it('at 390 px wide every tab fits the window (nothing scrolls sideways), and Home\'s columns stack', async () => {
     const f = await frameNow();
     const { page, context } = await open({ viewport: { width: 390, height: 844 } });

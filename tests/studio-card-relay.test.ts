@@ -282,9 +282,12 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     });
     closers.push(() => other.stop());
     expect(await other.handOff()).toEqual({ ok: true, name: 'demo' });
+    // R5 (H137): a reading the panel makes by itself; the session is paused, which the page hears only now: a plain 200 that
+    // says why, with no card in it (src/studio/session-pause.ts), so the browser logs no failed request
     const byOther = await w.call('GET', '/api/project?detail=1', { headers: page_ });
-    expect(byOther.status).toBe(401);
-    expect(byOther.json).toMatchObject({ session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
+    expect(byOther.status).toBe(200);
+    expect(byOther.json).toEqual({ ok: false, session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
+    expect(byOther.body).not.toContain('mkdir -p dist');
     const jobsBefore = jobFiles(w);
     const refused = await act(w, token, { project: w.p.pid, card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'setup' } });
     expect(refused.status).toBe(401);
@@ -296,8 +299,8 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     const named = await w.call('POST', '/api/project/active', { headers: { ...repl(w), 'Content-Type': 'application/json' }, body: JSON.stringify({ root: elsewhere, name: 'elsewhere' }) });
     expect(named.status).toBe(200);
     const forOther = await w.call('GET', '/api/project?detail=1', { headers: page_ });
-    expect(forOther.status).toBe(401);
-    expect(forOther.json).toMatchObject({ session: 'project', error: expect.stringMatching(/given for another project/) });
+    expect(forOther.status).toBe(200);
+    expect(forOther.json).toEqual({ ok: false, session: 'project', error: expect.stringMatching(/given for another project/) });
     // The first REPL names demo again: its page's session counts again
     expect(await w.cp.handOff()).toEqual({ ok: true, name: 'demo' });
     const back = await w.call('GET', '/api/project?detail=1', { headers: page_ });

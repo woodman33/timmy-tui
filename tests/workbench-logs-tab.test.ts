@@ -18,6 +18,8 @@ import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import { LOGS_LIST, logsDetail, logsView, readLogs, receiptVerdict, type LogsData, type LogsItem } from '../src/workbench/logs-tab.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
+/** The last column of a view's rows (side by side: after the row's last rule; stacked: the whole row), its words joined. */
+const lastColumn = (lines: Line[]): string => lines.map((l) => { const parts = l.map((s) => s.text).join('').split('│'); return parts[parts.length - 1]; }).join(' ').replace(/\s+/g, ' ');
 
 const boxes: string[] = [];
 afterAll(() => { for (const b of boxes) rmSync(b, { recursive: true, force: true }); });
@@ -313,8 +315,10 @@ describe('tab 0: the layout at 160x45, 120x40 and 100x30', () => {
       const all = text(v.lines);
       // the run's output is text here: images, 3D and live previews are seen in the companion (c) or Studio (s) (the words
       // wrapped in a narrow column)
-      expect(all).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or live previews here:|No images, 3D or( live)? *\n[^\n]*│ (live )?previews here:|No images, 3D or live previews *\n[^\n]*│ here:/);
-      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action', 'action']);
+      // R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws of it, and what c shows for it in truth
+      // (read in its own column: side by side, its rows sit beside the other columns')
+      expect(lastColumn(v.lines)).toMatch(/No Timmy surface replays runs yet\. \[c\] Companion( · Show)?: events and receipts in words\./);
+      expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action']);
       // on the selection bar no word is in the grey secondary (below the contrast floor on charcoal)
       const bar = v.lines.flat().filter((s) => s.selected && s.text.trim());
       expect(bar.length).toBeGreaterThan(0);

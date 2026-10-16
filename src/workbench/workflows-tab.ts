@@ -67,6 +67,15 @@ function outcomeOf(chain: readonly Receipt[], job: string): Receipt | undefined 
   return m.get(job);
 }
 
+/**
+ * R5 (H131; the QA of e7f853e, defect 7): whether a record, as read, still says its job runs while the chain already holds the
+ * job's outcome receipt (sealed when it ended): the records are then older than the chain, and are read again before the
+ * row, the strip and the verdict are drawn from them, so no screen says running and completed at once.
+ */
+export function endedOnChain(records: readonly JobRecord[], chain: readonly Receipt[]): boolean {
+  return records.some((j) => !j.stale && !TERMINAL.has(j.state) && outcomeOf(chain, j.id) !== undefined);
+}
+
 /** The order a run was to run its blocks: as its outcome sealed it, else as its record keeps it, else the document's now (the
  *  board's card reads it so: src/repl/board-workflows.ts readRun). */
 function orderOf(j: JobRecord, target: string, doc: WorkflowDoc, outcome: Receipt | undefined): string[] {
@@ -208,7 +217,10 @@ export function readWorkflowsTab(o: WorkflowsTabInput): WorkflowsTabData {
   try { raw = o.tail(j, TAIL_READ); } catch (e) { why = `its log could not be read (${e instanceof Error ? e.message : String(e)})`; }
   const lines = raw.map((l) => scrub(lineText(l))).filter((l) => l.trim());
   if (!why && !lines.length) why = live ? 'nothing printed yet' : 'its log has no lines';
-  const outcome = outcomeOf(o.chain, j.id);
+  // R5 (H131; the QA of e7f853e, defect 7): the outcome receipt follows the record: one that still runs, as read, shows none yet
+  // (its record is read again first: src/workbench/controller.ts readWorkflowsTab), so the card never says verified beside a
+  // row that says waiting
+  const outcome = live ? undefined : outcomeOf(o.chain, j.id);
   let receipt: ReceiptNow | null = null;
   if (outcome && typeof outcome.hash === 'string') {
     let v: { ok: true } | { ok: false; reason: string };
@@ -546,7 +558,8 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
 }
 
 /** The one line where the references draw a picture: a terminal says the run in words. */
-const PREVIEW = 'A browser or sandbox preview is drawn only by the companion (c); here, the run in words.';
+// R5 (H131; the QA of e7f853e, defect 2): no Timmy surface has a run's preview yet; the companion's run page is this, in words
+const PREVIEW = 'No Timmy surface shows a run\'s browser or sandbox preview yet; the companion (c) shows this run detail in a browser page, in words.';
 
 /** The newest run's receipt card: green and verified only when verifyReceiptIn passed in this reading. */
 function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined, w: number): Line[] {
@@ -658,7 +671,7 @@ export function workflowsTabView(c0: ViewCtx): View {
     for (const r of plan.rows) { if (r.item) items.push({ line: lines.length, item: r.item }); lines.push(r.line); }
     if (selDoc && selBlock) {
       lines.push([], ...runBox(c, selDoc, selBlock, W), [], ...intentCard(selDoc, selBlock, W, g), ...predictCard(c, selBlock, run, W));
-      lines.push([], ...sandboxRows(c, run, W), ...stepsRows(c, run, W), ...outputRows(c, run, W, 8), ...para(PREVIEW, W, 'secondary', '', 2, g.ellipsis));
+      lines.push([], ...sandboxRows(c, run, W), ...stepsRows(c, run, W), ...outputRows(c, run, W, 8), ...para(PREVIEW, W, 'secondary', '', 4, g.ellipsis));
       lines.push([], ...receiptCard(c, selBlock, run, W), ...reviewRows(c, run, W));
     }
     return { lines: lines.map((l) => fit(l, W, g.ellipsis)), items };
@@ -687,7 +700,7 @@ export function workflowsTabView(c0: ViewCtx): View {
   const centre: Line[] = [];
   if (selDoc && selBlock) {
     const box = runBox(c, selDoc, selBlock, cw);
-    const note = para(PREVIEW, cw, 'secondary', '', 3, g.ellipsis);
+    const note = para(PREVIEW, cw, 'secondary', '', 4, g.ellipsis);
     const sandbox = sandboxRows(c, run, cw);
     const steps = stepsRows(c, run, cw);
     // the log's last lines take the room the rest leaves (its heading, a blank row before the box; at least one line)

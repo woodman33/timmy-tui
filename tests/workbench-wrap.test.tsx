@@ -174,13 +174,15 @@ describe('words given room (R5 H131, the QA round)', () => {
     const titles = small.find((r) => r.includes('Preview'))!;
     expect(titles.match(/\d+–\d+ of \d+/g), `Home's column titles at 100x30: ${titles}`).toHaveLength(2);
 
-    // tab 6: 3D Create, then Motion (the key again)
+    // tab 6: 3D Create, then Motion (the key again); R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws, and
+    // what c and s show for it in truth, first
     c.key('6', {});
     expect(c.ui.workspace).toBe('create3d');
-    const line = 'A terminal cannot draw images, 3D or live previews: [c] Companion · Show, [s] Studio · Show.';
-    expect(rows(c, 'center', 160, 45)[0]).toBe(line);
+    const said = (): string => rows(c, 'center', 160, 45).slice(0, 3).join(' ').replace(/\s+/g, ' ');
+    const line = 'No Timmy surface draws 3D, images or a motion timeline yet: each app below draws its own, once it is set up. [c] Companion · Show: this tab\'s actions, in words; [s] Studio · Show: the canvas (2D shapes and cards).';
+    expect(said()).toContain(line);
     c.key('6', {});
     expect(c.ui.workspace).toBe('motion');
-    expect(rows(c, 'center', 160, 45)[0]).toBe(line);
+    expect(said()).toContain(line);
   }, 30_000);
 });
