@@ -278,12 +278,18 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ Control Room/, 5000);
       await t.click(t.cellOf('Workflows'));
       await t.waitFor(/trayA \/ Workflows/, 5000);
-      // a click on a right-dock tab picks it: Tools, then Files (the Inspector is the first one shown)
+      // a click on a right-dock tab picks it: Tools, then Files (the Inspector is the first one shown); R5 (H136): tab 3's
+      // body takes the whole width, so Context is its drawer (i), closed again before the row is clicked
+      await t.keys('i');
+      await t.waitFor(/◆ Context \(drawer\)/, 5000);
       expect(t.screen()).toMatch(/Tools │ ▸ Inspector │ {3}Files/);
       await t.click(t.cellOnRow('Tools', /Tools │\s+(?:▸ )?Inspector/));
       await t.waitFor(/▸ Tools │ {3}Inspector │ {3}Files/, 5000);
       await t.click(t.cellOnRow('Files', /Tools │\s+(?:▸ )?Inspector/));
       await t.waitFor(/Tools │ {3}Inspector │ ▸ Files/, 5000);
+      await t.keys('i');
+      for (const end = Date.now() + 5000; /Context \(drawer\)/.test(t.screen()) && Date.now() < end;) await sleep(100);
+      expect(t.screen()).not.toMatch(/Context \(drawer\)/);
       // a click on a row selects it; clicked again and again, it is only selected: no confirm, no NEEDS YOU box, no job
       const row = t.cellOf(' tidy ');
       await t.click(row);
@@ -620,8 +626,8 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ STREAM\.md › talk/, 15_000);
       const [job] = runsOf('STREAM.md › talk');
-      // Activity, expanded, with the keyboard (Tab: the right dock, then Activity)
-      await t.keys('a', 'Tab', 'Tab');
+      // Activity, expanded, with the keyboard (R5 H136: Workflows draws its own columns, Context the i drawer: one Tab)
+      await t.keys('a', 'Tab');
       await t.waitFor(/following the newest/, 5000);
       await t.waitFor(new RegExp(`${job.id} │ line 10\\b`), 15_000);
       const activity = () => focusedPanel(t.screen());
@@ -652,7 +658,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(activity().range.endsWith(`–${activity().total}`)).toBe(true);
 
       // resized during a run: one frame each time, as wide as the terminal; the run and its Stop as they were
-      await t.keys('BTab', 'BTab');
+      await t.keys('BTab');
       holdWait();
       await selectBlock(t, 'SLOW.md', 'wait');
       await t.keys('Enter');

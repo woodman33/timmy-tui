@@ -139,10 +139,10 @@ function body(data: Data, ui: Ui, size: { width: number; height: number; columns
   return { v, text: v.lines.map(plain) };
 }
 
-// the body's inner size at each terminal size (src/workbench/layout.ts: row 1, row 2, Activity & log; Context a column from
-// 120 columns): 160x45 → 95x28, 120x40 → 70x23, 100x30 → 96x14
-const AT_160 = { width: 95, height: 28, columns: 160 };
-const AT_120 = { width: 70, height: 23, columns: 120 };
+// the body's inner size at each terminal size (src/workbench/layout.ts: row 1, row 2, Activity & log; tab 3's body takes the
+// whole width, Context a drawer): 160x45 → 156x28, 120x40 → 116x23, 100x30 → 96x14
+const AT_160 = { width: 156, height: 28, columns: 160 };
+const AT_120 = { width: 116, height: 23, columns: 120 };
 const AT_100 = { width: 96, height: 14, columns: 100 };
 
 /** The text of one of the three columns (side by side: split at the rules). */
@@ -240,7 +240,9 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).toMatch(/second\.intent[^\n]*block 2/);
     expect(flat(left)).toMatch(/document PAIR\.md command echo second says three needs first runs first → second no destructive command/);
     expect(L).toMatch(/second\.predict[^\n]*j[0-9a-f]{6}/);
-    expect(flat(left)).toContain(`second.predict ${job.id} ${rd.detail.prediction!.words} receipt`);
+    // frozen before the run first (a clipped column keeps it), then the sealed words and their receipt
+    expect(flat(left)).toMatch(new RegExp(`second\\.predict ${job.id} frozen before the run (?:· sealed \\d\\d:\\d\\d:\\d\\d )?`));
+    expect(flat(left)).toContain(`${rd.detail.prediction!.words} receipt ${rd.detail.prediction!.receipt}`);
     expect(L).toMatch(new RegExp(`receipt\\s+${rd.detail.prediction!.receipt}`));
     expect(L).toContain('frozen before the run');
     expect(L).not.toContain('frozen before the run: not recorded');
@@ -266,7 +268,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(R).toMatch(new RegExp(`id\\s+${tab.run!.receipt!.id}`));
     expect(R).toMatch(/kind\s+workflow/);
     expect(R).toContain('✓ verified');
-    expect(flat(right)).toContain('CHECKS predicted vs actual');
+    expect(flat(right)).toMatch(/CHECKS (?:· )?predicted vs actual/);
     expect(R).toMatch(/✓ block first matches/);
     expect(R).toMatch(/exits 0 → exit 0/);
     expect(R).toContain('VERDICT');
@@ -349,7 +351,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(C).toContain('RUN APPROVAL.md › tidy');
     expect(fc).toContain('⚠ its NEEDS YOU box asks first');
     expect(fr).toMatch(/not recorded: nothing has run it, so nothing is sealed/);
-    expect(fr).toMatch(/CHECKS predicted vs actual not recorded: nothing has run/);
+    expect(fr).toMatch(/CHECKS (?:· )?predicted vs actual not recorded: nothing has run/);
     expect(R).toMatch(/VERDICT\s*\n\s*not run yet/);
     expect(greens(v.lines)).toEqual([]);
     expect(text.join('\n')).not.toMatch(/[●○]/);
@@ -432,7 +434,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(all.indexOf('SANDBOX')).toBeLessThan(all.indexOf('second.receipt'));
     expect(at100.v.items[ui.cursor['center:workflows']].line).toBeLessThan(AT_100.height);
     // a short body (160 columns, 14 rows): each column clipped says which of its rows show
-    const short = body(data, ui, { width: 95, height: 14, columns: 160 });
+    const short = body(data, ui, { width: 156, height: 14, columns: 160 });
     expect(short.text.length).toBe(14);
     expect(short.text.join('\n')).toMatch(/↓ 1–13 of \d+ rows/);
     expect(short.text[short.v.items[ui.cursor['center:workflows']].line]).toMatch(/▸\s+2 second/);

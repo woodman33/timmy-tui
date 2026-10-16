@@ -167,7 +167,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     // R5 (H131): 3 opens the Workflows tab; the center has APPROVAL.md's tidy selected first; Enter asks before it runs
     await press(f.r, '3', TAB);
     expect(f.text()).toMatch(/▸\s+1\s+tidy/);
-    expect(f.text()).toContain('[Enter] Run it here, through the REPL\'s own /run (one job, one operation)');
+    // (R5, H136: the RUN box of tab 3's centre column names the block Enter runs, its words wrapped in the column)
+    expect(f.text()).toContain('RUN APPROVAL.md › tidy');
+    expect(f.text()).toContain('[Enter] Run it here');
     await press(f.r, ENTER);
     expect(f.text()).toContain('Run APPROVAL.md › tidy?');
     expect(f.text()).toMatch(/Needs you\s+tidy: a destructive command; its NEEDS YOU box asks first/);
@@ -193,7 +195,11 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     await sleep(400);
     await press(f.r, 'y');
     const job = await until('the run\'s job', () => ws.jobs.list().find((j) => j.label === 'APPROVAL.md › tidy'), 10_000, f.text);
+    // (R5, H136: tab 3's body takes the whole width and names the run; its Inspector is Context's drawer, i)
+    await until('the body to show the run', () => regionText(c, 'center').includes(`STEPS · ${job.id}`), 5000, f.text);
+    await press(f.r, 'i');
     await until('the Inspector to follow the run', () => regionText(c, 'right').includes(`Job ${job.id}`), 5000, f.text);
+    await press(f.r, 'i');
     expect(c.ui.workspace).toBe('workflows'); // the workspace never changes by itself
     expect((await ws.jobs.done(job.id)).state).toBe('completed');
     const op = job.operation!;

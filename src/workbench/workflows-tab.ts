@@ -36,10 +36,11 @@ import type { Receipt } from '../utils/receipts.js';
 import { blockDetail, runBlocks } from '../workflows/run-blocks.js';
 import { noChangeOf } from '../workflows/run-verdict.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
-import { boxOf, type Glyphs } from './frame.js';
+import type { Glyphs } from './frame.js';
 import type { Data, Item, Lazy, View } from './model.js';
 import { lineText } from './output.js';
 import type { BlockRow, WorkflowDoc, WorkflowsView } from './state.js';
+import { card, clipRows, onBar, RULE_CELLS, S, sideBySide, sideBySideAt, widths, windowMarked } from './tab-columns.js';
 import { cells, clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 import { actionsOf, runOfBlock, selectedAction, type ViewCtx } from './views.js';
 
@@ -259,9 +260,8 @@ function verdictMark(state: string, g: Glyphs): { glyph: string; role: Role } {
   }
 }
 
-// ── drawing parts ──────────────────────────────────────────────────────────────
+// ── drawing parts (the shared ones: src/workbench/tab-columns.ts) ──────────────
 
-const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
 const heading = (text: string, rest = ''): Line => [S(text.toUpperCase(), 'secondary', { bold: true }), ...(rest ? [S(` ${rest}`, 'secondary')] : [])];
 const key = (k: string): Seg => S(`[${k}]`, 'action');
 
@@ -300,84 +300,23 @@ function titled(name: string, suffix: string, w: number, ellipsis: string): stri
   return room - cells(suffix) >= 4 ? `${cut(name, room - cells(suffix), ellipsis)}${suffix}` : suffix;
 }
 
-/** A row on the selection's bar: every segment selected, quiet words in the primary text colour (#8E8E93 on #333333 is below
- *  the contrast floor); the name and the cursor amber while the list has the keyboard. */
-function onBar(l: Line, focused: boolean): Line {
-  return l.map((s) => ({
-    ...s, selected: true,
-    role: focused && (s.role === 'strong' || s.role === 'action') ? 'focus' : s.role === 'secondary' || s.role === 'border' ? 'text' : s.role ?? 'text',
-  }));
-}
+/** A row on the selection's bar (the shared one: every segment selected, quiet words in the primary text colour), its name and
+ *  cursor amber while the list has the keyboard. */
+const onBarHere = (l: Line, focused: boolean): Line => onBar(l).map((s) => (focused && (s.role === 'strong' || s.role === 'action') ? { ...s, role: 'focus' as Role } : s));
 
-/**
- * A titled box `w` cells wide (the references' cards): its title on the top edge, a note at the edge's right end when there is
- * room, its rows inside with a cell of air on each side, each cut at the box's edge. `edge` colours the box and its title.
- */
-function card(o: { w: number; title: Seg[]; note?: Seg[]; body: readonly Line[]; edge: Role; heavy?: boolean; g: Glyphs }): Line[] {
-  const { w, g } = o;
-  if (w < 8) return [fit(o.title, w, g.ellipsis), ...o.body.map((l) => fit(l, w, g.ellipsis))];
-  const b = boxOf(g, o.heavy === true);
-  const inner = w - 2;
-  const note = o.note && lineCells(o.title) + lineCells(o.note) + 6 <= inner ? [S(' '), ...o.note, S(' ')] : [];
-  const titleRoom = Math.max(1, inner - 3 - lineCells(note));
-  // the title cut at the room's end (never padded inside the edge), with a cell of air on each side
-  const cutTitle = fit([S(' '), ...o.title], Math.min(titleRoom - 1, lineCells(o.title) + 1), g.ellipsis).filter((s, i, all) => !(i === all.length - 1 && !s.role && !s.text.trim()));
-  const title: Line = [...cutTitle, S(' ')];
-  const fill = Math.max(0, inner - 1 - lineCells(title) - lineCells(note));
-  const top: Line = [S(`${b.tl}${b.h}`, o.edge), ...title, S(b.h.repeat(fill), o.edge), ...note, S(b.tr, o.edge)];
-  const rows = o.body.map((l): Line => [S(b.v, o.edge), S(' '), ...fit(l, inner - 2, g.ellipsis), S(' '), S(b.v, o.edge)]);
-  return [fit(top, w, g.ellipsis), ...rows, [S(`${b.bl}${b.h.repeat(inner)}${b.br}`, o.edge)]];
-}
+/** A card's note where the shared card draws it beside a title that stays whole (else none). */
+const noteFor = (title: string, note: string, w: number): Seg[] | undefined => (cells(title) + cells(note) + 7 <= w - 2 ? [S(note, 'secondary')] : undefined);
 
-/** The rule between two columns: a cell of air, the line, a cell of air. */
-const RULE = 3;
-
-/** The three columns' widths in `total` cells: the plan, the sandbox and the receipt (about 36 : 37 : 27), the rules apart. */
+/** The three columns' widths in a body `total` cells wide: the plan, the sandbox and the receipt (36 : 37 : 27), the rules apart. */
 export function columnWidths(total: number): [number, number, number] {
-  const inner = Math.max(30, total - 2 * RULE);
-  const l = Math.floor(inner * 0.36);
-  const m = Math.floor(inner * 0.37);
-  return [l, m, inner - l - m];
-}
-
-/** A column's rows in `room` rows: all when they fit; else the first room − 1 and a row saying which show ("↓ 1–N of M"). */
-function clip(rows: readonly Line[], w: number, room: number, g: Glyphs): Line[] {
-  if (rows.length <= room) return rows.map((l) => fit(l, w, g.ellipsis));
-  const shown = Math.max(0, room - 1);
-  return [...rows.slice(0, shown).map((l) => fit(l, w, g.ellipsis)), fit([S(`${g.unicode ? '↓' : 'v'} 1–${shown} of ${rows.length} rows`, 'secondary')], w, g.ellipsis)];
-}
-
-/** The first row of a window of `n` rows in `room` rows that shows row `sel`, with a mark above (when it does not start at
- *  the first) and below (when it does not reach the last) taking a row each. */
-function windowOf(n: number, sel: number, room: number): { start: number; end: number; above: boolean; below: boolean } {
-  if (n <= room) return { start: 0, end: n, above: false, below: false };
-  const r = Math.max(1, room);
-  for (let start = 0; start < n; start += 1) {
-    const above = start > 0;
-    let end = Math.min(n, start + Math.max(1, r - (above ? 1 : 0)));
-    const below = end < n;
-    if (below) end = Math.max(start + 1, end - 1);
-    if (sel < 0 || (sel >= start && sel < end)) return { start, end, above, below: end < n };
-  }
-  return { start: Math.max(0, n - 1), end: n, above: n > 1, below: false };
+  const [l, m, r] = widths(Math.max(36, total - 2 * RULE_CELLS), [36, 37, 27], 12);
+  return [l, m, r];
 }
 
 // ── the view ───────────────────────────────────────────────────────────────────
 
-/** ViewCtx with the terminal's width (src/workbench/views.ts ViewCtx.columns, where the caller passes it). */
-export type TabViewCtx = ViewCtx & { columns?: number };
-
-/** Data with this tab's reading (src/workbench/model.ts Data.workflowsTab). */
-type TabData = Data & { workflowsTab?: WorkflowsTabData };
-
-/** From this many terminal columns the three columns sit side by side (src/workbench/layout.ts WIDE); below, stacked. */
-export const COLUMNS_FROM = 120;
-/** The body's narrowest width for the columns side by side (the body beside Context at 120 columns is 70 cells). */
-export const COLUMNS_MIN_WIDTH = 66;
-
-/** Whether the three columns sit side by side: from 120 terminal columns, where the body has room; else stacked. Before the
- *  caller passes the terminal's width, the body's own width decides. */
-export const sideBySide = (c: Pick<TabViewCtx, 'width' | 'columns'>): boolean => c.width >= COLUMNS_MIN_WIDTH && (c.columns === undefined || c.columns >= COLUMNS_FROM);
+/** What the body is drawn with (src/workbench/views.ts ViewCtx, with the terminal's width where the caller passes it). */
+export type TabViewCtx = ViewCtx;
 
 /** The rows of the plan: each document's head, its notes and its blocks (an item each, in the order the cursor moves). */
 interface PlanRow { line: Line; item?: Item }
@@ -402,7 +341,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
       const sel = items.length === cur;
       if (sel) selRow = rows.length;
       const l: Line = [S(sel ? `${g.cursor} ` : '  ', 'action'), S('no named blocks', 'secondary')];
-      rows.push({ line: sel ? onBar(l, focused) : l, item });
+      rows.push({ line: sel ? onBarHere(l, focused) : l, item });
       items.push(item);
       continue;
     }
@@ -422,7 +361,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
       ];
       // its exit code and own time where they fit whole (the row is never cut inside them)
       if (b.detail && lineCells(l) + 1 + cells(b.detail) <= w) l.push(S(` ${b.detail}`, 'secondary'));
-      rows.push({ line: sel ? onBar(l, focused) : l, item });
+      rows.push({ line: sel ? onBarHere(l, focused) : l, item });
       items.push(item);
     }
   }
@@ -439,18 +378,21 @@ function intentCard(d: WorkflowDoc, b: BlockRow, w: number, g: Glyphs): Line[] {
   const cmd = (b.command ?? '').split('\n').filter((l) => l.trim());
   rows.push(...fieldRows('command', cmd.length ? `${cmd[0]}${cmd.length > 1 ? ` (and ${count(cmd.length - 1, 'more line')})` : ''}` : 'not read (the document carries none here)', iw, cmd.length ? 'text' : 'secondary', o));
   rows.push(...fieldRows('needs', b.needs.length ? b.needs.join(', ') : 'nothing', iw, 'text', o));
-  rows.push(...fieldRows('runs', b.order.join(` ${g.arrow} `), iw, 'text', o));
+  // the order it runs in, where that is more than the block itself (its needs first)
+  if (b.order.length && !(b.order.length === 1 && b.order[0] === b.name)) rows.push(...fieldRows('runs', b.order.join(` ${g.arrow} `), iw, 'text', o));
   if (b.missing.length) rows.push(...para(`${g.fail} not runnable: it needs ${b.missing.join(', ')}, which the document does not have`, iw, 'failure', '', 2, g.ellipsis));
   if (b.cycle?.length) rows.push(...para(`${g.fail} not runnable: its needs go round (${b.cycle.join(` ${g.arrow} `)})`, iw, 'failure', '', 2, g.ellipsis));
   if (d.repeated.includes(b.name)) rows.push(...para(`${g.warn} not runnable: the document names ${b.name} more than once`, iw, 'attention', '', 2, g.ellipsis));
   if (b.risky.length) rows.push(...para(`${g.warn} needs you before it runs`, iw, 'attention', '', 2, g.ellipsis));
   else rows.push(...para('no destructive command', iw, 'secondary', '', 2, g.ellipsis));
-  return card({ w, title: [S(titled(b.name, '.intent', w, g.ellipsis), 'action', { bold: true })], note: [S(`block ${b.key}`, 'secondary')], body: rows, edge: 'action', g });
+  const title = titled(b.name, '.intent', w, g.ellipsis);
+  const note = noteFor(title, `block ${b.key}`, w);
+  return card({ w, title: [S(title, 'action', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'action', g });
 }
 
 /** The selected block's newest run, when this frame read it for that block; undefined: not read for it (yet). */
 function runFor(c: TabViewCtx, d: WorkflowDoc, b: BlockRow): RunNow | null | undefined {
-  const t = (c.data as TabData).workflowsTab;
+  const t = c.data.workflowsTab;
   return t && t.for === blockKey(d.rel, b.name) ? t.run : undefined;
 }
 
@@ -486,22 +428,23 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
       const p = detail.prediction;
       if (!p) rows.push(...para(`not recorded: ${detail.unknown.find((u) => u.field === 'prediction')?.why ?? 'no prediction of this run is sealed'}`, iw, 'secondary', '', 3, g.ellipsis));
       else {
-        // the sealed prediction's own words (the card's title says what they are), then the receipt that sealed them
-        rows.push(...para(p.words, iw, 'text', '', 4, g.ellipsis));
-        rows.push(...fieldRows('receipt', p.receipt, iw, 'strong', o));
-        // frozen before the run only where its record proves it: sealed earlier than the run's job started (its time beside it
-        // where that fits whole)
+        // first, frozen before the run only where its record proves it: sealed earlier than the run's job started (its time
+        // beside it where that fits whole), so a clipped column keeps it; then the sealed prediction's own words (the card's
+        // title says what they are) and the receipt that sealed them
         const frozen = p.frozenAt ? Date.parse(p.frozenAt) : Number.NaN;
         const started = Date.parse(run.startedAt);
         if (Number.isFinite(frozen) && Number.isFinite(started) && frozen < started) {
           const at = ` ${g.sep} sealed ${clock(p.frozenAt)}`;
           rows.push([S('frozen before the run', 'text'), ...(cells(`frozen before the run${at}`) <= iw ? [S(at, 'secondary')] : [])]);
         } else rows.push(...para('frozen before the run: not recorded', iw, 'secondary', '', 2, g.ellipsis));
+        rows.push(...para(p.words, iw, 'text', '', 4, g.ellipsis));
+        rows.push(...fieldRows('receipt', p.receipt, iw, 'strong', o));
       }
     }
   }
-  const note = run ? [S(run.job, 'secondary')] : undefined;
-  return card({ w, title: [S(titled(b.name, '.predict', w, g.ellipsis), 'action', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'action', g });
+  const title = titled(b.name, '.predict', w, g.ellipsis);
+  const note = run ? noteFor(title, run.job, w) : undefined;
+  return card({ w, title: [S(title, 'action', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'action', g });
 }
 
 /** Where a run runs, as its records say it: this computer, in the project folder, by upmd (on a pty or over a pipe); the
@@ -597,7 +540,7 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
   rows.push(...fieldRows('shell', `timmy md ${d.rel} ${b.name}`, iw, 'action', { pad: 5, max: 2, ellipsis: g.ellipsis }));
   // the block it runs, named whole on the box's edge where it fits, else its name there and its document first inside
   const full = `RUN ${d.rel} › ${b.name}`;
-  const fits = cells(full) <= w - 6;
+  const fits = cells(full) <= w - 7;
   if (!fits) rows.unshift([S(`${d.rel} ›`, 'secondary'), S(` ${b.name}`, 'strong')]);
   return card({ w, title: [S(fits ? full : `RUN ${cut(b.name, Math.max(1, w - 10), g.ellipsis)}`, here ? 'focus' : 'strong')], body: rows, edge: here ? 'focus' : 'border', heavy: here, g });
 }
@@ -621,11 +564,12 @@ function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
   } else {
     const r = run.receipt;
     rows.push(...fieldRows('id', r.id, iw, 'strong', o), ...fieldRows('kind', r.kind, iw, 'text', o), ...fieldRows('sealed', clock(r.ts), iw, 'text', o));
-    if (r.verified.ok) { edge = 'live'; rows.push([S(`${g.ok} verified`, 'live')], ...para('its link, body and signature, read now', iw, 'secondary', '', 2, g.ellipsis)); }
+    if (r.verified.ok) { edge = 'live'; rows.push([S(`${g.ok} verified`, 'live')], ...para('its link, body, signature: read now', iw, 'secondary', '', 2, g.ellipsis)); }
     else { edge = 'failure'; rows.push(...para(`${g.fail} not verified: ${r.verified.why}`, iw, 'failure', '', 4, g.ellipsis)); }
   }
-  const note = run ? [S(run.job, 'secondary')] : undefined;
-  return card({ w, title: [S(titled(b.name, '.receipt', w, g.ellipsis), edge === 'live' ? 'live' : edge === 'failure' ? 'failure' : 'strong', { bold: true })], ...(note ? { note } : {}), body: rows, edge, g });
+  const title = titled(b.name, '.receipt', w, g.ellipsis);
+  const note = run ? noteFor(title, run.job, w) : undefined;
+  return card({ w, title: [S(title, edge === 'live' ? 'live' : edge === 'failure' ? 'failure' : 'strong', { bold: true })], ...(note ? { note } : {}), body: rows, edge, g });
 }
 
 /** The run detail's checks, predicted against actual (green only for one that passed), its verdict, and timmy op <id>. */
@@ -695,7 +639,7 @@ export function workflowsTabView(c0: ViewCtx): View {
   const { data, g } = c;
   const W = Math.max(1, c.width);
   const H = Math.max(1, c.height);
-  const wide = sideBySide(c);
+  const wide = sideBySideAt(c);
   const all = data.workflows.docs.flatMap((d) => (d.blocks.length ? d.blocks.map(() => 1) : [1])).length;
   const cur = Math.max(0, Math.min(all - 1, c.ui.cursor['center:workflows'] ?? 0));
   const [lw, cw, rw] = wide ? columnWidths(W) : [W, W, W];
@@ -728,12 +672,12 @@ export function workflowsTabView(c0: ViewCtx): View {
   // do not fit (the column then says which of its rows show)
   const floor = Math.min(plan.rows.length, Math.max(5, Math.floor((H - head.length) / 3)));
   const listRoom = Math.max(floor, H - head.length - (cards.length ? cards.length + 1 : 0));
-  const win = windowOf(plan.rows.length, plan.selRow, listRoom);
+  const win = windowMarked(plan.rows.map(() => 1), plan.selRow, listRoom, g, lw);
   const left: Line[] = [...head];
-  if (win.above) left.push([S(`${g.unicode ? '↑' : '^'} ${win.start} more above`, 'secondary')]);
+  if (win.above) left.push(win.above);
   const first = left.length;
   for (let i = win.start; i < win.end; i += 1) left.push(plan.rows[i].line);
-  if (win.below) left.push([S(`${g.unicode ? '↓' : 'v'} ${win.start + 1}–${win.end} of ${plan.rows.length} rows`, 'secondary')]);
+  if (win.below) left.push(win.below);
   if (cards.length) left.push([], ...cards);
   // every item is the list's, in its order (the cursor moves through each); one outside the window is on no row drawn
   const items: View['items'] = [];
@@ -759,16 +703,9 @@ export function workflowsTabView(c0: ViewCtx): View {
   // the right column: the receipt card, the checks, the verdict, timmy op <id>
   const right: Line[] = selBlock ? [...receiptCard(c, selBlock, run, rw), [], ...reviewRows(c, run, rw)] : [];
 
-  const cols: Array<{ w: number; rows: Line[] }> = [{ w: lw, rows: clip(left, lw, H, g) }, { w: cw, rows: clip(centre, cw, H, g) }, { w: rw, rows: clip(right, rw, H, g) }];
-  const height = Math.min(H, Math.max(...cols.map((x) => x.rows.length)));
-  const rule = S(` ${g.unicode ? '│' : '|'} `, 'border');
-  const lines: Line[] = [];
-  for (let y = 0; y < height; y += 1) {
-    const row: Line = [];
-    cols.forEach((col, i) => { if (i) row.push(rule); row.push(...fit(col.rows[y] ?? [], col.w, g.ellipsis)); });
-    lines.push(row);
-  }
-  return { lines, items };
+  // each column clipped to the body (one too long says which of its rows show), side by side between rules
+  const cols = [{ w: lw, lines: clipRows(left, lw, H, g) }, { w: cw, lines: clipRows(centre, cw, H, g) }, { w: rw, lines: clipRows(right, rw, H, g) }];
+  return { lines: sideBySide(cols, Math.min(H, Math.max(...cols.map((x) => x.lines.length))), g), items };
 }
 
 /** The block the list's cursor is on (the Follow selected artifact setting aside), for the controller's reading. */

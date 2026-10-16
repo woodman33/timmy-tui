@@ -8,7 +8,7 @@
 import { tabOf } from '../contracts/workspace.js';
 import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js';
 import { eventLogView, frameTabs, isHub, pipelineLines, previewView, tabBar, type PageHit } from './hub.js';
-import { layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
+import { bodyKind, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
@@ -57,7 +57,7 @@ export function bodyTitle(ui: Ui, data: Data): string {
 export function frameOf(a: FrameAsk): Frame {
   const { ui, data, g } = a;
   const layout = layoutFor({
-    columns: a.columns, rows: a.rows, body: isHub(ui.page) ? 'hub' : 'workspace', pipeline: ui.page === 'chat' && !ui.overlay,
+    columns: a.columns, rows: a.rows, body: bodyKind(isHub(ui.page), ui.workspace), pipeline: ui.page === 'chat' && !ui.overlay,
     navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityOpen: ui.activityOpen, focusMode: ui.focusMode === true,
   });
   const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can, columns: a.columns });
