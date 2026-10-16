@@ -5,11 +5,13 @@
  * route, the receipt id) and checks it against the records and the chain the calls left in the project.
  *
  * Real: the server and its token, both MCP-to-CLI routes, the wire tap, the record writer, the project's receipt chain, the
- * page's code. FAKE, labelled: the MCP server (src/mcp/fake-fixture-server.ts, Timmy's FAKE fixture: every answer made up), the
- * project (a folder of this test's), MCPorter's home (an empty folder of this test's). Skipped, saying so, where no Chromium
- * or Chrome is found. With TIMMY_R6_CAPS=<folder>, the screens it reads are also saved there as PNG (the review's captures).
+ * page's code. FAKE, labelled: the MCP server (src/mcp/fake-fixture-server.ts, Timmy's FAKE fixture: every answer made up), a
+ * typed command line's program (a FAKE script that would leave a marker file if it were ever started), a configured HTTP
+ * server's address (https://fake-remote.invalid/mcp: never listed, so never contacted), the project (a folder of this
+ * test's), MCPorter's home (an empty folder of this test's). Skipped, saying so, where no Chromium or Chrome is found. With
+ * TIMMY_R6_CAPS=<folder>, the screens it reads are also saved there as PNG (the review's captures).
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -40,6 +42,9 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     box = mkdtempSync(join(tmpdir(), 'r6-tools-browser-'));
     root = join(box, 'FAKE-project');
     mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
+    // the project's own MCPorter config names one HTTP server, at an address this test never lists (so never contacts)
+    mkdirSync(join(root, 'config'), { recursive: true });
+    writeFileSync(join(root, 'config', 'mcporter.json'), JSON.stringify({ mcpServers: { 'fake-remote': { baseUrl: 'https://fake-remote.invalid/mcp', description: 'FAKE: an address this test never contacts' } } }, null, 2));
     const env = { TIMMY_HOME: join(box, 'home'), TIMMY_SETTINGS_DIR: join(box, 'settings'), TIMMY_MCP_HOME: join(box, 'mcp-home') };
     mkdirSync(env.TIMMY_MCP_HOME, { recursive: true });
     process.env.TIMMY_HOME = env.TIMMY_HOME;
@@ -93,8 +98,13 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     // the one primary next step: list its tools (amber), and no other amber fill on the tab
     expect(await page.$eval('[data-tools-action="list"]', (el) => el.classList.contains('is-primary'))).toBe(true);
     expect(await text('[data-tools-action="list"]')).toBe("List the FAKE fixture's tools via the SDK route");
+    // what the listing starts, said before it is asked for
+    expect(await text('[data-tools-before]')).toBe("Listing starts Timmy's FAKE fixture on this computer for the list, and the route stops it.");
     expect(await amberFills()).toEqual(["List the FAKE fixture's tools via the SDK route"]);
     expect(await text('.tools-step.is-next')).toMatch(/^▶ 2\. tools\/list through the SDK route$/);
+    // no tool yet: the request pane says what to do, and draws no empty request or lines (nothing reads "null")
+    expect(await text('.tools-request .box-body')).toBe("List a server's tools, then pick one: its request form is made from its input schema.");
+    expect(await text('#ws-tools')).not.toMatch(/\bnull\b|\bundefined\b/);
     await cap('h142-01-tab9-open');
     expect(errors).toEqual([]);
   }, LONG);
@@ -124,6 +134,20 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await text('[data-field-error="(the arguments)"]')).toBe("✕ must have required property 'text'");
     expect(await page.$eval('[data-tools-action="call"]', (el) => (el as HTMLButtonElement).disabled)).toBe(true);
     expect(await greenWhere()).toEqual([]);
+    // a tool picked by hand brings its schema to the top of its pane
+    await page.click('[data-tool="fake_echo"]');
+    const inView = await page.waitForFunction(() => {
+      const body = document.querySelector('.tools-schema')?.closest('.box-body') as HTMLElement | null;
+      const head = document.querySelector('.tools-schema .tools-sub') as HTMLElement | null;
+      if (!body || !head) return null;
+      const b = body.getBoundingClientRect();
+      const s = head.getBoundingClientRect();
+      // the schema's heading inside the pane's visible part, and the pane scrolled to it
+      return body.scrollTop > 0 && s.top >= b.top - 1 && s.bottom <= b.bottom ? { scrolled: body.scrollTop, top: Math.round(s.top - b.top) } : null;
+    }, null, { timeout: 15_000 }).then((h) => h.jsonValue());
+    expect(inView?.scrolled).toBeGreaterThan(0);
+    await page.waitForFunction(() => /not match its input schema yet/.test(document.querySelector('.tools-gate')?.textContent ?? ''), null, { timeout: 15_000 });
+    expect(await text('#ws-tools')).not.toMatch(/\bundefined\b/);
     await cap('h142-02-servers-and-schema');
     expect(errors).toEqual([]);
   }, LONG);
@@ -240,7 +264,7 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     const fx = fixtureServer();
     if (!fx.ok) throw new Error(fx.why);
     const line = `/mcp call --route sdk fake_write_note {"note":"FAKE note"} -- ${fx.command.join(' ')}`;
-    expect(await text('[data-tools-result="needs-you"]')).toBe(`NEEDS YOU · fake_write_note via the SDK route was not called the server does not list fake_write_note as read-only (readOnlyHint: false, destructiveHint: true): a call that may change something waits for you. Nothing was started for the call, and no record was written. In Timmy's terminal, where a typed /mcp call is your own command: ${line}`);
+    expect(await text('[data-tools-result="needs-you"]')).toBe(`NEEDS YOU · fake_write_note via the SDK route was not called the server does not list fake_write_note as read-only (readOnlyHint: false, destructiveHint: true): a call that may change something waits for you. Its own list was read through the SDK route (the server started for that, and stopped); fake_write_note was not called, and no record was written. In Timmy's terminal, where a typed /mcp call is your own command: ${line}`);
     expect(await page.$eval('[data-tools-result="needs-you"] .cmd', (el) => el.getAttribute('data-copy'))).toBe(line);
     expect(records()).toEqual(before);
     // now the page holds the hints, so it says so before sending, and its one primary copies the line instead of calling
@@ -251,7 +275,7 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     await page.fill('[data-field-input="note"]', 'FAKE note');
     await page.waitForFunction(() => document.querySelector('[data-tools-rule]')?.getAttribute('data-tools-rule') === 'needs-you', null, { timeout: 15_000 });
     expect(await text('[data-tools-rule]')).toBe(`NEEDS YOU: the server does not list fake_write_note as read-only (readOnlyHint: false, destructiveHint: true): a call that may change something waits for you. In Timmy's terminal: ${line}`);
-    expect(await page.$eval('[data-tools-action]:not([data-tools-action="list"])', (el) => el.getAttribute('data-tools-action'))).toBe('copy-terminal');
+    expect(await page.$eval('.tools-callctl [data-tools-action]', (el) => el.getAttribute('data-tools-action'))).toBe('copy-terminal');
     expect(records()).toEqual(before);
     await cap('h142-06-needs-you');
     expect(errors).toEqual([]);
@@ -269,6 +293,63 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await texts('[data-item="text"]')).toEqual(['FAKE echo: FAKE hello from the page']);
     expect(await page.$eval('[data-tools-receipt]', (el) => el.getAttribute('data-verified'))).toBe('yes');
     expect(await text(`[data-call-row="${echoRow}"] [data-open-call]`)).toBe('shown');
+    expect(errors).toEqual([]);
+  }, LONG);
+
+  it('a command line typed into the ingest form is checked and given as its lines for Timmy\'s terminal, never started: NEEDS YOU', async () => {
+    const before = records();
+    // a FAKE program that would leave a marker file the moment it started
+    const marker = join(box, 'FAKE-typed-server-started.txt');
+    const script = join(box, 'FAKE-typed-server.mjs');
+    writeFileSync(script, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'FAKE: started');\n`);
+    await page.click('.tools-servers details summary');
+    expect(await text('[data-tools-typed-rule]')).toMatch(/^This page starts no program typed here: a command line you typed runs only from Timmy's terminal\./);
+    await page.fill('.tools-typed', `node ${script}`);
+    await page.click('[data-tools-action="check-typed"]');
+    await page.waitForSelector('[data-tools-list-result="needs-you"]', { timeout: 30_000 });
+    const box409 = await texts('[data-tools-list-result="needs-you"] > p');
+    expect(box409.slice(0, 2)).toEqual([
+      'NEEDS YOU · node FAKE-typed-server.mjs was not started, and its tools were not listed.',
+      "A command line you typed runs only from Timmy's terminal: this page starts only Timmy's FAKE fixture and the servers your own MCPorter config names.",
+    ]);
+    expect(await text('[data-needs-copy]')).toBe("Copy the line for Timmy's terminal (the SDK route; a typed /mcp tools is your own command there)");
+    // the list route picked last was the SDK route (the NEEDS YOU test above): the line is the REPL's /mcp tools through it
+    const line = `/mcp tools --route sdk -- node ${script}`;
+    expect(await text('[data-needs-line]')).toBe(line);
+    expect(await page.$eval('[data-needs-line]', (el) => el.getAttribute('data-copy'))).toBe(line);
+    expect(await text('[data-tools-list-result] [data-cli="repl-mcporter"] .cmd')).toBe(`/mcp tools --route mcporter -- node ${script}`);
+    expect(await text('[data-tools-list-result] [data-cli="mcporter"] .cmd')).toBe(`mcporter list --stdio node --stdio-arg ${script}`);
+    expect(await text('[data-tools-list-result] [data-cli="config"] .cmd')).toBe(`mcporter config add fake-typed-server --command node -- ${script}`);
+    expect(await text('[data-tools-list-result] [data-cli="sdk"] .cmd')).toMatch(/mcp-sdk-cli\.(ts|js) tools --json -- node /);
+    // the server, as observed: not started; the step: waits for you; the one primary: copy the line
+    expect(await text(`[data-server="stdio:node ${script}"]`)).toMatch(/not started: a command line you typed runs only from Timmy's terminal \(checked \d\d:\d\d:\d\d\)$/);
+    expect(await text('.tools-step[data-step="2"]')).toBe("▶ 2. tools/list NEEDS YOU: in Timmy's terminal");
+    expect(await text('[data-tools-action="list"]')).toBe("Check the line for Timmy's terminal");
+    expect(await text('[data-tools-before="stdio"]')).toBe('This page starts no program typed here: checking it gives the exact lines to list it from Timmy\'s terminal.');
+    expect(await amberFills()).toEqual(["Copy the line for Timmy's terminal"]);
+    expect(await greenWhere()).toEqual([]);
+    // no tool to call: the request pane says what to do, and draws no empty request or lines
+    expect(await text('.tools-request .box-body')).toBe("List a server's tools, then pick one: its request form is made from its input schema.");
+    expect(await text('#ws-tools')).not.toMatch(/\bnull\b|\bundefined\b/);
+    await cap('h142-07-typed-command-needs-you');
+    // nothing started: a second for a started program to have written its marker
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(existsSync(marker)).toBe(false);
+    expect(records()).toEqual(before);
+    expect(errors).toEqual([]);
+  }, LONG);
+
+  it('before a configured server reached at an address is listed, the page says the listing contacts that address (this test lists it not)', async () => {
+    await page.click('[data-mode="http"] input');
+    await page.waitForSelector('[data-server="configured:fake-remote"]', { timeout: 30_000 });
+    expect(await text('[data-server="configured:fake-remote"]')).toMatch(/^fake-remote \S+ https:\/\/fake-remote\.invalid\/mcp · config\/mcporter\.json · not contacted from this page$/);
+    expect(await text('[data-tools-before="configured"]')).toBe('Listing it contacts https://fake-remote.invalid/mcp: MCPorter reaches that address for the list, as your config sets it up (config/mcporter.json), with any sign-in it already keeps; Timmy starts no new sign-in.');
+    expect(await text('[data-tools-action="list"]')).toBe("List fake-remote's tools via the mcporter route");
+    expect(await page.$eval('[data-route-pick="list:sdk"]', (el) => (el as HTMLButtonElement).disabled)).toBe(true);
+    await cap('h142-08-http-server-before-listing');
+    // back to stdio: the fixture again
+    await page.click('[data-mode="stdio"] input');
+    await page.waitForSelector('[data-server="fixture"].is-picked', { timeout: 15_000 });
     expect(errors).toEqual([]);
   }, LONG);
 });

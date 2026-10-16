@@ -7,10 +7,15 @@
  * call (wire-tap.ts).
  *
  * What it does, and what it never does:
- *   - Servers: Timmy's FAKE fixture (labelled FAKE everywhere), the servers MCPorter's config and editor imports name (read
- *     from their files: nothing started), and a stdio command line typed on the page.
- *   - Listing (tools/list) through the route the person picks needs no approval (the lead's rule for R6; the REPL's /mcp
- *     tools lists any command line its operator types): it starts the server for the listing, and the route stops it.
+ *   - Servers: Timmy's FAKE fixture (labelled FAKE everywhere) and the servers MCPorter's config and editor imports name (read
+ *     from their files: nothing started). These are the only servers the page starts. A stdio command line typed on the page
+ *     is built and checked, and its exact lines are given (the REPL's /mcp forms, MCPorter's own, and MCPorter's line that
+ *     adds it to the project's config), but it is never started from the page: a listing or call of it answers NEEDS YOU
+ *     (409) before anything starts, because a command line you typed runs only from Timmy's terminal (the lead's review of
+ *     R6: a page script error, or a script that got the token, must not be able to run any program on this computer).
+ *   - Listing (tools/list) of the fixture or a configured server, through the route the person picks, needs no approval (the
+ *     lead's rule for R6): it starts the server for the listing (or reaches its address: the page says so first), and the
+ *     route stops it.
  *   - A call is checked against the tool's input schema with the SDK's validator before anything is sent; a request that
  *     fails it is refused, and nothing starts.
  *   - The page's rule for a call (pageRule): a page cannot show the REPL's NEEDS YOU box, so, as the live board's Run does
@@ -20,7 +25,8 @@
  *     read-only (readOnlyHint: true) and closed-world (openWorldHint: false): the chat agent's rule that read-only tools never
  *     ask and anything that may reach outside always asks (src/repl/approvals.ts), on the server's own claim, which is said
  *     as its claim and never checked. Anything else (a tool that is not read-only, destructive, open-world, or whose hints
- *     are not known: MCPorter 0.12.4 drops them, so a configured server's are never known here) waits for you.
+ *     are not known) waits for you. MCPorter 0.12.4 drops the hints, so a configured server's are never known here: its call
+ *     waits for you before anything starts.
  *   - A call that runs keeps the same record and receipt /mcp call keeps (.timmy/mcp/<call-id>/, an mcp.call receipt on the
  *     project's runs chain), plus wire.ndjson when it went through the wire tap (stdio servers), and notes that it was made
  *     from the companion.
@@ -42,7 +48,10 @@ import {
 import { projectId, resolveInside } from '../project/index.js';
 import { appendReceipt, readChain, verifyReceiptIn, type Receipt, type ReceiptInput } from '../utils/receipts.js';
 import { ownScript } from './own-scripts.js';
-import { FAKE_FIXTURE_NAME } from './fake-fixture-server.js';
+import { FAKE_FIXTURE_NAME, FROM_PAGE, fixtureServer, wireView, type FixtureInfo, type TapLine, type WireView } from './call-views.js';
+
+// the light parts every surface reads (the Workbench imports them from call-views.ts directly, without the validator)
+export { FAKE_FIXTURE_NAME, FROM_PAGE, fixtureServer, isFixtureLabel, wireView, type FixtureInfo, type WireSpan, type WireView } from './call-views.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -56,7 +65,9 @@ const IMAGE_LIMIT = 512 * 1024;
 /** The most of a wire trace a record keeps. */
 const WIRE_KEPT_LIMIT = 512 * 1024;
 /** The page's rule, in words (the module comment says why). */
-export const PAGE_RULE = 'A call runs from this page only when the server\'s own list, read fresh through the SDK route, says the tool is read-only and closed-world (its claim, not checked). Anything else waits for you: Timmy gives the line to type in its terminal, where a typed /mcp call is your own command. Listing a server\'s tools needs no approval; it starts the server for the listing, and the route stops it.';
+export const PAGE_RULE = 'A call runs from this page only when the server\'s own list, read fresh through the SDK route, says the tool is read-only and closed-world (its claim, not checked). Anything else waits for you: Timmy gives the line to type in its terminal, where a typed /mcp call is your own command. This page starts only Timmy\'s FAKE fixture and the servers your own MCPorter config names: listing their tools needs no approval (it starts the server, or reaches its address, for the listing, and the route stops it). A command line you typed runs only from Timmy\'s terminal.';
+/** Why the page starts no command line typed on it (the lead's review of R6). */
+export const TYPED_WHY = 'a command line you typed runs only from Timmy\'s terminal: this page starts only Timmy\'s FAKE fixture and the servers your own MCPorter config names';
 const RASTER = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 // ── the routes and the servers ─────────────────────────────────────────────────────────
@@ -83,15 +94,6 @@ export function routeRungs(env: Env): RouteRung[] {
       reaches: id === 'sdk' ? 'stdio servers from a command line; passes the server\'s tool hints on' : 'stdio command lines, servers in MCPorter\'s config and editor imports, HTTP (SSE as its fallback); drops the tool hints',
     };
   });
-}
-
-export type FixtureInfo = { ok: true; label: string; command: string[]; built: boolean; file: string } | { ok: false; label: string; why: string };
-
-/** Timmy's FAKE stdio server, as a command line both routes can run (src/mcp/fake-fixture-server.ts). */
-export function fixtureServer(): FixtureInfo {
-  const s = ownScript('fake-fixture-server');
-  const label = `FAKE · ${FAKE_FIXTURE_NAME} (Timmy's own test server: its tools and answers are made up)`;
-  return s.ok ? { ok: true, label, command: s.argv, built: s.built, file: s.file } : { ok: false, label, why: s.why };
 }
 
 /** Whether a program is on PATH (nothing is run). */
@@ -169,15 +171,18 @@ export function parseServerSpec(v: unknown): { ok: true; spec: ServerSpec } | { 
   return { ok: false, error: `no kind of server named ${JSON.stringify(o.kind ?? null)}: fixture, configured or stdio` };
 }
 
-/** The server's command line or name for the routes, or why there is none. */
-export function refOf(spec: ServerSpec): { ok: true; ref: McpServerRef; command?: string[] } | { ok: false; error: string } {
+/** The servers the page may start: Timmy's FAKE fixture and the ones the user's own MCPorter config names. */
+export type StartableSpec = Exclude<ServerSpec, { kind: 'stdio' }>;
+
+/** The server's command line or name for the routes, or why there is none (the fixture's as `env` gives it: fixtureServer). */
+export function refOf(spec: ServerSpec, env: Env = {}): { ok: true; ref: McpServerRef; command?: string[] } | { ok: false; error: string } {
   if (spec.kind === 'configured') return { ok: true, ref: { name: spec.name } };
   if (spec.kind === 'stdio') return { ok: true, ref: { command: spec.command }, command: spec.command };
-  const fx = fixtureServer();
+  const fx = fixtureServer(env);
   return fx.ok ? { ok: true, ref: { command: fx.command }, command: fx.command } : { ok: false, error: fx.why };
 }
 
-const labelOf = (spec: ServerSpec): string => (spec.kind === 'configured' ? spec.name : spec.kind === 'fixture' ? (() => { const fx = fixtureServer(); return fx.ok ? serverLabel({ command: fx.command }) : FAKE_FIXTURE_NAME; })() : serverLabel({ command: spec.command }));
+const labelOf = (spec: ServerSpec, env: Env): string => (spec.kind === 'configured' ? spec.name : spec.kind === 'fixture' ? (() => { const fx = fixtureServer(env); return fx.ok ? serverLabel({ command: fx.command }) : FAKE_FIXTURE_NAME; })() : serverLabel({ command: spec.command }));
 
 // ── the schema gate ──────────────────────────────────────────────────────────────────────
 
@@ -224,7 +229,8 @@ export function schemaGate(tools: readonly McpToolEntry[]): SchemaGate {
 
 // ── a request, checked against its schema ──────────────────────────────────────────────
 
-const validator = new AjvJsonSchemaValidator();
+/** the SDK's validator, made at the first check (not when this module loads) */
+let validator: AjvJsonSchemaValidator | null = null;
 
 export interface ArgError { field: string; message: string }
 
@@ -243,7 +249,7 @@ const valueAt = (v: unknown, path: string[]): unknown => path.reduce<unknown>((x
 export function checkArgs(schema: unknown, args: unknown): { valid: boolean; errors: ArgError[] } {
   if (!schema || typeof schema !== 'object') return { valid: false, errors: [{ field: '(the arguments)', message: 'the server gave no input schema for this tool in its list, so they cannot be checked' }] };
   let r: { valid: boolean; errorMessage?: string };
-  try { r = validator.getValidator(schema as never)(args); } catch (e) {
+  try { validator ??= new AjvJsonSchemaValidator(); r = validator.getValidator(schema as never)(args); } catch (e) {
     return { valid: false, errors: [{ field: '(the schema)', message: `the server's schema could not be read by the validator: ${e instanceof Error ? e.message : String(e)}` }] };
   }
   if (r.valid) return { valid: true, errors: [] };
@@ -287,23 +293,83 @@ export interface CliLines {
   notes: string[];
 }
 
+/** The SDK route's own program as a person types it (`node` for the Node running Timmy), or nothing when it is not installed. */
+function sdkProgram(env: Env): string[] | null {
+  const r = mcpRoutes(env).find((x) => x.id === 'sdk');
+  if (!r?.available || !r.argv) return null;
+  return r.argv[0] === process.execPath ? ['node', ...r.argv.slice(1)] : r.argv;
+}
+
 export function cliLines(spec: ServerSpec, tool: string, args: Record<string, unknown>, env: Env): CliLines {
   const json = JSON.stringify(args ?? {});
   const notes: string[] = [];
-  const r = refOf(spec);
+  const r = refOf(spec, env);
   if (!r.ok) return { repl: {}, notes: [r.error] };
-  const sdkRoute = mcpRoutes(env).find((x) => x.id === 'sdk');
   if ('name' in r.ref) {
     notes.push('the SDK route runs a server from its command line only; a configured server is reached through mcporter');
     return { repl: { mcporter: `/mcp call ${r.ref.name} ${tool} ${json}` }, mcporter: `mcporter call ${shellWord(`${r.ref.name}.${tool}`)} --args ${shellWord(json)}`, notes };
   }
   const command = r.ref.command;
   const replCmd = command.map(replWord).join(' ');
+  const sdk = sdkProgram(env);
   return {
     repl: { sdk: `/mcp call --route sdk ${tool} ${json} -- ${replCmd}`, mcporter: `/mcp call --route mcporter ${tool} ${json} -- ${replCmd}` },
     mcporter: ['mcporter', 'call', '--stdio', command[0], ...command.slice(1).flatMap((a) => ['--stdio-arg', a]), '--tool', tool, '--args', json].map(shellWord).join(' '),
-    ...(sdkRoute?.available && sdkRoute.argv ? { sdk: [...(sdkRoute.argv[0] === process.execPath ? ['node', ...sdkRoute.argv.slice(1)] : sdkRoute.argv), 'call', tool, '--args', json, '--json', '--', ...command].map(shellWord).join(' ') } : {}),
+    ...(sdk ? { sdk: [...sdk, 'call', tool, '--args', json, '--json', '--', ...command].map(shellWord).join(' ') } : {}),
     notes,
+  };
+}
+
+// ── a command line typed on the page: built, checked and given as lines; never started from the page ──
+
+export interface TypedLines extends CliLines {
+  /** MCPorter's own line that adds the server to the project's config (config/mcporter.json): the page then lists it */
+  config: string;
+}
+
+/** A name for a typed server in MCPorter's config: its script's name (as the mcporter route names an ad-hoc server). */
+export function typedName(command: readonly string[]): string {
+  return serverLabel({ command: [...command] }).split(' ').pop()!.replace(/\.[a-z]+$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'my-server';
+}
+
+/** The lines for a typed command line: its listing (`/mcp tools`), or a call of one of its tools (`/mcp call`), and the config line. */
+export function typedLines(command: readonly string[], env: Env, call?: { tool: string; args: Record<string, unknown> }): TypedLines {
+  const words = [...command];
+  // MCPorter 0.12.4's `config add <name> --command <program> -- <args…>` (its `--` forwards every later word as an argument)
+  const config = ['mcporter', 'config', 'add', typedName(words), '--command', words[0], ...(words.length > 1 ? ['--', ...words.slice(1)] : [])].map(shellWord).join(' ');
+  if (call) return { ...cliLines({ kind: 'stdio', command: words }, call.tool, call.args, env), config };
+  const replCmd = words.map(replWord).join(' ');
+  const sdk = sdkProgram(env);
+  return {
+    repl: { sdk: `/mcp tools --route sdk -- ${replCmd}`, mcporter: `/mcp tools --route mcporter -- ${replCmd}` },
+    mcporter: ['mcporter', 'list', '--stdio', words[0], ...words.slice(1).flatMap((a) => ['--stdio-arg', a])].map(shellWord).join(' '),
+    ...(sdk ? { sdk: [...sdk, 'tools', '--json', '--', ...words].map(shellWord).join(' ') } : {}),
+    notes: [],
+    config,
+  };
+}
+
+export interface TypedRefusal {
+  status: 409;
+  refused: 'needs you';
+  rule: { runs: false; why: string; command: string };
+  cli: TypedLines;
+  words: string;
+  server: string;
+  route: McpRouteId;
+}
+
+/**
+ * A typed command line's listing or call, refused before anything starts: NEEDS YOU, with the exact line for Timmy's
+ * terminal (the REPL's /mcp tools or /mcp call, through the route picked) and the others (the module comment says why).
+ */
+export function typedRefusal(command: readonly string[], route: McpRouteId, env: Env, call?: { tool: string; args: Record<string, unknown> }): TypedRefusal {
+  const cli = typedLines(command, env, call);
+  const line = cli.repl[route] ?? cli.repl.sdk ?? cli.repl.mcporter!;
+  return {
+    status: 409, refused: 'needs you', rule: { runs: false, why: TYPED_WHY, command: line }, cli,
+    words: `NEEDS YOU: ${TYPED_WHY}. Nothing was started. In Timmy's terminal: ${line}`,
+    server: serverLabel({ command: [...command] }), route,
   };
 }
 
@@ -373,15 +439,20 @@ const toolView = (t: McpToolEntry, route: McpRouteId): ToolView => ({
 
 export interface InspectorCtx { root: string; env: Env; project?: string }
 
-/** A server's tools through one route: a real tools/list (the route starts the server for it and stops it). */
-export async function listFor(spec: ServerSpec, route: McpRouteId, ctx: InspectorCtx): Promise<ListView> {
+/**
+ * A server's tools through one route: a real tools/list (the route starts the server for it and stops it). Only the fixture
+ * and a configured server: the page's route answers a typed command line with typedRefusal, and it is refused here too.
+ */
+export async function listFor(spec: StartableSpec, route: McpRouteId, ctx: InspectorCtx): Promise<ListView> {
   const at = new Date().toISOString();
-  const server = labelOf(spec);
+  const server = labelOf(spec, ctx.env);
   const transport = spec.kind === 'configured' ? 'as configured' : 'stdio';
   const base = { route, spec, server, transport, at };
   const hintsNote = route === 'sdk' ? "the server's own hints (read-only, destructive, …), as it lists them: its claim, not checked" : MCPORTER_DROPS_HINTS;
   const empty: SchemaGate = { checked: 0, missing: 0, issues: [], collisions: [] };
-  const r = refOf(spec);
+  // a caller past the types (a page's JSON) gets the refusal's words, and nothing starts
+  if ((spec as ServerSpec).kind === 'stdio') return { ok: false, ...base, ms: 0, tools: [], error: `NEEDS YOU: ${TYPED_WHY}`, gate: empty, hintsNote };
+  const r = refOf(spec, ctx.env);
   if (!r.ok) return { ok: false, ...base, ms: 0, tools: [], error: r.error, gate: empty, hintsNote };
   if (route === 'sdk' && 'name' in r.ref) return { ok: false, ...base, ms: 0, tools: [], error: 'the SDK route runs a server from its command line only; a configured server is listed through mcporter', gate: empty, hintsNote };
   const listed = await listTools(route, r.ref, { cwd: ctx.root, env: ctx.env, timeoutMs: LIST_TIMEOUT_MS });
@@ -432,60 +503,6 @@ export function resultItems(a: RouteAnswer, route: McpRouteId): { items: ResultI
   if (a.structured) items.push({ type: 'json', value: a.structured.value, label: 'structuredContent' });
   if (!a.content.length && !a.structured) notes.push('the answer holds no content items');
   return { items, notes };
-}
-
-export interface WireSpan { session: number; method: string; id: string | number; start: number; end: number | null; ms: number | null; error: boolean; bytesOut: number; bytesIn: number }
-export interface WireView {
-  /** the timeline's start and end (epoch ms): the call's own */
-  t0: number;
-  t1: number;
-  sessions: Array<{ session: number; start: number; end: number | null; exit?: { code: number | null; signal: string | null } }>;
-  spans: WireSpan[];
-  notifications: Array<{ session: number; method: string; t: number }>;
-  /** the tools/call request and its answer, exactly as they passed (the last session's) */
-  request?: string;
-  response?: string;
-  frames: number;
-  dropped: number;
-}
-
-interface TapLine { session?: number; seq?: number; t?: number; dir?: string; bytes?: number; kind?: string; id?: string | number; method?: string; line?: string; exit?: { code: number | null; signal: string | null }; dropped?: number }
-
-/** A wire trace read into its sessions, its requests' spans (each from its line to the line that answers it) and its notifications. */
-export function wireView(text: string, t0: number, t1: number): WireView {
-  const lines = text.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) as TapLine; } catch { return null; } }).filter((l): l is TapLine => !!l && typeof l.t === 'number' && typeof l.session === 'number');
-  const sessions = new Map<number, WireView['sessions'][number]>();
-  const spans: WireSpan[] = [];
-  const open = new Map<string, WireSpan>();
-  const notifications: WireView['notifications'] = [];
-  let request: string | undefined;
-  let response: string | undefined;
-  let frames = 0;
-  let dropped = 0;
-  for (const l of lines) {
-    const s = l.session!;
-    if (l.kind === 'start') { sessions.set(s, { session: s, start: l.t!, end: null }); continue; }
-    if (l.kind === 'end') { const x = sessions.get(s) ?? { session: s, start: l.t!, end: null }; x.end = l.t!; if (l.exit) x.exit = l.exit; sessions.set(s, x); dropped += l.dropped ?? 0; continue; }
-    frames += 1;
-    if (!sessions.has(s)) sessions.set(s, { session: s, start: l.t!, end: null });
-    const key = `${s}:${l.dir === 'to-server' ? 'c' : 's'}:${String(l.id)}`;
-    if (l.kind === 'request' && l.id !== undefined && l.method) {
-      const span: WireSpan = { session: s, method: l.method, id: l.id, start: l.t!, end: null, ms: null, error: false, bytesOut: l.bytes ?? 0, bytesIn: 0 };
-      spans.push(span);
-      open.set(key, span);
-      if (l.method === 'tools/call' && l.dir === 'to-server' && l.line) request = l.line;
-    } else if ((l.kind === 'result' || l.kind === 'error') && l.id !== undefined) {
-      // an answer comes the other way from its request
-      const back = `${s}:${l.dir === 'to-client' ? 'c' : 's'}:${String(l.id)}`;
-      const span = open.get(back);
-      if (span) { span.end = l.t!; span.ms = Math.round((l.t! - span.start) * 1000) / 1000; span.error = l.kind === 'error'; span.bytesIn = l.bytes ?? 0; open.delete(back); }
-      if (l.method === 'tools/call' && l.dir === 'to-client' && l.line) response = l.line;
-    } else if (l.kind === 'notification' && l.method) notifications.push({ session: s, method: l.method, t: l.t! });
-  }
-  const times = lines.map((l) => l.t!);
-  const lo = Math.min(t0, ...times);
-  const hi = Math.max(t1, ...times);
-  return { t0: lo, t1: hi, sessions: [...sessions.values()], spans, notifications, ...(request ? { request } : {}), ...(response ? { response } : {}), frames, dropped };
 }
 
 export interface ReceiptView { id: string; hash: string; seq: number; ts: string; verified: boolean; why?: string; sealsBytes: boolean }
@@ -634,14 +651,12 @@ export function callRows(root: string, max = 12, chain: readonly Receipt[] = pro
   return { calls, more };
 }
 
-/** The note a call made from the page carries in its record. */
-export const FROM_PAGE = 'made from the browser companion (tab 9, Tools & MCP)';
-
 export type CallAnswer =
   | { status: 400; error: string }
   | { status: 404; error: string; listed: string[] }
   | { status: 422; refused: 'schema'; errors: ArgError[]; request: string; cli: CliLines; words: string }
-  | { status: 409; refused: 'needs you'; rule: Extract<PageRule, { runs: false }>; request: string; cli: CliLines; words: string }
+  /** before: what was done before the refusal, in words (nothing started, or the server's own list read) */
+  | { status: 409; refused: 'needs you'; rule: Extract<PageRule, { runs: false }>; request: string; cli: CliLines; words: string; before: string }
   | { status: 502; error: string; gate: { route: McpRouteId; ms: number } }
   | { status: 200; call: CallView; cli: CliLines; rule: Extract<PageRule, { runs: true }> };
 
@@ -651,11 +666,12 @@ export interface CallInput { server: unknown; route: unknown; tool: unknown; arg
 const sealFor = (root: string) => (input: ReceiptInput): string | undefined => appendReceipt('runs', input, process.env.TIMMY_STORE ? undefined : root).hash.slice(7, 15);
 
 /**
- * One call from the page: the server's tools read fresh (through the SDK route for a command line, which passes the server's
- * hints on; through mcporter for a configured server), the tool on its own list, the arguments against its schema, the
- * page's rule; then the call through the route the person picked, with the wire tap between the route and a stdio server,
- * kept as /mcp call keeps it. Refused before anything is called: an unknown tool (404), arguments that fail the schema
- * (422), a call that waits for you (409); 502 when the server's tools could not be read (nothing was called).
+ * One call from the page. A typed command line (never started from the page) and a configured server (whose hints are never
+ * known here) wait for you before anything starts: 409 NEEDS YOU with the line for Timmy's terminal. For the FAKE fixture:
+ * its tools read fresh through the SDK route (which passes the server's hints on), the tool on its own list, the arguments
+ * against its schema, the page's rule; then the call through the route the person picked, with the wire tap between the
+ * route and the server, kept as /mcp call keeps it. Refused before any tool is called: an unknown tool (404), arguments that
+ * fail the schema (422), a call that waits for you (409); 502 when the server's tools could not be read (nothing was called).
  */
 export async function callFor(input: CallInput, ctx: InspectorCtx): Promise<CallAnswer> {
   const parsed = parseServerSpec(input.server);
@@ -667,22 +683,34 @@ export async function callFor(input: CallInput, ctx: InspectorCtx): Promise<Call
   const tool = input.tool;
   if (!input.args || typeof input.args !== 'object' || Array.isArray(input.args)) return { status: 400, error: 'the arguments are one JSON object (an empty one when the tool takes none)' };
   const args = input.args as Record<string, unknown>;
-  const ref = refOf(spec);
+  const request = JSON.stringify(jsonRpcRequest(tool, args));
+  const nothing = 'Nothing was started, and no record was written.';
+  // a command line typed on the page: never started from it
+  if (spec.kind === 'stdio') {
+    const t = typedRefusal(spec.command, route, ctx.env, { tool, args });
+    return { status: 409, refused: 'needs you', rule: t.rule, request, cli: t.cli, words: t.words, before: nothing };
+  }
+  const ref = refOf(spec, ctx.env);
   if (!ref.ok) return { status: 400, error: ref.error };
   if (route === 'sdk' && 'name' in ref.ref) return { status: 400, error: 'the SDK route runs a server from its command line only; a configured server is called through mcporter' };
   const lines = cliLines(spec, tool, args, ctx.env);
-  // the gate's own reading of the server's tools: the SDK route's for a command line (it passes the hints on)
-  const gateRoute: McpRouteId = 'name' in ref.ref ? 'mcporter' : routeRungs(ctx.env).some((r) => r.id === 'sdk' && r.rung === 'installed') ? 'sdk' : 'mcporter';
+  // a configured server: its hints are never known here (mcporter drops them), so its call waits for you, and nothing starts
+  if (spec.kind === 'configured') {
+    const rule = pageRule(spec, tool, null, lines, route) as Extract<PageRule, { runs: false }>;
+    return { status: 409, refused: 'needs you', rule, request, cli: lines, words: `NEEDS YOU: ${rule.why}. ${nothing} In Timmy's terminal: ${rule.command}`, before: nothing };
+  }
+  // the gate's own reading of the fixture's tools: the SDK route's (it passes the hints on)
+  const gateRoute: McpRouteId = routeRungs(ctx.env).some((r) => r.id === 'sdk' && r.rung === 'installed') ? 'sdk' : 'mcporter';
   const gate = await listTools(gateRoute, ref.ref, { cwd: ctx.root, env: ctx.env, timeoutMs: LIST_TIMEOUT_MS });
   if (!gate.ok) return { status: 502, error: `the server's tools could not be read through the ${gateRoute} route, so nothing was called: ${gate.error ?? 'no answer'}`, gate: { route: gateRoute, ms: gate.ms } };
   const entry = gate.tools.find((t) => t.name === tool);
   const names = gate.allNames ?? gate.tools.map((t) => t.name);
-  if (!entry) return { status: 404, error: `no tool named "${tool}" on ${labelOf(spec)}'s own list; nothing was called`, listed: names.slice(0, 50) };
-  const request = JSON.stringify(jsonRpcRequest(tool, args));
+  if (!entry) return { status: 404, error: `no tool named "${tool}" on ${labelOf(spec, ctx.env)}'s own list; nothing was called`, listed: names.slice(0, 50) };
   const checked = checkArgs(entry.inputSchema, args);
   if (!checked.valid) return { status: 422, refused: 'schema', errors: checked.errors, request, cli: lines, words: `Not sent: the arguments do not match ${tool}'s input schema (checked with the MCP SDK's validator), so nothing was called.` };
   const rule = pageRule(spec, tool, gateRoute === 'sdk' ? (entry.annotations ?? {}) : null, lines, route);
-  if (!rule.runs) return { status: 409, refused: 'needs you', rule, request, cli: lines, words: `NEEDS YOU: ${rule.why}. Nothing was called. In Timmy's terminal: ${rule.command}` };
+  const read = `Its own list was read through the ${gateRoute === 'sdk' ? 'SDK' : 'mcporter'} route (the server started for that, and stopped); ${tool} was not called, and no record was written.`;
+  if (!rule.runs) return { status: 409, refused: 'needs you', rule, request, cli: lines, words: `NEEDS YOU: ${rule.why}. Nothing was called. In Timmy's terminal: ${rule.command}`, before: read };
   // the call, with the wire tap between the route and the server (stdio), as /mcp call keeps it
   const tap = ownScript('wire-tap');
   const box = mkdtempSync(join(tmpdir(), 'timmy-wire-'));
@@ -691,7 +719,7 @@ export async function callFor(input: CallInput, ctx: InspectorCtx): Promise<Call
     const command = ref.command && tap.ok ? [...tap.argv, '--out', traceFile, '--', ...ref.command] : undefined;
     const run = await runToolCall(route, command ? { command } : ref.ref, tool, args, { cwd: ctx.root, env: ctx.env, timeoutMs: CALL_TIMEOUT_MS });
     // the record names the server, not the tap
-    const name = labelOf(spec);
+    const name = labelOf(spec, ctx.env);
     run.facts.server = { ...run.facts.server, name };
     run.answer.server = name;
     run.facts.notes.push(FROM_PAGE);
@@ -740,6 +768,11 @@ export function checkFor(input: CallInput & { inputSchema?: unknown; annotations
   if (!input.args || typeof input.args !== 'object' || Array.isArray(input.args)) return { status: 400, error: 'the arguments are one JSON object' };
   const args = input.args as Record<string, unknown>;
   const checked = checkArgs(input.inputSchema, args);
+  if (parsed.spec.kind === 'stdio') {
+    // a typed command line: checked and given as lines here, never started from the page
+    const t = typedRefusal(parsed.spec.command, input.route, env, { tool: input.tool, args });
+    return { status: 200, valid: checked.valid, errors: checked.errors, request: JSON.stringify(jsonRpcRequest(input.tool, args)), cli: t.cli, rule: t.rule, ruleFrom: 'a command line typed on this page is never started from it' };
+  }
   const lines = cliLines(parsed.spec, input.tool, args, env);
   const hints = input.annotations && typeof input.annotations === 'object' && !Array.isArray(input.annotations) ? (input.annotations as Record<string, unknown>) : null;
   const later = !hints && parsed.spec.kind !== 'configured';
@@ -759,5 +792,5 @@ export function inspectorState(root: string, env: Env): {
 } {
   const chain = projectChain(root);
   const { calls, more } = callRows(root, 12, chain);
-  return { routes: routeRungs(env), fixture: fixtureServer(), modes: ingestModes(env), wire: wireTools(env), rule: PAGE_RULE, calls, more, project: { id: projectId(root), folder: basename(root) } };
+  return { routes: routeRungs(env), fixture: fixtureServer(env), modes: ingestModes(env), wire: wireTools(env), rule: PAGE_RULE, calls, more, project: { id: projectId(root), folder: basename(root) } };
 }

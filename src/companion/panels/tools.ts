@@ -8,17 +8,20 @@
  *   GET  servers      the servers MCPorter's config and editor imports name, read from their files (nothing started)
  *   GET  calls        the newest calls again (the page reads them when the frame moves)
  *   GET  call/<id>    one call again: its record, request, answer, wire trace and receipt (verified now)
- *   POST list         a server's tools through the route picked: a real tools/list (it starts the server; no approval)
+ *   POST list         the FAKE fixture's or a configured server's tools through the route picked: a real tools/list (it
+ *                     starts the server, or reaches its address; no approval). A command line typed on the page is never
+ *                     started from it: 409 NEEDS YOU with its lines for Timmy's terminal, before anything starts
  *   POST check        the form's check: the arguments against the schema the listing gave, the request, the command lines
- *   POST call         one call: refused before anything is called when the tool is not on the server's list (404), when the
- *                     arguments fail its schema (422) or when it waits for you (409, with the line to type in Timmy's
- *                     terminal); else run through the route picked and kept as /mcp call keeps it (200)
+ *   POST call         one call: refused before anything is called when it waits for you (409, with the line to type in
+ *                     Timmy's terminal: a typed command line and a configured server before anything starts), when the
+ *                     tool is not on the server's list (404) or when the arguments fail its schema (422); else run through
+ *                     the route picked and kept as /mcp call keeps it (200)
  *
  * One listing or call at a time per companion (each starts processes); a second waits for the first, a third is told to.
  */
 import express from 'express';
 import type { PanelContext } from '../panels.js';
-import { callFor, callRows, checkFor, configuredServers, inspectorState, listFor, parseServerSpec, projectChain, readCall } from '../../mcp/inspector.js';
+import { callFor, callRows, checkFor, configuredServers, inspectorState, listFor, parseServerSpec, projectChain, readCall, typedRefusal } from '../../mcp/inspector.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -89,7 +92,14 @@ export function mountToolsPanel(app: express.Express, ctx: PanelContext): void {
     if (body.route !== 'sdk' && body.route !== 'mcporter') { res.status(400).json({ ok: false, error: 'pick a route: sdk or mcporter' }); return; }
     const route = body.route;
     try {
-      const view = await oneAtATime(res, () => listFor(spec.spec, route, { root: p.root, env: env(), project: p.name }));
+      // a command line typed on the page: refused at once, outside the queue, and nothing starts
+      if (spec.spec.kind === 'stdio') {
+        const { status, ...rest } = typedRefusal(spec.spec.command, route, env());
+        res.status(status).json({ ok: false, ...rest });
+        return;
+      }
+      const startable = spec.spec;
+      const view = await oneAtATime(res, () => listFor(startable, route, { root: p.root, env: env(), project: p.name }));
       if (view) res.json({ ...view });
     } catch (e) { failed(res, e); }
   });

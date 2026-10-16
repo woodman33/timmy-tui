@@ -3,8 +3,10 @@
 //
 // Four panes, as the references lay theirs out, and the project's newest calls under them:
 //   Ingest & tools     the ingest modes as Timmy has them, the two routes with their rungs, the servers (Timmy's FAKE fixture,
-//                      MCPorter's config and editor imports, a command line typed here) with their transport and what was
-//                      observed of them, a real tools/list through the route picked, each tool with its hints and schema
+//                      MCPorter's config and editor imports) with their transport and what was observed of them, what a
+//                      listing starts or contacts (said before it), a real tools/list through the route picked, each tool
+//                      with its hints and schema. A command line typed here is checked and given as its exact lines for
+//                      Timmy's terminal, never started from the page (NEEDS YOU: a command line you typed runs only there)
 //   Request            a form made from the tool's input schema, checked against it (the MCP SDK's validator, on the
 //                      companion) before anything is sent, the exact JSON-RPC request, the route to call through, the page's
 //                      rule for this call, and the generated CLI: the exact /mcp call lines and each route's own command
@@ -42,6 +44,8 @@
   const pretty = (text) => { try { return JSON.stringify(JSON.parse(text), null, 2); } catch (e) { return String(text); } };
 
   function h(tag, attrs, ...kids) { return P.ctx.h(tag, attrs, ...kids); }
+  /** An element's children replaced; an absent child (null, undefined, false) is left out, never written as its name. */
+  const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
   const svg = (tag, attrs) => {
     const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
     for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, String(v));
@@ -73,7 +77,9 @@
     e.listCtl = h('div', { class: 'tools-listctl' });
     e.tools = h('div', { class: 'tools-tools' });
     e.schema = h('div', { class: 'tools-schema' });
-    const ingest = box('tools-ingest', 'Ingest · servers and their tools', e.modes, e.routes, e.servers, e.listCtl, e.tools, e.schema);
+    // the listing's control first (the route, the one primary, what a listing starts or contacts), as the request pane puts
+    // its call's control first; then the modes, the servers, the routes' rungs, the tools read and the picked tool's schema
+    const ingest = box('tools-ingest', 'Ingest · servers and their tools', e.listCtl, e.modes, e.servers, e.routes, e.tools, e.schema);
     e.form = h('form', { class: 'tools-form', autocomplete: 'off', novalidate: true });
     e.form.addEventListener('submit', (ev) => { ev.preventDefault(); });
     e.formHead = h('div', { class: 'tools-formhead' });
@@ -93,7 +99,7 @@
       e.steps,
       h('div', { class: 'tools-grid' }, ingest.box, request.box, wire.box, result.box),
       calls.box);
-    host.replaceChildren(root);
+    put(host, root);
     P.built = true;
   }
 
@@ -125,16 +131,20 @@
 
   // ── the steps ──
 
+  /** The listing of the server on screen, when the page answered it NEEDS YOU (a typed command line: never started here). */
+  const refusedListing = () => (P.listing && P.listing.refused && P.listing.key === serverKey(P.server) ? P.listing.refused : null);
+
   function stepState() {
     const listed = Boolean(P.listing && P.listing.ok && P.listing.key === serverKey(P.server));
+    const refused = refusedListing();
     const valid = Boolean(P.tool && P.check && P.check.valid);
     const call = P.result && P.result.kind === 'call' ? P.result.call : null;
     const called = Boolean(call && call.tool === (P.tool && P.tool.name));
     // the receipt step follows the call step: the receipt of the call of the tool on screen
     const sealed = Boolean(called && call.receipt && call.receipt.verified);
     const steps = [
-      { n: 1, label: 'Ingest', done: true, words: P.server.kind === 'fixture' ? 'FAKE fixture · stdio' : P.server.kind === 'configured' ? `${P.server.name} · ${P.server.transport || 'configured'}` : 'a command line · stdio' },
-      { n: 2, label: 'tools/list', done: listed, words: listed ? `${P.listing.tools.length} tools via ${P.listing.route}` : `through ${routeName(P.listRoute)}` },
+      { n: 1, label: 'Ingest', done: true, words: P.server.kind === 'fixture' ? 'FAKE fixture · stdio' : P.server.kind === 'configured' ? `${P.server.name} · ${P.server.transport || 'configured'}` : 'a typed command line · stdio' },
+      { n: 2, label: 'tools/list', done: listed, words: listed ? `${P.listing.tools.length} tools via ${P.listing.route}` : refused ? 'NEEDS YOU: in Timmy\'s terminal' : `through ${routeName(P.listRoute)}` },
       { n: 3, label: 'Request · schema', done: valid, words: P.tool ? (valid ? `${P.tool.name}: matches its schema` : P.check ? `${P.tool.name}: ${P.check.errors ? P.check.errors.length : 0} to fix` : `${P.tool.name}: checking`) : 'pick a tool' },
       { n: 4, label: 'Call', done: called, words: called ? `${call.outcome} via ${call.route} · ${msWords(call.ms)}` : `through ${routeName(P.callRoute)}` },
       { n: 5, label: 'Record & receipt', done: sealed, words: sealed ? `sealed and verified · ${call.receipt.id}` : called ? (call.receipt ? 'not verified' : 'no receipt') : 'kept with each call' },
@@ -145,7 +155,7 @@
 
   function renderSteps() {
     const { steps, next } = stepState();
-    P.el.steps.replaceChildren(...steps.map((s) => h('li', {
+    put(P.el.steps, ...steps.map((s) => h('li', {
       class: `tools-step${s.n === next ? ' is-next' : ''}${s.done ? ' is-done' : ''}${s.n === 5 && s.done ? ' is-verified' : ''}`,
       'data-step': String(s.n), 'aria-current': s.n === next ? 'step' : null,
     }, h('span', { class: 'tools-step-n' }, `${s.done ? (s.n === 5 ? '✓' : '✓') : s.n === next ? '▶' : '·'} ${s.n}. ${s.label}`), h('span', { class: 'tools-step-words' }, s.words))));
@@ -156,7 +166,7 @@
   function renderModes() {
     const modes = (P.state && P.state.modes) || [];
     const picked = modes.find((m) => m.id === P.mode);
-    P.el.modes.replaceChildren(h('p', { class: 'tools-sub' }, 'INGEST MODE · STDIO / SSE / APISNIP / CLYANYTHING'),
+    put(P.el.modes, h('p', { class: 'tools-sub' }, 'INGEST MODE · STDIO / SSE / APISNIP / CLYANYTHING'),
       h('div', { class: 'tools-modegrid' }, ...modes.map((m) => {
         const works = m.state === 'works';
         const input = h('input', { type: 'radio', name: 'tools-mode', value: m.id, disabled: !works, checked: P.mode === m.id, 'aria-describedby': `tools-mode-${m.id}` });
@@ -179,7 +189,7 @@
 
   function renderRoutes() {
     const routes = (P.state && P.state.routes) || [];
-    P.el.routes.replaceChildren(h('p', { class: 'tools-sub' }, 'MCP TO CLI · BOTH ROUTES · RUNG, AND LAST CALL IN THIS PROJECT'), ...routes.map((r) => {
+    put(P.el.routes, h('p', { class: 'tools-sub' }, 'MCP TO CLI · BOTH ROUTES · RUNG, AND LAST CALL IN THIS PROJECT'), ...routes.map((r) => {
       const last = (P.calls || []).find((c) => c.route === r.id);
       return h('div', { class: 'tools-route', 'data-route': r.id, title: `${r.details}. Reaches: ${r.reaches}.` },
         h('div', { class: 'row-between' }, h('strong', null, r.id === 'sdk' ? 'The SDK route' : 'The mcporter route'), h('span', { class: 'tools-rung', 'data-rung': r.rung }, `${r.rung}${r.version ? ` · ${r.version}` : ''}`)),
@@ -209,7 +219,8 @@
 
   function observedWords(s) {
     const o = P.observed.get(serverKey(s));
-    if (!o) return h('span', { class: 'tools-dim' }, 'not contacted from this page');
+    if (!o) return h('span', { class: 'tools-dim' }, s.kind === 'stdio' ? 'never started from this page' : 'not contacted from this page');
+    if (o.refused) return h('span', null, `not started: a command line you typed runs only from Timmy's terminal (checked ${clock(o.at)})`);
     return o.ok
       ? h('span', null, h('span', { class: 'is-live' }, '● answered'), ` tools/list via ${o.route} ${clock(o.at)} · ${o.words}`)
       : h('span', { class: 'tools-attn' }, `✕ did not answer via ${o.route} ${clock(o.at)}: ${o.words}`);
@@ -234,12 +245,14 @@
     });
     const typed = h('input', { type: 'text', class: 'tools-typed', placeholder: 'node ./server.js --mcp', 'aria-label': 'A stdio server\'s command line', value: P.typed, spellcheck: 'false' });
     typed.addEventListener('input', () => { P.typed = typed.value; });
-    const useTyped = h('button', { type: 'button', class: 'btn-action' }, 'Use it');
-    useTyped.addEventListener('click', () => { const c = P.typed.trim(); if (c) pickServer({ kind: 'stdio', command: c }); });
+    typed.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); useTyped.click(); } });
+    // checks the line on the companion and gives its exact lines for Timmy's terminal (nothing is started)
+    const useTyped = h('button', { type: 'button', class: 'btn-action', 'data-tools-action': 'check-typed' }, 'Check it');
+    useTyped.addEventListener('click', () => { const c = P.typed.trim(); if (c) { pickServer({ kind: 'stdio', command: c }); list(); } });
     const reload = h('button', { type: 'button', class: 'btn-action tiny', title: 'Reads MCPorter\'s config files and the editors\' configs it imports again; nothing is started' }, 'read the config again');
     reload.addEventListener('click', () => loadServers());
     const head = h('p', { class: 'tools-sub row-between' }, h('span', null, P.mode === 'http' ? 'SSE / HTTP SERVERS · MCPORTER\'S CONFIG AND EDITOR IMPORTS' : 'STDIO SERVERS · TRANSPORT · WHAT WAS OBSERVED'), reload);
-    e.servers.replaceChildren(head, ...rows,
+    put(e.servers, head, ...rows,
       P.servers === null ? h('p', { class: 'tools-small' }, 'Reading MCPorter\'s config and the editors\' configs it imports (files only; nothing started)…') : null,
       P.serversError ? h('p', { class: 'tools-small tools-attn' }, `MCPorter's config could not be read: ${P.serversError}`) : null,
       P.servers && !pool.some((s) => s.kind === 'configured') ? h('p', { class: 'tools-small' }, P.mode === 'http'
@@ -248,7 +261,7 @@
       P.mode === 'stdio' ? h('details', { class: 'tools-details', open: P.server.kind === 'stdio' },
         h('summary', null, 'Another stdio server, by its command line'),
         h('div', { class: 'tools-typedrow' }, typed, useTyped),
-        h('p', { class: 'tools-small' }, 'Listing it starts that program on this computer (the route stops it after the list); a call follows the rule under Request.')) : null);
+        h('p', { class: 'tools-small', 'data-tools-typed-rule': '' }, 'This page starts no program typed here: a command line you typed runs only from Timmy\'s terminal. Checking it gives its exact lines: the REPL\'s /mcp tools for each route, MCPorter\'s own, and MCPorter\'s line that adds it to this project\'s config, after which this page lists it with the configured servers.')) : null);
   }
 
   function pickServer(s) {
@@ -257,6 +270,9 @@
     if (s.kind === 'configured') { P.listRoute = 'mcporter'; P.callRoute = 'mcporter'; }
     P.tool = null; P.check = null;
     renderAll();
+    // the server picked: its listing's control, and what a listing of it starts or contacts, at the top of the pane
+    const body = P.el.listCtl.closest('.box-body');
+    if (body) body.scrollTop = 0;
   }
 
   function routeSwitch(which, value, onPick) {
@@ -270,15 +286,28 @@
       }));
   }
 
+  /** What a listing of the server starts or contacts, said before it is asked for (nothing is started for a typed line). */
+  function beforeWords(s) {
+    if (s.kind === 'fixture') return 'Listing starts Timmy\'s FAKE fixture on this computer for the list, and the route stops it.';
+    if (s.kind === 'stdio') return 'This page starts no program typed here: checking it gives the exact lines to list it from Timmy\'s terminal.';
+    const e = s.entry || {};
+    const from = e.source ? ` (${e.source}${e.importKind ? `, ${e.importKind}` : ''})` : '';
+    if (e.url) return `Listing it contacts ${e.url}: MCPorter reaches that address for the list, as your config sets it up${from}, with any sign-in it already keeps; Timmy starts no new sign-in.`;
+    return `Listing it starts ${e.program || 'the program'} as your MCPorter config names it${from}, and the route stops it after the list.`;
+  }
+
   function renderListCtl() {
     const e = P.el;
     const { next } = stepState();
-    const primary = next === 2;
+    // after a typed line's NEEDS YOU, its copy is the one primary (renderTools draws it)
+    const primary = next === 2 && !refusedListing();
+    const typed = P.server.kind === 'stdio';
     const label = P.server.kind === 'fixture' ? 'the FAKE fixture' : P.server.kind === 'configured' ? P.server.name : 'this command line';
     const btn = h('button', { type: 'button', class: `tools-go${primary ? ' is-primary' : ''}`, 'data-tools-action': 'list', disabled: P.listBusy || !serverPool().length },
-      P.listBusy ? `Listing ${label}'s tools…` : `List ${label}'s tools via ${routeName(P.listRoute)}`);
+      typed ? (P.listBusy ? 'Checking the command line…' : 'Check the line for Timmy\'s terminal') : P.listBusy ? `Listing ${label}'s tools…` : `List ${label}'s tools via ${routeName(P.listRoute)}`);
     btn.addEventListener('click', () => list());
-    e.listCtl.replaceChildren(h('div', { class: 'row-10' }, h('span', { class: 'tools-small' }, 'tools/list through'), routeSwitch('list', P.listRoute, (id) => { P.listRoute = id; renderAll(); }), btn));
+    put(e.listCtl, h('div', { class: 'row-10' }, h('span', { class: 'tools-small' }, 'tools/list through'), routeSwitch('list', P.listRoute, (id) => { P.listRoute = id; renderAll(); }), btn),
+      serverPool().length ? h('p', { class: 'tools-small tools-break', 'data-tools-before': P.server.kind }, beforeWords(P.server)) : null);
   }
 
   async function list() {
@@ -293,6 +322,11 @@
       P.observed.set(key, { ok: r.body.ok, route: r.body.route, at: r.body.at || new Date().toISOString(), words: r.body.ok ? `${r.body.tools.length} tools · ${msWords(r.body.ms)}` : (r.body.error || 'no answer') });
       if (r.body.ok && r.body.tools.length) pickTool(r.body.tools[0].name, false);
       else { P.tool = null; P.check = null; }
+    } else if (r.status === 409 && r.body.refused === 'needs you') {
+      // a typed command line: checked, never started; its lines for Timmy's terminal
+      P.listing = { ok: false, key, route: P.listRoute, tools: [], refused: r.body };
+      P.observed.set(key, { ok: false, refused: true, route: P.listRoute, at: new Date().toISOString(), words: 'not started' });
+      P.tool = null; P.check = null;
     } else {
       P.listing = { ok: false, key, route: P.listRoute, tools: [], error: r.body.error || `HTTP ${r.status}` };
       P.observed.set(key, { ok: false, route: P.listRoute, at: new Date().toISOString(), words: r.body.error || `HTTP ${r.status}` });
@@ -306,13 +340,14 @@
   function renderTools() {
     const e = P.el;
     const L = P.listing && P.listing.key === serverKey(P.server) ? P.listing : null;
-    if (!L) { e.tools.replaceChildren(h('p', { class: 'empty' }, 'No tools/list read from this server on this page yet.')); return; }
+    if (!L) { put(e.tools, h('p', { class: 'empty' }, P.server.kind === 'stdio' ? 'Not checked yet: "Check it" gives this command line\'s lines for Timmy\'s terminal (nothing is started).' : 'No tools/list read from this server on this page yet.')); return; }
+    if (L.refused) { renderTypedNeeds(L.refused); return; }
     if (!L.ok) {
-      e.tools.replaceChildren(h('p', { class: 'tools-attn tools-break' }, `✕ tools/list via ${L.route}: ${L.error || 'no answer'}`),
+      put(e.tools, h('p', { class: 'tools-attn tools-break' }, P.server.kind === 'stdio' ? `✕ This command line was not taken: ${L.error || 'no answer'}` : `✕ tools/list via ${L.route}: ${L.error || 'no answer'}`),
         L.needsAuth && L.authCommand ? h('p', { class: 'tools-small' }, 'NEEDS YOU, in a terminal: ', h('button', { type: 'button', class: 'cmd', 'data-copy': L.authCommand }, L.authCommand)) : null);
       return;
     }
-    e.tools.replaceChildren(
+    put(e.tools,
       h('p', { class: 'tools-sub' }, `TOOLS · ${L.tools.length} · tools/list via ${L.route} · ${msWords(L.ms)} · ${clock(L.at)}`),
       L.started ? h('p', { class: 'tools-small' }, L.started) : null,
       h('p', { class: 'tools-small' }, `Hints: ${L.hintsNote}.`),
@@ -326,6 +361,31 @@
         b.addEventListener('click', () => pickTool(t.name, true));
         return h('li', null, b);
       })));
+  }
+
+  /** A line to copy, with what it is (the generated CLI's rows). */
+  const cliLine = (label, text, key) => (text ? h('div', { class: 'tools-cliline', 'data-cli': key },
+    h('span', { class: 'tools-small' }, label), h('button', { type: 'button', class: 'cmd', 'data-copy': text, title: 'Copies it' }, text)) : null);
+
+  /** A typed command line's listing, refused before anything started: NEEDS YOU, its line for Timmy's terminal, its other lines. */
+  function renderTypedNeeds(a) {
+    const { next } = stepState();
+    const copy = h('button', { type: 'button', class: `tools-go${next === 2 ? ' is-primary' : ''}`, 'data-tools-action': 'copy-terminal' }, 'Copy the line for Timmy\'s terminal');
+    copy.addEventListener('click', () => copyLine(a.rule.command, copy, renderTools));
+    const other = a.route === 'sdk' ? 'mcporter' : 'sdk';
+    const cli = a.cli || { repl: {} };
+    const why = `${a.rule.why.charAt(0).toUpperCase()}${a.rule.why.slice(1)}`;
+    // what and why first, then the one primary (copy the line) where the pane shows it, then the line itself and the others
+    put(P.el.tools, h('div', { class: 'tools-needs', role: 'alert', 'data-tools-list-result': 'needs-you' },
+      h('p', null, h('strong', null, 'NEEDS YOU'), ` · ${a.server} was not started, and its tools were not listed.`),
+      h('p', null, `${why}.`),
+      h('div', { class: 'row-10', 'data-needs-copy': '' }, copy, h('span', { class: 'tools-small' }, `(${routeName(a.route)}; a typed /mcp tools is your own command there)`)),
+      h('button', { type: 'button', class: 'cmd', 'data-copy': a.rule.command, 'data-needs-line': '' }, a.rule.command),
+      h('p', { class: 'tools-sub' }, 'GENERATED CLI · THE SAME LISTING, TO COPY'),
+      cliLine(`In Timmy's REPL, ${routeName(other)}`, cli.repl && cli.repl[other], `repl-${other}`),
+      cliLine('MCPorter\'s own command line', cli.mcporter, 'mcporter'),
+      cliLine('Timmy\'s SDK command line', cli.sdk, 'sdk'),
+      cliLine('MCPorter\'s line that adds it to this project\'s config (config/mcporter.json); this page then lists it with the configured servers', cli.config, 'config')));
   }
 
   // the schema, drawn: one row per field (its type, whether required, its rules, its words)
@@ -342,10 +402,10 @@
   function renderSchema() {
     const e = P.el;
     const t = P.tool;
-    if (!t) { e.schema.replaceChildren(); return; }
+    if (!t) { put(e.schema); return; }
     const s = t.inputSchema;
     const props = s && s.properties && typeof s.properties === 'object' ? Object.entries(s.properties) : [];
-    e.schema.replaceChildren(
+    put(e.schema,
       h('p', { class: 'tools-sub' }, `INPUT SCHEMA · ${t.name}`),
       !s ? h('p', { class: 'empty' }, 'The server listed this tool without an input schema, so a request to it cannot be checked.') : null,
       s ? h('table', { class: 'tools-schematable' },
@@ -372,7 +432,12 @@
     P.check = null;
     renderForm();
     scheduleCheck(0);
-    if (draw) renderAll();
+    if (draw) {
+      renderAll();
+      // a tool picked by hand: its schema, drawn, at the top of its pane (only the pane scrolls)
+      const body = P.el.schema.closest('.box-body');
+      if (body) body.scrollTop = Math.max(0, P.el.schema.offsetTop - body.offsetTop - 4);
+    }
   }
 
   function fieldInput(name, p, required) {
@@ -418,14 +483,14 @@
     const e = P.el;
     const t = P.tool;
     if (!t) {
-      e.formHead.replaceChildren(h('p', { class: 'empty' }, 'List a server\'s tools, then pick one: its request form is made from its input schema.'));
-      e.form.replaceChildren();
+      put(e.formHead, h('p', { class: 'empty' }, 'List a server\'s tools, then pick one: its request form is made from its input schema.'));
+      put(e.form);
       return;
     }
     const s = t.inputSchema || {};
     const props = s.properties && typeof s.properties === 'object' ? Object.entries(s.properties) : [];
-    e.formHead.replaceChildren(h('p', { class: 'tools-sub' }, `REQUEST · tools/call ${t.name}`), t.description ? h('p', { class: 'tools-small' }, t.description) : null);
-    e.form.replaceChildren(...(props.length ? props.map(([k, p]) => fieldInput(k, p, (s.required || []).includes(k))) : [h('p', { class: 'empty' }, 'This tool takes no fields: its arguments are {}.')]),
+    put(e.formHead, h('p', { class: 'tools-sub' }, `REQUEST · tools/call ${t.name}`), t.description ? h('p', { class: 'tools-small' }, t.description) : null);
+    put(e.form, ...(props.length ? props.map(([k, p]) => fieldInput(k, p, (s.required || []).includes(k))) : [h('p', { class: 'empty' }, 'This tool takes no fields: its arguments are {}.')]),
       h('p', { class: 'tools-fielderr', 'data-field-error': '(the arguments)', role: 'status' }));
   }
 
@@ -463,20 +528,20 @@
       }
     }
     renderCallCtl();
+    // no tool picked: no request and no lines yet (the form's head says what to do)
+    if (!P.tool) { put(e.request); put(e.cli); return; }
     // the exact request this call sends (its id is the route's own: the wire shows the one sent)
-    e.request.replaceChildren(
+    put(e.request,
       h('p', { class: 'tools-sub' }, 'JSON-RPC REQUEST · as the route sends it'),
       h('pre', { class: 'tools-pre', 'data-tools-request': '' }, c && c.request ? pretty(c.request) : 'Checking…'),
       h('p', { class: 'tools-small' }, 'Its id is the route\'s own; the call\'s wire trace shows the request exactly as it was sent.'));
     const cli = (c && c.cli) || { repl: {}, notes: [] };
-    const line = (label, text, key) => (text ? h('div', { class: 'tools-cliline', 'data-cli': key },
-      h('span', { class: 'tools-small' }, label), h('button', { type: 'button', class: 'cmd', 'data-copy': text, title: 'Copies it' }, text)) : null);
-    e.cli.replaceChildren(
+    put(e.cli,
       h('p', { class: 'tools-sub' }, 'GENERATED CLI · THE SAME CALL, TO COPY'),
-      line('In Timmy\'s REPL, the SDK route', cli.repl && cli.repl.sdk, 'repl-sdk'),
-      line('In Timmy\'s REPL, the mcporter route', cli.repl && cli.repl.mcporter, 'repl-mcporter'),
-      line('MCPorter\'s own command line (what the mcporter route runs)', cli.mcporter, 'mcporter'),
-      line('Timmy\'s SDK command line (what the SDK route runs)', cli.sdk, 'sdk'),
+      cliLine('In Timmy\'s REPL, the SDK route', cli.repl && cli.repl.sdk, 'repl-sdk'),
+      cliLine('In Timmy\'s REPL, the mcporter route', cli.repl && cli.repl.mcporter, 'repl-mcporter'),
+      cliLine('MCPorter\'s own command line (what the mcporter route runs)', cli.mcporter, 'mcporter'),
+      cliLine('Timmy\'s SDK command line (what the SDK route runs)', cli.sdk, 'sdk'),
       ...((cli.notes || []).map((n) => h('p', { class: 'tools-small' }, n))));
   }
 
@@ -484,7 +549,7 @@
     const e = P.el;
     const t = P.tool;
     const c = P.check;
-    if (!t) { e.callCtl.replaceChildren(); return; }
+    if (!t) { put(e.callCtl); return; }
     const { next } = stepState();
     const rule = c && c.rule;
     const waits = rule && rule.runs === false;
@@ -493,7 +558,7 @@
     const primary = !P.callBusy && valid && next === 4;
     const btn = h('button', { type: 'button', class: `tools-go${primary ? ' is-primary' : ''}`, 'data-tools-action': waits ? 'copy-terminal' : 'call', disabled: P.callBusy || !valid, 'aria-describedby': 'tools-why' }, words);
     btn.addEventListener('click', () => (waits ? copyLine(rule.command, btn) : call()));
-    e.callCtl.replaceChildren(
+    put(e.callCtl,
       h('div', { class: 'row-10' }, h('span', { class: 'tools-small' }, 'tools/call through'), routeSwitch('call', P.callRoute, (id) => { P.callRoute = id; scheduleCheck(0); renderCallCtl(); })),
       h('p', { class: `tools-rule${waits && valid ? ' is-waiting' : ''}`, id: 'tools-why', 'data-tools-rule': !valid ? 'not-sendable' : rule ? (rule.runs ? 'runs' : 'needs-you') : 'later' },
         !c ? 'Checking the request…' : !valid ? `Not sendable yet: ${c.errors.length} ${c.errors.length === 1 ? 'thing' : 'things'} to fix above (checked with the MCP SDK's validator, on the companion).`
@@ -501,10 +566,10 @@
       btn);
   }
 
-  async function copyLine(text, btn) {
+  async function copyLine(text, btn, redraw) {
     try { if (!window.isSecureContext || !navigator.clipboard) throw new Error('no clipboard'); await navigator.clipboard.writeText(text); btn.textContent = 'Copied: run it in Timmy\'s terminal'; }
     catch (e) { btn.textContent = `Not copied (this browser would not): ${text}`; }
-    setTimeout(() => renderCallCtl(), 4000);
+    setTimeout(() => (redraw || renderCallCtl)(), 4000);
   }
 
   async function call() {
@@ -532,11 +597,11 @@
     const call = P.result && P.result.kind === 'call' ? P.result.call : null;
     const W = call && call.wireView;
     if (!call) {
-      e.graph.replaceChildren(h('p', { class: 'tools-sub' }, 'JSON-RPC FLAME GRAPH · MEASURED BY TIMMY\'S WIRE TAP'), h('p', { class: 'empty' }, 'No call shown yet: a call made here, or one picked from the newest calls, draws its JSON-RPC requests here, each with its time.'));
+      put(e.graph, h('p', { class: 'tools-sub' }, 'JSON-RPC FLAME GRAPH · MEASURED BY TIMMY\'S WIRE TAP'), h('p', { class: 'empty' }, 'No call shown yet: a call made here, or one picked from the newest calls, draws its JSON-RPC requests here, each with its time.'));
       return;
     }
     if (!W || !W.spans.length) {
-      e.graph.replaceChildren(h('p', { class: 'tools-sub' }, 'JSON-RPC FLAME GRAPH'), h('p', { class: 'empty' }, `This call went through no wire tap (${call.transport === 'stdio' ? 'it was made outside this page, as /mcp call makes it' : 'the tap sits on stdio servers only'}), so no request of it was timed: the record keeps its total, ${msWords(call.ms)}.`));
+      put(e.graph, h('p', { class: 'tools-sub' }, 'JSON-RPC FLAME GRAPH'), h('p', { class: 'empty' }, `This call went through no wire tap (${call.transport === 'stdio' ? 'it was made outside this page, as /mcp call makes it' : 'the tap sits on stdio servers only'}), so no request of it was timed: the record keeps its total, ${msWords(call.ms)}.`));
       return;
     }
     const t0 = Date.parse(call.startedAt);
@@ -566,7 +631,7 @@
     const axis = svg('text', { x: labelW, y: rows.length * rowH + 16, class: 'tools-flame-axis' });
     axis.textContent = `0 ms  ·  ${msWords(total)} from the call's start to its end, as measured`;
     g.append(axis);
-    e.graph.replaceChildren(
+    put(e.graph,
       h('p', { class: 'tools-sub' }, `JSON-RPC FLAME GRAPH · ${W.spans.length} REQUESTS · MEASURED BY TIMMY'S WIRE TAP`),
       g,
       h('ul', { class: 'tools-spans' }, ...W.spans.map((s) => h('li', { 'data-span-method': s.method }, `${s.method} (id ${s.id}) · ${s.ms === null ? 'no answer seen' : msWords(s.ms)} · ${bytesWords(s.bytesOut)} out, ${bytesWords(s.bytesIn)} back${s.error ? ' · a JSON-RPC error' : ''}`))),
@@ -598,7 +663,7 @@
       if (!c) items.push(none(`${P.tool.name}'s request: checking`));
       else items.push(c.valid ? ok(`${P.tool.name}'s request matches its input schema (the MCP SDK's validator)`) : bad(`${P.tool.name}'s request does not match its input schema yet (${c.errors.length})`));
     }
-    e.gate.replaceChildren(h('p', { class: 'tools-sub' }, 'SCHEMA GATE · THE STRICT TOOL-SCHEMA RULE (lanes/schema/lane.mjs) AND THE REQUEST'), h('ul', { class: 'tools-checks' }, ...items));
+    put(e.gate, h('p', { class: 'tools-sub' }, 'SCHEMA GATE · THE STRICT TOOL-SCHEMA RULE (lanes/schema/lane.mjs) AND THE REQUEST'), h('ul', { class: 'tools-checks' }, ...items));
   }
 
   // ── Result & receipt ──
@@ -617,30 +682,30 @@
   function renderResult() {
     const e = P.el;
     const R = P.result;
-    if (!R) { e.result.replaceChildren(h('p', { class: 'empty' }, 'No call yet on this page. A call made here, or one picked from the newest calls below, shows here: its answer, its exact JSON-RPC answer, the route, its time, and the record and receipt Timmy keeps.')); return; }
+    if (!R) { put(e.result, h('p', { class: 'empty' }, 'No call yet on this page. A call made here, or one picked from the newest calls below, shows here: its answer, its exact JSON-RPC answer, the route, its time, and the record and receipt Timmy keeps.')); return; }
     if (R.kind === 'needs-you') {
       const a = R.answer;
-      e.result.replaceChildren(h('div', { class: 'tools-needs', role: 'alert', 'data-tools-result': 'needs-you' },
+      put(e.result, h('div', { class: 'tools-needs', role: 'alert', 'data-tools-result': 'needs-you' },
         h('p', null, h('strong', null, 'NEEDS YOU'), ` · ${R.tool} via ${routeName(R.route)} was not called`),
-        h('p', null, `${a.rule.why}. Nothing was started for the call, and no record was written.`),
+        h('p', null, `${a.rule.why}. ${a.before || 'Nothing was called, and no record was written.'}`),
         h('p', { class: 'tools-small' }, 'In Timmy\'s terminal, where a typed /mcp call is your own command:'),
         h('button', { type: 'button', class: 'cmd', 'data-copy': a.rule.command }, a.rule.command)));
       return;
     }
     if (R.kind === 'schema') {
-      e.result.replaceChildren(h('div', { class: 'tools-refused', 'data-tools-result': 'schema' },
+      put(e.result, h('div', { class: 'tools-refused', 'data-tools-result': 'schema' },
         h('p', null, h('strong', null, '✕ Not sent'), ` · ${R.answer.words}`),
         h('ul', { class: 'tools-checks' }, ...R.answer.errors.map((x) => h('li', { class: 'tools-attn' }, `✕ ${x.field}: ${x.message}`)))));
       return;
     }
     if (R.kind === 'error') {
-      e.result.replaceChildren(h('div', { class: 'tools-refused', 'data-tools-result': 'error' }, h('p', null, h('strong', null, '✕ Not called'), ` · ${R.error}`),
+      put(e.result, h('div', { class: 'tools-refused', 'data-tools-result': 'error' }, h('p', null, h('strong', null, '✕ Not called'), ` · ${R.error}`),
         R.listed ? h('p', { class: 'tools-small' }, `The server lists: ${R.listed.join(', ')}`) : null));
       return;
     }
     const c = R.call;
     const answered = c.outcome === 'answered';
-    e.result.replaceChildren(
+    put(e.result,
       h('div', { class: 'tools-outcome', 'data-tools-result': 'call', 'data-call': c.id },
         h('p', { class: 'row-between' },
           h('span', null, answered ? h('span', { class: 'is-live' }, '● answered') : h('span', { class: 'tools-attn' }, `✕ ${c.outcome}${c.isError ? ' (the server said isError)' : ''}`), ` · ${c.tool} on ${c.server}`),
@@ -670,9 +735,9 @@
   function renderCalls() {
     const e = P.el;
     const rows = P.calls || [];
-    if (!rows.length) { e.calls.replaceChildren(h('p', { class: 'empty' }, 'No MCP call is kept in this project yet (.timmy/mcp/). A call made here, with /mcp call in the REPL, or by the agent\'s call_mcp_tool shows here.')); return; }
+    if (!rows.length) { put(e.calls, h('p', { class: 'empty' }, 'No MCP call is kept in this project yet (.timmy/mcp/). A call made here, with /mcp call in the REPL, or by the agent\'s call_mcp_tool shows here.')); return; }
     const shown = P.result && P.result.kind === 'call' ? P.result.call.id : null;
-    e.calls.replaceChildren(
+    put(e.calls,
       h('table', { class: 'tools-callstable' },
         h('thead', null, h('tr', null, ...['when', 'tool', 'server', 'route', 'how it ended', 'time', 'receipt', 'made', ''].map((x) => h('th', null, x)))),
         h('tbody', null, ...rows.map((c) => {
@@ -695,7 +760,7 @@
 
   function renderAll() {
     if (!P.built) return;
-    if (P.stateError) { P.el.modes.replaceChildren(h('p', { class: 'empty tools-attn' }, `The inspector could not read its state: ${P.stateError}`)); return; }
+    if (P.stateError) { put(P.el.modes, h('p', { class: 'empty tools-attn' }, `The inspector could not read its state: ${P.stateError}`)); return; }
     renderSteps();
     renderModes();
     renderRoutes();
@@ -715,7 +780,7 @@
     draw(host, frame, ctx) {
       P.ctx = ctx;
       if (!ctx.own) {
-        host.replaceChildren(ctx.h('p', { class: 'empty' }, 'This page shows another project than the frame the companion gave, so the inspector waits for this project\'s own.'));
+        put(host, ctx.h('p', { class: 'empty' }, 'This page shows another project than the frame the companion gave, so the inspector waits for this project\'s own.'));
         P.built = false;
         return;
       }
