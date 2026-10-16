@@ -78,7 +78,12 @@ const jobRecord = (s: Sandbox): Record<string, unknown> => {
 };
 /** timmy md's own process: the owner its job manager records on the run's job (not the bin, its parent). */
 const mdPid = (s: Sandbox): number => (jobRecord(s).owner as { pid: number }).pid;
-/** What the pty wrapper wrote when it ended (its --stop-file), once it has: the signals its stop sent. */
+/**
+ * What the pty wrapper wrote when it ended (its --stop-file), once it has: the signals its stop sent. R5 lead (CI at 631392f,
+ * once): the held case's stop said only SIGTERM, so the block's group was gone within the wrapper's grace although the
+ * block ignores SIGTERM. Each assertion on it now carries the whole record (its `said` names the groups it signalled and
+ * whether the process table could be read), so a recurrence says its own cause.
+ */
 async function wrapperStop(s: Sandbox): Promise<{ why: string; signals?: string[] }> {
   const args = jobRecord(s).args as string[];
   const file = args[args.indexOf('--stop-file') + 1];
@@ -123,7 +128,7 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     // one stop, by one SIGINT
     expect(d.stderr.match(/stopping: SIGINT received/g)).toHaveLength(1);
     // the block ignored SIGTERM: the wrapper needed SIGKILL (the trap was in place before the test signalled)
-    expect((await wrapperStop(s)).signals).toEqual(['SIGTERM', 'SIGKILL']);
+    { const stop = await wrapperStop(s); expect(stop.signals, `the pty wrapper's stop record: ${JSON.stringify(stop)}`).toEqual(['SIGTERM', 'SIGKILL']); }
   }, 120_000);
 
   it('the second SIGINT once md has printed its end (a test timer that fires after the stop): the stop and md\'s end are over: the same outcome', async () => {
@@ -142,7 +147,7 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     const j = lastJson(d.stdout);
     expect(j.why).toMatch(/^SIGINT received; job j[0-9a-f]{6} stopped$/);
     expect(receipts(j)).toEqual(NORMAL_STOP);
-    expect((await wrapperStop(s)).signals).toEqual(['SIGTERM', 'SIGKILL']);
+    { const stop = await wrapperStop(s); expect(stop.signals, `the pty wrapper's stop record: ${JSON.stringify(stop)}`).toEqual(['SIGTERM', 'SIGKILL']); }
   }, 120_000);
 
   it('the fixed test\'s way (FAKE: the stop held at its first signal): with md not scheduled when the first SIGINT comes, and the second sent 1.5 s late, the second lands inside the stop', async () => {
@@ -171,6 +176,6 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     expect(j).toMatchObject({ outcome: 'stopped', exit_code: 3, receipts: null, why: expect.stringMatching(/^SIGINT received; a second SIGINT: timmy md exited at once, before what it started had ended; ended now: job j[0-9a-f]{6}: cancelled; /) });
     expect((j.at_once as { settled: string[] }).settled).toEqual([`operation ${String(j.operation)}: stopped`, `job ${(j.job as { id: string }).id}: cancelled`]);
     // the stop md left went on without it: the wrapper still needed SIGKILL for the block
-    expect((await wrapperStop(s)).signals).toEqual(['SIGTERM', 'SIGKILL']);
+    { const stop = await wrapperStop(s); expect(stop.signals, `the pty wrapper's stop record: ${JSON.stringify(stop)}`).toEqual(['SIGTERM', 'SIGKILL']); }
   }, 120_000);
 });

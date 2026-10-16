@@ -67,6 +67,22 @@
  *   GET /run/<operation id>                nothing more                      the page (as GET /), its RUN DETAIL tab on that id
  *   GET /api/chat/route                    the token                         the chat's route in words (never a key)
  *   GET /api/run/<operation id>            the token                         the operator's records, as a run detail
+ *
+ * R5 (H132, the operator's completion order of 2026-10-15: one project workspace across the terminal, the companion and
+ * Studio): the page draws the workspace frame every surface shares (src/contracts/workspace.ts, made only by
+ * src/ops/workspace-frame.ts) around its own content, and may change the two start-up settings the terminal Workbench keeps
+ * (src/companion/workspace.ts says what each answer is). Timmy's shared look is served beside the page (src/companion/page.ts).
+ *
+ *   route                                  requires                          why
+ *   GET /api/workspace                     the token                         the frame of the project the page shows: the
+ *                                                                            operator's records (projects, jobs, connections)
+ *   POST /api/workspace/prefs              the token                         writes the Workbench's settings file, checked
+ *                                                                            against the frame's revision (409 when stale)
+ *   POST /api/chat/stop                    the token                         R5 lead: asks the process answering the chat
+ *                                                                            turn {turn: <id>} of the shown project to stop
+ *                                                                            it (409 when that turn is not running now)
+ *   GET /timmy-theme.css,                  nothing more                      Timmy's look and Monaspace Argon: no content
+ *       /web/fonts/monaspace-argon-*
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -86,7 +102,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -94,6 +110,8 @@ import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
 import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
+// R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
+import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -152,6 +170,12 @@ export interface CompanionOptions {
    * src/ops/run-detail.ts when absent, and words saying there is none where it is not built yet.
    */
   runDetail?: RunDetailProducer;
+  /**
+   * R5 (H132): what GET /api/workspace and POST /api/workspace/prefs read and write with (src/companion/workspace.ts): a test's
+   * environment (its TIMMY_HOME and TIMMY_SETTINGS_DIR), a FAKE frame producer, or a settings saver that fails; this
+   * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
+   */
+  workspace?: WorkspaceDeps;
 }
 
 /**
@@ -315,6 +339,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         const whole = chunk.slice(0, cut + 1);
         busOffsets[i] += Buffer.byteLength(whole, 'utf8');
         for (const event of parseBusLines(whole)) {
+          // R5 lead (the final QA of a77d80d, defect 1): a sealed receipt changes the frame (a turn's end, a run's): the frame
+          // shared between reads is let go first, so a page that reads it again on this event is given the frame after it
+          if (event.kind === 'receipt.sealed') workspace.forget(root);
           const msg = JSON.stringify({ type: 'bus', event });
           for (const [c, v] of views) if (v.project.root === root && c.readyState === 1) c.send(msg);
         }
@@ -353,6 +380,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // Serve static client files
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
+  // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
+  // before the built web code's own (src/companion/page.ts)
+  mountTheme(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
@@ -733,6 +763,53 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
 
+  // R5 (H132): the workspace frame of the project the page shows (?project=<id>, else the one followed), and the two start-up
+  // settings it may change (src/companion/workspace.ts: 409 with the newer frame when the page's revision is stale)
+  const workspace = new CompanionWorkspace(options.workspace);
+  // R5 lead (the QA round, defect 4): this companion answering its page is an answer observed now, as Studio notes its own
+  // (src/studio/server.ts): the frame then says the companion answered, not "not running" from an older check. Only for the
+  // companion the frame names (its address, src/ops/workspace-frame.ts companionBaseUrl); at most once in SELF_NOTE_MS.
+  // It notes that it started and that it stopped, too (noteStopped), so no surface says it answered after it ended.
+  let selfPort: number | null = null;
+  const noteSelf = async (what: 'started' | 'asked' | 'stopped'): Promise<void> => {
+    const env = options.workspace?.env ?? process.env;
+    try {
+      const { companionBaseUrl, noteAnswered, noteStopped } = await import('../ops/workspace-frame.js');
+      if (selfPort === null || companionBaseUrl(env) !== `http://127.0.0.1:${selfPort}/`) return;
+      if (what === 'stopped') noteStopped('companion', env);
+      else noteAnswered('companion', what === 'started' ? 'it started listening' : 'its page asked for its frame', env);
+    } catch { /* the record cannot be written: the frame says what the last check saw */ }
+  };
+  app.get('/api/workspace', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    await noteSelf('asked');
+    const answer = await workspace.answerFrame(project);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+  // R5 lead (the operator's 22:32 order, item 2): the page's Stop for the chat turn being answered in the project it shows,
+  // whichever surface sent it. It asks the process that holds the turn (src/agent/chat-turn.ts requestTurnStop), which stops
+  // it as its own Esc or Ctrl+C would; the turn is named by its id (the frame's activity.chatTurn.id), so the page stops the
+  // turn it shows and never another. 200 {ok, words}; 400 for a body that names no turn; 409 when that turn is not being
+  // answered now (it ended, or its process did). The token first, as every content route.
+  app.post('/api/chat/stop', withToken, express.json({ limit: '1kb' }), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const { requestTurnStop, surfaceWords, TURN_ID } = await import('../agent/chat-turn.js');
+    const id = req.body && typeof req.body === 'object' ? (req.body as { turn?: unknown }).turn : undefined;
+    if (typeof id !== 'string' || !TURN_ID.test(id)) { res.status(400).json({ ok: false, error: 'Not stopped: the request names no chat turn ({turn: <its id>, as the frame gives it}).' }); return; }
+    const r = requestTurnStop(project.root, id, 'companion');
+    if (!r.ok) { res.status(409).json({ ok: false, error: `Not stopped: ${r.why}.` }); return; }
+    res.json({ ok: true, words: `Stop asked of the turn being answered in ${surfaceWords(r.surface)}: it stops there at once, and its receipt says it was stopped, asked from this page.` });
+  });
+  app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ error: PROJECT_UNKNOWN }); return; }
+    const answer = await workspace.answerPrefs(project, req.body);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
   const sendPage = (res: express.Response): void => {
@@ -880,6 +957,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R4 (H87): an error of the listening server itself (a connection it could not take) never ends the monitor
   httpServer.on('error', () => undefined);
   const bound = (httpServer.address() as import('net').AddressInfo).port;
+  selfPort = bound;
+  await noteSelf('started');
   const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
   return {
@@ -901,6 +980,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      await noteSelf('stopped');
     },
     setState: (state: string) => {
       currentState = state;

@@ -19,6 +19,7 @@ import { screenStream } from '../term/screen-stream.js';
 import { TerminalSession } from '../term/session.js';
 import { MOUSE_OFF, MOUSE_ON } from '../tui/mouse.js';
 import { tildePath } from '../utils/home-scrub.js';
+import { ownScreen } from '../utils/logger.js';
 import { appendReceipt, receiptsDir } from '../utils/receipts.js';
 import { WorkbenchApp } from './app.js';
 import { Controller } from './controller.js';
@@ -37,6 +38,11 @@ export async function runWorkbench(): Promise<number> {
   session.enterAltScreen();
   session.hideCursor();
   process.stdout.write('\x1b[2J\x1b[H');
+  // R5 lead (the QA round, defect 1): while the Workbench owns the screen, what this process logs (the companion's server,
+  // started here by c, said "Companion client disconnected …" onto it) goes to its log file, never onto the screen; the
+  // processes it starts are not told (src/utils/logger.ts ownScreen), and the terminal comes back with logging as it was
+  ownScreen(true);
+  session.beforeRestore(() => ownScreen(false));
 
   // the project the shared record names, else this folder; the Workbench works in its folder, as the REPL does
   const start = readActiveProject(process.cwd());

@@ -69,7 +69,8 @@ describe('gateFrame', () => {
     const report = gateFrame(parseAnsiFrame(OLD_FRAME, AUDITED_TERMINAL));
     expect(report.pass).toBe(false);
     const byRule = Object.fromEntries(report.violations.map((v) => [v.rule, v]));
-    expect(byRule['neutral-text']).toMatchObject({ row: 0, fg: '#8A8A8A', bg: '#191919', floor: 7 });
+    // B10 set the neutral floor to 6:1; this audited grey (5.1:1) still misses it
+    expect(byRule['neutral-text']).toMatchObject({ row: 0, fg: '#8A8A8A', bg: '#191919', floor: 6 });
     expect(byRule['neutral-text']?.ratio).toBeCloseTo(5.1, 1);
     expect(byRule['text']).toMatchObject({ row: 1, fg: '#3D3D3C', floor: 4.5 });
     expect(byRule['non-text']).toMatchObject({ row: 2, fg: '#3A3A3A', floor: 3 });

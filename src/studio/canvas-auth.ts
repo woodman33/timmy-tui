@@ -26,6 +26,7 @@ import type express from 'express';
 import { CANVAS_PROTOCOL, SESSION_PROTOCOL, type BridgeGate, type PageCheck } from './bridge.js';
 import { CardRelay, type SessionCheck } from './card-relay.js';
 import type { NamedProject, ProjectLink } from './project-link.js';
+import { pausedRefusal } from './session-pause.js';
 
 /** The tldraw shape types of Timmy Canvas's drawn cards (companion/studio-canvas/src/cards.js CARD_SHAPES). */
 export const DRAWN_CARD_TYPES: ReadonlySet<string> = new Set(['timmy-workflow', 'timmy-params', 'timmy-result']);
@@ -38,6 +39,8 @@ export const KEPT_PROPS = ['card', 'kind', 'projectId', 'project', 'title', 'com
 
 export const DOCUMENT_REFUSED = 'Refused: the canvas is loaded and saved only by a canvas page Timmy opened (it has a session) or by Timmy\'s REPL (with its token). A page opened by its address, a bookmark or a reload has no session. In Timmy: /canvas open.';
 export const JOBS_REFUSED = 'Refused: the canvas jobs are read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
+/** R5 (H133): the shared workspace frame (the project, its tabs, actions and activity) is the project's content too. */
+export const WORKSPACE_REFUSED = 'Refused: the workspace (this project, its tabs, actions and activity) is read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
 export const EXEC_REFUSED = 'Refused: code runs on Timmy Canvas only for Timmy\'s REPL, with the token this canvas server made, sent in an Authorization header (the agent\'s canvas tools send it). In Timmy: /canvas open, then ask again.';
 export const TOKEN_IN_ADDRESS = 'Refused: the token goes in an Authorization header, never in an address; this route takes no query string.';
 export const FROM_REPL = 'Refused: this route is for Timmy\'s REPL, never a page.';
@@ -60,6 +63,17 @@ export function callerOf(header: unknown, link: ProjectLink, relay: CardRelay, r
 /** Sends the refusal of a caller who is not one (401, with words and the session's state). */
 export function refuse(res: express.Response, c: Exclude<Caller, { ok: true }>): void {
   res.status(401).set('WWW-Authenticate', 'Bearer').set('Cache-Control', 'no-store').json({ ok: false, error: c.words, session: c.why });
+}
+
+/**
+ * R5 (H137): the refusal of a reading a canvas page makes by itself (its jobs, its workspace strip): to a paused session
+ * (src/studio/session-pause.ts) a plain 200 with the same words and `session`, and nothing of the project, so the page, which
+ * cannot know it was paused before it asks, logs no failed request and says why; to anyone else (no credential, a forged one, a
+ * session that ended), the 401 refuse sends. Writes and actions are refused with 401 throughout.
+ */
+export function refuseReading(res: express.Response, c: Exclude<Caller, { ok: true }>): void {
+  if (!pausedRefusal(c.why)) { refuse(res, c); return; }
+  res.status(200).set('Cache-Control', 'no-store').json({ ok: false, error: c.words, session: c.why });
 }
 
 /**

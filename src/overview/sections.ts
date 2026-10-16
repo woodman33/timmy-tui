@@ -73,10 +73,12 @@ export function needsSource(d: Decision): OverviewSource {
   return { record: d.record ?? null, command: d.commands[0] ?? '/decisions', board: 'room-decisions', ...(d.receipt ? { receipt: d.receipt } : {}) };
 }
 
-export function needsSection(s: Sources): NeedsSection {
+export function needsSection(s: Sources, fleet: readonly NeedsItem[] = []): NeedsSection {
   const out: NeedsSection = { ...base('needs', s), total: 0, items: [], more: 0, tools: {} };
   // R4 (H93): the new kinds, from this computer's Timmy home (Timmy Connect) and Timmy Cloud's backend (as last read)
-  const extra = remoteNeeds(s);
+  const remote = remoteNeeds(s);
+  // R4 (lead): and what waits on a person in the project's real fleets (src/overview/fleet.ts fleetNeeds)
+  const extra = { items: [...remote.items, ...fleet], notes: remote.notes };
   let unknownWhy: string | undefined;
   if (!s.decisions.ok) unknownWhy = `what waits on you could not be read: ${s.decisions.error}`;
   const v = s.decisions.ok ? s.decisions.value : undefined;
@@ -106,6 +108,7 @@ export function needsSection(s: Sources): NeedsSection {
       ...(blocking ? [count(blocking, `of the first ${items.length} ${blocking === 1 ? 'blocks' : 'block'} a running or requested request`)] : []),
       ...(fromConnect ? [count(fromConnect, 'of them from Timmy Connect (this computer\'s Timmy home)')] : []),
       ...(fromCloud ? [count(fromCloud, 'of them from Timmy Cloud\'s backend, as last read')] : []),
+      ...(fleet.length ? [count(fleet.length, 'of them from this project\'s fleets (timmy fleet)')] : []),
     ],
     ...(first ? { urgent: { text: first.title, tone: first.blocks || first.kind === 'failed' || first.kind === 'differs' || first.kind === 'host-key-changed' ? 'failed' : 'attention', source: first.source, ...(first.ago ? { ago: first.ago } : {}) } } : {}),
     tools: v ? { ...(v.tools.checkedAt ? { checked_at: v.tools.checkedAt } : {}), ...(v.tools.note ? { note: v.tools.note } : {}) } : {},

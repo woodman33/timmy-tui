@@ -61,7 +61,8 @@ export type TurnEvent =
   | { type: 'cancelling' }
   /** Round R1 (the Mac run): the turn ended, not cancelled, with calls that never answered (a step or spend limit). */
   | { type: 'unfinished'; count: number }
-  | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
+  // R5 lead: `by`, who asked the turn to stop when another surface did ("the companion")
+  | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[]; by?: string }
   | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string; session?: false }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
 
@@ -202,7 +203,10 @@ export class Transcript {
         this.flushGroup();
         this.blank();
         // What the tools did, said with the cancel (third order, checkpoint 1): a cancel never undoes.
-        const said = e.at ? `Cancelled. ${cancelOutcome(e.at, e.tools ?? [])}` : 'Cancelled.';
+        // R5 lead (QA: the REPL said only "Cancelled." for a turn another surface stopped, while its receipt and every other
+        // surface named who asked): the line names them too, in the shared stop words
+        const head = e.by ? `Cancelled: stopped, asked from ${e.by}.` : 'Cancelled.';
+        const said = e.at ? `${head} ${cancelOutcome(e.at, e.tools ?? [])}` : head;
         const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
         return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
       }

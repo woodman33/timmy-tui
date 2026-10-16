@@ -1143,6 +1143,13 @@ interface ToolCallRecord { name: string; args: string; output?: string; late?: b
 /** What closes a request that was left without an answer: a quit mid-turn, a crash or a failed request. */
 export const UNANSWERED = '[I did not answer this request: it was interrupted before I could (the program ended, or the request failed). I will not continue it unless the user asks me to.]';
 
+/**
+ * R5 lead (the QA round, defect 8): the records Timmy writes into the conversation in the assistant's voice, so the model
+ * knows a request ended without its answer (cancelRecord, UNANSWERED). A surface shows one as Timmy's own note of the stop,
+ * never under the model's speaker label, and does not repeat the partial answer it quotes (already shown as it streamed).
+ */
+export const isTimmyRecord = (text: string): boolean => text.startsWith('[Cancelled by the user before I') || text === UNANSWERED;
+
 const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 /** Tool data or streamed text as a quoted string, secrets redacted: it can neither speak as the assistant nor leave a key in the saved session. */
 const quote = (text: string, max = 400): string => JSON.stringify(clip(redactString(text), max));
@@ -1163,7 +1170,8 @@ const argsText = (raw: string): string => {
  * request, and the next turn, about anything, finished it too (LIVE-01 at C-17).
  */
 export function cancelRecord(calls: ToolCallRecord[], streamed: string): string {
-  const parts = ['[Cancelled by the user before I answered.'];
+  // R5 lead (the QA round, defect 8): "before I answered" only when nothing was written or run; a partial answer is quoted below
+  const parts = [streamed.trim() || calls.some((c) => c.output !== undefined) ? '[Cancelled by the user before I finished answering.' : '[Cancelled by the user before I answered.'];
   const label = (c: ToolCallRecord): string => (c.args ? `${c.name} ${argsText(c.args)}` : c.name);
   const returned = (c: ToolCallRecord): string => `${label(c)}, which returned ${quote(c.output ?? '')}`;
   const finished = calls.filter((c) => c.output !== undefined && !c.late);

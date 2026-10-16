@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { glyphSet } from '../src/term/glyphs.js';
 import { COMMANDS, runSlash, type ReplContext, type ThemeInfo, GROUPS, GROUP_LABEL } from '../src/repl/commands.js';
 import { needsPerson } from '../src/ops/act.js';
@@ -96,14 +96,53 @@ describe('slash commands', () => {
     runSlash('/center', c);
     expect(printed).toEqual(['  Cockpit opened in a new zellij session.']);
   });
-  it('shows and sets the model, starts a new conversation, and exits', () => {
+  it('shows and sets the model with its price and the free-only state, starts a new conversation, and exits', () => {
+    // R5: /model says what the model costs (OpenRouter's catalog as this computer has it) and whether free-only is on
+    vi.stubEnv('TIMMY_CHAT_FREE_ONLY', '0');
     const { c, printed, state } = ctx();
     runSlash('/model', c);
     runSlash('/model openai/gpt-5.5', c);
     runSlash('/new', c);
-    expect(printed).toEqual(['  Model: anthropic/claude-sonnet-4.5', '  Model: anthropic/claude-sonnet-4.5 -> openai/gpt-5.5', '  New conversation.']);
+    expect(printed[0]).toBe('  Model: anthropic/claude-sonnet-4.5');
+    expect(printed[1]).toMatch(/^ {2}Price: /);
+    expect(printed[2]).toMatch(/^ {2}Free-only: off · /);
+    expect(printed.slice(3)).toEqual(['  Model: anthropic/claude-sonnet-4.5 -> openai/gpt-5.5', expect.stringMatching(/^ {2}Price: /), '  New conversation.']);
     expect([state.model, state.sessions]).toEqual(['openai/gpt-5.5', 1]);
     expect(runSlash('/exit', c)).toBe('exit');
+    vi.unstubAllEnvs();
+  });
+  it('R5: /model free lists the free models of the catalog; under free-only a model not known to be free is flagged when chosen', () => {
+    vi.stubEnv('TIMMY_CHAT_FREE_ONLY', '1');
+    const { c, printed } = ctx();
+    runSlash('/model free', c);
+    expect(printed[0]).toMatch(/^ {2}(Free models in the OpenRouter catalog \(\d+; free by the catalog, not by a check of the account\):|No free model in the catalog this computer has\.)/);
+    printed.length = 0;
+    runSlash('/model acme/never-listed', c);
+    expect(printed).toEqual([
+      '  Model: anthropic/claude-sonnet-4.5 -> acme/never-listed',
+      expect.stringMatching(/^ {2}Price: price unknown: /),
+      `  ${glyphSet(false).fail} free-only is on, and acme/never-listed is not known to be free: messages will not be sent until you choose a free one.`,
+    ]);
+    printed.length = 0;
+    runSlash('/model free-only', c);
+    expect(printed).toEqual(['  Free-only: on · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)']);
+    vi.unstubAllEnvs();
+  });
+  it('R5 lead: on the local route, /model free and /model free-only are the policy\'s, never taken as an Ollama model\'s name', async () => {
+    vi.stubEnv('TIMMY_CHAT_FREE_ONLY', '1');
+    const asked: string[] = [];
+    const { c, printed } = ctx();
+    const local = { ...c, chatModel: (args: string) => { asked.push(args); return Promise.resolve([[{ text: `  FAKE local list for "${args}"` }]]); } };
+    runSlash('/model free-only', local);
+    runSlash('/model free', local);
+    expect(asked).toEqual([]);
+    expect(printed[0]).toBe('  Free-only: on · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)');
+    expect(printed[1]).toMatch(/^ {2}(Free models in the OpenRouter catalog|No free model in the catalog this computer has\.)/);
+    printed.length = 0;
+    await runSlash('/model qwen3:8b', local);
+    expect(asked).toEqual(['qwen3:8b']);
+    expect(printed).toEqual(['  FAKE local list for "qwen3:8b"']);
+    vi.unstubAllEnvs();
   });
   it('R4 (H88; r23): /quit is /exit, and /help says so (it was unknown, and suggested /edit)', () => {
     const { c, printed } = ctx();

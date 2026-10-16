@@ -34,12 +34,18 @@ describe('Timmy Canvas loads nothing from another host', () => {
     // R4 (H55): and the page's own Project panel, a file beside it that imports nothing.
     // R4 (H75): and the drawn cards, a file beside it that imports nothing either (canvas.js hands it React and tldraw).
     // R4 (H109): and the side panel's Run detail, a file beside it that imports nothing.
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js']);
-    // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing
-    for (const file of ['project.js', 'cards.js', 'operations.js', 'run-detail.js']) {
+    // R5 (H133): and B10 for tldraw's canvas colors, the drafts' rules and the save line's words: files beside it that import nothing.
+    // R5 (H133): and the shared workspace frame's strip above the canvas, a file beside it that imports nothing either.
+    // R5 (H137; the QA round, defect 6): and the one time format (./when.js), a file beside it that imports nothing.
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js', './when.js']);
+    // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing.
+    // R5 (H137): the files that say a time import ./when.js too, and nothing else; it imports nothing.
+    const IMPORT_NOTHING = ['operations.js', 'theme.js', 'drafts.js', 'when.js'];
+    const OWN_IMPORTS: Record<string, string[]> = { 'project.js': ['./operations.js'], 'cards.js': ['./operations.js', './when.js'], 'run-detail.js': ['./when.js'], 'save-state.js': ['./when.js'], 'frame.js': ['./when.js'] };
+    for (const file of [...Object.keys(OWN_IMPORTS), ...IMPORT_NOTHING]) {
       const own = readFileSync(join(page, 'src', file), 'utf8');
       const sources = [...own.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);
-      expect(sources, file).toEqual(file === 'operations.js' || file === 'run-detail.js' ? [] : ['./operations.js']);
+      expect(sources, file).toEqual(OWN_IMPORTS[file] ?? []);
       expect([...own.matchAll(/^import\b/gm)].length, `${file}: every import is one of those`).toBe(sources.length);
       expect(own, file).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
     }

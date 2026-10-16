@@ -86,7 +86,7 @@ describe('tool steps', () => {
       '',
     ].join('\n'));
   });
-  it('colors the marker and verb by risk: shell red, writes yellow, model or network violet', () => {
+  it('colors the marker and verb by risk (B10): shell amber and bold, writes amber, model or network silver; the verb says which', () => {
     const text = render([
       { type: 'tool-start', id: '1', tool: 'shell', args: { command: 'ls' } },
       { type: 'tool-end', id: '1', ok: true },
@@ -95,9 +95,9 @@ describe('tool steps', () => {
       { type: 'tool-start', id: '3', tool: 'generate_image', args: { path: 'frame.png' } },
       { type: 'tool-end', id: '3', ok: true },
     ], { color: true });
-    expect(text).toContain('\x1b[1;31m● Ran\x1b[22;39m ls');
+    expect(text).toContain('\x1b[1;33m● Ran\x1b[22;39m ls');
     expect(text).toContain('\x1b[33m● Wrote\x1b[39m a.md');
-    expect(text).toContain('\x1b[35m◉ Generated\x1b[39m frame.png');
+    expect(text).toContain('\x1b[37m◉ Generated\x1b[39m frame.png');
   });
   it('never wraps a preview at 60 or 80 columns', () => {
     for (const columns of [60, 80]) {
@@ -160,7 +160,7 @@ describe('lanes and receipt', () => {
     const pending = render([{ ...receipt, verified: false }], { color: true });
     expect(pending).toContain('RECEIPT 0142');
     expect(pending).not.toContain('\x1b[1;32m');
-    expect(render([{ ...receipt, verified: 'broken' }], { color: true })).toContain('\x1b[1;31m✖ RECEIPT 0142\x1b[22;39m chain broken');
+    expect(render([{ ...receipt, verified: 'broken' }], { color: true })).toContain('\x1b[1;33m✖ RECEIPT 0142\x1b[22;39m chain broken');
   });
 });
 
@@ -279,6 +279,16 @@ describe('a cancel that does not land at once', () => {
     t.endTurn();
     expect(err.writes.at(-1)).not.toContain(note);
     expect(out.text).toContain('Cancelled.');
+  });
+
+  it('R5 lead: a turn another surface asked to stop says who asked, in the shared stop words, then what its tools did', () => {
+    const out = new Sink(false), err = new Sink(true);
+    const caps = detectCapabilities({ env: { LANG: 'C' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: true } });
+    const t = new Transcript(buildTheme(caps), new LiveRegion({ out, err }, { live: true }), { columns: 100 });
+    t.handle({ type: 'text', id: 'a', text: 'Line 1' });
+    t.handle({ type: 'cancelled', at: 'before-tools', tools: [], by: 'the companion' });
+    t.endTurn();
+    expect(out.text).toMatch(/Cancelled: stopped, asked from the companion\. /);
   });
 });
 

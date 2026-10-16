@@ -47,6 +47,27 @@ describe('TerminalSession', () => {
     expect(order).toEqual(['second', 'first']);
     expect(stdout.writes).toEqual(['last frame', '\x1b[0m\x1b[?2004l\x1b[?25h\x1b[?1049l']);
   });
+  // R5 (H136): a quit with a run going once ended 130 still on the Workbench's own screen. process.exit runs the exit
+  // listeners and ends the process: an exit inside a teardown re-entered restore, which did nothing, and the first call never
+  // came back to give the terminal back. What the terminal has got when that exit listener returns is all it ever gets.
+  it('gives the terminal back at once when the process ends inside a teardown (its exit listener enters restore again)', () => {
+    const { stdin, stdout, session } = make();
+    const proc = new EventEmitter();
+    session.install(proc as unknown as NodeJS.Process);
+    session.setRaw(true);
+    session.enterAltScreen();
+    stdout.writes = [];
+    let atExit: { writes: string[]; raw: boolean } | null = null;
+    session.beforeRestore(() => { stdout.write('last frame'); });
+    session.beforeRestore(() => {
+      proc.emit('exit', 130); // the process ends here
+      atExit = { writes: [...stdout.writes], raw: stdin.isRaw };
+    });
+    session.restore();
+    expect(atExit).toEqual({ writes: ['\x1b[0m\x1b[?2004l\x1b[?25h\x1b[?1049l'], raw: false });
+    // (had the process gone on, the rest of the teardowns run and nothing is given back twice)
+    expect(stdout.writes).toEqual(['\x1b[0m\x1b[?2004l\x1b[?25h\x1b[?1049l', 'last frame']);
+  });
   it('writes nothing to a stream that is not a terminal', () => {
     const { stdout, session } = make();
     stdout.isTTY = false;

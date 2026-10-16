@@ -128,11 +128,13 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'nav'
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
   const out: string[] = [];
-  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+  // R5 (H131): row 2 draws the run state and Stop current in its bottom edge, so the top region is read to that edge
+  const last = region === 'top' ? rect.y + rect.h - 1 : rect.y + rect.h - 2;
+  for (let y = rect.y + 1; y <= last; y++) {
     let x = 0;
     let row = '';
     for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
-    out.push(row);
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
   }
   return out.join(' ').replace(/\s+/g, ' ');
 }
@@ -155,24 +157,37 @@ const ENTER = '\r';
 const ESC = '\u001b';
 
 describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
-  it('a click opens a workspace, picks a right-dock tab, selects a row (twice: still only selected); a click never runs: not a block, not [Enter] in the Run confirm', async () => {
+  it('a click opens a tab, picks a right-dock tab, selects a workflow action and a row (twice: still only selected); a click never runs: not an action, not a block, not [Enter] in the Run confirm', async () => {
     sandbox();
     const p = trayProject('mouse-a');
     const { c, ws } = workbench(p);
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    // the navigation: a click on Control Room opens it, then on Workflows
+    // R5 (H131): row 1's tabs: a click on 7 Control Room opens it, then on 3 Workflows
     await click(f.r, cellOf(c, 'Control Room'));
     expect(c.ui.workspace).toBe('control');
     expect(f.text()).toContain('mouse-a / Control Room');
     await click(f.r, cellOf(c, 'Workflows'));
     expect(c.ui.workspace).toBe('workflows');
+    expect(c.ui.page).toBe('workflows');
+    // R5 (H131): a workflow action of row 2 is selected by its click, never run (its Run confirm does not open)
+    await click(f.r, cellOf(c, 'Receipts of this project'));
+    expect(c.ui.focus).toBe('top');
+    expect(c.ui.cursor.top).toBe(3);
+    await click(f.r, cellOf(c, 'Run APPROVAL.md › tidy'));
+    expect(c.ui.cursor.top).toBe(0);
+    expect(c.ui.overlay).toBe(null);
+    expect(ws.jobs.list()).toEqual([]);
     // a right-dock tab: Files, then Tools
+    // (R5, H136: tab 3's body takes the whole width; i opens Context as a drawer, and i again closes it)
+    await press(f.r, 'i');
     await click(f.r, cellOf(c, 'Files', 0, 6));
     expect(c.ui.tab).toBe('files');
     await click(f.r, cellOf(c, 'Tools │'));
     expect(c.ui.tab).toBe('tools');
+    await press(f.r, 'i');
+    expect(c.ui.rightOpen).toBe(false);
     // a row: WORKFLOW.md's inspect block is selected, and nothing more, however often it is clicked
     const row = cellOf(c, ' inspect ');
     await click(f.r, row);
@@ -204,8 +219,8 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     c.start();
     const f = frameOf(c, 180, 50);
     await sleep(150);
-    // APPROVAL.md's tidy, selected first: Enter, Enter: its NEEDS YOU box
-    await press(f.r, TAB, ENTER, ENTER);
+    // 3 Workflows: APPROVAL.md's tidy, selected first: Enter, Enter: its NEEDS YOU box
+    await press(f.r, '3', TAB, ENTER, ENTER);
     await until('the NEEDS YOU box', () => c.ui.overlay?.kind === 'needs-you', 10_000, f.text);
     await sleep(400); // past the box's type-ahead guard: a key now would answer it
     await click(f.r, cellOf(c, '[y] allow once'));
@@ -221,7 +236,7 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
   });
 
-  it('the wheel scrolls the list under the pointer by rows: no selection, focus or workspace moves (over the navigation it once switched workspaces); m gives the mouse back and takes it again', async () => {
+  it('the wheel scrolls the list under the pointer by rows: no selection, focus or workspace moves (over the tabs it opens none); m gives the mouse back and takes it again', async () => {
     sandbox();
     const p = trayProject('mouse-c');
     const asked: boolean[] = [];
@@ -244,7 +259,7 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     expect(c.ui.scroll['center:tools']).toBe(4);
     await wheel(f.r, over, false);
     expect(c.ui.scroll['center:tools']).toBe(3);
-    // over the navigation, the wheel opens no workspace
+    // over the tabs (row 1), the wheel opens no workspace (R4: over the navigation it once switched workspaces)
     for (let i = 0; i < 3; i++) await wheel(f.r, cellOf(c, 'Studio'), true);
     expect(c.ui.workspace).toBe('tools');
     // a key moves the selection again: the view lets the wheel go and shows it
@@ -264,7 +279,7 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     expect(c.ui.workspace).toBe('control');
   });
 
-  it('while a field has the keyboard, a click on a one-letter key\'s hint is not typed into it; [/] in the navigation, clicked from All tools, finds a workspace (not the tools)', async () => {
+  it('while a field has the keyboard, a click on a one-letter key\'s hint is not typed into it; [/] in the navigation drawer, clicked from All tools, finds a workspace (not the tools)', async () => {
     sandbox();
     const p = trayProject('mouse-d');
     const { c } = workbench(p);
@@ -274,11 +289,13 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
     await press(f.r, TAB, '/', 'f', 'a');
     expect(c.ui.input).toEqual({ field: 'tools', text: 'fa' });
-    await click(f.r, cellOf(c, '[p] Switch'));
+    // (R5, H131: the key-hint line's [c], as R4's test clicked the navigation's [p])
+    await click(f.r, cellOf(c, '[c] Companion'));
     expect(c.ui.input).toEqual({ field: 'tools', text: 'fa' });
     expect(c.ui.overlay).toBe(null);
     await press(f.r, ESC);
-    // [/] Find a workspace: a click gives the navigation the keyboard first, so / is the finder
+    // [/] Find a workspace, in the navigation's drawer (g): a click gives the navigation the keyboard first, so / is the finder
+    await press(f.r, 'g');
     await click(f.r, cellOf(c, 'Find a workspace'));
     expect(c.ui.input.field).toBe('search');
     await press(f.r, ...'Templ', ENTER);
@@ -287,7 +304,7 @@ describe('the terminal Workbench\'s mouse (R4 H112, slice C item 1)', () => {
 });
 
 describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 dry run)', () => {
-  it('while the tools search holds /, its hint says how to reach the finder and the navigation\'s line is not a key; Esc clears it and gives the navigation the keyboard, so / finds a workspace in one key; Enter keeps the matches', async () => {
+  it('while the tools search holds /, its hint says how to reach the finder (R5: the navigation is a drawer, so Esc, then g, then /); Esc clears it and says g, then /; Enter keeps the matches', async () => {
     sandbox();
     const p = trayProject('finder');
     const { c } = workbench(p);
@@ -295,17 +312,15 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     c.selectWorkspace('tools');
     const f = frameOf(c, 180, 50);
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
-    // the list has the keyboard: / searches the tools, and both places say how to reach the finder
+    // the list has the keyboard: / searches the tools, and the list says how to reach the finder (R5, H131: the navigation
+    // is a drawer at every size, so the way is g, then /)
     await press(f.r, TAB);
     expect(f.text()).toContain('[/] Search the tools by name, kind or what they need');
-    const navRows = () => f.lines().map((l) => l.slice(0, 26));
-    expect(navRows().some((l) => /Find a workspace:/.test(l))).toBe(true);
-    expect(navRows().some((l) => /^\S\s+g, then \/\s+\S$/.test(l))).toBe(true);
+    expect(f.text()).toContain('a workspace: g, then /');
     expect(f.text()).not.toContain('[/] Find a workspace');
     await press(f.r, '/');
     expect(c.ui.input.field).toBe('tools');
-    expect(f.text()).toContain('find a workspace: Esc, then /  · Esc clears the search  · Enter keeps the matches');
-    expect(navRows().some((l) => /^\S\s+Esc, then \/\s+\S$/.test(l))).toBe(true);
+    expect(f.text()).toContain('find a workspace: Esc, then g, then /  · Esc clears the search  · Enter keeps the matches');
     expect(f.text()).not.toContain('[/] Find a workspace');
     // Enter keeps the matches, the first selected; / changes them
     await press(f.r, ...'quartz', ENTER);
@@ -316,12 +331,13 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     expect(c.selected()).toMatchObject({ kind: 'cap', row: { name: 'FAKE quartz press' } });
     await press(f.r, '\u001b[B');
     expect(c.selected()).toMatchObject({ kind: 'cap', row: { name: 'FAKE quartz saw' } });
-    // Esc (in the search): cleared; the navigation has the keyboard; / is the finder at once
+    // Esc (in the search): cleared; the list keeps the keyboard and says the way to the finder: g, then /
     await press(f.r, '/', ESC);
     expect(c.ui.toolsQuery).toBe('');
-    expect(c.ui.focus).toBe('nav');
+    expect(c.ui.focus).toBe('center');
+    expect(f.text()).toContain('Tools search cleared. g, then / finds a workspace.');
+    await press(f.r, 'g');
     expect(f.text()).toContain('[/] Find a workspace');
-    expect(f.text()).toContain('The navigation has the keyboard: / finds a workspace');
     await press(f.r, '/', ...'Templates', ENTER);
     expect(c.ui.workspace).toBe('templates');
   });
@@ -334,8 +350,8 @@ describe('All tools and the workspace finder (R4 H112, slice C item 6; the r26 d
     c.selectWorkspace('tools');
     const f = frameOf(c, 80, 24);
     await until('the tools', () => /FAKE quartz press/.test(f.text()), 5000, f.text);
-    // a row far down selected: the list's first rows (where the search is) are scrolled away
-    await press(f.r, '\u001b[6~', '\u001b[6~', '\u001b[6~');
+    // a row far down selected: the list's first rows (where the search is) are scrolled away (Tab: the list has the keyboard)
+    await press(f.r, TAB, '\u001b[6~', '\u001b[6~', '\u001b[6~');
     expect(f.text()).not.toContain('Search the tools');
     await press(f.r, '/');
     expect(c.ui.input.field).toBe('tools');
@@ -453,14 +469,14 @@ describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)',
     expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › nap', 'SLOW.md › wait']);
     expect(c.selected()).toMatchObject({ kind: 'job', job: { label: 'SLOW.md › nap' } });
     // the person chooses the first run (a click on its row); a third run starts above it: the selection stays on the chosen
-    await click(f.r, cellOf(c, `${firstId}  running`));
+    await click(f.r, cellOf(c, `─ ${firstId} `)); // (R5 H137: its pane, by the id on its edge)
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
     await runBlock('doze');
     c.selectWorkspace('control');
     await sleep(300);
     expect(c.data.jobs.filter((j) => j.live).map((j) => j.label)).toEqual(['SLOW.md › doze', 'SLOW.md › nap', 'SLOW.md › wait']);
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: firstId } });
-    expect(f.text()).toMatch(new RegExp(`▸ [^\\n]*${firstId}\\s+running\\s+SLOW\\.md › wait`));
+    expect(f.text()).toMatch(new RegExp(`┏━ ${firstId} ━[^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait`)); // (the selected pane: heavy)
     expect(f.text()).toContain(`[x] Stop current: ${firstId} SLOW.md › wait`);
     // x stops exactly what was named
     await press(f.r, 'x');
@@ -500,17 +516,21 @@ describe('jobs a session left, in recovery\'s words (R4 H112, slice C item 4)', 
     expect(stale).toMatchObject({ live: false, stale: true, word: 'stale', mark: 'unknown', recovery: { state: 'stale' } });
     const recovered = c.data.jobs.find((j) => j.id === ended.id)!;
     expect(recovered.recovery?.state).toBe('ended by recovery');
-    expect(f.text()).toMatch(new RegExp(`${quick.id}\\s+stale\\s+FAKE\\.md › stale ·`));
-    expect(f.text()).toMatch(new RegExp(`${ended.id}\\s+failed\\s+FAKE\\.md › recovered · ended by recovery ·`));
+    // (R5 H137: with nothing running, each is a quiet pane: its id on the edge, its word and label, recovery's words below)
+    expect(f.text()).toMatch(new RegExp(`${quick.id} [━─][^\\n]*\\n[^\\n]*stale {2}FAKE\\.md › stale`));
+    expect(f.text()).toMatch(new RegExp(`${ended.id} [━─][^\\n]*\\n[^\\n]*failed {2}FAKE\\.md › recovered[^\\n]*\\n[^\\n]*ended by recovery`));
     expect(f.text()).toContain('Stop current: idle');
     // the Inspector, on the stale one, says it in recovery's words, with what settles it
     await press(f.r, TAB);
     for (let i = 0; i < 6 && c.selected()?.kind !== 'job'; i++) await press(f.r, '\u001b[B');
     const pick = async (id: string) => { for (let i = 0; i < 8 && !(c.selected()?.kind === 'job' && (c.selected() as { job: { id: string } }).job.id === id); i++) await press(f.r, '\u001b[B'); };
     await pick(quick.id);
+    await press(f.r, 'i'); // (R5 H137: tab 7's Inspector is Context's drawer: i opens it, i again closes it)
     expect(regionText(c, 'right')).toContain('stale: its record says it runs, and no process of it runs: the session that started it ended without recording how it ended. /recover in the REPL records it');
+    await press(f.r, 'i');
     await press(f.r, '\u001b[A', '\u001b[A', '\u001b[A');
     await pick(ended.id);
+    await press(f.r, 'i');
     expect(regionText(c, 'right')).toContain('ended by recovery: a later session\'s recovery wrote its end from what it found (interrupted: its Workbench ended while wait was running; its process is gone)');
   });
 });

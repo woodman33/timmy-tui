@@ -1,0 +1,6 @@
+#!/bin/sh
+# FAKE lane stand-in (Timmy review package): a real opencode is never started from the review. It notes the call and waits.
+printf '%s FAKE LANE opencode %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "${FAKE_LANES_LOG:-/dev/null}"
+case "${1:-}" in --version|-v|version) echo "FAKE opencode (Timmy review package stand-in)"; exit 0 ;; esac
+echo "FAKE LANE: opencode (a stand-in from the Timmy review package; the real program is never started here)"
+sleep 600

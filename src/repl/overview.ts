@@ -11,16 +11,21 @@
  * R4 (H93): Devices (Timmy Connect, this computer's Timmy home), Hosting (Timmy Cloud's backend as last read) and Costs
  * (provider spend beside model spend), one line each on the first screen; "how long ago" comes from the model's `ago` fields.
  *
- * Plain words, in Timmy Homebrew through the terminal theme's roles: commands green (accent), labels secondary, a wait or
- * an unproven state in the attention colour, a failure in the failure colour, and every outcome word in the text colour.
+ * R4 (lead): Fleets (`timmy fleet`), one line after Costs only in a project that has a fleet plan; `/overview fleet` in full.
+ * Its commands and what waits on a person are in the attention colour (the next action), never green: a fleet's outcome
+ * is not a pass, and nothing it delivered is verified.
+ *
+ * Plain words, in Timmy Homebrew through the terminal theme's roles: commands amber (accent, DESIGN.md B10), labels secondary,
+ * a wait or an unproven state in the attention colour (amber), a failure amber with its word, and every outcome word in the
+ * text colour.
  * Everything printed comes from the model, which is already scrubbed of the project's and home folders.
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Role, Segment } from '../term/theme.js';
 import {
-  MAP_LABEL, OVERVIEW_SECTIONS, SECTION_TITLE,
-  type AgentsSection, type AppsSection, type CostsSection, type Count, type DevicesSection, type HistorySection, type HostingSection,
-  type Life, type NeedsSection, type Overview, type OverviewSectionId, type OverviewSource, type ProjectSection, type SectionBase,
+  FLEET_TITLE, MAP_LABEL, OVERVIEW_SECTIONS, SECTION_TITLE,
+  type AgentsSection, type AppsSection, type CostsSection, type Count, type DevicesSection, type FleetSection, type HistorySection, type HostingSection,
+  type Life, type NeedsSection, type Overview, type OverviewPartId, type OverviewSource, type ProjectSection, type SectionBase,
   type SpatialSection, type Tone, type WorkflowsSection,
 } from '../overview/model.js';
 
@@ -84,10 +89,12 @@ export function fitHeadAndItem(head: string, item: string, sep: string, n: numbe
   return { head: headCut, item: itemCut && itemCut !== '…' ? `${sep}${itemCut}` : '' };
 }
 
-export const OVERVIEW_USAGE = '/overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]';
+export const OVERVIEW_USAGE = '/overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|fleet|project|map] [--all] [--json]';
 
 /** The words each section answers to: its id and a few plain names. */
-const ALIASES: Readonly<Record<string, OverviewSectionId | 'map'>> = {
+const ALIASES: Readonly<Record<string, OverviewPartId | 'map'>> = {
+  // R4 (lead)
+  fleet: 'fleet', fleets: 'fleet', workers: 'fleet', vms: 'fleet',
   needs: 'needs', 'needs-you': 'needs', you: 'needs', decisions: 'needs', waiting: 'needs',
   // R4 (H93)
   devices: 'devices', device: 'devices', computers: 'devices', connect: 'devices', remote: 'devices',
@@ -102,7 +109,7 @@ const ALIASES: Readonly<Record<string, OverviewSectionId | 'map'>> = {
   map: 'map', layout: 'map',
 };
 
-export type OverviewView = { view: 'first' } | { view: 'all' } | { view: 'json' } | { view: 'section'; id: OverviewSectionId | 'map' };
+export type OverviewView = { view: 'first' } | { view: 'all' } | { view: 'json' } | { view: 'section'; id: OverviewPartId | 'map' };
 
 /** What `/overview` was asked: the first screen, --all, --json, or one section; else the usage. */
 export function parseOverviewArgs(args: string): OverviewView | { error: string } {
@@ -157,6 +164,8 @@ export function overviewFirstLines(o: Overview, t: OverviewTextOptions): Line[] 
     // What needs you also says what to type for its first item.
     if (id === 'needs' && sec.urgent) lines.push(command(sec.urgent.source)!);
   }
+  // R4 (lead): the project's fleets, only when it has a fleet plan
+  if (o.fleet) lines.push(sectionLine(o.fleet));
   lines.push([label('Project'), { text: cut(o.project.summary, room) }]);
   const cols = o.map.columns;
   const n = (i: number): number => (cols[i] ? cols[i].nodes.length + cols[i].more : 0);
@@ -398,6 +407,38 @@ function costsLines(sec: CostsSection, c: Ctx): Line[] {
   return [...lines, ...tailLines(sec, c, [[p.more, 'customers: timmy cloud status lists them']])];
 }
 
+/**
+ * R4 (lead): the project's fleet plans in full: each plan's state, backend (a simulation says so), workers and isolation in
+ * honest words, the counts kept apart, the revision, spend, the workers to read first, its results, what waits on a person,
+ * its record, and its commands in the attention colour (the next action; never green).
+ */
+function fleetLines(sec: FleetSection, c: Ctx): Line[] {
+  const lines = headLines(sec, c);
+  const next: Role = 'estimate';
+  for (const f of sec.items) {
+    lines.push([{ text: `    ${f.plan}`, role: 'strong' }, { text: `  ${f.words.slice(f.plan.length + 1)}`, ...(ROLE[f.tone] ? { role: ROLE[f.tone] } : {}) }]);
+    lines.push([{ text: '      backend   ', role: 'secondary' }, { text: `${f.backend} (${f.provider})${f.simulation ? `${c.sep}a simulation: no compute, no harness, no model` : ''}` }]);
+    lines.push([{ text: '      workers   ', role: 'secondary' }, { text: `${f.workers}, at most ${f.concurrency} at once${c.sep}${f.isolation_words}` }]);
+    lines.push([{ text: '      runs      ', role: 'secondary' }, { text: `${f.harness}${c.sep}${f.model}` }]);
+    lines.push([{ text: '      counts    ', role: 'secondary' }, { text: f.counts_line, role: 'secondary' }]);
+    lines.push([{ text: '      revision  ', role: 'secondary' }, { text: `${f.revision} (the revision it was planned at)` }]);
+    lines.push([{ text: '      spend     ', role: 'secondary' }, { text: f.spend_words }]);
+    for (const w of f.worker_lines) lines.push([{ text: '      worker    ', role: 'secondary' }, { text: w.words, ...(['unknown', 'failed', 'expired', 'interrupted', 'refused'].includes(w.phase) ? { role: (w.phase === 'unknown' ? 'estimate' : 'failure') as Role } : {}) }]);
+    if (f.workers_more) lines.push([{ text: `      and ${f.workers_more} more workers: timmy fleet status ${f.plan} lists them`, role: 'secondary' }]);
+    if (f.results) lines.push([{ text: '      results   ', role: 'secondary' }, { text: f.results }]);
+    if (f.route) lines.push([{ text: '      route     ', role: 'secondary' }, { text: f.route.words.replace(/^route: /, ''), role: next }, { text: `${c.sep}decision ${f.route.decision}`, role: 'secondary' }]);
+    for (const n of f.needs) lines.push([{ text: '      needs     ', role: next }, { text: n, role: next }]);
+    lines.push([{ text: '      record    ', role: 'secondary' }, { text: c.link(f.source.record ?? '') }, { text: `${c.sep}operation ${f.operation}`, role: 'secondary' }]);
+    lines.push([{ text: '      type      ', role: 'secondary' }, { text: f.commands.join(c.sep), role: next }]);
+  }
+  return [...lines, ...tailLines(sec, c, [[sec.more, 'plans: timmy fleet status lists them']])];
+}
+/** `/overview fleet` in a project without a fleet plan. */
+const noFleetLines = (): Line[] => [
+  [{ text: `  ${FLEET_TITLE.toUpperCase()}`, role: 'strong' }],
+  [{ text: '    No fleet plan in this project. ', role: 'secondary' }, { text: 'timmy fleet plan --workers <n>', role: 'estimate' }, { text: ' makes one (timmy fleet help; only the FAKE backend, a simulation, is implemented).', role: 'secondary' }],
+];
+
 function projectLines(sec: ProjectSection, c: Ctx): Line[] {
   return [
     ...headLines(sec, c),
@@ -423,9 +464,10 @@ function mapLines(o: Overview, c: Ctx): Line[] {
 }
 
 /** One section in full. */
-export function overviewSectionLines(o: Overview, id: OverviewSectionId | 'map', t: OverviewTextOptions): Line[] {
+export function overviewSectionLines(o: Overview, id: OverviewPartId | 'map', t: OverviewTextOptions): Line[] {
   const c: Ctx = { g: t.glyphs, sep: ` ${t.glyphs.sep} `, link: t.link ?? ((rel: string) => rel) };
   switch (id) {
+    case 'fleet': return o.fleet ? fleetLines(o.fleet, c) : noFleetLines(); // R4 (lead)
     case 'needs': return needsLines(o.needs, c);
     case 'devices': return devicesLines(o.devices, c);
     case 'hosting': return hostingLines(o.hosting, c);
@@ -446,7 +488,8 @@ export function overviewLines(o: Overview, args: string, t: OverviewTextOptions)
   if ('error' in v) return [[{ text: `  ${v.error}`, role: 'secondary' }]];
   if (v.view === 'json') return JSON.stringify(o, null, 2).split('\n').map((l) => [{ text: l }]);
   if (v.view === 'first') return overviewFirstLines(o, t);
-  const ids: Array<OverviewSectionId | 'map'> = v.view === 'all' ? [...OVERVIEW_SECTIONS, 'map'] : [v.id];
+  // R4 (lead): --all shows the Fleets part after Costs when the project has a fleet plan
+  const ids: Array<OverviewPartId | 'map'> = v.view === 'all' ? [...OVERVIEW_SECTIONS.flatMap((id): OverviewPartId[] => (id === 'project' && o.fleet ? ['fleet', id] : [id])), 'map'] : [v.id];
   const lines: Line[] = [[{ text: `  God's Eye View  ${o.project.name}${` ${t.glyphs.sep} `}as of ${stamp(o.as_of)}`, role: 'strong' }]];
   for (const id of ids) lines.push(...overviewSectionLines(o, id, t));
   lines.push([{ text: `  ${SECTION_TITLE.needs} first: /overview`, role: 'secondary' }]);

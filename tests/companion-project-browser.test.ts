@@ -262,7 +262,12 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
   const turns = (page: Page): Promise<string[]> => page.$$eval('#console-logs [data-mirror="repl-turn"]', (rows) => rows.map((r) => (r.textContent ?? '').replace(/\s+/g, ' ')));
   const turnShown = (page: Page, receipt: string): Promise<unknown> => page.waitForFunction((r) => [...document.querySelectorAll('#console-logs [data-mirror="repl-turn"]')].some((row) => (row.textContent ?? '').includes(r)), receipt, { timeout: 15_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const record = (): string => tildePath(join(home, 'state', 'active-project.json'));
@@ -278,7 +283,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await shows(page, 'alpha');
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await page.isHidden('#project-pin-mark')).toBe(true);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on alpha');
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on alpha');
       expect(await page.isEnabled('#project-pin')).toBe(true);
       expect(await page.getAttribute('#project', 'data-project')).toBe(projectId(alpha.root));
       expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
@@ -297,7 +302,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(followedIn).toBeLessThan(2_500);
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await text(page, '#project-folder')).toContain(`Project folder: ${tildePath(beta.root)}:`);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on beta');
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on beta');
       // alpha's turn is not shown with beta; a turn in alpha now is not shown, one in beta is
       expect(await turns(page)).toEqual([]);
       const lateAlpha = fakeTurn(alpha.bus, 'repl · 2 steps');
@@ -328,7 +333,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // Pin: this page keeps beta
       await pinned.page.click('#project-pin');
       await pinned.page.waitForFunction(() => !document.getElementById('project-pin-mark')?.hidden, null, { timeout: 5_000 });
-      expect(await text(pinned.page, '#project-pin-mark')).toBe('📌 PINNED');
+      expect(await text(pinned.page, '#project-pin-mark')).toBe('PINNED');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned on this page');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project');
       expect(await pinned.page.getAttribute('#project', 'data-mode')).toBe('pinned');

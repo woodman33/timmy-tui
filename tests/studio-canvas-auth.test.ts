@@ -69,7 +69,7 @@ describe('POST /api/canvas/exec: the server token, from the REPL that holds the 
       ['the token in the address', exec(w.port, null, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /^Refused: the token goes in an Authorization header, never in an address/],
       ['the token in the address and the header', exec(w.port, w.token, code, {}, `/api/canvas/exec?token=${w.token}`), 401, /never in an address/],
       ['the token in the body', exec(w.port, null, { ...code, token: w.token }), 401, /^Refused: code runs/],
-      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId and holder\./],
+      ['the token in the body, and the header', exec(w.port, w.token, { ...code, token: w.token }), 400, /^Unknown field: "token"\. The fields are code, jobId, holder, draft and baseRevision\./],
       ['a page (Origin) with the token', exec(w.port, w.token, code, { Origin: `http://127.0.0.1:${w.port}` }), 403, /^Refused: this route is for Timmy's REPL, never a page\./],
       ['the page\'s session as the token', exec(w.port, page.session, code), 401, /^Refused: code runs/],
       ['another site', exec(w.port, w.token, code, { Origin: 'http://evil.example' }), 403, /answers 127\.0\.0\.1 and localhost only|never a page/],
@@ -398,6 +398,38 @@ describe('the other routes: content only with a credential', () => {
     // open, as nothing of a project is in them: the look, the templates
     expect((await call(w.port, 'GET', '/timmy-theme.css')).status).toBe(200);
     expect((await call(w.port, 'GET', '/api/canvas/templates')).status).toBe(200);
+  });
+
+  it('R5 (H137): a session another REPL paused (its /canvas open, while the page was open): the readings a page makes by itself are a plain 200 that says why, with nothing of the project; its writes stay 401, as do no credential, a forged one and an ended session', async () => {
+    const w = await world();
+    const a = w.project('alpha');
+    new CanvasDocuments(join(w.home, 'canvas')).recordJob('model-named-job', { ok: true, revision: 1, sourceRevision: 'ab'.repeat(32) });
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
+    const sA = await pageSession(w.port, w.token);
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) })).body).toContain('model-named-job');
+    // another REPL takes the canvas for the same project, as its /canvas open does: the page's session is paused now
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HY });
+    for (const path of ['/api/canvas/jobs', '/api/workspace', '/api/project', '/api/project?detail=1', '/api/project/image?p=results/vox/x.png']) {
+      const r = await call(w.port, 'GET', path, { headers: bearer(sA) });
+      expect(r.status, path).toBe(200);
+      expect(r.json, path).toEqual({ ok: false, session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
+      expect(r.body, path).not.toContain('model-named-job');
+      expect(r.body, path).not.toContain(a.root);
+    }
+    // a write and an action of the paused page: refused with 401 as before
+    const json = { 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${w.port}` };
+    expect((await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(sA), ...json }, body: JSON.stringify({ snapshot: { store: {}, schema: {} }, revision: 1, baseRevision: 0 }) })).status).toBe(401);
+    expect((await call(w.port, 'POST', '/api/project/act', { headers: { ...bearer(sA), ...json }, body: JSON.stringify({ project: a.id, card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'b' } }) })).status).toBe(401);
+    // no credential and a forged one: 401; the token reads the jobs
+    for (const h of [{}, bearer('f'.repeat(64))]) expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: h })).status).toBe(401);
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(w.token) })).body).toContain('model-named-job');
+    // the first REPL names alpha again: the session counts again and reads its jobs; past its 12 hours, 401 (it ended)
+    await nameProject(w.port, w.token, { root: a.root, name: 'alpha', holder: HX });
+    expect((await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) })).body).toContain('model-named-job');
+    w.clock.now += TWELVE_HOURS;
+    const late = await call(w.port, 'GET', '/api/canvas/jobs', { headers: bearer(sA) });
+    expect(late.status).toBe(401);
+    expect(late.json.session).toBe('expired');
   });
 
   it("studio-config.json holds no secret for anyone without a credential: the license key only with the token or a session", async () => {

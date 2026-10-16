@@ -147,8 +147,15 @@ export interface StudioDeps {
   act?: (envelope: unknown) => Promise<{ status: number; text: string }>;
   /** a test's (FAKE); absent: the real ensureStudioServer */
   ensure?: (port: number) => Promise<{ state: 'started'; server: Pick<StudioServer, 'projectToken' | 'close'> } | { state: 'already-running' } | { state: 'failed'; error: string }>;
-  health?: (base: string) => Promise<{ state: string; detail?: string }>;
+  /** a test's (FAKE); absent: src/studio/health.ts studioHealth, given how long to wait for an answer */
+  health?: (base: string, timeoutMs: number) => Promise<{ state: string; detail?: string }>;
 }
+
+/** How long Studio · Show waits for a Studio of unknown origin to answer (studioHealth's own default). */
+export const STUDIO_WAIT_MS = 1000;
+/** R5 (H131; the lead's installed-package rehearsal): how long it waits for the Studio this Workbench started. Under load its
+ *  own server answered later than 1 s, and was then said to be "something holds the port" (other), and nothing opened. */
+export const OWNED_STUDIO_WAIT_MS = 5000;
 
 export class StudioControl {
   private owned: Pick<StudioServer, 'projectToken' | 'close'> | null = null;
@@ -189,7 +196,8 @@ export class StudioControl {
       if (r.state === 'started') this.owned = r.server;
       else this.other = true;
     }
-    const health: { state: string; detail?: string } = await (this.d.health ?? (async (b: string) => (await import('../studio/health.js')).studioHealth(b)))(base);
+    const wait = this.owned ? OWNED_STUDIO_WAIT_MS : STUDIO_WAIT_MS;
+    const health: { state: string; detail?: string } = await (this.d.health ?? (async (b: string, ms: number) => (await import('../studio/health.js')).studioHealth(b, ms)))(base, wait);
     if (health.state !== 'running') { this.last = `Studio does not answer at ${base}/ (${health.state}${health.detail ? `: ${health.detail}` : ''})`; return this.last; }
     const told = await this.canvas.handOff({ grant: true });
     const t = this.canvas.openTarget();

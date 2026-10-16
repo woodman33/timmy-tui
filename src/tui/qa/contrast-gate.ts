@@ -1,12 +1,13 @@
 // Contrast gate for captured terminal frames. Floors are WCAG 2.x: 4.5:1 for text, 3:1 for
-// non-text UI (rules, borders, icons, spinners), and 7:1 for neutral (grey or white) text, which
-// DESIGN.md B3 makes Timmy's law for secondary text. Accents keep the 4.5:1 floor.
+// non-text UI (rules, borders, icons, spinners), and 6:1 for neutral (grey or white) text, which
+// DESIGN.md B3 made Timmy's law for secondary text (7:1 until B10 set 6:1). Accents keep the 4.5:1 floor.
 import type { FrameCell } from './ansi-frame.js';
 import { contrastRatio } from '../../term/color.js';
 
 export { contrastRatio, relativeLuminance } from '../../term/color.js';
 
-export const GATE_FLOORS = { text: 4.5, nonText: 3, neutralText: 7 } as const;
+// B10 (2026-10-15): neutral text 6:1, so the operator's secondary #8E8E93 (6.4:1 on black) is admitted.
+export const GATE_FLOORS = { text: 4.5, nonText: 3, neutralText: 6 } as const;
 
 export type GateRule = 'text' | 'non-text' | 'neutral-text';
 export type GlyphKind = 'space' | 'text' | 'non-text';

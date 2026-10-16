@@ -31,7 +31,8 @@ const SIN = Math.sin(Math.PI / 6) * 0.5;
 export function bboxSvg(o: { title: string; boxes: SvgBox[]; unit: string; measuredBy: string; frame?: string }): string {
   const boxes = o.boxes.filter((b) => b.size.every((v) => Number.isFinite(v) && v >= 0));
   if (!boxes.length || boxes.length !== o.boxes.length) throw new Error('a bounding box needs three finite, non-negative sizes');
-  const colours = [HOMEBREW.accent, HOMEBREW.link, HOMEBREW.attention];
+  // B10: amber for the first target, then silver and the secondary grey (no two boxes share a color; none is green).
+  const colours = [HOMEBREW.accent, HOMEBREW.silver, HOMEBREW.textSecondary];
   // The extent of every box in the drawing's own units, then one scale for all.
   const wide = Math.max(...boxes.map((b) => b.size[0] + b.size[1] * COS));
   const tall = Math.max(...boxes.map((b) => b.size[2] + b.size[1] * SIN));
