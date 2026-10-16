@@ -314,6 +314,9 @@ export class Transcript {
   }
 
   private flushText(): void {
+    // R6 (H141): the live rows of the line being streamed go with it, as it goes to scrollback (a stop's tmux capture showed its
+    // last row drawn again under the cancel line, until the turn's receipt)
+    if (this.tail || this.contd) this.show([]);
     if (this.tail) this.lineEnd(this.tail);
     this.tail = '';
     this.contd = false;

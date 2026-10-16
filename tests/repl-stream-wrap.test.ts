@@ -138,13 +138,17 @@ describe('the live answer keeps streaming at any width (R6 H141; the interaction
     }
   });
 
-  it('a text, tool, text turn and a cancel mid-paragraph: the settled rows and the rest are each said once, the cancel line after them', () => {
-    const { t, committed } = live(80);
+  it('a text, tool, text turn and a cancel mid-paragraph: the settled rows and the rest are each said once, the cancel line after them, and no row of the answer is drawn again under it', () => {
+    const { t, committed, drawn } = live(80);
     for (const snap of snapshots(PARAGRAPH.slice(0, 600), 31)) t.handle({ type: 'text', id: 'a', text: snap });
     t.handle({ type: 'tool-start', id: 't1', tool: 'file_read', args: { path: 'package.json' } });
     t.handle({ type: 'tool-end', id: 't1', ok: true, preview: '{"name": "timmy-tui"}' });
     for (const snap of snapshots(PARAGRAPH.slice(0, 500), 29)) t.handle({ type: 'text', id: 'b', text: snap });
+    expect(drawn().length).toBeGreaterThan(0);
     t.handle({ type: 'cancelled', at: 'after-tools', tools: [{ tool: 'file_read', outcome: 'completed' }] });
+    // the stop: the line's rest is in scrollback, above the cancel line, and the live region draws none of it again
+    expect(drawn()).toEqual([]);
+    expect(committed().pop()).toContain('Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.');
     t.endTurn();
     const once = atOnce([
       { type: 'text', id: 'a', text: PARAGRAPH.slice(0, 600) },
