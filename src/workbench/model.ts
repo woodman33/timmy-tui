@@ -188,8 +188,9 @@ export type Item =
 
 /** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one; `x`
  *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in
- *  another column is not on it). */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number } }>; note?: string }
+ *  another column is not on it); `near` (R5, H137): where each arrow moves from it, when its view lays items out as a grid
+ *  (an arrow it does not name moves as in any list). */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string }
 
 export type Overlay =
   | null

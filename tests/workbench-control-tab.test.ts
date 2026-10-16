@@ -24,9 +24,10 @@ import { projectId } from '../src/project/index.js';
 import type { Decision } from '../src/room/decisions.js';
 import { appendReceipt, readChain, type Receipt } from '../src/utils/receipts.js';
 import {
-  agentOf, checkReceipt, CONTROL_LIST, controlRoomView, LANE_ORDER, liveTurnDetail, paneJobs, PREVIEWS_WORDS, readControl,
-  type ControlCtx, type ControlData, type LiveTurnRow,
+  agentOf, checkReceipt, CONTROL_LIST, controlRoomView, GRID_FROM, GRID_PANE_MIN, gridNear, HARNESS_WORDS, LANE_ORDER, liveTurnDetail, PANES_MAX, paneJobs,
+  PREVIEWS_WORDS, readControl, type ControlCtx, type ControlData, type LiveTurnRow, type PaneTail,
 } from '../src/workbench/control-tab.js';
+import { OutputWatch } from '../src/workbench/output.js';
 import { sideBySideAt } from '../src/workbench/tab-columns.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
 import { bodyKind, layoutFor } from '../src/workbench/layout.js';
@@ -198,12 +199,15 @@ describe('tab 7, Control Room: the reading (readControl reads files only)', () =
     await until('its eight lines in its log', () => (jobs.get(live.id)?.lines ?? 0) >= 8);
     const chain = (): Receipt[] => readChain('runs');
     let rows = readJobs(jobs.list(), p.root, { mine: new Set(), chain: chain() });
-    expect(paneJobs(rows, [], 0)).toMatchObject({ live: [{ id: live.id }], quiet: [] });
+    // the four slots: what runs first, then the newest ended
+    expect(paneJobs(rows, [], 0)).toMatchObject({ live: [{ id: live.id }], away: [], quiet: [{ id: done.id }] });
     const running = readControl({ root: p.root, env: process.env, records: jobs.list(), jobs: rows, chain: chain(), connect: () => none });
-    expect(running.tails[live.id]).toEqual({ lines: ['line 3', 'line 4', 'line 5', 'line 6', 'line 7', 'line 8'] });
-    expect(running.tails[done.id]).toBeUndefined();
-    // a chat turn being answered is running too: no quiet panes then
-    expect(paneJobs(rows.filter((j) => !j.live), [], 1).quiet).toEqual([]);
+    // a running job's log is read again at each tick (the Workbench's own, 1 s, where it is not said), and the pane says so
+    expect(running.tails[live.id]).toEqual({ lines: ['line 3', 'line 4', 'line 5', 'line 6', 'line 7', 'line 8'], every: 1000 });
+    expect(running.tails[done.id]).toEqual({ lines: ['one', 'two', 'three'] });
+    // a chat turn being answered takes a slot too: three left for the newest ended
+    expect(paneJobs(rows.filter((j) => !j.live), [], 1).quiet.map((j) => j.id)).toEqual([done.id]);
+    expect(paneJobs(Array.from({ length: 6 }, () => rows.find((j) => !j.live)!), [], 2).quiet).toHaveLength(PANES_MAX - 2);
 
     await jobs.stop(live.id);
     rows = readJobs(jobs.list(), p.root, { mine: new Set(), chain: chain() });
@@ -220,6 +224,40 @@ describe('tab 7, Control Room: the reading (readControl reads files only)', () =
     expect(checkReceipt(changed, done.id, short).state).toBe('failed');
     expect(checkReceipt(chain(), done.id, '00000000')).toEqual({ state: 'not found', reason: 'not found on the chain read here' });
     expect(checkReceipt(chain(), 'j000000', short)).toMatchObject({ state: 'not found' });
+  }, 30_000);
+
+  it('a running pane\'s lines follow its log: the lines the Workbench read of it for Activity (src/workbench/output.ts, from where it last looked), read again at each tick, the newest last; the pane says how often its log is read', async () => {
+    const p = project();
+    const none = { schema: 'timmy.connect/1' as const, as_of: ISO(Date.now()), devices: [], jobs: [], unreadable: [] };
+    const jobs = new JobManager({ dir: p.jobsDir });
+    managers.push(jobs);
+    const talk = jobs.start({ kind: 'task', label: 'FAKE job (test): a line every 0.1 s', project: 'tray', root: p.root, command: 'sh', args: ['-c', 'i=0; while [ $i -lt 600 ]; do i=$((i+1)); echo "FAKE line $i"; sleep 0.1; done'] });
+    const watch = new OutputWatch();
+    // one tick of the Workbench: its job store read, the job's log read from where it last looked, the tab's reading made
+    const tick = (): { d: ControlData; rows: JobRow[] } => {
+      const rec = jobs.get(talk.id)!;
+      watch.read({ id: rec.id, logPath: rec.logPath, live: true, drawn: false }, ISO(Date.now()));
+      const rows = readJobs(jobs.list(), p.root, { mine: new Set(), chain: [] });
+      return { d: readControl({ root: p.root, env: process.env, records: jobs.list(), jobs: rows, connect: () => none, output: watch, tickMs: 1000 }), rows };
+    };
+    const newest = (t: PaneTail | undefined): number => Number(/FAKE line (\d+)$/.exec(t && 'lines' in t ? t.lines[t.lines.length - 1] ?? '' : '')?.[1] ?? NaN);
+    await until('its third line', () => (jobs.get(talk.id)?.lines ?? 0) >= 3);
+    const first = tick();
+    expect(first.d.tails[talk.id]).toMatchObject({ every: 1000 });
+    const n1 = newest(first.d.tails[talk.id]);
+    expect(n1).toBeGreaterThanOrEqual(3);
+    await until('five more lines', () => (jobs.get(talk.id)?.lines ?? 0) >= n1 + 5, 15_000);
+    const second = tick();
+    const n2 = newest(second.d.tails[talk.id]);
+    expect(n2).toBeGreaterThanOrEqual(n1 + 5);
+    const shown = second.d.tails[talk.id] as { lines: string[] };
+    expect(shown.lines).toHaveLength(6);
+    expect(shown.lines).toEqual(Array.from({ length: 6 }, (_, k) => `FAKE line ${n2 - 5 + k}`));
+    // drawn: its newest line, and how often its log is read
+    const v = controlRoomView(ctxAt(160, 45, data({ jobs: second.rows })), second.d);
+    expect(itemText(v, 0)).toContain(`FAKE line ${n2}`);
+    expect(itemText(v, 0)).toContain('log read every 1 s');
+    await jobs.stop(talk.id);
   }, 30_000);
 });
 
@@ -308,6 +346,13 @@ function cols(lines: readonly Line[]): string[] {
 /** A text's words on one line (a wrapped phrase read whole). */
 const flat = (t: string): string => t.replace(/[┃│]/g, ' ').replace(/\s+/g, ' ');
 
+/** The `i`th item as drawn: its own rows (its line and rows) in its own cells (its x, where it has them), on one line. */
+function itemText(v: { lines: readonly Line[]; items: ReadonlyArray<{ line: number; rows?: number; x?: { from: number; to: number } }> }, i: number): string {
+  const it = v.items[i];
+  if (!it || it.line < 0) return '';
+  return flat(v.lines.slice(it.line, it.line + (it.rows ?? 1)).map((l) => [...plain(l)].slice(it.x?.from ?? 0, it.x?.to ?? 1e9).join('')).join('\n'));
+}
+
 const RUNNING = [
   row({ id: 'j0e1371', label: 'SLOW.md › wait', blocks: '0 of 1 step', operation: 'o0e13701' }),
   row({ id: 'j0e1372', label: 'FAKE job (test): sleep 300', kind: 'task', owner: 'ended-session', ownerWords: 'started by a Timmy session that has ended (pid 4242)', operation: 'o0e13702', recovery: { state: 'left running', words: 'left running: started by a Timmy session that has ended (pid 4242), and its process still runs.' } }),
@@ -324,6 +369,9 @@ describe('tab 7, Control Room: the view', () => {
       for (const l of v.lines) expect(lineCells(l), `${c}x${r}: ${plain(l)}`).toBeLessThanOrEqual(ctx.width);
       const all = text(v.lines);
       expect(all).toContain(PREVIEWS_WORDS.slice(0, 20));
+      // the panes a 2×2 grid at 160 columns, Context's drawer shut; stacked below (a pane's items then name no arrows)
+      expect(ctx.width >= GRID_FROM).toBe(c === 160 && !drawer);
+      expect(v.items.some((x) => x.near)).toBe(c === 160 && !drawer);
       if (c >= 120) {
         expect(sideBySideAt(ctx)).toBe(true);
         expect(v.lines.length).toBeLessThanOrEqual(ctx.height);
@@ -366,10 +414,10 @@ describe('tab 7, Control Room: the view', () => {
       expect(panes).toMatch(/▶ running SLOW\.md › wait/);
       if (c === 160) expect(all).toMatch(/▶ running {2}SLOW\.md › wait/);
       expect(panes).toMatch(/still waiting/);
-      // each pane read with it selected (a narrow column shows the selected one whole, and says which rows show)
-      const second = flat(cols(controlRoomView(ctxAt(c, r, d, 1), cd).lines)[c >= 120 ? 1 : 0]);
+      // each pane read in its own cells, with it selected (a narrow column shows the selected one whole, and says which rows show)
+      const second = itemText(controlRoomView(ctxAt(c, r, d, 1), cd), 1);
       expect(second).toMatch(/j0e1372 .*▶ running FAKE job \(test\): sleep 300 left running an ended session (· )?o0e13702/);
-      const third = flat(cols(controlRoomView(ctxAt(c, r, d, 2), cd).lines)[c >= 120 ? 1 : 0]);
+      const third = itemText(controlRoomView(ctxAt(c, r, d, 2), cd), 2);
       expect(third).toMatch(/chat turn .*▶ answering from the REPL pid 4243 (· )?since \d\d:\d\d:\d\d/);
       expect(third).toContain('Ctrl+C in the REPL stops it');
       // the items: the two jobs, then the turn, keys as the Control Room always had them
@@ -390,23 +438,112 @@ describe('tab 7, Control Room: the view', () => {
       const away = row({ id: 'j0e1374', label: 'SLOW.md › nap', project: 'tray-b', root: '/FAKE/tray-b', operation: 'o0e13704' });
       const withAway = controlRoomView(ctxAt(c, r, data({ jobs: RUNNING, away: [away] }), 3), cd);
       expect(withAway.items.map((x) => x.item.key)).toEqual(['job:j0e1371', 'job:j0e1372', `live-turn:repl:4243:${turn.taken}`, 'job:j0e1374']);
-      expect(flat(cols(withAway.lines)[c >= 120 ? 1 : 0])).toMatch(/RUNNING IN ANOTHER PROJECT, STARTED HERE \(1\) ┏━ j0e1374 .*▶ running SLOW\.md › nap in tray-b this Workbench · o0e13704/);
+      expect(flat(cols(withAway.lines)[c >= 120 ? 1 : 0])).toContain('RUNNING IN ANOTHER PROJECT, STARTED HERE (1)');
+      expect(itemText(withAway, 3)).toMatch(/┏━ j0e1374 .*▶ running SLOW\.md › nap in tray-b this Workbench · o0e13704/);
     }
-    // side by side, an item in view knows its column's cells (a click on that row in another column is not on it)
+    // side by side, an item in view knows its cells (a click on that row in another column, or on the other pane of a grid's
+    // row, is not on it): stacked panes share their column's cells, a grid's two panes of a row each have their own
+    const stacked = controlRoomView(ctxAt(120, 40, d, 1), cd);
+    expect(stacked.items[0].x).toEqual(stacked.items[1].x);
+    expect(stacked.items[0].x!.from).toBeGreaterThan(0);
+    expect(columnText(stacked.lines, stacked.items[1].x!.from, stacked.items[1].x!.to)).toMatch(/┏━ j0e1372/);
     const v = controlRoomView(ctxAt(160, 45, d, 1), cd);
     const [a, b] = [v.items[0], v.items[1]];
-    expect(a.line).toBeGreaterThanOrEqual(0);
-    expect(a.x).toEqual(b.x);
-    expect(a.x!.from).toBeGreaterThan(0);
-    expect(columnText(v.lines, a.x!.from, a.x!.to)).toMatch(/┏━ j0e1372/);
+    expect(a.line).toBe(b.line);
+    expect(a.x!.to).toBeLessThan(b.x!.from);
+    expect(columnText(v.lines, b.x!.from, b.x!.to)).toMatch(/┏━ j0e1372/);
+    expect(columnText(v.lines, a.x!.from, a.x!.to)).not.toMatch(/j0e1372/);
   });
 
-  it('with nothing running, the newest ended runs are quiet panes with their exit and receipt: green only when verified in this reading, amber with ✕ when it does not verify, quiet when not found; RECENT keeps its count', () => {
+  it('from 160 columns the panes are a 2×2 grid: what runs first, then the newest ended, two to a row, the rows\' panes one height; the selected amber and heavy; ← → inside a row, ↑ ↓ between rows; a running pane says how often its log is read; the keys and what is not in Timmy below, in words', () => {
+    const jobs = [
+      ...RUNNING,
+      ended({ id: 'j0e1381', label: 'SLOW.md › wait', blocks: '1 of 1 step', receipt: 'aaaa1111', operation: 'o0e13801' }),
+      ended({ id: 'j0e1382', label: 'SLOW.md › long', state: 'failed', mark: 'failed', word: 'failed', exitCode: 3 }),
+      ended({ id: 'j0e1383', label: 'SLOW.md › tidy' }),
+    ];
+    const cd = controlData({
+      tails: { j0e1371: { lines: ['waiting for the release file', 'still waiting'], every: 1000 }, j0e1372: { why: 'no log yet (it printed nothing, or never started)', every: 1000 }, j0e1381: { lines: ['done'] }, j0e1382: { lines: ['boom'] } },
+      receipts: { j0e1381: { state: 'verified' } },
+    });
+    const ctx = ctxAt(160, 45, data({ jobs }));
+    expect(ctx.width).toBeGreaterThanOrEqual(GRID_FROM);
+    const v = controlRoomView(ctx, cd);
+    // four panes: the two running, then the two newest ended; the third ended run is in RECENT
+    expect(v.items.slice(0, PANES_MAX).map((x) => x.item.key)).toEqual(['job:j0e1371', 'job:j0e1372', 'job:j0e1381', 'job:j0e1382']);
+    expect(v.items[PANES_MAX].item.key).toBe('job:j0e1383');
+    const [p0, p1, p2, p3] = v.items;
+    // two to a row: a row's panes on the same rows, side by side in their own cells, one height; the ended ones below
+    expect(p1.line).toBe(p0.line);
+    expect(p3.line).toBe(p2.line);
+    expect(p2.line).toBe(p0.line + p0.rows!);
+    expect([p1.rows, p2.rows, p3.rows]).toEqual([p0.rows, p0.rows, p0.rows]);
+    expect(p0.x!.to).toBeLessThan(p1.x!.from);
+    expect([p2.x, p3.x]).toEqual([p0.x, p1.x]);
+    expect(p1.x!.to - p1.x!.from).toBeGreaterThanOrEqual(GRID_PANE_MIN);
+    // the two panes of a row drawn on the same screen rows
+    const rows = v.lines.map(plain);
+    expect(rows[p0.line]).toMatch(/┏━ j0e1371 .*╭─ j0e1372 /);
+    expect(rows[p2.line]).toMatch(/╭─ j0e1381 .*╭─ j0e1382 /);
+    // the arrows: ← → inside a row, ↑ ↓ between rows (an arrow a pane does not name moves as in any list)
+    expect(v.items.slice(0, 4).map((x) => x.near)).toEqual([{ right: 1, down: 2 }, { left: 0, down: 3 }, { right: 3, up: 0 }, { left: 2, up: 1 }]);
+    expect(v.items[4].near).toBeUndefined();
+    expect([0, 1, 2, 3, 4].map((i) => gridNear(i, 5))).toEqual([{ right: 1, down: 2 }, { left: 0, down: 3 }, { right: 3, up: 0, down: 4 }, { left: 2, up: 1 }, { up: 2 }]);
+    // each pane whole in its own cells: a running one says how often its log is read; an ended one its exit and receipt
+    expect(itemText(v, 0)).toMatch(/┏━ j0e1371 .*12 s .*▶ running SLOW\.md › wait · 0 of 1 step this Workbench · o0e13701 waiting for the release file still waiting log read every 1 s/);
+    expect(itemText(v, 1)).toMatch(/╭─ j0e1372 .*▶ running FAKE job \(test\): sleep 300 left running an ended session · o0e13702 no log yet \(it printed nothing, or never started\) log read every 1 s/);
+    expect(itemText(v, 2)).toMatch(/╭─ j0e1381 .*ended 5 min ago .*✓ completed SLOW\.md › wait · 1 of 1 step this Workbench · o0e13801 done exit 0 · ✓ receipt aaaa1111 verified/);
+    expect(itemText(v, 3)).toMatch(/╭─ j0e1382 .*✕ failed SLOW\.md › long .*boom exit 3/);
+    for (const i of [2, 3]) expect(itemText(v, i)).not.toContain('log read every');
+    // only the selected pane is heavy and amber
+    expect(segsWith(v.lines, /^┏/)).toEqual([{ text: expect.stringMatching(/^┏━/), role: 'focus' }]);
+    // the heading, the keys (the arrows among them), what is not in Timmy in words, what a terminal cannot draw; no other key
+    // and nothing drawn as a button
+    const panes = flat(cols(v.lines)[1]);
+    expect(panes).toContain('RUNNING NOW (2) · NEWEST ENDED RUNS (2)');
+    expect(panes).toContain('[x] stops the selected pane\'s job · [Enter] its run detail · [←→↑↓] between panes');
+    expect(panes).toContain(HARNESS_WORDS);
+    expect(panes).toContain(PREVIEWS_WORDS);
+    expect([...text(v.lines).matchAll(/\[[^\]\n]*\]/g)].map((m) => m[0])).toEqual(['[x]', '[Enter]', '[←→↑↓]']);
+    expect(text(v.lines)).not.toMatch(/ADD (HARNESS|PANE)|REMOVE (HARNESS|PANE)|Broadcast \.intent/i);
+    // the right column narrower, the roster compact
+    const [wa, , wc] = [p0.x!.from - 3, 0, ctx.width - (p1.x!.to + 3)];
+    expect(wa).toBeLessThan(p0.x!.to - p0.x!.from);
+    expect(wc).toBeLessThan(2 * (p1.x!.to - p1.x!.from));
+    // below 160 columns, or with Context's drawer open: the panes stack, one under another, and name no arrows
+    for (const [c, r, drawer] of [[160, 45, true], [120, 40, false], [100, 30, false]] as const) {
+      const sv = controlRoomView(ctxAt(c, r, data({ jobs }), 0, drawer), cd);
+      expect(sv.items.every((x) => x.near === undefined)).toBe(true);
+      const [a, b] = sv.items;
+      if (a.line >= 0 && b.line >= 0) expect(b.line).toBeGreaterThanOrEqual(a.line + (a.rows ?? 1));
+      expect(text(sv.lines)).toContain('log read every 1 s');
+    }
+  });
+
+  it('more running than four: the grid shows four, two rows at a time around the selected pane, and says how many more and how to reach them', () => {
+    const six = Array.from({ length: 6 }, (_, i) => row({ id: `j0e15${i}0`, label: `FAKE job (test) ${i}`, kind: 'task' }));
+    const cd = controlData({ tails: Object.fromEntries(six.map((j): [string, PaneTail] => [j.id, { lines: [`a line of ${j.id}`], every: 1000 }])) });
+    const top = controlRoomView(ctxAt(160, 45, data({ jobs: six })), cd);
+    const panes = flat(cols(top.lines)[1]);
+    expect(panes).toContain('RUNNING NOW (6)');
+    expect(top.items.slice(0, 6).map((x) => x.line >= 0)).toEqual([true, true, true, true, false, false]);
+    expect(panes).toContain('+2 more below: ↓ moves to them');
+    expect(top.items[2].near).toEqual({ right: 3, up: 0, down: 4 });
+    // the selection on the sixth: the grid shows its row and the one above, and says what is above
+    const end = controlRoomView(ctxAt(160, 45, data({ jobs: six }), 5), cd);
+    expect(end.items.slice(0, 6).map((x) => x.line >= 0)).toEqual([false, false, true, true, true, true]);
+    expect(flat(cols(end.lines)[1])).toContain('+2 more above: ↑ moves to them');
+    expect(itemText(end, 5)).toMatch(/┏━ j0e1550 .*a line of j0e1550/);
+    for (const l of end.lines) expect(lineCells(l)).toBeLessThanOrEqual(ctxAt(160, 45, data()).width);
+  });
+
+  it('with nothing running, the four newest ended runs are quiet panes with their exit and receipt: green only when verified in this reading, amber with ✕ when it does not verify, quiet when not found; RECENT keeps its count', () => {
     const jobs = [
       ended({ id: 'j0e1381', label: 'SLOW.md › wait', blocks: '1 of 1 step', receipt: 'aaaa1111', operation: 'o0e13801' }),
       ended({ id: 'j0e1382', label: 'SLOW.md › long', state: 'failed', mark: 'failed', word: 'failed', exitCode: 3, receipt: 'bbbb2222' }),
       ended({ id: 'j0e1383', label: 'SLOW.md › long', state: 'cancelled', mark: 'stopped', word: 'cancelled', exitCode: null, receipt: 'cccc3333', recovery: { state: 'ended by recovery', words: 'ended by recovery: a later session\'s recovery wrote its end from what it found; nothing was run again.' } }),
-      ended({ id: 'j0e1384', label: 'SLOW.md › long', blocks: '1 of 1 step', state: 'running', mark: 'unknown', word: 'stale', stale: true, recovery: { state: 'stale', words: 'stale: its record says it runs, and no process of it runs.' } }),
+      ended({ id: 'j0e1384', label: 'SLOW.md › tidy' }),
+      ended({ id: 'j0e1385', label: 'SLOW.md › long', blocks: '1 of 1 step', state: 'running', mark: 'unknown', word: 'stale', stale: true, recovery: { state: 'stale', words: 'stale: its record says it runs, and no process of it runs.' } }),
     ];
     const cd = controlData({
       tails: { j0e1381: { lines: ['done'] }, j0e1382: { lines: ['boom'] }, j0e1383: { lines: [] } },
@@ -419,11 +556,11 @@ describe('tab 7, Control Room: the view', () => {
       const pane = (i: number): { lines: Line[]; text: string } => { const x = controlRoomView(ctxAt(c, r, data({ jobs }), i), cd); return { lines: x.lines, text: text(x.lines) }; };
       expect(all).toContain('RUNNING NOW (0)');
       expect(flat(cols(v.lines)[c >= 120 ? 1 : 0])).toContain('Nothing runs in this project.');
-      expect(all).toContain('NEWEST ENDED RUNS (3)');
-      expect(all).toContain('RECENT (4)');
-      expect(flat(cols(v.lines)[c >= 120 ? 2 : 0])).toMatch(/the newest 3 are drawn as panes/);
-      // the quiet panes are the first items; the fourth run is in RECENT
-      expect(v.items.map((x) => x.item.key)).toEqual(['job:j0e1381', 'job:j0e1382', 'job:j0e1383', 'job:j0e1384']);
+      expect(all).toContain('NEWEST ENDED RUNS (4)');
+      expect(all).toContain('RECENT (5)');
+      expect(flat(cols(v.lines)[c >= 120 ? 2 : 0])).toMatch(/the newest 4 are drawn as panes/);
+      // the quiet panes are the first items; the fifth run is in RECENT
+      expect(v.items.map((x) => x.item.key)).toEqual(['job:j0e1381', 'job:j0e1382', 'job:j0e1383', 'job:j0e1384', 'job:j0e1385']);
       const [p0, p1, p2] = [pane(0), pane(1), pane(2)];
       // green only for the receipt verified in this reading, and nowhere else in any pane
       const greenReceipt = (lines: readonly Line[]): string => lines.flat().filter((s) => s.role === 'live' && !/●|live/.test(s.text)).map((s) => s.text.trim()).join(' ');
@@ -433,28 +570,30 @@ describe('tab 7, Control Room: the view', () => {
       const failed = p1.lines.flat().filter((s) => s.role === 'failure' && !/^✕ failed$/.test(s.text)).map((s) => s.text.trim()).join(' ');
       expect(failed).toContain('✕ receipt bbbb2222 does not verify: its body hash does not match');
       expect(p2.lines.flat().filter((s) => /cccc3333/.test(s.text)).every((s) => s.role === 'secondary')).toBe(true);
-      expect(flat(cols(p2.lines)[c >= 120 ? 1 : 0])).toMatch(/receipt cccc3333 \(not found on the chain read here\)/);
+      expect(itemText(controlRoomView(ctxAt(c, r, data({ jobs }), 2), cd), 2)).toMatch(/receipt cccc3333 \(not found on the chain read here\)/);
       expect(p0.text).toMatch(/exit 0/);
       expect(p1.text).toMatch(/exit 3/);
       expect(p1.text).toMatch(/✕ failed/);
       expect(p2.text).toMatch(/■ cancelled/);
       expect(p2.text).toMatch(/ended by recovery/);
       expect(p2.text).toMatch(/no exit code/);
-      // the fourth run, in RECENT: its id and recovery's word
-      expect(pane(3).text).toMatch(/j0e1384 {2}stale/);
+      // the fifth run, in RECENT: its id and recovery's word
+      expect(pane(4).text).toMatch(/j0e1385 {2}stale/);
     }
     // stacked, a recent run too long for one row begins as the Control Room's row did (its id, its word, its label), and the
     // rest follows on the next row, each piece whole
     const stacked = text(controlRoomView(ctxAt(100, 30, data({ jobs })), cd).lines);
-    expect(stacked).toMatch(/j0e1384 {2}stale {2}SLOW\.md › long *\n\s+1 of 1 step · /);
+    expect(stacked).toMatch(/j0e1385 {2}stale {2}SLOW\.md › long *\n\s+1 of 1 step · /);
   });
 
   it('WAITING ON YOU: the count, "nothing is done until you do it", each title whole (wrapped, never cut) with its command; a clipped column says which rows show and keeps the selection in view', () => {
     const long = 'workflow run j0e1379 (SLOW.md › long) was interrupted while long was running';
     const many = Array.from({ length: 24 }, (_, i) => ended({ id: `j0e14${String(i).padStart(2, '0')}`, label: `FAKE job (test) ${i}`, kind: 'task' }));
     const d = data({ jobs: [RUNNING[0], ...many], decisions: [decision('i1', long), decision('i2', 'a NEEDS YOU box waits')] });
+    // the items: the running pane, the three newest ended (quiet panes), the two decisions, the other ended runs
+    const panesN = 1 + (PANES_MAX - 1);
     for (const [c, r] of SIZES) {
-      const last = 1 + 2 + many.length - 1;
+      const last = panesN + 2 + (many.length - (PANES_MAX - 1)) - 1;
       const ctx = ctxAt(c, r, d, last);
       const v = controlRoomView(ctx, controlData({ tails: TAILS }));
       const all = text(v.lines);
@@ -478,8 +617,8 @@ describe('tab 7, Control Room: the view', () => {
         // an item out of view has no line
         expect(v.items.some((x) => x.line === -1)).toBe(true);
         // the decision's title, whole: every word of it in the column (from the top, with the selection at the top)
-        const top = controlRoomView(ctxAt(c, r, d, 1), controlData({ tails: TAILS }));
-        const col = columnText(top.lines, top.items[1].x!.from, top.items[1].x!.to).replace(/\s+/g, ' ');
+        const top = controlRoomView(ctxAt(c, r, d, panesN), controlData({ tails: TAILS }));
+        const col = columnText(top.lines, top.items[panesN].x!.from, top.items[panesN].x!.to).replace(/\s+/g, ' ');
         expect(col).toContain(`⚠ ${long}`.replace(/\s+/g, ' '));
         expect(col).toContain('/run SLOW.md long');
       } else {
@@ -515,15 +654,17 @@ describe('tab 7, Control Room: the view', () => {
     expect(wide).toMatch(/○ fake-old  reached 3 h ago/);
     expect(wide).toMatch(/✕ fake-gone unreachable/);
     expect(wide).toMatch(/▶ 1 remote job running/);
-    // side by side at 160 columns (the whole width): every entry on one row, its word beside it
+    // side by side at 160 columns, beside the grid (a compact roster): the shorter words, the lanes not installed sharing one
+    // entry, nothing cut
     const v = controlRoomView(ctxAt(160, 45, d), controlData({ tails: TAILS }));
     const all = text(v.lines);
-    expect(all).toMatch(/○ opencode  FAKE stand-in/);
-    expect(all).toMatch(/▶ hermes    running dp_fake1/);
-    expect(all).toMatch(/· openhands not installed/);
-    expect(all).toMatch(/○ companion configured, served here/);
-    expect(all).toMatch(/● fake-live live, reached 5 min ago/);
-    expect(all).toMatch(/✕ fake-gone unreachable/);
+    const roster = cols(v.lines)[0];
+    expect(roster).toMatch(/○ opencode  FAKE$/m);
+    expect(roster).toMatch(/▶ hermes    running$/m);
+    expect(flat(roster)).toMatch(/· not installed: pi, openhands, jcode, minds/);
+    expect(roster).toMatch(/○ companion configured$/m);
+    expect(roster).toMatch(/● fake-live live$/m);
+    expect(flat(roster)).toMatch(/✕ fake-gone unreachable/);
     expect(all).not.toMatch(/…\s*│/);
     // with Context's drawer open at 120 columns (the narrowest body side by side: a narrow roster), the shorter words, the
     // lanes not installed sharing one entry, nothing cut
