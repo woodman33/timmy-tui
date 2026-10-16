@@ -27,6 +27,8 @@ import { createFrameStrip } from './frame.js';
 import { clockOf, dateTimeOf } from './when.js';
 // R6 (H139): whose board is on screen, and the switch from one project's board to another's
 import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, projectOf, sameProject, SWITCH_WAIT_MS, switchedWords, switchingTo } from './identity.js';
+// R6 (H145): the shown project's artifacts, as cards on its board, and Studio's VoxVision preview
+import { createArtifacts } from './artifacts.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -127,6 +129,40 @@ const cards = createCards({
   say: (text) => band(text),
   // R4 (H109): a card's Run detail
   runDetail: (op, projectId) => showRunDetail(op, projectId),
+});
+
+/**
+ * R6 (H145): React roots for parts of the side panel drawn by the cards' own React parts (Studio's VoxVision preview), one per
+ * host element; `element` null unmounts it (its images' object URLs are let go).
+ */
+const panelRoots = new WeakMap();
+function renderInto(host, element) {
+  let root = panelRoots.get(host);
+  if (element === null) { if (root) { root.unmount(); panelRoots.delete(host); } return; }
+  if (!root) { root = createRoot(host); panelRoots.set(host, root); }
+  root.render(element);
+}
+
+/**
+ * R6 (H145): the shown project's artifacts (its VoxVision records, runs and receipts) as cards on its board (./artifacts.js), read
+ * with this page's session, for the board on screen only (its identity: ./identity.js).
+ */
+const artifacts = createArtifacts({
+  React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId,
+  editor: () => current,
+  scope: () => ({ project: identity.project, state: identity.state, switching: identity.switching, paused: identity.paused }),
+  ticket: () => identity.ticket(),
+  current: (t) => identity.current(t),
+  // the board Studio is on its way to (while switching), else the one on screen
+  kept: (of, detail) => identity.note(keptWords('reading', projectOf(of) ?? of, identity.switching ?? identity.project, detail)),
+  read: (path, projectId) => cards.artifactRead(path, projectId),
+  image: (id, path, projectId) => cards.artifactImage(id, path, projectId),
+  forget: (url) => cards.forget(url),
+  readRun: (op, projectId) => cards.runDetail(op, projectId),
+  runDetail: (op, projectId) => showRunDetail(op, projectId),
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  say: (text, bad = false) => band(text, bad),
+  render: (host, element) => renderInto(host, element),
 });
 
 /** R5 (H133): the save in words for the status line's end (the save line, #save, says it in full). */
@@ -1043,6 +1079,8 @@ function connectPanel() {
     runDetail: (op, projectId) => showRunDetail(op, projectId),
   });
   cards.setPoll(() => projectPanel.poll());
+  // R6 (H145): the side panel's Artifacts (the shown project's), read now and every 5 s while the page is shown
+  artifacts.connect();
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
   cards.setSessionListener(showSession);
   showSession();
@@ -1097,8 +1135,14 @@ async function placeProjectCard(id, editor = current) {
   if (id === undefined || id === null || id === '') {
     // R4 (H83): the cards are read with this page's session (the drawn cards' own reader)
     const now = await cards.read();
-    return { project: now.project ? now.project.name : null, ...(now.message ? { message: now.message } : {}), cards: (now.cards || []).map((c) => ({ id: c.id, kind: c.kind, title: c.title, state: c.state })) };
+    // R6 (H145): and the project's artifacts (its VoxVision records, runs and receipts), each placed as `artifact:<its id>`
+    const listed = artifacts.list();
+    const own = listed.answer && now.project && listed.project === now.project.id ? listed.answer.artifacts || [] : [];
+    return { project: now.project ? now.project.name : null, ...(now.message ? { message: now.message } : {}), cards: (now.cards || []).map((c) => ({ id: c.id, kind: c.kind, title: c.title, state: c.state })),
+      artifacts: own.map((a) => ({ id: `artifact:${a.id}`, kind: a.kind, title: a.title, state: a.state })) };
   }
+  // R6 (H145): an artifact of the project (artifact:vox:v…, artifact:run:o…, artifact:receipt:…) is placed as its artifact card
+  if (/^artifact:/.test(String(id))) return artifacts.place(String(id).slice('artifact:'.length));
   return projectPanel.place(String(id), editor);
 }
 /** What the panel follows in each editor: the blank-board guide and the selected shapes' jobs. */
@@ -1156,6 +1200,9 @@ function mount(snapshot, b = canvas) {
             placeOperation: (id) => (projectPanel ? projectPanel.placeOperation(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
             // R5 (H133): the pending drafts, as the panel lists them (read only; Accept and Discard are the panel's buttons)
             drafts: () => pendingDrafts(editor.store.allRecords()),
+            // R6 (H145): an artifact of the project as its card (as the Artifacts list's Place on the board does), and the list read
+            placeArtifact: (id) => artifacts.place(String(id)),
+            artifacts: () => artifacts.list(),
           };
           attachEditor(editor, b);
           followEditor(editor);
@@ -1311,13 +1358,15 @@ async function start() {
   // R6 (H139): the board of the project the canvas shows (its answer says which), on a state of its own
   canvas = newBoard(projectOf(saved.project), saved);
   identity.show(canvas.project);
+  // R6 (H145): the artifact cards and the Artifacts list follow the board on screen
+  artifacts.scopeChanged();
   // R5 (H133): the strip reads the frame now; R6 (H139): once the board's project is known, so it draws that project's frame only
   startFrame();
   if (typeof saved.board === 'string' && saved.board) document.getElementById('guide-dir').textContent = saved.board;
   say('Loading the canvas: starting tldraw', 'loading');
   tldrawProps = {
-    // R4 (H75): Timmy's drawn cards beside tldraw's own shapes
-    shapeUtils: cards.utils,
+    // R4 (H75): Timmy's drawn cards beside tldraw's own shapes. R6 (H145): and the artifact card
+    shapeUtils: [...cards.utils, artifacts.util],
     licenseKey: config.licenseKey ?? undefined,
     // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
     assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),
@@ -1418,6 +1467,8 @@ function showBlocked() {
   for (const id of ['board-open', 'save-retry', 'conflict-reload', 'conflict-keep']) { const b = document.getElementById(id); if (b) b.disabled = true; }
   if (current) { showStatus(current); showDrafts(current); showJobs(current); }
   projectPanel?.hold();
+  // R6 (H145): the artifact cards show nothing, the Artifacts list is held and the VoxVision preview closes
+  artifacts.scopeChanged();
   // the header says "switching to <project>…" while switching; paused, it stays the page's own project's, marked as not read now
   if (state === 'switching') frameStrip?.hold(holdWords());
 }
@@ -1491,6 +1542,8 @@ async function switchTo(to) {
   band(`${switchedWords(from, got)}${typeof saved.oldLayout === 'string' && saved.oldLayout ? ` ${saved.oldLayout}` : ''}`);
   frameStrip?.release(got.name);
   projectPanel?.reset();
+  // R6 (H145): the new board's artifacts, read for it
+  artifacts.scopeChanged();
   showStatus(current);
   showDrafts(current);
   showJobs(current);

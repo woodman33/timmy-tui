@@ -643,6 +643,32 @@ export function createCards(deps) {
     if (!r.ok || !r.body || r.body.ok !== true) return null;
     return { project: r.body.project && typeof r.body.project === 'object' ? r.body.project : null, hidden: r.body.hidden === true, words: one(r.body.words), via: one(r.body.via) };
   }
+  /**
+   * R6 (H145): the shown project's artifacts (src/studio/artifacts.ts), read with this page's session for the artifact cards and the
+   * side panel's Artifacts (./artifacts.js): the list, or one VoxVision record's preview, of project `projectId` (the board on
+   * screen's: refused, 409, when the canvas shows another now). Only these routes; { status, ok, body }. A paused session's refusal
+   * (a plain 200 that says why) pauses it as the page's other readings do.
+   */
+  async function artifactRead(path, projectId) {
+    if (!/^\/api\/project\/artifact(?:s|\/vox\?id=v[0-9a-f]{8})$/.test(String(path))) return { status: 400, ok: false, body: { ok: false, error: 'Not an artifact route.' } };
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request(forProject(path, projectId), 'GET', token);
+    if (r.status === 401 || pausedAnswer(r)) noted(r, 'Timmy did not let this page read the project\'s artifacts.');
+    return r;
+  }
+  /**
+   * R6 (H145): an image VoxVision record `id` names (GET /api/project/artifact/vox-file), of project `projectId`, read with this
+   * page's session and shown from memory (an object URL); null when it is not read (refused, not an image, another project shown).
+   */
+  async function artifactImage(id, path, projectId) {
+    if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL || !/^v[0-9a-f]{8}$/.test(String(id)) || typeof projectId !== 'string' || !/^[0-9a-f]{16}$/.test(projectId)) return null;
+    const r = await SAFE.fetch(`/api/project/artifact/vox-file?id=${id}&path=${SAFE.apply(SAFE.encode, G, [String(path)])}&project=${projectId}`, requestInit('GET', token));
+    if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
+    const b = await SAFE.apply(SAFE.blob, r, []);
+    const type = SAFE.blobType ? String(SAFE.apply(SAFE.blobType, b, [])) : '';
+    if (!/^image\//.test(type)) return null;
+    return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
+  }
   /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
   async function draftDecision(body) {
     if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
@@ -1306,6 +1332,8 @@ export function createCards(deps) {
     keepCopy, draftDecision,
     // R6 (H139): a board's saved revision, and which project the canvas shows now
     health, active,
+    // R6 (H145): the shown project's artifacts and a VoxVision record's images, with this page's session (./artifacts.js)
+    artifactRead, artifactImage, forget,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },
