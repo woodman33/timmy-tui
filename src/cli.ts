@@ -824,7 +824,7 @@ if (command === 'geo') {
     if (v === undefined || v.startsWith('--')) geoArgs[key] = true; else { geoArgs[key] = /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v; i++; }
   }
   if (outDir) geoArgs.out = outDir;
-  const r = callGeoTool(tool, geoArgs);
+  const r = await callGeoTool(tool, geoArgs);
   console.log(JSON.stringify(r, null, isJson ? 0 : 2));
   process.exit(r.status === 'ok' ? 0 : r.status === 'partial' || r.status === 'untrusted' ? 2 : r.status === 'not_configured' ? 3 : r.status === 'invalid_request' ? 64 : 1);
 }

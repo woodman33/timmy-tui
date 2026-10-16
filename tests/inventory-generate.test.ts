@@ -19,14 +19,14 @@
  * its REPL commands, CLI, `timmy act`, rehearsal and acceptance all say FIXTURE); no registry, network or git history is
  * involved for it. The repository run reads this checkout as it is.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { namesLocalPath } from '../scripts/inventory/lib/common.mjs';
+import { runAsync } from './helpers/run-async.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = join(REPO, 'scripts', 'inventory', 'inventory.mjs');
@@ -34,10 +34,17 @@ const made: string[] = [];
 const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); made.push(d); return d; };
 afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
 
-function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', timeout: 120_000, env: { ...process.env } });
+type Ran = { status: number | null; stdout: string; stderr: string };
+/**
+ * The generator as a child process, awaited (R5 lead: it was spawnSync, and these files' four runs at collection held a
+ * test worker's event loop for 70.6 s in the gate on a77d80d, its heartbeat says, and vitest then reports "Timeout calling
+ * onTaskUpdate" though every test passed). Each run is awaited in a hook or a test with its own time limit.
+ */
+async function run(args: string[]): Promise<Ran> {
+  const r = await runAsync(process.execPath, [SCRIPT, ...args], { timeout: 120_000, env: { ...process.env } });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
+const RUNS_MS = 260_000;
 
 const put = (root: string, rel: string, text: string): void => {
   mkdirSync(dirname(join(root, rel)), { recursive: true });
@@ -283,8 +290,12 @@ describe('the inventory generator on a FIXTURE tree', () => {
   makeFixture(root);
   const outA = temp('inv-out-a-');
   const outB = temp('inv-out-b-');
-  const a = run(['--root', root, '--date', '2026-10-01', '--out', outA]);
-  const b = run(['--root', root, '--date', '2026-10-01', '--out', outB]);
+  let a: Ran;
+  let b: Ran;
+  beforeAll(async () => {
+    a = await run(['--root', root, '--date', '2026-10-01', '--out', outA]);
+    b = await run(['--root', root, '--date', '2026-10-01', '--out', outB]);
+  }, RUNS_MS);
 
   it('runs, writes its five files and says what it counted', () => {
     expect(a.stderr).toBe('');
@@ -465,32 +476,36 @@ describe('the inventory generator on a FIXTURE tree', () => {
     }
   });
 
-  it('writes nothing and exits 3 when its output would carry a local path (a negative control)', () => {
+  it('writes nothing and exits 3 when its output would carry a local path (a negative control)', async () => {
     const leaky = temp('inv-leaky-');
     makeFixture(leaky, { leak: true });
     const out = temp('inv-out-leaky-');
-    const r = run(['--root', leaky, '--date', '2026-10-01', '--out', out]);
+    const r = await run(['--root', leaky, '--date', '2026-10-01', '--out', out]);
     expect(r.status).toBe(3);
     expect(r.stderr).toContain('nothing written: the output would carry a local path');
     expect(r.stderr).not.toContain(leaky); // the refusal names what kind of path, never the path
     expect(readdirSync(out)).toEqual([]);
-  });
+  }, 130_000);
 
-  it('refuses a malformed date and an unknown argument before reading anything', () => {
-    const r1 = run(['--root', root, '--date', '11/10/2026', '--out', temp('inv-out-bad-')]);
+  it('refuses a malformed date and an unknown argument before reading anything', async () => {
+    const r1 = await run(['--root', root, '--date', '11/10/2026', '--out', temp('inv-out-bad-')]);
     expect(r1.status).toBe(2);
     expect(r1.stderr).toContain('--date takes YYYY-MM-DD');
-    const r2 = run(['--surprise']);
+    const r2 = await run(['--surprise']);
     expect(r2.status).toBe(2);
     expect(r2.stderr).toContain('unknown argument --surprise');
-  });
+  }, 250_000);
 });
 
 describe('the inventory generator on this repository', () => {
   const outA = temp('inv-repo-a-');
   const outB = temp('inv-repo-b-');
-  const a = run(['--date', '2026-10-11', '--out', outA]);
-  const b = run(['--date', '2026-10-11', '--out', outB]);
+  let a: Ran;
+  let b: Ran;
+  beforeAll(async () => {
+    a = await run(['--date', '2026-10-11', '--out', outA]);
+    b = await run(['--date', '2026-10-11', '--out', outB]);
+  }, RUNS_MS);
 
   it('runs and writes valid CycloneDX JSON and a features file', () => {
     expect(a.stderr).toBe('');
