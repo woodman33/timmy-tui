@@ -32,13 +32,18 @@ export interface Glyphs {
   dot: string;
   /** R5 (H131): an expanded section's marker (Activity & log, expanded) */
   expanded: string;
+  /** R5 (H131; the QA round's defect 18): what runs now, always with its word (● is live and nothing else) */
+  run: string;
+  /** R5 (H131; the QA round's defect 18): what waits its turn, always with its word (○ is configured and nothing else; ⚠ is
+   *  what waits on a person) */
+  wait: string;
 }
 
 // R5 (H131): a failure's mark is ✕ (DESIGN.md B10: amber, ✕ and its word); `next` marks the one primary next step, `off` an
 // action that is not available now, `ring` a configured connection that was not observed answering
 export const glyphsFor = (unicode: boolean): Glyphs => (unicode
-  ? { unicode, ellipsis: '…', cursor: '▸', focus: '◆', bullet: '●', sep: '·', arrow: '→', warn: '⚠', ok: '✓', fail: '✕', check: '[x]', uncheck: '[ ]', next: '▶', ring: '○', dot: '·', expanded: '▾' }
-  : { unicode, ellipsis: '...', cursor: '>', focus: '>', bullet: '*', sep: '-', arrow: '->', warn: '!', ok: '+', fail: 'x', check: '[x]', uncheck: '[ ]', next: '>', ring: 'o', dot: '-', expanded: 'v' });
+  ? { unicode, ellipsis: '…', cursor: '▸', focus: '◆', bullet: '●', sep: '·', arrow: '→', warn: '⚠', ok: '✓', fail: '✕', check: '[x]', uncheck: '[ ]', next: '▶', ring: '○', dot: '·', expanded: '▾', run: '▶', wait: '…' }
+  : { unicode, ellipsis: '...', cursor: '>', focus: '>', bullet: '*', sep: '-', arrow: '->', warn: '!', ok: '+', fail: 'x', check: '[x]', uncheck: '[ ]', next: '>', ring: 'o', dot: '-', expanded: 'v', run: '>', wait: '...' });
 
 export interface Box { tl: string; tr: string; bl: string; br: string; h: string; v: string }
 const LIGHT: Box = { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' };

@@ -22,9 +22,9 @@
 import { TABS, tabOf, type ConnectionState, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry } from '../contracts/workspace.js';
 import { sameFolder } from '../project/index.js';
 import { boxOf, type Glyphs } from './frame.js';
-import type { PipelineStage, View } from './model.js';
+import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
-import { clock, count, cut, lineCells, pick, pickRanked, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, lineCells, pick, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -221,7 +221,8 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   const w = BY_WORKSPACE[cmd];
   if (w) return { kind: 'workspace', ws: w.ws, words: w.words };
   if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
-  if (cmd === 'Esc in the composer') return { kind: 'abort', words: 'Enter stops the message being sent (as Esc does)' };
+  // (while a turn runs the frame says whose composer: "Esc in the composer that sent it (Ctrl+C in the REPL)")
+  if (/^Esc in the composer\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does)' };
   const run = /^\/run (\S+) (\S+)$/.exec(cmd);
   if (run && !cmd.includes('<')) return { kind: 'run', doc: run[1], block: run[2], words: 'Enter opens its Run confirm (it asks before anything runs)' };
   const where = cmd.startsWith('/') ? 'the REPL (timmy)' as const : 'a shell' as const;
@@ -246,6 +247,21 @@ function shares(need: readonly number[], room: number, min = 4): number[] {
     left -= give;
   });
   return out;
+}
+
+/** Texts sharing `room` cells (shares), each cut at a word where it must be; what a cut at a word leaves unused is given to
+ *  the texts that were cut, in the order `first` names (the most needed first), so the row is used to its end. */
+function fillShares(words: readonly string[], room: number, g: Glyphs, first: readonly number[] = words.map((_, i) => i)): string[] {
+  const rooms = shares(words.map((w) => lineCells([S(w)])), room);
+  const texts = words.map((w, i) => cut(w, Math.max(1, rooms[i]), g.ellipsis));
+  for (const i of first) {
+    const left = room - texts.reduce((n, t) => n + lineCells([S(t)]), 0);
+    if (left <= 0) break;
+    if (texts[i] === words[i]) continue;
+    // (what it drew, and what is left: what it was given and did not draw is in `left` already)
+    texts[i] = cut(words[i], lineCells([S(texts[i])]) + left, g.ellipsis);
+  }
+  return texts;
 }
 
 export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focused: boolean, width: number, g: Glyphs): { line: Line; hits: ActionHit[] } {
@@ -431,7 +447,7 @@ export function homeView(c: ViewCtx): View {
 // ── Home's preview ─────────────────────────────────────────────────────────────
 
 const markOfJob = (mark: string, g: Glyphs): { glyph: string; role: Role } => (
-  mark === 'ok' ? { glyph: g.ok, role: 'text' } : mark === 'failed' ? { glyph: g.fail, role: 'failure' } : mark === 'running' ? { glyph: g.bullet, role: 'text' } : mark === 'unchanged' ? { glyph: '=', role: 'text' } : mark === 'stopped' ? { glyph: g.unicode ? '■' : '#', role: 'text' } : { glyph: '?', role: 'secondary' });
+  mark === 'ok' ? { glyph: g.ok, role: 'text' } : mark === 'failed' ? { glyph: g.fail, role: 'failure' } : mark === 'running' ? { glyph: g.run, role: 'text' } : mark === 'unchanged' ? { glyph: '=', role: 'text' } : mark === 'stopped' ? { glyph: g.unicode ? '■' : '#', role: 'text' } : { glyph: '?', role: 'secondary' });
 
 /**
  * Home's right column: what the companion and Studio show, as a terminal can say it (the board's cards, the files, the last
@@ -492,6 +508,41 @@ export function previewView(c: ViewCtx): View {
   return { lines, items: [] };
 }
 
+// ── the chat turn being answered now ───────────────────────────────────────────
+
+/** A receipt's short id, as the Control Room says it (its hash's first 8 hex), or the id as it was given when it is not a hash. */
+export const receiptShort = (h: string): string => (/^sha256[:_][0-9a-f]{8}/.test(h) ? h.slice(7, 15) : h);
+
+/** What a chat surface is called in words (src/agent/chat-turn.ts says them so too); a Workbench turn here is "another"
+ *  Workbench's, since this one's own is known without the frame. */
+const SURFACE_AWAY: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'another Workbench', companion: 'the companion' };
+
+/** R5 (H131; the QA round's defect 1): the chat turn being answered now in this project. */
+export interface TurnNow {
+  /** this Workbench's own (its composer sent it; Esc in the composer, or x, stops it) */
+  mine: boolean;
+  /** where it is being answered, in words ("this Workbench", "the REPL") */
+  where: string;
+  /** when it began (ISO) */
+  since: string;
+}
+
+/**
+ * R5 (H131; the QA round's defect 1): the chat turn being answered now, one fact for row 2's run state and Stop current,
+ * Activity, the Chat tab's event log and its actions: this Workbench's own while it sends (known at once), else the workspace
+ * frame's (any surface's, read at most once a second). A frame read before this Workbench's own turn ended, and naming a
+ * Workbench's turn, names that one: it has ended and is not counted again.
+ */
+export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project'>): TurnNow | null {
+  const own = d.turn;
+  if (own?.state === 'sending') return { mine: true, where: 'this Workbench', since: new Date(own.at).toISOString() };
+  const f = d.frame;
+  const t = f && f.project.id === d.project.id ? f.activity.chatTurn : null;
+  if (!f || !t) return null;
+  if (t.surface === 'workbench' && own?.ended !== undefined && Date.parse(f.at) <= own.ended) return null;
+  return { mine: false, where: SURFACE_AWAY[t.surface] ?? t.surface, since: t.since };
+}
+
 // ── Chat: the pipeline row and the event log ───────────────────────────────────
 
 const STAGES: ReadonlyArray<{ id: 'intent' | 'predict' | 'sandbox' | 'receipt'; name: string }> = [
@@ -518,16 +569,22 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
     return { st, s, mark, role: stageRole(st.id, s) };
   });
   const fixed = stages.reduce((n, x) => n + 2 + lineCells([S(`${x.mark}${x.st.name} ${g.sep} `)]), 0) + lineCells([S(arrow)]) * (stages.length - 1);
-  const room = Math.max(4, Math.floor((width - fixed) / stages.length));
+  // R5 (H131; the QA round's defect 15): the stages share the row: a short one keeps its words whole and leaves the rest to
+  // the longer ones (an even share cut "sealed before it ran…" with 20 columns free)
+  // (what is left goes first to the receipt, then the intent, what ran it, and the prediction)
+  const texts = fillShares(stages.map((x) => x.s.words), width - fixed, g, [3, 0, 2, 1]);
   const row: Line = [];
   stages.forEach((x, i) => {
     if (i) row.push(S(arrow, 'secondary'));
     const edge: Role = x.role === 'action' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
-    row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(cut(x.s.words, room, g.ellipsis), x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
+    row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(texts[i], x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
   });
+  const from = p?.kind === 'chat'
+    ? (p.live ? 'being answered now: its request as sent from here; its receipt is sealed once it is answered' : 'from its records: its request, a prediction if one was sealed, the turn, its receipt (verified here)')
+    : 'from its records: the operation\'s request, its predict receipt, its job, its receipt (verified here)';
   const source: Line = p?.operation
-    ? [S('newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} operation ${p.operation} ${g.sep} from its records: the operation's request, its predict receipt, its job, its receipt (verified here)`, 'secondary')]
-    : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows fills it, as its records are written.', 'secondary')];
+    ? [S(p.kind === 'chat' ? 'newest operation ' : 'newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} operation ${p.operation} ${g.sep} ${from}`, 'secondary')]
+    : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows, or a message sent here, fills it as its records are written.', 'secondary')];
   return [row, source];
 }
 
@@ -549,21 +606,48 @@ export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs): Line {
   return [...head, S(cut(`${t.mark}${e.words}`, room, g.ellipsis), t.role)];
 }
 
-/** The Chat tab's right column: what runs now (from the jobs), then the frame's log, the newest at the top. */
+const SURFACE_NAME: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+
+/** R5 (H131; the QA round's defect 8): a sealed chat turn as a log entry: how it ended, where, the model and its receipt (its
+ *  receipt keeps hashes only, and so do these words: never a word of the message or the answer). */
+export function turnEntry(t: TurnRow): WorkspaceLogEntry {
+  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
+  return {
+    at: t.at, tag: 'chat', tone: t.state === 'failed' ? 'failure' : 'neutral',
+    words: `turn ${ended} in ${SURFACE_NAME[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+    ...(t.operation ? { operation: t.operation } : {}), source: `receipt ${t.receipt}`,
+  };
+}
+
+/** R5 (H131): the log's entries that are events (a line a job printed is tab 0's), the newest first, with the project's sealed
+ *  chat turns among them. */
+export function eventsNow(data: ViewCtx['data']): WorkspaceLogEntry[] {
+  const log = (data.frame?.log ?? []).filter((e) => e.tag !== 'job.output');
+  const turns = (data.turns ?? []).map(turnEntry);
+  return [...log, ...turns].sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+}
+
+/** The Chat tab's right column: what runs now (the jobs, and a chat turn being answered), then the events, the chat turns
+ *  among them, the newest at the top. */
 export function eventLogView(c: ViewCtx): View {
   const { data, g, width } = c;
   const lines: Line[] = [];
   const live = [...data.jobs, ...(data.away ?? [])].filter((j) => j.live);
-  lines.push(heading(`Running now (${live.length})`));
-  if (!live.length) lines.push([S('  Nothing runs.', 'secondary')]);
+  const turn = chatTurnNow(data);
+  lines.push(heading(`Running now (${live.length + (turn ? 1 : 0)})`));
+  if (!live.length && !turn) lines.push([S('  Nothing runs.', 'secondary')]);
+  if (turn) {
+    const since = Date.parse(turn.since);
+    lines.push([S(`  ${g.run} running `, 'text'), S('chat turn', 'strong'), S(`  being answered in ${turn.where}`, 'text'), S(Number.isFinite(since) ? ` ${g.sep} ${took(c.now - since)}` : '', 'secondary'), S(turn.mine ? ` ${g.sep} Esc in the composer or x stops it` : ` ${g.sep} it stops there`, 'secondary')]);
+  }
   for (const j of live) {
     const where = sameFolder(j.root, data.project.root) ? '' : ` ${g.sep} in ${j.project}`;
-    lines.push([S(`  ${g.bullet} `, 'text'), S(j.id, 'strong'), S(`  ${j.label}`, 'text'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
+    lines.push([S(`  ${g.run} running `, 'text'), S(j.id, 'strong'), S(`  ${j.label}`, 'text'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
   }
   lines.push(blank, heading('Event log, newest at the top'));
-  const log = data.frame?.log ?? [];
-  if (!data.frame) lines.push([S('  Reading the workspace frame…', 'secondary')]);
-  else if (!log.length) lines.push([S('  No event yet: no job has run in this project.', 'secondary')]);
+  const log = eventsNow(data);
+  if (!data.frame && !log.length) lines.push([S('  Reading the workspace frame…', 'secondary')]);
+  else if (!log.length) lines.push([S('  No event yet: no job has run and no chat turn is sealed in this project.', 'secondary')]);
   for (const e of log) {
     const t = toneOf(e, g);
     const head = `${clock(e.at)} [${e.tag}] `;
@@ -580,8 +664,10 @@ export function eventLogView(c: ViewCtx): View {
 export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: number): Line[] {
   const f = c.data.frame;
   if (!f) return [[S(c.data.frameError ? `The log could not be read: ${c.data.frameError}` : 'Reading the log…', c.data.frameError ? 'failure' : 'secondary')]];
-  if (!f.log.length) return [[S('No event yet: no job has run in this project. [a] expands Activity (this Workbench\'s own notices too).', 'secondary')]];
-  return f.log.slice(0, n).map((e) => logLine(e, width, c.g));
+  // R5 (H131; the QA round's defect 9): events in words; what a job printed is tab 0's (0 Logs & Receipts)
+  const events = eventsNow(c.data);
+  if (!events.length) return [[S('No event yet: no job has run in this project. [a] expands Activity (this Workbench\'s own notices too).', 'secondary')]];
+  return events.slice(0, n).map((e) => logLine(e, width, c.g));
 }
 
 /** The key-hint line: the keys that matter most first, each whole or left out. */

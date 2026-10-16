@@ -13,7 +13,7 @@ import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
 import { fit, type Line } from './text.js';
-import { bottomView, centerView, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
+import { bottomView, centerView, chatFollows, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
 
 export interface RegionDraw {
   rect: Rect;
@@ -77,7 +77,7 @@ export function frameOf(a: FrameAsk): Frame {
     const lines: Line[] = [
       [{ text: `${data.project.name} / ${tabOf(ui.page).label} / ${navItem(ui.workspace).label}`, role: 'strong' }],
       [{ text: runWords(data), role: data.decisions.total ? 'attention' : 'secondary' }],
-      stop.target ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
+      stop.target || stop.turn?.mine ? [{ text: '[x]', role: 'action' }, { text: ` ${stop.text}`, role: 'strong' }] : [{ text: stop.text, role: 'secondary' }],
       [{ text: `The Workbench needs at least ${MIN_COLUMNS}×${MIN_ROWS}; this terminal is ${a.columns}×${a.rows}. Make it larger, or use timmy (the REPL). Ctrl+C quits.`, role: 'secondary' }],
     ];
     const top = layout.tabs.h;
@@ -124,7 +124,11 @@ export function frameOf(a: FrameAsk): Frame {
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
     const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
-    const scroll = scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
+    // R5 (H131; the QA round's defect 8): the conversation follows its newest rows until the person selects a message
+    const follow = list === 'center:chat' && chatFollows(ui);
+    const scroll = follow
+      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: c.height, total: v.lines.length })
+      : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
     const title = ui.overlay ? overlayTitle(ui) : `${bodyTitle(ui, data)}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
     placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
     regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
