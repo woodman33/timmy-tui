@@ -196,6 +196,23 @@ describe('a chat turn stopped from another surface, and read by its identity (th
     expect(existsSync(join(project, CHAT_TURNS_DIR, `${held.id}.json`))).toBe(false);
   }, 90_000);
 
+  it('a REPL turn stopped from the companion says so on its own cancel line, as its receipt does (R5 lead: the REPL said only "Cancelled.")', async () => {
+    // FAKE: the model never answers this request (the turn waits until it is stopped)
+    await local([() => ({ hang: true })]);
+    const events: Array<{ type: string; by?: string }> = [];
+    const turn = projectTurn({
+      agent: replAgent(), project: { name: 'demo', root: project }, surface: 'repl', text: 'count to a thousand, slowly',
+      sink: { handle: (e: { type: string; by?: string }) => { events.push(e); }, endTurn: () => undefined },
+      seal: (f) => sealTurn({ ...f, model: 'qwen3:8b', project: 'demo', projectId: projectId(project) }, projectStore(project)),
+    });
+    const held = await until(() => runningTurns(project, undefined, { readOnly: true })[0], 'the REPL\'s turn to hold the project');
+    await until(() => ollama!.chats().length === 1, 'the turn\'s request to reach the FAKE Ollama');
+    expect(requestTurnStop(project, held.id, 'companion')).toMatchObject({ ok: true, surface: 'repl' });
+    expect((await turn).status).toBe('cancelled');
+    expect(events.filter((e) => e.type === 'cancelled')).toEqual([expect.objectContaining({ type: 'cancelled', by: 'the companion' })]);
+    expect(readChain('runs', projectStore(project)).filter((x) => x.kind === 'turn')).toEqual([expect.objectContaining({ status: 'cancelled', turn_id: held.id, stopped_by: 'companion' })]);
+  }, 60_000);
+
   it('two turns one after the other each seal their own id; a stop asked of this process\'s turn is seen by its watch', async () => {
     await local([answer('FAKE one'), answer('FAKE two')]);
     const agent = replAgent();

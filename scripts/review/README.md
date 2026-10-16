@@ -58,8 +58,9 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    Enter; while it streams, Esc. It ends "turn stopped in the Workbench", with a receipt.
 5. **The browser companion.** `c` opens it on the same project: the same ten tabs, actions and log.
 6. **A REPL turn, stopped from the page.** In a second terminal, `./review.sh repl`, send the same counting request; on the
-   companion page press Stop the turn. The REPL's turn stops there ("Cancelled.", then its receipt), and the Workbench's
-   Chat log and the page say "turn stopped (asked from the companion) in the REPL", as its receipt records.
+   companion page press Stop the turn. The REPL's turn stops there ("Cancelled: stopped, asked from the companion.", then
+   its receipt), and the Workbench's Chat log and the page say "turn stopped (asked from the companion) in the REPL", as its
+   receipt records.
 7. **Studio.** In the REPL, `/canvas open`, then `Put the intent and the prediction on the board.`; answer `y` in its NEEDS
    YOU box; in Studio, Accept the amber draft: the save line says saved. `/canvas open` again reopens the saved board.
 8. **Project switching.** `p` in the Workbench → blank → Enter, then `p` → tray: the companion page and Studio follow.
@@ -104,7 +105,7 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    running turn), or from the Workbench for a turn the REPL is answering (x, or Enter on Stop the turn): the surface asks
    the process answering it, which stops it as its own key would. Its receipt records the stop and who asked; the
    Workbench and the companion say it in those words ("turn stopped (asked from the companion) in the REPL"), and the
-   REPL itself says "Cancelled." and seals the receipt. Every surface lists the project's sealed turns, whichever surface
+   REPL itself says "Cancelled: stopped, asked from the companion." (or from the Workbench) and seals the receipt. Every surface lists the project's sealed turns, whichever surface
    sent them (a receipt keeps hashes, so a turn's words stay where it was sent). A reading of a connection counts only
    for what it asked: after the setup moves Ollama, the companion or Studio to another address, or a new OpenRouter key
    replaces a refused one, the card says "not checked at this address (with this key) yet" until a check asks again.

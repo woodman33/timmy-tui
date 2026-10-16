@@ -416,7 +416,12 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
     // the hold is given back once the turn has ended and is sealed (its summary), the key's end kept first, before the REPL's
     // inspector looks for where to inspect it: the conversation is whole by then. A surface that seals after the turn (the
     // chat session) gets the facts with the turn's id in them.
-    const more: TurnInspect = { ...i.more, summary: (s) => { summary = s; if (s.facts) s.facts = own(s.facts); endKey(); watch.close(); taken.hold.release(); i.more?.summary?.(s); } };
+    const more: TurnInspect = {
+      ...i.more,
+      summary: (s) => { summary = s; if (s.facts) s.facts = own(s.facts); endKey(); watch.close(); taken.hold.release(); i.more?.summary?.(s); },
+      // who asked this turn to stop, when another surface did: the cancel line names them (src/repl/transcript.ts)
+      stoppedBy: () => (stoppedBy === undefined ? undefined : stoppedBy === null ? 'another surface' : surfaceWords(stoppedBy)),
+    };
     const status = await runTurn(i.agent, i.sink as Transcript, i.text, i.clock, i.marks, signal, seal, i.abandon, more);
     return { status, continued };
   } finally {
