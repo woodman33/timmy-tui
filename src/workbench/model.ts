@@ -10,6 +10,8 @@ import type { ApprovalRequest } from '../repl/approvals.js';
 import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.js';
 import type { ProjectCard, ProjectOperation } from '../studio/project-cards.js';
 import type { BoardTemplate } from '../studio/templates.js';
+import type { FleetData, FleetItem } from './fleet-tab.js';
+import type { LogsData, LogsItem } from './logs-tab.js';
 import type { WorkspaceId } from './nav.js';
 import type { RightTab, SettingsRead } from './settings.js';
 import type {
@@ -118,6 +120,10 @@ export interface Data {
   frameError?: string;
   /** R5 (H131): the newest run's intent, prediction, run and receipt, from its records (src/workbench/state.ts readPipeline) */
   pipeline?: PipelineView;
+  /** R5 (H134): tab 0's reading (src/workbench/logs-tab.ts readLogs), made only while the tab is shown */
+  logs?: LogsData;
+  /** R5 (H134): tab 8's reading (src/workbench/fleet-tab.ts readFleet), made only while the tab is shown */
+  fleet?: FleetData;
 }
 
 /** R5 (H131): one stage of the newest run's pipeline, as its records say it. */
@@ -160,7 +166,10 @@ export type Item =
   | { kind: 'project'; key: string; choice: ProjectChoice }
   | { kind: 'action'; key: string; action: string }
   /** R5 (H131): a connection card of Home, as the workspace frame has it */
-  | { kind: 'conn'; key: string; conn: WorkspaceConnection };
+  | { kind: 'conn'; key: string; conn: WorkspaceConnection }
+  /** R5 (H134): tab 0's rows (a receipt, an operation, another event) and tab 8's (a fleet plan, a decision) */
+  | LogsItem
+  | FleetItem;
 
 /** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one. */
 export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number }>; note?: string }

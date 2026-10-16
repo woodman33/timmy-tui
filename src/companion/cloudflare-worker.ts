@@ -3,6 +3,8 @@ import type { Message } from "../types/index.js";
 import { computeReceiptHash, Receipt } from "../receipt/schema.js";
 import { VERSION } from "../version.js";
 import { theme } from '../tui/theme.js';
+// R5 (H132, the lead's ask): the receipt page's card well is the palette's (DESIGN.md §10 B10), not GitHub-dark #161b22
+import { HOMEBREW } from '../theme/tokens.js';
 
 
 // Cloudflare Env Bindings conforming exactly to user receipt parameters
@@ -1288,7 +1290,7 @@ export class MyDurableObject extends DurableObject {
               .logo {
                 font-size: 1.5rem;
                 font-weight: 800;
-                background: linear-gradient(135deg, ${theme.accent}, #8b5cf6);
+                background: ${HOMEBREW.accent};
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 text-decoration: none;
@@ -1459,7 +1461,7 @@ export class MyDurableObject extends DurableObject {
         const cmd = String(e.payload?.command || "");
         const cwd = String(e.payload?.cwd || "");
         const cwdSuffix = cwd ? ' in <code style="color: var(--text-muted);">' + this.escapeHtml(cwd) + '</code>' : '';
-        desc = `Executed command: <code style="color: var(--blue); font-weight: bold;">${this.escapeHtml(cmd)}</code>${cwdSuffix}`;
+        desc = `Executed command: <code style="color: var(--silver); font-weight: bold;">${this.escapeHtml(cmd)}</code>${cwdSuffix}`;
       } else if (e.type === "command.finished") {
         const cmd = String(e.payload?.command || "");
         const cwd = String(e.payload?.cwd || "");
@@ -1469,7 +1471,7 @@ export class MyDurableObject extends DurableObject {
           ? '<span style="color: var(--green); font-weight: bold;">🟢 SUCCESS</span>'
           : '<span style="color: var(--red); font-weight: bold;">🔴 FAILED (exit code: ' + exitCode + ')</span>';
         const cwdSuffix2 = cwd ? ' (at <code style="color: var(--text-muted);">' + this.escapeHtml(cwd) + '</code>)' : '';
-        desc = `Command finished: <code style="color: var(--blue);">${this.escapeHtml(cmd)}</code> - Status: ${statusBadge}${cwdSuffix2}`;
+        desc = `Command finished: <code style="color: var(--silver);">${this.escapeHtml(cmd)}</code> - Status: ${statusBadge}${cwdSuffix2}`;
       } else if (e.type === "receipt.generated") {
         const url = String(e.payload?.receiptUrl || "");
         desc = `🛡️ TIMMY Run Receipt V3.1 generated: <a href="${url}" target="_blank" style="color: var(--green); text-decoration: underline;">${this.escapeHtml(url)}</a>`;
@@ -1482,7 +1484,7 @@ export class MyDurableObject extends DurableObject {
       } else if (e.type === "agent.intent") {
         desc = `🔮 <strong>Swarm Agent Intent:</strong> ${this.escapeHtml(String(e.payload?.description || ''))} (Target: <code>${this.escapeHtml(String(e.payload?.targetComponent || ''))}</code>)`;
       } else if (e.type === "simulation.started") {
-        desc = `🎮 <strong style="color: var(--blue);">Simulation Started:</strong> Strategy: <code>${this.escapeHtml(String(e.payload?.strategy || ''))}</code> (Snapshot: <code>${this.escapeHtml(String(e.payload?.sourceSnapshot || ''))}</code>)`;
+        desc = `🎮 <strong style="color: var(--silver);">Simulation Started:</strong> Strategy: <code>${this.escapeHtml(String(e.payload?.strategy || ''))}</code> (Snapshot: <code>${this.escapeHtml(String(e.payload?.sourceSnapshot || ''))}</code>)`;
       } else if (e.type === "simulation.plan.created") {
         desc = `📋 <strong>Simulation Plan Created:</strong> Swarm simulation strategy details generated.`;
       } else if (e.type === "simulation.score.created") {
@@ -1518,12 +1520,12 @@ export class MyDurableObject extends DurableObject {
         <style>
           :root {
             --bg-dark: ${theme.ground};
-            --bg-card: #161b22;
+            --bg-card: ${HOMEBREW.surface};
             --border-color: ${theme.line};
             --text-primary: ${theme.textSecondary};
             --text-muted: ${theme.textSecondary};
-            --purple: #8250df;
-            --blue: ${theme.accent};
+            --silver: ${HOMEBREW.silver};
+            --amber: ${HOMEBREW.accent};
             --green: ${theme.seal};
             --orange: ${theme.warn};
             --red: ${theme.danger};
@@ -1604,7 +1606,7 @@ export class MyDurableObject extends DurableObject {
 
           .summary-card {
             margin-bottom: 30px;
-            border-left: 4px solid var(--purple);
+            border-left: 4px solid var(--amber);
           }
 
           .summary-text {
@@ -1655,11 +1657,11 @@ export class MyDurableObject extends DurableObject {
             margin-bottom: 8px;
           }
 
-          .badge-run-created { background-color: rgba(56, 139, 253, 0.15); color: var(--blue); }
-          .badge-tmux-command-sent { background-color: rgba(188, 142, 223, 0.15); color: var(--purple); }
+          .badge-run-created { background-color: ${HOMEBREW.line}; color: var(--silver); }
+          .badge-tmux-command-sent { background-color: ${HOMEBREW.line}; color: var(--silver); }
           .badge-tmux-output-line { background-color: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
           .badge-approval-required { background-color: rgba(210, 153, 34, 0.15); color: var(--orange); }
-          .badge-build-finished { background-color: rgba(56, 139, 253, 0.15); color: var(--blue); }
+          .badge-build-finished { background-color: ${HOMEBREW.line}; color: var(--silver); }
 
           .timeline-desc {
             font-size: 14px;
@@ -1705,7 +1707,7 @@ export class MyDurableObject extends DurableObject {
           <div class="metrics-grid">
             <div class="card">
               <div class="metric-title">Phase</div>
-              <div class="metric-value" style="color: var(--blue)">${context.phase.toUpperCase()}</div>
+              <div class="metric-value" style="color: var(--silver)">${context.phase.toUpperCase()}</div>
             </div>
             <div class="card">
               <div class="metric-title">Commands</div>
