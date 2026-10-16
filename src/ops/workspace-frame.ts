@@ -189,12 +189,26 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
   }
-  if (!wb.route.ready) unknown.push({ field: 'chat', why: sentences(wb.route.refusal ?? []) || 'no chat route is set up' });
+  if (!wb.route.ready) unknown.push({ field: 'chat', why: chatNotReady(wb.route) });
   return out;
 }
 
 /** Lines said as one paragraph: each ends as a sentence (a line with no closing mark gets a full stop), so none runs on. */
 export const sentences = (lines: readonly string[]): string => lines.map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:)]$/.test(l) ? l : `${l}.`)).join(' ');
+
+/**
+ * R5 lead (H131's note): why chat is not ready, said as a state. A route's refusal is a message's ("so this message was not
+ * sent", "Nothing was sent to any model"), and a frame is no message. With no route at all, the frame's one step, the same
+ * as Home's first action (timmy setup); otherwise the route's own cause and fix (a local model not answering, free-only).
+ */
+export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>): string {
+  if (r.kind === 'none') return 'No chat route yet: no OpenRouter key, and the chat is not set to a local model. timmy setup sets one up.';
+  const lines = (r.refusal ?? [])
+    .filter((l) => !/^\s*Nothing was sent to any model\.?\s*$/i.test(l))
+    .map((l) => l.replace(/,?\s*so this message was not sent/i, '').replace(/^\s*Error:\s*/, ''))
+    .map((l) => l.charAt(0).toUpperCase() + l.slice(1));
+  return sentences(lines) || 'The chat route is not ready.';
+}
 
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),

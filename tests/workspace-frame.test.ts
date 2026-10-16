@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TABS, WORKSPACE_SCHEMA, tabByKey, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import {
-  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
+  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatNotReady, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
+import { freeOnlyRefusal } from '../src/agent/model-price.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
 
@@ -117,6 +118,16 @@ describe('the frame', () => {
     expect(next?.command).toBe('timmy setup');
     expect(f.actions.chat[0].enabled).toBe(false);
     expect(f.unknown.map((u) => u.field)).toContain('chat');
+    // R5 lead (H131's note): said as a state, with the frame's one step; never as a message "not sent"
+    const why = f.unknown.find((u) => u.field === 'chat')!.why;
+    expect(why).toBe('No chat route yet: no OpenRouter key, and the chat is not set to a local model. timmy setup sets one up.');
+  });
+  it('says why chat is not ready as a state: a refusal\'s "not sent" words are a message\'s, not the frame\'s', () => {
+    const lines = freeOnlyRefusal('m/x', { free: false, words: '$1 per million (FAKE)' } as never, true)!;
+    const why = chatNotReady({ kind: 'openrouter', refusal: lines });
+    expect(why).toMatch(/^Free-only is on, and m\/x is not known to be free\. Cause: m\/x costs \$1 per million\. Try: /);
+    expect(why).not.toMatch(/not sent|Nothing was sent|Error:/);
+    expect(chatNotReady({ kind: 'local', refusal: [] })).toBe('The chat route is not ready.');
   });
   it('lists every connection, none live without an observation, the two MCP routes unknown', async () => {
     const f = await frame();
