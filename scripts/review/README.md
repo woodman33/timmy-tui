@@ -82,7 +82,10 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 7. **Studio.** In the REPL, `/canvas open`, then `Put the intent and the prediction on the board.`; answer `y` in its NEEDS
    YOU box; in Studio, Accept the amber draft: the save line says saved. While the draft waits, every surface counts it as
    one thing waiting on you. In Studio's side panel, Artifacts → Place on the board puts the demo's VoxVision record on
-   the board as a card that shows its image. `/canvas open` again reopens the saved board.
+   the board as a card that shows its image. Nodes → Add node puts one of the project's own cards on the board (a
+   parameter card: change a value and Save; its answer names the file, the kept previous version and the edit receipt);
+   select two nodes and Connect. `/canvas open` again reopens the saved board. The companion's tab 4 lists what the
+   board holds.
 8. **Project switching.** `p` in the Workbench → blank → Enter: the companion page follows, and Studio covers its board
    ("TIMMY · switching to blank…": tray's board, drafts and canvas jobs are saved and put away; editing, Accept and Discard
    wait), then shows blank's own board, drafts and canvas jobs. `p` → tray: tray's board and its waiting draft come back.
@@ -163,7 +166,14 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    shows it (a record's image with what was measured over it, a run's outputs and receipts, a receipt's state, ✓ only when
    it verifies now) and opens its preview; "Add to the board" copies one of the project's images into the board's own
    folder and shows it, captioned with its file name and where it came from. Either shows only on its own project's
-   board. While Studio switches projects (step 8 above), a call
+   board. The Nodes palette lists the project's own cards by the node each makes (parameters, workflows, results, and an
+   operation's cards in the order they ran, linked by arrows) and adds one bound to the project; a parameter node saves
+   through the same path as the REPL's (the rules, the previous version kept, an edit receipt) and is refused in the
+   REPL's words while a flow runs in the project. Connect draws an arrow from the first selected node to the second: data
+   flows only along an operation's own links; any other arrow, drawn there or by hand, is labelled "link only · no data
+   flows" (a person's own words on an arrow are kept). The companion's tab 4 lists what the shown project's board holds
+   (artifacts, reference images, cards, notes), each image shown at size and each opening its record, run or receipt.
+   While Studio switches projects (step 8 above), a call
    of Timmy's already drawing finishes on its own project's board; anything that comes back for the other project
    afterwards is not drawn, and the side panel's "Kept apart" list says so. A Timmy home from before this build, with one
    canvas for all its projects, gives that canvas once to the project it belonged to (the active project, else the one

@@ -56,12 +56,19 @@ project, see [the review package](scripts/review/README.md).
 - **The browser companion** (127.0.0.1:3001; `c` in the Workbench, or
   `timmy watch`): the same ten tabs, and what a terminal cannot draw: the
   newest images, a run's source, diffs, outputs and receipts verified now,
-  VoxVision's observed images with what was measured over them, the MCP
-  inspector.
+  VoxVision's observed images with what was measured over them, the
+  project's own Studio board (tab 4: its artifacts, reference images and
+  cards as Studio saved them, each image shown at size, each item opening its
+  record, run or receipt), the MCP inspector.
 - **Timmy Studio** (`timmy studio`, 127.0.0.1:4337): a tldraw canvas the
   agent draws on, as drafts you Accept or Discard; each project has its own
-  board, and Studio's side panel puts the project's artifacts (VoxVision
-  records, runs, receipts) and its own images on it.
+  board. Studio's side panel puts the project's artifacts (VoxVision records,
+  runs, receipts) and its own images on it, and its Nodes palette adds the
+  project's own cards as nodes bound to it: parameters (saved through the
+  same path as the REPL's, refused while a flow runs), workflows, results,
+  and an operation's cards in run order. Connect draws an arrow between two
+  nodes: data flows only along an operation's own links; any other arrow is
+  labelled "link only · no data flows".
 - **`timmy watch`**, the full-screen monitor (the Command Post), and
   **`timmy workspace check`**, the frame every surface shares, in words.
 
