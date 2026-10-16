@@ -525,10 +525,17 @@ export function createCards(deps) {
   const hasSession = () => token !== null;
   /** The page's settings: the license key comes only with the session. */
   async function config() { return request('/studio-config.json', 'GET', token); }
-  /** The canvas as saved, every card of another project with its kept detail withheld (the server's part). */
-  async function loadDocument() {
+  /** R6 (H139): `?project=<id>` for a reading of the board of project `id` (the server refuses it when the canvas shows another). */
+  const forProject = (path, id) => (typeof id === 'string' && /^[0-9a-f]{16}$/.test(id) ? `${path}${path.includes('?') ? '&' : '?'}project=${id}` : path);
+  /**
+   * The canvas as saved, every card of another project with its kept detail withheld (the server's part). R6 (H139): the board of
+   * the project named now (its answer says which: `project`), or of project `projectId` when given (refused, 409, when the canvas
+   * shows another now).
+   */
+  async function loadDocument(projectId = null) {
     if (!token) return { status: 0, ok: false, body: null, why: session.get().words };
-    const r = await request('/api/canvas/document', 'GET', token);
+    const r = await request(forProject('/api/canvas/document', projectId), 'GET', token);
+    if (r.status === 409) return { ...r, why: one(r.body && r.body.error) || 'The canvas shows another project now.' };
     return r.ok ? r : { ...r, why: noted(r, `Timmy answered ${r.status} for the saved canvas.`) };
   }
   /** Saves the canvas (`text`: the document as JSON text, written by canvas.js); as the page closes, `keepalive`. */
@@ -538,10 +545,13 @@ export function createCards(deps) {
     if (r.status === 401) noted(r, 'Timmy refused this page\'s save.');
     return r;
   }
-  /** The canvas jobs, newest first; null when they cannot be read now (a session that does not count is asked again in 30 s). */
-  async function jobs() {
+  /**
+   * The canvas jobs, newest first; null when they cannot be read now (a session that does not count is asked again in 30 s). R6
+   * (H139): of the board of project `projectId` (null as well when the canvas shows another project now).
+   */
+  async function jobs(projectId = null) {
     if (!token || Date.now() < notFor.until) return null;
-    const r = await request('/api/canvas/jobs', 'GET', token, undefined, { array: true });
+    const r = await request(forProject('/api/canvas/jobs', projectId), 'GET', token, undefined, { array: true });
     // R5 (H137): a paused session's refusal is a plain 200 with no jobs (pausedAnswer)
     if (r.status === 401 || pausedAnswer(r)) {
       const why = noted(r, 'Timmy did not let this page read the canvas jobs.');
@@ -554,11 +564,12 @@ export function createCards(deps) {
    * strip above the canvas (./frame.js). Not asked without a session, or with one that does not count now (asked again once a
    * reading counts, and not sooner than 30 s), as the jobs are: the answer then says why, and no request is made.
    */
-  async function workspace() {
+  async function workspace(projectId = null) {
     const notAsked = (why) => ({ status: 0, ok: false, body: { ok: false, error: why } });
     if (!token) return notAsked(session.get().words);
     if (Date.now() < notFor.until || session.get().state !== 'ok') return notAsked(notFor.why || session.get().words);
-    const r = await request('/api/workspace', 'GET', token);
+    // R6 (H139): the frame of the project whose board is on screen (refused, 409, when the canvas shows another now)
+    const r = await request(forProject('/api/workspace', projectId), 'GET', token);
     // R5 (H137): a paused session's refusal is a plain 200 with no frame (pausedAnswer); the strip says why (./frame.js)
     if (r.status === 401 || pausedAnswer(r)) {
       const why = noted(r, 'Timmy did not let this page read the workspace.');
@@ -613,6 +624,24 @@ export function createCards(deps) {
     const r = await request('/api/canvas/document/copy', 'POST', token, undefined, { raw: text });
     if (r.status === 401) noted(r, 'Timmy refused to keep this page\'s copy.');
     return r;
+  }
+  /**
+   * R6 (H139): the saved board of project `projectId`, as the server's health says it (its revision and source revision, no content),
+   * read with this page's session; refused (409) when the canvas shows another project now.
+   */
+  async function health(projectId) {
+    if (!token) return { status: 0, ok: false, body: null };
+    return request(forProject('/api/canvas/health', projectId), 'GET', token);
+  }
+  /**
+   * R6 (H139): which project the canvas shows now (GET /api/project/active, with this page's session): { project, hidden } (hidden:
+   * a project is named that this page's session does not count for, so it is not told which). Null when it cannot be read.
+   */
+  async function active() {
+    if (!token) return null;
+    const r = await request('/api/project/active', 'GET', token);
+    if (!r.ok || !r.body || r.body.ok !== true) return null;
+    return { project: r.body.project && typeof r.body.project === 'object' ? r.body.project : null, hidden: r.body.hidden === true, words: one(r.body.words), via: one(r.body.via) };
   }
   /** R5 (H133): records a person's decision on a draft of Timmy's, once its save is on disk (POST /api/canvas/drafts). */
   async function draftDecision(body) {
@@ -1275,6 +1304,8 @@ export function createCards(deps) {
     workspace,
     // R5 (H133): a copy of this page's canvas when a newer one is on disk, and a decision on a draft of Timmy's
     keepCopy, draftDecision,
+    // R6 (H139): a board's saved revision, and which project the canvas shows now
+    health, active,
     setPoll: (f) => { poll = f; },
     /** R4 (H88): told when the session's state changes (the panel's line follows it). */
     setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },

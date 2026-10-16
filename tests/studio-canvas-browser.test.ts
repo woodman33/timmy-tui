@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { contrastRatio, rgbToHex } from '../src/term/color.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { bearer, grant, nameProject } from './helpers/canvas-auth.js';
+import { projectId } from '../src/project/index.js';
 
 // Fourth order, step 5, the acceptance pass: Timmy Canvas in a real browser, against the real
 // server and the real bundle. Every request goes to 127.0.0.1; Timmy's own panel stays on screen and
@@ -100,7 +101,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     const { page, context } = await open();
     try {
       await page.waitForSelector('#guide:not([hidden])');
-      expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas'));
+      // R6 (H139): the project's own board, in its own folder of the canvas folder
+      expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas', 'projects', projectId(join(home, 'project'))));
       expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
       // R5 (H137; QA defect 13): its heading is off-white (amber is focus and the one next step), and New board's Open is outlined:
       // no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's selection)
@@ -148,7 +150,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         const bad = await post('/api/canvas/exec', { code: "throw new Error('on purpose');", jobId: `${tag}-b` });
         expect(good.ok, good.error).toBe(true);
         expect(bad.ok).toBe(false);
-        expect(await post(`/api/canvas/jobs/${tag}-a/receipt`, { receipt: 'a1b2c3d4' })).toEqual({ ok: true, job: `${tag}-a`, receipt: 'a1b2c3d4' });
+        expect(await post(`/api/canvas/jobs/${tag}-a/receipt`, { receipt: 'a1b2c3d4' })).toEqual({ ok: true, job: `${tag}-a`, receipt: 'a1b2c3d4', project: { id: projectId(join(home, 'project')), name: 'canvas-browser' } });
         // On a phone the jobs start folded: they are in the page before they are on screen.
         await page.waitForSelector(`#job-list li[data-job="${tag}-a"]`, { state: 'attached', timeout: 10_000 });
         await page.waitForSelector(`#job-list li[data-job="${tag}-b"]`, { state: 'attached', timeout: 10_000 });

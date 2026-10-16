@@ -25,6 +25,8 @@ import { saveState } from './save-state.js';
 import { createFrameStrip } from './frame.js';
 // R5 (H137; the QA round, defect 6): one time format, as the terminal Workbench and the companion show it
 import { clockOf, dateTimeOf } from './when.js';
+// R6 (H139): whose board is on screen, and the switch from one project's board to another's
+import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, projectOf, sameProject, SWITCH_WAIT_MS, switchedWords, switchingTo } from './identity.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -76,8 +78,29 @@ const LICENSE = {
  * (Timmy unreachable, too large, an error: the next change or Retry tries again); `conflict` is { words, revision } (the
  * revision on disk); `stale` ({ revision }) when the canvas on disk is newer than this page's last save, seen before a save;
  * `kept` where this page's version was kept as a copy. Neither conflict nor stale is ever saved over.
+ *
+ * R6 (H139): one such state per board, and so per project (each project has its own board on disk: src/studio/boards.ts): its
+ * `project` ({ id, name }), its saves (`queue`, one at a time), the decisions on its drafts waiting for their save (`decisions`,
+ * recorded one at a time: `flushing`), its canvas jobs as Timmy listed them (`jobs`) and the jobs this page answered that Timmy
+ * has not listed yet (`answered`). A switch makes a new state for the new board; anything still on its way for the board before
+ * it (a save, a decision's record, a call) finishes on that board's own state and never touches the new one's. `frozen`: the
+ * board's document as the switch away from it began (its last save is made from it).
  */
-const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, savedAt: null, saving: false, failed: null, conflict: null, stale: null, kept: null, refused: null, notice: null, linked: false, timer: null };
+const newBoard = (project = null, saved = null) => ({
+  project, revision: saved?.revision ?? 0, savedRevision: saved?.revision ?? 0, sourceRevision: saved?.sourceRevision ?? null, savedAt: saved?.savedAt ?? null,
+  saving: false, failed: null, conflict: null, stale: null, kept: null, keptRevision: undefined, refused: null, notice: saved?.notice ?? null, timer: null,
+  queue: Promise.resolve(), flushing: Promise.resolve(), decisions: [], jobs: [], answered: new Map(), jobNotes: new Map(), frozen: null, editor: null,
+});
+let canvas = newBoard();
+/** The agent's bridge: whether its socket is open now (the page's, whichever board it shows). */
+const bridgeState = { linked: false };
+/**
+ * R6 (H139): whose board is on screen. Every line of its "Kept apart" log also goes to the console, as
+ * "[timmy-studio] …", and to the side panel (#kept).
+ */
+const identity = createIdentity({ log: (words) => { try { console.info(`[timmy-studio] ${words}`); } catch { /* none */ } showKept(); } });
+/** R6 (H139): each editor's board state (an editor started again after a crash, or reloaded, keeps its board's). */
+const boardOf = new WeakMap();
 
 /**
  * The live editor. A canvas call that crashes tldraw gets a fresh editor (round R1: see `restore`), so
@@ -122,26 +145,44 @@ function showStatus(editor) {
     say(`Not saved: ${canvas.refused}`, 'refused');
     return;
   }
+  // R6 (H139): the canvas shows a project this page cannot show: its own project's board stays, read only, and says why
+  if (identity.state === 'paused') {
+    say(`Read only now. ${identity.paused}`, 'refused');
+    return;
+  }
   // R5 (H137; QA defect 26): "Timmy connected" is the one observed live part (the bridge's socket is open now): it alone carries
   // the live mark; the version, the license and the save are facts, not live observations
+  // R6 (H139): while Studio switches boards (or cannot show the project the canvas shows), the line says that, not a revision
+  const blocked = identity.project === null && identity.switching === null ? null : blockedWords(identity);
   const text = [
     `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · `,
-    canvas.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
-    ` · ${savedWords(saveState(canvas))}`,
+    bridgeState.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
+    ` · ${blocked && identity.blocked() ? (identity.switching ? switchingTo(identity.switching) : 'no board shown') : savedWords(saveState(canvas))}`,
   ];
   // R5 (H133): a newer canvas on disk is said in full by the save line and its box below; this line keeps its end short
-  say(text, canvas.conflict || canvas.stale ? 'error' : canvas.linked ? 'ready' : 'waiting');
+  say(text, canvas.conflict || canvas.stale ? 'error' : bridgeState.linked ? 'ready' : 'waiting');
   if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 
 /**
  * R5 (H133): the save line (#save) and, when a newer version is on disk, the recovery box (#conflict): Reload takes the newer
  * version (this page's version kept as a copy first when it has unsaved changes), Keep a copy keeps it beside the canvas file.
+ * R6 (H139): while Studio switches boards, or cannot show the project the canvas shows, the line says that instead (the board
+ * before is saved and put away), and there is nothing to retry or reload.
  */
 function showSave() {
-  const st = saveState(canvas);
   const line = document.getElementById('save');
   if (!line) return;
+  if (identity.blocked() && identity.state !== 'none') {
+    line.dataset.state = identity.state;
+    line.dataset.needsYou = 'false';
+    document.getElementById('save-glyph').textContent = identity.state === 'switching' ? '◔' : '○';
+    document.getElementById('save-words').textContent = blockedWords(identity);
+    document.getElementById('save-retry').hidden = true;
+    document.getElementById('conflict').hidden = true;
+    return;
+  }
+  const st = saveState(canvas);
   line.dataset.state = st.state;
   line.dataset.needsYou = String(st.needsYou);
   document.getElementById('save-glyph').textContent = st.glyph;
@@ -153,141 +194,165 @@ function showSave() {
   if (newer) document.getElementById('conflict-keep').disabled = Boolean(canvas.kept) && canvas.revision === canvas.keptRevision;
 }
 
-/** R5 (H133): the document as this page holds it, as the save sends it. */
-const documentBody = () => JSON.stringify({ snapshot: getSnapshot(current.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
+/**
+ * R5 (H133): the document of board `b` as this page holds it, as the save sends it. R6 (H139): with the project it is the board of,
+ * and, once a switch away from it began, as it was then (`frozen`): nothing edits it after that.
+ */
+const documentOf = (b) => b.frozen ?? (b.editor ? getSnapshot(b.editor.store).document : null);
+const documentBody = (b = canvas) => JSON.stringify({ snapshot: documentOf(b), revision: b.revision, baseRevision: b.savedRevision, project: b.project ? b.project.id : null });
 
-// Saves go one at a time, each from the revision the last one left on disk.
-let queue = Promise.resolve();
-/** R5 (H133): the recording of decisions on drafts, one at a time (flushDecisions). */
-let flushing = Promise.resolve();
-async function saveNow() {
-  const editor = current;
-  if (canvas.conflict) return { ok: false, error: canvas.conflict.words };
+/**
+ * Saves go one at a time, each from the revision the last one left on disk. R6 (H139): each board's own (`b.queue`), always to that
+ * board's project; a save that lands after Studio left the board is kept on that board, and the "Kept apart" log says so.
+ */
+async function saveNow(b) {
+  if (b.conflict) return { ok: false, error: b.conflict.words };
   // R5 (H133): a newer canvas is on disk: this page never saves over it (Reload, or Keep a copy)
-  if (canvas.stale) return { ok: false, error: saveState(canvas).words };
-  if (canvas.revision === canvas.savedRevision) return { ok: true, revision: canvas.revision, sourceRevision: canvas.sourceRevision };
-  const revision = canvas.revision;
+  if (b.stale) return { ok: false, error: saveState(b).words };
+  if (b.revision === b.savedRevision) return { ok: true, revision: b.revision, sourceRevision: b.sourceRevision };
+  if (!b.project) return { ok: false, error: 'This page shows no project\'s board, so it saves nothing.' };
+  const snapshot = documentOf(b);
+  if (!snapshot) return { ok: false, error: 'This board is not open in this page any more, so nothing of it is saved.' };
+  const revision = b.revision;
   let status = 0;
   let reached = true;
   let saved;
-  canvas.saving = true;
-  showSave();
+  b.saving = true;
+  if (b === canvas) showSave();
   try {
     // R4 (H83): saved with this page's session (./cards.js holds it; this file never sees it)
-    const response = await cards.saveDocument(JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision, baseRevision: canvas.savedRevision }));
+    const response = await cards.saveDocument(JSON.stringify({ snapshot, revision, baseRevision: b.savedRevision, project: b.project.id }));
     status = response.status;
     saved = response.body || { ok: false, error: `Timmy answered ${status} for the save.` };
   } catch (error) {
     reached = false;
     saved = { ok: false, error: `Timmy could not be reached to save the canvas (${error instanceof Error ? error.message : String(error)}).` };
   }
-  canvas.saving = false;
+  b.saving = false;
   if (saved.ok) {
-    canvas.savedRevision = saved.revision;
-    canvas.sourceRevision = saved.sourceRevision;
-    canvas.savedAt = typeof saved.savedAt === 'string' ? saved.savedAt : new Date().toISOString();
-    canvas.notice = null;
-    canvas.refused = null;
-    canvas.failed = null;
+    b.savedRevision = saved.revision;
+    b.sourceRevision = saved.sourceRevision;
+    b.savedAt = typeof saved.savedAt === 'string' ? saved.savedAt : new Date().toISOString();
+    b.notice = null;
+    b.refused = null;
+    b.failed = null;
     // R5 (H133): the decisions on drafts this save holds are recorded now, one at a time
-    flushing = flushing.then(() => flushDecisions(saved)).catch(() => undefined);
+    b.flushing = b.flushing.then(() => flushDecisions(b, saved)).catch(() => undefined);
+    // R6 (H139): it landed on its own board's file, whichever board is on screen now
+    if (b !== canvas) identity.note(keptWords('save', b.project, identity.project ?? identity.switching, `revision ${saved.revision}`));
   } else if (status === 409) {
-    canvas.conflict = { words: saved.error, revision: Number.isInteger(saved.revision) ? saved.revision : null };
+    b.conflict = { words: saved.error, revision: Number.isInteger(saved.revision) ? saved.revision : null };
   } else if (reached && (status === 401 || status === 0)) {
-    canvas.refused = saved.error || 'Timmy refused this page\'s save. In Timmy: /canvas open.';
+    b.refused = saved.error || 'Timmy refused this page\'s save. In Timmy: /canvas open.';
   } else {
     // R5 (H133): not saved, and said so (it had stayed "saving" for good): Retry, or the next change, tries again
-    canvas.failed = saved.error || `Timmy answered ${status} for the save.`;
+    b.failed = saved.error || `Timmy answered ${status} for the save.`;
   }
-  showStatus(editor);
+  if (b === canvas && current) showStatus(current);
   return saved;
 }
-function save() {
-  clearTimeout(canvas.timer);
-  const run = queue.then(() => saveNow());
-  queue = run.catch(() => undefined);
+function save(b = canvas) {
+  clearTimeout(b.timer);
+  const run = b.queue.then(() => saveNow(b));
+  b.queue = run.catch(() => undefined);
   return run;
 }
-const saveSoon = () => {
-  clearTimeout(canvas.timer);
-  canvas.timer = setTimeout(() => save(), 400);
+const saveSoon = (b = canvas) => {
+  clearTimeout(b.timer);
+  b.timer = setTimeout(() => save(b), 400);
 };
 /**
  * Leaving the page (closing the tab, reloading, going elsewhere) saves what the 400 ms wait has not.
  * A closing page can still send one small request (keepalive, up to 64 KB); a larger canvas sends
  * an ordinary one, which the browser may cut off: then the last 400 ms of changes can be lost.
+ * R6 (H139): to the board's own project.
  */
 function saveOnLeave() {
-  if (!current || canvas.conflict || canvas.stale || canvas.revision === canvas.savedRevision || !cards.hasSession()) return;
-  clearTimeout(canvas.timer);
-  const body = documentBody();
+  const b = canvas;
+  if (!current || !b.project || b.conflict || b.stale || b.revision === b.savedRevision || !cards.hasSession()) return;
+  clearTimeout(b.timer);
+  const body = documentBody(b);
   cards.saveDocument(body, body.length < 60_000).catch(() => undefined);
 }
 
 /**
  * R5 (H133): the canvas on disk, as Timmy's health says (no content: its revision and source revision). A canvas newer than this
  * page's last save (another window saved it) marks this page stale before it tries to save over it. A reading that began before
- * this page's own last save landed, or while a save is on its way, is ignored.
+ * this page's own last save landed, or while a save is on its way, is ignored. R6 (H139): of the board on screen's own project (the
+ * server refuses it, 409, when the canvas shows another now); a reading from before a switch is dropped.
  */
 async function checkDisk() {
-  if (!current || canvas.conflict || canvas.stale || canvas.saving) return;
-  const asked = { revision: canvas.savedRevision, source: canvas.sourceRevision };
+  const b = canvas;
+  if (!current || identity.blocked() || !b.project || b.conflict || b.stale || b.saving) return;
+  const asked = { revision: b.savedRevision, source: b.sourceRevision };
+  const ticket = identity.ticket();
   let health;
   try {
-    const r = await fetch('/api/canvas/health', { cache: 'no-store' });
-    if (!r.ok) return;
-    health = await r.json();
+    const r = await cards.health(b.project.id);
+    if (r.status === 409) { void watchProject(); return; }
+    if (!r.ok || !r.body) return;
+    health = r.body;
   } catch {
     return;
   }
-  if (canvas.saving || canvas.savedRevision !== asked.revision || canvas.sourceRevision !== asked.source) return;
+  if (!identity.current(ticket) || b !== canvas) return;
+  if (health.project && health.project.id !== b.project.id) return;
+  if (b.saving || b.savedRevision !== asked.revision || b.sourceRevision !== asked.source) return;
   if (!Number.isInteger(health.revision)) return;
-  const newer = health.revision !== canvas.savedRevision || (health.revision > 0 && typeof health.sourceRevision === 'string' && canvas.sourceRevision && health.sourceRevision !== canvas.sourceRevision);
+  const newer = health.revision !== b.savedRevision || (health.revision > 0 && typeof health.sourceRevision === 'string' && b.sourceRevision && health.sourceRevision !== b.sourceRevision);
   if (newer) {
-    canvas.stale = { revision: health.revision };
-    clearTimeout(canvas.timer);
+    b.stale = { revision: health.revision };
+    clearTimeout(b.timer);
     showStatus(current);
   }
 }
 
-/** R5 (H133): Keep a copy: this page's version, kept beside the canvas file (it never replaces it). */
-async function keepCopy() {
-  if (!current) return null;
-  const r = await cards.keepCopy(documentBody()).catch((error) => ({ status: 0, ok: false, body: { ok: false, error: error instanceof Error ? error.message : String(error) } }));
+/** R5 (H133): Keep a copy: this page's version, kept beside the canvas file (it never replaces it). R6 (H139): beside its own board. */
+async function keepCopy(b = canvas) {
+  if (!current || !b.project) return null;
+  const r = await cards.keepCopy(documentBody(b)).catch((error) => ({ status: 0, ok: false, body: { ok: false, error: error instanceof Error ? error.message : String(error) } }));
   const said = r.body || {};
   if (r.ok && said.ok === true && typeof said.kept === 'string') {
-    canvas.kept = said.kept;
-    canvas.keptRevision = canvas.revision;
-    band(`Kept this page's version (revision ${canvas.revision}) as ${said.kept}, beside the canvas file in Timmy's canvas folder. The canvas on disk is unchanged.`);
-    showStatus(current);
+    b.kept = said.kept;
+    b.keptRevision = b.revision;
+    if (b === canvas) {
+      band(`Kept this page's version (revision ${b.revision}) as ${said.kept}, beside ${b.project.name}'s board in Timmy's canvas folder. The board on disk is unchanged.`);
+      showStatus(current);
+    }
     return said.kept;
   }
-  band(`Not kept: ${said.error || `Timmy answered ${r.status}.`}`, true);
+  if (b === canvas) band(`Not kept: ${said.error || `Timmy answered ${r.status}.`}`, true);
   return null;
 }
 
 /**
  * R5 (H133): Reload: the newer canvas from disk, in a fresh editor. This page's unsaved changes are kept as a copy first (never
- * lost without a copy); then the page shows and saves from the revision on disk.
+ * lost without a copy); then the page shows and saves from the revision on disk. R6 (H139): the same project's board, never another.
  */
 async function reloadFromDisk() {
-  if (!current) return;
-  if (canvas.revision !== canvas.savedRevision && !(canvas.kept && canvas.keptRevision === canvas.revision)) {
-    if (!(await keepCopy())) return;
+  const b = canvas;
+  if (!current || identity.blocked() || !b.project) return;
+  if (b.revision !== b.savedRevision && !(b.kept && b.keptRevision === b.revision)) {
+    if (!(await keepCopy(b))) return;
   }
-  const opened = await cards.loadDocument();
-  if (!opened.ok || !opened.body) {
+  const ticket = identity.ticket();
+  const opened = await cards.loadDocument(b.project.id);
+  if (!identity.current(ticket) || b !== canvas) {
+    if (opened.ok) identity.note(keptWords('reading', b.project, identity.project ?? identity.switching, 'its board, read again from disk'));
+    return;
+  }
+  if (!opened.ok || !opened.body || projectOf(opened.body.project)?.id !== b.project.id) {
     band(`Not reloaded: ${opened.why || `Timmy answered ${opened.status} for the saved canvas.`}`, true);
     return;
   }
   const disk = opened.body;
-  clearTimeout(canvas.timer);
-  await mount(disk.snapshot ? { document: disk.snapshot } : undefined);
+  clearTimeout(b.timer);
+  await mount(disk.snapshot ? { document: disk.snapshot } : undefined, b);
   fitOnOpen(current);
-  Object.assign(canvas, { revision: disk.revision, savedRevision: disk.revision, sourceRevision: disk.sourceRevision, savedAt: disk.savedAt ?? null, saving: false, failed: null, conflict: null, stale: null, refused: null });
-  const kept = canvas.kept;
-  canvas.kept = null;
-  band(`Reloaded revision ${disk.revision} from disk.${kept ? ` This page's version is kept as ${kept}.` : ''}`);
+  Object.assign(b, { revision: disk.revision, savedRevision: disk.revision, sourceRevision: disk.sourceRevision, savedAt: disk.savedAt ?? null, saving: false, failed: null, conflict: null, stale: null, refused: null });
+  const kept = b.kept;
+  b.kept = null;
+  band(`Reloaded revision ${disk.revision} of ${b.project.name}'s board from disk.${kept ? ` This page's version is kept as ${kept}.` : ''}`);
   showStatus(current);
   showDrafts(current);
   showJobs(current);
@@ -304,6 +369,11 @@ const MAX_ANSWER = 256 * 1024;
 let runningJob = null;
 /** R5 (H133): the mark of the draft the running call makes, or null when it is not a draft. */
 let drafting = null;
+/**
+ * R6 (H139): the editor the running call runs on: its job's and its draft's marks go on what that editor creates only, never on a
+ * shape a person makes on another project's board meanwhile (a call can still be running when Studio switches boards).
+ */
+let runningOn = null;
 let calls = Promise.resolve();
 /** The shapes the running call has created, so they can be brought into view when it ends. */
 let drawnInCall = null;
@@ -351,21 +421,32 @@ function reveal(editor, ids, o = {}) {
   );
 }
 
-/** What every editor needs from Timmy: each shape a call creates carries the call's job, and every change counts and saves. */
-function attachEditor(editor) {
+/**
+ * What every editor needs from Timmy: each shape a call creates carries the call's job, and every change counts and saves. R6
+ * (H139): on its own board's state (`b`), and only while it is the editor on screen: an editor left for another project's board (or
+ * a board put away for a switch) counts nothing more.
+ */
+function attachEditor(editor, b) {
+  boardOf.set(editor, b);
+  b.editor = editor;
   editor.sideEffects.registerBeforeCreateHandler('shape', (shape) => {
+    if (runningOn !== editor) return shape;
     drawnInCall?.add(shape.id);
     if (!runningJob && !drafting) return shape;
     // R5 (H133): a draft's shapes carry its mark as well as the job
     return { ...shape, meta: { ...shape.meta, ...(runningJob ? { timmyJob: runningJob } : {}), ...(drafting ? { timmyDraft: drafting } : {}) } };
   });
   // R5 (H133): an asset a draft brings (an image it shows) carries the mark too, so Discard takes it with the shapes
-  editor.sideEffects.registerBeforeCreateHandler('asset', (asset) => (drafting ? { ...asset, meta: { ...asset.meta, timmyDraft: drafting } } : asset));
+  editor.sideEffects.registerBeforeCreateHandler('asset', (asset) => (drafting && runningOn === editor ? { ...asset, meta: { ...asset.meta, timmyDraft: drafting } } : asset));
   const bump = () => {
-    canvas.revision += 1;
-    if (canvas.failed) canvas.failed = null;
-    saveSoon();
-    if (current) showStatus(current);
+    const b = boardOf.get(editor);
+    if (!b || b.frozen) return;
+    b.revision += 1;
+    if (b.failed) b.failed = null;
+    // a board Studio has left (its call still running as the switch went on): the call saves it to its own project as it ends
+    if (current !== editor || b !== canvas) return;
+    saveSoon(b);
+    showStatus(current);
   };
   for (const type of ['shape', 'binding', 'page', 'asset']) {
     editor.sideEffects.registerAfterCreateHandler(type, bump);
@@ -393,7 +474,10 @@ function sameDocument(a, b) {
  */
 async function restore(editor, before, mark, crashed) {
   if (crashed) {
-    await mount(before);
+    // R6 (H139): a board Studio left while the call ran is never started again on screen
+    const b = boardOf.get(editor);
+    if (current !== editor || b !== canvas) return;
+    await mount(before, b);
     return;
   }
   editor.bailToMark(mark);
@@ -417,10 +501,10 @@ function connectBridge() {
   let wait = 2000;
   const open = () => {
     const ws = cards.bridgeSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
-    if (!ws) { canvas.linked = false; if (current) showStatus(current); return; }
-    ws.onopen = () => { wait = 2000; canvas.linked = true; if (current) showStatus(current); };
+    if (!ws) { bridgeState.linked = false; if (current) showStatus(current); return; }
+    ws.onopen = () => { wait = 2000; bridgeState.linked = true; if (current) showStatus(current); };
     ws.onclose = (event) => {
-      canvas.linked = false;
+      bridgeState.linked = false;
       if (event.code === 4401) cards.sessionEnded('This page\'s session with Timmy has ended, so Timmy sends it no more code. In Timmy: /canvas open gives a new page one.');
       if (current) showStatus(current);
       if (!cards.hasSession()) return;
@@ -429,19 +513,33 @@ function connectBridge() {
     };
     const run = async (message) => {
       const editor = current;
+      const b = canvas;
+      // R6 (H139): a call runs only on the board of the project it was made for, never while Studio switches boards or shows none;
+      // one that came for another (or arrived after Studio left its board) runs nothing on either board, and says so
+      const asked = projectOf(message.project);
+      if (!editor || identity.blocked() || !asked || !b.project || asked.id !== b.project.id || !identity.belongs(asked.id) || boardOf.get(editor) !== b) {
+        const now = identity.switching ?? identity.project;
+        const where = identity.switching ? `is switching to ${identity.switching.name}` : identity.paused ? 'cannot show the project the canvas shows now' : `shows ${now ? now.name : 'no project'}`;
+        const early = identity.switching && asked && asked.id === identity.switching.id;
+        identity.note(keptWords(early ? 'early' : 'call', asked, now, typeof message.jobId === 'string' ? `job ${message.jobId}` : ''));
+        ws.send(JSON.stringify({ id: message.id, ok: false, notRun: identity.switching ? 'switching' : 'project', changed: false,
+          error: `Not run: this call was made for ${asked ? asked.name : 'no project'}, but Studio ${where} now, so nothing ran and nothing was drawn on either board. Ask again once Studio shows ${asked ? asked.name : 'its project'}.` }));
+        return;
+      }
       const before = getSnapshot(editor.store);
-      const revisionBefore = canvas.revision;
+      const revisionBefore = b.revision;
       const draft = draftAsked(message);
       let answer;
       let drawn = [];
-      if (draft && draft.baseRevision !== null && draft.baseRevision !== canvas.revision) {
+      if (draft && draft.baseRevision !== null && draft.baseRevision !== b.revision) {
         // R5 (H133): made from a revision the canvas has left: refused before its code runs, and said so
-        answer = { ok: false, error: staleWords(draft.baseRevision, canvas.revision), stale: true, draft: { id: draft.id, refused: 'stale', from: draft.baseRevision, now: canvas.revision } };
+        answer = { ok: false, error: staleWords(draft.baseRevision, b.revision), stale: true, draft: { id: draft.id, refused: 'stale', from: draft.baseRevision, now: b.revision } };
       } else {
         const mark = editor.markHistoryStoppingPoint(`timmy ${typeof message.jobId === 'string' ? message.jobId : 'call'}`);
         runningJob = typeof message.jobId === 'string' ? message.jobId : null;
-        const callMark = draft ? draftMark({ id: draft.id, job: runningJob, from: canvas.revision }) : null;
+        const callMark = draft ? draftMark({ id: draft.id, job: runningJob, from: b.revision }) : null;
         drafting = callMark;
+        runningOn = editor;
         drawnInCall = new Set();
         try {
           // R4 (H81): this code runs in this page's own realm, with the page's own rights: it can reach the network, replace
@@ -458,6 +556,7 @@ function connectBridge() {
         } finally {
           runningJob = null;
           drafting = null;
+          runningOn = null;
         }
         drawn = [...drawnInCall];
         drawnInCall = null;
@@ -484,34 +583,41 @@ function connectBridge() {
             answer.rolledBack = true;
             if (crash) answer.restarted = true;
             // The canvas changed and changed back: one more revision, so the saved file follows.
-            if (canvas.revision !== revisionBefore) canvas.revision += 1;
+            if (b.revision !== revisionBefore) b.revision += 1;
           } catch (error) {
             answer.rollbackError = describe(error);
           }
         } else {
           if (draft) {
-            const marked = current.store.allRecords().filter((r) => r.typeName === 'shape' && draftOf(r)?.id === draft.id).length;
+            const marked = editor.store.allRecords().filter((r) => r.typeName === 'shape' && draftOf(r)?.id === draft.id).length;
             answer.draft = { id: draft.id, shapes: marked, from: revisionBefore };
           }
           try {
-            reveal(editor, drawn);
+            if (current === editor) reveal(editor, drawn);
           } catch {
             // Showing the drawing is a courtesy; the call's answer never depends on it.
           }
         }
       }
-      const saved = await save();
+      // R6 (H139): saved to the board the call ran on (its own project), whichever board is on screen by now
+      const saved = await save(b);
       const savedAs = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
       // Whether the call left the canvas changed: a lookup, or a call that was undone, did not.
-      const changed = answer.ok === true && canvas.revision !== revisionBefore;
-      ws.send(JSON.stringify({ id: message.id, ...answer, changed, revision: canvas.revision, ...savedAs }));
+      const changed = answer.ok === true && b.revision !== revisionBefore;
+      // R6 (H139; the interaction review, defect 13): the job this page just answered is listed at once, said as such, until Timmy
+      // lists it (it records the job as it reads this answer)
+      if (typeof message.jobId === 'string' && saved.ok) b.answered.set(message.jobId, { id: message.jobId, ok: answer.ok === true, revision: b.revision, at: new Date().toISOString() });
+      ws.send(JSON.stringify({ id: message.id, ...answer, changed, revision: b.revision, ...savedAs }));
+      if (b !== canvas) identity.note(`A canvas call for ${b.project ? b.project.name : 'a board'} (job ${typeof message.jobId === 'string' ? message.jobId : 'none'}) ended after Studio left its board: what it did is on ${b.project ? `${b.project.name}'s` : 'that'} board and in its records only.`);
       // The server records the job when it reads this answer; show it a moment later.
       setTimeout(() => void refreshJobs(), 200);
-      if (current) showDrafts(current);
+      if (current && b === canvas) { showDrafts(current); showJobs(current); }
     };
     ws.onmessage = (event) => {
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
+      // R6 (H139): the project named to the canvas changed: the board on screen switches with it at once
+      if (message.type === 'project') { onProjectNamed(message.project, typeof message.paused === 'string' ? message.paused : null); return; }
       if (message.type !== 'exec') return;
       calls = calls.then(() => run(message)).catch(() => undefined);
     };
@@ -523,7 +629,6 @@ function connectBridge() {
 // page of the turn that ran it once sealed, and the job of a selected shape marked; and "New board":
 // a blank board, or a public template opened blank (its title, and an empty frame per capability).
 const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
-let jobs = [];
 function selectedJobs(editor) {
   return new Set(editor.getSelectedShapes().map((shape) => shape.meta?.timmyJob).filter(Boolean));
 }
@@ -537,31 +642,45 @@ function jobTime(at) {
   const today = new Date().toDateString() === when.toDateString();
   return { text: today ? clockOf(when) : dateTimeOf(when), iso: at };
 }
-/** What the Canvas row said the last time it could not show a job (no shapes of it on this page), by job. */
-const jobNotes = new Map();
 /**
  * The Canvas row of a job: its shapes, selected and brought into view. A job that left no shape on this
- * page (it drew nothing, or the shapes were deleted, or they are on another page) says so.
+ * page (it drew nothing, or the shapes were deleted, or they are on another page) says so. R6 (H139): what the row said is kept
+ * per board (`jobNotes`).
  */
 function showJob(editor, id) {
   const shapes = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyJob === id).map((shape) => shape.id);
   if (shapes.length === 0) {
-    jobNotes.set(id, 'no shapes of this job on this page');
+    canvas.jobNotes.set(id, 'no shapes of this job on this page');
   } else {
-    jobNotes.delete(id);
+    canvas.jobNotes.delete(id);
     editor.select(...shapes);
     reveal(editor, shapes);
   }
   showJobs(editor);
 }
-// The panel names each job in the words the REPL uses after a turn: its outcome and time, then Canvas
-// (the job and the revision it left) and Receipt (its page, or "not linked yet").
+/**
+ * The panel names each job in the words the REPL uses after a turn: its outcome and time, then Canvas (the job and the revision it
+ * left) and Receipt (its page, or "not linked yet"). R6 (H139): the jobs of the board on screen only, and none while Studio switches
+ * boards; a job this page answered that Timmy has not listed yet, and a job a pending draft names, are listed at once and said so
+ * (never "No jobs yet" while a draft that names its job waits: the interaction review, defect 13).
+ */
 function showJobs(editor) {
   const list = document.getElementById('job-list');
-  const marked = selectedJobs(editor);
-  const rows = jobs.slice(0, 12).map((job) => {
+  if (!list) return;
+  if (identity.state === 'switching') {
+    list.replaceChildren(el('li', `Switching to ${identity.switching.name}: its canvas jobs show once its board is loaded.`, { className: 'job-blocked' }));
+    return;
+  }
+  const b = canvas;
+  const marked = editor ? selectedJobs(editor) : new Set();
+  for (const id of [...b.answered.keys()]) if (b.jobs.some((j) => j.id === id)) b.answered.delete(id);
+  const waiting = [...b.answered.values()].reverse().map((j) => ({ ...j, waiting: 'answered here; Timmy records it next' }));
+  const known = new Set([...b.jobs, ...waiting].map((j) => j.id));
+  const drafted = editor ? pendingDrafts(editor.store.allRecords()).filter((d) => d.job && !known.has(d.job)).map((d) => ({ id: d.job, ok: true, revision: d.from, at: d.at, waiting: 'its draft waits for you on this board' })) : [];
+  const rows = [...waiting, ...drafted, ...b.jobs].slice(0, 12).map((job) => {
     const li = el('li', undefined, { className: 'job' });
     li.dataset.job = job.id;
+    if (job.waiting) li.dataset.waiting = 'true';
     li.setAttribute('aria-current', String(marked.has(job.id)));
     const when = jobTime(job.at);
     const head = el('div', undefined, { className: 'job-head' });
@@ -569,12 +688,13 @@ function showJobs(editor) {
     if (when.text) head.append(el('time', when.text, { dateTime: when.iso, title: when.iso }));
     // Round R1: a job's mark is its last call's; the calls that failed before it kept nothing, and say so.
     if (typeof job.failed === 'number' && job.failed > 0) head.append(el('span', `${job.failed} failed ${job.failed === 1 ? 'call' : 'calls'}, nothing kept`, { className: 'job-failed' }));
+    if (job.waiting) head.append(el('span', job.waiting, { className: 'job-waiting' }));
     const canvasRow = el('div', undefined, { className: 'job-row' });
     canvasRow.dataset.row = 'Canvas';
-    const show = el('button', `job ${job.id}, rev ${job.revision}`, { type: 'button', className: 'job-show', title: 'Select what this job drew' });
-    show.addEventListener('click', () => showJob(editor, job.id));
+    const show = el('button', `job ${job.id}${Number.isInteger(job.revision) ? `, rev ${job.revision}` : ''}`, { type: 'button', className: 'job-show', title: 'Select what this job drew' });
+    show.addEventListener('click', () => current && showJob(current, job.id));
     canvasRow.append(el('span', 'Canvas', { className: 'k' }), ' ', show);
-    const note = jobNotes.get(job.id);
+    const note = b.jobNotes.get(job.id);
     if (note) canvasRow.append(el('span', note, { className: 'job-note' }));
     const receiptRow = el('div', undefined, { className: 'job-row' });
     receiptRow.dataset.row = 'Receipt';
@@ -586,16 +706,25 @@ function showJobs(editor) {
     li.append(head, canvasRow, receiptRow);
     return li;
   });
-  list.replaceChildren(...(rows.length ? rows : [el('li', 'No jobs yet. Ask Timmy in the REPL to draw something.')]));
+  list.replaceChildren(...(rows.length ? rows : [el('li', `No jobs yet on ${b.project ? `${b.project.name}'s board` : 'this board'}. Ask Timmy in the REPL to draw something.`)]));
 }
+/** R6 (H139): the jobs of the board on screen, read with its project; a reading from before a switch is dropped, and said so. */
 async function refreshJobs() {
+  const b = canvas;
+  if (!b.project || identity.blocked()) return;
+  const ticket = identity.ticket();
+  let listed = null;
   try {
     // R4 (H83): read with this page's session; none read keeps the last list
-    const listed = await cards.jobs();
-    if (listed) jobs = listed;
+    listed = await cards.jobs(b.project.id);
   } catch {
     // The status line already says when Timmy cannot be reached.
   }
+  if (!identity.current(ticket) || b !== canvas) {
+    if (listed) identity.note(keptWords('reading', b.project, identity.project ?? identity.switching, 'its canvas jobs'));
+    return;
+  }
+  if (listed) b.jobs = listed;
   if (current) showJobs(current);
 }
 function showGuide(editor) {
@@ -603,29 +732,40 @@ function showGuide(editor) {
 }
 
 // ── R5 (H133): drafts in the side panel: each pending draft with Show, Accept and Discard ───────────────────────────────
-/** The decisions made on this page, waiting for their save to land before they are recorded (then sent and dropped). */
-const decisions = [];
+// R6 (H139): the decisions made on a board wait, on that board's state, for their save to land before they are recorded
+// (`decisions`); the drafts listed are the board on screen's, named as its project's while Studio switches boards, with Show,
+// Accept and Discard off then, saying why.
 let draftsShown = '';
 function showDrafts(editor) {
+  if (!editor) return;
+  const blocked = identity.blocked() && identity.state !== 'none';
   const pending = pendingDrafts(editor.store.allRecords());
-  const key = JSON.stringify(pending.map((d) => [d.id, d.shapes.length, d.pages]));
+  const owner = canvas.project ? canvas.project.name : 'this board';
+  const key = JSON.stringify([blocked ? identity.state : 'open', identity.gen, owner, pending.map((d) => [d.id, d.shapes.length, d.pages])]);
   if (key === draftsShown) return;
   draftsShown = key;
   const box = document.getElementById('drafts');
   const list = document.getElementById('draft-list');
+  const why = document.getElementById('drafts-why');
   box.hidden = pending.length === 0;
-  document.getElementById('drafts-count').textContent = pending.length === 1 ? '1 waiting for you' : `${pending.length} waiting for you`;
+  box.dataset.blocked = String(blocked);
+  const waiting = pending.length === 1 ? '1 waiting for you' : `${pending.length} waiting for you`;
+  document.getElementById('drafts-count').textContent = blocked ? `${pending.length} of ${owner}'s, on hold` : waiting;
+  const off = blocked ? blockedWords(identity) : null;
+  if (why) { why.textContent = off ?? ''; why.hidden = !off; }
   const pageName = (id) => editor.getPage(id)?.name ?? 'another page';
   list.replaceChildren(...pending.map((d) => {
     const li = el('li', undefined, { className: 'draft' });
     li.dataset.draft = d.id;
-    li.append(el('p', draftLine(d), { className: 'draft-line' }));
+    if (canvas.project) li.dataset.project = canvas.project.id;
+    li.append(el('p', blocked ? `${owner}'s draft · ${draftLine(d)}` : draftLine(d), { className: 'draft-line' }));
     const here = d.pages.includes(editor.getCurrentPageId());
-    if (!here) li.append(el('p', `On ${d.pages.map(pageName).join(', ')}.`, { className: 'draft-where' }));
+    if (!here && !blocked) li.append(el('p', `On ${d.pages.map(pageName).join(', ')}.`, { className: 'draft-where' }));
     const acts = el('div', undefined, { className: 'draft-acts' });
-    const show = el('button', 'Show', { type: 'button', className: 'draft-show', title: 'Selects the draft\'s shapes and brings them into view' });
-    const accept = el('button', 'Accept', { type: 'button', className: 'draft-accept', title: 'Keeps the draft\'s shapes on the board and clears their draft mark. Nothing runs: no tool, job or file but the canvas.' });
-    const discard = el('button', 'Discard', { type: 'button', className: 'draft-discard', title: 'Removes the draft\'s shapes from the board. Nothing runs: no tool, job or file but the canvas.' });
+    const show = el('button', 'Show', { type: 'button', className: 'draft-show', title: off ?? 'Selects the draft\'s shapes and brings them into view' });
+    const accept = el('button', 'Accept', { type: 'button', className: 'draft-accept', title: off ?? 'Keeps the draft\'s shapes on the board and clears their draft mark. Nothing runs: no tool, job or file but the canvas.' });
+    const discard = el('button', 'Discard', { type: 'button', className: 'draft-discard', title: off ?? 'Removes the draft\'s shapes from the board. Nothing runs: no tool, job or file but the canvas.' });
+    for (const b of [show, accept, discard]) { b.disabled = blocked; if (blocked) b.setAttribute('aria-disabled', 'true'); }
     // a decision is the person's: only a click the browser marks as theirs (a pointer, or Enter or Space on the focused button)
     // decides; code on the page (the agent's own calls run here) calling .click() on Accept decides nothing
     show.addEventListener('click', () => showDraft(d.id));
@@ -638,7 +778,7 @@ function showDrafts(editor) {
 }
 function showDraft(id) {
   const editor = current;
-  if (!editor) return;
+  if (!editor || identity.blocked()) return;
   const d = pendingDrafts(editor.store.allRecords()).find((x) => x.id === id);
   if (!d) return;
   if (!d.pages.includes(editor.getCurrentPageId()) && d.pages[0]) editor.setCurrentPage(d.pages[0]);
@@ -649,11 +789,14 @@ function showDraft(id) {
 /**
  * R5 (H133): a person's decision on draft `id`: Accept clears its mark (its shapes stay), Discard removes its shapes (and assets
  * no other shape shows; the person's own shapes inside them are moved out first). Either is one undo step, saved through the
- * normal revision-checked save, and recorded once that save lands (flushDecisions). Nothing else runs.
+ * normal revision-checked save, and recorded once that save lands (flushDecisions). Nothing else runs. R6 (H139): never while
+ * Studio switches boards (its buttons are off then); on the board on screen, for its project, recorded in its project's record.
  */
 function decide(id, decision) {
   const editor = current;
+  const b = canvas;
   if (!editor) return;
+  if (identity.blocked() || !b.project || boardOf.get(editor) !== b) { band(blockedWords(identity) ?? 'Not now: no board is on screen.', true); return; }
   const records = editor.store.allRecords();
   const d = pendingDrafts(records).find((x) => x.id === id);
   if (!d) { band('That draft is no longer on the board.', true); showDrafts(editor); return; }
@@ -670,21 +813,28 @@ function decide(id, decision) {
     });
   }
   // recorded once a save holds it: a save already on its way when the person decided does not (`made`, the revision it left)
-  decisions.push({ record: { draft: id, decision, shapes: d.shapes.length, job: d.job, from: d.from, at: new Date().toISOString() }, made: canvas.revision });
+  b.decisions.push({ record: { draft: id, decision, shapes: d.shapes.length, job: d.job, from: d.from, at: new Date().toISOString(), project: b.project.id }, made: b.revision });
   band(decisionWords(decision, d, null));
   showDrafts(editor);
-  void save();
+  void save(b);
 }
-/** R5 (H133): every decision whose save has landed, recorded with the revision and source revision that save produced. */
-async function flushDecisions(saved) {
-  while (decisions.length && decisions[0].made <= saved.revision) {
-    const next = decisions[0].record;
+/**
+ * R5 (H133): every decision whose save has landed, recorded with the revision and source revision that save produced. R6 (H139): in
+ * the drafts record of the board it was made on (`b`), whichever board is on screen by then (the "Kept apart" log says so).
+ */
+async function flushDecisions(b, saved) {
+  while (b.decisions.length && b.decisions[0].made <= saved.revision) {
+    const next = b.decisions[0].record;
     const body = { ...next, revision: saved.revision, sourceRevision: saved.sourceRevision };
     let r;
     try { r = await cards.draftDecision(body); } catch { r = { ok: false }; }
-    if (!r.ok) { band(`${decisionWords(next.decision, { count: next.shapes, job: next.job }, saved)} The record of it was not written (Timmy answered ${r.status ?? 'nothing'}); it is tried again with the next save.`, true); return; }
-    decisions.shift();
-    band(decisionWords(next.decision, { count: next.shapes, job: next.job }, saved));
+    if (!r.ok) {
+      if (b === canvas) band(`${decisionWords(next.decision, { count: next.shapes, job: next.job }, saved)} The record of it was not written (Timmy answered ${r.status ?? 'nothing'}); it is tried again with the next save.`, true);
+      return;
+    }
+    b.decisions.shift();
+    if (b === canvas) band(decisionWords(next.decision, { count: next.shapes, job: next.job }, saved));
+    else identity.note(keptWords('decision', b.project, identity.project ?? identity.switching, `${next.decision}${next.job ? `, job ${next.job}` : ''}`));
   }
 }
 
@@ -860,15 +1010,18 @@ function connectPanel() {
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
   void offerBoards();
   void refreshJobs();
-  // R5 (H133): the save's Retry and the recovery box's buttons
-  document.getElementById('save-retry').addEventListener('click', () => { canvas.failed = null; void save(); });
+  // R5 (H133): the save's Retry and the recovery box's buttons (R6 H139: on the board on screen, never while Studio switches)
+  document.getElementById('save-retry').addEventListener('click', () => { if (identity.blocked()) return; canvas.failed = null; void save(canvas); });
   document.getElementById('conflict-reload').addEventListener('click', () => void reloadFromDisk());
-  document.getElementById('conflict-keep').addEventListener('click', () => void keepCopy());
+  document.getElementById('conflict-keep').addEventListener('click', () => { if (!identity.blocked()) void keepCopy(canvas); });
   setInterval(() => {
     if (document.visibilityState !== 'visible') return;
     void refreshJobs();
     void checkDisk();
   }, 5000);
+  // R6 (H139): which project the canvas shows, asked every 1.5 s as well (the bridge tells a page joined at once; one off the
+  // bridge, or between two of its answers, learns here)
+  setInterval(() => { if (document.visibilityState === 'visible') void watchProject(); }, 1500);
   // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js). R4 (H75): read with each card's
   // drawn detail, which the drawn cards follow; Place card makes one; the reading comes faster while a card's job runs.
   // R4 (H81): read through the drawn cards' own reader: the cards' detail only with this page's session (./cards.js read), and
@@ -877,8 +1030,12 @@ function connectPanel() {
   const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
     editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
-    // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows
-    read: (pinned) => cards.read(pinned), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
+    // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows. R6
+    // (H139): each reading records whose board was on screen when it was asked (`ticket`), and is drawn only when it still is
+    read: async (pinned) => { const ticket = identity.ticket(); const r = await cards.read(pinned); return { ...r, ticket }; },
+    accept: (now) => readingFits(now),
+    hold: () => holdWords(),
+    onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
     // R4 (H100): Place this operation (its cards at once, left to right in the order they ran, linked)
     placeOperation: (id, now) => cards.placeOperation(id, now),
@@ -890,6 +1047,31 @@ function connectPanel() {
   cards.setSessionListener(showSession);
   showSession();
   if (current) showDrafts(current);
+}
+
+/**
+ * R6 (H139): whether a reading of the Project panel belongs to the board on screen: asked since the last switch, and of its project
+ * (a board pinned to a project reads that one). A reading of another project means the canvas shows another now: Studio switches
+ * boards with it, and the reading is not drawn here.
+ */
+function readingFits(now) {
+  // a refusal holds nothing of any project: the panel says why (a session paused, or ended)
+  if (now && now.refused && !now.project) return true;
+  if (!now || !identity.current(now.ticket)) {
+    if (now && now.project && !now.pinned) identity.note(keptWords('reading', projectOf(now.project), identity.project ?? identity.switching, 'its cards'));
+    return false;
+  }
+  if (now.pinned || !now.project) return true;
+  if (identity.project && now.project.id === identity.project.id) return true;
+  onProjectNamed(now.project);
+  return false;
+}
+/**
+ * R6 (H139): what the header and the Project panel say while Studio switches boards, or null. (Paused, the page keeps its own
+ * project's board on screen, read only, under that project's own name: its header and panel say why they are not read now.)
+ */
+function holdWords() {
+  return identity.state === 'switching' ? switchingTo(identity.switching) : null;
 }
 
 // Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
@@ -945,8 +1127,11 @@ function followEditor(editor) {
 let tldrawProps = null;
 let reactRoot = null;
 let mounts = 0;
-/** Start tldraw on `snapshot` (a fresh editor each time); resolves once it has mounted and Timmy is attached. */
-function mount(snapshot) {
+/**
+ * Start tldraw on `snapshot` (a fresh editor each time); resolves once it has mounted and Timmy is attached. R6 (H139): the board
+ * of `b` (its project's), read only while Studio switches boards.
+ */
+function mount(snapshot, b = canvas) {
   mounts += 1;
   return new Promise((resolve) => {
     reactRoot.render(
@@ -957,9 +1142,13 @@ function mount(snapshot) {
         onMount: (editor) => {
           current = editor;
           editor.user.updateUserPreferences({ colorScheme: 'dark' });
+          if (identity.state === 'switching' || identity.state === 'paused') setEditable(false, editor);
           // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle. R4 (H55): with the project's cards.
           window.timmyCanvas = {
-            editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts,
+            editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: b, mounts,
+            // R6 (H139): whose board this is, and the page's identity: the board on screen, the switch under way, its "Kept apart" log
+            project: b.project,
+            identity: { get project() { return identity.project; }, get switching() { return identity.switching; }, get state() { return identity.state; }, get paused() { return identity.paused; }, get kept() { return identity.kept; } },
             placeProjectCard, refreshProjectCards: () => (projectPanel ? projectPanel.refreshAll() : Promise.reject(new Error('The project panel is not ready yet.'))),
             // R4 (H75): a drawn card of the project (it places a shape; its buttons act only for a person's click on them, R4 H81)
             placeDrawnCard: (id) => (projectPanel ? projectPanel.placeCard(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
@@ -968,7 +1157,7 @@ function mount(snapshot) {
             // R5 (H133): the pending drafts, as the panel lists them (read only; Accept and Discard are the panel's buttons)
             drafts: () => pendingDrafts(editor.store.allRecords()),
           };
-          attachEditor(editor);
+          attachEditor(editor, b);
           followEditor(editor);
           showStatus(editor);
           // R5 (H137): the panel ends just above what tldraw draws under it
@@ -1014,11 +1203,29 @@ function hideFrame() {
   frameStrip?.stop();
   frameStrip = null;
 }
-/** R5 (H133): reads the frame with this page's session, now and every few seconds while the page is shown (./frame.js). */
+/**
+ * R5 (H133): reads the frame with this page's session, now and every few seconds while the page is shown (./frame.js). R6 (H139): the
+ * frame of the project whose board is on screen, drawn only while it is (a frame of another project means the canvas shows another
+ * now: Studio switches boards with it); while Studio switches, the header says so and draws no frame.
+ */
 function startFrame() {
   const strip = document.getElementById('frame');
   if (!strip || frameStrip) return;
-  frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
+  frameStrip = createFrameStrip({
+    root: strip,
+    // each reading records whose board was on screen when it was asked (`ticket`): one asked before a switch or a pause is of then
+    read: async () => { const ticket = identity.ticket(); return { ...(await cards.workspace(ticket.project)), ticket }; },
+    accept: (frame, r) => !!frame && !!frame.project && identity.current(r && r.ticket) && frame.project.id === identity.project.id,
+    held: () => holdWords(),
+    // a frame (or a refusal naming the project the canvas shows) of another project, asked since the last switch: the canvas shows
+    // that one now, and Studio switches with it; one asked before a switch or a pause says nothing of now, and is dropped
+    other: (frame, r) => {
+      if (!r || !identity.current(r.ticket)) return;
+      const p = frame && frame.project ? projectOf(frame.project) : null;
+      if (!p) void watchProject();
+      else if (!sameProject(p, identity.project)) onProjectNamed(p);
+    },
+  });
 }
 
 /**
@@ -1085,7 +1292,6 @@ async function start() {
   if (GRANT_AT_LOAD) showFrame();
   const session = await cards.startSession();
   if (session.state !== 'ok') { refuseToLoad(session.words); return; }
-  startFrame();
   say('Loading the canvas: reading its settings from Timmy', 'loading');
   const settings = await cards.config();
   if (!settings.ok || !settings.body) throw new Error(`Timmy answered ${settings.status} for the canvas settings`);
@@ -1098,13 +1304,16 @@ async function start() {
   say('Loading the canvas: opening the saved canvas', 'loading');
   const opened = await cards.loadDocument();
   if (opened.status === 401 || opened.status === 0) { refuseToLoad(opened.why || 'Timmy refused this page the canvas.'); return; }
+  // R6 (H139): no project is named, so there is no board (each project has its own)
+  if (opened.status === 409) { refuseToLoad(opened.why || 'Timmy names no project to this canvas now, so there is no board to show.'); return; }
   if (!opened.ok || !opened.body) throw new Error(`Timmy answered ${opened.status} for the saved canvas`);
   const saved = opened.body;
-  canvas.revision = saved.revision;
-  canvas.savedRevision = saved.revision;
-  canvas.sourceRevision = saved.sourceRevision;
-  canvas.savedAt = saved.savedAt ?? null;
-  canvas.notice = saved.notice ?? null;
+  // R6 (H139): the board of the project the canvas shows (its answer says which), on a state of its own
+  canvas = newBoard(projectOf(saved.project), saved);
+  identity.show(canvas.project);
+  // R5 (H133): the strip reads the frame now; R6 (H139): once the board's project is known, so it draws that project's frame only
+  startFrame();
+  if (typeof saved.board === 'string' && saved.board) document.getElementById('guide-dir').textContent = saved.board;
   say('Loading the canvas: starting tldraw', 'loading');
   tldrawProps = {
     // R4 (H75): Timmy's drawn cards beside tldraw's own shapes
@@ -1123,13 +1332,199 @@ async function start() {
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.
-  await mount(saved.snapshot ? { document: saved.snapshot } : undefined);
+  await mount(saved.snapshot ? { document: saved.snapshot } : undefined, canvas);
   // R5 (H133): reopened, it shows what it holds, beside the panel and under the strip
   fitOnOpen(current);
   connectBridge();
   connectPanel();
+  // R6 (H139): what the board says of the canvas this Timmy home had before each project had its own
+  if (typeof saved.oldLayout === 'string' && saved.oldLayout) band(saved.oldLayout);
   window.addEventListener('pagehide', () => saveOnLeave());
 }
+
+// ── R6 (H139): the board follows the project the canvas shows ────────────────────────────────────────────────────────────
+
+/**
+ * The project named to the canvas is `p` ({ id, name }) now, or none this page can show (`paused`: why, in words): the bridge says
+ * so at once, and the page asks every 1.5 s (watchProject); a reading of another project says so too. Studio switches boards when
+ * it is not the board on screen's (or loads it again, after a pause).
+ */
+function onProjectNamed(p, paused = null) {
+  // the page is still loading the board of the project named (it reads which one with it)
+  if (identity.state === 'none') return;
+  const to = projectOf(p);
+  if (!to) {
+    if (paused) pauseBoard(paused);
+    return;
+  }
+  if (identity.state === 'switching' && sameProject(identity.switching, to)) return;
+  if (identity.state === 'shown' && sameProject(identity.project, to)) return;
+  void switchTo(to);
+}
+
+/** Asks Timmy which project the canvas shows now; one ask at a time. */
+let watching = null;
+function watchProject() {
+  if (watching) return watching;
+  if (!cards.hasSession() || identity.state === 'none') return Promise.resolve();
+  watching = (async () => {
+    // an answer that comes back after a switch or a pause began (the bridge told the page first) is of before it: dropped
+    const gen = identity.gen;
+    try {
+      const a = await cards.active();
+      if (!a || gen !== identity.gen) return;
+      if (a.project) onProjectNamed(a.project);
+      else if (a.hidden) pauseBoard('The canvas shows a project of another Timmy REPL now (or one this page was not opened for), so this page shows no board: nothing of it is shown here, and nothing here is saved into it. In Timmy: /canvas open, in that project, opens a page for it.');
+    } catch { /* asked again in a moment */ } finally {
+      watching = null;
+    }
+  })();
+  return watching;
+}
+
+/** Whether people can edit the board on screen (tldraw's own read-only mode). */
+function setEditable(on, editor = current) {
+  try { editor?.updateInstanceState({ isReadonly: !on }); } catch { /* tldraw keeps its own */ }
+}
+const sleep = (ms) => new Promise((done) => { setTimeout(done, ms); });
+/**
+ * The board on screen takes no one's input from now on. tldraw refuses every change to a read-only board, a running call's too, so
+ * a board a call of Timmy's still runs on (it began before the switch or the pause) only loses the keyboard now, and is made read
+ * only once that call has ended on it (`afterCall`); any other is read only at once.
+ */
+function stopInput(editor = current) {
+  if (editor && runningOn === editor) { try { editor.blur(); } catch { /* tldraw keeps its own */ } return; }
+  setEditable(false, editor);
+}
+
+/**
+ * While Studio switches boards: the board is not shown at all (index.html hides it under body[data-board="switching"]) and is read
+ * only, a cover (#switching) says where Studio goes, Accept and Discard are off and say why, the jobs list names none, the Project
+ * panel and the header say "switching to <project>…": nothing of the board before is shown under the new project's name. Paused
+ * (the canvas shows a project this page cannot show): the page's own project's board stays on screen, read only, under its own
+ * name, with a banner that says why. The side panel's other buttons wait in both.
+ */
+function showBlocked() {
+  const state = identity.state;
+  document.body.dataset.board = state;
+  const cover = document.getElementById('switching');
+  if (cover) {
+    cover.hidden = false;
+    cover.dataset.state = state;
+    document.getElementById('switching-title').textContent = state === 'switching' ? `TIMMY · ${switchingTo(identity.switching)}` : `${canvas.project ? `${canvas.project.name}'s board, ` : ''}read only`;
+    document.getElementById('switching-words').textContent = state === 'switching' ? coverWords(canvas.project, identity.switching) : identity.paused ?? '';
+  }
+  stopInput();
+  for (const id of ['board-open', 'save-retry', 'conflict-reload', 'conflict-keep']) { const b = document.getElementById(id); if (b) b.disabled = true; }
+  if (current) { showStatus(current); showDrafts(current); showJobs(current); }
+  projectPanel?.hold();
+  // the header says "switching to <project>…" while switching; paused, it stays the page's own project's, marked as not read now
+  if (state === 'switching') frameStrip?.hold(holdWords());
+}
+function hideBlocked() {
+  delete document.body.dataset.board;
+  const cover = document.getElementById('switching');
+  if (cover) cover.hidden = true;
+  for (const id of ['board-open', 'save-retry', 'conflict-reload', 'conflict-keep']) { const b = document.getElementById(id); if (b) b.disabled = false; }
+}
+
+/** The "Kept apart" log in the side panel (#kept): what came back for another board than the one on screen, the newest first. */
+function showKept() {
+  const box = document.getElementById('kept');
+  const list = document.getElementById('kept-list');
+  if (!box || !list) return;
+  const lines = identity.kept;
+  box.hidden = lines.length === 0;
+  document.getElementById('kept-count').textContent = String(lines.length);
+  list.replaceChildren(...lines.map((l) => { const li = el('li', undefined, { className: 'kept-line' }); li.append(el('time', clockOf(l.at), { dateTime: l.at }), ' ', el('span', l.words)); return li; }));
+}
+
+/**
+ * The project the canvas shows is `to` now: Studio puts the board on screen away (what it still has on its way finishes on it: a
+ * call already running on it, for at most CALL_WAIT_MS; then its last save and the records of its decisions, for at most
+ * SWITCH_WAIT_MS), then loads `to`'s board, checks that it is `to`'s, and shows it on a state of its own, with its own drafts, jobs,
+ * cards and frame. Until then, editing, Accept and Discard are blocked. A switch that another one overtakes stops where it is; the
+ * newest one finishes.
+ */
+async function switchTo(to) {
+  const from = identity.project;
+  const b = canvas;
+  // a call already running on the board (it began before the switch) ends on it, as that board's
+  const afterCall = Promise.race([calls, sleep(CALL_WAIT_MS)]);
+  const gen = identity.begin(to);
+  showBlocked();
+  const putAway = (async () => {
+    await afterCall;
+    setEditable(false, b.editor);
+    if (b.editor && !b.frozen) b.frozen = getSnapshot(b.editor.store).document;
+    clearTimeout(b.timer);
+    if (b.project) await save(b);
+    await b.flushing;
+  })().catch(() => undefined);
+  await Promise.race([putAway, afterCall.then(() => sleep(SWITCH_WAIT_MS))]);
+  if (gen !== identity.gen) return;
+  let opened;
+  try { opened = await cards.loadDocument(to.id); } catch (e) { opened = { status: 0, ok: false, body: null, why: e instanceof Error ? e.message : String(e) }; }
+  if (gen !== identity.gen) {
+    if (opened.ok) identity.note(keptWords('reading', to, identity.switching ?? identity.project, 'its board'));
+    return;
+  }
+  const got = opened.ok && opened.body ? projectOf(opened.body.project) : null;
+  if (!got || got.id !== to.id) {
+    const shows = opened.body && opened.body.shows ? projectOf(opened.body.shows) : null;
+    // the canvas moved on to another project meanwhile: Studio follows it there
+    if (shows && shows.id !== to.id) { void switchTo(shows); return; }
+    if (got && got.id !== to.id) identity.note(keptWords('reading', got, to, 'its board, sent for another project'));
+    pauseBoard(`Studio could not load ${to.name}'s board: ${opened.why || `Timmy answered ${opened.status}.`} Nothing of ${from ? from.name : 'the board before'} is shown under its name.`);
+    return;
+  }
+  const saved = opened.body;
+  const next = newBoard(got, saved);
+  canvas = next;
+  draftsShown = '';
+  await mount(saved.snapshot ? { document: saved.snapshot } : undefined, next);
+  if (!identity.finish(gen, got)) return;
+  setEditable(true);
+  hideBlocked();
+  fitOnOpen(current);
+  if (typeof saved.board === 'string' && saved.board) document.getElementById('guide-dir').textContent = saved.board;
+  band(`${switchedWords(from, got)}${typeof saved.oldLayout === 'string' && saved.oldLayout ? ` ${saved.oldLayout}` : ''}`);
+  frameStrip?.release(got.name);
+  projectPanel?.reset();
+  showStatus(current);
+  showDrafts(current);
+  showJobs(current);
+  void refreshJobs();
+}
+
+/**
+ * The canvas shows a project this page cannot show (`words`: why): no board is shown; the board on screen is put away as it is (its
+ * last save goes to its own project), and nothing edits or acts until the canvas shows a project this page can show.
+ */
+function pauseBoard(words) {
+  if (identity.state === 'paused') return;
+  const b = canvas;
+  const afterCall = Promise.race([calls, sleep(CALL_WAIT_MS)]);
+  identity.pause(words);
+  showBlocked();
+  // a call already running on it ends on it; then the board is put away as it is (its last save goes to its own project)
+  void (async () => {
+    await afterCall;
+    setEditable(false, b.editor);
+    if (b.editor && !b.frozen) b.frozen = getSnapshot(b.editor.store).document;
+    if (b.project) await save(b);
+  })().catch(() => undefined);
+}
+
+/**
+ * R6 (H139; the interaction review, defect 9): a new link from Timmy's /canvas open pasted into this tab changes only its fragment,
+ * which the browser does not load again: the page loads again for it (a board on screen saves what it holds first, as on leaving).
+ */
+window.addEventListener('hashchange', () => {
+  if (!/^#code=[0-9a-f]{32}$/.test(location.hash)) return;
+  say('A new link from Timmy\'s /canvas open: loading the canvas with it', 'loading');
+  location.reload();
+});
 
 start().catch((error) => {
   say(`The canvas could not start: ${error instanceof Error ? error.message : String(error)}`, 'error');

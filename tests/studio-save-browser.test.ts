@@ -17,6 +17,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CANVAS_EXAMPLE } from '../src/agent/canvas-tools.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import { projectId } from '../src/project/index.js';
 import { bearer, grant, nameProject } from './helpers/canvas-auth.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
@@ -74,7 +75,8 @@ describe.skipIf(!browserPath)('the save, in a real browser', () => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     // a page that must not notice another window's save before it saves itself is kept from Timmy's health (no content)
-    if (o.blockHealth) await page.route('**/api/canvas/health', (r) => r.abort());
+    // R6 (H139): the page names its board's project (/api/canvas/health?project=<id>), so the path is matched, not the address
+    if (o.blockHealth) await page.route((url) => url.pathname === '/api/canvas/health', (r) => r.abort());
     await page.goto(`${base}/#code=${await grant(port(), server!.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     return { page, context, errors };
@@ -161,16 +163,18 @@ describe.skipIf(!browserPath)('the save, in a real browser', () => {
       expect(disk.snapshot.store[mine].x).toBe(999);
       // Keep a copy: this page's version, beside the canvas file
       await page.click('#conflict-keep');
-      await page.waitForFunction(() => /^Kept this page's version \(revision \d+\) as copies\/canvas-r\d+-.+\.json, beside the canvas file/.test(document.getElementById('project-said')?.textContent ?? ''));
-      const copies = readdirSync(join(home, 'canvas', 'copies'));
-      const kept = JSON.parse(readFileSync(join(home, 'canvas', 'copies', copies.at(-1)!), 'utf8')) as { format: string; snapshot: { store: Record<string, Rec> } };
+      // R6 (H139): beside the project's own board (its folder in Timmy's canvas folder)
+      await page.waitForFunction(() => /^Kept this page's version \(revision \d+\) as copies\/canvas-r\d+-.+\.json, beside save-browser's board in Timmy's canvas folder\. The board on disk is unchanged\.$/.test(document.getElementById('project-said')?.textContent ?? ''));
+      const boardCopies = join(home, 'canvas', 'projects', projectId(join(home, 'project')), 'copies');
+      const copies = readdirSync(boardCopies);
+      const kept = JSON.parse(readFileSync(join(boardCopies, copies.at(-1)!), 'utf8')) as { format: string; snapshot: { store: Record<string, Rec> } };
       expect(kept.format).toBe('timmy-canvas-copy');
       expect(kept.snapshot.store[late]).toBeDefined();
       expect((await doc()).revision).toBe(theirs.revision);
       expect(await page.isDisabled('#conflict-keep')).toBe(true);
       // Reload: the newer canvas, in a fresh editor; this page's version stays kept
       await page.click('#conflict-reload');
-      await page.waitForFunction((r) => new RegExp(`^Reloaded revision ${r} from disk\\. This page's version is kept as copies/`).test(document.getElementById('project-said')?.textContent ?? ''), theirs.revision);
+      await page.waitForFunction((r) => new RegExp(`^Reloaded revision ${r} of save-browser's board from disk\\. This page's version is kept as copies/`).test(document.getElementById('project-said')?.textContent ?? ''), theirs.revision);
       await stateIs(page, 'saved');
       expect(await line(page)).toMatchObject({ box: false });
       const now = await page.evaluate(([a, b]) => { const e = (window as never as Win).timmyCanvas.editor; return { mine: e.getShape(a)?.x, late: e.getShape(b) ?? null }; }, [mine, late]);
