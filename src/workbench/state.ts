@@ -465,6 +465,8 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
       model, at: r.ts, ...(typeof r.ms === 'number' && Number.isFinite(r.ms) ? { ms: r.ms } : {}),
       operation: typeof r.operation_id === 'string' && r.operation_id ? r.operation_id : null,
       ...(endpoint === 'local' ? { local: true } : endpoint ? { local: false } : {}),
+      ...(typeof r.turn_id === 'string' && r.turn_id ? { turn: r.turn_id } : {}),
+      ...(typeof r.stopped_by === 'string' && r.stopped_by ? { stoppedBy: r.stopped_by } : {}),
     });
   }
   return out;

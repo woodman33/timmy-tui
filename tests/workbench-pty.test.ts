@@ -19,8 +19,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GUARD_MS } from '../src/workbench/controller.js';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { enterOnBlock, keepScreen, pastGuard, sendKeys, settledScreen, waitScreen, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -43,10 +45,14 @@ const argsOf = (pid: number): string | null => {
 const activeRoot = (): string => JSON.parse(readFileSync(join(timmyHome, 'state', 'active-project.json'), 'utf8')).root;
 const widest = (s: string) => Math.max(...s.split('\n').map((l) => [...l].length));
 
-/** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, and a kept capture. */
+/**
+ * A tmux server of the test's own (its socket in the test's folder), its screen, its keys, and a kept capture. R5 (H136; the
+ * finish line, item 5): each through tests/helpers/tmux-frame.ts: a screen is read, waited for and kept only as a whole frame
+ * (row 1's tab titles, the bottom border, the key-hint line or the notice in its place) the same in two reads, and a key is
+ * sent once the Workbench has read the one before it.
+ */
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = () => tmux('capture-pane', '-p', '-t', 't');
   // R4 lead (full suite 35, at bfb7fe5: slice B's `a` did not expand Activity in 30 s, while the Workbench went on drawing;
   // the cause was not found, and loaded reruns and the next full suite passed): a wait that times out also says what the
   // terminal and its processes were doing, so a recurrence names its cause. tmux's flags for the pane; the bytes typed into
@@ -77,35 +83,24 @@ function terminal(label: string) {
     } catch (e) { out.push(`no diagnosis: ${String((e as Error).message).split('\n')[0]}`); }
     return out.join('\n');
   };
-  const waitFor = async (re: RegExp, ms = 30_000): Promise<string> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen();
-      if (re.test(s)) return s;
-      await sleep(100);
-    }
-    throw new Error(`timed out waiting for ${re}:\n${s}\n${diagnose()}`);
-  };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-  const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  const pane: Pane = { tmux, target: 't', folders: [box], diagnose };
+  const screen = () => settledScreen(pane);
+  const waitFor = (re: RegExp, ms = 30_000): Promise<string> => waitScreen(pane, { what: `${re}`, re, ms });
+  const keys = (...k: string[]) => sendKeys(pane, k);
+  const typed = (text: string) => sendKeys(pane, [text], { literal: true });
   // the workspace search: '/', then its prompt on screen, the text, the text on screen, then Enter (under a loaded machine
   // the full suite once sent the text before the search was drawn)
   const find = async (name: string) => {
-    tmux('send-keys', '-t', 't', '/');
+    await keys('/');
     await waitFor(/^\S?\s*\/ /m, 10_000);
-    tmux('send-keys', '-t', 't', '-l', name);
+    await typed(name);
     await waitFor(new RegExp(`/ ${name}`), 10_000);
-    tmux('send-keys', '-t', 't', 'Enter');
-    await sleep(250);
+    await keys('Enter');
   };
-  const capture = (name: string): string => {
-    const txt = screen();
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
+  // (a kept screen: whole and the same in two reads; a notice may hold the key-hint line's place, as it does in a wait)
+  const capture = (name: string): string => keepScreen(pane, CAPTURES, name, { foot: 'drawn' });
   const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
-  return { tmux, screen, waitFor, keys, typed, find, capture, close };
+  return { tmux, pane, screen, waitFor, keys, typed, find, capture, close };
 }
 
 /** R5 (H131; the QA round's defect 4): what waits on you over a tab, as row 1 draws it without moving a tab: ⚠ and the count
@@ -255,6 +250,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await keys('p');
     await waitFor(/Switch project/);
     await typed('demo');
+    // R5 (H136): Enter only once the picker shows what was typed and its one match selected
+    await waitFor(/› demo\b[\s\S]*▸ demo\b/, 10_000);
     await keys('Enter');
     await waitFor(/demo \/ Files/);
     expect(activeRoot()).toBe(join(timmyHome, 'projects', 'demo'));
@@ -287,7 +284,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, screen, waitFor, keys, typed, find, capture, close } = terminal('wbB');
+    const { tmux, pane, waitFor, keys, find, capture, close } = terminal('wbB');
     let runId = '';
     let op = '';
     try {
@@ -297,24 +294,23 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       await find('Workflows');
       const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here/);
       expect(wf).toContain('upmd found');
-      // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here
-      await keys('Enter');
+      // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here (R5 H136: the
+      // first Enter only once a whole frame shows APPROVAL.md › tidy selected in the list that has the keyboard)
+      await enterOnBlock(pane, 'APPROVAL.md', 'tidy');
       await waitFor(/Run APPROVAL\.md › tidy\?/);
       await keys('Enter');
       const box = await waitFor(/⚠ NEEDS YOU[\s\S]*deny \(the default\)/);
+      const boxSeen = Date.now();
       expect(box).toContain('/run APPROVAL.md tidy');
       expect(box).toContain('runs a destructive shell command on this machine: tidy');
       expect(box).toContain('mkdir -p scratch && touch scratch/x && rm scratch/x');
       // what waits on you, beside the Control Room's tab (R5: the workspace frame's count, read again within a second)
-      for (const end = Date.now() + 10_000; badgeOver(screen().split('\n'), '7 Control') !== '⚠1';) {
-        if (Date.now() > end) throw new Error(`timed out waiting for ⚠1 over 7 Control Room:\n${screen()}`);
-        await sleep(100);
-      }
+      await waitScreen(pane, { what: '⚠1 over 7 Control Room', test: (s) => badgeOver(s.split('\n'), '7 Control') === '⚠1', ms: 10_000 });
       capture('wb-160x45-needs-you');
       // nothing of the run has started while the box waits
       expect(runsOf()).toEqual([]);
       expect(chain().length).toBe(sealedBefore);
-      await sleep(500); // past the box's type-ahead guard
+      await pastGuard(boxSeen, GUARD_MS); // past the box's type-ahead guard (keys in its first GUARD_MS are not answers)
       await keys('y');
       for (const end = Date.now() + 30_000; !(runsOf()[0]?.state === 'completed') && Date.now() < end;) await sleep(100);
       const [run] = runsOf();

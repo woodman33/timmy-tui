@@ -20,6 +20,7 @@ import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { keepScreen, sendKeys, settledScreen, waitScreen, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -39,27 +40,22 @@ const jobRecords = (): Array<{ id: string; state: string; pid?: number }> => {
   return (existsSync(dir) ? readdirSync(dir) : []).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(dir, n), 'utf8')));
 };
 
-/** A tmux server of the test's own, its screen, its keys, waits with a deadline that names what they wait for, a capture. */
+/**
+ * A tmux server of the test's own, its screen, its keys, waits with a deadline that names what they wait for, a capture. R5
+ * (H136; the finish line, item 5): each through tests/helpers/tmux-frame.ts. A screen is read, waited for and kept only as a
+ * whole frame the same in two reads (a wait's value is read from that frame); a kept capture also has its key-hint line and
+ * shows what it is kept for; a key is sent once the Workbench has read the one before.
+ */
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = () => tmux('capture-pane', '-p', '-t', 't');
+  const pane: Pane = { tmux, target: 't', folders: [box] };
+  const screen = () => settledScreen(pane);
   const waitFor = async <T>(what: string, get: (s: string) => T | null | undefined | false, ms = 30_000): Promise<T> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen();
-      const v = get(s);
-      if (v) return v;
-      await sleep(100);
-    }
-    throw new Error(`timed out after ${ms} ms waiting for ${what}:\n${s}`);
+    const s = await waitScreen(pane, { what, test: (x) => !!get(x), ms });
+    return get(s) as T;
   };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-  const capture = (name: string): string => {
-    const txt = screen();
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
+  const keys = (...k: string[]) => sendKeys(pane, k);
+  const capture = (name: string, shows?: RegExp): string => keepScreen(pane, CAPTURES, name, { what: `the ${name} screen, whole, with its key-hint line`, re: shows });
   return { tmux, screen, waitFor, keys, capture };
 }
 
@@ -173,8 +169,8 @@ describe('`timmy workbench` in a terminal: tab 7 Control Room\'s panes as a 2×2
     }
     await t.keys('Right');
     await t.waitFor('the heavy frame on the printing pane', (s) => new RegExp(`┏━ ${job.talk} `).test(s), 10_000);
-    await sleep(400); // the next second's redraw, so the kept screen is settled
-    const txt = t.capture('control-grid-160x45-FAKE-fixtures');
+    // (R5 H136: kept once it is whole, with the heavy frame on the printing pane, and the same in two reads)
+    const txt = t.capture('control-grid-160x45-FAKE-fixtures', new RegExp(`┏━ ${job.talk} `));
     const rows = txt.replace(/\n$/, '').split('\n');
     expect(rows, 'one frame, as many rows as the terminal').toHaveLength(45);
     expect(Math.max(...rows.map((l) => [...l].length)), 'no row wider than the terminal').toBeLessThanOrEqual(160);

@@ -285,7 +285,7 @@ describe('the chat on a local model (FAKE Ollama)', () => {
     expect(receipt).toMatchObject({ status: 'cancelled', cost_usd: 0, cost_measured: true, via: 'ollama' });
     const last = agent.getHistory().at(-1)!;
     expect(last.role).toBe('assistant');
-    expect(last.content).toContain('[Cancelled by the user before I answered. No tool had run.');
+    expect(last.content).toContain('[Cancelled by the user before I finished answering. No tool had run.');
     expect(last.content).toContain('What I had written so far: "one two');
     expect(last.content).not.toBe(UNANSWERED);
   });

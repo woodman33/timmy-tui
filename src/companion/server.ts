@@ -78,6 +78,9 @@
  *                                                                            operator's records (projects, jobs, connections)
  *   POST /api/workspace/prefs              the token                         writes the Workbench's settings file, checked
  *                                                                            against the frame's revision (409 when stale)
+ *   POST /api/chat/stop                    the token                         R5 lead: asks the process answering the chat
+ *                                                                            turn {turn: <id>} of the shown project to stop
+ *                                                                            it (409 when that turn is not running now)
  *   GET /timmy-theme.css,                  nothing more                      Timmy's look and Monaspace Argon: no content
  *       /web/fonts/monaspace-argon-*
  */
@@ -760,11 +763,42 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R5 (H132): the workspace frame of the project the page shows (?project=<id>, else the one followed), and the two start-up
   // settings it may change (src/companion/workspace.ts: 409 with the newer frame when the page's revision is stale)
   const workspace = new CompanionWorkspace(options.workspace);
+  // R5 lead (the QA round, defect 4): this companion answering its page is an answer observed now, as Studio notes its own
+  // (src/studio/server.ts): the frame then says the companion answered, not "not running" from an older check. Only for the
+  // companion the frame names (its address, src/ops/workspace-frame.ts companionBaseUrl); at most once in SELF_NOTE_MS.
+  // It notes that it started and that it stopped, too (noteStopped), so no surface says it answered after it ended.
+  let selfPort: number | null = null;
+  const noteSelf = async (what: 'started' | 'asked' | 'stopped'): Promise<void> => {
+    const env = options.workspace?.env ?? process.env;
+    try {
+      const { companionBaseUrl, noteAnswered, noteStopped } = await import('../ops/workspace-frame.js');
+      if (selfPort === null || companionBaseUrl(env) !== `http://127.0.0.1:${selfPort}/`) return;
+      if (what === 'stopped') noteStopped('companion', env);
+      else noteAnswered('companion', what === 'started' ? 'it started listening' : 'its page asked for its frame', env);
+    } catch { /* the record cannot be written: the frame says what the last check saw */ }
+  };
   app.get('/api/workspace', withToken, async (req, res) => {
     const project = projectFor(req);
     if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    await noteSelf('asked');
     const answer = await workspace.answerFrame(project);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+  // R5 lead (the operator's 22:32 order, item 2): the page's Stop for the chat turn being answered in the project it shows,
+  // whichever surface sent it. It asks the process that holds the turn (src/agent/chat-turn.ts requestTurnStop), which stops
+  // it as its own Esc or Ctrl+C would; the turn is named by its id (the frame's activity.chatTurn.id), so the page stops the
+  // turn it shows and never another. 200 {ok, words}; 400 for a body that names no turn; 409 when that turn is not being
+  // answered now (it ended, or its process did). The token first, as every content route.
+  app.post('/api/chat/stop', withToken, express.json({ limit: '1kb' }), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const { requestTurnStop, surfaceWords, TURN_ID } = await import('../agent/chat-turn.js');
+    const id = req.body && typeof req.body === 'object' ? (req.body as { turn?: unknown }).turn : undefined;
+    if (typeof id !== 'string' || !TURN_ID.test(id)) { res.status(400).json({ ok: false, error: 'Not stopped: the request names no chat turn ({turn: <its id>, as the frame gives it}).' }); return; }
+    const r = requestTurnStop(project.root, id, 'companion');
+    if (!r.ok) { res.status(409).json({ ok: false, error: `Not stopped: ${r.why}.` }); return; }
+    res.json({ ok: true, words: `Stop asked of the turn being answered in ${surfaceWords(r.surface)}: it stops there at once, and its receipt says it was stopped, asked from this page.` });
   });
   app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
     const project = projectFor(req);
@@ -920,6 +954,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R4 (H87): an error of the listening server itself (a connection it could not take) never ends the monitor
   httpServer.on('error', () => undefined);
   const bound = (httpServer.address() as import('net').AddressInfo).port;
+  selfPort = bound;
+  await noteSelf('started');
   const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
   return {
@@ -941,6 +977,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      await noteSelf('stopped');
     },
     setState: (state: string) => {
       currentState = state;
