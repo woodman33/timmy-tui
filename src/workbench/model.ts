@@ -18,6 +18,7 @@ import type { RightTab, SettingsRead } from './settings.js';
 import type {
   ActivityEvent, ActivityView, BlockRow, ChatTail, FileRow, FilesView, JobRow, ProjectChoice, ProjectView, RecordRow, RouteView, WorkflowDoc, WorkflowsView,
 } from './state.js';
+import type { WorkflowsTabData } from './workflows-tab.js';
 import type { Line, Role } from './text.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
@@ -127,6 +128,9 @@ export interface Data {
   fleet?: FleetData;
   /** R5 (H137): tab 7's reading (src/workbench/control-tab.ts readControl), made only while the tab is shown */
   control?: ControlData;
+  /** R5 (H136): tab 3's reading of the selected block's newest run (src/workbench/workflows-tab.ts readWorkflowsTab), made
+   *  each frame only while the tab is shown */
+  workflowsTab?: WorkflowsTabData;
 }
 
 /** R5 (H131): one stage of the newest run's pipeline, as its records say it. */

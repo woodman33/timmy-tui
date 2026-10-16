@@ -6,16 +6,26 @@
  *   row 2     Workflow actions: the tab's numbered actions, the one primary next step amber, the run state and Stop
  *   body      two columns: Home (connection cards | a preview) and Chat (transcript | event log, under its pipeline row) at
  *             ≈48% | ≈52% from 100 columns; every other tab its Workbench workspace with Context (Tools, Inspector, Files) as
- *             a column from 120 columns, a drawer below ([i])
+ *             a column from 120 columns, a drawer below ([i]); R5 (H136): a body that draws its own columns (OWN_COLUMNS)
+ *             takes the whole width at every size, Context a drawer ([i])
  *   bottom    Activity & log: its newest lines (3 to 5), [a] expands it; then the key-hint line
  *
  * The navigation (CREATE, OPERATE, LIBRARY) is a drawer at every size ([g], and [/] to find a workspace): the tabs are the
  * stable way around. Cells are counted from 0 at the top left. Pure arithmetic: the app draws what this returns, and a mouse
  * report is read against it.
  */
+import type { WorkspaceId } from './nav.js';
 
-/** The body's kind: a hub (Home, Chat) draws its own right column; a workspace tab has Context beside it. */
-export type BodyKind = 'hub' | 'workspace';
+/** The body's kind: a hub (Home, Chat) draws its own right column; a workspace tab has Context beside it; R5 (H136): a body
+ *  that draws its own columns (OWN_COLUMNS) takes the whole width, Context a drawer ([i]). */
+export type BodyKind = 'hub' | 'workspace' | 'columns';
+
+/** R5 (H136; the lead, 2026-10-15): the workspaces whose body draws its own columns side by side (tab 3 Workflows: the plan,
+ *  the sandbox and the run, the receipt and its review): one rule for every such body; another joins by its name here. */
+export const OWN_COLUMNS: ReadonlySet<WorkspaceId> = new Set<WorkspaceId>(['workflows']);
+
+/** The body's kind for the active tab (a hub or not) and the workspace it shows. */
+export const bodyKind = (hub: boolean, ws: WorkspaceId): BodyKind => (hub ? 'hub' : OWN_COLUMNS.has(ws) ? 'columns' : 'workspace');
 
 /** wide: a workspace tab's Context is a column; medium: a hub's two columns, Context a drawer; narrow: one column. */
 export type Mode = 'wide' | 'medium' | 'narrow';

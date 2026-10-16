@@ -20,7 +20,8 @@ import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
-import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type BlockRow, type FileRow, type JobRow, type WorkflowDoc } from './state.js';
+import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type FileRow, type JobRow } from './state.js';
+import { stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, lineCells, pick, spread, took, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -260,7 +261,8 @@ export function centerView(c: ViewCtx): View {
   if (o) return overlayView(c, o);
   switch (c.ui.workspace) {
     case 'files': return filesView(c);
-    case 'workflows': return workflowsView(c);
+    // R5 (H136): tab 3's three columns, references 03 and 12 (src/workbench/workflows-tab.ts)
+    case 'workflows': return workflowsTabView(c);
     // R5 (H137): tab 7's body, the roster, the panes and what waits (src/workbench/control-tab.ts)
     case 'control': return controlRoomView(c, c.data.control);
     case 'overview': return overviewView(c);
@@ -323,61 +325,6 @@ function filesView(c: ViewCtx): View {
       lines.push(row([S(cut(f.rel, nameRoom, g.ellipsis).padEnd(Math.min(nameRoom, 48)), 'text'), S(`  ${meta}`, 'secondary')], sel, g));
       i += 1;
     }
-  }
-  return { lines, items };
-}
-
-function workflowsView(c: ViewCtx): View {
-  const { data, g } = c;
-  const lines: Line[] = [];
-  const items: View['items'] = [];
-  const wf = data.workflows;
-  lines.push(wf.upmd ? [S('upmd found', 'secondary'), S(` ${g.sep} a block runs after the blocks it needs`, 'secondary')] : [S('upmd is not installed: ', 'attention'), S('brew install rezigned/tap/upmd', 'action'), S('; nothing can run until it is', 'secondary')]);
-  if (!wf.docs.length) {
-    lines.push(blank);
-    lines.push([S('No workflow documents in this project.', 'strong')]);
-    lines.push(...para('A workflow is a Markdown file with named blocks, such as ```bash [name:build]. Templates has the tray-workflow starter, a whole request as one operation.', c.width));
-    return { lines, items };
-  }
-  const all = wf.docs.flatMap((d) => (d.blocks.length ? d.blocks.map((b) => ({ d, b })) : [{ d, b: null as BlockRow | null }]));
-  const cur = cursorOf(c.ui, 'center:workflows', all.length);
-  let i = 0;
-  for (const d of wf.docs) {
-    lines.push(blank);
-    lines.push([S(d.rel, 'strong'), S(d.title ? `  ${d.title}` : '', 'secondary'), S(`  ${count(d.blocks.length, 'named block')}`, 'secondary')]);
-    if (d.error) lines.push(...para(`Not read: ${d.error}`, c.width, 'failure', '  '));
-    if (d.repeated.length) lines.push(...para(`Not runnable: it names ${d.repeated.join(', ')} more than once, and /run runs none of those.`, c.width, 'attention', '  '));
-    if (!d.blocks.length) {
-      items.push({ line: lines.length, item: { kind: 'doc', key: `doc:${d.rel}`, doc: d } });
-      lines.push(row([S('no named blocks', 'secondary')], i === cur, g));
-      i += 1;
-      continue;
-    }
-    lines.push([S('    #  ', 'secondary'), S('BLOCK'.padEnd(14), 'secondary'), S('NEEDS'.padEnd(16), 'secondary'), S('LAST STATE', 'secondary')]);
-    for (const b of d.blocks) {
-      const sel = i === cur;
-      items.push({ line: lines.length, item: { kind: 'block', key: `block:${d.rel}:${b.key}`, doc: d, block: b } });
-      const person = b.risky.length ? [S(`  ${g.warn} needs you before it runs`, 'attention')] : [];
-      const state: Role = b.word === 'failed' ? 'failure' : 'text';
-      lines.push(row([
-        S(`${b.key.padStart(2)}  `, 'secondary'), S(cut(b.name, 13, g.ellipsis).padEnd(14), 'strong'),
-        S(cut(b.needs.length ? b.needs.join(', ') : (g.unicode ? '—' : '-'), 15, g.ellipsis).padEnd(16), 'secondary'),
-        S(`${b.glyph} ${b.word}`, state), S(b.detail ? ` ${b.detail}` : '', 'secondary'), S(b.run ? ` ${g.sep} ${b.run}` : '', 'secondary'), ...person,
-      ], sel, g));
-      i += 1;
-    }
-  }
-  // what running the selected block does, and where it can be done
-  const sel = all[cur];
-  if (sel?.b) {
-    const b = sel.b;
-    const run = actionsOf(c, { kind: 'block', key: `block:${sel.d.rel}:${b.key}`, doc: sel.d, block: b }).find((a) => a.key === 'Enter');
-    lines.push(blank);
-    lines.push([S('RUN ', 'secondary', { bold: true }), S(`${sel.d.rel} › ${b.name}`, 'strong')]);
-    lines.push([S('  Runs ', 'secondary'), S(b.order.join(` ${g.arrow} `), 'text'), S(b.risky.length ? `  ${g.warn} its NEEDS YOU box asks first` : '', 'attention')]);
-    if (run?.enabled) lines.push([S('  '), key('Enter'), S(' Run it here, through the REPL\'s own /run (one job, one operation)', 'text')]);
-    else if (run?.why) lines.push(...para(`Not from here now: ${run.why}`, c.width, 'secondary', '  '));
-    lines.push([S('  In the REPL: ', 'secondary'), S(`/run ${sel.d.rel} ${b.name}`, 'action'), S('   in a shell, in the project: ', 'secondary'), S(`timmy md ${sel.d.rel} ${b.name}`, 'action')]);
   }
   return { lines, items };
 }
@@ -929,7 +876,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       const b = item.block;
       lines.push(heading('Workflow block'));
       f('Document', item.doc.rel); f('Block', `${b.name} (block ${b.key})`); f('Language', b.lang || 'none'); f('Needs', b.needs.join(', ') || 'nothing'); f('Runs', b.order.join(` ${c.g.arrow} `));
-      f('Last state', `${b.glyph} ${b.word}${b.detail ? ` ${b.detail}` : ''}`, b.word === 'failed' ? 'failure' : 'text');
+      // R5 (H136): its mark as tab 3 draws it (one meaning per mark: ▶ running, … waiting, never ● or ○)
+      f('Last state', `${stateMark(b.word, c.g).glyph} ${b.word}${b.detail ? ` ${b.detail}` : ''}`, b.word === 'failed' ? 'failure' : 'text');
       if (b.run) f('Last run', b.run);
       if (b.risky.length) for (const r of b.risky) lines.push(...para(`${c.g.warn} ${r.name} needs you before it runs: ${r.command.split('\n')[0]}`, w, 'attention'));
       else f('Decides', 'it runs on its own (no destructive command)');
