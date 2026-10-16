@@ -8,18 +8,19 @@
  * call, no model) and leaves it waiting; a note is written; a card of blank is pasted onto tray's board (FAKE: put there by the
  * test, as a paste puts it). The companion's tab 4 then lists tray's board as Studio saved it, read on screen: each item's kind,
  * title, page, its draft and FAKE marks, its thumbnail (the record's own image, the reference's board copy: their pixels decoded
- * in the page), and what it opens (data-open-vox, data-open-run, which opens the run in Workflows, and the receipt's page in
- * Studio, which says it verifies); blank's card is named as kept apart and nothing of it is read. Then the active project
+ * in the page; one shown at size in the page's dialog), and what it opens (its VoxVision record in tab 5, its operation's run in
+ * Workflows, the receipt's page in Studio, which says it verifies); blank's card is named as kept apart and nothing of it is
+ * read. Then the active project
  * becomes blank: the companion and Studio follow it, tab 4 lists blank's own board only, a read of tray's board held across the
  * switch is dropped, and tray's board files are byte-identical before and after (hashed).
  *
  * FAKE, said where used: tray's VoxVision record is made by the REPL's own record writer with the FAKE Look of
  * tests/helpers/vox-fakes.ts (a labelled test double, not OpenCV: its record says "fake") and sealed with a real vox receipt on
  * this file's chain; tray's operation record is written here through Timmy's own writer (it says FAKE in its request); its run
- * detail comes from a FIXTURE producer given to the companion. The images are drawn here. Not exercised here: data-open-vox and
- * data-enlarge are handled by the page's own code on the lead's branch (819cb63), not on this one, so their attributes are read
- * here and their handling is not. Skipped, saying so, where no Chromium or Chrome is found. Captures (PNG) only when
- * TIMMY_R6_CAPTURES names a folder, each with a band that says it is FAKE and scripted.
+ * detail comes from a FIXTURE producer given to the companion. The images are drawn here. The image at size is the page's own
+ * dialog (panels.js TimmyEnlarge) and Open in VoxVision the page's own handler (companion.js, data-open-vox): both the lead's
+ * (819cb63), exercised here on the merged tree. Skipped, saying so, where no Chromium or Chrome is found. Captures (PNG) only
+ * when TIMMY_R6_CAPTURES names a folder, each with a band that says it is FAKE and scripted.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -270,12 +271,17 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
     if (!CAPTURES) return;
     mkdirSync(CAPTURES, { recursive: true });
     await page.evaluate(() => {
-      if (document.getElementById('fake-band')) return;
-      const b = document.createElement('div');
-      b.id = 'fake-band';
-      b.textContent = 'SCRIPTED TEST · headless Chromium · FAKE VoxVision record (FAKE Look, a test double) · FAKE operation, FIXTURE run detail · FAKE draft (scripted canvas_exec, no model) · FAKE paste of blank\'s card · images drawn by the test · disposable projects tray and blank';
-      Object.assign(b.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: '400', maxWidth: '60vw', padding: '4px 8px', background: '#070707', color: '#F2EFE9', border: '1px solid #444444', font: '12px/1.4 monospace', pointerEvents: 'none' });
-      document.body.append(b);
+      const band = (id: string): HTMLElement => {
+        const b = document.createElement('div');
+        b.id = id;
+        b.textContent = 'SCRIPTED TEST · headless Chromium · FAKE VoxVision record (FAKE Look, a test double) · FAKE operation, FIXTURE run detail · FAKE draft (scripted canvas_exec, no model) · FAKE paste of blank\'s card · images drawn by the test · disposable projects tray and blank';
+        Object.assign(b.style, { position: 'fixed', right: '8px', bottom: '8px', zIndex: '400', maxWidth: '60vw', padding: '4px 8px', background: '#070707', color: '#F2EFE9', border: '1px solid #444444', font: '12px/1.4 monospace', pointerEvents: 'none' });
+        return b;
+      };
+      if (!document.getElementById('fake-band')) document.body.append(band('fake-band'));
+      // a modal dialog is drawn above the page: the band goes into it too, so it is seen there
+      const open = document.querySelector('dialog[open]');
+      if (open && !open.querySelector('#fake-band-dialog')) open.append(band('fake-band-dialog'));
     });
     await page.screenshot({ path: join(CAPTURES, `${name}.png`) });
   }
@@ -349,6 +355,11 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
         return [`"card":"vox:${trayVox}"`, `"card":"run:${trayOp}"`, `"card":"receipt:${rid}"`, sha(PHOTO), sha(SECOND), draftId, 'Check the lip of the tray', '"card":"vox:vfeedbeef"'].every((x) => t.includes(x));
       });
       expect(boardText(tray)).not.toContain("blank's words, which tray's board never shows");
+      // the page's own word that everything it holds is saved (its last change included) before it is closed; the draft's job
+      // names a revision tray's board has reached on disk (the ledger takes it from the page's answer)
+      await page.waitForFunction(() => document.getElementById('save')?.dataset.state === 'saved', null, { timeout: 15_000 });
+      const job = (JSON.parse(readFileSync(join(board(tray), 'jobs.json'), 'utf8')) as Array<{ id: string; revision: number }>).find((j) => j.id === 'turn-tab4-draft')!;
+      await until("tray's board saved at the draft job's revision or later", () => { try { return (JSON.parse(readFileSync(join(board(tray), 'canvas.json'), 'utf8')) as { revision: number }).revision >= job.revision; } catch { return false; } });
       expect(s.errors).toEqual([]);
     } finally {
       await s.context.close();
@@ -422,6 +433,22 @@ describe.skipIf(!browserPath)("the companion's tab 4: what is on the shown proje
       expect((await thumbs(page)).sort((a, b) => String(a.path).localeCompare(String(b.path)))).toEqual([
         { path: 'refs/photo.png', w: 160, data: true }, { path: 'refs/photo.png', w: 160, data: true }, { path: 'refs/second.png', w: 64, data: true },
       ]);
+      // a thumbnail shown at size (the page's TimmyEnlarge): the same pixels, its words under it; Esc gives the keyboard back
+      const voxRow = page.locator(`[data-panel-host="studio"] .sb-item[data-shape="${t.items.find((i) => i.sub === 'vox' && i.kind === 'artifact')!.shape}"]`);
+      const thumbSrc = await voxRow.locator('.sb-thumb img').getAttribute('src');
+      await voxRow.locator('.sb-thumb').click();
+      await page.waitForFunction(() => { const d = document.querySelector('dialog.enlarge') as HTMLDialogElement | null; const i = d?.querySelector('.enlarge-img') as HTMLImageElement | null; return !!d && d.open && !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 10_000 });
+      expect(await page.$eval('dialog.enlarge', (d) => ({ src: (d.querySelector('.enlarge-img') as HTMLImageElement).src, w: (d.querySelector('.enlarge-img') as HTMLImageElement).naturalWidth, cap: d.querySelector('.enlarge-cap')?.textContent })))
+        .toEqual({ src: thumbSrc, w: 160, cap: "detect refs/photo.png · refs/photo.png (artifact · VoxVision record on tray's board)" });
+      await capture(page, '10-companion-tab4-image-at-size');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !(document.querySelector('dialog.enlarge') as HTMLDialogElement).open && document.activeElement?.classList.contains('sb-thumb') === true, null, { timeout: 10_000 });
+      // Open in VoxVision: the page opens tab 5 on that record (its entity tree names it)
+      await voxRow.locator(`[data-open-vox="${trayVox}"]`).click();
+      await page.waitForFunction((id) => document.getElementById('ws-tab-voxvision')?.getAttribute('aria-selected') === 'true' && (document.querySelector('[data-vox="tree-title"]')?.textContent ?? '') === `Entity tree · ${id}`, trayVox, { timeout: 15_000 });
+      expect(await page.$eval(`.vox-rec[data-vox-record="${trayVox}"]`, (b) => b.getAttribute('aria-current'))).toBe('true');
+      await page.keyboard.press('4');
+      await page.waitForFunction(() => document.getElementById('ws-tab-studio')?.getAttribute('aria-selected') === 'true', null, { timeout: 10_000 });
       // the receipt's page in Studio (linked: this page is on this computer), opened apart, says it verifies
       const link = page.locator(`[data-panel-host="studio"] a[data-receipt="${rid}"]`);
       expect([await link.getAttribute('target'), await link.getAttribute('rel')]).toEqual(['_blank', 'noopener noreferrer']);
