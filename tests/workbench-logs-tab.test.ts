@@ -14,7 +14,7 @@ import { projectId } from '../src/project/index.js';
 import { appendReceipt, receiptsPath, type Receipt, type ReceiptInput } from '../src/utils/receipts.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { innerWidth } from '../src/workbench/frame.js';
-import { layoutFor } from '../src/workbench/layout.js';
+import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import { LOGS_LIST, logsDetail, logsView, readLogs, receiptVerdict, type LogsData, type LogsItem } from '../src/workbench/logs-tab.js';
 import { COLUMNS_FROM } from '../src/workbench/tab-columns.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
@@ -28,9 +28,10 @@ const OP = 'o1a2b3c4d';
 const OP2 = 'o0000beef';
 const JOB = 'j1a2b3c';
 
-/** The body's inner size at a terminal size, as the Workbench lays a workspace tab out (Context a column from 120). */
+/** The body's inner size at a terminal size, as the Workbench lays this tab out (src/workbench/layout.ts OWN_COLUMNS: the
+ *  whole width at every size, Context the [i] drawer). */
 function bodyAt(columns: number, rows: number): { width: number; height: number } {
-  const l = layoutFor({ columns, rows, body: 'workspace' });
+  const l = layoutFor({ columns, rows, body: bodyKind(false, 'logs') });
   return { width: innerWidth(l.center!.w), height: l.center!.h - 2 };
 }
 
@@ -108,10 +109,13 @@ describe('tab 0, Logs & Receipts: the chain line (verifyChain, in this reading)'
       const v = logsView(ctxAt(c, r), d);
       expect(plain(v.lines[0])).toMatch(/^✓ chain verified: 5 receipts · in this reading · epoch 1/);
       expect(rolesOf([v.lines[0]], /chain verified/)).toEqual(['live']);
-      // where there is room, what was checked (each part whole or left out, never cut)
-      if (c !== 120) expect(plain(v.lines[0])).toMatch(/· links and body hashes \(verifyChain\)\s*$/);
+      // where there is room, what was checked, then the store (each part whole or left out, never cut)
+      expect(plain(v.lines[0])).toMatch(c === 160 ? /· links and body hashes \(verifyChain\) · \.timmy\/receipts\/runs\.jsonl\s*$/ : /· links and body hashes \(verifyChain\)\s*$/);
       expect(plain(v.lines[0])).not.toMatch(/…/);
     }
+    // beside an open drawer (i at 120 columns: 78 cells) what was checked is left out, never cut
+    const beside = plain(logsView({ ...ctxAt(120, 40), width: 78 }, d).lines[0]);
+    expect(beside).toMatch(/^✓ chain verified: 5 receipts · in this reading · epoch 1\s*$/);
   });
 
   it('a tampered receipt: ✕ amber with the reason; the chain is never green, and a receipt only where verifyReceiptIn still confirms it', () => {
@@ -215,8 +219,8 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
       // the run is structure: its card's title grey beside the others, its label plain in the stacked rows
       expect(rolesOf(v.lines, /^\s*sandbox \/ run\s*$/)).toEqual([c >= COLUMNS_FROM ? 'border' : 'strong']);
       expect(rolesOf(v.lines, /^\s*\.receipt\s*$/)).toEqual(['live']);
-      // the request whole where its card has room for it (at 120 its card is 21 cells wide: cut, with an ellipsis)
-      expect(all).toMatch(c === 120 ? /\/run build\.md…/ : /\/run build\.md build/);
+      // the request whole where its card has room for it
+      expect(all).toMatch(/\/run build\.md build/);
       expect(all).toMatch(/sealed before/);
       expect(all).not.toMatch(/not recorded/);
       // both of its receipts say they verify; the green words are the chain's, theirs and the verified receipt's title
@@ -260,13 +264,15 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
       const v = logsView(ctxAt(c, r, k), d);
       const all = text(v.lines);
       // the log's name and how many of its lines show: beside the heading where they fit, else the column's first row
-      expect(all).toMatch(c === 100 ? /RAW OUTPUT · j1a2b3c\.log · last \d of 4/ : c === 160 ? /RAW OUTPUT · j1a2b3c\.log/ : /RAW OUTPUT[^\n]*\n[^\n]*│ j1a2b3c\.log/);
+      expect(all).toMatch(c === 120 ? /RAW OUTPUT · j1a2b3c\.log/ : /RAW OUTPUT · j1a2b3c\.log · last \d of 4/);
       expect(all).toMatch(/built tray\.stl/);
       expect(all).toMatch(/fetched x+…/);
       expect(all).not.toMatch(/END-OF-LONG-LINE/);
       // no row starts with the cut line's rest
       for (const l of v.lines) expect(plain(l)).not.toMatch(/(^|│ )x{10,}/);
     }
+    // beside an open drawer (i at 120 columns: 78 cells) the log's name is the column's first row
+    expect(text(logsView({ ...ctxAt(120, 40, k), width: 78 }, d).lines)).toMatch(/RAW OUTPUT[^\n]*\n[^\n]*│ j1a2b3c\.log/);
   });
 });
 
@@ -307,7 +313,7 @@ describe('tab 0: the layout at 160x45, 120x40 and 100x30', () => {
       const all = text(v.lines);
       // the run's output is text here: images, 3D and live previews are seen in the companion (c) or Studio (s) (the words
       // wrapped in a narrow column)
-      expect(all).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or( live)? *\n[^\n]*│ (live )?previews here:/);
+      expect(all).toMatch(/A terminal draws no images, 3D or live previews|No images, 3D or live previews here:|No images, 3D or( live)? *\n[^\n]*│ (live )?previews here:|No images, 3D or live previews *\n[^\n]*│ here:/);
       expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action', 'action']);
       // on the selection bar no word is in the grey secondary (below the contrast floor on charcoal)
       const bar = v.lines.flat().filter((s) => s.selected && s.text.trim());
@@ -318,11 +324,14 @@ describe('tab 0: the layout at 160x45, 120x40 and 100x30', () => {
     expect(text(logsView(ctxAt(100, 30, k), d).lines)).toMatch(/EVENT LOG · newest first +\d+–\d+ of \d+/);
   });
 
-  it('the body\'s own width decides when the terminal\'s is not given (Context beside it at 120 leaves 70 cells)', () => {
+  it('the body\'s own width decides when the terminal\'s is not given (70 cells side by side, 60 stacked)', () => {
     const f = fixture();
     const d = readLogs({ home: f.home, root: f.root, env: env() });
     const wide = logsView({ ui: { cursor: {} }, g, width: 70, height: 23, now: Date.now() }, d);
     expect(text(wide.lines)).toMatch(/EVENT LOG.*│ OPERATION/);
+    // a card narrower than its request cuts it, with an ellipsis
+    const k = indexOf(d, (e) => e.tag === 'workflow');
+    expect(text(logsView({ ui: { cursor: { [LOGS_LIST]: k } }, g, width: 70, height: 23, now: Date.now() }, d).lines)).toMatch(/\/run build\.md…/);
     const narrow = logsView({ ui: { cursor: {} }, g, width: 60, height: 23, now: Date.now() }, d);
     expect(text(narrow.lines)).not.toMatch(/EVENT LOG.*│/);
   });
