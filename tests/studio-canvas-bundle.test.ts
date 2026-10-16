@@ -35,9 +35,10 @@ describe('Timmy Canvas loads nothing from another host', () => {
     // R4 (H75): and the drawn cards, a file beside it that imports nothing either (canvas.js hands it React and tldraw).
     // R4 (H109): and the side panel's Run detail, a file beside it that imports nothing.
     // R5 (H133): and B10 for tldraw's canvas colors, the drafts' rules and the save line's words: files beside it that import nothing.
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js']);
+    // R5 (H133): and the shared workspace frame's strip above the canvas, a file beside it that imports nothing either.
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js']);
     // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing
-    const IMPORT_NOTHING = ['operations.js', 'run-detail.js', 'theme.js', 'drafts.js', 'save-state.js'];
+    const IMPORT_NOTHING = ['operations.js', 'run-detail.js', 'theme.js', 'drafts.js', 'save-state.js', 'frame.js'];
     for (const file of ['project.js', 'cards.js', ...IMPORT_NOTHING]) {
       const own = readFileSync(join(page, 'src', file), 'utf8');
       const sources = [...own.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);

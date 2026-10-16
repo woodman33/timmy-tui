@@ -21,6 +21,8 @@ import { createRunDetailPanel } from './run-detail.js';
 import { timmyThemes } from './theme.js';
 import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
 import { saveState } from './save-state.js';
+// R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
+import { createFrameStrip } from './frame.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -261,6 +263,7 @@ async function reloadFromDisk() {
   const disk = opened.body;
   clearTimeout(canvas.timer);
   await mount(disk.snapshot ? { document: disk.snapshot } : undefined);
+  fitOnOpen(current);
   Object.assign(canvas, { revision: disk.revision, savedRevision: disk.revision, sourceRevision: disk.sourceRevision, savedAt: disk.savedAt ?? null, saving: false, failed: null, conflict: null, stale: null, refused: null });
   const kept = canvas.kept;
   canvas.kept = null;
@@ -294,7 +297,8 @@ let drawnInCall = null;
 const BESIDE_MIN = 240;
 function freeArea() {
   const margin = 16;
-  const top = 56;
+  // R5 (H133): under tldraw's own top row, inside the canvas box, which starts under the workspace strip
+  const top = (document.getElementById('root')?.getBoundingClientRect().top ?? 0) + 56;
   const side = document.getElementById('side')?.getBoundingClientRect();
   const bar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
   const bottom = (bar && bar.height > 0 ? bar.top : innerHeight - 72) - margin;
@@ -304,7 +308,8 @@ function freeArea() {
   if (right.w >= BESIDE_MIN && right.h > 0) return right;
   return right.w * right.h >= below.w * below.h ? right : below;
 }
-function reveal(editor, ids) {
+/** `o.now`: the camera goes there at once (a board just opened), not with the 220 ms move a placed shape gets. */
+function reveal(editor, ids, o = {}) {
   const page = editor.getCurrentPageId();
   const shown = ids.filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page);
   const boxes = shown.map((id) => editor.getShapePageBounds(id)).filter(Boolean);
@@ -322,7 +327,7 @@ function reveal(editor, ids) {
   const center = bounds.center;
   editor.setCamera(
     { x: (area.x + area.w / 2 - view.x) / z - center.x, y: (area.y + area.h / 2 - view.y) / z - center.y, z },
-    { animation: { duration: 220 } },
+    o.now ? undefined : { animation: { duration: 220 } },
   );
 }
 
@@ -739,11 +744,22 @@ function openBoard(editor, template) {
  * R5 (H133): a board just opened, fitted into the area beside Timmy's panel (or below it on a phone), never closer than 100 %:
  * zoomToFit alone fitted it to the whole window, and its left part sat under the panel.
  */
-function fitBeside(editor) {
+function fitBeside(editor, o = {}) {
   editor.zoomToFit();
   const z = editor.getCamera().z;
   if (z > 1) editor.setCamera({ ...editor.getCamera(), z: 1 });
-  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id)); } catch { /* showing it is a courtesy */ }
+  try { reveal(editor, editor.getCurrentPageShapes().map((s) => s.id), o); } catch { /* showing it is a courtesy */ }
+}
+/**
+ * R5 (H133): a canvas reopened (loaded, or reloaded from disk) shows what it holds: its shapes fitted into the area beside Timmy's
+ * panel and under the workspace strip, never closer than 100 % (the camera is not saved with the canvas, so it had opened at the
+ * origin: a shape cut by the top edge, the others under the panel). A blank page stays as it is.
+ */
+function fitOnOpen(editor) {
+  if (!editor || editor.getCurrentPageShapes().length === 0) return;
+  // the canvas box as it is laid out now (it starts under the strip), before the fit reads it
+  try { editor.updateViewportScreenBounds(editor.getContainer()); } catch { /* tldraw keeps its own */ }
+  fitBeside(editor, { now: true });
 }
 /**
  * R5 (H133): a guided blank board (src/studio/templates.ts guidedTemplates): its title and what it is for, then one empty frame
@@ -819,6 +835,7 @@ async function offerBoards() {
 /** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
 function connectPanel() {
   document.getElementById('side-ready').hidden = false;
+  watchEdge(document.getElementById('side-scroll'));
   // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
   void offerBoards();
@@ -943,20 +960,72 @@ function mount(snapshot) {
 
 /**
  * R4 (H83): a page without a session that counts (opened by its address, a bookmark or a reload, or its grant refused) loads no
- * canvas: it says so plainly, in the status and in the middle of the page, with the command that opens one; nothing else starts.
+ * canvas: it says so plainly in the middle of the page, with the command that opens one, and the status says where (R5 H133);
+ * nothing else starts.
  */
 function refuseToLoad(words) {
-  say(`Not loaded: ${words}${/\/canvas open/.test(words) ? '' : ' In Timmy: /canvas open.'}`, 'refused');
+  // R5 (H133): said once, in the middle of the page (why, and what to type); the panel's line points there (it had the same
+  // paragraph twice). No workspace strip: the page has no session to read it with.
+  say('Not loaded: why, and what to type in Timmy, are in the middle of the page.', 'refused');
   document.getElementById('refused-words').textContent = words;
   document.getElementById('refused').hidden = false;
+  hideFrame();
+}
+
+/**
+ * R5 (H133): the workspace strip (index.html #frame), shown at once on a page Timmy opened, so the canvas starts below it before
+ * tldraw lays out; its height is the canvas box's top (--frame-h), followed as it changes (a narrow window, a longer line).
+ */
+let frameStrip = null;
+function showFrame() {
+  const strip = document.getElementById('frame');
+  if (!strip) return;
+  strip.hidden = false;
+  const follow = () => document.documentElement.style.setProperty('--frame-h', `${strip.hidden ? 0 : Math.ceil(strip.getBoundingClientRect().height)}px`);
+  follow();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(follow).observe(strip);
+}
+function hideFrame() {
+  const strip = document.getElementById('frame');
+  if (strip) strip.hidden = true;
+  document.documentElement.style.setProperty('--frame-h', '0px');
+  frameStrip?.stop();
+  frameStrip = null;
+}
+/** R5 (H133): reads the frame with this page's session, now and every few seconds while the page is shown (./frame.js). */
+function startFrame() {
+  const strip = document.getElementById('frame');
+  if (!strip || frameStrip) return;
+  frameStrip = createFrameStrip({ root: strip, read: () => cards.workspace() });
+}
+
+/**
+ * R5 (H133): the panel's scroll region marks when more of it is below its edge (data-more="below": index.html fades that edge),
+ * as it scrolls, resizes and its lists change.
+ */
+function watchEdge(region) {
+  if (!region) return;
+  const mark = () => {
+    const below = region.scrollTop + region.clientHeight < region.scrollHeight - 2;
+    const was = region.dataset.more;
+    const now = below ? 'below' : 'none';
+    if (was !== now) region.dataset.more = now;
+  };
+  region.addEventListener('scroll', mark, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(mark).observe(region);
+  if (typeof MutationObserver === 'function') new MutationObserver(mark).observe(region, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open', 'hidden'] });
+  mark();
 }
 
 async function start() {
   // R4 (H75): this page's grant becomes its session before anything else (before tldraw starts and before the agent's bridge
   // connects). R4 (H83): the canvas, its settings' license and its jobs are read only with it, so without one nothing loads.
   say(GRANT_AT_LOAD ? 'Loading the canvas: opening this page\'s session with Timmy' : 'Loading the canvas', 'loading');
+  // R5 (H133): a page Timmy opened draws the workspace strip at once (its space is kept before tldraw lays out below it)
+  if (GRANT_AT_LOAD) showFrame();
   const session = await cards.startSession();
   if (session.state !== 'ok') { refuseToLoad(session.words); return; }
+  startFrame();
   say('Loading the canvas: reading its settings from Timmy', 'loading');
   const settings = await cards.config();
   if (!settings.ok || !settings.body) throw new Error(`Timmy answered ${settings.status} for the canvas settings`);
@@ -995,6 +1064,8 @@ async function start() {
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.
   await mount(saved.snapshot ? { document: saved.snapshot } : undefined);
+  // R5 (H133): reopened, it shows what it holds, beside the panel and under the strip
+  fitOnOpen(current);
   connectBridge();
   connectPanel();
   window.addEventListener('pagehide', () => saveOnLeave());

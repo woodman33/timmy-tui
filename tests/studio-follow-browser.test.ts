@@ -57,7 +57,8 @@ describe.skipIf(!browserPath)('Timmy Canvas follows the active project unless a 
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
     // a server that serves this Timmy home for its REPLs (as the REPL's own and `timmy studio` do): it follows the active project
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot, projectTokenFile: true, followEveryMs: 100, followGraceMs: 200 });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot, projectTokenFile: true, followEveryMs: 100, followGraceMs: 200 });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     await nameProject(Number(new URL(base).port), server.projectToken, { root: alpha.root, name: 'alpha', holder: 'a'.repeat(32) });
     browser = await chromium.launch({ headless: true, executablePath: browserPath });

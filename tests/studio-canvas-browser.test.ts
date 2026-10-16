@@ -44,7 +44,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(root, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(root, 'dist'), { licenses: root });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     // the project the canvas shows, named as the REPL names it (no holder: no REPL takes card actions here)
     const project = join(home, 'project');
