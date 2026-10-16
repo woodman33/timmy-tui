@@ -288,23 +288,30 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     await press(f.r, DOWN);
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: wb } });
     expect(columnText(c, 2)).toMatch(new RegExp(`▸ ✓ ${wb} answered from the Workbench`));
+    // R5 (H137): tab 7 draws its own columns, so its Inspector is Context's drawer: i opens it, and i again closes it
+    await press(f.r, 'i');
     await until('the turn\'s run detail', () => regionText(c, 'right').includes(`RUN DETAIL · ${OP_WB}`), 5000, f.text);
     const inspector = regionText(c, 'right');
     expect(inspector).toContain('CHAT TURN');
     for (const w of [`Receipt ${wb}`, 'From the Workbench', 'Ended answered', 'Model qwen3:8b-fixture', 'Route local endpoint, no charge: Ollama on this computer', 'Took 1.2 s', `Operation ${OP_WB}`, 'Its receipt keeps the message and the answer as hashes, never their words.', 'Objective FIXTURE objective of the run', 'Verdict completed · FIXTURE verdict words']) expect(inspector).toContain(w);
     expect(inspector).toMatch(/When \d\d:\d\d:\d\d \(\d+ s ago\)/);
     expect(details).toContain(OP_WB);
+    await press(f.r, 'i');
 
     // Down again: the stopped turn, its own operation's run detail
     await press(f.r, DOWN);
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: stopped } });
+    await press(f.r, 'i');
     await until('the stopped turn\'s run detail', () => regionText(c, 'right').includes(`RUN DETAIL · ${OP_STOP}`), 5000, f.text);
     for (const w of [`Receipt ${stopped}`, 'Ended stopped', 'Model qwen3:8b', 'Route not recorded on its receipt (it names the model, not the endpoint that answered)', `Operation ${OP_STOP}`]) expect(regionText(c, 'right')).toContain(w);
+    await press(f.r, 'i');
     // and the REPL's turn, which names no operation
     await press(f.r, DOWN);
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: repl } });
+    await press(f.r, 'i');
     for (const w of [`Receipt ${repl}`, 'From the REPL', 'Model fixture/chat-model', 'Operation none recorded', 'Run detail: this turn names no operation.']) expect(regionText(c, 'right')).toContain(w);
     expect(details).toEqual([OP_WB, OP_STOP]);
+    await press(f.r, 'i');
 
     // a turn sealed while the Workbench is open (here a companion page's, through an Ollama its receipt names off this computer:
     // FIXTURE host 192.0.2.10, a documentation address no computer has) is listed at the next reading; the selection stays on
@@ -316,10 +323,13 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     await until('the fourth turn', () => regionText(c, 'center').includes('CHAT TURNS (4)'), 5000, f.text);
     expect(columnText(c, 2)).toMatch(inRow(`✓ ${later}`, 'answered', 'from a companion page', 'fixture/remote-model', '0\\.3 s', OP_LATER));
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: repl } });
+    await press(f.r, 'i');
     expect(regionText(c, 'right')).toContain(`Receipt ${repl}`);
+    await press(f.r, 'i');
     // up to it (the newest turn, first under Recent): its route is the Ollama its receipt names, off this computer
     await press(f.r, '\u001b[A', '\u001b[A', '\u001b[A');
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: later, surface: 'companion', local: false } });
+    await press(f.r, 'i');
     for (const w of [`Receipt ${later}`, 'From a companion page', 'Model fixture/remote-model', 'Route Ollama, which sent it off this computer (another computer, or a cloud-backed model): no cost comes back', `Operation ${OP_LATER}`]) expect(regionText(c, 'right')).toContain(w);
     expect(f.text()).not.toContain('192.0.2.10');
   }, 30_000);

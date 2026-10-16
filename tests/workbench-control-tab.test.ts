@@ -29,7 +29,7 @@ import {
 } from '../src/workbench/control-tab.js';
 import { sideBySideAt } from '../src/workbench/tab-columns.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
-import { layoutFor } from '../src/workbench/layout.js';
+import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Data, TurnRow } from '../src/workbench/model.js';
 import { readJobs, type JobRow } from '../src/workbench/state.js';
 import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
@@ -282,8 +282,10 @@ function controlData(o: Partial<ControlData> = {}): ControlData {
   };
 }
 
-function ctxAt(columns: number, rows: number, d: ControlCtx['data'], cursor = 0): ControlCtx {
-  const l = layoutFor({ columns, rows, body: 'workspace' });
+function ctxAt(columns: number, rows: number, d: ControlCtx['data'], cursor = 0, drawer = false): ControlCtx {
+  // the body as the Workbench lays tab 7 out (src/workbench/layout.ts OWN_COLUMNS: the whole width; `drawer`, Context's drawer
+  // open beside it, i)
+  const l = layoutFor({ columns, rows, body: bodyKind(false, 'control'), rightOpen: drawer });
   return {
     ui: { cursor: { [CONTROL_LIST]: cursor }, companion: { serving: true, address: 'http://127.0.0.1:3001/', last: null }, studio: { serving: false, address: null, last: null } },
     data: d, g, width: innerWidth(l.center!.w), height: l.center!.h - 2, now: NOW, columns, can: { detail: true },
@@ -313,11 +315,11 @@ const RUNNING = [
 const TAILS: ControlData['tails'] = { j0e1371: { lines: ['waiting for the release file', 'still waiting'] }, j0e1372: { why: 'no log yet (it printed nothing, or never started)' } };
 
 describe('tab 7, Control Room: the view', () => {
-  it('fits every row at 160x45, 120x40 and 100x30: three columns side by side from 120 columns (each with its rule), stacked below; the panes first when stacked, the roster last', () => {
+  it('fits every row at 160x45, 120x40 and 100x30, Context\'s drawer shut or open: three columns side by side from 120 columns (each with its rule), stacked below; the panes first when stacked, the roster last', () => {
     const d = data({ jobs: [...RUNNING, ended({ id: 'j0e1373', label: 'SLOW.md › long', blocks: '1 of 1 step', operation: 'o0e13703' })], decisions: [decision('i1', 'workflow run j0e1379 (SLOW.md › long) was interrupted')], turns: [sealed('abcd1234')] });
     const cd = controlData({ tails: TAILS });
-    for (const [c, r] of SIZES) {
-      const ctx = ctxAt(c, r, d);
+    for (const [c, r] of SIZES) for (const drawer of [false, true]) {
+      const ctx = ctxAt(c, r, d, 0, drawer);
       const v = controlRoomView(ctx, cd);
       for (const l of v.lines) expect(lineCells(l), `${c}x${r}: ${plain(l)}`).toBeLessThanOrEqual(ctx.width);
       const all = text(v.lines);
@@ -383,6 +385,12 @@ describe('tab 7, Control Room: the view', () => {
       if (c === 160 || c === 100) expect(segsWith(v.lines, /●/)).toHaveLength(2);
       expect(all).toMatch(/○ opencode +FAKE/);
       expect(all).toMatch(/not installed/);
+      // this Workbench's run in another project: after the project's, apart under the Control Room's own title, its project
+      // named in its pane (selected here, so a clipped column shows it)
+      const away = row({ id: 'j0e1374', label: 'SLOW.md › nap', project: 'tray-b', root: '/FAKE/tray-b', operation: 'o0e13704' });
+      const withAway = controlRoomView(ctxAt(c, r, data({ jobs: RUNNING, away: [away] }), 3), cd);
+      expect(withAway.items.map((x) => x.item.key)).toEqual(['job:j0e1371', 'job:j0e1372', `live-turn:repl:4243:${turn.taken}`, 'job:j0e1374']);
+      expect(flat(cols(withAway.lines)[c >= 120 ? 1 : 0])).toMatch(/RUNNING IN ANOTHER PROJECT, STARTED HERE \(1\) ┏━ j0e1374 .*▶ running SLOW\.md › nap in tray-b this Workbench · o0e13704/);
     }
     // side by side, an item in view knows its column's cells (a click on that row in another column is not on it)
     const v = controlRoomView(ctxAt(160, 45, d, 1), cd);
@@ -455,6 +463,12 @@ describe('tab 7, Control Room: the view', () => {
         const fromTop = flat(cols(controlRoomView(ctxAt(c, r, d, 0), controlData({ tails: TAILS })).lines)[2]);
         expect(fromTop).toContain('WAITING ON YOU (2)');
         expect(fromTop).toContain('⚠ nothing is done until you do it');
+        // clipped, the column fills its rows down to its mark, the last of them (a block that does not fit whole shows the
+        // rows of it that do: the run detail, the recent runs)
+        const rightRows = cols(controlRoomView(ctxAt(c, r, d, 0), controlData({ tails: TAILS })).lines)[2].split('\n');
+        expect(rightRows).toHaveLength(ctx.height);
+        expect(rightRows[rightRows.length - 1]).toMatch(/^↓ 1–\d+ of \d+ rows$/);
+        expect(rightRows.slice(0, -1).filter((l) => l.trim() === '').length).toBeLessThanOrEqual(4);
         // the right column: clipped, it says its rows; the selected run (the last) is in view, its row marked
         const it = v.items[last];
         expect(it.line).toBeGreaterThanOrEqual(0);
@@ -501,16 +515,24 @@ describe('tab 7, Control Room: the view', () => {
     expect(wide).toMatch(/○ fake-old  reached 3 h ago/);
     expect(wide).toMatch(/✕ fake-gone unreachable/);
     expect(wide).toMatch(/▶ 1 remote job running/);
-    // side by side at 160 columns (a narrow roster): the shorter words, the lanes not installed sharing one entry, nothing cut
+    // side by side at 160 columns (the whole width): every entry on one row, its word beside it
     const v = controlRoomView(ctxAt(160, 45, d), controlData({ tails: TAILS }));
     const all = text(v.lines);
-    expect(all).toMatch(/○ opencode  FAKE /);
-    expect(all).toMatch(/▶ hermes    running /);
-    expect(all.replace(/ +│[^\n]*/g, '').replace(/\n +/g, ' ')).toMatch(/· not installed: pi, openhands, jcode, minds/);
-    expect(all).toMatch(/○ companion configured /);
-    expect(all).toMatch(/● fake-live live /);
-    expect(all).toMatch(/✕ fake-gone/);
+    expect(all).toMatch(/○ opencode  FAKE stand-in/);
+    expect(all).toMatch(/▶ hermes    running dp_fake1/);
+    expect(all).toMatch(/· openhands not installed/);
+    expect(all).toMatch(/○ companion configured, served here/);
+    expect(all).toMatch(/● fake-live live, reached 5 min ago/);
+    expect(all).toMatch(/✕ fake-gone unreachable/);
     expect(all).not.toMatch(/…\s*│/);
+    // with Context's drawer open at 120 columns (the narrowest body side by side: a narrow roster), the shorter words, the
+    // lanes not installed sharing one entry, nothing cut
+    const narrow = text(controlRoomView(ctxAt(120, 40, d, 0, true), controlData({ tails: TAILS })).lines);
+    expect(narrow).toMatch(/○ opencode  FAKE /);
+    expect(narrow.replace(/ +│[^\n]*/g, '').replace(/\n +/g, ' ')).toMatch(/· not installed: pi, openhands, jcode, minds/);
+    expect(narrow).toMatch(/○ companion\s+│[^\n]*\n {2}configured/);
+    expect(narrow).toMatch(/● fake-live live /);
+    expect(narrow).not.toMatch(/…\s*│/);
     expect(segsWith(v.lines, /^● $/).map((s) => s.role)).toEqual(['live']);
     const right = flat(cols(v.lines)[2]);
     expect(right).toContain(`RUN DETAIL · ${op}`);

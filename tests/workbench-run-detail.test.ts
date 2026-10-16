@@ -149,9 +149,11 @@ describe('the Inspector\'s run detail while a later session\'s recovery ends a r
     c.start();
     // the Workbench has read it running before the first frame (a reading is asked for again whenever the record changes)
     await until('the Workbench reading the FAKE job as running', () => c.data.jobs.find((j) => j.id === job.id && j.state === 'running'), 10_000);
-    // the Control Room, its job selected, Context on its Inspector (no Ink app here: a frame is drawn only when the test reads one)
+    // the Control Room, its job selected, Context on its Inspector (no Ink app here: a frame is drawn only when the test reads one);
+    // R5 (H137): tab 7 draws its own columns, so Context is its drawer, open here as i opens it
     c.selectPage('control');
     c.ui.tab = 'inspector';
+    c.ui.rightOpen = true;
     c.ui.sel['center:control'] = `job:${job.id}`;
     (c.ui.chosen ??= {})['center:control'] = true;
     const show = () => inspector(c);

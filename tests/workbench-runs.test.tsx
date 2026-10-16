@@ -270,7 +270,8 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     two.c.selectWorkspace('control');
     const f2 = frameOf(two.c, 180, 50);
     await until('the first one\'s job', () => two.c.data.jobs.some((j) => j.id === job.id && j.live), 5000, f2.text);
-    expect(f2.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id}\\s+running\\s+SLOW\\.md › long[^\\n]*${job.operation}[^\\n]*another session`));
+    // (R5 H137: a pane, its id on the edge, its word and label below, then who started it with its operation)
+    expect(f2.text()).toMatch(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › long[^\\n]*\\n[^\\n]*another session · ${job.operation}`));
     await press(f2.r, 'a');
     expect(regionText(two.c, 'bottom')).toContain(`${job.id} started: SLOW.md › long`);
     // opening it started nothing
@@ -318,7 +319,8 @@ describe('a project switch during a run (R4 H112, slice C item 3)', () => {
     expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b') && e.words.includes(`: ${job.id} (SLOW.md › wait) keeps running in tray-a. Stop still names it.`))).toBe(true);
     c.selectWorkspace('control');
     await sleep(200);
-    expect(regionText(c, 'center')).toMatch(new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\) (?:\\S+ )*${job.id} running SLOW\\.md › wait · in tray-a`));
+    // (R5 H137: its pane under that title, its id on the edge, its word and label, then where it runs)
+    expect(f.text()).toMatch(new RegExp(`RUNNING IN ANOTHER PROJECT, STARTED HERE \\(1\\)[^\\n]*\\n[^\\n]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*in tray-a`));
     expect(runsOf(a.root, 'SLOW.md › wait')[0].state).toBe('running');
     // back in A: it ends there, normally, and once
     await press(f.r, 'p', ...'tray-a', ENTER);

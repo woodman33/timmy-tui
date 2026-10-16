@@ -42,7 +42,7 @@ import type { Data, TurnRow, TurnView, Ui } from './model.js';
 import { lineText } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
 import {
-  card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx,
+  card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx,
 } from './tab-columns.js';
 import { clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 
@@ -73,6 +73,12 @@ export const TURN_STOP_WORDS = 'A turn being answered now is on the surface that
 export const LANE_ORDER: readonly string[] = Object.keys(DEFAULT_LANE_BINDINGS).sort((a, b) => Number(a) - Number(b)).map((k) => DEFAULT_LANE_BINDINGS[k]);
 
 const key = (k: string): Seg => S(`[${k}]`, 'action');
+/** A key and what it does, the words wrapped under themselves beside the key where the row is narrow (never cut). */
+const keyRows = (k: string, words: string, w: number): Line[] => {
+  const pad = k.length + 3;
+  const [first = '', ...rest] = wrapText(words, Math.max(6, w - pad));
+  return [[key(k), S(` ${first}`, 'secondary')], ...rest.map((r): Line => [S(' '.repeat(pad)), S(r, 'secondary')])];
+};
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 const ago = (iso: string | number | undefined | null, now: number): string => {
@@ -293,12 +299,14 @@ export function checkReceipt(chain: readonly Receipt[], job: string, short: stri
   return v.ok ? { state: 'verified' } : { state: 'failed', reason: v.reason };
 }
 
-/** The jobs drawn as panes: every live one (the project's, then this Workbench's runs in another project); with nothing
- *  running (no job, no chat turn), the newest QUIET_PANES ended runs of the project, as quiet panes. */
-export function paneJobs(jobs: readonly JobRow[], away: readonly JobRow[], turnsRunning: number): { live: JobRow[]; quiet: JobRow[] } {
-  const live = [...jobs.filter((j) => j.live), ...away.filter((j) => j.live)];
-  if (live.length || turnsRunning) return { live, quiet: [] };
-  return { live, quiet: jobs.filter((j) => !j.live).slice(0, QUIET_PANES) };
+/** The jobs drawn as panes: every live one of the project, and this Workbench's runs in another project (`away`, as the
+ *  Control Room always listed them apart); with nothing running (no job, no chat turn), the newest QUIET_PANES ended runs of
+ *  the project, as quiet panes. */
+export function paneJobs(jobs: readonly JobRow[], away: readonly JobRow[], turnsRunning: number): { live: JobRow[]; away: JobRow[]; quiet: JobRow[] } {
+  const live = jobs.filter((j) => j.live);
+  const elsewhere = away.filter((j) => j.live);
+  if (live.length || elsewhere.length || turnsRunning) return { live, away: elsewhere, quiet: [] };
+  return { live, away: elsewhere, quiet: jobs.filter((j) => !j.live).slice(0, QUIET_PANES) };
 }
 
 /**
@@ -319,7 +327,7 @@ export function readControl(i: ControlReadInput): ControlData {
   const panes = paneJobs(i.jobs, away, turns.length);
   const tails: Record<string, PaneTail> = {};
   const receipts: Record<string, ReceiptCheck> = {};
-  for (const j of [...panes.live, ...panes.quiet]) {
+  for (const j of [...panes.live, ...panes.away, ...panes.quiet]) {
     const rec = i.records.find((r) => r.id === j.id);
     tails[j.id] = rec ? tailOf(rec.logPath, TAIL_MAX, (t) => scrubHomes(t.split(j.root).join('.'), env as NodeJS.ProcessEnv)) : { why: 'its record was not read here' };
   }
@@ -660,30 +668,51 @@ interface Block { lines: Line[]; at?: number; detail?: true }
  *  the selection does not change how dense the lists under it are. */
 const listRows = (blocks: readonly Block[]): number => blocks.reduce((n, b) => n + (b.detail ? Math.min(b.lines.length, 3) : b.lines.length), 0);
 
-/** A column `room` rows tall at most: its blocks, windowed around the selected one where they do not all fit (tab-columns.ts
- *  windowMarked: a mark says which rows show, "↓ a–b of n rows"), then its `foot`, which always shows. */
+/**
+ * Which of a column's `total` rows show in `room` rows (marks included), row by row: from the top while the selected block
+ * (`at` its index, -1 for none; `starts` and `heights` the blocks' rows) shows whole there; else the last rows, where it
+ * starts among them; else ending with it (starting with it, when it is taller than the rows left between two marks).
+ */
+function rowWindow(starts: readonly number[], heights: readonly number[], total: number, at: number, room: number): { from: number; to: number } {
+  if (total <= room) return { from: 0, to: total };
+  const s0 = at >= 0 ? starts[at] : 0;
+  const s1 = at >= 0 ? s0 + heights[at] : 0;
+  const top = { from: 0, to: Math.max(1, room - 1) };
+  if (s1 <= room - 1) return top;
+  if (total - s0 <= room - 1) return { from: total - (room - 1), to: total };
+  const between = Math.max(1, room - 2);
+  const from = heights[at] <= between ? s1 - between : s0;
+  return from > 0 ? { from, to: Math.min(total, from + between) } : top;
+}
+
+/** A column `room` rows tall at most: its blocks' rows, windowed around the selected block where they do not all fit (rowWindow;
+ *  a mark says which rows show, in tab-columns.ts windowMarked's words: "↑ n more above", "↓ a–b of n rows"), then its
+ *  `foot`, which always shows. A block cut by the window is placed by the rows of it that show. */
 function columnOf(blocks: readonly Block[], sel: number, room: number, w: number, g: Glyphs, foot: readonly Line[] = []): { lines: Line[]; placed: Array<{ at: number; line: number; rows: number }> } {
   const kept = foot.slice(0, Math.max(0, room - 2));
   const r = Math.max(1, room - kept.length);
-  const heights = blocks.map((b) => b.lines.length);
-  const total = heights.reduce((a, b) => a + b, 0);
-  const win = total <= r ? { start: 0, end: blocks.length, above: null, below: null } : windowMarked(heights, blocks.findIndex((b) => b.at === sel), r, g, w);
-  const lines: Line[] = win.above ? [win.above] : [];
-  const space = r - (win.below ? 1 : 0);
+  const rows: Line[] = [];
+  const starts: number[] = [];
+  for (const b of blocks) { starts.push(rows.length); rows.push(...b.lines); }
+  const total = rows.length;
+  const { from, to } = rowWindow(starts, blocks.map((b) => b.lines.length), total, blocks.findIndex((b) => b.at === sel), r);
+  const range = `${from + 1}–${to} of ${total} rows`;
+  const above: Line | null = from > 0 ? fit([S(to < total ? `${g.unicode ? '↑' : '^'} ${from} more above` : `${g.unicode ? '↑' : '^'} ${range}`, 'secondary')], w, g.ellipsis) : null;
+  const below: Line | null = to < total ? fit([S(`${g.unicode ? '↓' : 'v'} ${range}`, 'secondary')], w, g.ellipsis) : null;
+  const shift = above ? 1 : 0;
   const placed: Array<{ at: number; line: number; rows: number }> = [];
-  for (let i = win.start; i < win.end && lines.length < space; i++) {
-    const b = blocks[i];
-    const rows = Math.min(b.lines.length, space - lines.length);
-    if (b.at !== undefined && rows > 0) placed.push({ at: b.at, line: lines.length, rows });
-    lines.push(...b.lines.slice(0, rows));
-  }
-  if (win.below) lines.push(win.below);
+  blocks.forEach((b, i) => {
+    const a = Math.max(starts[i], from);
+    const z = Math.min(starts[i] + b.lines.length, to);
+    if (b.at !== undefined && z > a) placed.push({ at: b.at, line: a - from + shift, rows: z - a });
+  });
+  const lines = [...(above ? [above] : []), ...rows.slice(from, to), ...(below ? [below] : [])];
   return { lines: rowsOf([...lines, ...kept], w, room, g.ellipsis), placed };
 }
 
 /**
- * Tab 7's body: the roster, the panes and the right column side by side from SIDE_FROM terminal columns, or stacked below that;
- * every row at most `c.width` cells. The items are the panes, what waits on you, the recent runs and the sealed chat turns, in
+ * Tab 7's body: the roster, the panes and the right column side by side from 120 terminal columns (tab-columns.ts
+ * sideBySideAt), or stacked below that; every row at most `c.width` cells. The items are the panes, what waits on you, the recent runs and the sealed chat turns, in
  * that order at every size: side by side, each column keeps the selection in its own rows (an item out of view has line -1;
  * one in view has the cells it is drawn in), stacked, the body scrolls as every other view does.
  */
@@ -698,6 +727,7 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const all: ControlItem[] = [
     ...panes.live.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...liveTurns.map((live): ControlItem => ({ kind: 'live-turn', key: liveTurnKey(live), live })),
+    ...panes.away.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...panes.quiet.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...decisions.map((decision): ControlItem => ({ kind: 'decision', key: `decision:${decision.key}`, decision })),
     ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
@@ -705,7 +735,7 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   ];
   const sel = selectedIn(c.ui, CONTROL_LIST, all.length);
   const selected = sel >= 0 ? all[sel] : null;
-  const paneCount = panes.live.length + liveTurns.length + panes.quiet.length;
+  const paneCount = panes.live.length + liveTurns.length + panes.away.length + panes.quiet.length;
   const side = sideBySideAt(c);
   const [wa, wb, wc] = side ? widths(W - 2 * RULE_CELLS, WEIGHTS) : [W, W, W];
   const room = Math.max(1, c.height);
@@ -723,6 +753,9 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     let i = 0;
     for (const j of panes.live) { b.push({ lines: jobPane(j, c, d, w, i === sel, false, tailRows), at: i }); i += 1; }
     for (const t of liveTurns) { b.push({ lines: turnPane(t, c, w, i === sel), at: i }); i += 1; }
+    // this Workbench's runs in another project keep running when the project changes (R4 H112): apart, under their own title
+    if (panes.away.length) b.push({ lines: [[], ...wrapText(`Running in another project, started here (${panes.away.length})`, Math.max(6, w)).map((t): Line => [heading(t)])] });
+    for (const j of panes.away) { b.push({ lines: jobPane(j, c, d, w, i === sel, false, tailRows), at: i }); i += 1; }
     for (const j of panes.quiet) { b.push({ lines: jobPane(j, c, d, w, i === sel, true, tailRows), at: i }); i += 1; }
     // stacked, what a terminal cannot draw follows the panes; side by side it is the column's foot, always shown (previewsFoot)
     if (!side) b.push({ lines: [[], ...para(PREVIEWS_WORDS, w)] });
@@ -732,7 +765,7 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   // the keys, and what the references' Add harness, Remove harness and Broadcast are here (side by side: only where they fit
   // without clipping the panes)
   const keysBlock = (w: number): Block => ({ lines: [[], ...oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary')],
-    [[key('x'), S(' stops the selected pane\'s job', 'secondary')], [key('Enter'), S(' its run detail', 'secondary')]]), ...para(HARNESS_WORDS, w)] });
+    [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w)]), ...para(HARNESS_WORDS, w)] });
 
   // the right column: what waits on you, the selected run's detail, the recent runs, the sealed chat turns (`dense`: each run
   // and turn on two rows, cut at their end)
