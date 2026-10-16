@@ -107,11 +107,19 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       expect(amber.primaries).toBe(1);
       // the mark covers both shapes on screen (R5 H133: on the page, as the mark's box is measured: the canvas starts under the
       // workspace strip now, so tldraw's viewport is no longer the page's origin)
-      const box = (await page.locator(`.timmy-draft-mark[data-draft="${id}"]`).boundingBox())!;
-      for (const s of [a, b]) {
-        const sb = await page.evaluate((x) => { const e = (window as never as { timmyCanvas: { editor: { getShapePageBounds: (i: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number } } } }).timmyCanvas.editor; const r = e.getShapePageBounds(x); const p = e.pageToScreen({ x: r.minX, y: r.minY }); const q = e.pageToScreen({ x: r.maxX, y: r.maxY }); return { x: p.x, y: p.y, r: q.x, b: q.y }; }, s);
-        expect(sb.x >= box.x && sb.y >= box.y && sb.r <= box.x + box.width && sb.b <= box.y + box.height, `${s} inside the mark`).toBe(true);
-      }
+      // R6 lead (H145 after merging r6/review-build: 4/5, 4/5, 5/5): the strip above the canvas can redraw a moment later (its
+      // waiting count, its activity line) and move the canvas; the mark follows at the page's next rendering step. Read as a
+      // person sees it, once the page has settled: both shapes inside the mark within 5 s, each read in the same frame as the
+      // mark (a mark that never followed still fails here)
+      const inside = async (): Promise<string[]> => page.evaluate(({ draft, shapes }) => {
+        const mark = document.querySelector(`.timmy-draft-mark[data-draft="${draft}"]`)!.getBoundingClientRect();
+        const e = (window as never as { timmyCanvas: { editor: { getShapePageBounds: (i: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number } } } }).timmyCanvas.editor;
+        return shapes.map((x) => {
+          const r = e.getShapePageBounds(x); const p = e.pageToScreen({ x: r.minX, y: r.minY }); const q = e.pageToScreen({ x: r.maxX, y: r.maxY });
+          return p.x >= mark.left && p.y >= mark.top && q.x <= mark.right && q.y <= mark.bottom ? `${x} inside` : `${x} outside (${Math.round(p.x)},${Math.round(p.y)})-(${Math.round(q.x)},${Math.round(q.y)}) vs (${Math.round(mark.left)},${Math.round(mark.top)})-(${Math.round(mark.right)},${Math.round(mark.bottom)})`;
+        });
+      }, { draft: id, shapes: [a, b] });
+      await expect.poll(inside, { timeout: 5_000, message: 'both shapes inside the mark on screen' }).toEqual([`${a} inside`, `${b} inside`]);
       const jobsBefore = (await getJson<Array<{ id: string }>>('/api/canvas/jobs')).map((j) => j.id);
       // keyboard: Show, then Tab to Accept, its focus amber and visible; Enter accepts
       await page.focus(`#draft-list li[data-draft="${id}"] .draft-show`);
