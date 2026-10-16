@@ -30,8 +30,11 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/companion.js',
   // R6 lead: the tab panels' page code (the registry and each panel's own file; src/companion/panels.ts serves their data)
   'src/companion/client/panels.js',
+  'src/companion/client/panel-studio.js',
   'src/companion/client/panel-vox.js',
   'src/companion/client/panel-tools.js',
+  // R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts)
+  'src/companion/client/panel-run.js',
   'src/utils/chatpage.html',
   // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
   // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).

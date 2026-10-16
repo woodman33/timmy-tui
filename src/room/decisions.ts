@@ -364,7 +364,10 @@ export function toolUses(c: Pick<DecisionContext, 'root' | 'chain' | 'projectId'
     if (r.kind === 'observe') add({ row: 'look', by, at: time(r.ts), ...op });
     // A chat turn asked the model through the REPL's key. R4 (H103): one sealed via ollama asked the chat's local route
     // (Ollama), never OpenRouter. R4 lead: the surface's own row too (the REPL's, the monitor's; one a surface has)
-    if (turn) {
+    // R6 (H140; the R5 interaction review, defect 2): a turn a person stopped says nothing about its route or its surface, so it
+    // is no use of either row (the newest use was the stopped turn, never answered, and a check older than the answers before
+    // it asked for a setup step again after every stop: "Ollama needs setup" while Ollama answered)
+    if (turn && r.status !== 'cancelled') {
       const answered = r.status === 'ok' && typeof r.response_hash === 'string' && r.response_hash.length > 0;
       add({ row: r.via === 'ollama' ? 'ollama' : 'openrouter', by, at: time(r.ts), answered, ...op });
       add({ row: turn.surface, by, at: time(r.ts), answered, ...op });

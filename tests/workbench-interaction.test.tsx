@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
 import type { CapabilityRow } from '../src/capabilities/index.js';
+import { JOB_CANCELLED } from '../src/contracts/stop-words.js';
 import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
 import { copyStarter } from '../src/project/starters.js';
 import type { ApprovalRequest, Decision } from '../src/repl/approvals.js';
@@ -603,7 +604,8 @@ describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)
     expect(regionText(three.c, 'center')).toContain('[Ctrl+C] Quit and stop it [Esc] Stay');
     await press(f3.r, '\u0003');
     await until('the quit', () => ends.length > 0, 15_000, f3.text);
-    expect(ends).toEqual([{ code: 130, after: [`${third} (NAP.md › long-nap) was stopped as the Workbench ended.`] }]);
+    // (the stop-words table's word for a job, R6 H140: cancelled)
+    expect(ends).toEqual([{ code: 130, after: [`${third} (NAP.md › long-nap) was ${JOB_CANCELLED} as the Workbench ended.`] }]);
     await until('its record ended', () => JSON.parse(readFileSync(join(jobsDir, `${third}.json`), 'utf8')).state !== 'running', 15_000);
     expect(JSON.parse(readFileSync(join(jobsDir, `${third}.json`), 'utf8'))).toMatchObject({ state: 'cancelled' });
   }, 90_000);

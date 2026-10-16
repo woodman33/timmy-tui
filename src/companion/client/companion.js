@@ -17,7 +17,13 @@
 // it, or when the companion says it is not its token, the page loads nothing more and says how to open it from Timmy.
 const companion = (() => {
   let token = '';
+  // R6 lead: the tab the address asks for (?tab=<id>, or &tab=<id> beside the token after #), read before the token is taken
+  // out of the address; the start code opens it (a Workbench tab's `c` opens the companion on the same tab)
+  let askedTab = '';
   try {
+    const fromQuery = new URLSearchParams(location.search).get('tab');
+    const fromHash = /(?:^#|&)tab=([a-z]{2,16})(?:&|$)/.exec(location.hash);
+    askedTab = (fromHash ? fromHash[1] : fromQuery || '').toLowerCase();
     const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
     if (m) {
       token = m[1];
@@ -27,6 +33,7 @@ const companion = (() => {
   const OPEN_FROM_TIMMY = 'Open it from Timmy: in `timmy watch`, press q on HOME; it shows the companion’s address with its token.';
   const c = {
     token,
+    askedTab,
     refused: false,
     protocols: () => ['timmy-companion', 'timmy-token.' + token],
     say(words) {
@@ -737,6 +744,9 @@ function connect() {
     if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
     // R4 (H84): a socket refused for its token closes like a lost one; the companion is asked, and a refusal stops the retries
     companion.check();
+    // R6 (H140): and, while the page is seen, the frame is asked at once: a companion that is gone makes the read fail, and its
+    // card says so now (a page not seen reads nothing; seen again, it reads)
+    if (!document.hidden) { try { readFrame(); } catch (e) { /* the frame's part of the page is not set up yet */ } }
     setTimeout(connect, 2000);
   };
 
@@ -927,9 +937,10 @@ function canvasSummaryHtml(s, hostname) {
   const base = String(s.open || 'http://127.0.0.1:4337/');
   // R4 (H92): opened apart from this page, with no referrer; looks by class (the page allows no style attribute)
   const link = (href, text) => here ? `<a href="${canvasEsc(href)}" target="_blank" rel="noopener noreferrer">${canvasEsc(text)}</a>` : canvasEsc(text);
-  const head = s.unreadable
+  const whose = s.project ? `<p class="canvas-whose">The board of ${canvasEsc(s.project)} (each project has its own)</p>` : '';
+  const head = whose + (s.unreadable
     ? '<p>The saved canvas could not be read. Open the canvas on the computer that runs Timmy: it keeps the file aside and starts blank.</p>'
-    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(canvasWhen(s.savedAt))}` : ''}</p>`;
+    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(canvasWhen(s.savedAt))}` : ''}</p>`);
   const jobs = (s.jobs || []).map((j) => `<li>${j.ok ? '<span class="canvas-ok">✓ done</span>' : '<span class="canvas-fail">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
   const open = here ? `<p>${link(base, 'Open Timmy Canvas')}</p>` : `<p>Open ${canvasEsc(base)} on the computer that runs Timmy.</p>`;
   return head + (jobs ? `<ol class="canvas-jobs">${jobs}</ol>` : '<p>No canvas jobs yet.</p>') + open;
@@ -940,7 +951,9 @@ async function refreshCanvas() {
   // R4 (H84): with the page's token; without it the companion answers nothing
   if (!companion.token || companion.refused) { box.textContent = 'The canvas is read with the companion’s token, which this page does not have.'; return; }
   try {
-    const r = await companion.fetch('/api/canvas');
+    // R6 lead: the board of the project this page shows (each project has its own since H139)
+    const project = shownProjectId();
+    const r = await companion.fetch(`/api/canvas${project ? `?project=${encodeURIComponent(project)}` : ''}`);
     if (!r.ok) throw new Error(String(r.status));
     box.innerHTML = canvasSummaryHtml(await r.json(), location.hostname);
   } catch {
@@ -957,8 +970,6 @@ setInterval(() => { const studio = document.getElementById('ws-studio'); if (stu
 // this page shows (the detail is that project's).
 const OPERATION_ID = /^o[0-9a-f]{8}$/;
 let pendingRun = null;
-// the run asked for last (an answer to an earlier ask that comes after it is not drawn over it)
-let runAsked = 0;
 document.addEventListener('timmy:refused', () => { if (pendingRun) { const op = pendingRun; pendingRun = null; openRun(op, false); } });
 
 /** The header's project: its name, how this page came to show it, its Pin (what it does, and on which project); the folder line. */
@@ -1010,146 +1021,8 @@ function pinProject(on) {
   wsConnection.send(JSON.stringify(on ? (id ? { type: 'pin', id } : { type: 'pin' }) : { type: 'unpin' }));
 }
 
-/** Reads and draws the run detail of `op` for the project this page shows; `address`: this page's address says /run/<op>. */
-async function openRun(op, address = true) {
-  const box = document.getElementById('run-detail');
-  const input = document.getElementById('run-op');
-  if (!box) return;
-  const mine = ++runAsked;
-  const id = String(op || '').trim();
-  if (input && input.value !== id) input.value = id;
-  if (!OPERATION_ID.test(id)) {
-    box.innerHTML = `<p class="run-error" data-run="not-an-id">${canvasEsc('Not an operation id: an operation id is o and 8 hex digits (o1a2b3c4d), as Timmy prints it. Nothing was read.')}</p>`;
-    return;
-  }
-  // the address names the run (never the token: the page took it out of its address when it opened)
-  if (address) { try { history.replaceState(null, '', `/run/${id}`); } catch (e) { /* the address stays as it was */ } }
-  if (!companion.token || companion.refused) {
-    box.innerHTML = '<p class="run-error" data-run="no-token">The run detail is read with the companion’s token, which this page does not have, so nothing was read. Open the companion from Timmy: in <code>timmy watch</code>, press q on HOME.</p>';
-    return;
-  }
-  box.innerHTML = `<p class="run-empty">Reading the run detail of ${canvasEsc(id)}…</p>`;
-  const project = document.getElementById('project')?.dataset.project;
-  let r;
-  let body = null;
-  try {
-    r = await companion.fetch(`/api/run/${id}${project ? `?project=${encodeURIComponent(project)}` : ''}`);
-    body = await r.json().catch(() => null);
-  } catch (e) {
-    if (mine !== runAsked) return;
-    box.innerHTML = `<p class="run-error" data-run="unreachable">${canvasEsc(`The companion could not be reached to read the run detail of ${id}.`)}</p>`;
-    return;
-  }
-  if (mine !== runAsked) return;
-  if (!r.ok || !body || body.ok !== true || !body.detail) {
-    box.innerHTML = `<p class="run-error" data-run="refused" data-status="${canvasEsc(r.status)}">${canvasEsc((body && body.error) || `The companion answered HTTP ${r.status}, so no run detail is shown.`)}</p>`;
-    return;
-  }
-  box.innerHTML = runDetailHtml(body.detail);
-  appendToLocalLogs('INFO', `Run detail: ${id}`);
-}
-
-/**
- * One run detail (src/contracts/run-detail.ts), as its producer gave it: every value with where it came from. Timmy's
- * verdict, the workflow stage (steps done of total, never a percentage), each process's exit, the artifact's freshness and
- * a person's acceptance each on a row of their own; a cost is the number reported, or unknown with why. Text only.
- */
-function runDetailHtml(d) {
-  const e = canvasEsc;
-  const from = (f) => (f ? ` <span class="run-from">from ${e(f)}</span>` : '');
-  const none = (words) => `<span class="run-none">${e(words)}</span>`;
-  const when = (t) => { if (!t) return none('not recorded'); const x = new Date(t); return Number.isNaN(x.getTime()) ? e(t) : e(dateTimeOf(x)); };
-  const elapsed = (ms) => {
-    if (typeof ms !== 'number' || !Number.isFinite(ms)) return none('not recorded');
-    const s = Math.round(ms / 1000);
-    if (s < 60) return `${s} s`;
-    const m = Math.floor(s / 60);
-    return m < 60 ? `${m} min ${s % 60} s` : `${Math.floor(m / 60)} h ${m % 60} min`;
-  };
-  const sourced = (s) => (s && typeof s === 'object' ? `${e(s.value)}${from(s.from)}` : none('not recorded'));
-  const opLink = (id) => `<button type="button" class="run-link" data-action="open-run" data-op="${e(id)}">${e(id)}</button>`;
-  // R5 (H132): in three columns, kept apart as reference 12 keeps them: before the run (.intent and .predict, amber), the run
-  // itself, and after it (the verdict and the receipts); every row and section as before
-  const COL = { objective: 'before', verdict: 'after', acceptance: 'after', related: 'after', next: 'after', summary: 'after' };
-  const rows = { before: [], run: [], after: [] };
-  const row = (key, label, html) => rows[COL[key] || 'run'].push(`<div class="run-row" data-field="${key}"><dt>${e(label)}</dt>
-<dd>${html}</dd></div>`);
-  const facts = (k) => `<dl class="run-facts">
-${rows[k].join('\n')}
-</dl>`;
-  row('verdict', 'Timmy’s verdict', `<strong class="run-verdict" data-state="${e(d.verdict.state)}">${e(d.verdict.state)}</strong> · ${e(d.verdict.words)}${from(d.verdict.from)}`);
-  row('stage', 'Workflow stage', `${d.stage.current ? `${e(d.stage.current)} · ` : ''}${e(d.stage.done)} of ${d.stage.total === null || d.stage.total === undefined ? 'an unrecorded number of' : e(d.stage.total)} steps done${from(d.stage.from)}`);
-  row('exits', 'Process exits', d.exits.length ? `<ul class="run-list">
-${d.exits.map((x) => `<li>${e(x.who)}: ${x.code === null || x.code === undefined ? 'its exit is not known' : `exit ${e(x.code)}`}${x.state ? ` (${e(x.state)})` : ''}${from(x.from)}</li>`).join('\n')}
-</ul>` : none('none recorded'));
-  row('freshness', 'Artifact freshness', `${e(d.freshness.state)} · ${e(d.freshness.why)}${from(d.freshness.from)}`);
-  row('acceptance', 'A person’s acceptance', `${e(d.acceptance.state)}${d.acceptance.by ? ` by ${e(d.acceptance.by)}` : ''}${d.acceptance.at ? `, ${when(d.acceptance.at)}` : ''}${from(d.acceptance.from)}`);
-  row('objective', 'Objective', sourced(d.objective));
-  row('project', 'Project', `${e(d.project.name)} <span class="run-from">${e(d.project.root)} · id ${e(d.project.id)}</span>`);
-  row('source', 'Source revision', sourced(d.sourceRevision));
-  const w = d.worker || {};
-  row('worker', 'Worker', [['model', w.model], ['harness', w.harness], ['environment', w.environment]].filter(([, v]) => v).map(([k, v]) => `${e(k)} ${sourced(v)}`).join('; ') || none('not recorded'));
-  row('time', 'Time', `started ${when(d.time.startedAt)} · ended ${when(d.time.endedAt)} · elapsed ${elapsed(d.time.elapsedMs)}`);
-  row('related', 'Parent · children', `${d.parent ? opLink(d.parent) : none('no parent')} · ${d.children.length ? d.children.map(opLink).join(' ') : none('no children')}`);
-  row('cost', 'Cost', d.cost.measured ? `$${e(Number(d.cost.usd).toFixed(4))} (reported)${from(d.cost.from)}` : `unknown: ${e(d.cost.why)}`);
-  row('next', 'Next', d.next ? `${e(d.next.words)}${d.next.command ? ` <code>${e(d.next.command)}</code>` : ''}` : none('nothing recorded'));
-  row('summary', 'Summary', d.summary && d.summary.path ? `<code>${e(d.summary.path)}</code>` : none('none saved'));
-  const prediction = d.prediction
-    ? `<p>${e(d.prediction.words)} <span class="run-from">receipt ${e(d.prediction.receipt)}${d.prediction.frozenAt ? `, frozen ${when(d.prediction.frozenAt)}` : ''}</span></p>`
-    : `<p>${none('No prediction was recorded before this run.')}</p>`;
-  const differs = (v) => (v === true ? 'differs' : v === false ? 'as predicted' : 'not compared');
-  const checks = d.checks.length
-    ? `<table class="run-table"><thead><tr><th>Check</th>
-<th>Predicted</th>
-<th>Actual</th>
-<th>Compared</th></tr></thead>
-<tbody>${d.checks.map((c) => `<tr data-differs="${e(c.differs)}"><td>${e(c.name)}</td>
-<td>${c.predicted === null ? none('none') : e(c.predicted)}</td>
-<td>${e(c.actual)}${from(c.from)}</td>
-<td>${differs(c.differs)}</td></tr>`).join('\n')}</tbody></table>`
-    : `<p>${none('No checks recorded.')}</p>`;
-  const files = d.files.length
-    ? `<table class="run-table"><thead><tr><th>File</th>
-<th>Role</th>
-<th>sha256</th></tr></thead>
-<tbody>${d.files.map((f) => `<tr><td><code>${e(f.path)}</code>${from(f.from)}</td>
-<td>${e(f.role)}</td>
-<td>${f.sha256 ? `<code>${e(String(f.sha256).slice(0, 12))}</code>` : none('none')}</td></tr>`).join('\n')}</tbody></table>`
-    : `<p>${none('No files recorded.')}</p>`;
-  const receipts = d.receipts.length ? `<ul class="run-list">
-${d.receipts.map((r) => `<li><code>${e(r.id)}</code> · ${e(r.kind)}${r.subject ? ` · ${e(r.subject)}` : ''}</li>`).join('\n')}
-</ul>` : `<p>${none('No receipts recorded.')}</p>`;
-  const unknown = d.unknown.length ? `<ul class="run-list">
-${d.unknown.map((u) => `<li><strong>${e(u.field)}</strong>: ${e(u.why)}</li>`).join('\n')}
-</ul>` : `<p>${none('Nothing listed.')}</p>`;
-  return `<article class="run-view" data-operation="${e(d.operation)}">
-    <h4 class="run-title">Run <code>${e(d.operation)}</code> · ${e(d.project.name)}</h4>
-    <div class="rd-cols">
-      <section class="rd-col rd-before" aria-label="Before the run: its intent and its prediction">
-        <h5 class="rd-col-title">.intent · .predict · before the run</h5>
-        ${facts('before')}
-        <h5>Prediction (frozen before the result; not an observed receipt)</h5>
-        ${prediction}
-      </section>
-      <section class="rd-col rd-run" aria-label="The run">
-        <h5 class="rd-col-title">the run · stage, exits, checks</h5>
-        ${facts('run')}
-        <h5>Checks: predicted beside actual</h5>
-        ${checks}
-        <h5>Files</h5>
-        ${files}
-      </section>
-      <section class="rd-col rd-after" aria-label="After the run: the verdict and its receipts">
-        <h5 class="rd-col-title">.receipt · after the run</h5>
-        ${facts('after')}
-        <h5>Receipts</h5>
-        ${receipts}
-        <h5>Not known (no record says)</h5>
-        ${unknown}
-      </section>
-    </div>
-  </article>`;
-}
+// R6 (H144): one run's detail (openRun) is drawn by src/companion/client/panel-run.js, loaded before this file: its
+// source, its changes with their diffs, its outputs and its receipts as the companion's server verified them.
 
 // the run box: its form opens the id typed in it
 document.getElementById('run-form')?.addEventListener('submit', (event) => {
@@ -1289,6 +1162,9 @@ const workspace = {
   asking: null,
   /** why the last read failed, in words (null: it did not) */
   failed: null,
+  /** R6 (H140): when this page's reads began to fail (null: they do not), and when the companion last answered one */
+  failedAt: null,
+  answeredAt: null,
   /** the operation the Workflows tab shows, once one was opened there */
   run: null,
   /** the start-up settings: idle, saving, saved, failed or conflict, and their words */
@@ -1334,13 +1210,22 @@ function readFrame() {
       const r = await companion.fetch(`/api/workspace${project ? `?project=${encodeURIComponent(project)}` : ''}`);
       const body = await r.json().catch(() => null);
       if (!r.ok || !body || body.schema !== 'timmy.workspace/1') throw new Error((body && body.error) || `the companion answered HTTP ${r.status}`);
+      // R6 (H140): the companion answered this page now; a page whose reads had failed draws the whole frame again
+      const had = workspace.failed !== null;
       workspace.failed = null;
-      takeFrame(body);
+      workspace.failedAt = null;
+      workspace.answeredAt = new Date().toISOString();
+      takeFrame(body, had);
     } catch (err) {
       workspace.failed = err && err.message ? err.message : String(err);
+      if (!workspace.failedAt) workspace.failedAt = new Date().toISOString();
       stripNote(workspace.frame
         ? `The companion did not answer at ${clockOf(new Date().toISOString())} (${workspace.failed}); this is the frame read before.`
         : `The workspace frame could not be read: ${workspace.failed}`, 'failed');
+      // R6 (H140): the cards say so at once (shownConnections): the companion's is not live, no other stays green
+      if (workspace.frame) {
+        try { drawConnections(workspace.frame); drawHome(workspace.frame, !otherProject(workspace.frame)); drawStudio(workspace.frame); } catch (e) { /* the frame's part of the page is not set up yet */ }
+      }
     } finally { workspace.asking = null; }
   })();
   return workspace.asking;
@@ -1416,6 +1301,7 @@ function drawFrame() {
   frameTurnsChanged();
   frameNote(f);
   if (workspace.tab === 'workflows') openNewestRun();
+  if (workspace.tab === 'studio') refreshCanvas();
   drawPanel(workspace.tab, f);
   refocus(kept);
   markOverflow();
@@ -1564,8 +1450,27 @@ function connectionCard(c, where) {
     c.setup ? h('p', { class: 'conn-setup' }, h('span', { class: 'cmd-label' }, 'step:'), h('button', { type: 'button', class: 'cmd', 'data-copy': c.setup, title: 'Copies the command for Timmy’s terminal' }, c.setup)) : null);
 }
 
+/**
+ * R6 (H140; the R5 interaction review, claim c: the page kept "● live · answered just now" for its own companion for 2.5 min
+ * after the Workbench that served it quit, beside "COMPANION SOCKET · RECONNECTING"): the connections as this page can say
+ * them now. While its own reads of the frame fail, the companion's card is not live: it says that this page's reads fail,
+ * since when and why, and when the companion last answered this page. No other card stays green on a frame the page cannot
+ * read again: each says it is not known now, and what the frame said when it was last read.
+ */
+function shownConnections(f) {
+  const all = (f && f.connections) || [];
+  if (!workspace.failed) return all;
+  const last = workspace.answeredAt ? `it last answered this page at ${clockOf(workspace.answeredAt)}` : 'it has not answered this page';
+  const since = workspace.failedAt ? ` since ${clockOf(workspace.failedAt)}` : '';
+  return all.map((c) => {
+    if (c.id === 'companion') return { ...c, state: 'unreachable', words: `not answering this page: its reads of the frame fail${since} (${workspace.failed}); ${last}` };
+    if (c.state === 'live') return { ...c, state: 'unknown', words: `not known now: this page cannot read the frame; when it last could${workspace.answeredAt ? ` (${clockOf(workspace.answeredAt)})` : ''}, the frame said: ${c.words}` };
+    return c;
+  });
+}
+
 function drawConnections(f) {
-  const all = f.connections || [];
+  const all = shownConnections(f);
   const home = document.getElementById('home-connections');
   if (home) home.replaceChildren(...(all.length ? all.map((c) => connectionCard(c, 'home')) : [h('p', { class: 'empty' }, 'The frame lists no connections.')]));
   for (const box of document.querySelectorAll('[data-conns-for]')) {
@@ -1583,7 +1488,7 @@ const unknownWhy = (f, field) => ((f.unknown || []).find((u) => u.field === fiel
 /** Timmy Studio, as the frame says it: open it where it runs, else the Studio tab's own step. */
 function studioItem(f) {
   const s = (f.surfaces && f.surfaces.studio) || { state: 'unknown', url: null, openAtStart: false };
-  const c = (f.connections || []).find((x) => x.id === 'studio');
+  const c = shownConnections(f).find((x) => x.id === 'studio');
   const [glyph, cls] = c ? (CONN_GLYPH[c.state] || ['?', 'is-unknown']) : ['?', 'is-unknown'];
   const step = ((f.actions && f.actions.studio) || []).find((a) => a.primary) || ((f.actions && f.actions.studio) || [])[0];
   return h('div', { class: 'preview-item', 'data-preview': 'studio' },
@@ -1760,7 +1665,11 @@ function showRun(op) {
 
 /** The Workflows tab shown with no run open yet: the newest run of the frame, without changing the page's address. */
 function openNewestRun() {
-  if (workspace.run || document.querySelector('#run-detail .run-view, #run-detail .run-error')) return;
+  if (workspace.run || document.querySelector('#run-detail .run-view, #run-detail .run-error')) {
+    // R6 (H144): its boxes had no size while the tab was hidden: their "more below" cues are marked again now
+    if (typeof rvMark === 'function') requestAnimationFrame(() => rvMark(document.getElementById('run-detail')));
+    return;
+  }
   const f = workspace.frame;
   const run = f && !otherProject(f) ? newestRunOf(f) : null;
   if (!run) return;
@@ -1942,9 +1851,11 @@ setInterval(() => { if (!document.hidden) readFrame(); }, WS_POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) readFrame(); });
 
 (() => {
-  // the tab this browser tab showed last (a run's address opens Workflows instead)
+  // the tab the address asks for (R6 lead: ?tab=<id>, or tab=<id> beside the token), else the one this browser tab showed
+  // last (a run's address opens Workflows instead)
   let tab = 'home';
   try { tab = sessionStorage.getItem(WS_TAB_KEY) || 'home'; } catch (e) { tab = 'home'; }
+  if (companion.askedTab && document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(companion.askedTab)}"]`)) tab = companion.askedTab;
   if (!/^\/run\//.test(location.pathname)) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'home');
   let folded = false;
   try { folded = localStorage.getItem('timmy.companion.activity') === 'folded'; } catch (e) { folded = false; }

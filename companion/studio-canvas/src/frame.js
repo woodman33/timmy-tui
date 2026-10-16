@@ -222,11 +222,34 @@ function notRead(r) {
  * asked now says why in body.error). A reading that does not count keeps the last frame drawn, marks it (`data-stale`) and says at
  * the line's end why, and when it was last read. R5 (H137): `open(true|false)` opens or closes the activity's entries, as the
  * button does.
+ *
+ * R6 (H139; Studio project isolation): `accept(frame, reading)`, optional: whether a frame is of the board on screen's project, and
+ * was read since the last switch (canvas.js: `reading` is what `read` gave, with what canvas.js recorded in it); one that is not is
+ * never drawn, and `other(frame, reading)` is told of it (the canvas may show another project now). `held()`, optional: the
+ * words the header shows instead of a frame while Studio switches boards (null when it does not): nothing of the frame before (its
+ * actions, its activity, its log) stays on screen then. `hold(words)` and `release(name)`: Studio began, and ended, a switch
+ * (`name`: the project whose board is on screen now, shown until its frame is read).
  */
-export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_EVERY_MS }) {
+export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_EVERY_MS, accept = null, held = null, other = null }) {
   let drawn = '';
   let readAt = '';
   let busy = false;
+  /** R6 (H139): the header while Studio switches boards: nothing of the frame before, only where it goes */
+  const holdNow = (words) => {
+    if (!words) return false;
+    root.dataset.switching = 'true';
+    root.dataset.stale = 'false';
+    root.querySelector('#frame-project').textContent = words;
+    root.querySelector('#frame-project').title = '';
+    for (const t of root.querySelectorAll('#frame-tabs .fr-count')) t.remove();
+    root.querySelector('#frame-acts').replaceChildren();
+    const line = root.querySelector('#frame-activity');
+    line.replaceChildren(el('span', 'fr-log is-neutral', `${words} The workspace of the project Studio shows next is read once its board is loaded.`), el('span', 'fr-note', '', { id: 'frame-note' }));
+    const list = root.querySelector('#frame-log');
+    if (list) list.replaceChildren();
+    drawn = '';
+    return true;
+  };
   const note = (words) => {
     const n = root.querySelector('#frame-note');
     if (n) n.textContent = words ? ` · ${words}` : '';
@@ -238,14 +261,29 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   };
   async function tick() {
     if (busy || document.visibilityState !== 'visible') return;
+    if (held && holdNow(held())) return;
     busy = true;
     try {
       const r = await read();
-      const view = r && r.ok && r.body && r.body.ok === true ? frameView(r.body.frame) : null;
+      // R6 (H139): a frame of another project than the board on screen's is never drawn (the canvas shows another now)
+      if (held && holdNow(held())) return;
+      const frame = r && r.ok && r.body && r.body.ok === true ? r.body.frame : null;
+      if (frame && accept && !accept(frame, r)) {
+        stale('Workspace not read now: the frame Timmy sent is of another project than the board on screen (Studio follows the canvas to it).');
+        try { other?.(frame, r); } catch { /* the next reading follows */ }
+        return;
+      }
+      if (r && r.status === 409 && r.body && r.body.notShown) {
+        stale(`Workspace not read now: ${notRead(r)}`);
+        try { other?.(r.body.shows ? { project: r.body.shows } : null, r); } catch { /* the next reading follows */ }
+        return;
+      }
+      const view = frame ? frameView(frame) : null;
       if (!view) { stale(`Workspace not read now: ${notRead(r)}`); return; }
       readAt = clock(new Date().toISOString());
       root.dataset.revision = view.revision;
       root.dataset.stale = 'false';
+      root.dataset.switching = 'false';
       const shows = JSON.stringify({ ...view, revision: '' });
       if (shows !== drawn) {
         drawFrame(root, view);
@@ -290,5 +328,16 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   const timer = setInterval(() => { void tick(); }, everyMs);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void tick(); });
   void tick();
-  return { tick, stop: () => clearInterval(timer), open: setOpen, get revision() { return root.dataset.revision ?? ''; } };
+  /** R6 (H139): Studio began a switch: the header says so at once, and reads no frame until it ends. */
+  const hold = (words) => { holdNow(words || 'switching…'); };
+  /** R6 (H139): Studio ended a switch: the header names the project on screen until its own frame is read (at once). */
+  const release = (name) => {
+    drawn = '';
+    root.dataset.switching = 'false';
+    root.querySelector('#frame-project').textContent = name || 'a project';
+    const line = root.querySelector('#frame-activity');
+    line.replaceChildren(el('span', 'fr-log is-neutral', `reading the workspace of ${name || 'the project'}…`), el('span', 'fr-note', '', { id: 'frame-note' }));
+    void tick();
+  };
+  return { tick, hold, release, stop: () => clearInterval(timer), open: setOpen, get revision() { return root.dataset.revision ?? ''; } };
 }

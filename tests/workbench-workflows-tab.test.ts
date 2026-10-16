@@ -9,9 +9,13 @@
 // the blocks run for real through sh, over a pipe); PAIR.md and LONG.md are this test's (FAKE workflows); a copy of the chain
 // with one receipt's words changed (to show "not verified"); a run detail whose prediction is dated after its run started
 // (FIXTURE, to show "not recorded").
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+// R6 (H144): and the run inspected (src/ops/run-detail.ts readRunInspection) over tests/helpers/run-inspect-fixture.ts's
+// FAKE run (its `change` block a TEST DOUBLE of /iterate: no agent runs), its captures kept only when TIMMY_H144_CAPTURES
+// names a folder: the body's rows as text, and rendered in their theme colours in Chromium (said on each: not a terminal).
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { chromium } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { RunDetail } from '../src/contracts/run-detail.js';
 import type { JobRecord } from '../src/jobs/index.js';
@@ -23,7 +27,9 @@ import { glyphSet } from '../src/term/glyphs.js';
 import { visibleWidth } from '../src/term/width.js';
 import { scrubHomes } from '../src/utils/home-scrub.js';
 import { appendReceipt, readChain, verifyReceiptIn, type Receipt } from '../src/utils/receipts.js';
+import { HOMEBREW } from '../src/theme/tokens.js';
 import { glyphsFor } from '../src/workbench/frame.js';
+import { styleOf } from '../src/workbench/theme.js';
 import type { Data, Lazy, Ui, View } from '../src/workbench/model.js';
 import { readJobs, readWorkflows, type WorkflowsView } from '../src/workbench/state.js';
 import { plain, type Line } from '../src/workbench/text.js';
@@ -31,6 +37,8 @@ import type { ViewCtx } from '../src/workbench/views.js';
 import {
   blockKey, columnWidths, readWorkflowsTab, refreshBlockStates, selectedBlock, stateMark, workflowsTabView, type WorkflowsTabData,
 } from '../src/workbench/workflows-tab.js';
+import { opsKit, replOf, sandbox as opsSandbox } from './helpers/ops-sandbox.js';
+import { reportProject, runOf, typed } from './helpers/run-inspect-fixture.js';
 
 const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -262,13 +270,19 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(C).toContain('[Enter] Run it here');
     expect(flat(centre)).toContain('[Enter] Run it here the REPL\'s own /run, one job; it asks first');
     expect(C).toMatch(/REPL\s+\/run PAIR\.md second/);
-    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface has a run's preview; the companion has this run detail in words
-    expect(flat(centre)).toContain('No Timmy surface shows a run\'s browser or sandbox preview yet; the companion (c) shows this run detail in a browser page, in words.');
+    // R6 (H144): its source as it ran (the copy upmd read, the same bytes now) and what it changed (nothing Timmy records:
+    // its blocks only echo), the producer's inspection; where the companion draws the run's diffs, images and outputs
+    // (the source under the cards where it fits beside the whole list, else in the centre column)
+    expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now · read from the copy upmd read/);
+    expect(flat(centre)).toContain('CHANGES · none that Timmy records');
+    expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
     // right: the receipt card (verified in this reading), the checks predicted against actual, the verdict, timmy op
     expect(R).toContain('second.receipt');
     expect(R).toMatch(new RegExp(`id\\s+${tab.run!.receipt!.id}`));
     expect(R).toMatch(/kind\s+workflow/);
     expect(R).toContain('✓ verified');
+    // R6 (H144): each stage's receipts, as verified now: the prediction's, the two blocks', the run's
+    expect(flat(right)).toContain('.predict ✓ · run ✓ 2 · .receipt ✓');
     expect(flat(right)).toMatch(/CHECKS (?:· )?predicted vs actual/);
     expect(R).toMatch(/✓ block first matches/);
     expect(R).toMatch(/exits 0 → exit 0/);
@@ -278,7 +292,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // green only for what was verified or passed in this reading: the receipt card and the checks that matched
     const green = greens(v.lines);
     expect(green.length).toBeGreaterThan(0);
-    for (const s of green) expect(s).toMatch(/^(?:[╭╮╰╯─│ ]+|second\.receipt|✓ verified|✓ | matches|block (?:first|second))$/);
+    for (const s of green) expect(s).toMatch(/^(?:[╭╮╰╯─│ ]+|second\.receipt|✓ verified|✓ | matches|block (?:first|second)|✓|✓ \d+)$/);
     // one meaning per mark: no ● (live) or ○ (configured) for a block or a run
     expect(text.join('\n')).not.toMatch(/[●○]/);
     // the items: every block in the list's order, as before (Enter on one opens its Run confirm in the controller)
@@ -304,7 +318,11 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     const R = column(text, 2, AT_160.width).join('\n');
     expect(R).toMatch(/✕ not verified:/);
     expect(R).not.toContain('✓ verified');
-    expect(greens(v.lines)).toEqual([]);
+    // R6 (H144): green only for what verified in this reading: the receipts sealed before the changed one (the prediction's,
+    // the two blocks') and the source's bytes; the run's own receipt ✕
+    expect(flat(column(text, 2, AT_160.width))).toContain('.predict ✓ · run ✓ 2 · .receipt ✕');
+    expect(greens(v.lines).sort()).toEqual(['✓', '✓ ', '✓ 2']);
+    expect(`${flat(column(text, 0, AT_160.width))} ${flat(column(text, 1, AT_160.width))}`).toMatch(/SOURCE · PAIR\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now/);
     // its run detail is not read here (none given): the .predict card and the checks say so, and the verdict is the job's
     expect(flat(column(text, 0, AT_160.width))).toMatch(/reading the run detail of o[0-9a-f]{8}/);
     expect(flat(column(text, 2, AT_160.width))).toMatch(/VERDICT ✓ completed \(its job record's word\)/);
@@ -464,3 +482,103 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     for (const x of v.items) if (x.line >= 0 && x.line < AT_160.height) expect(L[x.line]).toContain((x.item as { block: { name: string } }).block.name);
   });
 });
+
+// ── R6 (H144): the newest run inspected ───────────────────────────────────────
+
+const kit = opsKit();
+afterEach(async () => { await kit.cleanup(); }, 60_000);
+const CAPS = process.env.TIMMY_H144_CAPTURES ? resolve(process.env.TIMMY_H144_CAPTURES) : '';
+
+/**
+ * The body's rows kept as captures (only when TIMMY_H144_CAPTURES names a folder): their plain text, and a PNG of them drawn
+ * in Chromium, each segment in the colour, weight and ground the Workbench gives its role (src/workbench/theme.ts styleOf).
+ * A render of the view's rows, said on it: not a screenshot of a terminal.
+ */
+async function keepRows(lines: readonly Line[], name: string, label: string): Promise<void> {
+  if (!CAPS) return;
+  mkdirSync(CAPS, { recursive: true });
+  writeFileSync(join(CAPS, `${name}.txt`), `${label}\n\n${lines.map(plain).join('\n')}\n`);
+  const exe = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/chromium'].find((x): x is string => Boolean(x) && existsSync(x!));
+  if (!exe) return;
+  const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const span = (seg: Line[number]): string => {
+    const st = styleOf(seg, true);
+    let fg = st.color ?? HOMEBREW.text;
+    let bg = st.backgroundColor ?? HOMEBREW.ground;
+    if (st.inverse) [fg, bg] = [bg, fg];
+    return `<span style="color:${fg};background:${bg};${st.bold ? 'font-weight:700;' : ''}${st.underline ? 'text-decoration:underline;' : ''}">${esc(seg.text)}</span>`;
+  };
+  const html = `<!doctype html><meta charset="utf-8"><style>body{margin:0;padding:10px 14px;background:${HOMEBREW.ground};color:${HOMEBREW.text};font:13px/1.32 'Monaspace Argon','DejaVu Sans Mono',monospace}.r{white-space:pre;height:1.32em}.label{color:${HOMEBREW.textSecondary};white-space:pre-wrap;margin:0 0 10px;max-width:150ch}</style><p class="label">${esc(label)}</p>${lines.map((l) => `<div class="r">${l.map(span).join('')}</div>`).join('')}`;
+  const browser = await chromium.launch({ headless: true, executablePath: exe });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1300, height: 400 }, deviceScaleFactor: 1 });
+    await page.setContent(html);
+    await page.screenshot({ path: join(CAPS, `${name}.png`), fullPage: true });
+  } finally { await browser.close(); }
+}
+
+describe('tab 3 Workflows: the newest run inspected, its source, changes, outputs and receipts in words (R6 H144)', () => {
+  it('a FAKE run that changes a file and writes four: SOURCE as it ran, CHANGES with the first one\'s diff (+ and − marked), its log, each stage\'s receipts verified now; after /restore, its change said changed since', async () => {
+    const s = opsSandbox(kit, 'wb-inspect-');
+    reportProject(s);
+    const { ws } = replOf(kit, s);
+    const { job, op } = await runOf(ws, 'REPORT.md', 'report');
+    const p = { name: basename(s.root), root: s.root };
+    const records = ws.jobs.list();
+    const chain = readChain('runs', s.root);
+    const rd = readRunDetail(op, { project: s.root, jobs: records, chain });
+    if (!rd.ok) throw new Error(rd.why);
+    const ui = UI();
+    let data = dataOf(p, records, chain, { details: { [op]: { state: 'ready', value: rd.detail, at: Date.now() } } });
+    ui.cursor['center:workflows'] = at(data, 'REPORT.md', 'report');
+    const tab = tabOf(data, ui, ws, records, chain, s.root);
+    // the producer's inspection of the run, read for its operation, and kept while the chain read is the same
+    if (!tab.inspection || !('value' in tab.inspection)) throw new Error(`not inspected: ${JSON.stringify(tab.inspection)}`);
+    expect(tab.inspection.op).toBe(op);
+    expect(tabOf(data, ui, ws, records, chain, s.root).inspection).toBe(tab.inspection);
+    const ins = tab.inspection.value;
+    const total = ins.changes.list.length + ins.changes.more;
+    data = { ...data, workflowsTab: tab } as Data;
+
+    const { v, text } = body(data, ui, AT_160);
+    expect(text.every((t) => visibleWidth(t) === AT_160.width)).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(AT_160.height);
+    const [centre, right] = [column(text, 1, AT_160.width), column(text, 2, AT_160.width)];
+    const C = centre.map((t) => t.trimEnd());
+    // the source (in the left column, beside the whole list): the document as upmd ran it (the copy /run kept for it), the
+    // same bytes now
+    expect(flat(column(text, 0, AT_160.width))).toMatch(/SOURCE · REPORT\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now · read from the copy upmd read/);
+    // the changes: how many, /review's command, a row per file (the parameter file: its diff's size, /restore offered),
+    // and the parameter file's diff against the version the flow kept, its lines marked − and +
+    expect(flat(centre)).toContain(`CHANGES · ${total} files · /review ${op}`);
+    // its path whole (where the row is narrow, the diff's size gives way: the diff is drawn under it)
+    expect(C).toEqual(expect.arrayContaining([expect.stringMatching(/^changed recipes\/tray\.params\.json (?:\+1 −1 · )?restore offered$/)]));
+    expect(C).toEqual(expect.arrayContaining([expect.stringMatching(/^@@ -\d+,\d+ \+\d+,\d+ @@ against the version Timmy kept$/), expect.stringMatching(/^− +"width": 140,$/), expect.stringMatching(/^\+ +"width": 150,$/)]));
+    // its log's last lines (here its last one: the changes took the rest), the earlier ones counted with where they are
+    expect(flat(centre)).toMatch(new RegExp(`OUTPUT · its log's last lines … \\d+ earlier lines \\(/jobs ${job}\\) <== report exited with code 0`));
+    // and where the companion draws the diffs, images and outputs
+    expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
+    // the receipts: each stage's verified now (the prediction's; the flow's and the two blocks'; the run's)
+    expect(flat(right)).toContain('.predict ✓ · run ✓ 3 · .receipt ✓');
+    expect(flat(right)).toContain('✓ verified');
+    for (const g2 of greens(v.lines)) expect(g2).toMatch(/^(?:[╭╮╰╯─│ ]+|report\.receipt|✓ verified|✓ | matches|block (?:change|report)|✓|✓ \d+)$/);
+    const label = (what: string): string => `Workbench tab 3 (Workflows), its body at ${AT_160.width}x${AT_160.height} (a ${AT_160.columns}x45 terminal): the rows src/workbench/workflows-tab.ts draws, in the colours src/workbench/theme.ts gives each role, rendered in Chromium (not a terminal screenshot). ${what} FAKE run: REPORT.md (tests/helpers/run-inspect-fixture.ts; upmd and the change block's flow are test doubles).`;
+    await keepRows(v.lines, 'workbench-tab3-156x28-source-changes-receipts', label(`Run ${op} (job ${job}).`));
+
+    // ── an action, the run's Restore (its command typed in the REPL, the existing /restore): read again, the change is no
+    // longer what the run left, so no restore is offered for it, and the chain read anew is inspected anew
+    const restore = ins.actions.find((a) => a.id === 'restore')!;
+    expect(restore).toMatchObject({ effect: 'writes', available: true });
+    const { said } = await typed(ws, restore.command, () => ws.restore!(restore.command.replace(/^\/restore /, '')));
+    expect(said).toMatch(/restored/i);
+    const chain2 = readChain('runs', s.root);
+    const tab2 = tabOf(data, ui, ws, ws.jobs.list(), chain2, s.root);
+    expect(tab2.inspection).not.toBe(tab.inspection);
+    const after = body({ ...data, workflowsTab: tab2 } as Data, ui, AT_160);
+    const C2 = column(after.text, 1, AT_160.width).map((t) => t.trimEnd());
+    expect(C2).toEqual(expect.arrayContaining([expect.stringMatching(/^changed recipes\/tray\.params\.json (?:JSON · )?changed since the run$/)]));
+    expect(C2.join('\n')).not.toContain('restore offered');
+    await keepRows(after.v.lines, 'workbench-tab3-156x28-after-restore', label(`Run ${op} read again after its Restore (/restore, typed in the REPL).`));
+  }, 120_000);
+});
+

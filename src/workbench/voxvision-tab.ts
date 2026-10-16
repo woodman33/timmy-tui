@@ -14,6 +14,12 @@
  *              verifyReceiptIn passes in this reading; the operator's verdict (not recorded: timmy.vox/1 keeps none); and that
  *              images, depth, voxels and 3D are drawn by Rerun's viewer (/vox view) or the companion (c), never here
  *
+ * R6 (H143): the same record the companion's tab 5 draws (src/vox/preview.ts, the page's own reading of it), in words: its
+ * ENTITIES (what was measured over its images, each with its provenance and evidence state), its FRAMES (a video's sampled
+ * times, each with what was measured there) and its FILES (each image, shown in the companion or why not; a mesh, drawn
+ * there as three views; a recording); the companion draws them (c: Companion · Show, tab 5, voxCompanionHint for the
+ * address); no Timmy surface draws depth or voxels; Rerun's own viewer shows the files where it is installed.
+ *
  * From 120 columns the three sit side by side under the pipeline, below that they stack (the selected record's detail under
  * it). readVox reads files only: no tool runs, no viewer opens, nothing is asked over the network.
  */
@@ -28,14 +34,15 @@ import type { Receipt } from '../utils/receipts.js';
 import { LATER_LAYERS } from '../vox/layers.js';
 import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { valueWords } from '../vox/tools.js';
+import { previewOfCard, type VoxPreview } from '../vox/preview.js';
 import type { Glyphs } from './frame.js';
 import type { Lazy } from './model.js';
 import { FAMILY_ROWS } from './nav.js';
 import {
-  clipRows, fieldRows, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx, type TabView,
+  clipRows, fieldRows, heading, limitRows, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx, type TabView,
 } from './tab-columns.js';
 import {
-  capDetail, capItem, capRows, checkReceipt, chips, inViewRows, lazyRows, notDrawnRows, notHere, verdictSegs, type CapItem, type ReceiptVerdict,
+  capDetail, capItem, capRows, checkReceipt, chips, inViewRows, lazyRows, notHere, verdictSegs, type CapItem, type ReceiptVerdict,
 } from './tab-parts.js';
 import { clock, fit, lineCells, spread, type Line, type Role, type Seg } from './text.js';
 
@@ -63,6 +70,9 @@ export interface VoxRow {
   seal?: { hash: string; seq: number; ts: string; status: string };
   /** how many vox receipts of this project name it */
   seals: number;
+  /** R6 (H143): the record as the companion's tab 5 draws it (src/vox/preview.ts), light: no mesh drawn here; absent when it
+   *  could not be made */
+  preview?: VoxPreview;
 }
 
 export interface VoxData {
@@ -122,7 +132,8 @@ export function readVox(i: VoxReadInput): VoxData {
     const card = readVoxRecord({ root, file, text, fileSha256: createHash('sha256').update(bytes).digest('hex'), chain: i.chain, projectId: pid });
     if (!card) { unreadable.push({ file, why: 'it is not a VoxVision record (timmy.vox/1) Timmy can read' }); continue; }
     let operation: string | undefined;
-    try { const o = (JSON.parse(text) as { operation?: unknown }).operation; if (typeof o === 'string' && o) operation = o; } catch { /* read above */ }
+    let raw: Record<string, unknown> = {};
+    try { raw = JSON.parse(text) as Record<string, unknown>; const o = raw.operation; if (typeof o === 'string' && o) operation = o; } catch { /* read above */ }
     let seal: VoxRow['seal'];
     let seals = 0;
     for (let k = i.chain.length - 1; k >= 0; k--) {
@@ -132,7 +143,10 @@ export function readVox(i: VoxReadInput): VoxData {
       seal ??= { hash: r.hash, seq: k + 1, ts: r.ts, status: r.status ?? 'unknown' };
     }
     const made = Date.parse(card.madeAt ?? '');
-    rows.push({ card: scrubDeep(card, scrub), ...(operation ? { operation } : {}), at: Number.isFinite(made) ? made : t, ...(seal ? { seal } : {}), seals });
+    const shown = scrubDeep(card, scrub);
+    let preview: VoxPreview | undefined;
+    try { preview = previewOfCard({ root, chain: i.chain, env: env as NodeJS.ProcessEnv }, shown, raw, operation); } catch { preview = undefined; }
+    rows.push({ card: shown, ...(operation ? { operation } : {}), at: Number.isFinite(made) ? made : t, ...(seal ? { seal } : {}), seals, ...(preview ? { preview } : {}) });
   }
   rows.sort((a, b) => b.at - a.at);
   return { at: new Date(i.now ?? Date.now()).toISOString(), root, rows, more: Math.max(0, timed.length - VOX_SHOWN), unreadable, receipts: i.chain, checks: new Map() };
@@ -239,8 +253,52 @@ function metricLine(m: VoxCardMetric, w: number, g: Glyphs, indent = '  '): Line
   return fit([S(indent), S(`${m.of ? `${m.of === 'delta' ? 'Δ' : m.of} ` : ''}${m.title} `, 'secondary'), S(value, 'strong'), S(` ${g.sep} `, 'secondary'), S(word, role)], w, g.ellipsis);
 }
 
-/** Where a record's images, depth, voxels and 3D are seen: never in a terminal. */
-const seenRows = (id: string, w: number, g: Glyphs): Line[] => notDrawnRows('images, depth, voxels or 3D', `Rerun's own viewer does, where it is installed (/vox view ${id})`, w, g, 'this tab\'s actions in a browser page; its records do not reach the companion yet');
+/**
+ * Where a record's image, what was measured over it, its frames and its mesh views are seen (R6 H143): the companion draws them
+ * (c); a terminal draws none; no Timmy surface draws depth or voxels; Rerun's own viewer shows its files where it is installed.
+ */
+const seenRows = (id: string, w: number, g: Glyphs): Line[] => [
+  ...limitRows('A terminal draws no image.', { c: 'this record\'s image with what was measured over it, its frames and its mesh views (tab 5)' }, w, g),
+  ...para(`No Timmy surface draws depth or voxels (no adapter here). Rerun's own viewer shows its files, where it is installed (/vox view ${id}).`, w, 'secondary'),
+];
+
+/** R6 (H143): what the companion's address carries so that it opens on tab 5 with this record selected (panel-vox.js reads vox=). */
+export const voxCompanionHint = (item: VoxItem | undefined): string => `tab=voxvision${item && item.kind === 'vox-record' ? `&vox=${item.row.card.id}` : ''}`;
+
+/**
+ * R6 (H143): the record as the companion's tab 5 draws it, in words: ENTITIES (what was measured over its images, each with its
+ * provenance and evidence state), FRAMES (a video's sampled times) and FILES (each image, mesh and recording, and where each is
+ * drawn). `per`: the most rows of each list where room is short.
+ */
+export function previewRows(r: VoxRow, w: number, g: Glyphs, per = 6): Line[] {
+  const out: Line[] = [];
+  const list = <T>(title: string, items: readonly T[], rows: (x: T) => Line[], empty?: string): void => {
+    out.push([S(title.toUpperCase(), 'secondary', { bold: true }), S(` ${items.length}`, 'secondary')]);
+    if (!items.length && empty) out.push(...para(empty, w, 'secondary', '  '));
+    for (const x of items.slice(0, per)) out.push(...rows(x));
+    if (items.length > per) out.push([S(`  and ${items.length - per} more (the Inspector has them all)`, 'secondary')]);
+  };
+  const pv = r.preview;
+  if (pv) {
+    const observed = (pv.entities[0]?.children ?? []).find((k) => k.id === 'observations');
+    const obs = observed?.children ?? [];
+    list('Entities', obs, (e) => [
+      fit([S('  '), S(`${e.path} `, 'secondary'), S(e.label, 'text'), S(` ${g.sep} ${e.provenance ?? 'not recorded'} · ${e.evidence ?? 'unknown'}`, 'secondary')], w, g.ellipsis),
+      ...(e.detail ? para(e.detail, w, 'secondary', '    ') : []),
+    ], `none drawn: ${observed?.detail ?? 'nothing with a place in an image was recorded'}`);
+    if (pv.frames.length) {
+      out.push([S('FRAMES', 'secondary', { bold: true }), S(` ${pv.frames.length}`, 'secondary')]);
+      out.push(...para(`${pv.frames.map((f) => f.label).join('; ')}: the companion draws each with what was measured there, on a timeline (each frame's box and centroid are under ENTITIES)`, w, 'text', '  '));
+    }
+    const files = [
+      ...pv.images.map((x) => ({ path: x.path, words: `${x.role === 'input' ? 'the observed image' : x.title}${x.servable ? ' · drawn in the companion' : ` · not shown: ${x.why ?? 'not checked'}`}` })),
+      ...pv.spatial.map((x) => ({ path: x.source, words: x.why ? `a mesh · not drawn: ${x.why}` : 'a mesh · drawn as three views in the companion' })),
+      ...pv.recordings.map((x) => ({ path: x.path, words: 'a Rerun recording · what Timmy reads of it is in the companion' })),
+    ];
+    list('Files', files, (x) => para(`${x.path} ${g.sep} ${x.words}`, w, 'text', '  '), 'no image, mesh or recording');
+  }
+  return out;
+}
 
 /**
  * The selected record's detail: what it is; what failed or needs setup, each with its step; its receipt verified now or
@@ -248,7 +306,7 @@ const seenRows = (id: string, w: number, g: Glyphs): Line[] => notDrawnRows('ima
  * its first `per` where room is short); its inputs. Where its images and 3D are seen is the caller's to add (a column keeps
  * it in view: seenRows).
  */
-export function recordDetail(r: VoxRow, d: VoxData, w: number, g: Glyphs, per = 6): Line[] {
+export function recordDetail(r: VoxRow, d: VoxData, w: number, g: Glyphs, per = 6, o: { preview?: boolean } = {}): Line[] {
   const c = r.card;
   const out: Line[] = [[S('RECORD ', 'secondary', { bold: true }), S(c.id, 'strong')]];
   out.push(fit([S(`${c.action} `, 'text'), statusSeg(c.status, g, {}), S(` ${g.sep} ${clock(c.madeAt)}`, 'secondary')], w, g.ellipsis));
@@ -279,6 +337,8 @@ export function recordDetail(r: VoxRow, d: VoxData, w: number, g: Glyphs, per = 
   out.push(...fieldRows('Verdict', 'not recorded: a VoxVision record (timmy.vox/1) keeps no operator verdict', w, 'secondary', 8));
   list('Values', c.metrics.filter((m) => !m.name.startsWith('file_')), (m) => [metricLine(m, w, g)], 'none: no tool gave a value');
   if (c.claims.length) list('Claims', c.claims, (m) => [metricLine(m, w, g)]);
+  // R6 (H143): the same record as the companion draws it: what was measured over its images, its frames, its files
+  if (o.preview !== false) out.push(...previewRows(r, w, g, per));
   list('Inputs', c.inputs, (x) => [fit([S('  '), S(x.path, 'text'), S(` ${g.sep} ${x.kind ?? 'other'}${typeof x.bytes === 'number' ? ` ${g.sep} ${humanBytes(x.bytes)}` : ''}`, 'secondary')], w, g.ellipsis)]);
   return out;
 }
@@ -377,7 +437,7 @@ export function voxView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: VoxData | und
 export function voxDetail(item: Extract<VoxItem, { kind: 'vox-record' }>, d: VoxData | undefined, w: number, g: Glyphs): Line[] {
   const r = item.row;
   if (!d) return [[heading('Record')], [S('Reading…', 'secondary')]];
-  const out: Line[] = [...recordDetail(r, d, w, g, 1000)];
+  const out: Line[] = [...recordDetail(r, d, w, g, 1000, { preview: false })];
   const c = r.card;
   out.push([], [heading('Tools'), S(` ${g.sep} ${c.tools.length}`, 'secondary')]);
   for (const t of c.tools) out.push(...para(`${t.tool}: ${[t.name, t.version].filter(Boolean).join(' ') || 'Timmy\'s own reader'}${t.ran ? ` ${g.sep} ${t.ran === 'job' ? `job ${t.job ?? ''} ${t.state ?? ''}`.trim() : 'in Timmy\'s process'}` : ''}${t.status ? ` ${g.sep} ${t.status}` : ''}`, w, 'text', '  '));
@@ -386,6 +446,8 @@ export function voxDetail(item: Extract<VoxItem, { kind: 'vox-record' }>, d: Vox
   for (const n of c.notes.slice(0, 6)) out.push(...para(n, w, 'secondary', '  '));
   if (c.doctrine) out.push(...para('A measurement of a CAD or mesh file is never a measurement of a physical part (DOCTRINE §15).', w, 'secondary'));
   out.push(...fieldRows('Record', `${c.file}${r.seal ? ` ${g.sep} receipt ${r.seal.hash.slice(7, 19)}` : ''}`, w, 'secondary'));
+  // R6 (H143): the record as the companion draws it, after its tools
+  out.push([], ...previewRows(r, w, g, 1000));
   // R5 (H131; the QA of e7f853e, defect 2): where its images and 3D are seen, last (its words are longer now, and truthful)
   out.push([], ...seenRows(r.card.id, w, g));
   return out;

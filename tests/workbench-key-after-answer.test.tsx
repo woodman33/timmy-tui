@@ -145,7 +145,7 @@ async function toTheBox(c: Controller, f: ReturnType<typeof frameOf>): Promise<v
 const said = (keys: ReadonlyArray<Record<string, unknown>>): string => keys.map((k) => JSON.stringify(k)).join('\n');
 
 describe('a key right after the NEEDS YOU box is answered (R6 H141; CI at 388c0c8, slice B)', () => {
-  it('every a from the y on toggles Activity and is drawn: at once after the y, while the run starts and runs, as its record lands, and after', async () => {
+  it('every a from the y on toggles Activity and is drawn: at once after the y, every 25 ms through the run, and after it ended', async () => {
     sandbox();
     const p = trayProject('answered-then-a');
     const keys: Array<Record<string, unknown>> = [];
@@ -157,8 +157,12 @@ describe('a key right after the NEEDS YOU box is answered (R6 H141; CI at 388c0c
     let open = c.ui.activityOpen;
     let ended = 0;
     let n = 0;
+    // where each a fell: before the run's job (its prediction sealed, upmd's pty wrapper checked), while it ran, after it ended
+    const phases = { before: 0, running: 0, after: 0 };
     // an a every 25 ms (the first at once), until the run has ended and 1.5 s more have passed
     for (const end = Date.now() + 20_000; Date.now() < end && !(ended && Date.now() - ended > 1500); n++) {
+      const state = runsOf(p.root)[0]?.state;
+      phases[state === 'completed' ? 'after' : state ? 'running' : 'before']++;
       const at = keys.length;
       f.r.stdin.write('a');
       open = !open;
@@ -169,8 +173,10 @@ describe('a key right after the NEEDS YOU box is answered (R6 H141; CI at 388c0c
       if (!ended && runsOf(p.root)[0]?.state === 'completed') ended = Date.now();
     }
     expect(ended, 'the run ended').toBeGreaterThan(0);
-    // pressed through the whole run, and drawn as it is now
-    expect(n).toBeGreaterThan(20);
+    // pressed from the y through the run's end (how many fell while its job ran depends on this machine's pace: said, not
+    // counted), and drawn as it is now
+    expect(phases.before, JSON.stringify(phases)).toBeGreaterThan(0);
+    expect(phases.after, JSON.stringify(phases)).toBeGreaterThan(2);
     await until('Activity drawn as it is', () => drawnOpen(f.text()) === c.ui.activityOpen, 3_000, f.text);
     // the y answered the box once; no a was ever an answer (each one was Activity's)
     expect(keys.filter((k) => typeof k.took === 'string' && k.took.startsWith('the NEEDS YOU box'))).toEqual([expect.objectContaining({ input: 'y', took: 'the NEEDS YOU box: allowed once' })]);

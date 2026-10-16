@@ -82,7 +82,10 @@ import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, TLDRAW_VERSION, studioConfig, studioPort } from './config.js';
 import { studioHealth } from './health.js';
-import { CanvasDocuments, DRAFT_ID, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
+import { type CanvasDocuments, DRAFT_ID, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
+// R6 (H139): each project's own board, and the old layout's files given to their project once
+import { adoptOldLayout, boardDir, CanvasBoards, oldLayoutWords, PROJECT_ID } from './boards.js';
+import { pausedRefusal } from './session-pause.js';
 import { guidedTemplates, publicTemplates } from './templates.js';
 import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
 // Round R4 (H55): the project the REPL names, and the read-only project API built from the board's readers.
@@ -156,10 +159,24 @@ export function studioRoot(): string {
 export const isLocalRequest = (req: IncomingMessage): boolean => isLocal(req);
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
-/** R4 (H83): what an exec call carries, and nothing else (a token never goes in a body). R5 (H133): and whether it is a draft. */
-const EXEC_KEYS: ReadonlySet<string> = new Set(['code', 'jobId', 'holder', 'draft', 'baseRevision']);
-/** R5 (H133): what a decision on a draft carries, and nothing else. */
-const DECISION_KEYS: ReadonlySet<string> = new Set(['draft', 'decision', 'shapes', 'job', 'from', 'at', 'revision', 'sourceRevision']);
+/**
+ * R4 (H83): what an exec call carries, and nothing else (a token never goes in a body). R5 (H133): and whether it is a draft. R6
+ * (H139): and the project the REPL draws on.
+ */
+const EXEC_KEYS: ReadonlySet<string> = new Set(['code', 'jobId', 'holder', 'draft', 'baseRevision', 'project']);
+/** R5 (H133): what a decision on a draft carries, and nothing else. R6 (H139): and the project whose board it was made on. */
+const DECISION_KEYS: ReadonlySet<string> = new Set(['draft', 'decision', 'shapes', 'job', 'from', 'at', 'revision', 'sourceRevision', 'project']);
+/** R6 (H139): what is said when no project is named: each project has its own board, so there is none to show or save. */
+const NO_BOARD = 'No project is named to this canvas, so it shows no board: each project has its own. In Timmy: /canvas open.';
+const PROJECT_PARAM = 'project is a project\'s id: 16 hex characters.';
+/** R6 (H139): one project's board, as a route uses it. */
+interface Board { id: string; name: string; docs: CanvasDocuments }
+/** R6 (H139): the project a reading names (?project=<16 hex>): null when it names none, false when what it names is not an id. */
+function projectParam(req: express.Request): string | null | false {
+  const q = req.query.project;
+  if (q === undefined) return null;
+  return typeof q === 'string' && PROJECT_ID.test(q) ? q : false;
+}
 /** R5 (H133): how many copies a canvas folder keeps before it asks for room. */
 const MAX_COPIES = 50;
 const isCount = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
@@ -192,7 +209,18 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   const { relay } = cardWiring;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
   const savedIn = options.canvasDir ?? canvasDir(env);
-  const documents = new CanvasDocuments(savedIn, { maxBytes: maxCanvasBytes });
+  // R6 (H139): each project's own board (src/studio/boards.ts); once, the old layout's files become the board of their project
+  const boards = new CanvasBoards(savedIn, { maxBytes: maxCanvasBytes });
+  try { adoptOldLayout(savedIn); } catch { /* the old files stay where they are, and a project's board says so */ }
+  /** R6 (H139): a project's name as this server knows it (named in its life), else its id. */
+  const nameOf = (id: string): string => (link.project?.id === id ? link.project.name : link.knownProject(id)?.name ?? id);
+  const board = (id: string): Board => ({ id, name: nameOf(id), docs: boards.of(id) });
+  /** R6 (H139): what a page asking for another project's board, jobs, drafts or workspace than the one shown now is told. */
+  const notShown = (res: express.Response, asked: string): void => {
+    const named = link.project;
+    res.status(409).json({ ok: false, notShown: true, asked, shows: named ? { id: named.id, name: named.name } : null,
+      error: named ? `The canvas shows ${named.name} now, not the project this page asked for (${nameOf(asked)}).` : NO_BOARD });
+  };
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -217,11 +245,22 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   // Round R1: what this server is and what state the canvas is in, for the REPL and `timmy tools`.
   // It runs nothing in the page and never carries the license key. R4 (H83): no content without the token: the latest job
   // (its id may be a model's words) only with it; pageConnected only for a page whose session counts now (src/studio/bridge.ts).
+  // R6 (H139): of the board of the project named now (none named: no board, revision 0); with a credential, the project it is of,
+  // and with the token any project's (?project=<id>)
   app.get('/api/canvas/health', (req, res) => {
-    const saved = documents.peek();
-    const jobs = documents.jobs();
-    const latest = link.authorized(req.headers.authorization) ? jobs[0] : undefined;
-    res.set('Cache-Control', 'no-store').json({
+    res.set('Cache-Control', 'no-store');
+    const asked = projectParam(req);
+    if (asked === false) { res.status(400).json({ ok: false, error: PROJECT_PARAM }); return; }
+    const token = link.authorized(req.headers.authorization);
+    const credited = token || callerOf(req.headers.authorization, link, relay, DOCUMENT_REFUSED).ok;
+    const named = link.project;
+    if (asked && credited && !token && asked !== named?.id) { notShown(res, asked); return; }
+    const id = asked && token ? asked : named?.id ?? null;
+    const docs = id ? boards.of(id) : null;
+    const saved = docs ? docs.peek() : { revision: 0, sourceRevision: null, savedAt: null };
+    const jobs = docs ? docs.jobs() : [];
+    const latest = token ? jobs[0] : undefined;
+    res.json({
       ok: true,
       app: 'timmy-canvas',
       tldrawVersion: TLDRAW_VERSION,
@@ -230,9 +269,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
       revision: saved.revision,
       sourceRevision: saved.sourceRevision,
       savedAt: saved.savedAt,
-      ...(saved.unreadable ? { unreadable: true } : {}),
+      ...('unreadable' in saved && saved.unreadable ? { unreadable: true } : {}),
       jobs: jobs.length,
       latestJob: latest ? { id: latest.id, ok: latest.ok, revision: latest.revision, at: latest.at, ...(latest.receipt ? { receipt: latest.receipt } : {}) } : null,
+      ...(credited ? { project: id ? { id, name: nameOf(id) } : null } : {}),
     });
   });
   app.get('/studio-config.json', (req, res) => {
@@ -243,7 +283,7 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.set('Cache-Control', 'no-store').json({ ...config, licenseKey: credited ? config.licenseKey : null, canvasDir: shownPath(savedIn) });
   });
   // Fourth order, step 5: the canvas, saved by Timmy in its home and opened from there, so it reopens
-  // where it was and every surface reads the same document, revision and source revision.
+  // where it was and every surface reads the same document, revision and source revision. R6 (H139): each project's own board.
   const jsonOnly = (message: string): express.RequestHandler => (req, res, next) => {
     if (req.is('application/json')) return next();
     res.status(415).json({ ok: false, error: message });
@@ -264,40 +304,101 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.locals.by = c.by;
     next();
   };
+  /**
+   * R6 (H139): a write's credential, checked before its body is read: the token, a session that counts now, or a session paused
+   * now (another project or REPL holds the canvas) whose write is for a board it reaches (checked once the body names the board:
+   * boardToWrite). No credential, a forged one and an ended session are refused here, as before.
+   */
+  const presented = (refused: string): express.RequestHandler => (req, res, next) => {
+    const c = callerOf(req.headers.authorization, link, relay, refused);
+    if (c.ok) { res.locals.by = c.by; next(); return; }
+    if (pausedRefusal(c.why)) { res.locals.by = 'session'; res.locals.paused = c; next(); return; }
+    refuse(res, c);
+  };
+  /**
+   * R6 (H139): the board a reading is for (sent the refusal and undefined when refused): the token reads any project's board
+   * (?project=<id>), else the one named now; a page's session reads only the board of the project named now, and one that asks for
+   * another (asked before a switch) is told which project the canvas shows now (409), so no page takes another project's board,
+   * jobs or drafts for its own. Null: no project is named, so there is no board.
+   */
+  const boardToRead = (req: express.Request, res: express.Response): Board | null | undefined => {
+    const asked = projectParam(req);
+    if (asked === false) { res.status(400).json({ ok: false, error: PROJECT_PARAM }); return undefined; }
+    const named = link.project;
+    if (asked && res.locals.by === 'token') return board(asked);
+    if (asked && asked !== named?.id) { notShown(res, asked); return undefined; }
+    return named ? board(named.id) : null;
+  };
+  /**
+   * R6 (H139): the board a write is for (`project` in its body, else the project named now; sent the refusal and undefined when
+   * refused). The token writes any project's board. A page's session writes the board of the project named now while it counts for
+   * it, or the board of a project it reaches (given for it, or followed to it: src/studio/card-relay.ts) that is not the one named
+   * now: a page's last save of the board it showed before a switch lands on that board, never on the board shown now (`kept`).
+   */
+  const boardToWrite = (req: express.Request, res: express.Response, body: Record<string, unknown>): { board: Board; kept: string | null } | undefined => {
+    const p = body.project;
+    if (p !== undefined && p !== null && (typeof p !== 'string' || !PROJECT_ID.test(p))) { res.status(400).json({ ok: false, error: 'project is the id of the project whose board this is (16 hex), or null for the project named now.' }); return undefined; }
+    const named = link.project;
+    const target = typeof p === 'string' ? p : named?.id ?? null;
+    if (!target) { res.status(409).json({ ok: false, error: NO_BOARD }); return undefined; }
+    const keptWords = (id: string): string => `Kept for ${nameOf(id)}: written to ${nameOf(id)}'s own board, because the canvas shows ${named ? named.name : 'no project'} now.`;
+    if (res.locals.by === 'token') return { board: board(target), kept: named && target !== named.id ? keptWords(target) : null };
+    if (named && target === named.id) {
+      // checked again after the body was read: the project named may have changed meanwhile
+      const s = relay.sessionFor(req.headers.authorization, named);
+      if (!s.ok) { refuse(res, { ok: false, why: s.why, words: s.words }); return undefined; }
+      return { board: board(target), kept: null };
+    }
+    const r = relay.reaches(req.headers.authorization, target);
+    if (!r.ok) { refuse(res, { ok: false, why: r.why, words: r.words }); return undefined; }
+    return { board: board(target), kept: keptWords(target) };
+  };
   app.get('/api/canvas/document', credited(DOCUMENT_REFUSED), (req, res) => {
-    const state = documents.load();
     res.set('Cache-Control', 'no-store');
-    if (res.locals.by === 'token') { res.json(state); return; }
+    const b = boardToRead(req, res);
+    if (b === undefined) return;
+    if (b === null) { res.status(409).json({ ok: false, error: NO_BOARD, project: null }); return; }
+    const state = b.docs.load();
+    // R6 (H139): which project's board this is, where it is kept, and what it says of the old layout
+    const old = oldLayoutWords(savedIn, b.id);
+    const of = { project: { id: b.id, name: b.name }, board: boards.shown(b.id), ...(old ? { oldLayout: old } : {}) };
+    if (res.locals.by === 'token') { res.json({ ...state, ...of }); return; }
     // A page's session counts for the project named now: every drawn card of another project comes with its kept detail withheld.
     // R4 (H109): another project the session reaches (it was given for it, or followed it since) is not withheld from it.
     const shown = withholdOthers(state.snapshot, relay.reachOf(req.headers.authorization));
-    res.json({ ...state, snapshot: shown.snapshot, withheld: shown.withheld });
+    res.json({ ...state, snapshot: shown.snapshot, withheld: shown.withheld, ...of });
   });
-  app.put('/api/canvas/document', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N}.'), credited(DOCUMENT_REFUSED),
+  app.put('/api/canvas/document', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N, "project": "<id>"}.'), presented(DOCUMENT_REFUSED),
     express.json({ limit: Math.max(2 * maxCanvasBytes, 1024 * 1024) }), (req, res) => {
+      res.set('Cache-Control', 'no-store');
       const body = (req.body ?? {}) as Record<string, unknown>;
+      const to = boardToWrite(req, res, body);
+      if (!to) return;
+      const docs = to.board.docs;
       // A page's session: another project's cards keep their saved identity and kept detail (never erased by a withheld copy).
-      // Checked again after the body was read: the project named may have changed meanwhile.
-      if (res.locals.by === 'session') {
-        const still = callerOf(req.headers.authorization, link, relay, DOCUMENT_REFUSED);
-        if (!still.ok) { refuse(res, still); return; }
-      }
       // R4 (H109): the projects the session reaches count as its own
-      const toSave = res.locals.by === 'session' ? { ...body, snapshot: keepOthers(body.snapshot, documents.storedSnapshot(), relay.reachOf(req.headers.authorization)).snapshot } : body;
-      const saved = documents.save(toSave);
+      const toSave = res.locals.by === 'session' ? { ...body, snapshot: keepOthers(body.snapshot, docs.storedSnapshot(), relay.reachOf(req.headers.authorization)).snapshot } : body;
+      const saved = docs.save(toSave);
       const status = saved.ok ? 200 : 'conflict' in saved ? 409 : 'tooLarge' in saved ? 413 : 400;
-      res.status(status).set('Cache-Control', 'no-store').json(saved);
+      res.status(status).json({ ...saved, project: { id: to.board.id, name: to.board.name }, ...(to.kept && saved.ok ? { kept: to.kept } : {}) });
     });
-  app.get('/api/canvas/jobs', creditedReading(JOBS_REFUSED), (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(documents.jobs());
+  app.get('/api/canvas/jobs', creditedReading(JOBS_REFUSED), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const b = boardToRead(req, res);
+    if (b === undefined) return;
+    res.json(b ? b.docs.jobs() : []);
   });
   // R5 (H133): the shared workspace frame (src/contracts/workspace.ts) of the project named now, made from its records by
   // src/ops/workspace-frame.ts, as the terminal Workbench and the companion read it: the strip above the canvas draws it. The
-  // token or a page session that counts now (the frame is the project's content); none while no project is named.
-  app.get('/api/workspace', creditedReading(WORKSPACE_REFUSED), async (_req, res) => {
+  // token or a page session that counts now (the frame is the project's content); none while no project is named. R6 (H139): a
+  // page that names the project it shows (?project=<id>) is told when the canvas shows another now (409), never sent its frame.
+  app.get('/api/workspace', creditedReading(WORKSPACE_REFUSED), async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const named = link.project;
+    const asked = projectParam(req);
+    if (asked === false) { res.status(400).json({ ok: false, error: PROJECT_PARAM }); return; }
     if (!named) { res.status(404).json({ ok: false, error: 'No project is named to this canvas, so it has no workspace to show. In Timmy: /canvas open.' }); return; }
+    if (asked && asked !== named.id) { notShown(res, asked); return; }
     try {
       const { buildWorkspaceFrame, noteAnswered } = await import('../ops/workspace-frame.js');
       // R5 lead: this Studio answering its page is an answer observed now, so the frame (on every surface) says Studio answered
@@ -313,27 +414,37 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   });
   // R5 (H133): a page's version of the canvas, kept beside the canvas file when a newer version is on disk (the page may not save
   // over it). The canvas file is never touched; a copy holds what the page holds (another project's detail stays withheld in it).
-  app.post('/api/canvas/document/copy', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N}.'), credited(DOCUMENT_REFUSED),
+  // R6 (H139): beside the board it is a version of (`project` in its body, else the project named now).
+  app.post('/api/canvas/document/copy', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N, "project": "<id>"}.'), presented(DOCUMENT_REFUSED),
     express.json({ limit: Math.max(2 * maxCanvasBytes, 1024 * 1024) }), (req, res) => {
       res.set('Cache-Control', 'no-store');
-      const copies = join(savedIn, 'copies');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const to = boardToWrite(req, res, body);
+      if (!to) return;
+      const dir = boardDir(savedIn, to.board.id);
+      const copies = join(dir, 'copies');
       let kept = 0;
       try { kept = readdirSync(copies).filter((f) => f.endsWith('.json')).length; } catch { kept = 0; }
       if (kept >= MAX_COPIES) {
         res.status(507).json({ ok: false, error: `Timmy keeps at most ${MAX_COPIES} copies of the canvas, and ${shownPath(copies)} holds ${kept}. Move some elsewhere, then keep this one.` });
         return;
       }
-      const result = documents.keepCopy((req.body ?? {}) as Record<string, unknown>);
+      const result = to.board.docs.keepCopy(body);
       if (!result.ok) { res.status('tooLarge' in result ? 413 : 400).json(result); return; }
-      res.json({ ...result, path: shownPath(join(savedIn, result.kept)) });
+      res.json({ ...result, path: shownPath(join(dir, result.kept)), project: { id: to.board.id, name: to.board.name } });
     });
-  // R5 (H133): the drafts record: what Timmy proposed, what was refused, and what a person accepted or discarded.
-  app.get('/api/canvas/drafts', credited(DOCUMENT_REFUSED), (_req, res) => {
-    res.set('Cache-Control', 'no-store').json({ drafts: documents.drafts() });
+  // R5 (H133): the drafts record: what Timmy proposed, what was refused, and what a person accepted or discarded. R6 (H139): of the
+  // board of the project named now (with the token, any project's: ?project=<id>).
+  app.get('/api/canvas/drafts', credited(DOCUMENT_REFUSED), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const b = boardToRead(req, res);
+    if (b === undefined) return;
+    res.json({ drafts: b ? b.docs.drafts() : [], ...(b ? { project: { id: b.id, name: b.name } } : {}) });
   });
   // R5 (H133): a person's decision on a draft, recorded once its save is on disk (the page sends it after the save landed, with
-  // the revision and source revision that hold it). It records; it runs nothing.
-  app.post('/api/canvas/drafts', jsonOnly('Send JSON: {"draft": "draft-…", "decision": "accepted" | "discarded", …}.'), credited(DOCUMENT_REFUSED), express.json({ limit: '2kb' }), (req, res) => {
+  // the revision and source revision that hold it). It records; it runs nothing. R6 (H139): in the record of the board the draft is
+  // on (`project`: the board the page decided on, which may no longer be the one shown).
+  app.post('/api/canvas/drafts', jsonOnly('Send JSON: {"draft": "draft-…", "decision": "accepted" | "discarded", …}.'), presented(DOCUMENT_REFUSED), express.json({ limit: '2kb' }), (req, res) => {
     res.set('Cache-Control', 'no-store');
     const body = req.body as Record<string, unknown>;
     const extra = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body).filter((k) => !DECISION_KEYS.has(k)) : ['(not an object)'];
@@ -348,19 +459,22 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
                   : !isCount(revision) || typeof sourceRevision !== 'string' || !/^[0-9a-f]{64}$/.test(sourceRevision) ? 'revision and sourceRevision are the save that holds the decision.'
                     : null;
     if (wrong) { res.status(400).json({ ok: false, error: wrong }); return; }
-    const onDisk = documents.peek();
+    const to = boardToWrite(req, res, body);
+    if (!to) return;
+    const docs = to.board.docs;
+    const onDisk = docs.peek();
     if (onDisk.revision === null || (revision as number) > onDisk.revision) {
-      res.status(409).json({ ok: false, error: `The save that holds this decision (revision ${revision}) is not on disk (the canvas is at revision ${onDisk.revision ?? 'unknown'}).` });
+      res.status(409).json({ ok: false, error: `The save that holds this decision (revision ${revision}) is not on disk (${to.board.name}'s board is at revision ${onDisk.revision ?? 'unknown'}).` });
       return;
     }
     const id = draft as string;
-    const proposed = documents.drafts().some((r) => r.draft === id && r.event === 'proposed');
-    const line = documents.recordDraft({
+    const proposed = docs.drafts().some((r) => r.draft === id && r.event === 'proposed');
+    const line = docs.recordDraft({
       draft: id, event: decision as 'accepted' | 'discarded', job: typeof job === 'string' ? job : null, shapes: shapes as number,
       from: isCount(from) ? from : null, revision: revision as number, sourceRevision: sourceRevision as string,
-      by: res.locals.by === 'token' ? 'token' : 'page', proposed, ...(typeof at === 'string' ? { at } : {}),
+      by: res.locals.by === 'token' ? 'token' : 'page', proposed, project: to.board.id, ...(typeof at === 'string' ? { at } : {}),
     });
-    res.json({ ok: true, recorded: line });
+    res.json({ ok: true, recorded: line, ...(to.kept ? { kept: to.kept } : {}) });
   });
   // Public templates start blank: the seeds' four fields only; the page opens one as an empty board. R5 (H133): and the guided
   // blank boards (text and empty frames that say what goes where; no image, sample, metric or asset).
@@ -368,24 +482,29 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.set('Cache-Control', 'no-store').json({ templates: publicTemplates(), guided: guidedTemplates() });
   });
   // The REPL links the receipt it sealed for a turn to that turn's canvas job. R4 (H83): a write, the REPL's only (the token).
+  // R6 (H139): in the ledger of the board the job ran on (the project named now first, then every other board's).
   app.post('/api/canvas/jobs/:job/receipt', (req, res, next) => { if (replOnly(req, res, link, LINK_REFUSED)) next(); }, jsonOnly('Send JSON: {"receipt": "<its short hash>"}.'), express.json({ limit: '1kb' }), (req, res) => {
     const job = String(req.params.job);
     const { receipt } = (req.body ?? {}) as { receipt?: unknown };
     res.set('Cache-Control', 'no-store');
     try {
-      if (!documents.linkReceipt(job, String(receipt))) {
+      const found = JOB_ID.test(job) ? boards.findJob(job, link.project?.id ?? null) : null;
+      if (!found || !found.docs.linkReceipt(job, String(receipt))) {
+        if (!/^[0-9a-f]{8,64}$/.test(String(receipt))) throw new Error(`Not a receipt ID: ${JSON.stringify(receipt).slice(0, 40)}`);
         res.status(404).json({ ok: false, error: `No canvas job ${JOB_ID.test(job) ? job : 'like that'}.` });
         return;
       }
+      res.json({ ok: true, job, receipt, project: { id: found.project, name: nameOf(found.project) } });
     } catch (error) {
       res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
-      return;
     }
-    res.json({ ok: true, job, receipt });
   });
   // The agent's canvas tools: Editor API code in, the page's answer out. JSON only, so a form on
   // another site cannot post here without a CORS preflight that this server never grants. R4 (H83): the REPL's only: the
   // token in an Authorization header (never a page, never in an address), and while a project is named, the REPL holding it.
+  // R6 (H139): stamped with the project named now (the page runs it only on that project's board), refused when the REPL says it
+  // draws on another (`project`), and recorded in that project's board (its jobs ledger and drafts record), whichever project the
+  // canvas shows by the time the page answers.
   app.post('/api/canvas/exec', (req, res, next) => { if (replOnly(req, res, link, EXEC_REFUSED)) next(); }, (req, res, next) => {
     if (!req.is('application/json')) {
       res.status(415).json({ ok: false, error: 'Send JSON: {"code": "...", "jobId": "...", "holder": "..."}.' });
@@ -396,10 +515,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     const body = (req.body ?? {}) as Record<string, unknown>;
     const extra = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body).filter((k) => !EXEC_KEYS.has(k)) : ['(not an object)'];
     if (extra.length) {
-      res.status(400).json({ ok: false, error: `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are code, jobId, holder, draft and baseRevision.` });
+      res.status(400).json({ ok: false, error: `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are code, jobId, holder, draft, baseRevision and project.` });
       return;
     }
-    const { code, jobId, holder, draft, baseRevision } = body as { code?: unknown; jobId?: unknown; holder?: unknown; draft?: unknown; baseRevision?: unknown };
+    const { code, jobId, holder, draft, baseRevision, project } = body as { code?: unknown; jobId?: unknown; holder?: unknown; draft?: unknown; baseRevision?: unknown; project?: unknown };
     // R5 (H133): a draft (what it creates waits for a person's Accept or Discard), made from the canvas revision the agent read
     if (draft !== undefined && typeof draft !== 'boolean') {
       res.status(400).json({ ok: false, error: 'draft is true (what the call creates waits for a person\'s Accept or Discard) or false.' });
@@ -417,44 +536,66 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
       res.status(400).json({ ok: false, error: 'holder is the 32 hex characters the REPL named itself with, or null.' });
       return;
     }
+    if (project !== undefined && project !== null && (typeof project !== 'string' || !PROJECT_ID.test(project))) {
+      res.status(400).json({ ok: false, error: 'project is the id of the project this REPL draws on (16 hex), or null.' });
+      return;
+    }
     const id = typeof jobId === 'string' && JOB_ID.test(jobId) ? jobId : `canvas-${randomUUID()}`;
-    const may = holderMayRun(link.project, typeof holder === 'string' ? holder : null);
+    const named = link.project;
+    // R6 (H139): the REPL draws on its own project: a canvas that shows another now runs nothing for it
+    if (typeof project === 'string' && named && project !== named.id) {
+      const theirs = link.knownProject(project)?.name;
+      res.status(409).set('Cache-Control', 'no-store').json({ ok: false, jobId: id, project: { id: named.id, name: named.name },
+        error: `Refused: this REPL draws on ${theirs ?? 'another project'}, but the canvas shows ${named.name} now, so nothing ran. In this REPL: /canvas open names its project to the canvas again; then ask again.` });
+      return;
+    }
+    const may = holderMayRun(named, typeof holder === 'string' ? holder : null);
     if (!may.ok) {
       res.status(409).set('Cache-Control', 'no-store').json({ ok: false, error: may.words, jobId: id });
       return;
     }
     // The bridge sends it only to a page whose session counts now for the project named and its holder (409 when the page
-    // open cannot act for it, 503 when none is open).
+    // open cannot act for it, 503 when none is open). R6 (H139): with the project it is for.
+    const stamp = named ? { id: named.id, name: named.name } : null;
     const asked = draft === true ? { id: `draft-${randomBytes(6).toString('hex')}`, baseRevision: isCount(baseRevision) ? baseRevision : null } : null;
-    const outcome = await bridge.exec(code, id, asked);
-    // The page answers after saving: a call with the source revision it produced joins the jobs ledger.
+    const outcome = await bridge.exec(code, id, asked, stamp);
+    // The page answers after saving: a call with the source revision it produced joins the jobs ledger. R6 (H139): of the board of
+    // the project the call was made for, never of another (a call with no project named has no board, so no ledger).
     const { ok, revision, sourceRevision } = outcome.body;
-    if (outcome.status === 200 && sourceRevision) {
+    const docs = stamp ? boards.of(stamp.id) : null;
+    if (docs && outcome.status === 200 && sourceRevision) {
       try {
-        documents.recordJob(id, { ok, revision: revision ?? 0, sourceRevision });
+        docs.recordJob(id, { ok, revision: revision ?? 0, sourceRevision, project: stamp!.id });
       } catch {
         // The call's own answer stands; the ledger is a record of it, not a condition for it.
       }
     }
     // R5 (H133): the drafts record: a draft that left shapes for a person to decide on, or one refused (and why)
     const d = outcome.status === 200 ? outcome.body.draft : undefined;
-    if (asked && d && (d.refused || (ok && (d.shapes ?? 0) > 0))) {
+    if (docs && asked && d && (d.refused || (ok && (d.shapes ?? 0) > 0))) {
       try {
-        documents.recordDraft({
+        docs.recordDraft({
           draft: asked.id, event: d.refused ? 'refused' : 'proposed', job: id, shapes: d.refused ? 0 : d.shapes ?? 0,
-          from: d.from ?? asked.baseRevision, revision: revision ?? null, sourceRevision: sourceRevision ?? null,
+          from: d.from ?? asked.baseRevision, revision: revision ?? null, sourceRevision: sourceRevision ?? null, project: stamp!.id,
           ...(d.refused ? { reason: d.refused, why: String(outcome.body.error ?? '').slice(0, 400) } : {}),
         });
       } catch {
         // The call's own answer stands; the record is of it, not a condition for it.
       }
     }
-    res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);
+    // R6 (H139): a call answered after the canvas switched to another project is kept for its own, and says so
+    const now = link.project;
+    const kept = stamp && outcome.status === 200 && now && now.id !== stamp.id
+      ? { kept: `Kept for ${stamp.name}: the canvas switched to ${now.name} while this call ran, so what it did is ${stamp.name}'s (its board, its jobs ledger and drafts record), never ${now.name}'s.` }
+      : {};
+    res.status(outcome.status).set('Cache-Control', 'no-store').json({ ...outcome.body, ...kept });
   });
   // R4 (H55): the active project, named by the REPL (token), and its cards, read-only. R4 (H75): with whether a REPL takes
   // the drawn cards' actions, and those actions carried to it.
   mountProjectRoutes(app, {
-    link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder),
+    link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder),
+    // R6 (H139): every page joined is told at once, so its board, drafts and jobs switch with the project named
+    named: (p) => { relay.heldBy(p.holder); bridge.announce({ id: p.id, name: p.name }); },
     // R4 (H81): the cards' detail is read with this server's token or a page session that counts for the project now
     pageSession: (authorization, p) => relay.sessionFor(authorization, p),
     // R4 (H109): a board pinned to a project the session reaches reads it; the active project of this Timmy home is said by a
@@ -501,7 +642,12 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   const follower = !(options.followActive ?? options.projectTokenFile === true) ? undefined : new ActiveFollower({
     file: activeProjectFile(env),
     shown: () => link.project,
-    follow: (a) => { const p = link.follow(a, { jobs: join(timmyHome(env), 'jobs'), receipts: (root) => receiptsDir(root) }); relay.heldBy(p.holder); },
+    follow: (a) => {
+      const p = link.follow(a, { jobs: join(timmyHome(env), 'jobs'), receipts: (root) => receiptsDir(root) });
+      relay.heldBy(p.holder);
+      // R6 (H139): every page joined is told at once, so its board, drafts and jobs switch with the active project
+      bridge.announce({ id: p.id, name: p.name });
+    },
     ...(options.followEveryMs ? { everyMs: options.followEveryMs } : {}),
     ...(options.followGraceMs !== undefined ? { graceMs: options.followGraceMs } : {}),
   });

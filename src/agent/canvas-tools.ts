@@ -21,8 +21,12 @@ import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import { studioBaseUrl } from '../studio/config.js';
 
-/** R4 (H83): what a canvas call is sent with: the canvas server's token, and the holder id this REPL named itself with (or none). */
-export interface CanvasAuth { token: string | null; holder: string | null }
+/**
+ * R4 (H83): what a canvas call is sent with: the canvas server's token, and the holder id this REPL named itself with (or none). R6
+ * (H139): and the project this REPL draws on (its id: the canvas runs nothing for it while it shows another), and how many times
+ * this REPL opened the canvas page (src/repl/canvas-project.ts credentials).
+ */
+export interface CanvasAuth { token: string | null; holder: string | null; project?: string | null; opened?: number }
 
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
@@ -40,6 +44,8 @@ export interface CanvasJobResult {
   job: string;
   revision: number;
   sourceRevision: string;
+  /** R6 (H139): the project whose board the job ran on (its id), as the canvas server stamped its calls. */
+  project?: string;
   /** Whether the job's last call succeeded (round R1); a failed call kept nothing on the canvas. */
   ok?: boolean;
   /** Whether any of its calls changed the canvas (round R1); a job of lookups only has nothing to inspect. */
@@ -48,6 +54,8 @@ export interface CanvasJobResult {
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 const SOURCE_REVISION = /^[0-9a-f]{64}$/;
+/** R6 (H139): a project's id (16 hex), as the canvas server stamps a call's answer with it ({ id, name }); null otherwise. */
+const projectIdOf = (v: unknown): string | null => (v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string' && /^[0-9a-f]{16}$/.test((v as { id: string }).id) ? (v as { id: string }).id : null);
 
 /**
  * The canvas jobs of one REPL turn (fourth order, step 5): calls with no job ID of their own share the
@@ -75,7 +83,9 @@ export class CanvasTurnJob {
     if (typeof jobId === 'string' && JOB_ID.test(jobId) && typeof revision === 'number' && typeof sourceRevision === 'string' && SOURCE_REVISION.test(sourceRevision)) {
       const before = this.jobs.get(jobId);
       const anyChange = before?.changed === true || changed === true ? true : typeof changed === 'boolean' || before?.changed === false ? false : undefined;
-      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }) });
+      // R6 (H139): the project whose board it ran on, as the canvas server stamped the call
+      const project = projectIdOf(answer.project);
+      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }), ...(project ? { project } : {}) });
     }
   }
 
@@ -182,18 +192,69 @@ export const CANVAS_EXAMPLE = [
 export function createCanvasTools(options: CanvasToolOptions = {}) {
   const baseUrl = studioUrl(options.baseUrl);
   const draftsByDefault = options.drafts !== false;
-  /** R5 (H133): the canvas revision the last answer these tools saw named (what the model last read), or null before any. */
-  let lastRevision: number | null = null;
+  /**
+   * R5 (H133): the canvas revision the last answer these tools saw named (what the model last read), or none before any. R6
+   * (H139): one per project (each has its own board: a revision of one board says nothing of another's), with how many times the
+   * REPL had opened the canvas page then (CanvasAuth.opened).
+   */
+  const lastRevision = new Map<string, { revision: number; opened: number }>();
+  const keyOf = (auth: CanvasAuth | null): string => auth?.project ?? '';
+  /**
+   * R6 (H139; the interaction review, defect 8): the revision a draft is made from when the model names none. The board's revision
+   * moves without the model doing anything when the person accepts or discards a draft, so the first draw after an Accept was
+   * refused ("this draft was made from revision 3, but the canvas is at revision 6 now"); and after the page is opened again
+   * (/canvas open) the model's last answer may be of an older page. So the board's saved revision is read again: after a reopen
+   * the draft is made from it; when only decisions on drafts moved it (the newest decision's save is the board's newest save), from
+   * it too; when anything else changed the board, from what the model last saw, which the page refuses as stale (and says so).
+   */
+  const baseFor = async (auth: CanvasAuth | null): Promise<number | null> => {
+    const seen = lastRevision.get(keyOf(auth));
+    if (!seen) return null;
+    const now = await boardNow(auth);
+    if (!now || now.revision === seen.revision) return seen.revision;
+    if ((auth?.opened ?? 0) > seen.opened) return now.revision;
+    if (now.revision > seen.revision) {
+      const decided = await newestDecision(auth);
+      if (decided !== null && decided >= now.revision) return now.revision;
+    }
+    return seen.revision;
+  };
+  const get = async (path: string, auth: CanvasAuth | null): Promise<Record<string, unknown> | null> => {
+    if (!auth?.token) return null;
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${auth.token}` }, signal: AbortSignal.timeout(2000) });
+      if (!res.ok) { await res.body?.cancel(); return null; }
+      return await res.json() as Record<string, unknown>;
+    } catch { return null; }
+  };
+  const ofProject = (path: string, auth: CanvasAuth | null): string => (auth?.project ? `${path}?project=${auth.project}` : path);
+  /** The board's saved revision now (the canvas server's health, with the token), or null. */
+  const boardNow = async (auth: CanvasAuth | null): Promise<{ revision: number } | null> => {
+    const h = await get(ofProject('/api/canvas/health', auth), auth);
+    return h && Number.isInteger(h.revision) ? { revision: h.revision as number } : null;
+  };
+  /** The revision of the save that holds the newest decision on a draft (accepted or discarded), or null. */
+  const newestDecision = async (auth: CanvasAuth | null): Promise<number | null> => {
+    const d = await get(ofProject('/api/canvas/drafts', auth), auth);
+    const list = d && Array.isArray(d.drafts) ? (d.drafts as Array<{ event?: unknown; revision?: unknown }>) : [];
+    const decided = list.filter((r) => (r.event === 'accepted' || r.event === 'discarded') && Number.isInteger(r.revision)).map((r) => r.revision as number);
+    return decided.length ? Math.max(...decided) : null;
+  };
   const exec = async (code: string, ownJobId?: string, draft?: { baseRevision?: number }): Promise<Answer> => {
     const jobId = ownJobId ?? options.job?.current();
-    const answer = await send(code, jobId, draft ? { baseRevision: draft.baseRevision ?? lastRevision } : null);
-    if (typeof answer.revision === 'number' && Number.isInteger(answer.revision)) lastRevision = answer.revision;
+    // R4 (H83): the token in a header, the holder id in the body; without a token the canvas says why (401) and runs nothing.
+    const auth = options.auth?.() ?? null;
+    const base = draft ? (draft.baseRevision ?? await baseFor(auth)) : null;
+    const answer = await send(code, auth, jobId, draft ? { baseRevision: base } : null);
+    // R6 (H139): the revision of the board the call ran on (the project this REPL draws on: the canvas server refuses a call for
+    // another), never of a call the page did not run
+    if (typeof answer.revision === 'number' && Number.isInteger(answer.revision) && answer.notRun === undefined) {
+      lastRevision.set(keyOf(auth), { revision: answer.revision, opened: auth?.opened ?? 0 });
+    }
     options.job?.saw(answer);
     return answer;
   };
-  const send = async (code: string, jobId?: string, draft: { baseRevision: number | null } | null = null): Promise<Answer> => {
-    // R4 (H83): the token in a header, the holder id in the body; without a token the canvas says why (401) and runs nothing.
-    const auth = options.auth?.() ?? null;
+  const send = async (code: string, auth: CanvasAuth | null, jobId?: string, draft: { baseRevision: number | null } | null = null): Promise<Answer> => {
     let res: Response;
     try {
       res = await fetch(`${baseUrl}/api/canvas/exec`, {
@@ -203,6 +264,8 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
           code, ...(jobId ? { jobId } : {}), ...(auth?.holder ? { holder: auth.holder } : {}),
           // R5 (H133): a draft, made from the revision the model last read (none known: the page takes its revision now)
           ...(draft ? { draft: true, ...(draft.baseRevision !== null ? { baseRevision: draft.baseRevision } : {}) } : {}),
+          // R6 (H139): the project this REPL draws on: a canvas that shows another runs nothing for it, and says so
+          ...(auth?.project ? { project: auth.project } : {}),
         }),
       });
     } catch {

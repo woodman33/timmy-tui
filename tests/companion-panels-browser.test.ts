@@ -56,7 +56,7 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
   }
 
   it('serves the registry and both panels\' files, and loads them before the page\'s own code', async () => {
-    for (const f of ['/panels.js', '/panel-vox.js', '/panel-tools.js']) {
+    for (const f of ['/panels.js', '/panel-studio.js', '/panel-vox.js', '/panel-tools.js', '/panel-run.js']) {
       const r = await fetch(new URL(f, companion.url));
       expect(r.status, f).toBe(200);
       expect(r.headers.get('content-type') ?? '', f).toMatch(/javascript/);
@@ -89,6 +89,29 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
       expect(drawn[0]).toEqual({ schema: 'timmy.workspace/1', own: true, project: shown, api: `/api/panel/voxvision/records?project=${encodeURIComponent(shown)}` });
       expect(errors).toEqual([]);
     } finally { await page.close(); }
+  });
+
+  it('the address can name the tab to open (?tab=<id>, or tab=<id> beside the token), and the token still leaves the address', async () => {
+    const u = new URL(companion.url);
+    const token = /t=([0-9a-f]{64})/.exec(u.hash)?.[1] ?? '';
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const cases: Array<[string, string]> = [
+      [`${u.origin}/?tab=voxvision#t=${token}`, 'voxvision'],
+      [`${u.origin}/#t=${token}&tab=tools`, 'tools'],
+      [`${u.origin}/?tab=nonesuch#t=${token}`, 'home'],
+    ];
+    for (const [address, want] of cases) {
+      const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      try {
+        await page.goto(address);
+        await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+        await page.waitForFunction((w) => document.querySelector('#ws-tabs [aria-selected="true"]')?.getAttribute('data-ws-tab') === w, want, { timeout: 10_000 });
+        expect(page.url(), address.replace(token, '<token>')).not.toContain(token);
+        expect(errors).toEqual([]);
+      } finally { await page.close(); }
+    }
   });
 
   it('a panel that throws says so in its host, and the page goes on working', async () => {

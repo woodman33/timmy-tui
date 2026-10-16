@@ -131,8 +131,9 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
  * R4 (H92): the page and the files it needs (its scripts and style sheet were inline, or from CDNs).
  */
-// R6 lead: the tab panels' page code (panels.js, the registry; panel-vox.js and panel-tools.js, each panel's own drawing)
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-vox.js', 'panel-tools.js'] as const;
+// R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
+// R6 (H144): panel-run.js, the Workflows tab's run detail
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -474,8 +475,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // Serve Clerk publishable key dynamically
   // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
   // read-only, never the drawing (with --lan, this server can be reached from a phone on the network).
-  app.get('/api/canvas', withToken, (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(canvasSummary(process.env));
+  // R6 lead: the board of the project the page shows (?project=<id>, else the one followed): each project has its own (H139)
+  app.get('/api/canvas', withToken, (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    res.set('Cache-Control', 'no-store').json({ ...canvasSummary(process.env, project.root), project: project.name });
   });
   app.get('/api/clerk-config', withToken, (_req, res) => {
     res.json({

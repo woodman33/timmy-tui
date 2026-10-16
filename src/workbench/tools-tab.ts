@@ -9,23 +9,31 @@
  *                call records (.timmy/mcp/<id>/call.json, src/connectors/mcp-records.ts readMcpCalls): server, tool, outcome,
  *                when, and its receipt, "✓ verified" only when verifyReceiptIn passes in this reading; "no call yet" with the
  *                exact command where there is none
- *   DETAIL       the selected tool or call: a call's arguments, outcome and receipt, and the command that runs it again; a
- *                tool's rung and step; and that a call graph or a schema view is not drawn here (c: the companion)
+ *   DETAIL       the selected tool or call: a call's arguments, outcome and receipt, where it was made, and the command that
+ *                runs it again; a tool's rung and step; and what the companion draws that a terminal does not (c)
+ *
+ * R6 (H142): the calls are the same records the companion's Tools & MCP inspector makes and reads (src/mcp/inspector.ts): a
+ * call made there says so ("from the companion"), and its wire trace (wire.ndjson, Timmy's wire tap: src/mcp/wire-tap.ts) is
+ * drawn here as text, one bar per JSON-RPC request with its measured time; the schema form, the flame graph and images are
+ * the companion's (c, then its tab 9).
  *
  * From 120 columns the three sit side by side under the search, as one body the screen scrolls (the list is long; the wheel
  * scrolls it, and the screen says which rows show), the selected tool's detail beside it; below that they stack. readTools
  * reads files only: no route runs, no server starts, nothing is asked over the network.
  */
+import { createHash } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { McpRouteId } from '../connectors/mcp-cli.js';
-import { answerLines, readMcpCalls, readRouteAnswer, type McpCallRead } from '../connectors/mcp-records.js';
-import { humanBytes, projectId } from '../project/index.js';
+import { answerLines, mcpWireRel, readMcpCalls, readRouteAnswer, type McpCallRead } from '../connectors/mcp-records.js';
+import { FROM_PAGE, fixtureServer, isFixtureLabel, wireView, type WireSpan } from '../mcp/call-views.js';
+import { humanBytes, projectId, resolveInside } from '../project/index.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import type { Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import type { Lazy } from './model.js';
-import { fieldRows, heading, onBar, para, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx, type TabView } from './tab-columns.js';
-import { capDetail, capItem, capRows, checkReceipt, inViewRows, lazyRows, notDrawnRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
+import { fieldRows, heading, limitRows, onBar, para, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx, type TabView } from './tab-columns.js';
+import { capDetail, capItem, capRows, checkReceipt, inViewRows, lazyRows, verdictSegs, type CapItem, type ReceiptVerdict } from './tab-parts.js';
 import { clock, count, fit, lineCells, pick, spread, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -49,6 +57,10 @@ export interface McpCallRow {
   read: McpCallRead;
   /** that receipt, by its place on the chain */
   seal?: { hash: string; seq: number; ts: string };
+  /** R6 (H142): made from the browser companion's Tools & MCP tab (its record's own note) */
+  fromPage?: true;
+  /** R6 (H142): its JSON-RPC requests as the wire tap timed them (wire.ndjson), when it went through one; times only */
+  wire?: { spans: WireSpan[]; sessions: number; check: 'matches' | 'differs' };
 }
 
 export interface ToolsData {
@@ -85,9 +97,26 @@ export function readTools(i: ToolsReadInput): ToolsData {
       const r = i.chain[k];
       if (r.kind === 'mcp.call' && r.project_id === pid && r.outputs?.[0]?.path === read.call) seal = { hash: r.hash, seq: k + 1, ts: r.ts };
     }
-    return { read: scrubDeep(read, scrub), ...(seal ? { seal } : {}) };
+    const rec = read.record;
+    const wire = rec.wire_file === 'wire.ndjson' ? readWire(root, rec.id, rec.wire_sha256, rec.started_at, rec.ended_at) : undefined;
+    return { read: scrubDeep(read, scrub), ...(seal ? { seal } : {}), ...((rec.notes ?? []).some((n) => n.startsWith(FROM_PAGE)) ? { fromPage: true as const } : {}), ...(wire ? { wire } : {}) };
   });
   return { at: new Date(i.now ?? Date.now()).toISOString(), root, calls, more, receipts: i.chain, checks: new Map() };
+}
+
+/** R6 (H142): a call's wire trace, read for its requests' times only (no frame's text reaches the terminal), checked against
+ *  the sha256 its record names. */
+function readWire(root: string, id: string, sha: string | undefined, startedAt: string, endedAt: string): McpCallRow['wire'] | undefined {
+  const at = resolveInside(root, mcpWireRel(id));
+  if ('error' in at) return undefined;
+  try {
+    if (statSync(at.path).size > 512 * 1024) return undefined;
+    const bytes = readFileSync(at.path);
+    const t0 = Date.parse(startedAt);
+    const t1 = Date.parse(endedAt);
+    const v = wireView(bytes.toString('utf8'), Number.isNaN(t0) ? 0 : t0, Number.isNaN(t1) ? 0 : t1);
+    return { spans: v.spans, sessions: v.sessions.length, check: sha && createHash('sha256').update(bytes).digest('hex') === sha ? 'matches' : 'differs' };
+  } catch { return undefined; }
 }
 
 export const callReceiptVerdict = (d: ToolsData, hash: string): ReceiptVerdict => checkReceipt(d.receipts, d.checks, hash);
@@ -171,7 +200,8 @@ function callRows(c: McpCallRow, d: ToolsData, w: number, selected: boolean, g: 
   const outcome = [outcomeSeg(r.outcome, g, sel)];
   const bar = (l: Line): Line => (selected ? onBar(l) : l);
   // the receipt's verdict first (a narrow column keeps it whole), then when and how long
-  const when = fit([S('    '), ...receiptSegs(c, d, g, true), S(` ${g.sep} ${clock(r.started_at)} ${g.sep} ${r.ms} ms`, 'secondary')], w, g.ellipsis);
+  // R6 (H142): a call made from the companion says so after its receipt (before the time, which a narrow column cuts first)
+  const when = fit([S('    '), ...receiptSegs(c, d, g, true), S(`${c.fromPage ? ` ${g.sep} companion` : ''} ${g.sep} ${clock(r.started_at)} ${g.sep} ${r.ms} ms`, 'secondary')], w, g.ellipsis);
   const one: Line = [mark, S(r.tool, 'strong', sel), S(` ${g.sep} ${r.server}`, 'secondary', sel)];
   if (lineCells(one) + 1 + lineCells(outcome) <= w) return [bar(spread(one, outcome, w, g.ellipsis)), when];
   // narrow: the tool and its outcome, the server under them (neither cut for the other)
@@ -215,15 +245,48 @@ function againWords(c: McpCallRow): { command: string; note?: string } {
   const r = c.read.record;
   const args = JSON.stringify(r.arguments ?? {});
   if (r.route === 'mcporter' && r.transport !== 'stdio') return { command: `/mcp call ${r.server} ${r.tool} ${args}` };
+  // R6 (H142): Timmy's own FAKE fixture: the companion's tab 9 gives its whole command line to copy
+  if (isFixtureLabel(r.server) && fixtureServer().ok) {
+    return { command: `/mcp call --route ${r.route} ${r.tool} ${args} -- <server command>`, note: 'the server is Timmy\'s FAKE fixture (every answer made up): the companion\'s tab 9 copies the whole line, its command line included' };
+  }
   return {
     command: `/mcp call --route ${r.route} ${r.tool} ${args} -- <server command>`,
     note: `the record names the server "${r.server}", not its whole command line${r.route === 'mcporter' ? `; a configured one: /mcp call ${r.server} ${r.tool} ${args}` : ''}`,
   };
 }
 
-/** A selected call's detail: its server and route, its arguments, its outcome and output, its receipt (verified now or not),
- *  the command that runs it again, and that a call graph or a schema view is not drawn here. */
-export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, full = false): Line[] {
+const msText = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`);
+
+/**
+ * R6 (H142): a call's JSON-RPC requests as the wire tap timed them, as text: one row per request, its bar as long as its time
+ * against the longest, and its time; MCPorter's two server starts (its name check, then the call) said as such. The
+ * companion draws the same as a flame graph on one time line.
+ */
+export function wireRows(c: McpCallRow, w: number, g: Glyphs): Line[] {
+  if (!c.wire || !c.wire.spans.length) return [];
+  const spans = c.wire.spans;
+  const out: Line[] = [[S('WIRE', 'secondary', { bold: true })], ...para('each JSON-RPC request, as the wire tap timed it', w, 'secondary', '  ')];
+  if (c.wire.check !== 'matches') out.push(...para(`${g.fail} wire.ndjson is not the bytes its record names`, w, 'failure', '  '));
+  const longest = Math.max(1, ...spans.map((s) => s.ms ?? 0));
+  const labelW = Math.min(14, Math.max(...spans.map((s) => s.method.length)) + 1);
+  const room = Math.max(4, w - 2 - labelW - 12);
+  let session: number | null = null;
+  let n = 0;
+  for (const s of spans) {
+    if (c.wire.sessions > 1 && s.session !== session) {
+      session = s.session;
+      n += 1;
+      out.push(...para(`server start ${n} ${n === 1 && c.read.record.route === 'mcporter' ? "(MCPorter checks the tool's name)" : '(the call)'}`, w, 'secondary', '  '));
+    }
+    const len = s.ms === null ? 0 : Math.max(1, Math.round((s.ms / longest) * room));
+    out.push(fit([S(`  ${s.method.padEnd(labelW)}`, 'text'), S((g.unicode ? '▬' : '=').repeat(len), 'secondary'), S(` ${s.ms === null ? 'no answer seen' : msText(s.ms)}`, s.error ? 'failure' : 'text')], w, g.ellipsis));
+  }
+  return out;
+}
+
+/** A selected call's detail: its server and route, where it was made, its arguments, its outcome and output, its receipt
+ *  (verified now or not), its wire trace as text (R6 H142), the command that runs it again, and what the companion draws. */
+export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, full = false, o: { limit?: boolean } = {}): Line[] {
   const r = c.read.record;
   const route = MCP_ROUTES.find((x) => x.id === r.route);
   const out: Line[] = [[S('CALL ', 'secondary', { bold: true }), S(r.id, 'strong')]];
@@ -232,6 +295,8 @@ export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, fu
   f('Server', `${r.server} ${g.sep} ${r.transport}${r.url ? ` ${g.sep} ${r.url}` : ''}`);
   f('Tool', r.tool, 'strong');
   f('Route', route ? route.title.toLowerCase() : r.route, 'secondary');
+  // R6 (H142): where it was made, as its record says
+  f('Made', c.fromPage ? 'in the companion (tab 9, Tools & MCP), through its wire tap' : 'in Timmy\'s terminal (/mcp call) or by its agent (call_mcp_tool)', 'secondary');
   // the arguments as JSON, broken into rows of the column's width (a JSON string has no spaces to wrap at), never cut short
   // of 400 characters (the Inspector: whole)
   const args = JSON.stringify(r.arguments ?? {});
@@ -249,17 +314,20 @@ export function callDetail(c: McpCallRow, d: ToolsData, w: number, g: Glyphs, fu
     out.push(fit([S(`  #${c.seal.seq} `, 'secondary'), ...verdictSegs(callReceiptVerdict(d, c.seal.hash), g, w < 60)], w, g.ellipsis));
     out.push(...para(c.read.check.status === 'verified' ? 'call.json is the bytes it sealed' : `${g.fail} ${c.read.check.reason}`, w, c.read.check.status === 'verified' ? 'secondary' : 'failure', '  '));
   }
+  out.push(...wireRows(c, w, g));
   const again = againWords(c);
   out.push([S('AGAIN', 'secondary', { bold: true })], ...para(again.command, w, 'strong', '  '));
   if (again.note) out.push(...para(again.note, w, 'secondary', '  '));
-  out.push(...notDrawn(w, g));
+  if (o.limit !== false) out.push(...notDrawn(w, g));
   return out;
 }
 
-/** A call graph or a schema view: no Timmy surface draws one yet (R5 H131, the QA of e7f853e, defect 2: the companion has the
- *  two routes in words, not a graph). */
+/** What a terminal does not draw for this tab, and where it is drawn: R6 (H142) the companion's Tools & MCP inspector (c, then
+ *  its key 9). R5 (H131) said no surface drew a schema view or a call graph; the companion draws both now. */
+export const TOOLS_NOT_HERE = 'A terminal draws no schema form, flame graph or image.';
+export const TOOLS_IN_COMPANION = 'its tab 9, Tools & MCP, lists a server\'s tools with their schemas, checks a request before sending it, calls through either route, and draws each call\'s requests, answer and receipt';
 function notDrawn(w: number, g: Glyphs): Line[] {
-  return notDrawnRows('a call graph or a schema view', null, w, g, 'the two MCP-to-CLI routes and this tab\'s actions, in words');
+  return limitRows(TOOLS_NOT_HERE, { c: TOOLS_IN_COMPANION }, w, g);
 }
 
 /** A tool's detail for the body: its capability detail, the command its row names (its own words: "(/observe)"), and the
@@ -363,7 +431,8 @@ export function toolsView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: ToolsData |
 export function mcpCallInspector(item: Extract<ToolsItem, { kind: 'mcp-call' }>, d: ToolsData | undefined, w: number, g: Glyphs): Line[] {
   if (!d) return [[heading('MCP call')], [S('Reading…', 'secondary')]];
   const c = item.call;
-  const out = callDetail(c, d, w, g, true);
+  // R6 (H142): the record's own rows first; what the companion draws closes the drawer
+  const out = callDetail(c, d, w, g, true, { limit: false });
   const r = c.read.record;
   out.push(...fieldRows('Record', c.read.call, w, 'secondary'));
   if (r.annotations) out.push(...fieldRows('Hints', Object.entries(r.annotations).map(([k, v]) => `${k}: ${String(v)}`).join(', '), w, 'secondary'));
@@ -377,5 +446,6 @@ export function mcpCallInspector(item: Extract<ToolsItem, { kind: 'mcp-call' }>,
     if (a.lines.length > 16) out.push([S(`  and ${a.lines.length - 16} more lines: ${c.read.output ?? 'output.json'}`, 'secondary')]);
     for (const n of a.notes) out.push(...para(n, w, 'secondary', '  '));
   }
+  out.push([], ...notDrawn(w, g));
   return out;
 }

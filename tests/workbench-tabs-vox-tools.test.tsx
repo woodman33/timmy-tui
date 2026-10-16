@@ -156,9 +156,9 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     expect(vox).toMatch(/RECEIPT #\d+ · vox/);
     expect(vox).toMatch(/✓ verified \(verifyReceiptIn, now\)/);
     expect(flat(f, 'center')).toMatch(/Verdict not recorded: a VoxVision record \(timmy\.vox\/1\)/);
-    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws it; Rerun's own viewer does; the companion has the actions
-    expect(flat(f, 'center')).toContain(`No Timmy surface draws images, depth, voxels or 3D yet; Rerun's own viewer does, where it is installed (/vox view ${r.vox}).`);
-    expect(flat(f, 'center')).toContain('its records do not reach the companion yet');
+    // R6 (H143): the companion's tab 5 draws the record (c); no Timmy surface draws depth or voxels; Rerun's viewer shows its files
+    expect(flat(f, 'center')).toContain(`No Timmy surface draws depth or voxels (no adapter here). Rerun's own viewer shows its files, where it is installed (/vox view ${r.vox}).`);
+    expect(flat(f, 'center')).toContain("this record's image with what was measured over it, its frames and its mesh views (tab 5)");
     // [i]: Context as a drawer, its Inspector with the record in full; [i] again closes it
     c.key('i', {});
     f = c.frame(160, 45);
@@ -193,8 +193,8 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     expect(call).toContain('Args {"text":"FAKE"}');
     expect(call).toMatch(/#\d+ ✓ verified \(verifyReceiptIn, now\) call\.json is the bytes it sealed/);
     expect(call).toContain('AGAIN /mcp call --route sdk echo {"text":"FAKE"} -- <server command>');
-    // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws one; what the companion shows of this tab, in truth
-    expect(call).toMatch(/No Timmy surface draws a call graph or a schema view yet\. \[c\] Companion( · Show)?: the two MCP-to-CLI routes and this tab's actions, in words\./);
+    // R6 (H142): what a terminal does not draw, and the companion's tab 9 that does (R5 said no surface did)
+    expect(call).toMatch(/A terminal draws no schema form, flame graph or image\. \[c\] Companion( · Show)?: its tab 9, Tools & MCP, lists a server's tools with their schemas/);
     // [i]: the Inspector has the call
     c.key('i', {});
     f = c.frame(160, 45);

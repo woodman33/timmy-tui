@@ -357,6 +357,32 @@
   #refused strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; }
   #refused p { margin: 6px 0 0; overflow-wrap: anywhere; }
   #refused code { color: var(--timmy-accent, #FFB000); }
+  /* R6 (H139; Studio project isolation): while Studio switches from one project's board to another's (or cannot show the project the
+     canvas shows), the board is not shown at all (nothing of the project before under the new one's name), and this cover says
+     where it goes; tldraw's own UI layer goes with the board. The side panel stays, saying what waits. */
+  body[data-board="switching"] #root { visibility: hidden; }
+  #switching { position: fixed; left: 50%; top: calc(var(--frame-h, 0px) + (100vh - var(--frame-h, 0px)) * 0.42); transform: translate(-50%, -50%); z-index: 298; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #070707); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-line-strong, #444444);
+    color: var(--timmy-text, #F2EFE9); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #switching[hidden] { display: none; }
+  /* switching waits for nothing a person does (structure grey); paused needs the person (its words say what to type: amber, as the
+     save line's states that need the person). Paused, the page's own project's board stays, read only; the banner sits at the
+     canvas's top, never over the board's middle */
+  #switching[data-state="paused"] { top: calc(var(--frame-h, 0px) + 10px); transform: translateX(-50%); padding: 8px 12px; font-size: var(--timmy-size-small, 12.5px); border-left-color: var(--timmy-attention, #FFB000); }
+  #switching[data-state="paused"] strong { font-size: inherit; margin-bottom: 2px; }
+  #switching strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; overflow-wrap: anywhere; }
+  #switching p { margin: 6px 0 0; overflow-wrap: anywhere; }
+  /* R6 (H139): the drafts on hold while Studio switches: their buttons off, and why; nothing waits on the person then, so no amber */
+  #drafts[data-blocked="true"] { border-color: var(--timmy-line-strong, #444444); }
+  #drafts-why { margin: 0; color: var(--timmy-text, #F2EFE9); overflow-wrap: anywhere; }
+  #drafts-why[hidden] { display: none; }
+  #drafts button:disabled, #boards button:disabled { opacity: .55; cursor: not-allowed; }
+  .job-waiting { color: var(--timmy-text-secondary, #8E8E93); }
+  /* R6 (H139): what came back for another board than the one on screen, and where it went */
+  #kept[hidden] { display: none; }
+  #kept ol { margin: 6px 0 0; }
+  #kept li { color: var(--timmy-text, #F2EFE9); }
+  #kept time { color: var(--timmy-text-secondary, #8E8E93); }
 </style>
 </head>
 <body>
@@ -369,6 +395,8 @@
   <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
 </header>
 <div id="root"></div>
+<!-- R6 (H139): while Studio switches from one project's board to another's, or cannot show the project the canvas shows -->
+<div id="switching" role="status" aria-live="polite" hidden><strong id="switching-title"></strong><p id="switching-words"></p></div>
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
@@ -379,6 +407,7 @@
     </section>
     <section id="drafts" hidden aria-labelledby="drafts-title">
       <h2 id="drafts-title">Drafts from Timmy · <span id="drafts-count"></span></h2>
+      <p id="drafts-why" hidden></p>
       <ol id="draft-list"></ol>
     </section>
     <div id="side-scroll">
@@ -388,6 +417,7 @@
         <div id="run-detail-body"></div>
       </section>
       <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
+      <details id="kept" hidden><summary>Kept apart (<span id="kept-count">0</span>)</summary><ol id="kept-list" aria-label="What came back for another board than the one on screen, the newest first"></ol></details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>
         <p id="project-note" hidden></p>

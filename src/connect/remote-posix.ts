@@ -105,8 +105,13 @@ const HELPERS: readonly string[] = [
   '    elif [ ! -f "$job/status" ]; then echo "where=claimed"',
   '    else',
   '      echo "where=status"',
+  // R6 lead (CI at cce00f8, connect-ssh "interrupted connection": a job that ended by itself read as ended with no exit
+  // status): whether its process runs is asked first, and only then is its status file read. Read the other way round, a
+  // supervisor that wrote its end and exited between the two read as "running" and "not alive", an end with no code.
+  // Asked first, a process gone means its last write, if it made one, is already in the file read after it.
+  '      al=$(timmy_alive)',
   `      grep -E '^(${STATUS_KEYS})=' "$job/status"`,
-  '      al=$(timmy_alive); echo "alive=$al"',
+  '      echo "alive=$al"',
   '      ck=$want_pid; if [ -z "$ck" ]; then ck=$(timmy_value pid "$job/status"); fi',
   '      case $al in yes|unchecked) if timmy_runner "$ck"; then echo "runner=yes"; else echo "runner=no"; fi ;; esac',
   '      if [ -n "$want_pid" ]; then',

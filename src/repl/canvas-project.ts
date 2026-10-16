@@ -84,6 +84,11 @@ export class CanvasProject {
   private grant: { code: string; at: number } | null = null;
   /** R4 (H75): the canvas did not know the holder field (a Timmy Canvas from before card actions) */
   private older = false;
+  /**
+   * R6 (H139): how many times this REPL has opened the canvas page (/canvas open): the agent's canvas tools read the board's
+   * revision again after one (src/agent/canvas-tools.ts), so the first draw after a reopen is made from what the board holds now.
+   */
+  private opens = 0;
   /** R4 (H75): what the last ask for actions ended with (for /canvas and the tests) */
   private heard: 'not asked' | 'listening' | 'stopped: another REPL holds the project' | 'stopped: the canvas names no project now' | 'stopped: the canvas did not answer' | 'stopped: the REPL is ending' = 'not asked';
 
@@ -116,11 +121,12 @@ export class CanvasProject {
   /**
    * R4 (H83): what the agent's canvas tools send: the token, and this REPL's holder id while it names itself the holder of its
    * project (a REPL that takes the cards' actions, and a canvas that knows the field). Null: no token here (or a canvas off
-   * this machine): the canvas then refuses the call and says why.
+   * this machine): the canvas then refuses the call and says why. R6 (H139): and the project this REPL draws on (its id: a canvas
+   * that shows another runs nothing for it), and how many times this REPL has opened the canvas page (`opened`).
    */
-  credentials(): { token: string; holder: string | null } | null {
+  credentials(): { token: string; holder: string | null; project: string; opened: number } | null {
     const token = this.tokenNow();
-    return token ? { token, holder: this.d.act && !this.older ? this.holder : null } : null;
+    return token ? { token, holder: this.d.act && !this.older ? this.holder : null, project: this.d.projectId(this.d.project().root), opened: this.opens } : null;
   }
 
   /** Names the active project to the canvas; says why not when it cannot. R4 (H75): `grant`, for /canvas open's page. */
@@ -163,7 +169,11 @@ export class CanvasProject {
     this.seen = { state: 'running', project: { name: body.project.name, id: body.project.id }, pageConnected: this.seen.state === 'running' ? this.seen.pageConnected : false, board: body.board === true };
     // R4 (H75): this REPL takes the project's card actions, and /canvas open's page gets its grant.
     if (holder) void this.listen();
-    if (o.grant) await this.askGrant(token);
+    if (o.grant) {
+      await this.askGrant(token);
+      // R6 (H139): a reopen: the next draw reads the board's revision again
+      this.opens += 1;
+    }
     return { ok: true, name: body.project.name };
   }
 

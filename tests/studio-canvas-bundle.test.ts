@@ -37,10 +37,11 @@ describe('Timmy Canvas loads nothing from another host', () => {
     // R5 (H133): and B10 for tldraw's canvas colors, the drafts' rules and the save line's words: files beside it that import nothing.
     // R5 (H133): and the shared workspace frame's strip above the canvas, a file beside it that imports nothing either.
     // R5 (H137; the QA round, defect 6): and the one time format (./when.js), a file beside it that imports nothing.
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js', './when.js']);
+    // R6 (H139): and whose board is on screen (./identity.js), a file beside it that imports nothing.
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js', './run-detail.js', './theme.js', './drafts.js', './save-state.js', './frame.js', './when.js', './identity.js']);
     // R4 (H100): both import only ./operations.js, the page's pure rules for operations, a file beside them that imports nothing.
     // R5 (H137): the files that say a time import ./when.js too, and nothing else; it imports nothing.
-    const IMPORT_NOTHING = ['operations.js', 'theme.js', 'drafts.js', 'when.js'];
+    const IMPORT_NOTHING = ['operations.js', 'theme.js', 'drafts.js', 'when.js', 'identity.js'];
     const OWN_IMPORTS: Record<string, string[]> = { 'project.js': ['./operations.js'], 'cards.js': ['./operations.js', './when.js'], 'run-detail.js': ['./when.js'], 'save-state.js': ['./when.js'], 'frame.js': ['./when.js'] };
     for (const file of [...Object.keys(OWN_IMPORTS), ...IMPORT_NOTHING]) {
       const own = readFileSync(join(page, 'src', file), 'utf8');

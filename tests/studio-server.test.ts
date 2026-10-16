@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { projectId } from '../src/project/index.js';
 import { studioConfig, TLDRAW_VERSION } from '../src/studio/config.js';
 import { ensureStudioServer, startStudioServer, type StudioServer } from '../src/studio/server.js';
 
@@ -150,6 +151,18 @@ describe('the canvas file through the server', () => {
   };
   const SNAP = { store: { 'page:page': { id: 'page:page', typeName: 'page', name: 'Page 1', index: 'a1', meta: {} } }, schema: { schemaVersion: 2, sequences: {} } };
   const sha = (o: unknown): string => createHash('sha256').update(JSON.stringify(o)).digest('hex');
+  /**
+   * R6 (H139): each project has its own board (src/studio/boards.ts): a project named to the canvas, as the REPL names it, and
+   * the folder its board is saved in (<TIMMY_HOME>/canvas/projects/<its id>).
+   */
+  const named = async (name = 'paper'): Promise<{ id: string; dir: string }> => {
+    const root = join(home, 'work', name);
+    mkdirSync(root, { recursive: true });
+    const r = await call('POST', '/api/project/active', { root, name });
+    expect(r.status).toBe(200);
+    const id = projectId(root);
+    return { id, dir: join(home, 'canvas', 'projects', id) };
+  };
 
   it("tells the page where it saves the canvas: TIMMY_HOME's canvas folder", async () => {
     await start();
@@ -169,20 +182,29 @@ describe('the canvas file through the server', () => {
     expect(shownPath('x/canvas', '/srv/op')).toBe(join(process.cwd(), 'x', 'canvas'));
     expect(shownPath('/srv/op/timmy/canvas', '/srv/op/')).toBe('~/timmy/canvas');
   });
-  it('a new home opens a blank canvas, never cached', async () => {
+  it('a new home opens a blank canvas, never cached (R6 H139: the blank board of the project named; with none named, no board)', async () => {
     await start();
-    expect(await call('GET', '/api/canvas/document')).toEqual({ status: 200, cache: 'no-store', body: { revision: 0, sourceRevision: null, savedAt: null, snapshot: null } });
+    expect(await call('GET', '/api/canvas/document')).toEqual({ status: 409, cache: 'no-store', body: { ok: false, project: null, error: 'No project is named to this canvas, so it shows no board: each project has its own. In Timmy: /canvas open.' } });
+    expect((await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 1, baseRevision: 0 })).status).toBe(409);
+    const p = await named();
+    expect(await call('GET', '/api/canvas/document')).toEqual({ status: 200, cache: 'no-store', body: { revision: 0, sourceRevision: null, savedAt: null, snapshot: null, project: { id: p.id, name: 'paper' }, board: p.dir } });
+    // nothing was written by reading, nor by the refused save
+    expect(existsSync(join(home, 'canvas', 'canvas.json'))).toBe(false);
+    expect(existsSync(p.dir)).toBe(false);
   });
-  it('saves what the page sends (JSON only) and opens it again from the file in Timmy\'s home', async () => {
+  it('saves what the page sends (JSON only) and opens it again from the file in Timmy\'s home (R6 H139: the project\'s own board file)', async () => {
     await start();
+    const p = await named();
     expect((await call('PUT', '/api/canvas/document', 'snapshot', 'text/plain')).status).toBe(415);
     const saved = await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 2, baseRevision: 0 });
-    expect(saved).toEqual({ status: 200, cache: 'no-store', body: { ok: true, revision: 2, sourceRevision: sha(SNAP), savedAt: expect.any(String) } });
-    expect((await call('GET', '/api/canvas/document')).body).toEqual({ revision: 2, sourceRevision: sha(SNAP), savedAt: saved.body.savedAt, snapshot: SNAP });
-    expect(JSON.parse(readFileSync(join(home, 'canvas', 'canvas.json'), 'utf8'))).toMatchObject({ revision: 2, snapshot: SNAP });
+    expect(saved).toEqual({ status: 200, cache: 'no-store', body: { ok: true, revision: 2, sourceRevision: sha(SNAP), savedAt: expect.any(String), project: { id: p.id, name: 'paper' } } });
+    expect((await call('GET', '/api/canvas/document')).body).toEqual({ revision: 2, sourceRevision: sha(SNAP), savedAt: saved.body.savedAt, snapshot: SNAP, project: { id: p.id, name: 'paper' }, board: p.dir });
+    expect(JSON.parse(readFileSync(join(p.dir, 'canvas.json'), 'utf8'))).toMatchObject({ revision: 2, snapshot: SNAP });
+    expect(existsSync(join(home, 'canvas', 'canvas.json'))).toBe(false);
   });
   it('a save from an older revision gets 409 with the revision that won; a malformed save gets 400', async () => {
     await start();
+    await named();
     await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 5, baseRevision: 0 });
     const stale = await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 3, baseRevision: 0 });
     expect(stale.status).toBe(409);
@@ -191,13 +213,14 @@ describe('the canvas file through the server', () => {
   });
   it("links a sealed receipt to a canvas job: JSON only, an unknown job 404, a malformed receipt ID 400", async () => {
     await start();
-    // A job exists only once a page has answered a call with a source revision; write the ledger directly.
+    const p = await named();
+    // A job exists only once a page has answered a call with a source revision; write the ledger directly (R6 H139: the project's).
     const { CanvasDocuments } = await import('../src/studio/document.js');
-    new CanvasDocuments(join(home, 'canvas')).recordJob('turn-1', { ok: true, revision: 2, sourceRevision: sha(SNAP) });
+    new CanvasDocuments(p.dir).recordJob('turn-1', { ok: true, revision: 2, sourceRevision: sha(SNAP), project: p.id });
     expect((await call('POST', '/api/canvas/jobs/turn-1/receipt', 'r', 'text/plain')).status).toBe(415);
     expect((await call('POST', '/api/canvas/jobs/turn-9/receipt', { receipt: '0f3c9a12' }))).toMatchObject({ status: 404, body: { ok: false, error: 'No canvas job turn-9.' } });
     expect((await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '<b>' })).status).toBe(400);
-    expect(await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '0f3c9a12' })).toEqual({ status: 200, cache: 'no-store', body: { ok: true, job: 'turn-1', receipt: '0f3c9a12' } });
+    expect(await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '0f3c9a12' })).toEqual({ status: 200, cache: 'no-store', body: { ok: true, job: 'turn-1', receipt: '0f3c9a12', project: { id: p.id, name: 'paper' } } });
     expect((await call('GET', '/api/canvas/jobs')).body).toEqual([expect.objectContaining({ id: 'turn-1', receipt: '0f3c9a12' })]);
   });
   it('lists the public board templates, never cached, as their four fields only', async () => {
@@ -211,6 +234,7 @@ describe('the canvas file through the server', () => {
   });
   it('a canvas too large to save gets 413 and says so', async () => {
     await start({ maxCanvasBytes: 300 });
+    await named();
     const big = await call('PUT', '/api/canvas/document', { snapshot: { ...SNAP, big: 'x'.repeat(1000) }, revision: 1, baseRevision: 0 });
     expect(big).toMatchObject({ status: 413, body: { ok: false, error: 'This canvas is too large to save (over 300 bytes).' } });
   });

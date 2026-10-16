@@ -28,6 +28,7 @@ import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
+import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
 import { clock, count, cut, lineCells, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
 
@@ -639,9 +640,10 @@ export function turnStopHere(t: TurnNow): string {
 }
 
 /** R5 (H131; the QA of e7f853e, item 17): how a sealed turn ended, in the frame's words (src/ops/workspace-frame.ts turnOf):
- *  "stopped (asked from the companion)" when a surface other than the one that sent it asked it to stop. */
+ *  "stopped (asked from the companion)" when a surface other than the one that sent it asked it to stop. R6 (H140): from the
+ *  one table (src/contracts/stop-words.ts), here the Workbench: "stopped by you" where the Workbench asked. */
 export function turnEndWords(t: Pick<TurnRow, 'state' | 'surface' | 'stoppedBy'>): string {
-  return t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? `stopped (asked from ${SURFACE_NAME[t.stoppedBy] ?? t.stoppedBy})` : t.state;
+  return stopTableEndWords(t, 'workbench'); // R6 (H140): the one table's words, who asked always said ("by you" where the Workbench asked)
 }
 
 // ── Chat: the pipeline row and the event log ───────────────────────────────────

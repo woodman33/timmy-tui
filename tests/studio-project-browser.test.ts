@@ -17,6 +17,7 @@ import { LiveBoard } from '../src/repl/board-live.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { flowRecord, HOSTILE_TITLE, makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 import { bearer, grant } from './helpers/canvas-auth.js';
+import { projectId } from '../src/project/index.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -174,7 +175,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
       expect(saved).toContain(p.flowFile);
       expect(saved).not.toContain(board.token);
       expect(saved).not.toContain(board.address);
-      expect(readFileSync(join(home, 'canvas', 'canvas.json'), 'utf8')).not.toContain(board.token);
+      // R6 (H139): the project's own board file
+      expect(readFileSync(join(home, 'canvas', 'projects', projectId(p.root), 'canvas.json'), 'utf8')).not.toContain(board.token);
     } finally {
       await context.close();
     }
