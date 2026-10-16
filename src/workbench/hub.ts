@@ -228,8 +228,9 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   const w = BY_WORKSPACE[cmd];
   if (w) return { kind: 'workspace', ws: w.ws, words: w.words };
   if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
-  // (while a turn runs the frame says whose composer: "Esc in the composer that sent it (Ctrl+C in the REPL)")
-  if (/^Esc in the composer\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does)' };
+  // (while a turn runs the frame says where it stops, by the surface that sent it: src/ops/workspace-frame.ts turnStopCommand,
+  // "Esc in the composer that sent it (the Workbench)", "Ctrl+C in the REPL that sent it", "Stop on the companion page …")
+  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does); one sent elsewhere stops there' };
   // R5 (H131; the finish line, item 3): the frame's fixes for a chat that cannot answer, done here where the Workbench can do
   // them honestly; the setup, which asks for a key, is a shell's (its command and what it asks are shown)
   if (cmd === '/model free') return { kind: 'free-models', words: 'Enter lists the free models in this computer\'s catalog; Enter on one makes it the chat\'s model (free-only stays on)' };

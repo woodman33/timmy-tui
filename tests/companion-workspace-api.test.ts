@@ -12,7 +12,8 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { TABS, type WorkspaceFrame } from '../src/contracts/workspace.js';
-import { buildWorkspaceFrame } from '../src/ops/workspace-frame.js';
+import { buildWorkspaceFrame, readConnections } from '../src/ops/workspace-frame.js';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { COMPANION_BAD_REQUEST, COMPANION_REFUSED, PROJECT_UNKNOWN, startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
 import { PREFS_BAD_BODY } from '../src/companion/workspace.js';
 import { projectId, saveActiveProject } from '../src/project/index.js';
@@ -115,6 +116,49 @@ describe('the companion\'s workspace routes: GET /api/workspace and POST /api/wo
       // the producer, told the same project, makes the same frame
       expect(frame.revision).toBe((await buildWorkspaceFrame({ cwd: root, env, project: { name: 'FAKE-project', root } })).revision);
     } finally { rmSync(join(box, 'home', 'state'), { recursive: true, force: true }); }
+  });
+
+  it('R5 lead (the QA round, defect 4): a companion answering its page notes it, so the frame says it is live, not "not running" from an older check; its stop is noted too', async () => {
+    const own: Env = { ...env, TIMMY_HOME: join(box, 'home-note') };
+    const c = await companion({ env: own });
+    // listening on a port the frame does not name (TIMMY_COMPANION_PORT, else 3001): nothing is noted for it
+    expect(readConnections(own).checks.companion).toBeUndefined();
+    own.TIMMY_COMPANION_PORT = String(c.s.port);
+    const f = await frameOf(await get(c));
+    expect(f.connections.find((x) => x.id === 'companion')).toMatchObject({ state: 'live', words: expect.stringContaining('its page asked for its frame') });
+    expect(f.surfaces.companion.state).toBe('running');
+    await c.s.shutdown();
+    servers.splice(servers.indexOf(c.s), 1);
+    expect(readConnections(own).checks.companion).toMatchObject({ answer: 'not running', detail: 'it stopped' });
+  });
+
+  it('R5 lead (the operator\'s 22:32 order, item 2): POST /api/chat/stop asks the shown project\'s turn to stop by its id: 401 without the token, 400 naming no turn, 409 for one not being answered, 200 with the request beside its hold', async () => {
+    const c = await companion();
+    const stop = (body: unknown, token?: string | null) => post(c, body, { path: '/api/chat/stop', ...(token === undefined ? {} : { token }) });
+    expect((await stop({ turn: 't1-0000abcd' }, null)).status).toBe(401);
+    for (const body of [{}, { turn: '../outside' }, { turn: 12 }]) {
+      const r = await stop(body);
+      expect(r.status).toBe(400);
+      expect((await r.json()).error).toMatch(/^Not stopped: the request names no chat turn/);
+    }
+    const none = await stop({ turn: 't1-0000abcd' });
+    expect(none.status).toBe(409);
+    expect((await none.json()).error).toMatch(/^Not stopped: that chat turn is not being answered now/);
+    // a turn of this project held now (this process holds it, as a surface holds the turn it answers)
+    const t = takeTurnHold(root, 'repl');
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    const file = join(root, '.timmy', 'chat-turns', `${t.hold.id}.stop`);
+    try {
+      const r = await stop({ turn: t.hold.id });
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      expect((await r.json()).words).toMatch(/^Stop asked of the turn being answered in the REPL: /);
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ schema: 'timmy.chat-turn-stop/1', by: 'companion' });
+    } finally {
+      t.hold.release();
+      rmSync(file, { force: true });
+    }
   });
 
   it('POST /api/workspace/prefs: 401 without the token, before its body is read; nothing is written', async () => {

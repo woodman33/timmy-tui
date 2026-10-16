@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TABS, WORKSPACE_SCHEMA, tabByKey, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import {
-  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatFix, chatNotReady, checkConnections, connectionOf, connectionsPath, ollamaAddress, readConnections, sentences, writeConnections,
+  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatFix, chatNotReady, checkConnections, connectionOf, connectionsPath, noteAnswered, noteStopped, ollamaAddress, readConnections, sentences, turnStopCommand, turnStopWords, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { freeOnlyRefusal } from '../src/agent/model-price.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
@@ -465,5 +465,107 @@ describe('R5 lead: H132\'s notes on the frame', () => {
   it('each tab carries its purpose', async () => {
     const f = await frame();
     for (const t of f.tabs) expect(t.purpose, t.id).toBe(TABS.find((x) => x.id === t.id)?.purpose);
+  });
+});
+
+describe('R5 lead: the QA round on the installed build (defects 3, 4, 9)', () => {
+  const noModel = ['Error: the chat is set to the local model, and no model is chosen.', 'Cause: the setup recorded none.', 'Try: /model', 'Nothing was sent to any model.'];
+  it('with no local model chosen and Ollama not answering, starting Ollama comes before choosing a model (defect 3)', () => {
+    const down = [{ id: 'ollama', state: 'unreachable' as const, words: 'no answer when checked 2 min ago', observedAt: '2026-10-15T19:58:00.000Z' }];
+    const fix = chatFix({ kind: 'local', ready: false, refusal: noModel }, down)!;
+    expect(fix).toMatchObject({ problem: 'ollama-unreachable', command: 'timmy workspace check', effect: 'network' });
+    expect(fix.words).toMatch(/start it \(ollama serve\), check again, then choose one with \/model\.$/);
+    // Ollama answered (or not checked yet): choose the model among what it lists
+    expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'live', words: 'answered just now' }])).toMatchObject({ problem: 'no-local-model', command: '/model' });
+    expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'configured', words: 'set up, not checked yet' }])).toMatchObject({ problem: 'no-local-model' });
+  });
+  it('a check that asked another Ollama address than the chat asks now says nothing about this one (defect 3)', async () => {
+    mkdirSync(join(home, 'timmy'), { recursive: true });
+    writeFileSync(join(home, 'timmy', 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'FAKE', chat: 'local', ollama: 'http://127.0.0.1:47011', model: 'qwen3:8b' } }));
+    // FAKE: the last check asked the default address, before the setup named another
+    writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { ollama: { answer: 'no answer', at: new Date(NOW - 120_000).toISOString(), detail: 'connection refused', asked: 'http://127.0.0.1:11434' } } }, env);
+    const f = await frame();
+    const o = f.connections.find((c) => c.id === 'ollama')!;
+    expect(o).toMatchObject({ state: 'configured', observedAt: null });
+    expect(o.detail).toBe('asked at http://127.0.0.1:47011, no charge (local); not checked at this address yet (the last check asked http://127.0.0.1:11434)');
+    // the check records the address it asked, so the same reading counts for that address
+    await checkConnections({
+      env, cwd: project, now: () => NOW, key: () => null, openRouter: async () => 'no-key',
+      ollama: async () => ({ ok: false, models: [], answer: { state: 'no answer', why: 'connection refused' } }),
+      studio: async () => ({ state: 'not-running' }), companion: async () => 'refused', edge: async () => null,
+    });
+    expect(readConnections(env).checks.ollama).toMatchObject({ answer: 'no answer', asked: 'http://127.0.0.1:47011' });
+    expect((await frame(NOW + 1000)).connections.find((c) => c.id === 'ollama')?.state).toBe('unreachable');
+  });
+  it('an observation counts only for the key or address it asked: a key replaced since, or a port moved, is not said refused or live (the operator\'s 22:32 order, item 1)', async () => {
+    mkdirSync(join(home, 'timmy'), { recursive: true });
+    const providers = join(home, 'timmy', 'providers.json');
+    writeFileSync(providers, JSON.stringify({ openrouter_api_key: 'sk-or-v1-FAKE-key-one-for-a-test' }));
+    env.TIMMY_COMPANION_PORT = '3101';
+    await checkConnections({
+      env, cwd: project, now: () => NOW, key: () => 'sk-or-v1-FAKE-key-one-for-a-test', openRouter: async () => 'rejected',
+      ollama: async () => ({ ok: false, models: [], answer: { state: 'no answer', why: 'connection refused' } }),
+      studio: async () => ({ state: 'not-running' }), companion: async () => 'refused', edge: async () => null,
+    });
+    const rec = readConnections(env).checks;
+    // the record names the key by a fingerprint, never the key
+    expect(rec.openrouter).toMatchObject({ answer: 'refused', asked: expect.stringMatching(/^key [0-9a-f]{12}$/) });
+    expect(JSON.stringify(rec)).not.toContain('FAKE-key-one');
+    expect(rec.companion).toMatchObject({ answer: 'not running', asked: 'http://127.0.0.1:3101' });
+    const before = await frame(NOW + 1000);
+    expect(before.connections.find((c) => c.id === 'openrouter')?.state).toBe('refused');
+    // a new key (timmy init --openrouter - writes it there): the refusal was of the other key
+    writeFileSync(providers, JSON.stringify({ openrouter_api_key: 'sk-or-v1-FAKE-key-two-for-a-test' }));
+    // the companion asked at another port now
+    env.TIMMY_COMPANION_PORT = '3102';
+    const after = await frame(NOW + 2000);
+    const or = after.connections.find((c) => c.id === 'openrouter')!;
+    expect(or).toMatchObject({ state: 'configured', observedAt: null });
+    expect(or.detail).toMatch(/not checked with this key yet \(the last check asked with another key\)$/);
+    expect(after.connections.find((c) => c.id === 'companion')).toMatchObject({ state: 'configured', observedAt: null, detail: expect.stringMatching(/not checked at this address yet \(the last check asked http:\/\/127\.0\.0\.1:3101\)$/) });
+    // no "give a working key" fix for a key nobody checked
+    expect(after.actions.home.find((x) => x.primary)?.command).not.toBe('timmy init --openrouter -');
+  });
+  it('a surface notes that it answered and that it stopped, so none says it answered after it ended (defects 4, 19)', async () => {
+    expect(noteAnswered('companion', 'its page asked for its frame', env, NOW)).toBe(true);
+    expect((await frame(NOW + 1000)).connections.find((c) => c.id === 'companion')).toMatchObject({ state: 'live', words: expect.stringContaining('its page asked for its frame') });
+    expect(noteStopped('companion', env, NOW + 2000)).toBe(true);
+    const after = (await frame(NOW + 3000)).connections.find((c) => c.id === 'companion')!;
+    expect(after).toMatchObject({ state: 'configured', words: expect.stringMatching(/^not running when checked just now; c in the Workbench, or timmy watch, starts it$/) });
+    // and starting again is an answer again (the throttle counts only an answer)
+    expect(noteAnswered('companion', 'it started listening', env, NOW + 4000)).toBe(true);
+  });
+  it('a turn being answered is matched to its receipt by its identity (turn_id), never by surface and time: a delayed receipt, a next turn taken at once (the operator\'s 22:32 order, item 1)', async () => {
+    const id = projectId(project);
+    const t = takeTurnHold(project, 'repl');
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    try {
+      expect(t.hold.id).toMatch(/^t[0-9]+-[0-9a-f]{8}$/);
+      const receipt = (turn: string | undefined, ts: string, n: number) => ({ kind: 'turn', subject: 'repl · 1 step', project_id: id, status: 'ok', ts, ms: 900, model_resolved: 'qwen3:8b', operation_id: `o${String(n).repeat(8)}`, hash: `sha256_${String(n).repeat(64)}`, ...(turn ? { turn_id: turn } : {}) });
+      const build = (chain: unknown[]) => buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain as never, onPath: () => null, now: NOW });
+      const later = new Date(Date.now() + 60_000).toISOString();
+      // the turn before it, sealed with its own id even a minute after this hold was taken (clocks, a slow seal): this one runs
+      const running = await build([receipt('t1-0000000a', later, 3)]);
+      expect(running.activity.running).toBe(1);
+      expect(running.activity.chatTurn).toMatchObject({ surface: 'repl', id: t.hold.id });
+      // and a receipt that names no turn (sealed before turn ids) says nothing about it
+      expect((await build([receipt(undefined, later, 4)])).activity.chatTurn?.id).toBe(t.hold.id);
+      // Stop current names the REPL's own key (it has no composer), and so does Stop the turn
+      expect(running.activity.stopCurrent.words).toBe('Stop current: the chat turn in the REPL (Ctrl+C in the REPL)');
+      expect(running.actions.chat[2]).toMatchObject({ label: 'Stop the turn', primary: true, command: 'Ctrl+C in the REPL that sent it' });
+      // its own receipt sealed while its hold is still there (the hold goes a moment after the seal): ended, whatever its time
+      const ended = await build([receipt(t.hold.id, '2026-01-01T00:00:00.000Z', 5)]);
+      expect(ended.activity.running).toBe(0);
+      expect(ended.activity.chatTurn).toBeNull();
+      expect(ended.chat?.turns[0]).toMatchObject({ turn: t.hold.id, state: 'answered' });
+    } finally {
+      t.hold.release();
+    }
+    // the hold given back and no receipt yet (a surface that seals after its turn): nothing runs, and no turn is made up
+    expect((await frame()).activity.chatTurn).toBeNull();
+    expect(turnStopWords('workbench')).toBe('Esc in its composer');
+    expect(turnStopCommand('workbench')).toBe('Esc in the composer that sent it (the Workbench)');
+    expect(turnStopCommand('companion')).toBe('Stop on the companion page that sent it');
   });
 });

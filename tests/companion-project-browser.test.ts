@@ -283,7 +283,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await shows(page, 'alpha');
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await page.isHidden('#project-pin-mark')).toBe(true);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on alpha');
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on alpha');
       expect(await page.isEnabled('#project-pin')).toBe(true);
       expect(await page.getAttribute('#project', 'data-project')).toBe(projectId(alpha.root));
       expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
@@ -302,7 +302,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(followedIn).toBeLessThan(2_500);
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await text(page, '#project-folder')).toContain(`Project folder: ${tildePath(beta.root)}:`);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on beta');
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on beta');
       // alpha's turn is not shown with beta; a turn in alpha now is not shown, one in beta is
       expect(await turns(page)).toEqual([]);
       const lateAlpha = fakeTurn(alpha.bus, 'repl · 2 steps');
@@ -333,7 +333,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // Pin: this page keeps beta
       await pinned.page.click('#project-pin');
       await pinned.page.waitForFunction(() => !document.getElementById('project-pin-mark')?.hidden, null, { timeout: 5_000 });
-      expect(await text(pinned.page, '#project-pin-mark')).toBe('📌 PINNED');
+      expect(await text(pinned.page, '#project-pin-mark')).toBe('PINNED');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned on this page');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project');
       expect(await pinned.page.getAttribute('#project', 'data-mode')).toBe('pinned');

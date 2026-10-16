@@ -172,6 +172,12 @@ try {
 }
 
 // ── The chat mirror (tests/companion-client.test.ts runs this part of the file) ──
+// R5 lead (the QA round, defect 6): one time format, as the terminal Workbench and Studio show it: the 24-hour clock in this
+// computer's local time (21:18:36), with the date where a time can be another day's (2026-10-15 21:18:36); never a locale's
+// 12-hour clock beside another surface's 24-hour one
+function pad2(n) { return String(n).padStart(2, '0'); }
+function clockOf(iso) { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`; }
+function dateTimeOf(iso) { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${clockOf(t)}`; }
 
 // R4 (H104): r24 found the mirror empty with nothing saying why. It shows this session's chat as the companion's socket
 // carries it, and says where chat happens when none has come:
@@ -248,13 +254,15 @@ function replTurnOf(event, live) {
     const since = Date.parse(mirrorSince);
     if (!Number.isFinite(since) || at < since) return null;
   }
+  // R5 lead: the turn's identity, when its receipt names it (turn_id): the id the frame gave it while it was being answered
+  const turn = typeof p.turn_id === 'string' && /^t[0-9]+-[0-9a-f]{8}$/.test(p.turn_id) ? p.turn_id : null;
   if (p.kind === 'chat') {
     const s = SURFACE_TURN.exec(String(p.subject || ''));
     if (!s) return null;
-    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]) };
+    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]), turn };
   }
   const m = REPL_TURN.exec(String(p.subject || ''));
-  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null };
+  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null, turn };
 }
 
 /** Takes the turns among bus events (every surface's); true when one is new. */
@@ -276,25 +284,38 @@ function mirrorHasSession() {
  * R4 (H113): another surface's turn (the monitor's, the Workbench's, a companion page's), as the bus carries it: which surface,
  * how it ended, its steps and its receipt; never its words (sealed as hashes only).
  */
+/**
+ * R5 lead (the finish line, item 3: the same state on every surface): how a turn ended, in the words the Workbench and the
+ * shared frame use (answered, stopped, failed). A sealed receipt's subject on the bus says only "cancelled" or "failed"; a
+ * turn the frame knows by its receipt takes the frame's word, a cancelled one is said stopped, and one the frame does not
+ * know yet is said ended.
+ */
+function turnEnd(turn) {
+  const f = frameDrawn();
+  const known = f && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns.find((t) => t && t.receipt === turn.receipt) : null;
+  if (known && typeof known.state === 'string') return known.state;
+  return turn.state === 'cancelled' ? 'stopped' : turn.state;
+}
+
 function surfaceTurnHtml(turn) {
   const s = SURFACES[turn.surface];
-  const time = new Date(turn.at).toLocaleTimeString();
+  const time = clockOf(turn.at);
   const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
   return `
       <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turn.state)}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEnd(turn))}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turn.state)}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEnd(turn))}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
 
 function replTurnHtml(turn) {
   if (turn.surface && turn.surface !== 'repl' && SURFACES[turn.surface]) return surfaceTurnHtml(turn);
-  const time = new Date(turn.at).toLocaleTimeString();
-  const state = turn.cancelled ? 'cancelled' : 'ended';
+  const time = clockOf(turn.at);
+  const state = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
   const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
   return `
       <div class="log-msg repl" data-mirror="repl-turn">
@@ -328,7 +349,7 @@ function mirrorEmptyHtml() {
     head = 'Not connected to the companion yet, so whether chat happened in this session is not known yet.';
   } else {
     const since = new Date(mirrorSince);
-    head = `No chat in this session yet: none has reached this page since this companion started${Number.isNaN(since.getTime()) ? '' : ` at ${since.toLocaleTimeString()}`}.`;
+    head = `No chat in this session yet: none has reached this page since this companion started${Number.isNaN(since.getTime()) ? '' : ` at ${clockOf(since)}`}.`;
   }
   return `
       <div class="mirror-empty explain" data-mirror="empty">
@@ -383,7 +404,7 @@ function saveCurrentChat() {
 
   const newChat = {
     id: `chat_${Date.now()}`,
-    timestamp: new Date().toLocaleString(),
+    timestamp: dateTimeOf(new Date()),
     firstPrompt: firstPrompt.length > 50 ? firstPrompt.substring(0, 50) + '...' : firstPrompt,
     messagesCount: history.length,
     messages: history
@@ -561,7 +582,7 @@ function escapeMirrorText(value) {
 const LOG_LEVEL_CLASS = { ERROR: 'error', WARN: 'warn', SUCCESS: 'success', INFO: 'info' };
 
 function appendToLocalLogs(level, msg) {
-  const timeStr = new Date().toLocaleTimeString();
+  const timeStr = clockOf(new Date());
   const lvl = String(level).toUpperCase();
   const cls = LOG_LEVEL_CLASS[lvl] || 'info';
 
@@ -742,7 +763,7 @@ function frameTurnHtml(t) {
       <div class="log-msg repl" data-mirror="frame-turn" data-surface="${escapeMirrorText(t.surface)}" data-state="${escapeMirrorText(t.state)}">
         <div class="log-header repl">
           <span>${s.icon} ${s.name} turn · ${escapeMirrorText(t.state)}</span>
-          <span class="log-time">${escapeMirrorText(new Date(t.at).toLocaleTimeString())}</span>
+          <span class="log-time">${escapeMirrorText(clockOf(t.at))}</span>
         </div>
         <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(t.state)}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
       </div>
@@ -753,13 +774,22 @@ function frameRunningHtml() {
   const f = frameDrawn();
   const t = !isViewingSaved && f && !frameOther(f) && f.activity ? f.activity.chatTurn : null;
   if (!t) return '';
+  // R5 lead (the operator's 22:32 order, item 1): this turn's own receipt, sealed already (the bus is quicker than the next
+  // frame), ends it here: matched by the turn's identity (its id, sealed as turn_id), never by surface and time
+  if (turnSealed(t.id, f)) return '';
   const stop = f.activity.stopCurrent && f.activity.stopCurrent.words ? ` ${escapeMirrorText(f.activity.stopCurrent.words)}.` : '';
+  const button = t.id ? ` <button type="button" class="btn-action tiny stop-turn" data-stop-turn="${escapeMirrorText(t.id)}">Stop this turn</button>` : '';
   return `
       <div class="log-msg repl" data-mirror="frame-running">
-        <div class="log-header repl"><span>▶ running · ${escapeMirrorText(t.words)}</span><span class="log-time">${escapeMirrorText(new Date(t.since).toLocaleTimeString())}</span></div>
-        <div class="log-content">It is shown here when its receipt is sealed.${stop}</div>
+        <div class="log-header repl"><span>running · ${escapeMirrorText(t.words)}</span><span class="log-time">${escapeMirrorText(clockOf(t.since))}</span></div>
+        <div class="log-content">It is shown here when its receipt is sealed.${stop}${button}</div>
       </div>
     `;
+}
+/** Whether the turn `id` is sealed already, as the bus or the frame says it (by its identity; false for no id). */
+function turnSealed(id, f) {
+  if (!id) return false;
+  return [...mirrorTurns.values()].some((m) => m.turn === id) || (f && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns : []).some((x) => x && x.turn === id);
 }
 /** The mirror again when the frame's turns or its running turn changed (not on every frame: a scroll is kept otherwise). */
 let mirrorFrameKey = '';
@@ -804,7 +834,7 @@ function renderConsoleLogs(history) {
 
 /** One message of the monitor's chat (or of a saved chat), as the mirror draws it: text, escaped. */
 function messageHtml(msg) {
-    const timeStr = new Date(msg.timestamp || Date.now()).toLocaleTimeString();
+    const timeStr = clockOf(msg.timestamp || Date.now());
 
     if (msg.role === 'system' && msg.isTool) {
       try {
@@ -875,6 +905,9 @@ function proofFromHistory(history) {
 // Timmy Canvas tab (fourth order, step 5): the canvas's revision, source revision and jobs, as the
 // canvas page and `timmy receipts` show them. Links go to this computer's 127.0.0.1 only when this
 // page is open on that computer; from a phone the address is said instead.
+// R5 lead (the QA round, defect 6): the one date-and-time format (the chat mirror's dateTimeOf), here too, since this part of
+// the file runs by itself in tests/companion-canvas.test.ts
+function canvasWhen(iso) { const t = new Date(iso); const p = (n) => String(n).padStart(2, '0'); return Number.isNaN(t.getTime()) ? String(iso || '') : `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`; }
 function canvasEsc(t) {
   return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
@@ -885,7 +918,7 @@ function canvasSummaryHtml(s, hostname) {
   const link = (href, text) => here ? `<a href="${canvasEsc(href)}" target="_blank" rel="noopener noreferrer">${canvasEsc(text)}</a>` : canvasEsc(text);
   const head = s.unreadable
     ? '<p>The saved canvas could not be read. Open the canvas on the computer that runs Timmy: it keeps the file aside and starts blank.</p>'
-    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(new Date(s.savedAt).toLocaleString())}` : ''}</p>`;
+    : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(canvasWhen(s.savedAt))}` : ''}</p>`;
   const jobs = (s.jobs || []).map((j) => `<li>${j.ok ? '<span class="canvas-ok">✓ done</span>' : '<span class="canvas-fail">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
   const open = here ? `<p>${link(base, 'Open Timmy Canvas')}</p>` : `<p>Open ${canvasEsc(base)} on the computer that runs Timmy.</p>`;
   return head + (jobs ? `<ol class="canvas-jobs">${jobs}</ol>` : '<p>No canvas jobs yet.</p>') + open;
@@ -945,7 +978,7 @@ function projectHeader(p) {
     mode.textContent = p.chosen ? 'following the active project' : 'following the active project (none chosen yet: this companion’s folder)';
     btn.disabled = false;
     btn.dataset.action = 'pin-project';
-    btn.textContent = `📌 Pin: keep this page on ${p.name}`;
+    btn.textContent = `Pin: keep this page on ${p.name}`;
   }
   const reads = `Project folder: ${p.folder}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab`;
   folder.textContent = p.mode === 'fixed' ? `${reads}. TIMMY_REPO fixed this folder: this companion follows no project.`
@@ -1014,7 +1047,7 @@ function runDetailHtml(d) {
   const e = canvasEsc;
   const from = (f) => (f ? ` <span class="run-from">from ${e(f)}</span>` : '');
   const none = (words) => `<span class="run-none">${e(words)}</span>`;
-  const when = (t) => { if (!t) return none('not recorded'); const x = new Date(t); return Number.isNaN(x.getTime()) ? e(t) : e(x.toLocaleString()); };
+  const when = (t) => { if (!t) return none('not recorded'); const x = new Date(t); return Number.isNaN(x.getTime()) ? e(t) : e(dateTimeOf(x)); };
   const elapsed = (ms) => {
     if (typeof ms !== 'number' || !Number.isFinite(ms)) return none('not recorded');
     const s = Math.round(ms / 1000);
@@ -1184,8 +1217,10 @@ async function copyCommand(text, button) {
 
 // The page's buttons: one click handler for all of them (the page allows no inline handler).
 document.addEventListener('click', (event) => {
-  const el = event.target instanceof Element ? event.target.closest('[data-tab], [data-ws-tab], [data-act], [data-open-run], [data-action], [data-copy]') : null;
+  const el = event.target instanceof Element ? event.target.closest('[data-stop-turn], [data-tab], [data-ws-tab], [data-act], [data-open-run], [data-action], [data-copy]') : null;
   if (!el) return;
+  // R5 lead (the operator's 22:32 order, item 2): Stop for the chat turn being answered, whichever surface sent it
+  if (el.dataset.stopTurn !== undefined) { stopTurn(el); return; }
   if (el.dataset.tab) { switchTab(el.dataset.tab); return; }
   // R5 (H132): a workspace tab, an action of the strip, a run to open (the Workflows tab's list, an event's operation)
   if (el.dataset.wsTab) { showWorkspaceTab(el.dataset.wsTab); return; }
@@ -1260,17 +1295,18 @@ function h(tag, attrs, ...kids) {
   for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
   return el;
 }
-const clockOf = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? String(iso || '') : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
 const shownProjectId = () => document.getElementById('project')?.dataset.project || '';
 /** the frame is another project's than the one this page shows (a page whose project the companion cannot name to it) */
 const otherProject = (f) => Boolean(f && shownProjectId() && f.project && f.project.id !== shownProjectId());
 /** what a command is: a tab's key (1 to 9, then 0), a command for Timmy's terminal, or words to do there */
 const commandKind = (c) => (/^[0-9]$/.test(c) ? 'tab' : /^(?:\/|timmy\b)/.test(c) ? 'command' : 'words');
-function stripNote(words, state) {
+function stripNote(words, state, o = {}) {
   const note = document.getElementById('ws-strip-note');
   if (!note) return;
   note.textContent = words || '';
   if (state) note.dataset.state = state; else delete note.dataset.state;
+  // R5 lead: what an action said stays for `hold` ms, so the next frame (each second) does not wipe it before it is read
+  workspace.noteHeld = o.hold ? Date.now() + o.hold : 0;
 }
 
 /** Reads the frame of the project this page shows; one read at a time (a second ask waits for it). */
@@ -1304,7 +1340,12 @@ function takeFrame(frame, redraw = false) {
   const was = workspace.frame;
   workspace.frame = frame;
   if (redraw || !was || was.revision !== frame.revision) drawFrame();
-  else if (workspace.failed === null) stripNote(otherProjectWords(frame), otherProject(frame) ? 'failed' : null);
+  else if (workspace.failed === null) frameNote(frame);
+}
+
+/** The strip's note as the frame gives it (another project's words, else none), unless an action's words are held there. */
+function frameNote(f) {
+  if (otherProject(f) || !(workspace.noteHeld > Date.now())) stripNote(otherProjectWords(f), otherProject(f) ? 'failed' : null);
 }
 
 function otherProjectWords(f) {
@@ -1350,10 +1391,26 @@ function drawFrame() {
   drawActivity(f, own);
   drawPrefs(f);
   frameTurnsChanged();
-  stripNote(otherProjectWords(f), own ? null : 'failed');
+  frameNote(f);
   if (workspace.tab === 'workflows') openNewestRun();
   refocus(kept);
+  markOverflow();
 }
+
+/**
+ * R5 lead (the QA round, defect 5): each box whose content goes on below its edge is marked (data-more), and its bottom
+ * border says "more below ↓" (companion.css); scrolling to the end, a resize, a redraw or another tab marks again.
+ */
+function markOverflow() {
+  for (const body of document.querySelectorAll('.box > .box-body')) {
+    const box = body.parentElement;
+    const more = body.clientHeight > 0 && body.scrollHeight - body.scrollTop - body.clientHeight > 2;
+    if (more && box.dataset.more !== '1') box.dataset.more = '1';
+    else if (!more && box.dataset.more !== undefined) delete box.dataset.more;
+  }
+}
+document.addEventListener('scroll', (e) => { if (e.target instanceof Element && e.target.classList.contains('box-body')) markOverflow(); }, true);
+window.addEventListener('resize', () => markOverflow());
 
 // ── the ten tabs ──
 
@@ -1401,6 +1458,7 @@ function showWorkspaceTab(id, o = {}) {
   if (id === 'studio') refreshCanvas();
   if (id === 'create') openSlate();
   if (id === 'workflows') openNewestRun();
+  markOverflow();
   try { sessionStorage.setItem(WS_TAB_KEY, id); } catch (e) { /* no storage here */ }
 }
 
@@ -1410,8 +1468,17 @@ function drawActions(f, own) {
   const list = document.getElementById('ws-actions');
   if (!list) return;
   const acts = own ? ((f.actions && f.actions[workspace.tab]) || []) : [];
+  const running = own && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
   list.replaceChildren(...acts.map((a) => {
     const off = a.enabled === false;
+    // R5 lead (the operator's 22:32 order, item 2): Stop the turn stops it from this page (it asks the surface that sent it,
+    // which stops it as its own key would); the frame's command says where its own key is
+    if (a.label === 'Stop the turn' && !off && running) {
+      return h('li', { 'data-primary': a.primary ? 'true' : 'false' }, h('button', {
+        type: 'button', class: `act${a.primary ? ' is-primary' : ''}`, 'data-stop-turn': running.id, 'data-n': a.n, 'aria-disabled': 'false',
+        title: `Asks ${String(running.surface)} to stop the turn it is answering`,
+      }, h('span', { class: 'act-n' }, `${a.n}.`), h('span', { class: 'act-label' }, a.label), h('code', { class: 'act-cmd' }, `from this page, or ${a.command}`)));
+    }
     const kind = commandKind(String(a.command));
     const why = off ? h('span', { id: `act-why-${a.n}`, class: 'act-why' }, `not now: ${a.why || 'not available'}`) : null;
     const btn = h('button', {
@@ -1441,7 +1508,7 @@ async function runAction(btn) {
     await navigator.clipboard.writeText(cmd);
     copied = true;
   } catch (e) { copied = false; }
-  stripNote(copied ? `Copied: ${cmd}. Run it in Timmy’s terminal.` : `Not copied (this browser would not): run ${cmd} in Timmy’s terminal.`);
+  stripNote(copied ? `Copied: ${cmd}. Run it in Timmy’s terminal.` : `Not copied (this browser would not): run ${cmd} in Timmy’s terminal.`, null, { hold: 6000 });
 }
 
 function drawProjectCmds(f) {
@@ -1529,15 +1596,44 @@ function drawControl(f, own) {
   // R5 lead (the finish line, item 3): the chat turns, as the Workbench's Control Room lists them: a turn being answered now,
   // then the sealed ones, newest first, each with its operation
   const turns = own && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns : [];
-  box.replaceChildren(
+  // R5 lead (the QA round, defect 5): the DOM's replaceChildren writes a null as the word "null"; only nodes go in
+  box.replaceChildren(...[
     h('p', { class: 'activity-words' }, `${a.running} running · `, h('span', { class: a.waitingOnYou > 0 ? 'waits' : '' }, `${a.waitingOnYou} waiting on you`)),
     h('p', { class: 'preview-note' }, own ? (a.stopCurrent && a.stopCurrent.words) || '' : 'Not shown: the frame is another project’s.'),
     ...waiting.map((t) => h('p', { class: 'preview-note' }, `${t.label}: ${t.waiting} waiting`)),
     own ? h('p', { class: 'preview-head', 'data-control': 'chat-turns' }, `Chat turns (${turns.length})`) : null,
-    own && a.chatTurn ? h('p', { class: 'preview-note', 'data-control': 'chat-running' }, `▶ running · ${a.chatTurn.words}`) : null,
+    own && a.chatTurn ? h('p', { class: 'preview-note', 'data-control': 'chat-running' }, h('span', { 'data-control': 'chat-running-words' }, `running · ${a.chatTurn.words}${a.chatTurn.since ? ` · since ${clockOf(a.chatTurn.since)}` : ''}`),
+      a.chatTurn.id ? h('button', { type: 'button', class: 'btn-action tiny stop-turn', 'data-stop-turn': a.chatTurn.id }, 'Stop this turn') : null) : null,
     own ? (turns.length
       ? h('ul', { class: 'ev-list', 'data-control': 'chat-turn-list' }, ...turns.map((t) => eventItem({ at: t.at, tag: 'chat', words: t.words, tone: t.state === 'failed' ? 'failure' : 'neutral', source: `receipt ${t.receipt}`, ...(t.operation ? { operation: t.operation } : {}) })))
-      : h('p', { class: 'preview-note' }, 'No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, whichever surface sent it.')) : null);
+      : h('p', { class: 'preview-note' }, 'No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, whichever surface sent it.')) : null,
+  ].filter(Boolean));
+}
+
+/**
+ * R5 lead (the operator's 22:32 order, item 2): stops the chat turn `btn` names (its id, as the frame gave it), whichever
+ * surface is answering it: POST /api/chat/stop asks the process that holds the turn, which stops it as its own Esc or Ctrl+C
+ * would; the turn then ends stopped, its receipt saying it was asked from this page, on every surface. The answer is said in
+ * the strip's note; the frame and the bus show the turn's end.
+ */
+async function stopTurn(btn) {
+  const id = btn.dataset.stopTurn || '';
+  if (!id || btn.getAttribute('aria-busy') === 'true') return;
+  btn.setAttribute('aria-busy', 'true');
+  btn.disabled = true;
+  const project = shownProjectId();
+  try {
+    const r = await companion.fetch(`/api/chat/stop${project ? `?project=${encodeURIComponent(project)}` : ''}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ turn: id }),
+    });
+    const body = await r.json().catch(() => null);
+    stripNote(body && typeof (body.words || body.error) === 'string' ? (body.words || body.error) : `The companion answered HTTP ${r.status}.`, r.ok ? null : 'failed', { hold: 8000 });
+  } catch (err) {
+    stripNote(`Not stopped: the companion could not be reached (${err && err.message ? err.message : String(err)}).`, 'failed', { hold: 8000 });
+  } finally {
+    btn.removeAttribute('aria-busy');
+    btn.disabled = false;
+  }
 }
 
 // ── a tab's actions in full: what each runs, and whether it reads, changes, sends or spends ──
