@@ -194,7 +194,9 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .act {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
+  /* where the label and its command do not fit on one line, the command goes under the label */
+  flex-wrap: wrap;
+  gap: 2px 8px;
   max-width: 100%;
   background: var(--timmy-ground);
   border: 1px solid var(--timmy-line-strong);
@@ -292,8 +294,9 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 
 .ws-activity { flex-shrink: 0; position: relative; display: flex; flex-direction: column; max-height: 22vh; min-height: 0; border: 1px solid var(--timmy-line-strong); border-radius: 6px; padding: 14px 10px 6px; margin-top: 8px; }
 .activity-head { position: absolute; top: -0.85em; left: 10px; right: 10px; display: flex; align-items: center; gap: 10px; pointer-events: none; }
-.activity-head > * { background: var(--timmy-ground); padding: 0 6px; pointer-events: auto; }
-.activity-counts { font-size: 11px; color: var(--timmy-text-secondary); }
+.activity-head > * { background: var(--timmy-ground); padding: 0 6px; pointer-events: auto; white-space: nowrap; flex-shrink: 0; }
+/* one line on the border at any width: the counts give way (with an ellipsis; the whole is their title), never the list */
+.activity-counts { font-size: 11px; color: var(--timmy-text-secondary); flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .activity-head .btn-action { margin-left: auto; }
 .activity-list { list-style: none; overflow: auto; min-height: 0; font-size: 12px; display: flex; flex-direction: column; gap: 1px; }
 .activity-list .ev { grid-template-columns: auto minmax(0, 1fr); border-bottom: 0; padding-bottom: 0; }
@@ -646,7 +649,8 @@ body.slate-absent p { max-width: 72ch; }
   body { height: auto; min-height: 100vh; padding: 8px; }
   .ws-header { flex-wrap: wrap; gap: 6px; }
   #status { margin-left: 0; white-space: normal; }
-  .project-folder { white-space: normal; overflow-wrap: anywhere; }
+  /* two lines at most here; the whole note is its title */
+  .project-folder { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   .ws-tablist { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
   .ws-tab { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; font-size: 10px; white-space: normal; }
   .tab-label { white-space: normal; overflow-wrap: normal; }

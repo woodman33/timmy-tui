@@ -466,6 +466,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
         await openTab(page, t.id);
         const m = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: window.innerWidth }));
         expect(Math.max(m.page, m.body), t.id).toBeLessThanOrEqual(m.inner);
+        // each title set on a box's border stays one line, so none covers what its box holds
+        const tall = await page.$$eval('.box-title, .ws-strip > .strip-title, .activity-head', (els) => els
+          .filter((e) => e.getClientRects().length > 0 && e.getBoundingClientRect().height > 24)
+          .map((e) => `${e.className}: ${(e.textContent ?? '').trim().slice(0, 40)}`));
+        expect(tall, t.id).toEqual([]);
       }
       await openTab(page, 'home');
       const cols = await page.$$eval('#ws-home .cols-home > *', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right) }; }));

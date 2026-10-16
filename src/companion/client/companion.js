@@ -1523,7 +1523,11 @@ function drawActivity(f, own) {
   const list = document.getElementById('ws-activity-list');
   const counts = document.getElementById('ws-activity-counts');
   const a = f.activity || { running: 0, waitingOnYou: 0 };
-  if (counts) counts.textContent = `${a.running} running · ${a.waitingOnYou} waiting on you`;
+  if (counts) {
+    counts.textContent = `${a.running} running · ${a.waitingOnYou} waiting on you`;
+    // the whole of it, where a narrow window shortens the line
+    counts.title = counts.textContent;
+  }
   if (list) list.replaceChildren(...((own ? (f.log || []) : []).length ? f.log.map((e) => eventItem(e)) : [emptyLog(f, own)]));
 }
 
