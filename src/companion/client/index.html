@@ -207,6 +207,9 @@
               <div class="box-body"><div id="canvas-summary">Reading the canvas…</div></div>
             </section>
           </div>
+          <!-- R6 (H145): the Studio panel (src/companion/client/panel-studio.js) draws the shown project's board artifacts here:
+               its reference images, nodes and the project's results placed on its board, each with the preview it opens -->
+          <div class="studio-host" data-panel-host="studio"></div>
         </div>
         <section class="box" aria-labelledby="studio-acts-title">
           <h2 id="studio-acts-title" class="box-title">This tab's actions, in full</h2>
@@ -401,6 +404,7 @@
 
   <!-- R6 lead: the tab panels' registry, then each panel's own file, then the page's code, which draws them -->
   <script src="/panels.js"></script>
+  <script src="/panel-studio.js"></script>
   <script src="/panel-vox.js"></script>
   <script src="/panel-tools.js"></script>
   <script src="/companion.js"></script>

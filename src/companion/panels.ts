@@ -1,8 +1,9 @@
 /**
  * R6 lead: the browser companion's tab panels, server side.
  *
- * A panel is what a workspace tab shows of its own records on the page: VoxVision's observations and recordings (tab 5,
- * src/companion/panels/vox.ts) and Tools & MCP's servers, schemas, calls and results (tab 9, src/companion/panels/tools.ts).
+ * A panel is what a workspace tab shows of its own records on the page: Studio's board artifacts (tab 4,
+ * src/companion/panels/studio.ts), VoxVision's observations and recordings (tab 5, src/companion/panels/vox.ts) and Tools & MCP's
+ * servers, schemas, calls and results (tab 9, src/companion/panels/tools.ts).
  * Each panel's module mounts its own routes under /api/panel/<tab>/…, each behind the token check, each answering for the
  * project its page shows (?project=<id>, else the one followed). The page side is src/companion/client/panels.js (the
  * registry companion.js draws through) and src/companion/client/panel-<tab>.js (each panel's own drawing).
@@ -14,6 +15,7 @@ import type express from 'express';
 import type { ActiveProject } from '../project/index.js';
 import { mountVoxPanel } from './panels/vox.js';
 import { mountToolsPanel } from './panels/tools.js';
+import { mountStudioPanel } from './panels/studio.js';
 
 export interface PanelContext {
   /** The token check every content route of the companion uses (a request without the token is refused, 401). */
@@ -30,4 +32,5 @@ export interface PanelContext {
 export function mountPanels(app: express.Express, ctx: PanelContext): void {
   mountVoxPanel(app, ctx);
   mountToolsPanel(app, ctx);
+  mountStudioPanel(app, ctx);
 }

@@ -30,6 +30,7 @@ export const RUNTIME_ASSETS = Object.freeze([
   'src/companion/client/companion.js',
   // R6 lead: the tab panels' page code (the registry and each panel's own file; src/companion/panels.ts serves their data)
   'src/companion/client/panels.js',
+  'src/companion/client/panel-studio.js',
   'src/companion/client/panel-vox.js',
   'src/companion/client/panel-tools.js',
   'src/utils/chatpage.html',
