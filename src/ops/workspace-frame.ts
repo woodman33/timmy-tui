@@ -31,7 +31,12 @@ import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
-import { resolveChatRoute } from '../agent/chat-route.js';
+import { turnEndWords } from '../contracts/stop-words.js';
+import { ollamaAddress, ollamaStartStep } from '../capabilities/ollama-route.js';
+import { onPath as onPathNow } from '../utils/on-path.js';
+import { THIS_PROCESS, withProcessTable, writerState } from './process-proof.js';
+import { readMcpCalls, type McpCallRead } from '../connectors/mcp-records.js';
+import type { Receipt } from '../utils/receipts.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -44,6 +49,8 @@ export const companionBaseUrl = (env: Env = process.env): string => {
 
 /** An answered request counts as live for this long; after it, the frame says how old the answer is. */
 export const LIVE_FOR_MS = 30 * 60_000;
+/** R6 (H140): that bound, in a card's words. */
+export const LIVE_FOR_WORDS = 'an answer within the last 30 min';
 export const CONNECTIONS_SCHEMA = 'timmy.connections/1' as const;
 /** How many log lines the frame carries, the newest first. */
 export const LOG_MAX = 30;
@@ -53,9 +60,16 @@ export interface ConnectionCheck {
   /**
    * accepted: the service answered and took the request; refused: it answered no (a rejected key); no answer: nothing came
    * back, or something else answered; not running: a local surface Timmy starts on demand (Studio, the companion) refused
-   * the connection, so it is simply not started
+   * the connection, so it is simply not started. R6 (H140): listening: a local surface noted that it started listening,
+   * which is no answer (nothing has asked it yet)
    */
-  answer: 'accepted' | 'refused' | 'no answer' | 'not running' | 'not asked';
+  answer: 'accepted' | 'refused' | 'no answer' | 'not running' | 'not asked' | 'listening';
+  /**
+   * R6 (H140): the process that noted it, for a local surface's own note (noteAnswered, noteListening): its pid and when it
+   * started (src/ops/process-proof.ts writerState), so a server killed before it could note its stop is seen gone at once
+   */
+  pid?: number;
+  started?: string;
   at: string;
   /** words worth keeping: "3 models", "HTTP 200", "studio running, page connected" */
   detail?: string;
@@ -108,22 +122,56 @@ function forNow(c: ConnectionCheck | undefined, now: string | null): { check?: C
   return { check: c };
 }
 
-/** R5 lead: how often a surface that answers its own page notes it (noteAnswered); well inside LIVE_FOR_MS. */
-export const SELF_NOTE_MS = 5 * 60_000;
+/**
+ * R6 (H140; the R5 interaction review, claim c: the companion's card stayed "● live · answered just now" for 2.5 min after the
+ * Workbench that served it quit): a local surface Timmy starts on demand (the companion, Studio) is live only while it answers,
+ * an answer observed within this bound (the card says so), and only while the process that noted it runs.
+ */
+export const SURFACE_LIVE_MS = 60_000;
+/** R6 (H140): the bound in the cards' words. */
+export const SURFACE_LIVE_WORDS = 'an answer within the last 60 s';
+/** R5 lead: how often a surface that answers its own page notes it (noteAnswered). R6 (H140): well inside SURFACE_LIVE_MS. */
+export const SELF_NOTE_MS = 20_000;
+/** R6 (H140): the words a surface's start note gives (src/companion/server.ts, src/studio/server.ts): a start is no answer. */
+export const STARTED_LISTENING = 'it started listening';
+
+/** R6 (H140): this process, as a surface's own note names it (its pid and start: src/ops/process-proof.ts). */
+const noter = (): { pid: number; started: string } => ({ pid: THIS_PROCESS.pid, started: THIS_PROCESS.started });
 
 /**
  * R5 lead (H133's note: Studio's own page showed "Open Studio" as its next step until a `timmy workspace check` had seen
  * Studio): a local surface that just answered a request records that answer, as a check made then would have seen it. At
  * most once in SELF_NOTE_MS, so a page asking every few seconds writes little; true when it wrote. A record that cannot be
  * written leaves the frame as the last check left it (nothing is said that was not observed).
+ *
+ * R6 (H140): the note names the process that answered (pid and start), so the frame sees that process gone at once when it
+ * was killed before it could note its stop; and a start ("it started listening") is no answer: it is noted as listening
+ * (noteListening), never as accepted.
  */
 export function noteAnswered(id: 'studio' | 'companion', detail: string, env: Env = process.env, now = Date.now()): boolean {
+  if (detail === STARTED_LISTENING) return noteListening(id, env, now);
   try {
     const rec = readConnections(env);
     const last = rec.checks[id];
     const asked = surfaceAddress(id, env);
-    if (last?.answer === 'accepted' && (last.asked ?? asked) === asked && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
-    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail, asked } } }, env);
+    const me = noter();
+    const mine = last?.pid === me.pid && last?.started === me.started;
+    if (last?.answer === 'accepted' && mine && (last.asked ?? asked) === asked && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail, asked, ...me } } }, env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * R6 (H140): a local surface that started listening records it, naming its process: the frame says it listens (not live: no
+ * answer is seen yet) while that process runs, and not running once it does not. A record that cannot be written changes nothing.
+ */
+export function noteListening(id: 'studio' | 'companion', env: Env = process.env, now = Date.now()): boolean {
+  try {
+    const rec = readConnections(env);
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'listening', at: new Date(now).toISOString(), detail: STARTED_LISTENING, asked: surfaceAddress(id, env), ...noter() } } }, env);
     return true;
   } catch {
     return false;
@@ -176,8 +224,9 @@ export function connectionOf(
       return { ...base, state: 'unreachable', words: `no answer when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
     }
     if (c.answer === 'accepted') {
+      // R6 (H140): the bound is said beside the answer, so "live" says how current it has to be
       return fresh
-        ? { ...base, state: 'live', words: `answered ${ago(c.at, o.now)}${said}`, observedAt: c.at }
+        ? { ...base, state: 'live', words: `answered ${ago(c.at, o.now)}${said}; live: ${LIVE_FOR_WORDS}`, observedAt: c.at }
         : { ...base, state: o.configured ? 'configured' : 'unknown', words: `answered ${ago(c.at, o.now)}${said}; check again to see it now`, observedAt: c.at };
     }
   }
@@ -185,21 +234,66 @@ export function connectionOf(
   return { ...base, state: 'configured', words: 'set up, not checked yet (a setting is not a connection)', observedAt: null };
 }
 
+/** R6 (H140): whether the process a surface's note names runs now (src/ops/process-proof.ts writerState); a test's seam. */
+export type ProcessAlive = (owner: { pid?: unknown; started?: unknown }) => 'alive' | 'gone' | 'unknown';
+
+/**
+ * R6 (H140; the R5 interaction review, claim c, and REMAINING-DEFECTS #4, #33): a local surface Timmy starts on demand (the
+ * companion, Studio), from its last observation. It is `live` (green) only while a current observation says it answered at
+ * the address the frame names: an answer (its own page's request, or `timmy workspace check`) seen within SURFACE_LIVE_MS,
+ * by a process that still runs. A start record is no answer: listening, it is `configured` and says nothing has asked it. A
+ * process gone without noting its stop (killed) is seen at once by its pid: not running, with what it last did. An answer
+ * older than the bound is `configured`, says how old, and names the check that asks it now.
+ */
+export function surfaceConnectionOf(
+  id: 'companion' | 'studio', label: string,
+  o: { check?: ConnectionCheck; now: number; setup: string | null; startWords: string; detail?: string; alive?: ProcessAlive },
+): WorkspaceConnection {
+  return surfaceReading(id, label, o).connection;
+}
+
+/** R6 (H140): what a local surface's last observation says of it now: its card, and whether it runs (`surfaces` in the frame). */
+type SurfaceNow = 'live' | 'listening' | 'not live' | 'gone' | 'not running' | 'no answer' | 'refused' | 'not checked';
+
+function surfaceReading(
+  id: 'companion' | 'studio', label: string,
+  o: { check?: ConnectionCheck; now: number; setup: string | null; startWords: string; detail?: string; alive?: ProcessAlive },
+): { connection: WorkspaceConnection; now: SurfaceNow } {
+  const base = { id, label, setup: o.setup, ...(o.detail ? { detail: o.detail } : {}) };
+  const c = o.check;
+  const out = (now: SurfaceNow, state: WorkspaceConnection['state'], words: string, observedAt: string | null) => ({ now, connection: { ...base, state, words, observedAt } });
+  if (!c || !Number.isFinite(Date.parse(c.at)) || c.answer === 'not asked') return out('not checked', 'configured', 'set up, not checked yet (a setting is not a connection)', null);
+  const when = ago(c.at, o.now);
+  const said = c.detail ? ` (${c.detail})` : '';
+  if (c.answer === 'refused') return out('refused', 'refused', `refused when checked ${when}${said}`, c.at);
+  if (c.answer === 'not running') return out('not running', 'configured', `not running when checked ${when}; ${o.startWords}`, c.at);
+  if (c.answer === 'no answer') return out('no answer', 'unreachable', `no answer when checked ${when}${said}`, c.at);
+  // Studio's card says what answered: its canvas server (an answer says nothing of whether anyone opened Studio)
+  const who = id === 'studio' ? 'its canvas server ' : '';
+  // a note of its own names its process (a check names none): answered then, or listening since it started
+  const own = c.pid !== undefined;
+  // the process that noted it, gone (killed before it could note its stop): said at once, whatever the time
+  if (own && (o.alive ?? writerState)({ pid: c.pid, started: c.started }) === 'gone') {
+    const last = c.answer === 'listening' ? `${who || 'it '}started listening ${when} and nothing had asked it` : `${who || 'it '}last answered ${when}${said}`;
+    return out('gone', 'configured', `not running: the process that served it ended without noting its stop; ${last}; ${o.startWords}`, c.at);
+  }
+  if (c.answer === 'listening') {
+    return out('listening', 'configured', `${who ? `${who}is ` : ''}listening, since it started ${when}; nothing has asked it since, so not live: a page, or timmy workspace check, asks it`, c.at);
+  }
+  if (o.now - Date.parse(c.at) <= SURFACE_LIVE_MS) return out('live', 'live', `${who}answered ${when}${said}; live: ${SURFACE_LIVE_WORDS}`, c.at);
+  return out('not live', 'configured', `${who}last answered ${when}${said}; not live: no answer in the last 60 s (timmy workspace check asks it now)`, c.at);
+}
+
 /**
  * R5 lead (H131's finding): the Ollama address the check asks and the card names: the one the local chat asks (the setup's
  * record, src/agent/chat-route.ts resolveChatRoute) when the chat is set to the local model, else OLLAMA_HOST (or
  * OLLAMA_BASE_URL), else Ollama's default. Before, the card and the check asked OLLAMA_HOST or the default while the chat
- * asked the recorded address, so a chat answering at its own address could be said "no answer".
+ * asked the recorded address, so a chat answering at its own address could be said "no answer". R6 (H140): one function for
+ * /tools and the frame alike (src/capabilities/ollama-route.ts), so /tools asks that address too.
  */
-export function ollamaAddress(env: Env = process.env): string {
-  try {
-    const r = resolveChatRoute({ env });
-    if (r.kind === 'local' && !('error' in r.at)) return r.at.origin;
-  } catch { /* the setup's record not readable: the address below */ }
-  return (env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-}
+export { ollamaAddress };
 
-function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown']): WorkspaceConnection[] {
+function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}, mcpCalls: readonly McpCallRead[] = []): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
@@ -238,18 +332,41 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
     words: cloudroom ? 'a Core is recorded; not checked here (no live call is authorized)' : 'no Core connected; the FAKE backend is the simulation',
   });
   const wbSet = readWorkbenchSettings(env).settings;
+  // R6 (H140): the companion and Studio are live only while they answer (surfaceConnectionOf: a bound, and the process that
+  // noted the answer still running), at the address the frame names (forNow)
   const cp = forNow(checks.companion, surfaceAddress('companion', env));
-  out.push(connectionOf('companion', 'Browser companion', {
-    configured: true, setupWords: '', setup: 'timmy watch', check: cp.check, now, startWords: 'c in the Workbench, or timmy watch, starts it',
+  const companion = surfaceReading('companion', 'Browser companion', {
+    setup: 'timmy watch', check: cp.check, now, startWords: 'c in the Workbench, or timmy watch, starts it', ...(alive ? { alive } : {}),
     detail: `at ${companionBaseUrl(env)}; ${wbSet.openCompanionAtStart ? 'opens with the workspace' : 'opens when asked'}${cp.other ? `; not checked at this address yet (the last check asked ${cp.other})` : ''}`,
-  }));
+  });
+  out.push(companion.connection);
+  surfaces.companion = companion.now;
   const st = forNow(checks.studio, surfaceAddress('studio', env));
-  out.push(connectionOf('studio', 'Timmy Studio (tldraw)', {
-    configured: true, setupWords: '', setup: 'timmy studio', check: st.check, now, startWords: 's in the Workbench, or timmy studio, starts it',
+  const studio = surfaceReading('studio', 'Timmy Studio (tldraw)', {
+    setup: 'timmy studio', check: st.check, now, startWords: 's in the Workbench, or timmy studio, starts it', ...(alive ? { alive } : {}),
     detail: `at ${studioBaseUrl(env)}; ${wbSet.openStudioAtStart ? 'opens with the workspace' : 'opens when asked'}${st.other ? `; not checked at this address yet (the last check asked ${st.other})` : ''}`,
-  }));
-  for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
-    out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
+  });
+  out.push(studio.connection);
+  surfaces.studio = studio.now;
+  // R6 lead (H146's finding: after calls through both routes, `timmy workspace check` still said "? unknown · this computer
+  // keeps no check of it yet"): each MCP-to-CLI route is said from the project's own call records (<project>/.timmy/mcp, H142's):
+  // its newest call that answered or failed is its last observation, live only within the bound, as every other connection's
+  // answer; with none recorded it is unknown, and says how to make one. A record sealed by a receipt that names its bytes says so.
+  for (const [id, route, label, cmd] of [['mcp-sdk', 'sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
+    const timeOf = (x: McpCallRead): number => { const t = Date.parse(x.record.ended_at); return Number.isFinite(t) ? t : Date.parse(x.record.started_at) || 0; };
+    const c = mcpCalls.filter((x) => x.record.route === route && (x.record.outcome === 'answered' || x.record.outcome === 'failed')).sort((a, b) => timeOf(b) - timeOf(a))[0];
+    if (!c) {
+      out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; no call through it is recorded in this project yet' });
+      continue;
+    }
+    const r = c.record;
+    const at = Number.isFinite(Date.parse(r.ended_at)) ? r.ended_at : r.started_at;
+    const sealed = c.check.status === 'verified' ? `its record sealed by receipt ${c.check.receipt}` : `its record not sealed by a receipt that names it (${c.check.reason})`;
+    const detail = `${r.tool} on ${r.server}${r.outcome === 'answered' && r.isError ? ', which answered with an error' : ''}${r.outcome === 'failed' && r.error ? ` (${String(r.error).slice(0, 120)})` : ''}; ${sealed}`;
+    const when = ago(at, now);
+    if (r.outcome === 'failed') out.push({ id, label, state: 'unreachable', observedAt: at, setup: cmd, detail, words: `the newest call through it failed ${when}` });
+    else if (now - Date.parse(at) <= LIVE_FOR_MS) out.push({ id, label, state: 'live', observedAt: at, setup: cmd, detail, words: `a call through it answered ${when}; live: ${LIVE_FOR_WORDS}` });
+    else out.push({ id, label, state: 'configured', observedAt: at, setup: cmd, detail, words: `a call through it answered ${when}; a new call shows it now` });
   }
   if (!wb.route.ready) unknown.push({ field: 'chat', why: chatNotReady(wb.route) });
   return out;
@@ -282,7 +399,10 @@ export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>
 export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'free-only' | 'key-refused';
 export interface ChatFix { problem: ChatProblem; label: string; command: string; effect: WorkspaceAction['effect']; words: string }
 
-export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = []): ChatFix | null {
+export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = [], o: { start?: string } = {}): ChatFix | null {
+  // R6 (H140): how Ollama is started here (src/capabilities/ollama-route.ts ollamaStartStep: `ollama serve` with its program,
+  // else this platform's install); `ollama serve` when the caller does not say
+  const start = o.start ?? 'ollama serve';
   // R5 lead (the rehearsal): the project's newest chat turn on that route that ended by itself (answered or failed; a stopped
   // turn says nothing about the route) is a newer observation than an older check: answered after the check, no fix is
   // offered for the failure the check saw (the connection keeps the check's own words and time); failed, the check stands.
@@ -301,18 +421,18 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
     if (/no model is chosen/i.test(first)) {
       // R5 lead (the QA round, defect 3): the models to choose from are what Ollama lists, so while the last check found
       // nothing answering at the address the chat asks, starting Ollama comes first (choosing one would list nothing)
-      const o = conn('ollama');
-      if (o && (o.state === 'unreachable' || o.state === 'refused') && !answeredSince(o, 'ollama')) {
-        return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (ollama serve), check again, then choose one with /model.` };
+      const ol = conn('ollama');
+      if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
+        return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (${start}), check again, then choose one with /model.` };
       }
       return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
     }
     return { problem: 'ollama-address', label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change', words: chatNotReady(route) };
   }
   if (route.kind === 'local' && route.ready) {
-    const o = conn('ollama');
-    if (o && (o.state === 'unreachable' || o.state === 'refused') && !answeredSince(o, 'ollama')) {
-      return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. Start it (ollama serve), then check again.` };
+    const ol = conn('ollama');
+    if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
+      return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. Start it (${start}), then check again.` };
     }
     return null;
   }
@@ -341,7 +461,7 @@ const act = (n: number, label: string, command: string, o: Partial<Pick<Workspac
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] } = {}): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[]; ollamaStart?: string } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
@@ -349,7 +469,7 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
   const lastOp = wb.jobs.find((j) => j.operation)?.operation ?? null;
   // R5 lead (the finish line, item 3): what keeps chat from answering, and its own fix (null: nothing known to be wrong)
-  const fix = chatFix(wb.route, o.connections ?? [], o.recentTurns ?? []);
+  const fix = chatFix(wb.route, o.connections ?? [], o.recentTurns ?? [], o.ollamaStart ? { start: o.ollamaStart } : {});
   const homeNext: WorkspaceAction = fix
     ? act(1, fix.label, fix.command, { primary: true, effect: fix.effect })
     : waiting > 0
@@ -386,10 +506,13 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
-    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open)
+    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open).
+    // R6 lead (the R5 interaction review, item 13): the label names what the command does and leaves the drawing request
+    // to words, since the strip shows the command after it; before, "… then ask /canvas open" read as if /canvas open were
+    // the request. Short enough that an 800 px strip stays two rows.
     studio: [
       o.studioRunning
-        ? act(1, 'Ask Timmy to draw: /canvas open in the REPL, then ask', '/canvas open', { primary: true, effect: 'local change' })
+        ? act(1, 'Open the canvas for Timmy (then ask it to draw)', '/canvas open', { primary: true, effect: 'local change' })
         : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
@@ -442,32 +565,47 @@ const TURN_SURFACE: Readonly<Record<string, string>> = { repl: 'the REPL', monit
  * log gives it (src/workbench/hub.ts turnEntry): how it ended, where, the model, its receipt and how long it took.
  */
 export function turnOf(t: TurnRow): WorkspaceTurn {
-  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
+  // R6 (H140): how it ended in the one table's words (src/contracts/stop-words.ts): a stopped turn always says who asked
+  const ended = turnEndWords({ state: t.state, surface: t.surface, ...(t.stoppedBy ? { stoppedBy: t.stoppedBy } : {}) });
   return {
     receipt: t.receipt, surface: t.surface, state: t.state, model: t.model, at: t.at, ...(t.ms !== undefined ? { ms: t.ms } : {}),
     operation: t.operation, route: t.local === true ? 'local' : t.local === false ? 'remote' : 'openrouter',
-    words: `turn ${ended}${t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? ` (asked from ${TURN_SURFACE[t.stoppedBy as keyof typeof TURN_SURFACE] ?? t.stoppedBy})` : ''} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+    words: `turn ${ended} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
     ...(t.turn ? { turn: t.turn } : {}), ...(t.stoppedBy ? { stoppedBy: t.stoppedBy } : {}),
   };
 }
 
+/** R6 (H140): whether the `ollama` program is on this PATH (the caller's lookup, else the PATH itself): it only words a step. */
+const ollamaCli = (d: StateDeps, env: Env): boolean => {
+  try { return d.onPath ? d.onPath('ollama') !== null : onPathNow('ollama', env); } catch { return false; }
+};
+
 /** The frame. Reads the records only; the same inputs give the same revision. */
-export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}): Promise<WorkspaceFrame> {
+export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platform?: NodeJS.Platform; alive?: ProcessAlive } = {}): Promise<WorkspaceFrame> {
   const env = d.env ?? process.env;
   const cwd = d.cwd ?? process.cwd();
   const now = d.now ?? Date.now();
   const wb = await workbenchJson(d);
   const unknown: WorkspaceFrame['unknown'] = [];
-  const connections = connectionsOf(env, cwd, wb, now, unknown);
+  // R6 (H140): one reading of the process table for the frame's notes (src/ops/process-proof.ts withProcessTable)
+  const read: Partial<Record<'companion' | 'studio', SurfaceNow>> = {};
+  // R6 lead: the project's chain, read once (the MCP routes' records and the chat turns are checked against it)
+  let chainRead: Receipt[] | null = null;
+  const chainOnce = (): Receipt[] => (chainRead ??= d.chain ? d.chain() : chainOf(wb.project.root, env));
+  const mcpCalls = (() => { try { return readMcpCalls(wb.project.root, chainOnce(), 12).list; } catch { return []; } })();
+  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls));
   const settings = readWorkbenchSettings(env).settings;
+  // R6 (H140): a surface runs when it answered within the bound (live), or while the process that noted it listening runs (it
+  // listens; nothing has asked it yet); not running when a check or its own note says so, or its process is gone; else unknown
   const surface = (id: 'companion' | 'studio', openAtStart: boolean) => {
-    const c = connections.find((x) => x.id === id);
-    const running = c?.state === 'live';
-    return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
+    const now_ = read[id];
+    const running = now_ === 'live' || now_ === 'listening';
+    const state = running ? 'running' as const : now_ === 'not running' || now_ === 'gone' || now_ === 'no answer' || now_ === 'refused' ? 'not running' as const : 'unknown' as const;
+    return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state };
   };
   // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
   // an older check
-  const recentTurns = (() => { try { return readTurns(d.chain ? d.chain() : chainOf(wb.project.root, env), wb.project.root); } catch { return []; } })();
+  const recentTurns = (() => { try { return readTurns(chainOnce(), wb.project.root); } catch { return []; } })();
   // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one (a
   // hold whose process has ended is no running turn). R5 lead (the QA round, defect 9; the operator's 22:32 order, item 1):
   // a hold whose own receipt is sealed has ended (the hold is let go a moment after): matched by the turn's identity, its
@@ -486,7 +624,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns }),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns, ollamaStart: ollamaStartStep({ cli: ollamaCli(d, env), platform: d.platform ?? process.platform }) }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,

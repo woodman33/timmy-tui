@@ -9,6 +9,7 @@
 // The transcript and its live region are the REPL's own; the terminal is FAKE (a sink that records what is written, and the
 // region's own rows are what it draws): the real terminal is tests/repl-stream-wrap-pty.test.ts's.
 import { describe, expect, it } from 'vitest';
+import { turnStopHead } from '../src/contracts/stop-words.js';
 import { detectCapabilities } from '../src/term/capabilities.js';
 import { LiveRegion } from '../src/term/live-region.js';
 import { measuredFromPalette, TIMMY_NIGHT } from '../src/term/palettes.js';
@@ -148,7 +149,8 @@ describe('the live answer keeps streaming at any width (R6 H141; the interaction
     t.handle({ type: 'cancelled', at: 'after-tools', tools: [{ tool: 'file_read', outcome: 'completed' }] });
     // the stop: the line's rest is in scrollback, above the cancel line, and the live region draws none of it again
     expect(drawn()).toEqual([]);
-    expect(committed().pop()).toContain('Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.');
+    // (the stop-words table's words, R6 H140: a chat turn stopped here is "Stopped by you.")
+    expect(committed().pop()).toContain(`${turnStopHead()} 1 tool finished; no answer yet. Nothing was rolled back.`);
     t.endTurn();
     const once = atOnce([
       { type: 'text', id: 'a', text: PARAGRAPH.slice(0, 600) },
@@ -158,7 +160,7 @@ describe('the live answer keeps streaming at any width (R6 H141; the interaction
       { type: 'cancelled', at: 'after-tools', tools: [{ tool: 'file_read', outcome: 'completed' }] },
     ], 80);
     expect(committed().join('\n') + '\n').toBe(once);
-    expect(once).toContain('Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.');
+    expect(once).toContain(`${turnStopHead()} 1 tool finished; no answer yet. Nothing was rolled back.`);
   });
 
   it('into a pipe (no live region) the answer\'s lines are the same, in the same order', () => {

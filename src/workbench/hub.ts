@@ -28,6 +28,7 @@ import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
+import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
 import { clock, count, cut, lineCells, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
 
@@ -572,8 +573,9 @@ export function previewView(c: ViewCtx): View {
     for (const u of f.unknown) lines.push(...para(`${u.field}: ${u.why}`, 'secondary', '  '));
   }
   lines.push(blank);
-  // R5 (H131; the QA of e7f853e, defect 2): the companion says these in words too; only Studio draws (its canvas)
-  lines.push(...para('A terminal says these in words, and so does the companion (c), in a browser page; Studio (s) draws the canvas. No Timmy surface draws images or 3D yet.'));
+  // R5 (H131; the QA of e7f853e, defect 2): the companion says these in words too; only Studio draws (its canvas). R6 lead (H146's
+  // finding): the companion draws images now (Home's newest, tab 5's observations, a run's image outputs); 3D only as views
+  lines.push(...para('A terminal says these in words. The companion (c) draws them in a browser page: Home the newest images, tab 5 an observation with what was measured over it, a run\'s detail its image outputs; Studio (s) draws the canvas. No Timmy surface draws interactive 3D yet.'));
   return { lines, items: [] };
 }
 
@@ -639,9 +641,10 @@ export function turnStopHere(t: TurnNow): string {
 }
 
 /** R5 (H131; the QA of e7f853e, item 17): how a sealed turn ended, in the frame's words (src/ops/workspace-frame.ts turnOf):
- *  "stopped (asked from the companion)" when a surface other than the one that sent it asked it to stop. */
+ *  "stopped (asked from the companion)" when a surface other than the one that sent it asked it to stop. R6 (H140): from the
+ *  one table (src/contracts/stop-words.ts), here the Workbench: "stopped by you" where the Workbench asked. */
 export function turnEndWords(t: Pick<TurnRow, 'state' | 'surface' | 'stoppedBy'>): string {
-  return t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? `stopped (asked from ${SURFACE_NAME[t.stoppedBy] ?? t.stoppedBy})` : t.state;
+  return stopTableEndWords(t, 'workbench'); // R6 (H140): the one table's words, who asked always said ("by you" where the Workbench asked)
 }
 
 // ── Chat: the pipeline row and the event log ───────────────────────────────────

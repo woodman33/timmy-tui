@@ -45,3 +45,66 @@ const TimmyPanels = (() => {
     host.replaceChildren(p);
   }
 })();
+
+// R6 lead: a preview seen at size. A thumbnail the page draws small (the run detail's image, Home's newest images, a board
+// artifact) sits in a button marked data-enlarge="<what it is>"; pressing it (a click, Enter or Space) opens the image it holds
+// in a dialog over the page, as large as the window allows and never larger than its own pixels, with those words under it.
+// Esc, Close or a click beside the image closes it, and the keyboard goes back to the thumbnail. The image is the one the page
+// already holds (its data: address or blob): nothing is fetched again and nothing leaves the page.
+const TimmyEnlarge = (() => {
+  let dialog = null;
+  let from = null;
+  function build() {
+    const d = document.createElement('dialog');
+    d.className = 'enlarge';
+    d.setAttribute('aria-label', 'The image at size');
+    const fig = document.createElement('figure');
+    fig.className = 'enlarge-fig';
+    const img = document.createElement('img');
+    img.className = 'enlarge-img';
+    img.alt = '';
+    const cap = document.createElement('figcaption');
+    cap.className = 'enlarge-cap';
+    fig.append(img, cap);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'btn-action enlarge-close';
+    close.textContent = 'Close (Esc)';
+    close.addEventListener('click', () => d.close());
+    d.append(fig, close);
+    // a click on the dialog's own backdrop area (not on the image or its words) closes it
+    d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+    // the keyboard goes back to the thumbnail; the page may have drawn it again meanwhile (a new frame), so the one with the
+    // same words is found when the first is gone
+    d.addEventListener('close', () => {
+      img.removeAttribute('src');
+      const words = from ? from.getAttribute('data-enlarge') : null;
+      const back = from && document.contains(from) ? from : (words !== null ? document.querySelector(`[data-enlarge="${CSS.escape(words)}"]`) : null);
+      if (back) back.focus();
+      from = null;
+    });
+    document.body.append(d);
+    return d;
+  }
+  function open(src, words, trigger) {
+    if (!src) return false;
+    dialog = dialog || build();
+    const img = dialog.querySelector('.enlarge-img');
+    img.src = src;
+    img.alt = words || 'the image at size';
+    dialog.querySelector('.enlarge-cap').textContent = words || '';
+    from = trigger || null;
+    if (typeof dialog.showModal === 'function') { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute('open', '');
+    dialog.querySelector('.enlarge-close').focus();
+    return true;
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('[data-enlarge]') : null;
+    if (!b) return;
+    const img = b.matches('img') ? b : b.querySelector('img');
+    if (!img || !img.getAttribute('src')) return;
+    e.preventDefault();
+    open(img.currentSrc || img.src, b.getAttribute('data-enlarge') || img.alt, b);
+  });
+  return { open };
+})();

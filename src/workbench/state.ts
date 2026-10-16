@@ -25,12 +25,11 @@ import { jobOutcome } from '../ops/outcome.js';
 import {
   listProjectFiles, listProjects, projectId, readActiveProject, readProjectFile, sameFolder, type ActiveProject, type FileRole, type ProjectFile,
 } from '../project/index.js';
-import { waitingApprovals } from '../repl/approvals.js';
 import { endedByRecovery } from '../repl/job-command.js';
 import { workflowForBoard } from '../repl/board-nodes.js';
 import { connectWorkflow, NODE_GLYPH, type NodeWord } from '../repl/board-workflows.js';
 import { chatTurnOf } from '../repl/seal.js';
-import { gatherDecisions, type DecisionsView } from '../room/decisions.js';
+import type { DecisionsView } from '../room/decisions.js';
 import { jobJudgement, judgeIndex, type JobMark } from '../room/judge.js';
 import { shortReceipt, turnOllama, type RoomTools } from '../room/index.js';
 import { tildePath, scrubHomes } from '../utils/home-scrub.js';
@@ -41,8 +40,10 @@ import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { blockCount } from '../workflows/block-count.js';
 import { findUpmd, findWorkflowDocs } from '../workflows/upmd.js';
 import { readOperationRecord } from '../ops/operations.js';
+import { waitingNow } from '../ops/waiting.js';
 import type { PipelineStage, PipelineView, TurnRow } from './model.js';
 import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
+import { ruleWords } from './output.js';
 import { took } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -349,7 +350,8 @@ export function jobEvents(rows: readonly JobRow[], max = 60, shown?: string): Ac
 /** R4 (H112): the lines jobs printed, as Activity's events (src/workbench/output.ts OutputWatch keeps them as first seen). */
 export function outputEvents(lines: ReadonlyArray<{ job: string; n: number; text: string; at: string; operation?: string }>, o: { where?: (job: string) => string; bar?: string } = {}): ActivityEvent[] {
   const bar = o.bar ?? '│';
-  return lines.map((l) => ({ at: l.at, key: `out:${l.job}:${l.n}`, seq: l.n, job: l.job, ...(l.operation ? { operation: l.operation } : {}), words: `${l.job} ${bar} ${l.text}${o.where?.(l.job) ?? ''}`, output: true }));
+  // R6 (H141): a rule the job printed is said as its output, not drawn as a line across Activity (src/workbench/output.ts ruleWords)
+  return lines.map((l) => ({ at: l.at, key: `out:${l.job}:${l.n}`, seq: l.n, job: l.job, ...(l.operation ? { operation: l.operation } : {}), words: `${l.job} ${bar} ${ruleWords(l.text) ?? l.text}${o.where?.(l.job) ?? ''}`, output: true }));
 }
 
 /** How many events Activity keeps (the newest). */
@@ -406,15 +408,11 @@ export function readRoute(env: Env = process.env, cwd: string = process.cwd()): 
 
 // ── what waits on a person ─────────────────────────────────────────────────────
 
+// R6 (H140; the lead at integration): the one waiting count. The Workbench counts what every surface and process counts
+// (src/ops/waiting.ts waitingNow: this process's NEEDS YOU boxes and other live processes', the recorded /tools check, and
+// Studio's pending drafts), so its run line, Activity and Control Room say the same number as the companion and Studio.
 export function readDecisions(root: string, jobs: readonly JobRecord[], chain: readonly Receipt[], tools?: RoomTools, env: Env = process.env): DecisionsView {
-  try {
-    return gatherDecisions({
-      root, projectId: projectId(root), jobs: jobs.filter((j) => sameFolder(j.root, root)), chain, approvals: waitingApprovals(),
-      ...(tools ? { tools } : {}), scrub: (t) => scrubHomes(t.split(root).join('.'), env as NodeJS.ProcessEnv),
-    });
-  } catch (e) {
-    return { items: [], more: 0, total: 0, otherSetup: 0, tools: {}, operations: {}, notes: [`What waits on you could not be read: ${e instanceof Error ? e.message : String(e)}`] };
-  }
+  return waitingNow({ root, jobs, chain, ...(tools ? { tools } : {}), env });
 }
 
 // ── the project's last conversation ────────────────────────────────────────────

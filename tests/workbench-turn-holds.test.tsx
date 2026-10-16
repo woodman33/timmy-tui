@@ -13,7 +13,8 @@
 //   (watchTurnStop): a cancelled turn's receipt (FIXTURE facts) naming its turn_id and who asked, then its hold let go;
 // - a stale hold is a hold file this test writes for a process that does not run;
 // - the run detail's and the chat session's producers have none; the browser opener and the server starts are FAKE.
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -29,7 +30,8 @@ import { Controller } from '../src/workbench/controller.js';
 import { glyphsFor, screenText } from '../src/workbench/frame.js';
 import { routeOf } from '../src/workbench/hub.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
-import { HOLDS_EVERY_MS } from '../src/workbench/turn-holds.js';
+import { HOLDS_EVERY_MS, HoldWatch, quickTurns } from '../src/workbench/turn-holds.js';
+import { useProcessTableReader } from '../src/ops/process-proof.js';
 import { pageActions } from '../src/workbench/views.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -217,6 +219,50 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     await c.runAction(stopAction()!);
     expect(c.ui.flash?.text).toMatch(/^Nothing stopped \(Enter\): that chat turn is not being answered now \(it ended, or it was never this project's\)\.$|^3 Stop the turn: not now: only while a turn runs$|^No chat turn is being answered: nothing to stop\.$/);
     expect(asked).toEqual(['workbench']);
+  }, 30_000);
+
+  it('the holds read at once without the process table (quickTurns): a fresh hold of a process that runs is its writer\'s; an older one asks the process table (null); a hold whose process has ended is no turn; the watch proves a held turn by the table only every few seconds', async () => {
+    const p = trayProject('holds-quick');
+    const dir = join(p.root, CHAT_TURNS_DIR);
+    mkdirSync(dir, { recursive: true });
+    // FIXTURE: another process (a sleep this test starts) as a hold's writer, its start as the process table would give it
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    try {
+      const started = new Date().toISOString();
+      const hold = (name: string, pid: number) => writeFileSync(join(dir, name), `${JSON.stringify({ schema: CHAT_HOLD_SCHEMA, surface: 'repl', owner: { pid, started }, taken: started })}\n`);
+      const fresh = `t${child.pid}-0000aaaa.json`;
+      hold(fresh, child.pid!);
+      // the process table is never asked for a fresh hold (counted through process-proof's own seam)
+      let asked = 0;
+      const put = useProcessTableReader({ all: () => { asked++; return undefined; }, one: () => { asked++; return undefined; } });
+      try {
+        expect(quickTurns(p.root)).toEqual([{ id: fresh.slice(0, -5), surface: 'repl', pid: child.pid, taken: started, mine: false, proof: 'alive' }]);
+        expect(asked).toBe(0);
+        // a hold written 60 s ago: its pid may be another process's now, so the full reading proves it
+        utimesSync(join(dir, fresh), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+        expect(quickTurns(p.root)).toBeNull();
+        expect(asked).toBe(0);
+      } finally { put(); }
+      rmSync(join(dir, fresh));
+      // a hold whose process has ended: no turn, left where it is
+      hold(`t${2 ** 22 + 9}-0000bbbb.json`, 2 ** 22 + 9);
+      expect(quickTurns(p.root)).toEqual([]);
+      expect(readdirSync(dir)).toContain(`t${2 ** 22 + 9}-0000bbbb.json`);
+
+      // the watch: a fresh hold is seen with no process-table reading; it is proven by the table once PROOF_MS has passed
+      hold(fresh, child.pid!);
+      const seen: string[][] = [];
+      let tableReads = 0;
+      const put2 = useProcessTableReader({ all: () => { tableReads++; return undefined; }, one: (pid) => { tableReads++; return pid === child.pid ? 0 : undefined; } });
+      const w = new HoldWatch({ root: () => p.root, now: () => Date.now(), onChange: (r) => seen.push(r.turns.map((t) => t.id)), everyMs: 20, proofMs: 400, watch: false });
+      try {
+        w.start();
+        expect(seen[0]).toEqual([fresh.slice(0, -5)]);
+        expect(tableReads).toBe(0);
+        await sleep(700);
+        expect(tableReads).toBeGreaterThan(0);
+      } finally { w.close(); put2(); }
+    } finally { child.kill('SIGKILL'); }
   }, 30_000);
 
   it('a hold whose writer has ended is no running turn: the run line stays idle, x says nothing runs, and the hold is left where it is (read only)', async () => {

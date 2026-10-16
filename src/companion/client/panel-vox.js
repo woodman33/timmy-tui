@@ -22,6 +22,8 @@
   const LIST_EVERY_MS = 2000;
   const LIST_AT_LEAST_MS = 10000;
   const CACHE_MAX = 24;
+  // R6 lead: the smallest a label over the image is drawn on screen, in CSS pixels
+  const LABEL_PX = 11;
   // the record an address names (…?vox=<id> or …#t=…&vox=<id>, as the Workbench's c can give it: src/workbench/voxvision-tab.ts
   // voxCompanionHint), read as this script loads, before the page takes the fragment out of the address
   const HINT = (() => { try { const m = /[?#&]vox=(v[0-9a-f]{8})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? m[1] : ''; } catch (e) { return ''; } })();
@@ -293,7 +295,19 @@
     const ask = ++S.imageAsk;
     imageData(p.id, im.path).then((url) => {
       if (ask !== S.imageAsk) return;
-      img.addEventListener('load', () => { if (ask === S.imageAsk) drawOverlays(over, im, mine, img); }, { once: true });
+      img.addEventListener('load', () => {
+        if (ask !== S.imageAsk) return;
+        drawOverlays(over, im, mine, img);
+        // R6 lead: drawn again when the stage's size changes (a window resized, the tab shown after it was drawn hidden),
+        // so the labels keep their size on screen
+        if (typeof ResizeObserver === 'function') {
+          let seen = Math.round(over.getBoundingClientRect().width);
+          new ResizeObserver(() => {
+            const w = Math.round(over.getBoundingClientRect().width);
+            if (w > 0 && w !== seen && ask === S.imageAsk && over.isConnected) { seen = w; redrawSelection(); }
+          }).observe(over);
+        }
+      }, { once: true });
       img.src = url;
     }, (err) => {
       if (ask !== S.imageAsk) return;
@@ -340,6 +354,14 @@
     over.dataset.frame = `${W}x${H}`;
     const big = Math.max(W, H);
     const font = Math.max(8, Math.round(big / 42));
+    // R6 lead (the lead's capture at 1376x768, 12:40 PT): a label is read on screen. The overlay draws in the image's own
+    // pixels and the stage shows the image scaled (the review demo's 640 px image at about 267 px), so 1/42 of the image came
+    // out near 6 px. Each label is now at least LABEL_PX on screen (the overlay's scale, as preserveAspectRatio meet draws it),
+    // in two lines, what it is, then its provenance and evidence, each inside the image's frame; a line the frame cannot hold
+    // at that size is shortened with "…" (its whole words stay in its title, the tree and the values).
+    const box = over.getBoundingClientRect();
+    const scale = box.width > 0 && box.height > 0 ? Math.min(box.width / W, box.height / H) : 0;
+    const least = scale > 0 ? LABEL_PX / scale : 0;
     const sel = S.entity;
     const kids = [];
     for (const o of list) {
@@ -360,13 +382,24 @@
       if (!shape) continue;
       shape.append(svg('title', null, `${o.label} · provenance ${o.provenance} · evidence ${o.evidence}`));
       kids.push(shape);
-      // the label stays inside the image's frame: smaller when wider than the frame, moved left when it would run past its
-      // right edge (a monospace advance of 0.62 em, as Monaspace Argon's)
-      const words = `${o.label} · ${o.provenance} · ${o.evidence}`;
-      const fit = Math.min(font, W / (words.length * 0.62));
-      const x = Math.max(0, Math.min(at[0], W - words.length * fit * 0.62));
-      const y = o.shape === 'point' ? Math.min(H, at[1] - font + fit) : Math.max(fit, at[1] - fit * 0.35);
-      kids.push(svg('text', { class: `ov-label${on ? ' is-selected' : ''}`, x, y, 'font-size': fit, 'data-vox-entity': o.entity, 'data-label-for': o.id }, words));
+      // the label stays inside the image's frame: smaller when wider than the frame (never under LABEL_PX on screen), moved
+      // left when it would run past its right edge (a monospace advance of 0.62 em, as Monaspace Argon's). Its text is still
+      // `<label> · <provenance> · <evidence>`, in two lines.
+      // (the space between the two parts ends the first line, so the second starts at the label's left edge)
+      let lines = [`${o.label} `, `· ${o.provenance} · ${o.evidence}`];
+      const ems = (s) => s.length * 0.62;
+      let fit = Math.min(Math.max(font, least), W / Math.max(...lines.map(ems)));
+      if (fit < least) {
+        fit = least;
+        const max = Math.max(2, Math.floor(W / (fit * 0.62)));
+        lines = lines.map((s) => (s.length > max ? `${s.slice(0, max - 1)}…` : s));
+      }
+      const step = fit * 1.2;
+      const x = Math.max(0, Math.min(at[0], W - Math.max(...lines.map(ems)) * fit));
+      const below = o.shape === 'point' ? at[1] - font + fit : at[1] - fit * 0.35 - step;
+      const y = Math.max(fit, Math.min(below, H - step));
+      kids.push(svg('text', { class: `ov-label${on ? ' is-selected' : ''}`, x, y, 'font-size': fit, 'data-vox-entity': o.entity, 'data-label-for': o.id },
+        svg('tspan', { x, y }, lines[0]), svg('tspan', { x, dy: step }, lines[1])));
     }
     put(over, ...kids);
   }
@@ -592,5 +625,20 @@
       S.revision = rev;
       return refreshList();
     },
+  });
+
+  // R6 lead: another part of the page opens one of the shown project's records here (Home's newest images: "Open in
+  // VoxVision"): the record named is chosen now when the list already holds it, else when the list is next read.
+  document.addEventListener('timmy:vox-show', (e) => {
+    const id = e && e.detail && typeof e.detail.id === 'string' && /^v[0-9a-f]{8}$/.test(e.detail.id) ? e.detail.id : '';
+    if (!id) return;
+    S.wanted = id;
+    const row = S.root && S.list ? S.list.records.find((r) => r.id === id) : null;
+    if (row && S.sel !== id) {
+      S.sel = id;
+      S.previewSig = JSON.stringify([row.status, row.check, row.receipt.short || '', row.receipt.verified, row.counts]);
+      markList();
+      void loadPreview(id);
+    } else if (!row) S.sel = '';
   });
 })();

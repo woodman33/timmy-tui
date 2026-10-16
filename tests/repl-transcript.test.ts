@@ -278,7 +278,7 @@ describe('a cancel that does not land at once', () => {
     t.handle({ type: 'cancelled' });
     t.endTurn();
     expect(err.writes.at(-1)).not.toContain(note);
-    expect(out.text).toContain('Cancelled.');
+    expect(out.text).toContain('Stopped by you.');
   });
 
   it('R5 lead: a turn another surface asked to stop says who asked, in the shared stop words, then what its tools did', () => {
@@ -288,7 +288,7 @@ describe('a cancel that does not land at once', () => {
     t.handle({ type: 'text', id: 'a', text: 'Line 1' });
     t.handle({ type: 'cancelled', at: 'before-tools', tools: [], by: 'the companion' });
     t.endTurn();
-    expect(out.text).toMatch(/Cancelled: stopped, asked from the companion\. /);
+    expect(out.text).toMatch(/Stopped, asked from the companion\. /);
   });
 });
 

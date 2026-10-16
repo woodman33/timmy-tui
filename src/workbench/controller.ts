@@ -23,6 +23,7 @@ import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
 import { operationRel } from '../ops/operations.js';
 import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
+import { JOB_CANCELLED } from '../contracts/stop-words.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
@@ -103,6 +104,9 @@ export interface ControllerDeps {
   holdWatch?: boolean;
   /** R5 (H131; the finish line, item 3): the chat's fixes done here (absent: the real modules; a test gives FAKE ones) */
   setup?: Partial<SetupDeps>;
+  /** R6 (H141): each key (and paste) as one entry: what arrived, the box and field it met, what took it (run.ts writes them
+   *  to the file TIMMY_WORKBENCH_KEYLOG names; a test reads them) */
+  keyLog?: (entry: Record<string, unknown>) => void;
 }
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
@@ -528,8 +532,10 @@ export class Controller {
       this.readPipeline();
     }
     if (this.ui.workspace === 'control') this.readTab('control');
-    this.refreshFrame();
     this.emit();
+    // the frame's reading (a heavy one) a moment later, so the run line is drawn first
+    const t = setTimeout(() => this.refreshFrame(), 40);
+    t.unref?.();
   }
 
   /** R6 (H141): the holds read now, before a key that acts on a turn answers (x, Enter on Stop the turn). */
@@ -547,7 +553,7 @@ export class Controller {
   }
 
   dispose(): void {
-    if (this.rememberTimer) { clearTimeout(this.rememberTimer); this.rememberTimer = null; this.rememberNow(); }
+    this.rememberPending();
     // a box nobody can answer any more is denied (deny is the default); a message being sent is stopped
     if (this.ui.overlay?.kind === 'needs-you') this.ui.overlay.answer('deny');
     this.turnAbort?.abort();
@@ -749,11 +755,27 @@ export class Controller {
   // ── keys ──────────────────────────────────────────────────────────────────────
 
   key(input: string, k: Partial<Key>): void {
+    // R6 (H141): with a key log (run.ts, under TIMMY_WORKBENCH_KEYLOG), each key is one line of it: what arrived, the box and
+    // the field it met, and what took it. Made to find why CI's slice B `a` did not expand Activity (it was taken, and collapsed
+    // an Activity remembered expanded: rememberPending)
+    const log = this.d.keyLog;
+    if (!log) { this.takeKey(input, k); return; }
+    const before = { overlay: this.ui.overlay?.kind ?? null, field: this.ui.input.field, activity: this.ui.activityOpen };
+    const took = this.takeKey(input, k);
+    // (what is typed into a field is said by its length only: a message or a name is not written to the log)
+    const said = before.field && !k.return && !k.escape ? `(${[...input].length} characters)` : input;
+    log({ input: said, key: Object.keys(k).filter((n) => k[n as keyof Key] === true), ...before, took, ...(this.ui.activityOpen !== before.activity ? { activityNow: this.ui.activityOpen } : {}) });
+  }
+
+  /** What a key does here; it says what took it (the key log's words). */
+  private takeKey(input: string, k: Partial<Key>): string {
+    // R6 (H141): once the Workbench is ending, a key acts on nothing (it is read, so it is not left for the shell either)
+    if (this.disposed) return 'nothing: the Workbench is ending';
     const o = this.ui.overlay;
     // a NEEDS YOU box takes every key until it is answered; Ctrl+C denies it (a second Ctrl+C then quits)
-    if (o?.kind === 'needs-you') { this.needsYouKey(o, input, k); return; }
-    if (k.ctrl && input === 'c') { void this.quit(); return; }
-    if (o?.kind === 'quit') { if (k.escape) { this.ui.overlay = null; this.emit(); } return; }
+    if (o?.kind === 'needs-you') return `the NEEDS YOU box: ${this.needsYouKey(o, input, k)}`;
+    if (k.ctrl && input === 'c') { void this.quit(); return 'Ctrl+C: quit'; }
+    if (o?.kind === 'quit') { if (k.escape) { this.ui.overlay = null; this.emit(); return 'the quit box: Esc closed it'; } return 'the quit box: not its key'; }
     // R4 (H112; found in tmux under load): keys that arrive together reach Ink as one chunk, and Ink takes a chunk with a
     // carriage return in it for text: "Workflows\r" lost its Enter, and two quick Enters ("\r\r") did nothing at all. A
     // chunk of text followed by Enters is that text, then each Enter (one press each: a second Run is refused by its own
@@ -762,9 +784,9 @@ export class Controller {
     if (chunk && this.ui.input.field !== 'composer' && (chunk[1] === '' || this.ui.input.field || chunk[1].startsWith('/'))) {
       if (chunk[1]) this.key(chunk[1], {});
       for (let i = 0; i < chunk[2].length; i++) this.key('\r', { return: true });
-      return;
+      return 'keys that arrived together: the text, then each Enter';
     }
-    if (this.ui.input.field) { this.typing(input, k); return; }
+    if (this.ui.input.field) { const field = this.ui.input.field; this.typing(input, k); return `the field ${field}`; }
     // R4 lead (2026-10-12; found by the integrated suite under load, tests/workbench-interaction-pty.test.ts): keys typed one
     // after another that reach Ink together (the Workbench busy drawing, the computer loaded) come as one chunk, which no key
     // matched, so all of them were lost: "a" then "/" did nothing, "a" then Tab did nothing. Outside a field, with no box
@@ -777,60 +799,61 @@ export class Controller {
         // taken up to it, and the Workbench says so (a terminal that does not mark pastes could deliver one this way)
         if (!this.ui.input.field && TAKEN_ALONE.has(ch)) {
           this.say(`Keys that arrived together were taken up to ${ch}: ${ch === 'x' ? 'x stops the current job' : 'c, s, C and S start or stop a server'}, so it is taken only when pressed alone. Press it again.`, 'attention');
-          return;
+          return `keys that arrived together, taken up to ${ch}`;
         }
         this.key(ch === '\t' ? '' : ch, ch === '\t' ? { tab: true } : {});
       }
-      return;
+      return 'keys that arrived together, each in turn';
     }
     // R4 (H112): what the key acts on is the item the person sees selected, wherever the records have moved it since
     this.reselect();
-    if (o && this.overlayKey(o, input, k)) return;
-    if (k.escape) { this.escape(); return; }
-    if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return; }
-    if (k.upArrow || (!k.ctrl && input === 'k')) { this.move(-1); return; }
-    if (k.downArrow || (!k.ctrl && input === 'j')) { this.move(1); return; }
-    if (k.pageUp) { this.move(-this.page()); return; }
-    if (k.pageDown) { this.move(this.page()); return; }
+    if (o && this.overlayKey(o, input, k)) return `the box ${o.kind}`;
+    if (k.escape) { this.escape(); return 'Esc'; }
+    if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return 'Tab'; }
+    if (k.upArrow || (!k.ctrl && input === 'k')) { this.move(-1); return 'up'; }
+    if (k.downArrow || (!k.ctrl && input === 'j')) { this.move(1); return 'down'; }
+    if (k.pageUp) { this.move(-this.page()); return 'PgUp'; }
+    if (k.pageDown) { this.move(this.page()); return 'PgDn'; }
     // Home and End: the first or last tab of the right dock (as the reference's tabs), else the first or last row (End on
     // Activity follows its newest again)
     if (k.home || k.end) {
       if (this.ui.focus === 'right') { this.ui.tab = RIGHT_TABS[k.home ? 0 : RIGHT_TABS.length - 1]; this.remember(); this.emit(); } else this.move(k.home ? -1e6 : 1e6);
-      return;
+      return k.home ? 'Home' : 'End';
     }
-    if (k.leftArrow) { this.side(-1); return; }
-    if (k.rightArrow) { this.side(1); return; }
-    if (k.return) { void this.enter(); return; }
+    if (k.leftArrow) { this.side(-1); return 'left'; }
+    if (k.rightArrow) { this.side(1); return 'right'; }
+    if (k.return) { void this.enter(); return 'Enter'; }
     // R4 lead: keys typed quickly can arrive as one chunk ("/Control" over a busy terminal or SSH): a chunk that starts with
     // the search key opens the search with the rest as its text. Any other chunk of several characters is not taken as
     // keys (a paste never presses x, Stop, or any other key here).
-    if (input.length > 1 && input.startsWith('/') && !k.ctrl && !k.meta) { this.search(); this.typing(input.slice(1), {}); return; }
+    if (input.length > 1 && input.startsWith('/') && !k.ctrl && !k.meta) { this.search(); this.typing(input.slice(1), {}); return 'the search, the rest typed into it'; }
     // R5 (H131): 1 to 9, then 0: the ten tabs (no field has the keyboard here: a field took the key above)
     if (!k.ctrl && !k.meta && /^[0-9]$/.test(input)) {
       const t = tabByKey(input);
-      if (t) { this.selectPage(t.id); return; }
+      if (t) { this.selectPage(t.id); return `tab ${input}`; }
     }
     switch (input) {
-      case '?': this.open({ kind: 'help' }); return;
-      case 'p': this.openPicker(); return;
-      case 'n': this.openNew(); return;
-      case '/': this.search(); return;
-      case 'c': void this.showCompanion(); return;
-      case 's': void this.showStudio(); return;
-      case 'C': void this.d.companion.stopServing().then((w) => this.say(w)); return;
-      case 'S': void this.d.studio.stopServing().then((w) => this.say(w)); return;
-      case ',': this.open({ kind: 'settings' }); return;
-      case 'x': void this.stop(); return;
-      case 'i': this.toggleRight(); return;
-      case 'g': this.toggleNav(); return;
-      case 'z': this.ui.focusMode = !this.ui.focusMode; this.ui.navOpen = false; this.ui.rightOpen = false; this.ui.focus = 'center'; this.emit(); return;
-      case 'a': this.ui.activityOpen = !this.ui.activityOpen; this.remember(); this.emit(); return;
-      case 'A': this.ui.activityAll = !this.ui.activityAll; this.emit(); return;
-      case 'f': this.ui.related = !this.ui.related; this.emit(); return;
-      case 'r': this.refresh(); return;
-      case 'm': this.toggleMouse(); return;
-      default:
+      case '?': this.open({ kind: 'help' }); break;
+      case 'p': this.openPicker(); break;
+      case 'n': this.openNew(); break;
+      case '/': this.search(); break;
+      case 'c': void this.showCompanion(); break;
+      case 's': void this.showStudio(); break;
+      case 'C': void this.d.companion.stopServing().then((w) => this.say(w)); break;
+      case 'S': void this.d.studio.stopServing().then((w) => this.say(w)); break;
+      case ',': this.open({ kind: 'settings' }); break;
+      case 'x': void this.stop(); break;
+      case 'i': this.toggleRight(); break;
+      case 'g': this.toggleNav(); break;
+      case 'z': this.ui.focusMode = !this.ui.focusMode; this.ui.navOpen = false; this.ui.rightOpen = false; this.ui.focus = 'center'; this.emit(); break;
+      case 'a': this.ui.activityOpen = !this.ui.activityOpen; this.remember(); this.emit(); break;
+      case 'A': this.ui.activityAll = !this.ui.activityAll; this.emit(); break;
+      case 'f': this.ui.related = !this.ui.related; this.emit(); break;
+      case 'r': this.refresh(); break;
+      case 'm': this.toggleMouse(); break;
+      default: return 'no key here';
     }
+    return `the key ${input}`;
   }
 
   private page(): number {
@@ -1415,18 +1438,21 @@ export class Controller {
    */
   paste(text: string): void {
     const o = this.ui.overlay;
+    // (the key log, R6 H141: a paste is one line of it too, its length only)
+    this.d.keyLog?.({ paste: text.length, overlay: o?.kind ?? null, field: this.ui.input.field, took: o?.kind === 'needs-you' ? 'the NEEDS YOU box: denied' : this.ui.input.field ? `the field ${this.ui.input.field}` : 'nothing: said so' });
     if (o?.kind === 'needs-you') { o.answer('deny'); return; }
     if (this.ui.input.field) { this.typing(text.replace(/\r\n|\r|\n/g, ' '), {}); return; }
     this.say('Pasted text is taken only into a field (the composer, a search, a name): nothing was done with it.', 'secondary');
   }
 
-  private needsYouKey(o: Extract<NonNullable<Overlay>, { kind: 'needs-you' }>, input: string, k: Partial<Key>): void {
+  private needsYouKey(o: Extract<NonNullable<Overlay>, { kind: 'needs-you' }>, input: string, k: Partial<Key>): string {
     // Ctrl+C denies; so does a paste, whatever it holds (a pasted y never approves)
-    if ((k.ctrl && input === 'c') || (!k.ctrl && !k.meta && input.length > 1)) { o.answer('deny'); return; }
-    if (this.now() - o.since < (this.d.guardMs ?? GUARD_MS)) return;
-    if (input === 'y') o.answer('once');
-    else if (input === 'a' && o.req.session !== false) o.answer('session');
-    else if (input === 'n' || k.escape || k.return) o.answer('deny');
+    if ((k.ctrl && input === 'c') || (!k.ctrl && !k.meta && input.length > 1)) { o.answer('deny'); return 'denied (Ctrl+C, or keys that came together)'; }
+    if (this.now() - o.since < (this.d.guardMs ?? GUARD_MS)) return 'within its type-ahead guard: no answer';
+    if (input === 'y') { o.answer('once'); return 'allowed once'; }
+    if (input === 'a' && o.req.session !== false) { o.answer('session'); return 'allowed for this session'; }
+    if (input === 'n' || k.escape || k.return) { o.answer('deny'); return 'denied'; }
+    return 'not one of its keys';
   }
 
   private refreshDecisions(): void {
@@ -1497,11 +1523,26 @@ export class Controller {
   private rememberTimer: NodeJS.Timeout | null = null;
 
   /** Remember layout: the workspace, the right tab and Activity, per project (only when the setting is on), written at most
-   *  every 1.5 s (a run of arrow keys is one write) and once more as the Workbench ends. */
+   *  every 1.5 s (a run of arrow keys is one write), and at once before another project is shown and as the Workbench ends
+   *  (rememberPending). */
   private remember(): void {
     if (!this.ui.settings.settings.rememberLayout || this.rememberTimer) return;
     this.rememberTimer = setTimeout(() => { this.rememberTimer = null; this.rememberNow(); }, 1500);
     this.rememberTimer.unref?.();
+  }
+
+  /**
+   * R6 (H141; CI's workbench-pty slice B at 3b6a5b6 and after, as at bfb7fe5, 94e0c01, 0cbadd0 and aa247e5): a layout change
+   * not written yet is written now, for the project it was made in. Before, a change made within 1.5 s of a project switch
+   * was written when its timer fired, under the project shown by then: the project left kept the layout from before its last
+   * change (slice A's Activity, expanded then collapsed, came back expanded, so slice B's `a` collapsed it), and the project
+   * switched to was given the other's.
+   */
+  private rememberPending(): void {
+    if (!this.rememberTimer) return;
+    clearTimeout(this.rememberTimer);
+    this.rememberTimer = null;
+    this.rememberNow();
   }
 
   private rememberNow(): void {
@@ -1513,6 +1554,7 @@ export class Controller {
     if (prev && prev.workspace === next.workspace && prev.tab === next.tab && prev.activity === next.activity) return;
     const r = (this.d.settings?.save ?? ((x: WorkbenchSettings) => saveSettings(x, this.d.env)))({ ...s, layouts: { ...s.layouts, [id]: next } });
     if (r.ok) this.ui.settings = { settings: { ...s, layouts: { ...s.layouts, [id]: next } }, path: r.path, state: 'saved' };
+    this.d.keyLog?.({ event: r.ok ? 'layout remembered' : `layout not remembered: ${r.error}`, project: this.data.project.name, ...next });
   }
 
   // ── projects ──────────────────────────────────────────────────────────────────
@@ -1553,6 +1595,8 @@ export class Controller {
   }
 
   private use(p: { name: string; root: string; chosen: boolean }, why: string): void {
+    // R6 (H141): the layout of the project left, as it is now, is its own (written before another project is shown)
+    this.rememberPending();
     this.data = { ...this.emptyData(projectView(p, this.d.env)), caps: this.data.caps, starters: this.data.starters, boards: this.data.boards };
     this.chainCache = null;
     this.ui.follow = null;
@@ -1567,6 +1611,7 @@ export class Controller {
     this.ui.toolsQuery = '';
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
     if (remembered) { this.ui.workspace = remembered.workspace; this.ui.page = pageOf(remembered.workspace); this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
+    this.d.keyLog?.({ event: `now in ${p.name}: ${why}`, activity: this.ui.activityOpen });
     // R5 (H131): another project's frame: the last one is not shown for it (its actions and log are the other project's)
     delete this.ui.cursor.top;
     this.readAll();
@@ -1581,8 +1626,18 @@ export class Controller {
 
   async showCompanion(why = ''): Promise<void> {
     this.say(`Companion · Show${why ? ` ${why}` : ''}: starting it on 127.0.0.1 if this Workbench has none…`, 'secondary');
-    const w = await this.d.companion.show();
+    const w = await this.d.companion.show(this.companionWhere());
     this.say(w, /did not start|failed/.test(w) ? 'failure' : 'text');
+  }
+
+  /**
+   * R6 (H141; the lead's ask, after 66a1323): where Companion · Show opens the page: on the tab shown here (the page has the same
+   * ten tabs, by the same ids), and from tab 5 on the VoxVision record selected there (H143's vox=<id>, which the page's
+   * VoxVision panel opens).
+   */
+  private companionWhere(): string {
+    const sel = this.ui.page === 'voxvision' ? this.selected() : null;
+    return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
   }
 
   async showStudio(why = ''): Promise<void> {
@@ -1790,7 +1845,7 @@ export class Controller {
    */
   mouse(m: MouseReport): void {
     const f = this.last;
-    if (!f || !this.ui.mouse) return;
+    if (!f || !this.ui.mouse || this.disposed) return;
     const x = m.x - 1;
     const y = m.y - 1;
     const hit = (Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>).find(([, d]) => x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h);
@@ -1905,12 +1960,18 @@ export class Controller {
     const others = live.filter((j) => j.owner !== 'workbench');
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
     const after = others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`);
-    if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was stopped as the Workbench ended.`));
+    if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was ${JOB_CANCELLED} as the Workbench ended.`)); // R6 (H140): a job's word
+    // R6 (H141; the interaction review of a77d80d, defect 15): a chat turn being answered here stops with the Workbench too
+    const turnHere = this.data.turn?.state === 'sending' && this.turnAbort !== null;
+    if (turnHere) after.push('The chat turn being answered here was stopped as the Workbench ended.');
     this.dispose();
     try { await this.d.workspace.close({ by: 'as the Workbench ended' }); } catch { /* said below */ }
     try { await this.d.companion.stopServing(); } catch { /* ends with the process */ }
     try { await this.d.studio.stopServing(); } catch { /* ends with the process */ }
-    this.d.onExit?.(130, after);
+    // R6 (H141; the interaction review of a77d80d, defect 15): the exit code says whether the quit cut anything short: 130 when it
+    // stopped a job or a chat turn this Workbench started (they were interrupted), 0 when it stopped nothing (another session's
+    // work keeps running). Every quit exited 130 before, the documented one with nothing running included.
+    this.d.onExit?.(own.length || turnHere ? 130 : 0, after);
   }
 }
 

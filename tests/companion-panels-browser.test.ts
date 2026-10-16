@@ -56,7 +56,7 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
   }
 
   it('serves the registry and both panels\' files, and loads them before the page\'s own code', async () => {
-    for (const f of ['/panels.js', '/panel-studio.js', '/panel-vox.js', '/panel-tools.js']) {
+    for (const f of ['/panels.js', '/panel-studio.js', '/panel-vox.js', '/panel-tools.js', '/panel-run.js']) {
       const r = await fetch(new URL(f, companion.url));
       expect(r.status, f).toBe(200);
       expect(r.headers.get('content-type') ?? '', f).toMatch(/javascript/);

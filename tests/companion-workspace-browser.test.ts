@@ -241,7 +241,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       studioAnswered();
       await studioLive(page);
       expect(await page.evaluate(() => (window as unknown as { __changes: number }).__changes)).toBeGreaterThan(0);
-      expect(await page.textContent('#home-connections [data-connection="studio"] .conn-words')).toBe('answered just now (FAKE: studio running)');
+      // R6 (H140): what answered is Studio's canvas server, a check's answer, and the card says the bound of live
+      expect(await page.textContent('#home-connections [data-connection="studio"] .conn-words')).toBe('its canvas server answered just now (FAKE: studio running); live: an answer within the last 60 s');
       // the card focused before the redraw has focus in its new self
       expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.connection)).toBe('ollama');
     } finally { await context.close(); }

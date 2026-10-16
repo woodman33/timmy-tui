@@ -74,6 +74,16 @@ export interface CompanionDeps {
   start?: (port: number) => Promise<Pick<CompanionServer, 'port' | 'url' | 'address' | 'shutdown'>>;
 }
 
+/** R6 (H141): what Companion · Show passes to the page in its address: names and plain values only (`tab=tools`, `vox=v1a2b3c4d`). */
+const PAGE_QUERY = /^[a-z]+=[A-Za-z0-9_-]+(?:&[a-z]+=[A-Za-z0-9_-]+)*$/;
+
+/** `url` with `query` before its fragment (the token stays after #, never in the query a browser sends). */
+export function withQuery(url: string, query: string): string {
+  const at = url.indexOf('#');
+  const [base, fragment] = at < 0 ? [url, ''] : [url.slice(0, at), url.slice(at)];
+  return `${base}${base.includes('?') ? '&' : '?'}${query}${fragment}`;
+}
+
 /** The ports Companion · Show tries, in order: the one asked for and the next three (as the monitor tries them), then any free one. */
 export function companionPorts(asked: number): number[] {
   return [asked, asked + 1, asked + 2, asked + 3].filter((p) => p <= 65535).concat(0);
@@ -96,8 +106,11 @@ export class CompanionControl {
    * Starts it once, on 127.0.0.1, then opens it; a second press opens the same one. R4 lead (the r26 dry run found the
    * Workbench's companion on a free port while the preview asked for TIMMY_COMPANION_PORT): it asks for the port `timmy watch`
    * asks for (TIMMY_COMPANION_PORT, else 3001), then the next three, then any free port, and says so when it took another.
+   * R6 (H141; the lead's ask, after 66a1323): `where` is the page's query, `tab=<id>` (and on tab 5 `&vox=<record id>`): the
+   * page opens on that tab (src/companion/client/companion.js reads ?tab=, panel-vox.js ?vox=), and the words name the address
+   * with it. Anything else in it is not passed on.
    */
-  async show(): Promise<string> {
+  async show(where = ''): Promise<string> {
     if (this.starting) { await this.starting; }
     if (!this.server) {
       const start = this.d.start ?? (async (port: number) => (await import('../companion/server.js')).startCompanionServer(port));
@@ -123,7 +136,8 @@ export class CompanionControl {
     }
     const s = this.server;
     const note = this.asked === null ? null : companionPortNote(this.asked, s.port);
-    this.last = `${openPage(s.url, true, this.d.opener, 'The Companion', s.address)}${note ? `. ${note}` : ''}`;
+    const q = PAGE_QUERY.test(where) ? where : '';
+    this.last = `${openPage(q ? withQuery(s.url, q) : s.url, true, this.d.opener, 'The Companion', q ? withQuery(s.address, q) : s.address)}${note ? `. ${note}` : ''}`;
     return this.last;
   }
 

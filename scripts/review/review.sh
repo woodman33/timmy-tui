@@ -89,8 +89,9 @@ case "$cmd" in
 Timmy review package, revision $REV
 
   ./review.sh install        install the packed Timmy into $BOX/prefix (Node 24 or later; npm fetches its dependencies)
-  ./review.sh demo           a blank Timmy home with two projects: "blank", then "tray" (from the tray-workflow starter),
-                             which is the active project at the end
+  ./review.sh demo           a new Timmy home with three projects: "first-light" (timmy init's own), "blank", then "tray"
+                             (from the tray-workflow starter), the active project at the end, with scripted review content:
+                             a VoxVision observation of the package's example image and a report run that writes four files
   ./review.sh workbench      the terminal Workbench, the main space: keys 1-9 and 0 are the ten tabs, c shows the browser
                              companion, s shows Studio, ? lists every key (on the active project; p switches)
   ./review.sh check          the shared workspace frame, after asking each service once with a free request
@@ -126,6 +127,28 @@ HELP
       run timmy init --yes && \
       run timmy act '/project new blank' && \
       run timmy act '/project new tray --from tray-workflow' ) || die "the demo setup stopped (above)" 1
+    # R6 (H143, H144): demo content in tray, so its previews show records Timmy made, not empty boxes: the package's example
+    # image as a reference with a VoxVision observation of it (tab 5), and a workflow run that writes four files and a log
+    # (tab 3, and the companion's run detail). Scripted review content, said so in each file; a step this computer cannot do
+    # says why and the demo goes on.
+    TRAY="$H/timmy/projects/tray"
+    EX="$PREFIX/node_modules/timmy-tui/examples/visual-tools/preview.png"
+    if [ -f "$EX" ] && [ -d "$TRAY" ]; then
+      say ""
+      say "Demo content (scripted, for the review) in tray: a reference image, its VoxVision observation, a report run"
+      ( cd "$TRAY" && run timmy act "/add $EX" --project "$TRAY" ) && \
+        { ( cd "$TRAY" && run timmy act '/detect refs/preview.png color 255,255,255' --wait --project "$TRAY" ) || \
+          say "VoxVision: Look needs setup on this computer (above); tab 5 shows that record as it is"; }
+      mkdir -p "$TRAY/refs" && cp "$EX" "$TRAY/refs/demo-preview.png" && \
+        printf '%s\n' '# Report (review demo)' '' '```bash [name:report]' 'mkdir -p out' \
+          "printf '# Report\\n\\nWritten by the review demo run.\\n' > out/report.md" 'cp recipes/tray.params.json out/tray.params.json' \
+          "printf '{\"demo\":\"review\",\"ok\":true}\\n' > out/summary.json" 'cp refs/demo-preview.png out/preview.png' \
+          'for i in $(seq 1 60); do echo "demo line $i"; done' '```' > "$TRAY/REPORT.md" && \
+        { ( cd "$TRAY" && run timmy act '/run REPORT.md report' --wait --project "$TRAY" ) || \
+          say "The report run did not finish (above; a workflow needs upmd: ./review.sh where names it): tab 3 shows the run as it is"; }
+    else
+      say "The package's example image is not in this install ($EX): the demo content (VoxVision, the report run) was skipped"
+    fi
     say ""
     say "Ready: ./review.sh workbench (tray, the active project now), or ./review.sh repl"
     ;;

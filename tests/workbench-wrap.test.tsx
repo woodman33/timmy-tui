@@ -106,8 +106,9 @@ describe('words given room (R5 H131, the QA round)', () => {
     await until('the frame', () => c.data.frame);
     c.key('?', {});
     expect(c.ui.overlay?.kind).toBe('help');
-    // (a terminal tall enough to show the whole sheet; its width, and so its rows, are those of 160x45)
-    const help = rows(c, 'center', 160, 120);
+    // (a terminal tall enough to show the whole sheet; its width, and so its rows, are those of 160x45. R6 lead: 140 rows, as
+    // the Marks legend names the companion's and Studio's own live bound)
+    const help = rows(c, 'center', 160, 140);
     expect(help.filter((r) => r.endsWith('…')), 'a row of the keys sheet cut').toEqual([]);
     for (const [k, w] of HELP) expect(joined(help), `the keys sheet's ${k}`).toContain(`${k} ${w}`.replace(/\s+/g, ' '));
     expect(rows(c, 'center', 160, 45).every((r) => visibleWidth(r) <= c.frame(160, 45).regions.center!.rect.w - 4)).toBe(true);
@@ -179,7 +180,7 @@ describe('words given room (R5 H131, the QA round)', () => {
     c.key('6', {});
     expect(c.ui.workspace).toBe('create3d');
     const said = (): string => rows(c, 'center', 160, 45).slice(0, 3).join(' ').replace(/\s+/g, ' ');
-    const line = 'No Timmy surface draws 3D, images or a motion timeline yet: each app below draws its own, once it is set up. [c] Companion · Show: this tab\'s actions, in words; [s] Studio · Show: the canvas (2D shapes and cards).';
+    const line = 'No Timmy surface draws interactive 3D or a motion timeline yet: each app below draws its own, once set up. [c] Companion · Show: this tab\'s actions, in words; [s] Studio · Show: the canvas (2D shapes and cards).';
     expect(said()).toContain(line);
     c.key('6', {});
     expect(c.ui.workspace).toBe('motion');

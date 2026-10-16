@@ -215,7 +215,8 @@ describe('the frame', () => {
     ];
     const f = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain as never, onPath: () => null, now: NOW });
     expect(f.chat?.turns).toEqual([
-      { receipt: '22222222', surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: '2026-10-15T19:59:00.000Z', ms: 4100, operation: 'o22222222', route: 'local', words: 'turn stopped in the Workbench · qwen3:8b · receipt 22222222 · 4.1 s' },
+      // R6 (H140): a stopped turn always says who asked (its own surface when no other one did)
+      { receipt: '22222222', surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: '2026-10-15T19:59:00.000Z', ms: 4100, operation: 'o22222222', route: 'local', words: 'turn stopped (asked from the Workbench) in the Workbench · qwen3:8b · receipt 22222222 · 4.1 s' },
       { receipt: '11111111', surface: 'repl', state: 'answered', model: 'm/free:free', at: '2026-10-15T19:58:00.000Z', ms: 1200, operation: 'o11111111', route: 'openrouter', words: 'turn answered in the REPL · m/free:free · receipt 11111111 · 1.2 s' },
     ]);
     // a receipt keeps hashes only, and so does the frame
@@ -231,6 +232,35 @@ describe('the frame', () => {
     expect(f.connections.find((c) => c.id === 'openrouter')?.state).toBe('not set up');
     expect(f.connections.find((c) => c.id === 'mcp-sdk')?.state).toBe('unknown');
     expect(f.connections.find((c) => c.id === 'mcporter')?.state).toBe('unknown');
+  });
+  it('R6 lead (H146\'s finding): says each MCP route from the project\'s own newest call record: live within the bound, older configured, failed unreachable', async () => {
+    const { writeMcpCall } = await import('../src/connectors/mcp-records.js');
+    const { appendReceipt, readChain } = await import('../src/utils/receipts.js');
+    const seal = (input: Parameters<typeof appendReceipt>[1]): string => appendReceipt('runs', input, project).hash.slice(7, 15);
+    const call = (route: 'sdk' | 'mcporter', at: number, outcome: 'answered' | 'failed', tool: string): void => {
+      const w = writeMcpCall({ root: project, project: 'proj', seal }, {
+        route, server: { name: 'node fake-fixture-server.js', transport: 'stdio' }, tool, args: { text: 'FAKE' },
+        startedAt: new Date(at - 1500).toISOString(), endedAt: new Date(at).toISOString(), ms: 1500, outcome, called: true,
+        isError: outcome === 'answered' ? false : null, ...(outcome === 'failed' ? { error: 'FAKE: the server closed' } : {}),
+        annotations: null, notes: ['FAKE: written by tests/workspace-frame.test.ts'],
+      });
+      expect(w.ok).toBe(true);
+    };
+    // the SDK route answered 2 min ago, then (older) mcporter answered 2 h ago; a failed mcporter call older still
+    call('mcporter', NOW - 3 * 3600_000, 'failed', 'fake_fail');
+    call('mcporter', NOW - 2 * 3600_000, 'answered', 'fake_echo');
+    call('sdk', NOW - 2 * 60_000, 'answered', 'fake_echo');
+    const chain = readChain('runs', project);
+    const f = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain, onPath: () => null, now: NOW });
+    const sdk = f.connections.find((c) => c.id === 'mcp-sdk')!;
+    const mcporter = f.connections.find((c) => c.id === 'mcporter')!;
+    expect(sdk).toMatchObject({ state: 'live', observedAt: new Date(NOW - 2 * 60_000).toISOString(), words: expect.stringMatching(/^a call through it answered 2 min ago; live: /) });
+    expect(sdk.detail).toMatch(/^fake_echo on node fake-fixture-server\.js; its record sealed by receipt [0-9a-f]{8}$/);
+    expect(mcporter).toMatchObject({ state: 'configured', words: 'a call through it answered 2 h ago; a new call shows it now' });
+    // a failed call, the newest of its route: unreachable, with what failed
+    call('mcporter', NOW - 60_000, 'failed', 'fake_fail');
+    const g = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => readChain('runs', project), onPath: () => null, now: NOW });
+    expect(g.connections.find((c) => c.id === 'mcporter')).toMatchObject({ state: 'unreachable', words: 'the newest call through it failed 1 min ago', detail: expect.stringContaining('fake_fail on node fake-fixture-server.js (FAKE: the server closed)') });
   });
   it('gives the same revision for the same records, a new one when a record changes, and never counts its own time', async () => {
     const a = await frame(NOW);
@@ -391,6 +421,37 @@ describe('the command', () => {
     expect(lines).toMatch(/Revision [0-9a-f]{16}/);
     expect(lines).not.toContain('\x1b[');
   });
+  it('R6 (H140; the R5 interaction review, defect 10): prints the chat turns in words, how each ended and who asked, a turn being answered first', async () => {
+    const id = projectId(project);
+    const hash = (n: number) => `sha256_${String(n).repeat(64).slice(0, 64)}`;
+    // FAKE receipts as the seal writes them: a REPL turn the companion stopped, a Workbench turn stopped there, one answered
+    const chain = [
+      { kind: 'turn', subject: 'repl · 1 step', project_id: id, status: 'ok', ts: '2026-10-15T19:57:00.000Z', ms: 900, model_resolved: 'qwen3:8b', hash: hash(1) },
+      { kind: 'chat', subject: 'chat.turn · workbench · cancelled · 0 steps · qwen3:8b', project_id: id, status: 'cancelled', ts: '2026-10-15T19:58:00.000Z', ms: 4400, model_resolved: 'qwen3:8b', operation_id: 'o22222222', hash: hash(2) },
+      { kind: 'turn', subject: 'repl · cancelled · 0 steps', project_id: id, status: 'cancelled', stopped_by: 'companion', ts: '2026-10-15T19:59:00.000Z', ms: 2200, model_resolved: 'qwen3:8b', hash: hash(3) },
+    ];
+    const t = takeTurnHold(project, 'repl');
+    expect(t.ok).toBe(true);
+    try {
+      const f = await buildWorkspaceFrame({ env, cwd: project, jobs: () => [], chain: () => chain as never, onPath: () => null, now: NOW });
+      const lines = workspaceLines(f);
+      const at = lines.findIndex((l) => l.startsWith('Chat turns'));
+      expect(lines[at]).toBe('Chat turns (3 sealed, 1 being answered; every surface\'s, read from their receipts)');
+      expect(lines[at + 1]).toMatch(/^ {2}▶ running {2}a chat turn is being answered in the REPL · since \d{4}-\d{2}-\d{2}T/);
+      expect(lines.slice(at + 2, at + 5)).toEqual([
+        '  ■ 2026-10-15T19:59:00.000Z  turn stopped (asked from the companion) in the REPL · qwen3:8b · receipt 33333333 · 2.2 s',
+        '  ■ 2026-10-15T19:58:00.000Z  turn stopped (asked from the Workbench) in the Workbench · qwen3:8b · receipt 22222222 · 4.4 s  (op o22222222)',
+        '  ✓ 2026-10-15T19:57:00.000Z  turn answered in the REPL · qwen3:8b · receipt 11111111 · 0.9 s',
+      ]);
+      // the job word never names a chat turn
+      expect(lines.slice(at, at + 5).join('\n')).not.toMatch(/cancel/i);
+    } finally {
+      if (t.ok) t.hold.release();
+    }
+    // no turn at all: said, never an empty block
+    const none = workspaceLines(await frame());
+    expect(none[none.findIndex((l) => l.startsWith('Chat turns')) + 1]).toBe('  none sealed yet: a turn is listed once its receipt is sealed, whichever surface sent it');
+  });
   it('refuses an unknown verb with the usage and exit 2', async () => {
     const chunks: string[] = [];
     const write = process.stderr.write.bind(process.stderr);
@@ -475,6 +536,10 @@ describe('R5 lead: the QA round on the installed build (defects 3, 4, 9)', () =>
     const fix = chatFix({ kind: 'local', ready: false, refusal: noModel }, down)!;
     expect(fix).toMatchObject({ problem: 'ollama-unreachable', command: 'timmy workspace check', effect: 'network' });
     expect(fix.words).toMatch(/start it \(ollama serve\), check again, then choose one with \/model\.$/);
+    // R6 (H140): how it is started fits this computer (no program here, Linux: its install, never Homebrew)
+    const linux = chatFix({ kind: 'local', ready: true }, down, [], { start: 'install Ollama: ollama.com/download/linux; then ollama pull <model>' })!;
+    expect(linux.words).toBe('Ollama: no answer when checked 2 min ago. Start it (install Ollama: ollama.com/download/linux; then ollama pull <model>), then check again.');
+    expect(linux.words).not.toMatch(/brew/);
     // Ollama answered (or not checked yet): choose the model among what it lists
     expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'live', words: 'answered just now' }])).toMatchObject({ problem: 'no-local-model', command: '/model' });
     expect(chatFix({ kind: 'local', ready: false, refusal: noModel }, [{ id: 'ollama', state: 'configured', words: 'set up, not checked yet' }])).toMatchObject({ problem: 'no-local-model' });

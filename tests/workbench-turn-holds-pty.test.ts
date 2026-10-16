@@ -161,6 +161,7 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     rt('send-keys', '-t', 't', 'Enter');
     await replWait(/EXIT=0/, 30_000);
     await sendKeys(wb, ['C-c']);
-    await waitScreen(wb, { what: 'the Workbench ended', re: /EXIT=\d+/, ms: 20_000 });
+    // (it stopped nothing of its own: R6 H141, exit 0)
+    await waitScreen(wb, { what: 'the Workbench ended', re: /EXIT=0\b/, ms: 20_000 });
   }, 240_000);
 });

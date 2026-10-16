@@ -99,7 +99,8 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const w = await world({ framesOwnPort: true });
     const address = `http://127.0.0.1:${w.port}`;
     // R5 (H137): listening, it notes so at once (as the companion does), before any page asks
-    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    // R6 (H140): a start is no answer: it is noted as listening, by its own process
+    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'listening', detail: 'it started listening', asked: address, pid: process.pid });
     // FAKE (written by the test): a check that saw Studio not running a minute ago; its page asking now is the newer observation
     writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'not running', at: new Date(Date.now() - 60_000).toISOString(), asked: address } } }, w.env);
     const demo = w.project('demo');
@@ -109,8 +110,8 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     expect(r.status).toBe(200);
     const frame = r.json.frame as Record<string, any>;
     const studio = frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
-    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
-    expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'answered just now (the canvas page asked for its frame)' });
+    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open' })]);
+    expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'its canvas server answered just now (the canvas page asked for its frame); live: an answer within the last 60 s' });
     const noted = readConnections(w.env).checks.studio!;
     expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame', asked: address });
     // noted at most once in SELF_NOTE_MS: a page asking again soon leaves the record (and so the frame's revision) as it was
@@ -160,7 +161,7 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const r = await call(w.port, 'GET', '/api/workspace', { headers: bearer(await pageSession(w.port, w.token)) });
     expect(r.status).toBe(200);
     const studio = r.json.frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
-    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
+    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open' })]);
   });
 
   it('serves the token too; with no project named there is none to show (404, in words)', async () => {

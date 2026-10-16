@@ -27,12 +27,12 @@ import {
   agentOf, checkReceipt, CONTROL_LIST, controlRoomView, GRID_FROM, GRID_PANE_MIN, gridNear, HARNESS_WORDS, LANE_ORDER, liveTurnDetail, PANES_MAX, paneJobs,
   PREVIEWS_WORDS, readControl, type ControlCtx, type ControlData, type LiveTurnRow, type PaneTail,
 } from '../src/workbench/control-tab.js';
-import { OutputWatch } from '../src/workbench/output.js';
+import { OutputWatch, ruleWords } from '../src/workbench/output.js';
 import { sideBySideAt } from '../src/workbench/tab-columns.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
 import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Data, TurnRow } from '../src/workbench/model.js';
-import { readJobs, type JobRow } from '../src/workbench/state.js';
+import { outputEvents, readJobs, type JobRow } from '../src/workbench/state.js';
 import { clock, lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
 
 const g = glyphsFor(true);
@@ -398,6 +398,29 @@ describe('tab 7, Control Room: the view', () => {
       expect(text(ascii.lines)).not.toMatch(/[▶●○✓✕┏╭│]/);
       expect(text(ascii.lines)).toMatch(/> running/);
     }
+  });
+
+  it('R6 (H141; R5 review defect 23): a rule a job printed (upmd\'s ──── between blocks) is said in a pane as its output, never drawn across it as a border; Activity says it the same; any other line is drawn as printed', () => {
+    const rule = '─'.repeat(80);
+    expect(ruleWords(rule)).toBe('─── a rule in its output (80 ─)');
+    expect(ruleWords('  ======== ========  ')).toBe('=== a rule in its output (16 =)');
+    expect(ruleWords('-------')).toBeNull();
+    expect(ruleWords('==> tidy [block 1]')).toBeNull();
+    expect(ruleWords('...........')).toBeNull();
+    expect(ruleWords('')).toBeNull();
+    // FAKE log lines of the running job, as upmd prints them
+    const cd = controlData({ tails: { ...TAILS, j0e1371: { lines: ['pty_run: upmd runs as process 11940', rule, 'tick 1'] } } });
+    for (const [c, r] of SIZES) {
+      const v = controlRoomView(ctxAt(c, r, data({ jobs: RUNNING }), 0), cd);
+      const pane = itemText(v, 0);
+      expect(pane).toContain('─── a rule in its output (80 ─)');
+      expect(pane).toContain('tick 1');
+      // no row of the pane is a run of ─ (its own border is drawn with its corners, never inside it)
+      expect(v.lines.map(plain).some((l) => /[│┃]\s*─{8,}/.test(l))).toBe(false);
+    }
+    // Activity: the job's line, then the words
+    expect(outputEvents([{ job: 'j0e1371', n: 2, text: rule, at: ISO(NOW) }]).map((e) => e.words)).toEqual(['j0e1371 │ ─── a rule in its output (80 ─)']);
+    expect(outputEvents([{ job: 'j0e1371', n: 3, text: 'tick 1', at: ISO(NOW) }]).map((e) => e.words)).toEqual(['j0e1371 │ tick 1']);
   });
 
   it('a box per running job and turn: its id, ▶ running and its label, recovery\'s words, who started it with its operation, its log\'s last lines; the selected pane\'s frame amber and heavy; ● never marks a run', () => {

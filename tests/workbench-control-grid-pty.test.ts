@@ -178,7 +178,7 @@ describe('`timmy workbench` in a terminal: tab 7 Control Room\'s panes as a 2×2
     expect(txt.includes(box), 'a folder of this machine').toBe(false);
     expect(txt.includes(hostname()), 'this machine\'s name').toBe(false);
     await t.keys('C-c');
-    await t.waitFor('the Workbench quitting at Ctrl+C (the FAKE jobs are another session\'s: left running)', (s) => /EXIT=130/.test(s), 20_000);
+    await t.waitFor('the Workbench quitting at Ctrl+C (the FAKE jobs are another session\'s: left running; R6 H141: it stopped nothing, so exit 0)', (s) => /EXIT=0\b/.test(s), 20_000);
     writeFileSync(join(box, 'release'), '');
     console.log(`Control Room grid capture (R5 H137, .ansi and .txt): ${join(CAPTURES, 'control-grid-160x45-FAKE-fixtures')}`);
   }, 180_000);

@@ -13,7 +13,7 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
-import { turnStopWords } from '../ops/workspace-frame.js';
+import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
@@ -647,8 +647,9 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   const cur = cursorOf(c.ui, `center:${ws}`, total);
   let i = 0;
   // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw; the QA of e7f853e, defect 2: and what
-  // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own)
-  if (tab6) lines.push(...limitRows('No Timmy surface draws 3D, images or a motion timeline yet: each app below draws its own, once it is set up.', { c: 'this tab\'s actions, in words', s: 'the canvas (2D shapes and cards)' }, c.width, g), blank);
+  // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own). R6 lead (H146's
+  // finding): images are drawn now (the companion's Home, tab 5 and run detail), so this says interactive 3D and motion only
+  if (tab6) lines.push(...limitRows('No Timmy surface draws interactive 3D or a motion timeline yet: each app below draws its own, once set up.', { c: 'this tab\'s actions, in words', s: 'the canvas (2D shapes and cards)' }, c.width, g), blank);
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -749,7 +750,7 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['?', 'these keys'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
   ['Mouse', 'a click picks a tab, selects an action, a card or a row, or presses a [key]; a click never runs or allows anything (Enter, the key, runs; y allows); the wheel scrolls the list under the pointer'],
-  ['Marks', '● live (green: an answer seen in the last 30 min)  ○ configured (a setting, not seen answering)  ✕ unreachable, refused or failed (amber)  · not set up  ? unknown  ▶ running  … waiting its turn  ⚠ waits on you; each mark has its word beside it, and green is only ever live, passed or verified'],
+  ['Marks', '● live (green: an answer in the last 30 min; 60 s for the companion and Studio)  ○ configured (a setting, not seen answering)  ✕ unreachable, refused or failed (amber)  · not set up  ? unknown  ▶ running  … waiting its turn  ⚠ waits on you; each mark has its word beside it, and green is only ever live, passed or verified'],
   ['Activity', 'collapsed: the log\'s newest lines, the newest first; expanded: oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
 ];
 
@@ -1253,7 +1254,12 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       f('Observed', k.observedAt ? `${clock(k.observedAt)} (${ago(k.observedAt, c.now)})` : 'never: no answered request of it is recorded here');
       if (k.detail) f('Detail', k.detail);
       f('Step', k.setup ?? 'none');
-      lines.push(blank, ...para('Live only when a request it answered was seen in the last 30 minutes (timmy workspace check asks each one once, with free requests); a setting alone is configured.', w));
+      // R6 lead (H146's finding): the bound is the one this connection is held to: since H140 a surface Timmy starts (the
+      // companion, Studio) is live only within SURFACE_LIVE_WORDS, a service and an MCP route within LIVE_FOR_WORDS
+      const bound = k.id === 'companion' || k.id === 'studio' ? SURFACE_LIVE_WORDS : LIVE_FOR_WORDS;
+      lines.push(blank, ...para(k.id === 'mcp-sdk' || k.id === 'mcporter'
+        ? `Live only with ${bound}: a call through it, from this project's own call records (/mcp call makes one); a route alone is not live.`
+        : `Live only with ${bound} (timmy workspace check asks each one once, with free requests); a setting alone is configured.`, w));
       break;
     }
     // R5 (H134): tab 0's and tab 8's rows

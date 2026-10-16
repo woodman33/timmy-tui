@@ -177,7 +177,7 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
       expect(s.includes(hostname())).toBe(false);
     }
     await t.keys('C-c');
-    await t.waitFor(/EXIT=130/, 'the Workbench quitting at Ctrl+C', 20_000);
+    await t.waitFor(/EXIT=0\b/, 'the Workbench quitting at Ctrl+C (R6 H141: it stopped nothing, so exit 0)', 20_000);
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
   }, 240_000);
 });
