@@ -99,7 +99,9 @@ project, see [the review package](scripts/review/README.md).
   `/detect`, `/measure`): OpenCV's measurements (QR codes, ArUco markers,
   colour regions) and an STL's own triangles, each labelled with its
   provenance and evidence, sealed with a receipt. Look needs python3 with
-  OpenCV.
+  OpenCV. Timmy can compute and verify dimensions of generated CAD.
+  Converting that CAD cannot establish the dimensions or density of a
+  physical object.
 - **MCP**: `timmy mcp serve` serves 44 tools over stdio (receipt verify, env
   lock, judge loop, dispatch, lanes, the geo voxel bench, fleet, Clef, vision,
   and the OpenHands, Roboflow, 3minapi and oapi lanes). `/mcp tools` and
