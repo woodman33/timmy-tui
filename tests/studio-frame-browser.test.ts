@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { TABS } from '../src/contracts/workspace.js';
 import { CONNECTIONS_SCHEMA, writeConnections } from '../src/ops/workspace-frame.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
@@ -388,7 +389,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     // FAKE (written by this test into the frame the server sent): five log entries and five sealed turns, interleaved in time
     const log = [1, 2, 3, 4, 5].map((i) => ({ at: ago(i * 2), tag: 'job', words: `FAKE log entry ${i} (test)`, tone: i === 2 ? 'failure' : 'neutral', source: 'job jfake00' }));
     const turns = [1, 2, 3, 4, 5].map((i) => ({ receipt: `fa0000${i}0`, surface: i % 2 ? 'workbench' : 'repl', state: i === 1 ? 'failed' : 'answered', model: 'FAKE-model', at: ago(i * 2 - 1), operation: i === 3 ? 'o1234abcd' : null, route: 'openrouter', words: `FAKE turn ${i} (test)` }));
-    const turnNow = 'a chat turn is being answered in the Workbench (since 12:00:00 UTC) [FAKE]';
+    // FAKE words in the frame's own style (since the lead's 0f9f8cb they carry no clock time: the strip says since when)
+    const turnNow = 'a chat turn is being answered in the Workbench [FAKE]';
     const { page, context, errors } = await open({ width: 1440, height: 900 }, (f) => {
       f.log = log;
       f.chat = { turns };
@@ -402,7 +404,7 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       // collapsed at first: the line names the turn being answered, and its newest is the merge's newest (a turn that failed, amber)
       expect(await page.getAttribute('#frame-activity-toggle', 'aria-expanded')).toBe('false');
       expect(await page.isHidden('#frame-log')).toBe(true);
-      expect(await text(page, '#frame-activity')).toMatch(new RegExp(`^1 running · ▶ ${esc(turnNow)} · 0 waiting on you · .+ · newest: \\d\\d:\\d\\d:\\d\\d ✕ FAKE turn 1 \\(test\\)$`));
+      expect(await text(page, '#frame-activity')).toMatch(new RegExp(`^1 running · ▶ ${esc(turnNow)} \\(since \\d\\d:\\d\\d:\\d\\d\\) · 0 waiting on you · .+ · newest: \\d\\d:\\d\\d:\\d\\d ✕ FAKE turn 1 \\(test\\)$`));
       expect(await page.$eval('#frame-activity .fr-log', (e) => getComputedStyle(e).color)).toBe(AMBER);
       const closed = await page.evaluate(() => ({ strip: document.getElementById('frame')!.getBoundingClientRect().bottom, side: document.getElementById('side')!.getBoundingClientRect() }));
       // the keyboard: Tab reaches its button, Enter opens it
@@ -458,7 +460,7 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     const line = (): Promise<string> => text(page, '#frame-activity');
     try {
       await page.waitForFunction(() => (document.getElementById('frame-activity')?.textContent ?? '').includes('[FAKE frame words]'), null, { timeout: 20_000 });
-      expect(await line()).toMatch(/^1 running · ▶ a chat turn is being answered in the REPL \[FAKE frame words\] · 0 waiting on you · Stop current: the chat turn in the REPL \(Ctrl\+C in the REPL\) \[FAKE frame words\] · newest: /);
+      expect(await line()).toMatch(/^1 running · ▶ a chat turn is being answered in the REPL \[FAKE frame words\] \(since \d\d:\d\d:\d\d\) · 0 waiting on you · Stop current: the chat turn in the REPL \(Ctrl\+C in the REPL\) \[FAKE frame words\] · newest: /);
       // the turn sealed: the next frame names none and counts none, and the line says so as soon as it is read
       phase = 2;
       await page.waitForFunction(() => /Stop current: idle \[FAKE frame words\]/.test(document.getElementById('frame-activity')?.textContent ?? ''), null, { timeout: 20_000 });
@@ -470,6 +472,28 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(await line()).toMatch(/^0 running · 0 waiting on you · newest: /);
       expect(errors).toEqual([]);
     } finally {
+      await context.close();
+    }
+  }, 120_000);
+
+  it('R5 (H137; QA defect 9, on the real frame): a chat turn held in the project (a real hold taken by this test, scripted: no turn runs and no model is asked) is named on the line with the REPL\'s own Stop words, as the frame gives them; once the hold is let go, the next frame names none', async () => {
+    await demo();
+    const t = takeTurnHold(p.root, 'repl');
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    let held = true;
+    const { page, context, errors } = await open({ width: 1440, height: 900 });
+    const line = (): Promise<string> => text(page, '#frame-activity');
+    try {
+      await page.waitForFunction(() => /Stop current: the chat turn in the REPL/.test(document.getElementById('frame-activity')?.textContent ?? ''), null, { timeout: 20_000 });
+      expect(await line()).toMatch(/^1 running · ▶ a chat turn is being answered in the REPL \(since \d\d:\d\d:\d\d\) · 0 waiting on you · Stop current: the chat turn in the REPL \(Ctrl\+C in the REPL\) · newest: /);
+      t.hold.release();
+      held = false;
+      await page.waitForFunction(() => !/chat turn/.test(document.getElementById('frame-activity')?.textContent ?? ''), null, { timeout: 20_000 });
+      expect(await line()).toMatch(/^0 running · 0 waiting on you · Stop current: idle · newest: /);
+      expect(errors).toEqual([]);
+    } finally {
+      if (held) t.hold.release();
       await context.close();
     }
   }, 120_000);

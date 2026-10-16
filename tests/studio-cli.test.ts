@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readConnections } from '../src/ops/workspace-frame.js';
 import { NAMED_PAGES, resolveWebTarget } from '../src/repl/web.js';
 import { replTools } from '../src/repl/main.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
@@ -15,6 +17,7 @@ import { guardRealHome, ownHome } from './fixtures/home-guard.js';
 // nothing here may change the real home's timmy folders (tests/fixtures/home-guard.ts reads them before and after).
 const realHome = guardRealHome();
 const own = ownHome('studio-cli-home-');
+const repo = fileURLToPath(new URL('..', import.meta.url));
 afterAll(() => { own.remove(); expect(realHome.check(), 'changed under the real home\'s timmy folders while these tests ran').toEqual([]); });
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -126,6 +129,34 @@ describe('timmy studio', () => {
     expect(await answers(port)).toBe(false);
     expect(await portFree(port)).toBe(true);
     expect(existsSync(token)).toBe(false);
+  }, 30_000);
+  it('R5 (H137; the QA round, defect 19\'s analog): as the Studio the frame names (its port), it notes in the frame\'s record that it started listening, and on SIGTERM that it stopped, before it exits; a run that cannot listen there (another holds the port) notes nothing', async () => {
+    const port = await freePort();
+    const env = { ...own.env, TIMMY_STUDIO_PORT: String(port) };
+    const address = `http://127.0.0.1:${port}`;
+    const s = studio(['--port', String(port)], env);
+    await s.line(new RegExp(`Timmy Canvas: http://127\\.0\\.0\\.1:${port}/`));
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    // a second run on the same port cannot listen (69), and records nothing of the Studio that holds it
+    const second = studio(['--port', String(port)], env);
+    expect(await second.exited).toBe(69);
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    s.child.kill('SIGTERM');
+    expect(await s.exited).toBe(143);
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'not running', detail: 'it stopped', asked: address });
+  }, 40_000);
+  it('R5 (H137): a process that ends without closing the Studio it serves (a REPL that quits) notes the stop as it exits', async () => {
+    const port = await freePort();
+    const env = { ...own.env, TIMMY_STUDIO_PORT: String(port) };
+    const server = pathToFileURL(join(repo, 'src', 'studio', 'server.ts')).href;
+    const code = `const { startStudioServer } = await import(${JSON.stringify(server)}); await startStudioServer(${port}); process.exit(0);`;
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], { env: { ...process.env, ...env, NO_COLOR: '1' } });
+    started.push(child);
+    let out = '';
+    child.stdout.on('data', (d) => { out += String(d); });
+    child.stderr.on('data', (d) => { out += String(d); });
+    expect(await new Promise<number | null>((resolve) => child.on('close', (c) => resolve(c))), out).toBe(0);
+    expect(readConnections(env).checks.studio).toMatchObject({ answer: 'not running', detail: 'it stopped', asked: `http://127.0.0.1:${port}` });
   }, 30_000);
 });
 

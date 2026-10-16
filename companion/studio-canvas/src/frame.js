@@ -8,18 +8,21 @@
 // others say where they open, and none is a link); the Studio tab's actions, each with its command to copy, the one primary
 // amber; and one line of activity: what runs, what waits on you, Stop current and the newest log line. No key of tldraw's is
 // taken here: Escape closes the activity's entries only while the focus is in the strip. Every text is set as text. Imports
-// nothing.
+// only ./when.js (the one time format, which imports nothing).
 //
 // R5 (H137): the actions wrap onto more rows and are never cut or scrolled sideways: each keeps its number, label, command and
 // Copy on screen (an action wider than the window wraps its label and shortens the command it shows, with an ellipsis; Copy
 // copies the whole command, which is the command's title and in Copy's own name), the one primary first. The activity is a
 // disclosure (#frame-activity-toggle, collapsed at first): open, it lists the frame's newest entries, at most LOG_MAX; the
 // log and the project's sealed chat turns merged as the companion and the Workbench merge them (src/companion/client/
-// companion.js eventsOf), and the collapsed line's newest is that merge's. A chat turn being answered now is named on the line.
+// companion.js eventsOf), and the collapsed line's newest is that merge's. A chat turn being answered now is named on the line,
+// with since when (the frame's `since`, in the one time format of ./when.js), and Stop current is the frame's own words.
 //
 // It redraws only when what it shows changed: the frame's revision also follows what the strip does not show (a connection's
 // age, "12 s ago"), and a redraw takes a focused Copy button from under a person. A frame that is not read now stays drawn and
 // says so at the line's end: why, and when it was last read.
+
+import { clockOf } from './when.js';
 
 /** The tab this page is. */
 export const STUDIO_TAB = 'studio';
@@ -35,11 +38,8 @@ export const LOG_MAX = 8;
 const one = (v) => (typeof v === 'string' ? v : '');
 const count = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
 const TONES = new Set(['neutral', 'attention', 'live', 'failure']);
-/** A record's time as the strip shows it (the time of day, this computer's clock). */
-const clock = (at) => {
-  const d = new Date(at);
-  return Number.isFinite(d.getTime()) ? d.toTimeString().slice(0, 8) : '';
-};
+/** A record's time as the strip shows it (the time of day, this computer's clock), in the one format (./when.js). */
+const clock = (at) => clockOf(at);
 
 /**
  * R5 (H137; the lead's merge of 2026-10-15): the frame's log and its sealed chat turns as one list, the newest first, as the
@@ -97,6 +97,8 @@ export function frameView(frame) {
       waiting: count(act.waitingOnYou),
       stop: { job: typeof stop.job === 'string' && stop.job ? stop.job : null, words: one(stop.words) },
       turn: act.chatTurn && typeof act.chatTurn === 'object' ? one(act.chatTurn.words) : '',
+      // R5 (H137, after the lead's 0f9f8cb: the frame's words carry no clock time, each surface shows `since` in its one format)
+      turnSince: act.chatTurn && typeof act.chatTurn === 'object' ? clock(act.chatTurn.since) : '',
       newest: top ? { at: top.clock, words: top.words, tone: top.tone, tag: top.tag } : null,
       noLog: noLog ? one(noLog.why) : '',
     },
@@ -159,7 +161,7 @@ export function drawFrame(root, view) {
   const running = el('span', 'fr-running', `${act.running} running`);
   const parts = [running];
   // R5 (H137; the lead's ask): a chat turn being answered now is named on the line, as the companion's mirror names it
-  if (act.turn) parts.push(sep(), el('span', 'fr-turn', `▶ ${act.turn}`));
+  if (act.turn) parts.push(sep(), el('span', 'fr-turn', `▶ ${act.turn}${act.turnSince ? ` (since ${act.turnSince})` : ''}`));
   parts.push(sep(), el('span', `fr-waiting${act.waiting ? ' is-waiting' : ''}`, `${act.waiting} waiting on you`));
   // R5 (H137; QA defect 9): Stop current in the frame's own words, as each frame gives them (none made here: a frame without
   // them shows none), with /stop to copy while it names a job

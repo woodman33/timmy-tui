@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { eventsOf, frameView, LOG_MAX } from '../companion/studio-canvas/src/frame.js';
+import { saveState } from '../companion/studio-canvas/src/save-state.js';
+import { clockOf, dateTimeOf } from '../companion/studio-canvas/src/when.js';
 
 const at = (s: number): string => new Date(Date.UTC(2026, 9, 15, 20, 0, s)).toISOString();
 /** A FAKE frame of the strip's schema with `o` over it. */
@@ -57,11 +59,30 @@ describe("the Studio strip's view of a frame (R5 H137)", () => {
     expect(frameView(frame({ log: [logEntry(5, 'only')] }))!.log.map((e) => e.words)).toEqual(['FAKE only']);
   });
 
-  it('names a chat turn being answered now on the line, as the frame words it', () => {
-    const v = frameView(frame({ activity: { running: 1, waitingOnYou: 0, stopCurrent: { job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' }, chatTurn: { surface: 'workbench', since: at(1), words: 'a chat turn is being answered in the Workbench (since 20:00:01 UTC)' } } }))!;
-    expect(v.activity.turn).toBe('a chat turn is being answered in the Workbench (since 20:00:01 UTC)');
+  it('names a chat turn being answered now on the line, as the frame words it, with since when in the one time format; Stop current is the frame\'s words', () => {
+    const v = frameView(frame({ activity: { running: 1, waitingOnYou: 0, stopCurrent: { job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' }, chatTurn: { surface: 'workbench', since: at(1), words: 'a chat turn is being answered in the Workbench', id: 't1-0000abcd' } } }))!;
+    expect(v.activity.turn).toBe('a chat turn is being answered in the Workbench');
+    // the frame's words carry no clock time (the lead's 0f9f8cb): the strip says since when, in this computer's 24-hour clock
+    expect(v.activity.turnSince).toBe(clockOf(at(1)));
+    expect(v.activity.turnSince).toMatch(/^\d\d:\d\d:\d\d$/);
+    expect(v.activity.stop).toEqual({ job: null, words: 'Stop current: the chat turn in the Workbench (Esc in its composer)' });
     expect(v.activity.running).toBe(1);
-    expect(frameView(frame())!.activity.turn).toBe('');
+    const idle = frameView(frame({ activity: { running: 0, waitingOnYou: 0, stopCurrent: { job: null, words: '' } } }))!;
+    expect([idle.activity.turn, idle.activity.turnSince, idle.activity.stop.words]).toEqual(['', '', '']);
+  });
+
+  it('R5 (H137; the QA round, defect 6): one time format, as the terminal Workbench and the companion show it: the 24-hour clock in this computer\'s local time, with the date where a time can be another day\'s; nothing for no time', () => {
+    const local = new Date(2026, 9, 15, 9, 5, 7);
+    expect(clockOf(local)).toBe('09:05:07');
+    expect(clockOf(local.toISOString())).toBe('09:05:07');
+    expect(dateTimeOf(local)).toBe('2026-10-15 09:05:07');
+    expect(clockOf(new Date(2026, 9, 15, 21, 18, 36))).toBe('21:18:36');
+    for (const nothing of ['', 'not a time', undefined]) {
+      expect(clockOf(nothing as unknown as string)).toBe('');
+      expect(dateTimeOf(nothing as unknown as string)).toBe('');
+    }
+    // the save line says its time so too (it had said a locale's 12-hour clock, "at 10:53:00 PM", beside the strip's 22:52:47)
+    expect(saveState({ revision: 4, savedRevision: 4, savedAt: local.toISOString(), saving: false, conflict: null, stale: null, refused: null, failed: null }).words).toBe('Saved: revision 4, at 09:05:07.');
   });
 
   it('puts the one primary first in reading order, keeping the number the frame gave it; a second primary is an ordinary action', () => {

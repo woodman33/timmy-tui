@@ -36,9 +36,10 @@
 // the order they ran, linked by arrows bound to them; a second press adds only what ran since and leaves alone what the
 // person did (./operations.js has its rules).
 //
-// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in React and tldraw's classes, so the rules
-// below run in Node's tests too.
+// Nothing here imports anything but ./operations.js (pure rules) and ./when.js (the one time format): canvas.js hands in React
+// and tldraw's classes, so the rules below run in Node's tests too.
 import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
+import { clockOf } from './when.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -373,10 +374,9 @@ export function stillRunning(detail) {
   return detail.verdict && detail.verdict.tone === 'running';
 }
 
-/** A time as a card says it: the clock time (the full time is its tooltip). */
+/** A time as a card says it: the clock time (the full time is its tooltip). R5 (H137; QA defect 6): in the one format. */
 function clock(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso || '') : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return clockOf(iso) || String(iso || '');
 }
 
 // ── the shapes and their runtime (the browser only) ────────────────────────────

@@ -23,6 +23,8 @@ import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draf
 import { saveState } from './save-state.js';
 // R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
 import { createFrameStrip } from './frame.js';
+// R5 (H137; the QA round, defect 6): one time format, as the terminal Workbench and the companion show it
+import { clockOf, dateTimeOf } from './when.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -525,15 +527,15 @@ let jobs = [];
 function selectedJobs(editor) {
   return new Set(editor.getSelectedShapes().map((shape) => shape.meta?.timmyJob).filter(Boolean));
 }
-/** A job's time: the clock time when it is today's, the date and time when it is older. The full time is the tooltip. */
+/**
+ * A job's time: the clock time when it is today's, the date and time when it is older. The full time is the tooltip. R5 (H137;
+ * the QA round, defect 6): in the one format (./when.js): 21:18:36, or 2026-10-14 21:18:36.
+ */
 function jobTime(at) {
   const when = new Date(at);
   if (Number.isNaN(when.getTime())) return { text: String(at), iso: String(at) };
   const today = new Date().toDateString() === when.toDateString();
-  const text = today
-    ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return { text, iso: at };
+  return { text: today ? clockOf(when) : dateTimeOf(when), iso: at };
 }
 /** What the Canvas row said the last time it could not show a job (no shapes of it on this page), by job. */
 const jobNotes = new Map();

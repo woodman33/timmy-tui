@@ -59,6 +59,10 @@
  * `{ ok: false, error, session }` and nothing of the project (canvas-auth.ts refuseReading): the page cannot know it was paused
  * before it asks. No credential, a forged one and a session that ended are still refused with 401, as every write and action is.
  *
+ * R5 lead, R5 (H137; the QA round, defect 19's analog): the Studio the shared frame names (no TIMMY_STUDIO_URL, and Studio's
+ * port) records in the frame's observations (src/ops/workspace-frame.ts) that it started listening, that its page asked for its
+ * frame, and that it stopped (on close, or as its process exits), so no surface says Studio answered after it ended.
+ *
  * The receipt pages (C-13, src/studio/receipt-page.ts) stay open: a person opens them by clicking a link (the REPL's receipt
  * line and its "where to inspect" rows, /web <id>, the canvas page's jobs panel, a receipt page's previous-receipt link), a
  * browser navigation that cannot carry an Authorization header, so a credential would break each of those links. They show
@@ -298,7 +302,7 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
       const { buildWorkspaceFrame, noteAnswered } = await import('../ops/workspace-frame.js');
       // R5 lead: this Studio answering its page is an answer observed now, so the frame (on every surface) says Studio answered
       // and its next step is no longer to open it. Only for the Studio the frame names: its port, no other URL set.
-      if (!env.TIMMY_STUDIO_URL?.trim() && cardWiring.port() === studioPort(env)) noteAnswered('studio', 'the canvas page asked for its frame', env);
+      if (framesStudio(env, cardWiring.port())) noteAnswered('studio', 'the canvas page asked for its frame', env);
       const frame = await buildWorkspaceFrame({ env, cwd: named.root, project: { name: named.name, root: named.root } });
       res.json({ ok: true, frame });
     } catch (e) {
@@ -477,6 +481,15 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   return app;
 }
 
+/**
+ * R5 lead, R5 (H137): whether a server on `port` is the Studio the shared frame names (src/ops/workspace-frame.ts: no other
+ * address set, and Studio's port): only that Studio records in the frame's observations that it answered its page, and that it
+ * stopped. A server on another port (a test's, a second one), or one that never listened (port 0), records neither.
+ */
+function framesStudio(env: Record<string, string | undefined>, port: number): boolean {
+  return !env.TIMMY_STUDIO_URL?.trim() && port > 0 && port === studioPort(env);
+}
+
 export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<StudioServer> {
   const link = new ProjectLink(options.projectToken);
   // R4 (H75): the page routes' Host and Origin rule needs the port this server is bound to.
@@ -498,6 +511,17 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
   const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
   let tokenPort = 0;
+  // R5 (H137; the QA round, defect 19's analog): the Studio the frame names records that it stopped (noteStopped), so no
+  // surface goes on saying Studio answered after it ended: when it closes, and as its process exits without a close. Only this
+  // server's own stop: one that never listened (its port held by another program, or another Timmy) records nothing. The
+  // frame's module (src/ops/workspace-frame.ts) is loaded once it listens, so the note is written at once, also on exit.
+  let frameOps: typeof import('../ops/workspace-frame.js') | null = null;
+  let stopNoted = false;
+  const noteStop = (): void => {
+    if (stopNoted || !frameOps || !framesStudio(env, bound)) return;
+    stopNoted = true;
+    frameOps.noteStopped('studio', env);
+  };
   // An open canvas holds its WebSocket for good: closing the server closes the bridge first, or
   // server.close() would wait for the page forever.
   const closeServer = server.close.bind(server);
@@ -506,6 +530,7 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
     bridge.close();
     relay.close();
     if (tokenPort) dropProjectToken(tokenDir, tokenPort, link.token);
+    if (server.listening) noteStop();
     return closeServer(done);
   }) as StudioServer['close'];
   await new Promise<void>((resolve, reject) => {
@@ -519,6 +544,17 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   });
   // R4 (H109): only a server that listens looks at its Timmy home's active project (a port held by another program: nothing read)
   follower?.start();
+  // R5 (H137): the Studio the frame names records that it started listening, as the companion does (src/companion/server.ts),
+  // so a Studio started again after its stop is not said not running until its page first asks for its frame
+  if (framesStudio(env, bound)) {
+    try {
+      frameOps = await import('../ops/workspace-frame.js');
+      frameOps.noteAnswered('studio', 'it started listening', env);
+    } catch { /* the record cannot be written: the frame says what the last check saw */ }
+    const atExit = (): void => { if (server.listening) noteStop(); };
+    process.once('exit', atExit);
+    server.once('close', () => process.removeListener('exit', atExit));
+  }
   if (options.projectTokenFile) {
     const at = server.address();
     const bound = typeof at === 'object' && at ? at.port : 0;

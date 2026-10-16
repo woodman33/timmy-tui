@@ -12,14 +12,13 @@
 //   unsaved   ○  changes not saved yet (saved within a moment)
 //   saved     ■  what this page shows is what the file holds, at that revision
 // Every state that needs the person (conflict, stale, refused, failed) is amber; none is green: a save is not a verification.
-// Imports nothing, so it runs in Node's tests too.
+// Imports only ./when.js (which imports nothing), so it runs in Node's tests too.
+import { clockOf } from './when.js';
 
 export const SAVE_GLYPH = Object.freeze({ conflict: '⇄', stale: '⇄', refused: '✕', failed: '✕', saving: '◔', unsaved: '○', saved: '■' });
 
-const clock = (iso) => {
-  const t = new Date(iso);
-  return Number.isNaN(t.getTime()) ? null : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-};
+/** R5 (H137; the QA round, defect 6): the save's time in the one format (./when.js), as the strip says its times. */
+const clock = (iso) => clockOf(iso) || null;
 
 /**
  * The save state of `c`: { revision, savedRevision, savedAt, saving, conflict ({ words, revision } | null), stale ({ revision } |

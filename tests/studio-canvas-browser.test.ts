@@ -168,7 +168,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(ra.state).toBe('✓ done');
         expect(rb.state).toBe('✖ failed');
         expect(ra.time.datetime).toBe(a.at);
-        expect(ra.time.text).toMatch(/^(\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?|.+ \d{1,2}:\d{2})/i);
+        // R5 (H137; the QA round, defect 6): the one time format, this computer's 24-hour clock (the date too on another day)
+        expect(ra.time.text).toMatch(/^(\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d$/);
         expect(ra.canvas).toBe(`Canvas job ${tag}-a, rev ${a.revision}`);
         expect(rb.canvas).toBe(`Canvas job ${tag}-b, rev ${b.revision}`);
         expect(ra.receipt).toBe('Receipt a1b2c3d4');

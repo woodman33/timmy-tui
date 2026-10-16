@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TABS } from '../src/contracts/workspace.js';
-import { writeConnections, readConnections, CONNECTIONS_SCHEMA, LIVE_FOR_MS, SELF_NOTE_MS } from '../src/ops/workspace-frame.js';
+import { buildWorkspaceFrame, writeConnections, readConnections, CONNECTIONS_SCHEMA, LIVE_FOR_MS, SELF_NOTE_MS } from '../src/ops/workspace-frame.js';
 import { projectId } from '../src/project/index.js';
 import { WORKSPACE_REFUSED } from '../src/studio/canvas-auth.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
@@ -37,13 +37,15 @@ const freePort = (): Promise<number> => new Promise((resolve, reject) => {
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => resolve(p)); });
 });
 
-async function world(o: { framesOwnPort?: boolean } = {}) {
+async function world(o: { framesOwnPort?: boolean; studioUrl?: string } = {}) {
   const home = temp('workspace-home-');
   // the frame reads Timmy's settings: this file's own folder (tests/isolation-setup.ts), never the account's
   const env: Record<string, string | undefined> = { TIMMY_HOME: home, HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
   // R5 lead: by default a Studio on a port of its own (0), so not the Studio the frame names (TIMMY_STUDIO_PORT, else 4337)
   const at = o.framesOwnPort ? await freePort() : 0;
   if (o.framesOwnPort) env.TIMMY_STUDIO_PORT = String(at);
+  // R5 (H137): another address set for Studio, so the frame names that one, whatever port this server has
+  if (o.studioUrl) env.TIMMY_STUDIO_URL = o.studioUrl;
   const server = await startStudioServer(at, { env });
   servers.push(server);
   const port = (server.address() as AddressInfo).port;
@@ -93,8 +95,13 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     expect(readConnections(w.env).checks.studio).toBeUndefined();
   });
 
-  it('the Studio the frame names, answering its page, is an answer observed now: Studio answered, and its next step is to have Timmy draw', async () => {
+  it('the Studio the frame names notes that it started listening; its page asking for its frame is an answer observed now: Studio answered, and its next step is to have Timmy draw', async () => {
     const w = await world({ framesOwnPort: true });
+    const address = `http://127.0.0.1:${w.port}`;
+    // R5 (H137): listening, it notes so at once (as the companion does), before any page asks
+    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'accepted', detail: 'it started listening', asked: address });
+    // FAKE (written by the test): a check that saw Studio not running a minute ago; its page asking now is the newer observation
+    writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'not running', at: new Date(Date.now() - 60_000).toISOString(), asked: address } } }, w.env);
     const demo = w.project('demo');
     await nameProject(w.port, w.token, { root: demo.root, name: demo.name, holder: HX });
     const s = await pageSession(w.port, w.token);
@@ -105,12 +112,44 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
     expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'answered just now (the canvas page asked for its frame)' });
     const noted = readConnections(w.env).checks.studio!;
-    expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame' });
+    expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame', asked: address });
     // noted at most once in SELF_NOTE_MS: a page asking again soon leaves the record (and so the frame's revision) as it was
     const again = await call(w.port, 'GET', '/api/workspace', { headers: bearer(s) });
     expect(readConnections(w.env).checks.studio!.at).toBe(noted.at);
     expect(again.json.frame.revision).toBe(frame.revision);
     expect(SELF_NOTE_MS).toBeLessThan(LIVE_FOR_MS);
+  });
+
+  it('R5 (H137; the QA round, defect 19\'s analog): the Studio the frame names notes that it stopped, so no surface says it answered after it ended: Studio is said not running, and its next step is to open it again', async () => {
+    const w = await world({ framesOwnPort: true });
+    const address = `http://127.0.0.1:${w.port}`;
+    const demo = w.project('demo');
+    await nameProject(w.port, w.token, { root: demo.root, name: demo.name, holder: HX });
+    expect((await call(w.port, 'GET', '/api/workspace', { headers: bearer(await pageSession(w.port, w.token)) })).status).toBe(200);
+    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'accepted', asked: address });
+    // its stop, as `timmy studio` stops on Ctrl+C or SIGTERM and the Workbench when it stops serving: the server closes
+    servers.splice(servers.indexOf(w.server), 1);
+    await new Promise<void>((done) => w.server.close(() => done()));
+    expect(readConnections(w.env).checks.studio).toMatchObject({ answer: 'not running', detail: 'it stopped', asked: address });
+    // the frame every surface reads: Studio not running (its own stop, just now), so its next step is to open it again
+    const frame = await buildWorkspaceFrame({ env: w.env, cwd: demo.root, project: { name: demo.name, root: demo.root } });
+    expect(frame.connections.find((c) => c.id === 'studio')).toMatchObject({ state: 'configured', words: 'not running when checked just now; s in the Workbench, or timmy studio, starts it' });
+    expect(frame.surfaces.studio.state).toBe('not running');
+    expect(frame.actions.studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open Studio', command: '/studio' })]);
+  });
+
+  it('R5 (H137): a Studio the frame does not name (on a port of its own, or with another address set for Studio) notes nothing: not when it starts, nor when its page asks, nor when it stops', async () => {
+    for (const o of [{}, { framesOwnPort: true, studioUrl: 'http://127.0.0.1:9' }]) {
+      const w = await world(o);
+      expect(readConnections(w.env).checks.studio, JSON.stringify(o)).toBeUndefined();
+      const demo = w.project('demo');
+      await nameProject(w.port, w.token, { root: demo.root, name: demo.name, holder: HX });
+      expect((await call(w.port, 'GET', '/api/workspace', { headers: bearer(await pageSession(w.port, w.token)) })).status).toBe(200);
+      expect(readConnections(w.env).checks.studio, JSON.stringify(o)).toBeUndefined();
+      servers.splice(servers.indexOf(w.server), 1);
+      await new Promise<void>((done) => w.server.close(() => done()));
+      expect(readConnections(w.env).checks.studio, JSON.stringify(o)).toBeUndefined();
+    }
   });
 
   it('with Studio observed live (a FAKE check record), Studio\'s next step is to have Timmy draw on it', async () => {
