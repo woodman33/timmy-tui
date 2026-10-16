@@ -122,7 +122,9 @@ describe.skipIf(!tmuxHere)('the Workbench\'s tab 3 in a real terminal: the newes
       }
       await sendKeys(pane, ['C-c']);
       const end = await waitScreen(pane, { what: 'the Workbench ended', re: /EXIT=\d+/, frame: false, ms: 20_000 });
-      expect(end).toMatch(/EXIT=130/);
+      // the FAKE run had ended before the Workbench started, so Ctrl+C stopped nothing: 0 since H141's quit (ff17f40;
+      // 130 only when it stopped a job or a chat turn this Workbench started). CI at f035d28 found the old 130 here.
+      expect(end).toMatch(/EXIT=0\b/);
     } finally {
       try { tmux('kill-server'); } catch { /* gone */ }
     }
