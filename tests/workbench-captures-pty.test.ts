@@ -21,8 +21,10 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CONNECTIONS_SCHEMA, writeConnections } from '../src/ops/workspace-frame.js';
+import { GUARD_MS } from '../src/workbench/controller.js';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { keepScreen, pastGuard, sendKeys, settledScreen, waitScreen, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -43,26 +45,19 @@ const jobRecords = (): Array<{ id: string; label: string; root: string; state: s
   return (existsSync(dir) ? readdirSync(dir) : []).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(dir, n), 'utf8')));
 };
 
-/** A tmux server of the test's own, its screen, its keys, waits with a deadline that names what they wait for, a capture. */
+/**
+ * A tmux server of the test's own, its screen, its keys, waits with a deadline that names what they wait for, a capture. R5
+ * (H136; the finish line, item 5): each through tests/helpers/tmux-frame.ts. A screen is read, waited for and kept only as a
+ * whole frame the same in two reads (a capture once caught the Control Room mid-redraw at 100x30); a kept capture also has
+ * its key-hint line and its tab's title; a key is sent once the Workbench has read the one before.
+ */
 function terminal(label: string) {
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = () => tmux('capture-pane', '-p', '-t', 't');
-  const waitFor = async (re: RegExp, what: string, ms = 30_000): Promise<string> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen();
-      if (re.test(s)) return s;
-      await sleep(100);
-    }
-    throw new Error(`timed out after ${ms} ms waiting for ${what} (${re}):\n${s}`);
-  };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-  const capture = (name: string): string => {
-    const txt = screen();
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', 't'));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
+  const pane: Pane = { tmux, target: 't', folders: [box] };
+  const screen = () => settledScreen(pane);
+  const waitFor = (re: RegExp, what: string, ms = 30_000): Promise<string> => waitScreen(pane, { what, re, ms });
+  const keys = (...k: string[]) => sendKeys(pane, k);
+  const capture = (name: string, title?: RegExp): string => keepScreen(pane, CAPTURES, name, { what: `the ${name} screen, whole, with its key-hint line`, re: title });
   return { tmux, screen, waitFor, keys, capture };
 }
 
@@ -153,7 +148,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     await t.waitFor(/Run APPROVAL\.md › tidy\?/, 'the Run confirm');
     await t.keys('Enter');
     await t.waitFor(/⚠ NEEDS YOU[\s\S]*deny \(the default\)/, 'the NEEDS YOU box');
-    await sleep(500); // past the box's type-ahead guard (it ignores keys in its first 300 ms)
+    // past the box's type-ahead guard (keys in its first GUARD_MS are not answers), counted from when it was seen drawn
+    await pastGuard(Date.now(), GUARD_MS);
     await t.keys('y');
     const tidy = () => jobRecords().find((j) => j.root === trayRoot && j.label === 'APPROVAL.md › tidy');
     for (const end = Date.now() + 60_000; tidy()?.state !== 'completed' && Date.now() < end;) await sleep(200);
@@ -175,9 +171,9 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
         // the run's end is read (Chat's pipeline names its receipt) and the frame's waiting counts are drawn
         if (p.name === 'chat') await t.waitFor(/Pipeline · intent → predict → sandbox → receipt[\s\S]*sealed/, `Chat's pipeline with the run's sealed records at ${w}x${h}`);
         if (p.name === 'control-room') await t.waitFor(new RegExp(`${leftId} [━─][^\\n]*\\n[^\\n]*▶ running {2}FAKE job \\(test\\): sleep 300`), `the FAKE job's pane in the Control Room at ${w}x${h}`);
-        await sleep(400); // the next second's redraw (the frame is read at most once a second), so the kept screen is settled
+        // kept once it is whole (its tab's title, its bottom border, its key-hint line) and the same in two reads
         const name = `${p.name}-${w}x${h}-FAKE-fixtures`;
-        const txt = t.capture(name);
+        const txt = t.capture(name, p.title);
         kept.push(name);
         const rows = txt.replace(/\n$/, '').split('\n');
         expect(rows, `${name}: one frame, as many rows as the terminal`).toHaveLength(h);
