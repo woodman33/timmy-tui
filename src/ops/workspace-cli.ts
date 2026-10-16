@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { realOnPath } from '../repl/center.js';
 import { timmyHome } from '../setup/home.js';
 import type { WorkspaceConnection, WorkspaceFrame } from '../contracts/workspace.js';
+import { STOP_MARK } from '../contracts/stop-words.js';
 import { buildWorkspaceFrame, checkConnections, type CheckDeps } from './workspace-frame.js';
 
 export const WORKSPACE_USAGE = 'timmy workspace [check] [--json] [--help]';
@@ -28,7 +29,8 @@ export function workspaceHelp(): string {
     `  ${WORKSPACE_USAGE}`,
     '',
     '  timmy workspace          the project, the ten tabs and their keys, each tab\'s actions (one primary next step),',
-    '                           the connections as last observed, what runs and waits on you, the newest activity',
+    '                           the connections as last observed, what runs and waits on you, the chat turns (how each',
+    '                           ended and who asked), the newest activity',
     '  timmy workspace check    asks each service once with a free request and records what answered, then prints it:',
     '                           OpenRouter\'s key endpoint (no model call), the local Ollama\'s model list, Timmy Studio\'s',
     '                           health, and the Cloudflare edge\'s /health when one is set up',
@@ -50,6 +52,8 @@ export function workspaceHelp(): string {
 const MARK: Record<WorkspaceConnection['state'], string> = {
   live: '● live', configured: '○ configured', 'not set up': '· not set up', unreachable: '✕ unreachable', refused: '✕ refused', unknown: '? unknown',
 };
+/** R6 (H140): a sealed chat turn's mark (its words say how it ended): as the Workbench's Control Room marks them. */
+const TURN_MARK: Readonly<Record<string, string>> = { answered: '✓', stopped: STOP_MARK, failed: '✕' };
 
 /** The frame in plain words, for a terminal or a log: no color, every state carries its word and its mark. */
 export function workspaceLines(f: WorkspaceFrame): string[] {
@@ -67,6 +71,16 @@ export function workspaceLines(f: WorkspaceFrame): string[] {
   for (const c of f.connections) {
     out.push(`  ${c.label.padEnd(w)}  ${MARK[c.state].padEnd(14)} ${c.words}${c.setup && c.state !== 'live' ? `  → ${c.setup}` : ''}`);
   }
+  // R6 (H140; the R5 interaction review, defect 10: the words had no line for any turn though --json had them): the chat turns,
+  // a turn being answered first, then the sealed ones newest first, each with how it ended and who asked (the frame's words:
+  // src/contracts/stop-words.ts), its model, receipt and time
+  const turns = f.chat?.turns ?? [];
+  const live = f.activity.chatTurn ?? null;
+  out.push('');
+  out.push(`Chat turns (${turns.length} sealed${live ? ', 1 being answered' : ''}; every surface's, read from their receipts)`);
+  if (live) out.push(`  ▶ running  ${live.words}${live.since ? ` · since ${live.since}` : ''}`);
+  if (!turns.length && !live) out.push('  none sealed yet: a turn is listed once its receipt is sealed, whichever surface sent it');
+  for (const t of turns) out.push(`  ${TURN_MARK[t.state] ?? '?'} ${t.at}  ${t.words}${t.operation ? `  (op ${t.operation})` : ''}`);
   out.push('');
   out.push('Actions by tab');
   for (const t of f.tabs) {

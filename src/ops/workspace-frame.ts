@@ -31,6 +31,7 @@ import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
+import { turnEndWords } from '../contracts/stop-words.js';
 import { ollamaAddress, ollamaStartStep } from '../capabilities/ollama-route.js';
 import { onPath as onPathNow } from '../utils/on-path.js';
 
@@ -441,11 +442,12 @@ const TURN_SURFACE: Readonly<Record<string, string>> = { repl: 'the REPL', monit
  * log gives it (src/workbench/hub.ts turnEntry): how it ended, where, the model, its receipt and how long it took.
  */
 export function turnOf(t: TurnRow): WorkspaceTurn {
-  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
+  // R6 (H140): how it ended in the one table's words (src/contracts/stop-words.ts): a stopped turn always says who asked
+  const ended = turnEndWords({ state: t.state, surface: t.surface, ...(t.stoppedBy ? { stoppedBy: t.stoppedBy } : {}) });
   return {
     receipt: t.receipt, surface: t.surface, state: t.state, model: t.model, at: t.at, ...(t.ms !== undefined ? { ms: t.ms } : {}),
     operation: t.operation, route: t.local === true ? 'local' : t.local === false ? 'remote' : 'openrouter',
-    words: `turn ${ended}${t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? ` (asked from ${TURN_SURFACE[t.stoppedBy as keyof typeof TURN_SURFACE] ?? t.stoppedBy})` : ''} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+    words: `turn ${ended} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
     ...(t.turn ? { turn: t.turn } : {}), ...(t.stoppedBy ? { stoppedBy: t.stoppedBy } : {}),
   };
 }

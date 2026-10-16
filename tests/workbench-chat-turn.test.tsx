@@ -252,7 +252,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(said).not.toContain('Cancelled: nothing was sent');
     expect(said).not.toContain('YOUR LAST MESSAGE HERE');
     // the event log lists it as the frame says it
-    expect(region(c, 'right')).toContain(`[chat] turn stopped in the Workbench · fixture/chat-model · receipt ${stopped!.receipt}`);
+    expect(region(c, 'right')).toContain(`[chat] turn stopped (asked from the Workbench) in the Workbench · fixture/chat-model · receipt ${stopped!.receipt}`);
     // Esc again: it leaves the composer, and says so
     c.key('', ESC);
     expect(c.ui.input.field).toBe(null);
