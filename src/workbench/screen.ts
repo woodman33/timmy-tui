@@ -204,6 +204,9 @@ function overlayTitle(ui: Ui): string {
     case 'needs-you': return 'NEEDS YOU';
     case 'quit': return 'Quit';
     case 'message': return o.title;
+    case 'free-models': return 'Choose a free model';
+    case 'local-models': return 'Choose the local model';
+    case 'setup': return o.which === 'chat' ? 'The chat\'s Ollama address' : 'Set up chat';
     default: return '';
   }
 }

@@ -323,7 +323,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(region(c, 'right')).toMatch(new RegExp(`EVENT LOG, NEWEST AT THE TOP \\S+ \\[chat\\] turn answered in the Workbench · fixture/chat-model · receipt ${mine!.receipt}`));
   }, 30_000);
 
-  it('a chat that is not set up gives one remedy (defect 22): the route\'s cause, and timmy setup', async () => {
+  it('a chat that is not set up gives one remedy (defect 22): the route\'s cause, and the frame\'s fix (its Chat action, timmy init)', async () => {
     sandbox();
     const p = trayProject('turn-setup');
     const { c } = workbench(p, { runDetail: async () => ({ ok: false, why: 'FIXTURE: none' }), openChat: async () => ({ ok: false, why: 'FIXTURE: no chat session in this test' }) });
@@ -332,7 +332,10 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     await until('the frame', () => c.data.frame, 10_000, () => screen(c));
     const center = region(c, 'center');
     expect(c.data.route.ready).toBe(false);
-    expect(center).toContain('Ready not ready: timmy setup (in a shell) sets up a route');
+    // R5 (H131; the finish line, item 3): the Ready line names the frame's one fix, the primary Chat action (timmy init
+    // --chat openrouter, which Enter shows with what it asks); `timmy setup` makes a governed workspace's folders, asks nothing
+    expect(center).toContain('Ready not ready: set up chat: an OpenRouter key (asked hidden) or a local model (workflow action 2, row 2)');
+    expect(center).not.toContain('timmy setup');
     expect(center).not.toMatch(/Try: |\/setup|\/model|timmy init --chat/);
     expect(region(c, 'top')).not.toMatch(/\/setup|\/model/);
     // the frame's own action says the same step

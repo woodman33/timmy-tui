@@ -21,6 +21,7 @@ import type {
 import type { ToolsData, ToolsItem } from './tools-tab.js';
 import type { VoxData, VoxItem } from './voxvision-tab.js';
 import type { WorkflowsTabData } from './workflows-tab.js';
+import type { FreeCatalog, OllamaList, SetupPlan } from './setup-paths.js';
 import type { Line, Role } from './text.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
@@ -209,7 +210,17 @@ export type Overlay =
   | { kind: 'confirm-run'; doc: string; block: string; order: string[]; risky: Array<{ name: string; command: string }> }
   | { kind: 'needs-you'; req: ApprovalRequest; since: number; answer: (d: 'once' | 'session' | 'deny') => void }
   | { kind: 'quit'; own: JobRow[]; others: JobRow[] }
-  | { kind: 'message'; title: string; lines: Line[] };
+  | { kind: 'message'; title: string; lines: Line[] }
+  // R5 (H131; the finish line, item 3): the chat's fixes, done here (src/workbench/setup-paths.ts)
+  | { kind: 'free-models'; state: 'reading' }
+  | { kind: 'free-models'; state: 'listed'; catalog: FreeCatalog }
+  | { kind: 'free-models'; state: 'failed'; why: string }
+  | { kind: 'local-models'; state: 'asking' }
+  | { kind: 'local-models'; state: 'listed'; list: OllamaList }
+  | { kind: 'local-models'; state: 'failed'; list: OllamaList }
+  // the setup's own path (a shell's): the command, what it asks now, where the key in use comes from; `local`: a local model
+  // can be chosen here instead; `blank`: the setup has not run on this computer
+  | { kind: 'setup'; which: 'init' | 'chat'; command: string; asks: string[] | null; keyFrom: SetupPlan['keyFrom']; local: boolean; blank: boolean };
 
 export interface Ui {
   /** R5 (H131): the active tab of the ten (src/contracts/workspace.ts TABS), the frame's own ids */
