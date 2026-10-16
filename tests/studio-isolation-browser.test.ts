@@ -396,7 +396,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
     }
   }, 180_000);
 
-  it("delayed responses: tray's save answered after the switch lands on tray's board only; a call for tray running across the switch is drawn, saved and recorded for tray only; a call for blank that reaches the page while it still loads blank's board runs nothing", async () => {
+  it("delayed responses: tray's save answered after the switch lands on tray's board only; a call for tray running across the switch is drawn, saved and recorded for tray only; a call for blank that reaches the page while it still loads blank's board runs nothing; a read of tray's board answered after Studio switched on is dropped", async () => {
     await repl(tray);
     const s = await open();
     const { page } = s;
@@ -470,6 +470,29 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(again.kept).toBeUndefined();
       await page.waitForSelector(`#draft-list li[data-draft="${again.draft!.id}"]`);
       expect(saved(blank).jobs().map((j) => [j.id, j.project])).toEqual([['turn-blank-draft', blank.id]]);
+      expect(files(tray)).toEqual(tray2);
+
+      // ── a read of tray's board answered after Studio switched on: the REPL's /project tray, then blank again before tray's board
+      // reaches the page (the server read it while tray was named; only its answer comes late) ──
+      await savedState(page);
+      const onBlank = (await board(page)).map((x) => x.id);
+      const blank3 = files(blank);
+      const trayRead = hold(page, docOf(tray), { fetchFirst: true });
+      await trayRead.install();
+      await repl(tray);
+      await page.waitForFunction(() => document.body.dataset.board === 'switching', null, { timeout: 15_000 });
+      await trayRead.until();
+      await repl(blank);
+      await shows(page, blank);
+      trayRead.release();
+      const droppedBoard = 'A reading of tray (its board) came back after Studio switched to blank: it was dropped, and nothing of it is shown here.';
+      await page.waitForFunction((w) => (window as never as Win).timmyCanvas.identity.kept.some((k) => k.words === w), droppedBoard, { timeout: 10_000 });
+      trayRead.remove();
+      expect((await board(page)).map((x) => x.id)).toEqual(onBlank);
+      expect((await board(page)).some((x) => /^tray/.test(x.text))).toBe(false);
+      expect(await text(page, '#project-name')).toBe('blank');
+      expect(await readonly(page)).toBe(false);
+      expect(files(blank)).toEqual(blank3);
       expect(files(tray)).toEqual(tray2);
       expect(s.errors).toEqual([]);
     } finally {
