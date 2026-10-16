@@ -195,6 +195,33 @@ const OP_STOP = 'o0e117a02';
 const OP_ELSE = 'o0e117a03';
 const OP_LATER = 'o0e117a04';
 
+/** R5 (H137): one column of the Control Room's body (0 the roster, 1 the panes, 2 the right column), its wrapped rows joined.
+ *  The columns are split at their rules: the cells holding the rule glyph on every row that has one (a pane's box edge is not
+ *  on its column's heading row), so the split holds at any width. */
+function columnText(c: Controller, k: number, columns = 180, rows = 50): string {
+  const fr = c.frame(columns, rows);
+  const rect = fr.regions.center?.rect;
+  if (!rect) return '';
+  const grid: string[][] = [];
+  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+    const cells: string[] = [];
+    let x = 0;
+    for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) {
+      const n = visibleWidth(ch);
+      if (x > rect.x && x < rect.x + rect.w - 1) cells.push(ch, ...Array<string>(Math.max(0, n - 1)).fill(''));
+      x += n;
+    }
+    grid.push(cells);
+  }
+  const ruled = grid.filter((r) => r.includes('│'));
+  const rules = ruled.length ? [...ruled[0].keys()].filter((x) => ruled.every((r) => r[x] === '│')) : [];
+  const edges = [-1, ...rules, Number.POSITIVE_INFINITY];
+  return grid.map((r) => r.slice(edges[k] + 1, edges[k + 1]).join('')).join(' ').replace(/\s+/g, ' ');
+}
+
+/** A row's pieces in this order, as its column draws them: ` · ` between two on one row, a space where the row wraps. */
+const inRow = (...pieces: string[]): RegExp => new RegExp(pieces.join('(?: · | )'));
+
 describe('the terminal Workbench\'s Control Room lists every surface\'s chat turns (R4 H117)', () => {
   it('after its jobs: three turns of the project, newest first, each from its surface (a stopped one says stopped); another project\'s turn is not there; the Inspector draws a selected turn and its operation\'s run detail (FIXTURE producer); a turn sealed while it is open is listed at the next reading', async () => {
     sandbox();
@@ -242,12 +269,12 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     expect(room).toContain('RECENT (1)');
     expect(room).toContain('CHAT TURNS (3)');
     expect(room.indexOf(job.id)).toBeLessThan(room.indexOf('CHAT TURNS (3)'));
-    expect(room).toMatch(new RegExp(`✓ ${wb} answered from the Workbench · qwen3:8b-fixture · 1\\.2 s · ${OP_WB} · \\d+ s ago`));
-    expect(room).toMatch(new RegExp(`■ ${stopped} stopped from the Workbench · qwen3:8b · 0\\.8 s · ${OP_STOP} · \\d+ s ago`));
-    expect(room).toMatch(new RegExp(`✓ ${repl} answered from the REPL · fixture/chat-model · 2\\.4 s · no operation · \\d+ s ago`));
+    expect(columnText(c, 2)).toMatch(inRow(`✓ ${wb}`, 'answered', 'from the Workbench', 'qwen3:8b-fixture', '1\\.2 s', OP_WB, '\\d+ s ago'));
+    expect(columnText(c, 2)).toMatch(inRow(`■ ${stopped}`, 'stopped', 'from the Workbench', 'qwen3:8b', '0\\.8 s', OP_STOP, '\\d+ s ago'));
+    expect(columnText(c, 2)).toMatch(inRow(`✓ ${repl}`, 'answered', 'from the REPL', 'fixture/chat-model', '2\\.4 s', 'no operation', '\\d+ s ago'));
     expect(room.indexOf(wb)).toBeLessThan(room.indexOf(stopped));
     expect(room.indexOf(stopped)).toBeLessThan(room.indexOf(repl));
-    expect(room).toContain('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.');
+    expect(columnText(c, 2)).toContain('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.');
     // another project's turn, though in the same chain, is not this project's: absent everywhere
     expect(f.text()).not.toContain(other);
     expect(f.text()).not.toContain(OP_ELSE);
@@ -260,7 +287,7 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     expect(c.selected()).toMatchObject({ kind: 'job', job: { id: job.id } });
     await press(f.r, DOWN);
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: wb } });
-    expect(f.text()).toMatch(new RegExp(`▸ ✓ ${wb}\\s+answered\\s+from the Workbench`));
+    expect(columnText(c, 2)).toMatch(new RegExp(`▸ ✓ ${wb} answered from the Workbench`));
     await until('the turn\'s run detail', () => regionText(c, 'right').includes(`RUN DETAIL · ${OP_WB}`), 5000, f.text);
     const inspector = regionText(c, 'right');
     expect(inspector).toContain('CHAT TURN');
@@ -287,7 +314,7 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
       route: { host: 'http://192.0.2.10:11434', endpoint: 'remote', tools: 'off', modelResolved: 'fixture/remote-model', costBasis: 'unknown' },
     }), p.root, OP_LATER);
     await until('the fourth turn', () => regionText(c, 'center').includes('CHAT TURNS (4)'), 5000, f.text);
-    expect(regionText(c, 'center')).toMatch(new RegExp(`✓ ${later} answered from a companion page · fixture/remote-model · 0\\.3 s · ${OP_LATER}`));
+    expect(columnText(c, 2)).toMatch(inRow(`✓ ${later}`, 'answered', 'from a companion page', 'fixture/remote-model', '0\\.3 s', OP_LATER));
     expect(c.selected()).toMatchObject({ kind: 'turn', turn: { receipt: repl } });
     expect(regionText(c, 'right')).toContain(`Receipt ${repl}`);
     // up to it (the newest turn, first under Recent): its route is the Ollama its receipt names, off this computer
@@ -340,8 +367,8 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     await toControlRoom(c, f);
     const room = regionText(c, 'center');
     expect(room).toContain('CHAT TURNS (0)');
-    expect(room).toContain('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).');
-    expect(room).toContain('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.');
+    expect(columnText(c, 2)).toContain('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).');
+    expect(columnText(c, 2)).toContain('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.');
     expect(f.text()).not.toContain(theirs);
     expect(c.data.turns).toEqual([]);
   }, 30_000);

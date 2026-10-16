@@ -24,9 +24,10 @@ import { projectId } from '../src/project/index.js';
 import type { Decision } from '../src/room/decisions.js';
 import { appendReceipt, readChain, type Receipt } from '../src/utils/receipts.js';
 import {
-  agentOf, checkReceipt, CONTROL_LIST, controlRoomView, LANE_ORDER, liveTurnDetail, paneJobs, PREVIEWS_WORDS, readControl, sideBySideAt,
+  agentOf, checkReceipt, CONTROL_LIST, controlRoomView, LANE_ORDER, liveTurnDetail, paneJobs, PREVIEWS_WORDS, readControl,
   type ControlCtx, type ControlData, type LiveTurnRow,
 } from '../src/workbench/control-tab.js';
+import { sideBySideAt } from '../src/workbench/tab-columns.js';
 import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
 import { layoutFor } from '../src/workbench/layout.js';
 import type { Data, TurnRow } from '../src/workbench/model.js';
@@ -434,9 +435,10 @@ describe('tab 7, Control Room: the view', () => {
       // the fourth run, in RECENT: its id and recovery's word
       expect(pane(3).text).toMatch(/j0e1384 {2}stale/);
     }
-    // stacked, a recent run is one row, as the Control Room's was: the regular expressions of the recovery test match it
+    // stacked, a recent run too long for one row begins as the Control Room's row did (its id, its word, its label), and the
+    // rest follows on the next row, each piece whole
     const stacked = text(controlRoomView(ctxAt(100, 30, data({ jobs })), cd).lines);
-    expect(stacked).toMatch(/j0e1384\s+stale\s+SLOW\.md › long · 1 of 1 step/);
+    expect(stacked).toMatch(/j0e1384 {2}stale {2}SLOW\.md › long *\n\s+1 of 1 step · /);
   });
 
   it('WAITING ON YOU: the count, "nothing is done until you do it", each title whole (wrapped, never cut) with its command; a clipped column says which rows show and keeps the selection in view', () => {

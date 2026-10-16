@@ -15,9 +15,9 @@
  *   right            WAITING ON YOU (the decisions, as the Control Room always had them), the selected run's detail (the one
  *                    run detail, src/contracts/run-detail.ts), RECENT and CHAT TURNS (sealed, every surface's)
  *
- * From 120 terminal columns the three sit side by side, each keeping its selection in its own rows (a clipped column says
- * which of its rows show: "a–b of n"); below that they are stacked: the panes, what waits, the run detail, the recent runs
- * and turns, then the roster. A terminal draws no picture: live previews (carbonyl) are not drawn here, and the companion
+ * From 120 terminal columns the three sit side by side (src/workbench/tab-columns.ts, as tabs 0 and 8), each keeping its
+ * selection in its own rows (a clipped column says which of its rows show: "↓ a–b of n rows"); below that they are stacked:
+ * the panes, what waits, the run detail, the recent runs and turns, then the roster. A terminal draws no picture: live previews (carbonyl) are not drawn here, and the companion
  * (c) shows pages. Marks: ▶ running (never ●, which is a live connection only), ✓ completed or verified, ✕ failed (amber),
  * ■ stopped; every mark has its word beside it.
  *
@@ -36,11 +36,14 @@ import type { Decision as WaitDecision } from '../room/decisions.js';
 import { timmyHome } from '../setup/home.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
-import { boxOf, type Glyphs } from './frame.js';
+import type { Glyphs } from './frame.js';
 import { connectionMark } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
 import { lineText } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
+import {
+  card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx,
+} from './tab-columns.js';
 import { clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
@@ -56,13 +59,7 @@ export const TAIL_MAX = 6;
 const TAIL_BYTES = 16 * 1024;
 /** How many ended runs RECENT counts and lists (the newest), as the Control Room always did. */
 export const RECENT_MAX = 30;
-/** From here (the terminal's columns) the three columns sit side by side; below, they are stacked. */
-export const SIDE_FROM = 120;
-/** The body's narrowest width for three columns side by side (the body beside Context at 120 columns is 70 cells wide). */
-export const SIDE_MIN_WIDTH = 66;
-/** The rule between two columns: a cell of air, the line, a cell of air. */
-const RULE = 3;
-/** The columns' shares of the body: the roster, the panes, the right column. */
+/** The columns' shares of the body: the roster, the panes, the right column (side by side from 120 terminal columns: tab-columns.ts). */
 const WEIGHTS = [25, 40, 35] as const;
 
 /** The line under the panes: a terminal draws no picture (the operator's reference 07 shows carbonyl previews). */
@@ -75,8 +72,6 @@ export const TURN_STOP_WORDS = 'A turn being answered now is on the surface that
 /** The six lane programs, in their sessions' order (src/agent/lanes.ts DEFAULT_LANE_BINDINGS: /lanes and timmy tools read them). */
 export const LANE_ORDER: readonly string[] = Object.keys(DEFAULT_LANE_BINDINGS).sort((a, b) => Number(a) - Number(b)).map((k) => DEFAULT_LANE_BINDINGS[k]);
 
-const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
-const heading = (text: string): Seg => S(text.toUpperCase(), 'secondary', { bold: true });
 const key = (k: string): Seg => S(`[${k}]`, 'action');
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -86,10 +81,6 @@ const ago = (iso: string | number | undefined | null, now: number): string => {
   const s = Math.max(0, Math.round((now - t) / 1000));
   return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`;
 };
-
-/** Wrapped text as rows of one role, each at most `width` cells (an indent counts). */
-const para = (text: string, width: number, role: Role = 'secondary', indent = ''): Line[] =>
-  wrapText(text, Math.max(8, width - indent.length)).map((t) => [S(`${indent}${t}`, role)]);
 
 // ── the reading ────────────────────────────────────────────────────────────────
 
@@ -356,23 +347,14 @@ export interface ControlView {
 /** A live turn's key: its surface, its process and when it took the project. */
 export const liveTurnKey = (t: LiveTurnRow): string => `live-turn:${t.surface}:${t.pid}:${t.taken}`;
 
-/** What the tab is drawn from: ViewCtx's parts it reads (src/workbench/views.ts), and the terminal's width when the caller knows it. */
-export interface ControlCtx {
+/** What the tab is drawn from: TabCtx's parts (src/workbench/tab-columns.ts: side by side from 120 terminal columns, decided by
+ *  ViewCtx.columns), and the parts of ViewCtx the Control Room reads besides (src/workbench/views.ts). */
+export interface ControlCtx extends TabCtx {
   ui: Pick<Ui, 'cursor'> & Partial<Pick<Ui, 'companion' | 'studio'>>;
   data: Pick<Data, 'project' | 'jobs' | 'decisions' | 'details'> & Partial<Pick<Data, 'away' | 'turns' | 'frame' | 'turn'>>;
-  g: Glyphs;
-  /** the body's inner width and height */
-  width: number;
-  height: number;
-  now: number;
-  /** the terminal's columns (ViewCtx.columns): the three columns sit side by side from SIDE_FROM; absent, the body's width decides */
-  columns?: number;
   /** whether the run detail can be read here (ViewCtx.can) */
   can?: { detail: boolean; detailWhy?: string };
 }
-
-/** Whether the three columns sit side by side: from SIDE_FROM terminal columns (and room for them), else stacked. */
-export const sideBySideAt = (c: Pick<ControlCtx, 'width' | 'columns'>): boolean => c.width >= SIDE_MIN_WIDTH && (c.columns === undefined || c.columns >= SIDE_FROM);
 
 /** A selectable item's name (src/workbench/views.ts itemName) and its operation (operationOf), for Context and Activity. */
 export function controlItemName(item: ControlItem): string {
@@ -431,50 +413,20 @@ export function laneMark(l: LaneRow, g: Glyphs): { glyph: string; word: string; 
 
 // ── drawing ────────────────────────────────────────────────────────────────────
 
-/** Rows of a selectable item: the cursor's marker on its first row, the selection's ground on each (secondary words drawn in
- *  the primary text colour there: #8E8E93 on the selection's #333 is below the contrast floor), each fitted to `w`. */
+/** Rows of a selectable item: the cursor's marker on its first row, the selection bar on each (tab-columns.ts onBar: its quiet
+ *  words in the primary text colour, as #8E8E93 on the bar's #333 is below the contrast floor), each fitted to `w`. */
 function itemRows(lines: readonly Line[], selected: boolean, g: Glyphs, w: number): Line[] {
   return lines.map((l, i) => {
-    const mark = S(i === 0 && selected ? `${g.cursor} ` : '  ', 'action', selected ? { selected: true } : {});
-    const body = selected ? l.map((s) => ({ ...s, role: (s.role ?? 'text') === 'secondary' ? 'text' as Role : s.role, selected: true })) : l;
-    return fit([mark, ...body], w, g.ellipsis);
+    const row: Line = [S(i === 0 && selected ? `${g.cursor} ` : '  ', 'action'), ...l];
+    return fit(selected ? onBar(row) : row, w, g.ellipsis);
   });
 }
 
 /** One row when it fits in `w`, else the rows given (the fullest wording first, never cut where another fits). */
 const oneOr = (w: number, one: Line, rows: readonly Line[]): Line[] => (lineCells(one) <= w ? [one] : [...rows]);
 
-/** Pieces on rows of `w` cells, joined by ` · `: each piece whole where it fits a row (one wider than a row is cut at its end). */
-function flowRows(pieces: readonly string[], w: number, role: Role, sep: string): Line[] {
-  const rows: string[] = [];
-  let cur = '';
-  for (const p of pieces.filter(Boolean)) {
-    if (!cur) { cur = p; continue; }
-    if (lineCells([S(`${cur}${sep}${p}`)]) <= w) cur = `${cur}${sep}${p}`;
-    else { rows.push(cur); cur = p; }
-  }
-  if (cur) rows.push(cur);
-  return rows.map((r) => [S(r, role)]);
-}
-
-/**
- * A titled box `w` cells wide (a pane): its title on the top edge, a note at the edge's right end when there is room, its rows
- * inside with a cell of air on each side, each cut at the box's edge. Heavy and amber for the selected pane. Below 8 cells
- * there is no room for a box: the rows alone.
- */
-function box(o: { w: number; title: Seg[]; note?: Seg[]; body: readonly Line[]; edge: Role; heavy: boolean; g: Glyphs }): Line[] {
-  const { w, g } = o;
-  if (w < 8) return [fit(o.title, w, g.ellipsis), ...o.body.map((l) => fit(l, w, g.ellipsis))];
-  const b = boxOf(g, o.heavy);
-  const inner = w - 2;
-  const note = o.note && lineCells(o.title) + lineCells(o.note) + 6 <= inner ? [S(' '), ...o.note, S(' ')] : [];
-  const titleRoom = Math.max(1, inner - 3 - lineCells(note));
-  const title = fit([S(' '), ...o.title, S(' ')], Math.min(titleRoom, lineCells(o.title) + 2), g.ellipsis);
-  const fill = Math.max(0, inner - 1 - lineCells(title) - lineCells(note));
-  const top: Line = [S(`${b.tl}${b.h}`, o.edge), ...title, S(b.h.repeat(fill), o.edge), ...note, S(b.tr, o.edge)];
-  const rows = o.body.map((l): Line => [S(b.v, o.edge), S(' '), ...fit(l, inner - 2, g.ellipsis), S(' '), S(b.v, o.edge)]);
-  return [fit(top, w, g.ellipsis), ...rows, [S(`${b.bl}${b.h.repeat(inner)}${b.br}`, o.edge)]];
-}
+/** Pieces on rows of `w` cells, joined by ` · `, each whole where it fits a row (tab-columns.ts flow, one group). */
+const flowRows = (pieces: readonly string[], w: number, role: Role, g: Glyphs): Line[] => flow([pieces.filter(Boolean)], w, '', ` ${g.sep} `, role, g.ellipsis);
 
 /** A quiet pane's exit and receipt, on one row where they fit (else two): the receipt green only when verifyReceiptIn confirmed
  *  it in this reading; amber with ✕ when it does not verify; quiet when it is not found here. */
@@ -504,7 +456,7 @@ function jobPane(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: number
   const recovery = j.recovery && j.recovery.state !== j.word ? j.recovery.state : '';
   if (recovery || where) body.push([...(recovery ? [S(recovery, 'attention')] : []), ...(where ? [S(`${recovery ? ` ${g.sep} ` : ''}${where}`, 'secondary')] : [])]);
   // who started it, its operation, its blocks: each whole, on as many rows as the pane's width takes
-  body.push(...flowRows([whoOf(j), j.operation ?? 'no operation', j.blocks ?? ''], inner, 'secondary', ` ${g.sep} `));
+  body.push(...flowRows([whoOf(j), j.operation ?? 'no operation', j.blocks ?? ''], inner, 'secondary', g));
   const t = d?.tails[j.id];
   if (!t) body.push([S('reading its log…', 'secondary')]);
   else if ('why' in t) body.push([S(t.why, 'secondary')]);
@@ -512,7 +464,7 @@ function jobPane(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: number
   else for (const l of t.lines.slice(-tailRows)) body.push([S(cut(l, inner, g.ellipsis), quiet ? 'secondary' : 'text')]);
   if (quiet) body.push(...exitAndReceipt(j, d, g, inner));
   const note = [S(j.live ? j.elapsed : `ended ${ago(j.endedAt ?? j.startedAt, c.now)}`, 'secondary')];
-  return box({ w, title: [S(j.id, selected ? 'focus' : 'strong')], note, body, edge: selected ? 'focus' : 'border', heavy: selected, g });
+  return card({ w, title: [S(j.id, selected ? 'focus' : 'strong')], note, body, edge: selected ? 'focus' : 'border', heavy: selected, g });
 }
 
 /** How a turn being answered is stopped, where it was sent from. */
@@ -525,7 +477,7 @@ function turnPane(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean): 
   const inner = Math.max(8, w - 4);
   const state: Line = [S(`${g.next} `, 'text'), S('answering', 'text')];
   const body: Line[] = oneOr(inner, [...state, S(`  from ${surfaceWords(t.surface)}`, 'strong')], [state, [S(`from ${surfaceWords(t.surface)}`, 'strong')]]);
-  body.push(...flowRows([t.mine ? 'this process' : `pid ${t.pid}`, `since ${clock(t.taken)}`], inner, 'secondary', ` ${g.sep} `));
+  body.push(...flowRows([t.mine ? 'this process' : `pid ${t.pid}`, `since ${clock(t.taken)}`], inner, 'secondary', g));
   if (t.proof === 'unknown') body.push(...para('its process\'s start could not be read, so it is taken as running', inner));
   const own = t.mine && t.surface === 'workbench' && c.data.turn?.state === 'sending' ? c.data.turn : undefined;
   if (own) {
@@ -534,7 +486,7 @@ function turnPane(t: LiveTurnRow, c: ControlCtx, w: number, selected: boolean): 
   } else body.push(...para('its words are where it was sent', inner));
   body.push(...para(turnStop(t.surface), inner));
   const ms = c.now - Date.parse(t.taken);
-  return box({ w, title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], body, edge: selected ? 'focus' : 'border', heavy: selected, g });
+  return card({ w, title: [S('chat turn', selected ? 'focus' : 'strong')], note: [S(took(Number.isFinite(ms) ? ms : null), 'secondary')], body, edge: selected ? 'focus' : 'border', heavy: selected, g });
 }
 
 /** What waits on you, one decision: its title (⚠, wrapped, never cut), what is needed, its first command. */
@@ -548,26 +500,47 @@ function decisionRows(x: WaitDecision, w: number, g: Glyphs): Line[] {
 }
 
 /** A recent run: one row where it fits (as the Control Room's row: its mark, id, word, label, blocks, time, operation, who),
- *  else its mark, id and word, recovery's state, then the rest on a row of its own. */
-function recentRows(j: JobRow, c: ControlCtx, w: number): Line[] {
+ *  else its mark, id and word with its label where they fit (else the label wrapped under them), recovery's state, then the
+ *  rest, each piece whole (an operation is never cut); `dense` (a column too short for every row), the rest on one row, cut at
+ *  its end as the Control Room's rows always were. */
+function recentRows(j: JobRow, c: ControlCtx, w: number, dense: boolean): Line[] {
   const g = c.g;
+  const room = w - 2;
   const m = jobMark(j, g);
   const head: Line = [S(`${m.glyph} `, m.role), S(j.id, 'strong'), S(`  ${j.word}`, m.role)];
   const recovery = j.recovery && j.recovery.state !== j.word ? j.recovery.state : '';
   const where = sameFolder(j.root, c.data.project.root) ? '' : `in ${j.project}`;
   // the row's order is the Control Room's (R4 H112): its label, recovery's state, where, its blocks, its time, its operation, who
-  const tail = [where, j.blocks ?? '', j.elapsed, j.operation ?? 'no operation', whoOf(j), ago(j.endedAt ?? j.startedAt, c.now)].filter(Boolean).join(` ${g.sep} `);
-  const one: Line = [...head, S(`  ${j.label}`, 'text'), ...(recovery ? [S(` ${g.sep} ${recovery}`, 'attention')] : []), S(` ${g.sep} ${tail}`, 'secondary')];
-  return oneOr(w - 2, one, [head, ...(recovery ? [[S(`  ${recovery}`, 'attention')]] : []), [S(`  ${j.label} ${g.sep} ${tail}`, 'secondary')]]);
+  const pieces = [where, j.blocks ?? '', j.elapsed, j.operation ?? 'no operation', whoOf(j), ago(j.endedAt ?? j.startedAt, c.now)].filter(Boolean);
+  const labelled: Line = [...head, S(`  ${j.label}`, 'text')];
+  const one: Line = [...labelled, ...(recovery ? [S(` ${g.sep} ${recovery}`, 'attention')] : []), S(` ${g.sep} ${pieces.join(` ${g.sep} `)}`, 'secondary')];
+  if (lineCells(one) <= room) return [one];
+  const said = recovery ? para(recovery, room, 'attention', '  ') : [];
+  if (dense) return [head, ...said, [S(`  ${j.label}`, 'text'), S(` ${g.sep} ${pieces.join(` ${g.sep} `)}`, 'secondary')]];
+  return [
+    ...(lineCells(labelled) <= room ? [labelled] : [head, ...para(j.label, room, 'text', '  ')]),
+    ...said,
+    ...flow([pieces], room, '  ', ` ${g.sep} `, 'secondary', g.ellipsis),
+  ];
 }
 
-/** A sealed chat turn: one row where it fits (the Control Room's), else its mark, receipt and how it ended, then the rest. */
-function sealedTurnRows(t: TurnRow, c: ControlCtx, w: number): Line[] {
+/** A sealed chat turn: one row where it fits (the Control Room's), else its mark, receipt, how it ended and where from (where
+ *  they fit on that row), then the rest, each piece whole (an operation is never cut); `dense`, the rest on one row, cut at
+ *  its end. */
+function sealedTurnRows(t: TurnRow, c: ControlCtx, w: number, dense: boolean): Line[] {
   const g = c.g;
+  const room = w - 2;
   const m = turnMark(t, g);
   const head: Line = [S(`${m.glyph} `, m.role), S(t.receipt, 'strong'), S(`  ${t.state}`, m.role)];
-  const rest = [`from ${TURN_SURFACE[t.surface]}`, t.model ?? 'model not recorded', took(t.ms), t.operation ?? 'no operation', ago(t.at, c.now)].join(` ${g.sep} `);
-  return oneOr(w - 2, [...head, S(`  ${rest}`, 'secondary')], [head, [S(`  ${rest}`, 'secondary')]]);
+  const from = `from ${TURN_SURFACE[t.surface]}`;
+  const rest = [t.model ?? 'model not recorded', took(t.ms), t.operation ?? 'no operation', ago(t.at, c.now)];
+  const sent: Line = [...head, S(` ${from}`, 'text')];
+  const one: Line = [...sent, S(` ${g.sep} ${rest.join(` ${g.sep} `)}`, 'secondary')];
+  if (lineCells(one) <= room) return [one];
+  if (dense) return [head, [S(`  ${from}`, 'text'), S(` ${g.sep} ${rest.join(` ${g.sep} `)}`, 'secondary')]];
+  return lineCells(sent) <= room
+    ? [sent, ...flow([rest], room, '  ', ` ${g.sep} `, 'secondary', g.ellipsis)]
+    : [head, ...flow([[from, ...rest]], room, '  ', ` ${g.sep} `, 'secondary', g.ellipsis)];
 }
 
 /** The selected run's detail, compact (the shared run detail; Context's Inspector has the whole of it). */
@@ -680,38 +653,23 @@ function rosterLines(c: ControlCtx, d: ControlData | undefined, w: number): Line
   return out;
 }
 
-/** A column's blocks: rows, and the item (by its place in the items) a block draws. */
-interface Block { lines: Line[]; at?: number }
+/** A column's blocks: rows, and the item (by its place in the items) a block draws; `detail`, the selected run's detail. */
+interface Block { lines: Line[]; at?: number; detail?: true }
 
-/** Which blocks show in `room` rows: from the first, unless the selected one would not show whole; then it is the last shown
- *  whole, and the blocks before it fill what is left. The rows after the last whole block show the top of the next (the
- *  caller cuts it at the room's end; a block taller than the room shows cut too). */
-function windowOf(heights: readonly number[], sel: number, room: number): { start: number; end: number } {
-  const n = heights.length;
-  if (!n || room <= 0) return { start: 0, end: 0 };
-  let start = 0;
-  if (sel >= 0 && sel < n) {
-    let used = 0;
-    for (let i = 0; i <= sel; i++) used += heights[i];
-    while (used > room && start < sel) { used -= heights[start]; start += 1; }
-  }
-  let end = start;
-  let used = 0;
-  while (end < n && used < room) { used += heights[end]; end += 1; }
-  return { start, end: Math.max(end, Math.min(n, start + 1)) };
-}
+/** The rows of `blocks`, the run detail's counted at its least (the blank row above it, its title and one row), so that moving
+ *  the selection does not change how dense the lists under it are. */
+const listRows = (blocks: readonly Block[]): number => blocks.reduce((n, b) => n + (b.detail ? Math.min(b.lines.length, 3) : b.lines.length), 0);
 
-/** A column `room` rows tall at most: its blocks windowed around the selected one (clipped, a row says which rows show), then
- *  its `foot`, which always shows. */
+/** A column `room` rows tall at most: its blocks, windowed around the selected one where they do not all fit (tab-columns.ts
+ *  windowMarked: a mark says which rows show, "↓ a–b of n rows"), then its `foot`, which always shows. */
 function columnOf(blocks: readonly Block[], sel: number, room: number, w: number, g: Glyphs, foot: readonly Line[] = []): { lines: Line[]; placed: Array<{ at: number; line: number; rows: number }> } {
   const kept = foot.slice(0, Math.max(0, room - 2));
-  const r = room - kept.length;
+  const r = Math.max(1, room - kept.length);
   const heights = blocks.map((b) => b.lines.length);
   const total = heights.reduce((a, b) => a + b, 0);
-  const clipped = total > r;
-  const space = clipped ? Math.max(1, r - 1) : r;
-  const win = clipped ? windowOf(heights, blocks.findIndex((b) => b.at === sel), space) : { start: 0, end: blocks.length };
-  const lines: Line[] = [];
+  const win = total <= r ? { start: 0, end: blocks.length, above: null, below: null } : windowMarked(heights, blocks.findIndex((b) => b.at === sel), r, g, w);
+  const lines: Line[] = win.above ? [win.above] : [];
+  const space = r - (win.below ? 1 : 0);
   const placed: Array<{ at: number; line: number; rows: number }> = [];
   for (let i = win.start; i < win.end && lines.length < space; i++) {
     const b = blocks[i];
@@ -719,20 +677,8 @@ function columnOf(blocks: readonly Block[], sel: number, room: number, w: number
     if (b.at !== undefined && rows > 0) placed.push({ at: b.at, line: lines.length, rows });
     lines.push(...b.lines.slice(0, rows));
   }
-  if (clipped) {
-    const first = heights.slice(0, win.start).reduce((a, b) => a + b, 0);
-    lines.push(fit([S(`${first + 1}–${first + lines.length} of ${total}`, 'secondary')], w, g.ellipsis));
-  }
-  return { lines: [...lines, ...kept].map((l) => fit(l, w, g.ellipsis)), placed };
-}
-
-/** Splits `total` cells among the columns by weight, each at least `min` (the last takes what rounding leaves). */
-function widthsOf(total: number, weights: readonly number[], min = 12): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0) || 1;
-  const out = weights.map((x) => Math.max(min, Math.floor((total * x) / sum)));
-  const used = out.slice(0, -1).reduce((a, b) => a + b, 0);
-  out[out.length - 1] = Math.max(1, total - used);
-  return out;
+  if (win.below) lines.push(win.below);
+  return { lines: rowsOf([...lines, ...kept], w, room, g.ellipsis), placed };
 }
 
 /**
@@ -757,11 +703,11 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...sealed.map((turn): ControlItem => ({ kind: 'turn', key: `turn:${turn.receipt}`, turn })),
   ];
-  const sel = all.length ? Math.max(0, Math.min(all.length - 1, c.ui.cursor[CONTROL_LIST] ?? 0)) : -1;
+  const sel = selectedIn(c.ui, CONTROL_LIST, all.length);
   const selected = sel >= 0 ? all[sel] : null;
   const paneCount = panes.live.length + liveTurns.length + panes.quiet.length;
   const side = sideBySideAt(c);
-  const [wa, wb, wc] = side ? widthsOf(W - 2 * RULE, WEIGHTS) : [W, W, W];
+  const [wa, wb, wc] = side ? widths(W - 2 * RULE_CELLS, WEIGHTS) : [W, W, W];
   const room = Math.max(1, c.height);
 
   // the panes column: what runs (or, with nothing running, the newest ended runs, quiet), then what a terminal cannot draw
@@ -788,8 +734,9 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const keysBlock = (w: number): Block => ({ lines: [[], ...oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary')],
     [[key('x'), S(' stops the selected pane\'s job', 'secondary')], [key('Enter'), S(' its run detail', 'secondary')]]), ...para(HARNESS_WORDS, w)] });
 
-  // the right column: what waits on you, the selected run's detail, the recent runs, the sealed chat turns
-  const rightBlocks = (w: number): Block[] => {
+  // the right column: what waits on you, the selected run's detail, the recent runs, the sealed chat turns (`dense`: each run
+  // and turn on two rows, cut at their end)
+  const rightBlocks = (w: number, dense = false): Block[] => {
     const b: Block[] = [];
     let i = paneCount;
     const waiting = c.data.decisions.total;
@@ -798,18 +745,18 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     if (!decisions.length) b.push({ lines: para('Nothing waits on you.', w) });
     for (const x of decisions) { b.push({ lines: itemRows(decisionRows(x, w, g), i === sel, g, w), at: i }); i += 1; }
     if (c.data.decisions.more) b.push({ lines: para(`and ${c.data.decisions.more} more: /decisions in the REPL lists them`, w) });
-    b.push({ lines: [[], ...detailRows(c, selected, w)] });
+    b.push({ lines: [[], ...detailRows(c, selected, w)], detail: true });
     b.push({ lines: [[], [heading(`Recent (${ended.length})`)]] });
     if (!ended.length) b.push({ lines: para('No job has run in this project yet.', w) });
     if (panes.quiet.length) b.push({ lines: para(panes.quiet.length === 1 ? 'the newest is drawn as a pane' : `the newest ${panes.quiet.length} are drawn as panes`, w) });
     for (const j of ended) {
       if (quietIds.has(j.id)) continue;
-      b.push({ lines: itemRows(recentRows(j, c, w), i === sel, g, w), at: i });
+      b.push({ lines: itemRows(recentRows(j, c, w, dense), i === sel, g, w), at: i });
       i += 1;
     }
     b.push({ lines: [[], [heading(`Chat turns (${sealed.length})`)]] });
     if (!sealed.length) b.push({ lines: para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', w) });
-    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w), i === sel, g, w), at: i }); i += 1; }
+    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w, dense), i === sel, g, w), at: i }); i += 1; }
     if (sealed.length >= TURNS_SHOWN) b.push({ lines: para(`The newest ${TURNS_SHOWN} are listed.`, w) });
     b.push({ lines: para(TURN_STOP_WORDS, w) });
     for (const n of c.data.decisions.notes) b.push({ lines: para(n, w, 'failure') });
@@ -819,7 +766,7 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const items: ControlView['items'] = all.map((item) => ({ line: -1, item }));
   if (side) {
     const cols = [
-      columnOf([{ lines: rosterLines(c, d, wa) }], -1, room, wa, g),
+      { lines: clipRows(rosterLines(c, d, wa), wa, room, g), placed: [] as Array<{ at: number; line: number; rows: number }> },
       (() => {
         const blocks = paneBlocks(wb);
         const foot = previewsFoot(wb);
@@ -827,16 +774,17 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
         const used = blocks.reduce((n, b) => n + b.lines.length, 0);
         return columnOf(used + keys.lines.length + foot.length <= room ? [...blocks, keys] : blocks, sel, room, wb, g, foot);
       })(),
-      columnOf(rightBlocks(wc), sel, room, wc, g),
+      // every row whole where the column holds them all, else the runs and turns dense (the column then windowed as it needs)
+      (() => {
+        const whole = rightBlocks(wc);
+        return columnOf(listRows(whole) <= room ? whole : rightBlocks(wc, true), sel, room, wc, g);
+      })(),
     ];
-    const x0 = [0, wa + RULE, wa + RULE + wb + RULE];
+    const x0 = [0, wa + RULE_CELLS, wa + RULE_CELLS + wb + RULE_CELLS];
     const ws = [wa, wb, wc];
     cols.forEach((col, k) => { for (const p of col.placed) items[p.at] = { line: p.line, item: all[p.at], ...(p.rows > 1 ? { rows: p.rows } : {}), x: { from: x0[k], to: x0[k] + ws[k] } }; });
     const height = Math.max(...cols.map((col) => col.lines.length));
-    const rule = S(` ${g.unicode ? '│' : '|'} `, 'border');
-    const lines: Line[] = [];
-    for (let y = 0; y < height; y++) lines.push([...fit(cols[0].lines[y] ?? [], wa, g.ellipsis), rule, ...fit(cols[1].lines[y] ?? [], wb, g.ellipsis), rule, ...fit(cols[2].lines[y] ?? [], wc, g.ellipsis)]);
-    return { lines, items };
+    return { lines: sideBySide(cols.map((col, k) => ({ w: ws[k], lines: col.lines })), height, g), items };
   }
 
   // stacked: the panes, what waits, the run detail, the recent runs and turns, then the roster; the body scrolls to the selection
@@ -849,13 +797,6 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
 }
 
 // ── the Inspector ──────────────────────────────────────────────────────────────
-
-/** label: value rows for the Inspector, the value wrapped under itself (never cut), the label quiet and padded. */
-function fieldRows(label: string, value: string, width: number, role: Role = 'text', pad = 10): Line[] {
-  const room = Math.max(8, width - pad - 1);
-  const [first = '', ...rest] = wrapText(value, room);
-  return [[S(`${label.padEnd(pad)} `, 'secondary'), S(first, role)], ...rest.map((r) => [S(' '.repeat(pad + 1)), S(r, role)])];
-}
 
 /** The Inspector's rows for a chat turn being answered (src/workbench/views.ts inspectorTab, kind 'live-turn'): its hold's
  *  words, never the turn's own (they are on the surface that sent it); the Workbench's own turn its tools and operation too. */
