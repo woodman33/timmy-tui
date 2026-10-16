@@ -32,10 +32,12 @@ video, reference artwork and measured data keep their own colors.
 
 ## The table
 
-Status of the R6 candidate `r6/review-build` @ f035d28 (2026-10-16), from its code and the captures above: 0 matched,
-18 partly, 0 not yet, 0 not available. The R6 independent reviews have not judged it yet. At R5 (`a77d80d`), the
-independent visual review judged 0 matched, 14 partly and 4 not yet (04, 08, 15 and 17); those four move to partly here
-because the companion now draws what their references centre on.
+Status of the frozen R6 candidate `4a2e4b2` (2026-10-16), as the two R6 independent reviews of its package judged it.
+The visual review: 0 matched, 18 partly, 0 not yet. The interaction review: 17 partly, and 15 not met (it counts 15's
+layout, with no 3D, SAM 3, Depth Anything 3, FiftyOne or timeline, as not met; the visual review counts it as partly).
+The Status column follows the visual review. At R5 (`a77d80d`), the independent visual review judged 0 matched, 14
+partly and 4 not yet (04, 08, 15 and 17); those four moved to partly because the companion now draws what their
+references centre on.
 
 | Ref | What it shows | Tab | Terminal route | Browser route | Source | Status | Capture | Still differs |
 |---|---|---|---|---|---|---|---|---|
@@ -116,7 +118,9 @@ Companion · Show (`c`, on the tab shown) or Studio · Show (`s`) to see it draw
 newest images, a run's images and diffs, VoxVision's observed images with what was measured over them, a mesh's views);
 no surface draws a 3D scene you can turn, depth or voxels, or replays a run. Timmy has Kitty, iTerm2 and Sixel image
 pipelines with an ANSI fallback (src/graphics, chosen by what the terminal answers it supports), used by the older
-full-screen app (src/tui); the Workbench does not draw images, so it shows the text representation. Box-drawing lines,
-the amber focus and the green live, passed and sealed states all use the 16 terminal colors the Timmy themes set (slot
-3 amber, slot 2 green, slot 7 silver, slot 8 secondary text), so a terminal with another palette still shows each
-state's word and glyph.
+full-screen app (src/tui); the Workbench does not draw images, so it shows the text representation. The REPL and the
+monitor draw box-drawing lines, the amber focus and the green live, passed and sealed states in the 16 terminal colors
+the Timmy themes set (slot 3 amber, slot 2 green, slot 7 silver, slot 8 secondary text). The Workbench writes B10's own
+colors instead: exactly in a terminal that says it draws 24-bit color (`COLORTERM=truecolor`), otherwise the nearest
+of 256 (white text, as the R6 visual review measured). A terminal with another palette still shows each state's word
+and glyph.
