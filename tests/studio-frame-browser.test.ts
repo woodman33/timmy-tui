@@ -218,13 +218,21 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       // can then share a row, so the strip stays short and the panel keeps room for its lists; the ten tabs are all there (that
       // row scrolls sideways), the next step is first, and the canvas still starts under the strip
       await page.setViewportSize({ width: 800, height: 600 });
-      await page.waitForFunction(() => document.getElementById('frame')!.getBoundingClientRect().height < 130);
-      const low = await page.evaluate(() => {
+      // R5 lead (CI at ca2ebfc and aa247e5: "expected 23 to be less than or equal to 1"): the strip settles over a few frames (its
+      // actions wrap, then shorten), and the canvas follows each height a frame later (a ResizeObserver sets --frame-h). The
+      // layout is measured once three frames in a row show the strip under 130 px, at one height, with the canvas starting under
+      // it: what a person sees, never a frame in between. A canvas that never follows the strip still fails, by the timeout.
+      const low = (await (await page.waitForFunction(() => {
         const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
         const acts = document.getElementById('frame-acts')!;
-        return { strip: r('#frame').bottom, root: r('#root').top, tabs: document.querySelectorAll('#frame-tabs li').length, sideways: acts.scrollWidth - acts.clientWidth,
+        const m = { strip: r('#frame').bottom, height: r('#frame').height, root: r('#root').top, tabs: document.querySelectorAll('#frame-tabs li').length, sideways: acts.scrollWidth - acts.clientWidth,
           primary: r('#frame-acts li.is-primary').left, first: acts.firstElementChild === acts.querySelector('li.is-primary'), menu: r('[data-testid="main-menu.button"]').top, side: r('#side').top };
-      });
+        const w = window as unknown as { lowSettle?: { n: number; height: number } };
+        const settled = m.height < 130 && Math.abs(m.root - m.strip) <= 1;
+        const was = w.lowSettle;
+        w.lowSettle = { n: !settled ? 0 : was && was.n > 0 && was.height === m.height ? was.n + 1 : 1, height: m.height };
+        return w.lowSettle.n >= 3 ? m : null;
+      }, undefined, { timeout: 10_000 })).jsonValue())!;
       expect(low.tabs).toBe(10);
       expect(low.sideways).toBeLessThanOrEqual(0);
       expect(low.first).toBe(true);

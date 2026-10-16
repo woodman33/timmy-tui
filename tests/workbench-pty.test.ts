@@ -321,7 +321,20 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       await waitFor(new RegExp(`${run.id} completed\\s+operation ${op}`));
       await waitFor(/Activity\s+0 running/);
       await keys('a');
-      await waitFor(/▾ Activity[\s\S]*All operations/);
+      // R5 lead (CI at 94e0c01, 0cbadd0 and aa247e5, as at the R4 lead's bfb7fe5: Activity stayed collapsed for 30 s after its
+      // a was read, the Workbench drawing on): when the expanded Activity does not come, the failure says which it was before it
+      // fails. r draws the screen again from the state as it is (a toggle taken but not drawn), then a second a (a key lost).
+      try {
+        await waitFor(/▾ Activity[\s\S]*All operations/);
+      } catch (e) {
+        const after = async (key: string): Promise<string> => {
+          await keys(key);
+          try { await waitScreen(pane, { what: '▾ Activity', re: /▾ Activity/, ms: 5_000 }); return `after ${key}: Activity is open`; } catch { return `after ${key}: still collapsed`; }
+        };
+        const r = await after('r');
+        const a = r.endsWith('open') ? 'a second a: not pressed' : await after('a');
+        throw new Error(`${(e as Error).message}\n\nR5 lead's check of the cause: ${r}; ${a}\n${screen()}`);
+      }
       const activity = capture('wb-160x45-activity-after-run');
       expect(activity).toMatch(new RegExp(`${run.id} tidy completed`));
       await keys('a');

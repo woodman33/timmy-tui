@@ -52,7 +52,18 @@ const jobDir = (home: string, id: string): string => path.join(home, '.timmy-con
 const remoteStatus = (home: string, id: string): string => { try { return fs.readFileSync(path.join(jobDir(home, id), 'status'), 'utf8'); } catch { return ''; } };
 const pgidOf = (home: string, id: string): number => Number(/^pgid=(\d+)$/m.exec(remoteStatus(home, id))?.[1]);
 async function ended(id: string): Promise<RemoteJobRecord> {
-  return until(async () => { const r = await reconcileJob(p, id); return !('error' in r) && (r.job.state === 'ended' || r.job.state === 'stopped') ? r.job : undefined; }, 30_000, `job ${id} to end`);
+  // R5 lead (CI at fc43987: "timed out waiting for job rd2d8ccab to end", once, its cause not shown): a wait that times out says
+  // what the last status read found, the job's state and words and its newest events, so a recurrence names its cause
+  let last = 'no status read yet';
+  try {
+    return await until(async () => {
+      const r = await reconcileJob(p, id);
+      last = 'error' in r ? `error: ${r.error}` : `state ${r.job.state}: ${r.words}; events: ${r.job.events.slice(-6).map((e) => e.what).join(' | ')}`;
+      return !('error' in r) && (r.job.state === 'ended' || r.job.state === 'stopped') ? r.job : undefined;
+    }, 30_000, `job ${id} to end`);
+  } catch (e) {
+    throw new Error(`${(e as Error).message}; the last status read: ${last}`);
+  }
 }
 const lastJson = (stdout: string): Record<string, any> => JSON.parse(stdout.replace(/\r/g, '').trim().split('\n').at(-1)!) as Record<string, any>;
 /** A job's local record written by hand (a job folder made here by hand, or a record changed as a test needs). */
