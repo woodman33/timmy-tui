@@ -15,13 +15,14 @@ import { dirname, join } from 'node:path';
 import type { OllamaProbe } from '../capabilities/ollama-row.js';
 import {
   TABS, WORKSPACE_SCHEMA, WORKSPACE_VERSION,
-  type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry,
+  type ConnectionId, type LogTone, type TabId, type WorkspaceAction, type WorkspaceConnection, type WorkspaceFrame, type WorkspaceLogEntry, type WorkspaceTurn,
 } from '../contracts/workspace.js';
 import { timmyHome } from '../setup/home.js';
 import { readSettings as readWorkbenchSettings } from '../workbench/settings.js';
 import { chainOf, readTurns, workbenchJson, type StateDeps, type WorkbenchJson } from '../workbench/state.js';
 import type { TurnRow } from '../workbench/model.js';
-import { modelKeySource } from '../utils/model-key.js';
+import { took } from '../workbench/text.js';
+import { modelKeyFingerprint, modelKeySource } from '../utils/model-key.js';
 import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
 import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
@@ -29,6 +30,8 @@ import { studioBaseUrl } from '../studio/config.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
+import type { ChatSurface } from '../contracts/chat-session.js';
+import { resolveChatRoute } from '../agent/chat-route.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -56,6 +59,12 @@ export interface ConnectionCheck {
   at: string;
   /** words worth keeping: "3 models", "HTTP 200", "studio running, page connected" */
   detail?: string;
+  /**
+   * R5 lead (the QA round, defect 3; the operator's 22:32 order, item 1): what was asked, as it was set up then: the address
+   * (Ollama's, the companion's, Studio's, the edge's) or, for OpenRouter, the key's fingerprint ("key <12 hex>", never the
+   * key). A check of another address or key than the one set up now says nothing about it (forNow).
+   */
+  asked?: string;
 }
 
 export interface ConnectionsRecord {
@@ -85,6 +94,20 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
   return file;
 }
 
+/** The address a local surface is asked at (the frame's card names it): Studio's, the companion's. */
+const surfaceAddress = (id: 'studio' | 'companion', env: Env): string => (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)).replace(/\/+$/, '');
+
+/**
+ * R5 lead (the operator's 22:32 order, item 1): an observation counts only for what it asked, as it is set up now (the
+ * address, or the key's fingerprint): one that names another (asked before the setup changed) is no observation of this,
+ * and the card says so. A record from before observations named what they asked counts as it did.
+ */
+function forNow(c: ConnectionCheck | undefined, now: string | null): { check?: ConnectionCheck; other?: string } {
+  if (!c) return {};
+  if (c.asked && now !== null && c.asked.replace(/\/+$/, '') !== now.replace(/\/+$/, '')) return { other: c.asked.replace(/\/+$/, '') };
+  return { check: c };
+}
+
 /** R5 lead: how often a surface that answers its own page notes it (noteAnswered); well inside LIVE_FOR_MS. */
 export const SELF_NOTE_MS = 5 * 60_000;
 
@@ -98,8 +121,23 @@ export function noteAnswered(id: 'studio' | 'companion', detail: string, env: En
   try {
     const rec = readConnections(env);
     const last = rec.checks[id];
-    if (last?.answer === 'accepted' && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
-    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail } } }, env);
+    const asked = surfaceAddress(id, env);
+    if (last?.answer === 'accepted' && (last.asked ?? asked) === asked && now - Date.parse(last.at) < SELF_NOTE_MS) return false;
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'accepted', at: new Date(now).toISOString(), detail, asked } } }, env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * R5 lead (the QA round, defect 19): a local surface that stops records it, as a check made then would see it (refused,
+ * so not running), so no surface goes on saying it answered after it ended. A record that cannot be written changes nothing.
+ */
+export function noteStopped(id: 'studio' | 'companion', env: Env = process.env, now = Date.now()): boolean {
+  try {
+    const rec = readConnections(env);
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: 'not running', at: new Date(now).toISOString(), detail: 'it stopped', asked: surfaceAddress(id, env) } } }, env);
     return true;
   } catch {
     return false;
@@ -147,24 +185,45 @@ export function connectionOf(
   return { ...base, state: 'configured', words: 'set up, not checked yet (a setting is not a connection)', observedAt: null };
 }
 
+/**
+ * R5 lead (H131's finding): the Ollama address the check asks and the card names: the one the local chat asks (the setup's
+ * record, src/agent/chat-route.ts resolveChatRoute) when the chat is set to the local model, else OLLAMA_HOST (or
+ * OLLAMA_BASE_URL), else Ollama's default. Before, the card and the check asked OLLAMA_HOST or the default while the chat
+ * asked the recorded address, so a chat answering at its own address could be said "no answer".
+ */
+export function ollamaAddress(env: Env = process.env): string {
+  try {
+    const r = resolveChatRoute({ env });
+    if (r.kind === 'local' && !('error' in r.at)) return r.at.origin;
+  } catch { /* the setup's record not readable: the address below */ }
+  return (env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+}
+
 function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown']): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
+  const keyNow = key ? (() => { try { return modelKeyFingerprint(env, cwd); } catch { return null; } })() : null;
+  const or = forNow(checks.openrouter, keyNow);
   out.push(connectionOf('openrouter', 'OpenRouter (cloud chat)', {
     configured: key !== null, setupWords: 'no key: timmy init --chat openrouter asks for it (typed hidden), or set OPENROUTER_API_KEY', setup: key ? 'timmy workspace check' : 'timmy init --chat openrouter',
-    check: checks.openrouter, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}` } : {}),
+    check: or.check, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}${or.other ? '; not checked with this key yet (the last check asked with another key)' : ''}` } : {}),
   }));
-  const ollamaBase = env.OLLAMA_HOST || env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+  const ollamaBase = ollamaAddress(env);
   // set up when the chat route is the local model, or when an address for it is set; otherwise it is optional
   const ollamaChosen = wb.route.kind === 'local' || Boolean(env.OLLAMA_HOST || env.OLLAMA_BASE_URL);
+  // R5 lead (the QA round, defect 3): a check that asked another address (before the setup changed it) is not this one's
+  const ol = forNow(checks.ollama, ollamaBase);
   out.push(connectionOf('ollama', 'Ollama (local models)', {
     configured: ollamaChosen, setupWords: 'optional: run Ollama with a model pulled, then timmy init --chat local --model <name> chooses it for chat',
-    setup: ollamaChosen ? 'timmy workspace check' : 'timmy init --chat local --model <name>', check: checks.ollama, now, detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)`,
+    setup: ollamaChosen ? 'timmy workspace check' : 'timmy init --chat local --model <name>', check: ol.check, now,
+    detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)${ol.other ? `; not checked at this address yet (the last check asked ${ol.other})` : ''}`,
   }));
   const edge = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
+  const cf = forNow(checks.cloudflare, edge);
   out.push(connectionOf('cloudflare', 'Cloudflare edge (optional)', {
-    configured: edge !== null, setupWords: 'not set up (optional; it is not the chat provider)', setup: null, check: checks.cloudflare, now,
+    configured: edge !== null, setupWords: 'not set up (optional; it is not the chat provider)', setup: null, check: cf.check, now,
+    ...(cf.other ? { detail: `not checked at this address yet (the last check asked ${cf.other})` } : {}),
   }));
   const clef = (() => { try { return readDecisionSettings(env); } catch { return null; } })();
   const clefOn = clef?.settings?.useClef === true;
@@ -179,13 +238,15 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
     words: cloudroom ? 'a Core is recorded; not checked here (no live call is authorized)' : 'no Core connected; the FAKE backend is the simulation',
   });
   const wbSet = readWorkbenchSettings(env).settings;
+  const cp = forNow(checks.companion, surfaceAddress('companion', env));
   out.push(connectionOf('companion', 'Browser companion', {
-    configured: true, setupWords: '', setup: 'timmy watch', check: checks.companion, now, startWords: 'c in the Workbench, or timmy watch, starts it',
-    detail: `at ${companionBaseUrl(env)}; ${wbSet.openCompanionAtStart ? 'opens with the workspace' : 'opens when asked'}`,
+    configured: true, setupWords: '', setup: 'timmy watch', check: cp.check, now, startWords: 'c in the Workbench, or timmy watch, starts it',
+    detail: `at ${companionBaseUrl(env)}; ${wbSet.openCompanionAtStart ? 'opens with the workspace' : 'opens when asked'}${cp.other ? `; not checked at this address yet (the last check asked ${cp.other})` : ''}`,
   }));
+  const st = forNow(checks.studio, surfaceAddress('studio', env));
   out.push(connectionOf('studio', 'Timmy Studio (tldraw)', {
-    configured: true, setupWords: '', setup: 'timmy studio', check: checks.studio, now, startWords: 's in the Workbench, or timmy studio, starts it',
-    detail: `at ${studioBaseUrl(env)}; ${wbSet.openStudioAtStart ? 'opens with the workspace' : 'opens when asked'}`,
+    configured: true, setupWords: '', setup: 'timmy studio', check: st.check, now, startWords: 's in the Workbench, or timmy studio, starts it',
+    detail: `at ${studioBaseUrl(env)}; ${wbSet.openStudioAtStart ? 'opens with the workspace' : 'opens when asked'}${st.other ? `; not checked at this address yet (the last check asked ${st.other})` : ''}`,
   }));
   for (const [id, label, cmd] of [['mcp-sdk', 'MCP to CLI: the SDK route', '/mcp call --route sdk <tool> {json} -- <server command>'], ['mcporter', 'MCP to CLI: the mcporter route', '/mcp call --route mcporter <tool> {json} -- <server command>']] as const) {
     out.push({ id, label, state: 'unknown', observedAt: null, setup: cmd, words: 'used by a call when you make one; this computer keeps no check of it yet' });
@@ -237,7 +298,15 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
     return { problem: 'no-route', label: 'Set up chat: an OpenRouter key (asked hidden) or a local model', command: 'timmy init --chat openrouter', effect: 'local change', words: chatNotReady(route) };
   }
   if (route.kind === 'local' && !route.ready) {
-    if (/no model is chosen/i.test(first)) return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
+    if (/no model is chosen/i.test(first)) {
+      // R5 lead (the QA round, defect 3): the models to choose from are what Ollama lists, so while the last check found
+      // nothing answering at the address the chat asks, starting Ollama comes first (choosing one would list nothing)
+      const o = conn('ollama');
+      if (o && (o.state === 'unreachable' || o.state === 'refused') && !answeredSince(o, 'ollama')) {
+        return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${o.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (ollama serve), check again, then choose one with /model.` };
+      }
+      return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
+    }
     return { problem: 'ollama-address', label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change', words: chatNotReady(route) };
   }
   if (route.kind === 'local' && route.ready) {
@@ -252,10 +321,20 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
   }
   if (route.kind === 'openrouter' && route.ready) {
     const k = conn('openrouter');
-    if (k?.state === 'refused' && !answeredSince(k, 'openrouter')) return { problem: 'key-refused', label: 'Give a working OpenRouter key (asked hidden)', command: 'timmy init --chat openrouter', effect: 'local change', words: `OpenRouter: ${k.words}. timmy init --chat openrouter asks for a key, typed hidden.` };
+    // R5 lead (H131's finding): with a key stored, `timmy init --chat openrouter` asks nothing and keeps the refused key;
+    // `timmy init --openrouter -` replaces it (read hidden at a terminal), as the REPL's /setup key does
+    if (k?.state === 'refused' && !answeredSince(k, 'openrouter')) return { problem: 'key-refused', label: 'Give a working OpenRouter key (read hidden)', command: 'timmy init --openrouter -', effect: 'local change', words: `OpenRouter: ${k.words}. timmy init --openrouter - reads a new key hidden at a terminal (or /setup key in the REPL); a key set in OPENROUTER_API_KEY or timmy-tui.config.json is used before the stored one.` };
   }
   return null;
 }
+
+/**
+ * R5 lead (the QA round, defect 9): where a chat turn being answered is stopped, by the surface that sent it: Esc in the
+ * Workbench's or the monitor's composer, Ctrl+C in the REPL (it has no composer), Stop on the companion page that sent it.
+ */
+export const turnStopWords = (s: ChatSurface): string => (s === 'repl' ? 'Ctrl+C in the REPL' : s === 'companion' ? 'Stop on the page that sent it' : 'Esc in its composer');
+/** The same, as the chat tab's "Stop the turn" command (the Workbench reads "Esc in the composer" as its own Esc). */
+export const turnStopCommand = (s: ChatSurface): string => (s === 'repl' ? 'Ctrl+C in the REPL that sent it' : s === 'companion' ? 'Stop on the companion page that sent it' : `Esc in the composer that sent it (${surfaceWords(s)})`);
 
 const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
   n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
@@ -291,7 +370,7 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
         : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady && !fix, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: fix ? `${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)}: ${fix.command}` : 'no chat route: timmy init --chat openrouter' }) }),
       fix && !turns.length ? act(2, fix.label, fix.command, { primary: true, effect: fix.effect }) : act(2, 'Choose the model', '/model'),
       turns.length
-        ? act(3, 'Stop the turn', 'Esc in the composer that sent it (Ctrl+C in the REPL)', { primary: true })
+        ? act(3, 'Stop the turn', turnStopCommand(turns[0].surface as ChatSurface), { primary: true })
         : act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
       act(4, 'Show it in the companion', 'timmy watch'),
     ],
@@ -357,6 +436,21 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
 
 const tone = (e: { attention?: boolean; failed?: boolean }): LogTone => (e.failed ? 'failure' : e.attention ? 'attention' : 'neutral');
 
+const TURN_SURFACE: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+/**
+ * R5 lead (the finish line, item 3): a sealed chat turn as the frame carries it to every surface, in the words the Workbench's
+ * log gives it (src/workbench/hub.ts turnEntry): how it ended, where, the model, its receipt and how long it took.
+ */
+export function turnOf(t: TurnRow): WorkspaceTurn {
+  const ended = t.state === 'answered' ? 'answered' : t.state === 'stopped' ? 'stopped' : 'failed';
+  return {
+    receipt: t.receipt, surface: t.surface, state: t.state, model: t.model, at: t.at, ...(t.ms !== undefined ? { ms: t.ms } : {}),
+    operation: t.operation, route: t.local === true ? 'local' : t.local === false ? 'remote' : 'openrouter',
+    words: `turn ${ended}${t.state === 'stopped' && t.stoppedBy && t.stoppedBy !== t.surface ? ` (asked from ${TURN_SURFACE[t.stoppedBy as keyof typeof TURN_SURFACE] ?? t.stoppedBy})` : ''} in ${TURN_SURFACE[t.surface] ?? t.surface} · ${t.model ?? 'model not recorded'} · receipt ${t.receipt}${t.ms !== undefined ? ` · ${took(t.ms)}` : ''}`,
+    ...(t.turn ? { turn: t.turn } : {}), ...(t.stoppedBy ? { stoppedBy: t.stoppedBy } : {}),
+  };
+}
+
 /** The frame. Reads the records only; the same inputs give the same revision. */
 export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}): Promise<WorkspaceFrame> {
   const env = d.env ?? process.env;
@@ -371,13 +465,18 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     const running = c?.state === 'live';
     return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
   };
-  // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one
-  const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })();
-  const turn = turns[0];
   // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
   // an older check
   const recentTurns = (() => { try { return readTurns(d.chain ? d.chain() : chainOf(wb.project.root, env), wb.project.root); } catch { return []; } })();
-  const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)} (since ${turn.taken.slice(11, 19)} UTC)` : '';
+  // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one (a
+  // hold whose process has ended is no running turn). R5 lead (the QA round, defect 9; the operator's 22:32 order, item 1):
+  // a hold whose own receipt is sealed has ended (the hold is let go a moment after): matched by the turn's identity, its
+  // hold's id sealed on its receipt as turn_id, never by surface and time, so a next turn taken at once is still running
+  const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })()
+    .filter((t) => !recentTurns.some((r) => r.turn === t.id));
+  const turn = turns[0];
+  // R5 lead (the QA round, defect 6): no clock time in the words; each surface shows `since` in its own one format
+  const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)}` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
     at: e.at, tag: e.output ? 'job.output' : e.job ? 'job' : 'event', words: e.words, tone: tone(e),
     ...(e.operation ? { operation: e.operation } : {}), source: e.job ? `job ${e.job}` : e.key,
@@ -391,10 +490,11 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,
-      stopCurrent: wb.activity.stop_current.job || !turn ? wb.activity.stop_current : { job: null, words: `Stop current: the chat turn in ${surfaceWords(turn.surface)} (Esc in its composer)` },
-      chatTurn: turn ? { surface: turn.surface, since: turn.taken, words: turnWordsNow } : null,
+      stopCurrent: wb.activity.stop_current.job || !turn ? wb.activity.stop_current : { job: null, words: `Stop current: the chat turn in ${surfaceWords(turn.surface)} (${turnStopWords(turn.surface)})` },
+      chatTurn: turn ? { surface: turn.surface, since: turn.taken, words: turnWordsNow, id: turn.id } : null,
     },
     log,
+    chat: { turns: recentTurns.map(turnOf) },
     surfaces: { companion: surface('companion', settings.openCompanionAtStart), studio: surface('studio', settings.openStudioAtStart) },
     unknown,
   };
@@ -442,22 +542,27 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
   }
   const openRouter = d.openRouter ?? (async (k: string | null) => (await import('../capabilities/live.js')).openRouterProbe(k));
   const or = await openRouter(key);
-  if (or === 'accepted') checks.openrouter = { answer: 'accepted', at: stamp(), detail: 'the key endpoint took the key' };
-  else if (or === 'rejected') checks.openrouter = { answer: 'refused', at: stamp(), detail: 'the key endpoint rejected the key' };
-  else if (or === 'unreachable') checks.openrouter = { answer: 'no answer', at: stamp(), detail: 'the key endpoint did not answer' };
+  // R5 lead (the operator's 22:32 order, item 1): the key asked with, as its fingerprint (never the key), so a key changed
+  // since is not said taken or refused
+  const keyAsked = key ? { asked: `key ${createHash('sha256').update(key).digest('hex').slice(0, 12)}` } : {};
+  if (or === 'accepted') checks.openrouter = { answer: 'accepted', at: stamp(), detail: 'the key endpoint took the key', ...keyAsked };
+  else if (or === 'rejected') checks.openrouter = { answer: 'refused', at: stamp(), detail: 'the key endpoint rejected the key', ...keyAsked };
+  else if (or === 'unreachable') checks.openrouter = { answer: 'no answer', at: stamp(), detail: 'the key endpoint did not answer', ...keyAsked };
   else delete checks.openrouter;
-  const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama());
+  const olAt = ollamaAddress(env);
+  const ollama = d.ollama ?? (async () => (await import('../agent/providers.js')).probeOllama(1500, olAt));
   const ol = await ollama();
   checks.ollama = ol.ok
     // R5 lead: the same words as /tools (src/capabilities/ollama-row.ts): local models that pass Ollama's own check, and how
     // many more did not (the Mac rehearsal: "8 models listed" while Ollama listed 32, most of them cloud models)
-    ? { answer: 'accepted', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true }).detail }
-    : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer' };
+    ? { answer: 'accepted', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true }).detail, asked: olAt }
+    : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer', asked: olAt };
   const studio = d.studio ?? (async (u: string) => (await import('../studio/health.js')).studioHealth(u) as Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>);
   const st = await studio(studioBaseUrl(env));
+  const studioAsked = surfaceAddress('studio', env);
   checks.studio = st.state === 'running'
-    ? { answer: 'accepted', at: stamp(), detail: st.pageConnected ? 'running, a page is open' : 'running' }
-    : st.state === 'not-running' ? { answer: 'not running', at: stamp() } : { answer: 'no answer', at: stamp(), detail: st.detail ?? st.state };
+    ? { answer: 'accepted', at: stamp(), detail: st.pageConnected ? 'running, a page is open' : 'running', asked: studioAsked }
+    : st.state === 'not-running' ? { answer: 'not running', at: stamp(), asked: studioAsked } : { answer: 'no answer', at: stamp(), detail: st.detail ?? st.state, asked: studioAsked };
   // the companion asks for its token on /api/auth: a 401 there is a companion answering; a refused connection, none started
   const companion = d.companion ?? (async (u: string): Promise<number | 'refused' | null> => {
     try { return (await fetch(`${u}api/auth`, { signal: AbortSignal.timeout(1500), redirect: 'manual' })).status; } catch (e) {
@@ -466,16 +571,18 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
     }
   });
   const cp = await companion(companionBaseUrl(env));
-  checks.companion = cp === 401 || cp === 200 ? { answer: 'accepted', at: stamp(), detail: 'running' }
-    : cp === 'refused' ? { answer: 'not running', at: stamp() }
-    : { answer: 'no answer', at: stamp(), detail: cp === null ? 'nothing answered in time' : `HTTP ${cp}: another program may hold the port` };
+  const companionAsked = surfaceAddress('companion', env);
+  checks.companion = cp === 401 || cp === 200 ? { answer: 'accepted', at: stamp(), detail: 'running', asked: companionAsked }
+    : cp === 'refused' ? { answer: 'not running', at: stamp(), asked: companionAsked }
+    : { answer: 'no answer', at: stamp(), detail: cp === null ? 'nothing answered in time' : `HTTP ${cp}: another program may hold the port`, asked: companionAsked };
   const edgeUrl = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
   if (edgeUrl) {
     const edge = d.edge ?? (async (u: string) => {
       try { return (await fetch(`${u.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(3000), redirect: 'manual' })).status; } catch { return null; }
     });
     const code = await edge(edgeUrl);
-    checks.cloudflare = code === null ? { answer: 'no answer', at: stamp() } : code >= 200 && code < 300 ? { answer: 'accepted', at: stamp(), detail: `HTTP ${code}` } : { answer: 'refused', at: stamp(), detail: `HTTP ${code}` };
+    const edgeAsked = edgeUrl.replace(/\/+$/, '');
+    checks.cloudflare = code === null ? { answer: 'no answer', at: stamp(), asked: edgeAsked } : code >= 200 && code < 300 ? { answer: 'accepted', at: stamp(), detail: `HTTP ${code}`, asked: edgeAsked } : { answer: 'refused', at: stamp(), detail: `HTTP ${code}`, asked: edgeAsked };
   } else delete checks.cloudflare;
   const record: ConnectionsRecord = { schema: CONNECTIONS_SCHEMA, checks };
   return { record, path: writeConnections(record, env) };

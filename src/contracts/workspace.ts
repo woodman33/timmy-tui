@@ -107,6 +107,34 @@ export interface WorkspaceLogEntry {
   source: string;
 }
 
+/**
+ * R5 lead (the finish line, item 3: every surface shows the same conversation): a sealed chat turn of the project as its
+ * receipt says it (src/workbench/state.ts readTurns), whichever surface sent it. A receipt keeps the message and the answer as
+ * hashes only, and so does this: never a word of either. The words are the ones every surface's log uses.
+ */
+export interface WorkspaceTurn {
+  /** the receipt's short id (8 hex) */
+  receipt: string;
+  /** the surface that sent it: repl, workbench, monitor or companion */
+  surface: string;
+  state: 'answered' | 'stopped' | 'failed';
+  /** the model that answered, else the one asked for; null: neither is recorded */
+  model: string | null;
+  /** when it was sealed */
+  at: string;
+  ms?: number;
+  /** the operation it was sealed in; null: none */
+  operation: string | null;
+  /** its receipt names an Ollama endpoint on this computer (local) or off it (remote); none: the OpenRouter route */
+  route: 'local' | 'remote' | 'openrouter';
+  /** "turn answered in the Workbench · qwen3:8b · receipt d61b3006 · 4.1 s" */
+  words: string;
+  /** R5 lead: the turn's identity (its receipt's turn_id): the id a turn being answered had (activity.chatTurn.id) */
+  turn?: string;
+  /** R5 lead: a stopped turn another surface asked to stop: that surface */
+  stoppedBy?: string;
+}
+
 export interface SurfaceState {
   /** the operator's setting: reopen this surface when the workspace starts */
   openAtStart: boolean;
@@ -139,8 +167,10 @@ export interface WorkspaceFrame {
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
   /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
-  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string } | null };
+  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string; id?: string } | null };
   log: WorkspaceLogEntry[];
+  /** R5 lead: the project's newest sealed chat turns (at most 8, the newest first), every surface's, from their receipts */
+  chat?: { turns: WorkspaceTurn[] };
   surfaces: { companion: SurfaceState; studio: SurfaceState };
   unknown: Array<{ field: string; why: string }>;
 }

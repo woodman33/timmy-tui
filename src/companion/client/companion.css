@@ -176,6 +176,19 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
   text-overflow: ellipsis;
 }
 .box-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+/* R5 lead (the QA round, defect 5): a box whose content goes on below its edge says so on its bottom border, as its title
+   sits on the top one (the page's script marks it: markOverflow), so a cut line is never mistaken for the end */
+.box[data-more]::after {
+  content: 'more below ↓';
+  position: absolute;
+  right: 12px;
+  bottom: -0.8em;
+  padding: 0 6px;
+  background: var(--timmy-ground);
+  color: var(--timmy-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .box-flush { padding: 14px 0 0; }
 .box-flush > .box-body { gap: 0; }
 .empty { color: var(--timmy-text-secondary); font-size: 12px; line-height: 1.6; }
@@ -218,6 +231,8 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .act-effect { font-size: 11px; color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
 .act-effect.spends { color: var(--timmy-attention); }
 .strip-note { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 6px; }
+/* R5 lead: the Stop beside a chat turn being answered (the mirror's row, the Control Room's line) */
+.stop-turn { margin-left: 8px; }
 .strip-note:empty { display: none; }
 .strip-note[data-state="failed"] { color: var(--timmy-failure); }
 
@@ -234,8 +249,10 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .cols-wide { grid-template-columns: minmax(0, 34fr) minmax(0, 66fr); }
 .cols-logs { grid-template-columns: minmax(0, 26fr) minmax(0, 44fr) minmax(0, 30fr); }
 .col-stack { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
-.col-stack > .box { flex: 1 1 auto; }
-.col-stack > .box.box-fit { flex: 0 0 auto; }
+/* R5 lead (the QA round, defect 5): every box in a column keeps room for its title and a few lines, and the box that fits its
+   content takes at most 60% of the column, scrolling inside, so no box is squashed to a sliver under another */
+.col-stack > .box { flex: 1 1 auto; min-height: 7.5em; }
+.col-stack > .box.box-fit { flex: 0 1 auto; max-height: 60%; }
 
 /* a panel the page's script switches or opens (data-tab): shown while .active */
 .tab-panel { display: none; min-height: 0; min-width: 0; }

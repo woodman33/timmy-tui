@@ -1,30 +1,30 @@
-                ┏━━━━━━━━━━┓ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮ ╭─────╮
-TIMMY · tray1   ┃  1 Home  ┃ │  2  │ │  3  │ │  4  │ │  5  │ │  6  │ │  7  │ │  8  │ │  9  │ │  0  │
-                ┗━━━━━━━━━━┛ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯ ╰─────╯
+                         ┏━━━┓ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮
+TIMMY · tray1            ┃ 1 ┃ │ 2 │ │ 3 │ │ 4 │ │ 5 │ │ 6 │ │ 7 │ │ 8 │ │ 9 │ │ 0 │            Home
+                         ┗━━━┛ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯
 ╭─ Workflow actions ─────────────────────────────────────────────────────────────────────── 1 Home ╮
-│  [▶ 1 Set up chat: an…]  [2 Check connection…]  [3 New project]  [4 Switch project]              │
-│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Home · connections, as observed ━━┓╭─ Preview · the companion and Studio, in words ───╮
+│  [▶ 1 Choose the local model (from what Ollama lists)]  [2 Check…]  [3 New pro…]  [4 Switch…]    │
+│ this computer · chat: local · no model chosen                                                    │
+╰─────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Home · connections…    1–14 of 59 ┓╭─ Preview · the companion and…         1–14 of 35 ╮
 ┃ CONNECTIONS, AS LAST OBSERVED                ┃│ COMPANION ○ configured  · opens when asked       │
 ┃ live: an answer seen in the last 30 minutes; ┃│   [c] Companion · Show  to see it rendered       │
 ┃ a setting alone is configured                ┃│ STUDIO    ○ configured  · opens when asked       │
 ┃ ┏━ OpenRouter (cloud chat) ━━━━ ✕ refused ━┓ ┃│   [s] Studio · Show  to see it rendered          │
-┃ ┃ refused when checked 5 min ago (FAKE…    ┃ ┃│                                                  │
-┃ ┃ → timmy setup                            ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S…      │
-┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   2 workflows · 1 parameter · 1 run              │
-┃ ╭─ Ollama (local models) ───────── ● live ─╮ ┃│   · Approval: see a NEEDS YOU box  not run yet…  │
-┃ │ answered 3 min ago (FAKE: 2 models)      │ ┃│   · Tray workflow: change, inspect, result  not… │
-┃ │ asked at http://127.0.0.1:11434, no…     │ ┃│   · Tray recipe parameters (recipes/tray.params… │
-┃ ╰──────────────────────────────────────────╯ ┃│   · a task · j66b3d9  running · FAKE job…        │
-┃ ╭─ Cloudflare edge… ─────── ✕ unreachable ─╮ ┃│                                                  │
-┃ │ no answer when checked 5 min ago…        │ ┃│ FILES (11)                                       │
-┃ │ observed 16:05:06                        │ ┃│   1 editable source · 2 workflows · 1…           │
+┃ ┃ refused when checked 5 min ago (FAKE:    ┃ ┃│                                                  │
+┃ ┃   HTTP 401)                              ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S…      │
+┃ ┃ → timmy init --chat openrouter           ┃ ┃│   2 workflows · 1 parameter · 1 run              │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   · Approval: see a NEEDS YOU box  not run yet…  │
+┃ ╭─ Ollama (local models) ───────── ● live ─╮ ┃│   · Tray workflow: change, inspect, result  not… │
+┃ │ answered 3 min ago (FAKE: 2 models)      │ ┃│   · Tray recipe parameters (recipes/tray.params… │
+┃ │ asked at http://127.0.0.1:11434, no      │ ┃│   · a task · j90d179  running · FAKE job…        │
+┃ │   charge (local)                         │ ┃│                                                  │
+┃ ╰──────────────────────────────────────────╯ ┃│ FILES (6)                                        │
+┃ ╭─ Cloudflare edge… ──────── · not set up ─╮ ┃│   1 editable source · 2 workflows · 1 reference  │
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰──────────────────────────────────────────────────╯
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠇ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
-│ 16:10:11 [job] j3e9b07 tidy started                                                              │
-│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s…            │
+│ ▸ Activity  ⠸ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed…      [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                    │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                   │
+│ 20:47:39 [job] j01b6ca tidy started                                                              │
+│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [a] log  [?] keys         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

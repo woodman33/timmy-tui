@@ -736,8 +736,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // all three events reached the page (its log names each) before the mirror is read
       await page.waitForFunction(() => ((document.getElementById('logs-list')?.textContent ?? '').match(/Event bus: receipt\.sealed/g) ?? []).length >= 3, null, { timeout: 15_000 });
       const order = await page.$$eval('#console-logs .log-msg', (els) => els.map((e) => (e.querySelector('.log-header span')?.textContent ?? '').trim()));
-      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · cancelled', '◀ TIMMY Agent']);
-      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) cancelled (1 step);');
+      // R5 lead: a cancelled turn is said stopped, the word the Workbench and the shared frame use (1598141)
+      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · stopped', '◀ TIMMY Agent']);
+      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) stopped (1 step);');
       // the same sealed turn again (as a reconnect's tail brings it) is still one row
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
       await page.waitForTimeout(1_500);

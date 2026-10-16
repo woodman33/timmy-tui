@@ -21,6 +21,7 @@ import { HOMEBREW_GREEN, HOMEBREW } from '../src/theme/tokens.js';
 import { visibleWidth } from '../src/term/width.js';
 import { WorkbenchApp } from '../src/workbench/app.js';
 import { Controller } from '../src/workbench/controller.js';
+import type { SetupDeps } from '../src/workbench/setup-paths.js';
 import { glyphsFor, screenText } from '../src/workbench/frame.js';
 import { frameTabs, tabBar, workspaceOfPage } from '../src/workbench/hub.js';
 import type { Frame } from '../src/workbench/screen.js';
@@ -64,6 +65,15 @@ function trayProject(name: string): { name: string; root: string; chosen: boolea
   return made;
 }
 
+/** FAKE: the chat's fixes the Workbench carries out (R5 H131, the finish line item 3): the check, Ollama's list and the writers;
+ *  nothing is asked over the network and nothing is written */
+const FAKE_SETUP: Partial<SetupDeps> = {
+  check: async () => ({ record: { schema: CONNECTIONS_SCHEMA, checks: { ollama: { answer: 'accepted', at: new Date().toISOString(), detail: 'FAKE: 1 model' } } }, path: 'FAKE: no record is written in this test' }),
+  ollama: async () => ({ where: 'FAKE Ollama', answered: false, models: [], listed: 0, cloud: 0, why: 'FAKE: no Ollama is asked in this test' }),
+  saveModel: async () => { throw new Error('FAKE: no setting is saved in this test'); },
+  setLocal: async () => { throw new Error('FAKE: nothing is written in this test'); },
+};
+
 function workbench(project: { name: string; root: string; chosen: boolean }): Controller {
   const ws = new Workspace({
     glyphs: glyphSet(true), env: process.env, onPath: () => null, notify: () => undefined, openWeb: () => '', link: (t) => t,
@@ -74,7 +84,7 @@ function workbench(project: { name: string; root: string; chosen: boolean }): Co
     companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started in this test'); } }),
     studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(box, 'store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) }),
     // FAKE: no tools rows (no machine is probed)
-    capabilities: async () => [], tickMs: 100, slowMs: 400,
+    capabilities: async () => [], tickMs: 100, slowMs: 400, setup: FAKE_SETUP,
   });
   opened.push(c);
   return c;
@@ -272,12 +282,20 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     await enterOn('home', '/project <name>');
     expect(f.text()).toContain('Switch project');
     await press(f.r, '\u001b');
-    // 1 Home, "Check connections" (timmy workspace check): no path here: shown to copy, with where it runs; nothing runs
-    // (its words wrapped to the body's width, never cut: read from the body's own rows)
+    // 1 Home, "Check connections" (timmy workspace check): R5 (H131; the finish line, item 3): the check runs here (FAKE: its
+    // record is this test's; nothing is asked), and its box says what answered
     await enterOn('home', 'timmy workspace check');
-    const shown = regionRows(c.frame(160, 45), 'center').join(' ').replace(/\s+/g, ' ');
+    const center = (): string => regionRows(c.frame(160, 45), 'center').join(' ').replace(/\s+/g, ' ');
+    await until('the check\'s words', () => /Checked just now/.test(center()), 10_000, center);
+    expect(center()).toContain('Ollama (its list of models) answered: FAKE: 1 model');
+    expect(center()).toContain('Timmy Studio not asked this time');
+    await press(f.r, '\u001b');
+    // 8 Fleet, "Fleet status" (timmy fleet status): no path here: shown to copy, with where it runs; nothing runs
+    // (its words wrapped to the body's width, never cut: read from the body's own rows)
+    await enterOn('fleet', 'timmy fleet status');
+    const shown = center();
     expect(shown).toContain('Run it in a shell');
-    expect(shown).toContain('timmy workspace check');
+    expect(shown).toContain('timmy fleet status');
     expect(shown).toContain('Nothing was run from here: the Workbench has no path of its own for it.');
     await press(f.r, '\u001b');
     expect(jobFiles(), 'no job started').toBe(jobsBefore);
