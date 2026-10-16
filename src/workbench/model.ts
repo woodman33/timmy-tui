@@ -23,6 +23,7 @@ import type { VoxData, VoxItem } from './voxvision-tab.js';
 import type { WorkflowsTabData } from './workflows-tab.js';
 import type { FreeCatalog, OllamaList, SetupPlan } from './setup-paths.js';
 import type { Line, Role } from './text.js';
+import type { HoldsReading } from './turn-holds.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
 export const REGIONS: readonly Region[] = ['nav', 'center', 'right', 'bottom', 'top'];
@@ -131,6 +132,9 @@ export interface Data {
   /** R5 (H131): the one workspace frame (src/ops/workspace-frame.ts buildWorkspaceFrame) the terminal, the companion and
    *  Studio share: the tabs, each tab's actions, the connections as observed, the log. Absent until it is first read. */
   frame?: WorkspaceFrame;
+  /** R6 (H141): the project's chat-turn holds as this Workbench last read them (src/workbench/turn-holds.ts), at most a few
+   *  hundred ms ago: newer than the frame, they say at once whether another process's turn is being answered */
+  holds?: HoldsReading;
   /** R5 (H131): why the frame could not be read, when it could not (the last frame read stays shown) */
   frameError?: string;
   /** R5 (H131): the newest run's intent, prediction, run and receipt, from its records (src/workbench/state.ts readPipeline) */
