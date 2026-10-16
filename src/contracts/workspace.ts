@@ -129,6 +129,10 @@ export interface WorkspaceTurn {
   route: 'local' | 'remote' | 'openrouter';
   /** "turn answered in the Workbench · qwen3:8b · receipt d61b3006 · 4.1 s" */
   words: string;
+  /** R5 lead: the turn's identity (its receipt's turn_id): the id a turn being answered had (activity.chatTurn.id) */
+  turn?: string;
+  /** R5 lead: a stopped turn another surface asked to stop: that surface */
+  stoppedBy?: string;
 }
 
 export interface SurfaceState {
@@ -163,7 +167,7 @@ export interface WorkspaceFrame {
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
   /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
-  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string } | null };
+  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string; id?: string } | null };
   log: WorkspaceLogEntry[];
   /** R5 lead: the project's newest sealed chat turns (at most 8, the newest first), every surface's, from their receipts */
   chat?: { turns: WorkspaceTurn[] };

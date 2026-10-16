@@ -28,6 +28,19 @@ export function isLogsEnabled(): boolean {
   return fileLogsEnabled;
 }
 
+// R5 lead (the QA round, defect 1): a full-screen view in this process owns the terminal (the Workbench: its companion runs
+// in this process and said "Companion client disconnected …" onto the screen). While it does, what this process logs goes to
+// its log file, as while TIMMY_TUI_ACTIVE is set (the monitor), without setting that variable: the processes it starts
+// inherit the environment, and a job's or a tool's output is its own stdout.
+let screenOwned = false;
+export function ownScreen(on: boolean): void {
+  screenOwned = on;
+}
+/** True while a full-screen view owns the terminal: this process's logging goes to its log file then, never onto the screen. */
+export function screenQuiet(): boolean {
+  return screenOwned || process.env.TIMMY_TUI_ACTIVE === 'true';
+}
+
 // Preserve original console methods
 export const originalConsole = {
   log: console.log,
@@ -68,22 +81,22 @@ function writeToLogFile(level: string, ...args: unknown[]) {
 export const logger = {
   debug: (...args: unknown[]) => {
     writeToLogFile('debug', ...args);
-    if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
+    if (screenQuiet()) return;
     if (levels[currentLevel] <= levels.debug) console.error(chalk.hex(theme.textMuted)('[DEBUG]', ...args));
   },
   info: (...args: unknown[]) => {
     writeToLogFile('info', ...args);
-    if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
+    if (screenQuiet()) return;
     if (levels[currentLevel] <= levels.info) console.error(chalk.hex(theme.textPrimary)('[INFO]', ...args));
   },
   warn: (...args: unknown[]) => {
     writeToLogFile('warn', ...args);
-    if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
+    if (screenQuiet()) return;
     if (levels[currentLevel] <= levels.warn) console.error(chalk.hex(theme.warn).bold('[WARN]', ...args));
   },
   error: (...args: unknown[]) => {
     writeToLogFile('error', ...args);
-    if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
+    if (screenQuiet()) return;
     if (levels[currentLevel] <= levels.error) console.error(chalk.hex(theme.refuse)('[ERROR]', ...args));
   }
 };
@@ -117,28 +130,28 @@ const formatArgs = (...args: unknown[]) =>
   args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
 
 console.log = (...args: unknown[]) => {
-  if (process.env.TIMMY_TUI_ACTIVE === 'true') {
+  if (screenQuiet()) {
     writeLog('timmy-tui.log', 'info', formatArgs(...args));
   } else {
     originalConsole.log(...args);
   }
 };
 console.error = (...args: unknown[]) => {
-  if (process.env.TIMMY_TUI_ACTIVE === 'true') {
+  if (screenQuiet()) {
     writeLog('timmy-tui.log', 'error', formatArgs(...args));
   } else {
     originalConsole.error(...args);
   }
 };
 console.warn = (...args: unknown[]) => {
-  if (process.env.TIMMY_TUI_ACTIVE === 'true') {
+  if (screenQuiet()) {
     writeLog('timmy-tui.log', 'warn', formatArgs(...args));
   } else {
     originalConsole.warn(...args);
   }
 };
 console.info = (...args: unknown[]) => {
-  if (process.env.TIMMY_TUI_ACTIVE === 'true') {
+  if (screenQuiet()) {
     writeLog('timmy-tui.log', 'info', formatArgs(...args));
   } else {
     originalConsole.info(...args);
