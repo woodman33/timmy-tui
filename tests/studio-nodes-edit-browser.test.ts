@@ -139,6 +139,12 @@ describe.skipIf(!browserPath)("a parameter node's values, edited through the exi
     return { page, context, errors };
   }
   const card = (shape: string): string => `[data-timmy-card="${shape}"]`;
+  /** The page's own word that what it holds is saved (Studio saves a moment after a change). */
+  const savedState = (page: Page) => page.waitForFunction(() => document.getElementById('save')?.dataset.state === 'saved', null, { timeout: 15_000 });
+  /** Whether the project's board on disk holds shape `id` (the page saves it a moment after it is drawn). */
+  const onDisk = (id: string): boolean => { try { return readFileSync(join(home, 'canvas', 'projects', projectId(p.root), 'canvas.json'), 'utf8').includes(`"${id}"`); } catch { return false; } };
+  /** Whether the board on screen holds shape `id`. */
+  const inStore = (page: Page, id: string): Promise<boolean> => page.evaluate((x) => (window as never as Win).timmyCanvas.editor.store.allRecords().some((r) => r.id === x), id);
   /** Adds the parameter node of `id` from the palette; its shape id. */
   async function addParameterNode(page: Page, id: string): Promise<string> {
     await page.evaluate(() => { document.getElementById('project-said')!.textContent = ''; });
@@ -200,6 +206,9 @@ describe.skipIf(!browserPath)("a parameter node's values, edited through the exi
       boxShape = await addParameterNode(page, `params:${BOX}`);
       const at = card(boxShape);
       await page.waitForSelector(`${at} [data-tc-param="width"]`);
+      // the added node is saved to the board (test 2 opens the board again and uses it)
+      await savedState(page);
+      expect(onDisk(boxShape), 'the OpenSCAD node is saved to the project\'s board').toBe(true);
       // the node is the project's own parameter card, bound to it, with Save (the REPL takes its actions)
       expect(await page.evaluate((id) => (window as never as Win).timmyCanvas.editor.store.allRecords().find((r) => r.id === id)!.props.projectId, boxShape)).toBe(projectId(p.root));
       const was = readFileSync(join(p.root, BOX));
@@ -222,6 +231,9 @@ describe.skipIf(!browserPath)("a parameter node's values, edited through the exi
       // the node, read again from the saved file (its kept reading, not the typed field), holds the saved value
       await expect.poll(() => readValues(page, boxShape), { timeout: 15_000 }).toEqual({ width: 120, depth: 40, height: 30 });
       await capture(page, '13-parameter-node-saved');
+      // the node's new reading is saved too before the page closes
+      await savedState(page);
+      expect(onDisk(boxShape)).toBe(true);
       expect(errors).toEqual([]);
     } finally {
       await context.close();
@@ -231,6 +243,8 @@ describe.skipIf(!browserPath)("a parameter node's values, edited through the exi
   it('while a flow holds the project, Save on a parameter node is refused in the REPL\'s own words and nothing is written; once the hold is gone, the same Save goes through', async () => {
     expect(boxShape).not.toBe('');
     const { page, context, errors } = await open();
+    await page.waitForFunction((id) => (window as never as Win).timmyCanvas.editor.store.allRecords().some((r) => r.id === id), boxShape, { timeout: 15_000 }).catch(() => undefined);
+    expect(await inStore(page, boxShape), `the OpenSCAD node test 1 added (${boxShape}) is on the reopened board`).toBe(true);
     // FAKE: a flow's hold on the project, taken through Timmy's own hold writer as another process's flow takes one; no flow runs
     const held = takeProjectHold(p.root, { kind: 'tray' });
     if (!held.ok || !held.hold) throw new Error('FAKE flow hold not taken');
