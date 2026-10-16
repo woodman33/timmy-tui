@@ -70,8 +70,9 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 4. **A chat turn, stopped where it was sent.** 2 (Chat & Intent) → Enter → `Count from 1 to 200, one number per line.` →
    Enter; while it streams, Esc. The conversation says "■ stopped by you"; the log says "turn stopped (asked from the
    Workbench) in the Workbench", with its receipt.
-5. **The browser companion.** `c` opens it on the same project: the same ten tabs, actions and log, and the pictures a
-   terminal cannot draw. With the demo's tray: Home's Preview leads with the newest images (the report run's
+5. **The browser companion.** `c` opens it on the same project and the same tab (from tab 5, on the record selected
+   there): the same ten tabs, actions and log, and the pictures a terminal cannot draw. With the demo's tray: Home's
+   Preview leads with the newest images (the report run's
    `out/preview.png` and the VoxVision record's annotated copy of the example image), each shown at size when you click it;
    tab 5 draws that record; tab 3's run detail draws the report run; tab 9 lists and calls the FAKE fixture server.
 6. **A REPL turn, stopped from the page.** In a second terminal, `./review.sh repl`, send the same counting request; on the
@@ -92,8 +93,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    ````
 
    Then run LONG.md › wait from 3, open 7, and press `x`: it is cancelled at once, with its receipt.
-10. **Quit.** Ctrl+C in the Workbench with nothing running: it quits, and the companion and Studio it started stop.
-    `./review.sh clean` removes the sandbox when you are done.
+10. **Quit.** Ctrl+C in the Workbench with nothing running: it quits (exit 0), and the companion and Studio it started
+    stop. `./review.sh clean` removes the sandbox when you are done.
 
 ## What you can test today (the Workbench's keys: `?`)
 
@@ -203,8 +204,9 @@ that one setting through).
 - **The Workbench:** Ctrl+C quits it, and the companion and Studio it started stop with it. When a job it started is still
   running, Ctrl+C asks first ("Quit the Workbench? 1 job this Workbench started will stop with it"): Ctrl+C again quits and
   cancels that job (the Workbench says it "was cancelled as the Workbench ended", and its record says cancelled), Esc
-  stays. A job another session started keeps running, and the box says so. To stop a run and stay: `x` (a chat turn: Esc
-  in its composer).
+  stays. A job another session started keeps running, and the box says so. The exit code says whether the quit cut
+  anything short: 0 when it stopped nothing, 130 when it stopped a job or a chat turn this Workbench started. To stop a
+  run and stay: `x` (a chat turn: Esc in its composer).
 - **The REPL:** `/exit`, or Ctrl+C with no turn running (Ctrl+C during a turn stops the turn).
 - **A chat turn, from anywhere:** the companion page's Stop the turn (or Stop this turn beside it) stops the turn being
   answered in the Workbench or the REPL; what its tools had already done stays done (nothing is rolled back), and its
