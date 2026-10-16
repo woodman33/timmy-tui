@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TABS, WORKSPACE_SCHEMA, tabByKey, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import {
-  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatNotReady, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
+  CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, chatFix, chatNotReady, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { freeOnlyRefusal } from '../src/agent/model-price.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
@@ -121,6 +121,36 @@ describe('the frame', () => {
     // R5 lead (H131's note): said as a state, with the frame's one step; never as a message "not sent"
     const why = f.unknown.find((u) => u.field === 'chat')!.why;
     expect(why).toBe('No chat route yet: no OpenRouter key, and the chat is not set to a local model. timmy setup sets one up.');
+  });
+  it('names one fix for each thing that keeps chat from answering, never "turn free-only off" (the finish line, item 3)', () => {
+    // no route at all: the setup, which asks for a key hidden
+    expect(chatFix({ kind: 'none', ready: false })).toMatchObject({ problem: 'no-route', command: 'timmy setup' });
+    // the local model, none chosen: choose among what Ollama lists
+    const noModel = ['Error: the chat is set to the local model, and no model is chosen.', 'Cause: the setup recorded none.', 'Try: /model', 'Nothing was sent to any model.'];
+    expect(chatFix({ kind: 'local', ready: false, refusal: noModel })).toMatchObject({ problem: 'no-local-model', command: '/model' });
+    // the local model at an address Timmy does not use: set the address
+    const badHost = ['Error: the chat is set to the local model, and its Ollama address is not one Timmy uses.', 'Cause: x.', 'Try: /setup chat'];
+    expect(chatFix({ kind: 'local', ready: false, refusal: badHost })).toMatchObject({ problem: 'ollama-address', command: '/setup chat' });
+    // the local route ready, but Ollama did not answer when checked: start it, then check again
+    const down = [{ id: 'ollama', state: 'unreachable' as const, words: 'no answer when checked 3 min ago (asked at http://127.0.0.1:11434)' }];
+    expect(chatFix({ kind: 'local', ready: true }, down)).toMatchObject({ problem: 'ollama-unreachable', command: 'timmy workspace check' });
+    expect(chatFix({ kind: 'local', ready: true }, [{ id: 'ollama', state: 'live', words: 'answered just now' }])).toBeNull();
+    // free-only on, the model not known to be free: choose a free model; free-only stays on
+    const lines = freeOnlyRefusal('m/x', { free: false, words: '$1 per million (FAKE)' } as never, true)!;
+    const free = chatFix({ kind: 'openrouter', ready: false, refusal: lines })!;
+    expect(free).toMatchObject({ problem: 'free-only', command: '/model free' });
+    expect(`${free.label} ${free.command}`).not.toMatch(/free-only off|TIMMY_CHAT_FREE_ONLY=0/);
+    // a key OpenRouter refused when checked: give a working one, hidden
+    expect(chatFix({ kind: 'openrouter', ready: true }, [{ id: 'openrouter', state: 'refused', words: 'refused when checked just now' }])).toMatchObject({ problem: 'key-refused', command: 'timmy setup' });
+    expect(chatFix({ kind: 'openrouter', ready: true }, [])).toBeNull();
+  });
+  it('makes the fix Home\'s and Chat\'s one next step, and says it on Send while it is off', () => {
+    const wb = { activity: { waiting_on_you: 0, running: 0, stop_current: { job: null, words: '' } }, workflows: { docs: [] }, jobs: [],
+      route: { kind: 'openrouter', words: 'chat: m/x · free-only: not sent', ready: false, refusal: freeOnlyRefusal('m/x', { free: false, words: '$1 per million (FAKE)' } as never, true)! } } as unknown as Parameters<typeof actionsOf>[0];
+    const a = actionsOf(wb);
+    expect(a.home.filter((x) => x.primary)).toEqual([expect.objectContaining({ command: '/model free' })]);
+    expect(a.chat.filter((x) => x.primary)).toEqual([expect.objectContaining({ command: '/model free' })]);
+    expect(a.chat[0]).toMatchObject({ enabled: false, why: expect.stringContaining('/model free') });
   });
   it('says why chat is not ready as a state: a refusal\'s "not sent" words are a message\'s, not the frame\'s', () => {
     const lines = freeOnlyRefusal('m/x', { free: false, words: '$1 per million (FAKE)' } as never, true)!;
@@ -275,7 +305,7 @@ describe('the command', () => {
     expect(lines).toContain('Next     Set up chat');
     expect(lines).toContain('· not set up');
     expect(lines).toContain('? unknown');
-    expect(lines).toContain('▸ 1 Set up chat: an OpenRouter key or a local model: timmy setup');
+    expect(lines).toContain('▸ 1 Set up chat: an OpenRouter key (asked hidden) or a local model: timmy setup');
     expect(lines).toMatch(/Revision [0-9a-f]{16}/);
     expect(lines).not.toContain('\x1b[');
   });
