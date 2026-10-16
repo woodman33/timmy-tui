@@ -162,7 +162,7 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date().toISOString(), detail: 'FAKE: written by the test' } } }, { TIMMY_HOME: home });
       await page.waitForFunction((r) => document.getElementById('frame')?.dataset.revision !== r, revision, { timeout: 20_000 });
       shown = await acts();
-      expect(shown.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open', border: AMBER })]);
+      expect(shown.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open', border: AMBER })]);
       expect(await page.evaluate(() => (document.querySelector('#frame-tabs li') as HTMLElement & { kept?: boolean }).kept)).toBeUndefined();
       // a new revision that changes nothing the strip shows is read, and nothing is redrawn: a focused Copy button stays where
       // it is. R5 lead: the frame's time words change at most once a minute now (58ee2d5), so the check's age no longer makes a

@@ -110,7 +110,7 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     expect(r.status).toBe(200);
     const frame = r.json.frame as Record<string, any>;
     const studio = frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
-    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
+    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open' })]);
     expect(frame.connections.find((c: { id: string }) => c.id === 'studio')).toMatchObject({ state: 'live', words: 'its canvas server answered just now (the canvas page asked for its frame); live: an answer within the last 60 s' });
     const noted = readConnections(w.env).checks.studio!;
     expect(noted).toMatchObject({ answer: 'accepted', detail: 'the canvas page asked for its frame', asked: address });
@@ -161,7 +161,7 @@ describe('GET /api/workspace: the shared frame of the project named now, for the
     const r = await call(w.port, 'GET', '/api/workspace', { headers: bearer(await pageSession(w.port, w.token)) });
     expect(r.status).toBe(200);
     const studio = r.json.frame.actions.studio as Array<{ label: string; command: string; primary: boolean }>;
-    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Ask Timmy to draw: /canvas open in the REPL, then ask', command: '/canvas open' })]);
+    expect(studio.filter((a) => a.primary)).toEqual([expect.objectContaining({ label: 'Open the canvas for Timmy (then ask it to draw)', command: '/canvas open' })]);
   });
 
   it('serves the token too; with no project named there is none to show (404, in words)', async () => {

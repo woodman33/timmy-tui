@@ -487,10 +487,13 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
-    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open)
+    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open).
+    // R6 lead (the R5 interaction review, item 13): the label names what the command does and leaves the drawing request
+    // to words, since the strip shows the command after it; before, "… then ask /canvas open" read as if /canvas open were
+    // the request. Short enough that an 800 px strip stays two rows.
     studio: [
       o.studioRunning
-        ? act(1, 'Ask Timmy to draw: /canvas open in the REPL, then ask', '/canvas open', { primary: true, effect: 'local change' })
+        ? act(1, 'Open the canvas for Timmy (then ask it to draw)', '/canvas open', { primary: true, effect: 'local change' })
         : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
