@@ -381,4 +381,26 @@ describe('R5 lead: a setup check older than an answer the route gave asks for no
     const v = gather('2026-10-15T22:48:00.000Z', [turn('2026-10-15T22:53:54.000Z', { answered: false })]);
     expect(setupTitles(v).sort()).toEqual(['Ollama (local models) needs setup', 'REPL (timmy) needs setup']);
   });
+
+  /** SYNTHETIC receipt of a chat turn a person stopped (sealed cancelled, as src/repl/seal.ts seals it). */
+  const stopped = (ts: string, surface: 'repl' | 'workbench' = 'repl'): Receipt => ({
+    ...turn(ts, { answered: false, surface }), status: 'cancelled', cancelled_at: 'before-tools', rollback: 'none',
+    subject: surface === 'workbench' ? 'chat.turn · workbench · cancelled · 0 steps · qwen3:8b' : 'repl · cancelled · 0 steps', hash: `sha256_${'e'.repeat(64)}`,
+  }) as unknown as Receipt;
+
+  it('R6 (H140; the R5 interaction review, defect 2): turns stopped after the answered ones add no item: a stopped turn says nothing about a route or a surface', () => {
+    const answered = [turn('2026-10-15T22:53:49.000Z', { answered: true, surface: 'workbench' }), turn('2026-10-15T22:53:54.000Z', { answered: true })];
+    // before: the stopped turn was the newest "use" of the ollama, repl and workbench rows, not answered, so both rows asked again
+    const v = gather('2026-10-15T22:48:00.000Z', [...answered, stopped('2026-10-15T22:54:30.000Z'), stopped('2026-10-15T22:55:10.000Z', 'workbench')]);
+    expect(setupTitles(v)).toEqual([]);
+    expect(v.total).toBe(0);
+    expect(v.items).toEqual([]);
+  });
+
+  it('R6 (H140): stopped turns alone are no use of a row: nothing waits on a person, and the rows are counted with the others /tools lists', () => {
+    const v = gather('2026-10-15T22:48:00.000Z', [stopped('2026-10-15T22:54:30.000Z'), stopped('2026-10-15T22:55:10.000Z', 'workbench')]);
+    expect(setupTitles(v)).toEqual([]);
+    expect(v.total).toBe(0);
+    expect(v.otherSetup).toBe(2);
+  });
 });
