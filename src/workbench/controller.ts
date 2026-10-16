@@ -38,6 +38,8 @@ import { innerWidth, type Glyphs } from './frame.js';
 import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
+import { readTools } from './tools-tab.js';
+import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui } from './model.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
@@ -269,20 +271,25 @@ export class Controller {
   /**
    * R5 (H134): tab 0's and tab 8's readings (src/workbench/logs-tab.ts readLogs, src/workbench/fleet-tab.ts readFleet), only
    * while the tab is shown: the receipt chain verified once per reading, each receipt on screen checked once per reading.
+   * Tab 5's and tab 9's (src/workbench/voxvision-tab.ts readVox, src/workbench/tools-tab.ts readTools) the same way: the
+   * project's VoxVision records and MCP calls, with the chain as read here, each receipt verified when it is first shown.
    * Files only: no network, no VM, no paid call. A reading that fails says why in Activity (once until it changes).
    */
   private tabError = '';
   private readTab(ws: WorkspaceId = this.ui.workspace): void {
-    if (ws !== 'logs' && ws !== 'fleet' && ws !== 'control') return;
+    if (ws !== 'logs' && ws !== 'fleet' && ws !== 'control' && ws !== 'voxvision' && ws !== 'tools') return;
     const root = this.data.project.root;
     try {
       if (ws === 'logs') this.data.logs = readLogs({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, now: this.now() });
       // R5 (H137): tab 7's reading: the lanes on PATH, Connect's devices, the turns being answered, each pane's log and receipt
       else if (ws === 'control') this.data.control = readControl({ home: timmyHome(this.d.env), root, env: this.d.env, records: this.records, jobs: this.data.jobs, away: this.data.away, chain: this.chain(), now: this.now() });
+      else if (ws === 'voxvision') this.data.voxTab = readVox({ root, chain: this.chain(), env: this.d.env, now: this.now() });
+      else if (ws === 'tools') this.data.toolsTab = readTools({ root, chain: this.chain(), env: this.d.env, now: this.now() });
       else this.data.fleet = readFleet({ home: timmyHome(this.d.env), root, env: this.d.env, now: this.now() });
       this.tabError = '';
     } catch (e) {
-      const why = `${ws === 'logs' ? 'Logs & Receipts' : ws === 'control' ? 'Control Room' : 'Fleet & Clef'} could not be read: ${e instanceof Error ? e.message : String(e)}`;
+      const tab = ws === 'logs' ? 'Logs & Receipts' : ws === 'control' ? 'Control Room' : ws === 'voxvision' ? 'VoxVision' : ws === 'tools' ? 'Tools & MCP' : 'Fleet & Clef';
+      const why = `${tab} could not be read: ${e instanceof Error ? e.message : String(e)}`;
       if (why !== this.tabError) { this.tabError = why; this.say(why, 'failure'); }
     }
   }
@@ -412,8 +419,8 @@ export class Controller {
       }, force);
     }
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
-    // R5 (H134): tab 0 and tab 8 read when opened (then with the slow reading while they are shown)
-    if (ws === 'logs' || ws === 'fleet' || ws === 'control') this.readTab(ws);
+    // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown); R5 (H137): tab 7 too
+    if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
   }
 
   // ── timers ────────────────────────────────────────────────────────────────────

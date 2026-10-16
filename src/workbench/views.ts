@@ -21,8 +21,10 @@ import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
+import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
+import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
 import { stateMark, workflowsTabView } from './workflows-tab.js';
-import { clock, count, cut, fit, lineCells, pick, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
   ui: Ui;
@@ -165,6 +167,9 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
       return { ...rest, primary: true, enabled: true };
     }
     if (!turn && r.kind === 'abort') return { ...a, primary: false, enabled: false, why: 'only while a turn runs' };
+    // (R5 H134, at the merge of the frame's chat fix: Stop is the one next step while the turn runs; the frame, not knowing of
+    // the turn yet, may still make the chat's fix primary)
+    if (turn && a.primary) return { ...a, primary: false };
     return a;
   });
 }
@@ -293,9 +298,11 @@ export function centerView(c: ViewCtx): View {
     case 'overview': return overviewView(c);
     case 'studio': return studioView(c);
     case 'chat': return chatView(c);
-    case 'voxvision': case 'create3d': case 'motion': case 'rea': return familyView(c, c.ui.workspace);
+    case 'create3d': case 'motion': case 'rea': return familyView(c, c.ui.workspace);
     case 'templates': return templatesView(c);
-    case 'tools': return toolsView(c);
+    // R5 (H134): tab 5 and tab 9, references 04, 05, 15, 16 and 08, 17 (src/workbench/voxvision-tab.ts, tools-tab.ts)
+    case 'voxvision': return voxView(c, c.data.caps, c.data.voxTab);
+    case 'tools': return toolsTabView(c, c.data.caps, c.data.toolsTab, toolsSearch(c.ui), c.data.caps.state === 'ready' ? c.data.caps.at : undefined);
     // R5 (H131): Home's left column, the connection cards from the workspace frame (src/workbench/hub.ts)
     case 'connections': return homeView(c);
     // R5 (H134): tab 0 and tab 8 (src/workbench/logs-tab.ts, src/workbench/fleet-tab.ts)
@@ -566,51 +573,12 @@ function templatesView(c: ViewCtx): View {
   return { lines, items };
 }
 
-function toolsView(c: ViewCtx): View {
-  const { data, g, ui } = c;
-  const lines: Line[] = [];
-  const items: View['items'] = [];
-  // R4 (H112): the search's words stay after Enter (the matches can then be chosen); Esc clears them
+/** R5 (H134): All tools' search as tab 9 draws it (src/workbench/tools-tab.ts): the words searched are the ones typed, or the
+ *  ones kept after Enter (R4, H112); / searches the tools only from their list (R5, H131). */
+function toolsSearch(ui: Ui): ToolsSearch {
   const typing = ui.input.field === 'tools';
-  const q = typing ? ui.input.text : ui.toolsQuery ?? '';
-  if (typing) {
-    lines.push([S('Search: ', 'secondary'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
-    // R4 (H112; the r26 dry run): while this search holds /, the way to the workspace finder is said here, first (a narrow
-    // row keeps it and leaves the rest out, never cut)
-    lines.push([S('  '), ...pick([
-      [S(`find a workspace: ${finderKeys(ui) ?? '/'}`, 'secondary')],
-      [S('Esc', 'action'), S(' clears the search', 'secondary')],
-      [S('Enter keeps the matches', 'secondary')],
-    ], Math.max(0, c.width - 2), S(`  ${g.sep} `, 'secondary'))]);
-  } else if (ui.focus !== 'center') {
-    // R5 (H131): / searches the tools only from their list; elsewhere it finds a workspace
-    lines.push([S(q ? `Matching "${q}"  ${g.sep} ` : '', 'secondary'), S('Search the tools: Tab to this list, then /', 'secondary')]);
-  } else if (q) {
-    // (a narrow row keeps the way to the finder before "[/] change the search", never cut)
-    lines.push(pick([[S('Matching ', 'secondary'), S(`"${q}"`, 'strong')], [S('a workspace: g, then /', 'secondary')], [key('/'), S(' change the search', 'secondary')]], c.width, S(`  ${g.sep} `, 'secondary')));
-  } else {
-    // (at 80 columns the long form was cut before the way to the finder: the short form keeps it)
-    const long: Line = [key('/'), S(' Search the tools by name, kind or what they need', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')];
-    lines.push(lineCells(long) <= c.width ? long : [key('/'), S(' Search the tools', 'secondary'), S(`  ${g.sep} a workspace: g, then /`, 'secondary')]);
-  }
-  const wait = lazyLines(data.caps, 'Timmy\'s tools', c);
-  if (wait) return { lines: [...lines, ...wait], items };
-  const all = (data.caps as Extract<typeof data.caps, { state: 'ready' }>).value;
-  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = words.length ? all.filter((r) => words.every((w) => `${r.name} ${r.id} ${r.kind} ${r.rung} ${r.detail} ${r.setup ?? ''}`.toLowerCase().includes(w))) : all;
-  lines.push([S(`${count(rows.length, 'tool')}${words.length ? ` match "${q.trim()}"` : ''} ${g.sep} checked ${ago(data.caps.state === 'ready' ? data.caps.at : undefined, c.now)} ${g.sep} [r] checks again`, 'secondary')]);
-  const cur = cursorOf(c.ui, 'center:tools', rows.length);
-  const kinds = ['surface', 'model', 'tool', 'harness', 'adapter', 'vox'];
-  const titles: Record<string, string> = { surface: 'Where you work', model: 'Models', tool: 'Agent tools', harness: 'Other agents', adapter: 'Native apps and adapters', vox: 'VoxVision' };
-  let i = 0;
-  for (const k of kinds) {
-    const inKind = rows.filter((r) => r.kind === k);
-    if (!inKind.length) continue;
-    lines.push(blank);
-    lines.push(heading(`${titles[k]} (${inKind.length})`));
-    for (const r of inKind) { items.push({ line: lines.length, item: { kind: 'cap', key: `cap:${r.id}`, row: r } }); lines.push(row(capLine(r, g), i === cur, g)); i += 1; }
-  }
-  return { lines, items };
+  const finder = finderKeys(ui);
+  return { typing, text: ui.input.text, query: typing ? ui.input.text : ui.toolsQuery ?? '', focused: ui.focus === 'center', ...(finder ? { finder } : {}) };
 }
 
 // ── the overlays (drawn in the center) ─────────────────────────────────────────
@@ -877,6 +845,8 @@ function itemName(item: Item | null): string {
     case 'conn': return item.conn.label;
     case 'log-receipt': case 'log-op': case 'log-event': return logsItemName(item);
     case 'fleet-plan': case 'clef-decision': return fleetItemName(item);
+    case 'vox-record': return voxItemName(item);
+    case 'mcp-call': return toolsItemName(item);
     case 'live-turn': return controlItemName(item);
     default: return 'an action';
   }
@@ -892,6 +862,8 @@ const operationOf = (item: Item | null): string | null => {
   if (item.kind === 'record') return item.rec.operation ?? null;
   if (item.kind === 'log-receipt' || item.kind === 'log-op' || item.kind === 'log-event') return item.event.operation ?? null;
   if (item.kind === 'fleet-plan' || item.kind === 'clef-decision') return fleetItemOperation(item);
+  if (item.kind === 'vox-record') return voxItemOperation(item);
+  if (item.kind === 'mcp-call') return toolsItemOperation(item);
   return null;
 };
 
@@ -1046,6 +1018,9 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     // R5 (H134): tab 0's and tab 8's rows
     case 'log-receipt': case 'log-op': case 'log-event': lines.push(...logsDetail(item, c.data.logs, w, c.g)); break;
     case 'fleet-plan': case 'clef-decision': lines.push(...fleetDetail(item, w, c.g)); break;
+    // R5 (H134): tab 5's records and tab 9's calls, in full
+    case 'vox-record': lines.push(...voxDetail(item, c.data.voxTab, w, c.g)); break;
+    case 'mcp-call': lines.push(...mcpCallInspector(item, c.data.toolsTab, w, c.g)); break;
     // R5 (H137): a chat turn being answered (tab 7's pane), in its hold's words
     case 'live-turn': lines.push(...liveTurnDetail(item.live, w, c.g, c.now, c.data.turn)); break;
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
@@ -1062,6 +1037,9 @@ function relatedTo(item: Item | null, files: FileRow[]): FileRow[] {
   if (item.kind === 'job') { const doc = item.job.label.split(' › ')[0]; if (doc) names.add(doc); }
   if (item.kind === 'card' && item.card.record) names.add(item.card.record);
   if (item.kind === 'record') names.add(item.rec.record);
+  // R5 (H134): a VoxVision record and its inputs; an MCP call's record
+  if (item.kind === 'vox-record') { names.add(item.row.card.file); for (const i of item.row.card.inputs) names.add(i.path.replace(/^\.\//, '')); }
+  if (item.kind === 'mcp-call') names.add(item.call.read.call);
   const text = item.kind === 'block' ? item.block.command ?? '' : '';
   return files.filter((f) => names.has(f.rel) || (text && text.includes(f.rel)));
 }
