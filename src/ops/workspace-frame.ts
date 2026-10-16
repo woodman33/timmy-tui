@@ -86,11 +86,11 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
 
 /**
  * How long ago, in words that change at most once a minute (R5 lead, H132's note: words in seconds changed the frame's
- * revision every second, so a revision check went stale by itself). The exact time is the connection's observedAt.
+ * revision every second, so a revision check went stale by itself): "just now", then minutes, hours, days. The exact time is the connection's observedAt.
  */
 const ago = (at: string, now: number): string => {
   const s = Math.max(0, Math.floor((now - Date.parse(at)) / 1000));
-  if (s < 60) return 'under a minute ago';
+  if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
   if (m < 90) return `${m} min ago`;
   const h = Math.floor(m / 60);

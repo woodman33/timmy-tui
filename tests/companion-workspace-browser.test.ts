@@ -240,7 +240,7 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       studioAnswered();
       await studioLive(page);
       expect(await page.evaluate(() => (window as unknown as { __changes: number }).__changes)).toBeGreaterThan(0);
-      expect(await page.textContent('#home-connections [data-connection="studio"] .conn-words')).toBe('answered under a minute ago (FAKE: studio running)');
+      expect(await page.textContent('#home-connections [data-connection="studio"] .conn-words')).toBe('answered just now (FAKE: studio running)');
       // the card focused before the redraw has focus in its new self
       expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.connection)).toBe('ollama');
     } finally { await context.close(); }

@@ -75,12 +75,12 @@ describe('a connection', () => {
   it('a surface started on demand that is not running is set up, not failed, and says how to start it', () => {
     const c = connectionOf('studio', 'Studio', { ...base, startWords: 's starts it', check: { answer: 'not running', at: at(5000) } });
     expect(c.state).toBe('configured');
-    expect(c.words).toBe('not running when checked under a minute ago; s starts it');
+    expect(c.words).toBe('not running when checked just now; s starts it');
   });
   it('an optional service nobody chose that does not answer is not set up, with its step, not a failure', () => {
     const c = connectionOf('ollama', 'Ollama', { ...base, configured: false, setupWords: 'optional: run Ollama', check: { answer: 'no answer', at: at(2000), detail: 'connection refused' } });
     expect(c.state).toBe('not set up');
-    expect(c.words).toBe('nothing answered when checked under a minute ago (connection refused); optional: run Ollama');
+    expect(c.words).toBe('nothing answered when checked just now (connection refused); optional: run Ollama');
     expect(c.observedAt).toBe(at(2000));
   });
   it('ignores an observation whose time is not a time', () => {
@@ -335,7 +335,7 @@ describe('R5 lead: H132\'s notes on the frame', () => {
     const a = await frame(NOW);
     const b = await frame(NOW + 20_000);
     expect(b.revision).toBe(a.revision);
-    expect(a.connections.find((c) => c.id === 'studio')?.words).toContain('under a minute ago');
+    expect(a.connections.find((c) => c.id === 'studio')?.words).toContain('just now');
     const c = await frame(NOW + 70_000);
     expect(c.connections.find((x) => x.id === 'studio')?.words).toContain('1 min ago');
   });
