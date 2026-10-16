@@ -130,6 +130,11 @@ export interface ProbeDeps {
   /** R6 (H140): this computer's platform, so an install step fits it (Homebrew only on macOS); process.platform when absent */
   platform?: NodeJS.Platform;
   /**
+   * R6 (H140; the one waiting count): keeps the rows this check found, so every process counts the same "needs setup" items
+   * (src/capabilities/tools-record.ts); absent: nothing is kept (a test's checks, or a caller that keeps its own)
+   */
+  record?: (rows: CapabilityRow[]) => void;
+  /**
    * R4 (H103): the chat's route as the REPL resolves it (src/agent/chat-route.ts resolveChatRoute): the REPL's row says it (the
    * local model needs no key). Absent: the row says the model key only, as before.
    */
@@ -370,7 +375,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // R4 (H88; the Mac run r23): no row shows a path under a home folder, $HOME's or the account's own, as absolute (in a sandbox
   // HOME was not the account's home, and a tool found on PATH under it kept its absolute path on the board and in /tools)
   const homes = (t: string): string => scrubHomes(t, env as NodeJS.ProcessEnv);
-  return legacy.map((r) => {
+  const result = legacy.map((r) => {
     const l = ladderFor(r, ctx);
     const { setup: _setup, exercised: _exercised, ...rest } = r;
     return scrubStrings({
@@ -379,4 +384,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
       ladder: l.ladder, notReached: l.notReached, demonstrated: l.demonstrated,
     }, homes);
   });
+  // R6 (H140): the check's own result is kept for every process's count of what waits on you; a record that cannot be kept
+  // changes nothing here
+  try { d.record?.(result); } catch { /* not kept */ }
+  return result;
 }
