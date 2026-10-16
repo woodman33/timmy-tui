@@ -108,6 +108,20 @@ function terminal(label: string) {
   return { tmux, screen, waitFor, keys, typed, find, capture, close };
 }
 
+/** R5 (H131; the QA round's defect 4): what waits on you over a tab, as row 1 draws it without moving a tab: ⚠ and the count
+ *  in the top edge of the box whose label starts with `label` ('' when nothing is drawn there). */
+function badgeOver(rows: readonly string[], label: string): string {
+  for (let y = 1; y < Math.min(3, rows.length); y++) {
+    const at = rows[y].indexOf(label);
+    if (at < 0) continue;
+    const left = Math.max(rows[y].lastIndexOf('│', at), rows[y].lastIndexOf('┃', at));
+    const ends = ['│', '┃'].map((b) => rows[y].indexOf(b, at)).filter((i) => i >= 0);
+    if (left < 0 || !ends.length) return '';
+    return /⚠\d*/.exec(rows[y - 1].slice(left, Math.min(...ends) + 1))?.[0] ?? '';
+  }
+  return '';
+}
+
 beforeAll(async () => {
   box = mkdtempSync(join(tmpdir(), 'wb-pty-'));
   const home = join(box, 'home');
@@ -272,7 +286,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(runsOf()).toEqual([]);
     const sealedBefore = chain().length;
 
-    const { tmux, waitFor, keys, typed, find, capture, close } = terminal('wbB');
+    const { tmux, screen, waitFor, keys, typed, find, capture, close } = terminal('wbB');
     let runId = '';
     let op = '';
     try {
@@ -291,7 +305,10 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       expect(box).toContain('runs a destructive shell command on this machine: tidy');
       expect(box).toContain('mkdir -p scratch && touch scratch/x && rm scratch/x');
       // what waits on you, beside the Control Room's tab (R5: the workspace frame's count, read again within a second)
-      await waitFor(/7 Control(?: Room)? ⚠1/, 10_000);
+      for (const end = Date.now() + 10_000; badgeOver(screen().split('\n'), '7 Control') !== '⚠1';) {
+        if (Date.now() > end) throw new Error(`timed out waiting for ⚠1 over 7 Control Room:\n${screen()}`);
+        await sleep(100);
+      }
       capture('wb-160x45-needs-you');
       // nothing of the run has started while the box waits
       expect(runsOf()).toEqual([]);

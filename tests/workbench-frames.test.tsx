@@ -203,9 +203,10 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(lines).toHaveLength(24);
     expect(lines.every((l) => visibleWidth(l) <= 80)).toBe(true);
     expect(f.text()).not.toMatch(/CREATE/);
-    // under 30 rows row 1 is one row: TIMMY, the project, the keys and the active tab's label (its boxes give the body room)
+    // under 30 rows row 1 is one row: TIMMY, the project, the keys (the active one bracketed) and the active tab's name in a
+    // slot of its own at the end (R5, the QA round's defect 4: no cell grows with the active tab)
     expect(lines[0]).toContain('TIMMY · tray-narrow');
-    expect(lines[0]).toContain('3 Workflows');
+    expect(lines[0]).toMatch(/\[3\].*\bWorkflows$/);
     expect(lines[0]).not.toContain('2 Chat');
     expect(f.text()).toContain('tray-narrow / Workflows');
     expect(f.text()).toMatch(/run: idle\s+Stop current: idle/);

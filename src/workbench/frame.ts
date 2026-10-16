@@ -58,6 +58,8 @@ export interface PanelSpec {
   note?: string;
   /** a row for the bottom edge (a hint) */
   footer?: string;
+  /** R5 (H131): words drawn at the right of the bottom edge (row 2's run state and Stop current), kept whole first */
+  footRight?: Line;
 }
 
 /** The width a panel's rows are fitted to: its inside less one cell of air on each side. */
@@ -70,8 +72,9 @@ export function panel(p: PanelSpec, r: Rect, g: Glyphs): Line[] {
   const edge: Seg['role'] = p.focused ? 'focus' : 'border';
   const inner = r.w - 2;
   const title = `${p.focused ? `${g.focus} ` : ''}${p.title}`;
-  // the title stays whole before a note does: a note that leaves no room for it is left out
-  const note = p.note && lineCells([{ text: title }]) + lineCells([{ text: ` ${p.note} ` }]) <= inner - 3 ? ` ${p.note} ` : '';
+  // R5 (H131; the QA round's defect 7, "no clipped content without an overflow line"): a note (a range, 1–N of M) is kept
+  // before the title's tail: the title is cut to what the note leaves, down to its first few letters
+  const note = p.note && lineCells([{ text: ` ${p.note} ` }]) + 3 + Math.min(8, lineCells([{ text: title }])) <= inner ? ` ${p.note} ` : '';
   const head: Line = [{ text: `${b.tl}${b.h} `, role: edge }];
   const titleRoom = Math.max(0, inner - 3 - lineCells([{ text: note }]));
   const t = fit([{ text: title, role: p.focused ? 'focus' : 'strong' }], Math.min(titleRoom, lineCells([{ text: title }])), g.ellipsis);
@@ -92,7 +95,12 @@ export function panel(p: PanelSpec, r: Rect, g: Glyphs): Line[] {
     rows.push([{ text: b.v, role: edge }, ...(pad ? [{ text: ' ', ...(sel ? { selected: true } : {}) }] : []), ...fitted, ...(pad ? [{ text: ' ', ...(fitted[fitted.length - 1]?.selected ? { selected: true } : {}) }] : []), { text: b.v, role: edge }]);
   }
   const foot: Line = [{ text: b.bl, role: edge }];
-  if (p.footer && inner > 4) {
+  if (p.footRight?.length && inner > 4) {
+    // R5 (H131): words at the right of the bottom edge, one cell of edge after them
+    const right: Line = [{ text: ' ' }, ...p.footRight, { text: ' ' }];
+    const f = lineCells(right) <= inner - 2 ? right : fit(right, inner - 2, g.ellipsis);
+    foot.push({ text: b.h.repeat(Math.max(0, inner - 1 - lineCells(f))), role: edge }, ...f, { text: b.h, role: edge });
+  } else if (p.footer && inner > 4) {
     const f = fit([{ text: ` ${p.footer} `, role: 'secondary' }], Math.min(inner - 2, lineCells([{ text: ` ${p.footer} ` }])), g.ellipsis);
     foot.push({ text: b.h, role: edge }, ...f, { text: b.h.repeat(Math.max(0, inner - 1 - lineCells(f))), role: edge });
   } else foot.push({ text: b.h.repeat(inner), role: edge });

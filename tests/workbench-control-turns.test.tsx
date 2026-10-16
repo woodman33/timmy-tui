@@ -153,11 +153,13 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top'
   const rect = fr.regions[region]?.rect;
   if (!rect) return '';
   const out: string[] = [];
-  for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
+  // R5 (H131): row 2 draws the run state and Stop current in its bottom edge, so the top region is read to that edge
+  const last = region === 'top' ? rect.y + rect.h - 1 : rect.y + rect.h - 2;
+  for (let y = rect.y + 1; y <= last; y++) {
     let x = 0;
     let row = '';
     for (const seg of fr.screen[y] ?? []) for (const ch of seg.text) { if (x > rect.x && x < rect.x + rect.w - 1) row += ch; x += visibleWidth(ch); }
-    out.push(row);
+    out.push(y === rect.y + rect.h - 1 ? row.replace(/[─━]/g, ' ') : row);
   }
   return out.join(' ').replace(/\s+/g, ' ');
 }

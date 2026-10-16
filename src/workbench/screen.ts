@@ -90,7 +90,7 @@ export function frameOf(a: FrameAsk): Frame {
     const c = ctx(layout.top);
     const t = topLines(c, layout.topDetail);
     const tab = tabOf(ui.page);
-    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}` }, layout.top, g) });
+    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}`, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
     regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
     // where each button is drawn: inside the border and its one cell of air
     const x0 = layout.top.x + 1 + (layout.top.w - 2 >= 6 ? 1 : 0);

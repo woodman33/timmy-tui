@@ -20,7 +20,7 @@ import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type BlockRow, type FileRow, type JobRow, type WorkflowDoc } from './state.js';
-import { clock, count, cut, lineCells, pick, spread, took, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, pick, pickRanked, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
   ui: Ui;
@@ -237,19 +237,20 @@ export function stopRight(c: ViewCtx, width: number): Line {
  * `detail`) a row with the selected action's words while the bar has the keyboard (else this computer and the chat route), and
  * the run state and Stop current at its end, kept whole first.
  */
-export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: ActionHit[] } {
+export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: ActionHit[]; foot?: Line } {
   const { ui, data, width } = c;
   const { acts, why } = pageActions(c);
   const { at } = selectedAction(c);
   const focused = ui.focus === 'top';
   const row = acts.length ? actionsRow(acts, at, focused, width, c.g) : { line: [S(why ?? 'No action on this tab.', why?.startsWith('the workspace frame could not') ? 'failure' : 'secondary')] as Line, hits: [] };
   if (!detail) return { lines: [row.line], hits: row.hits };
-  const right = stopRight(c, width);
   const route = routeShown(data);
+  // R5 (H131; the QA round's defect 15): the selected action's words have the row to themselves (the run state and Stop
+  // current are drawn in the panel's bottom edge, src/workbench/screen.ts), and leave out their least needed words first
   const left: Line = focused && acts.length
-    ? actionWords(acts[at], c.g)
+    ? actionWords(acts[at], c.g, width)
     : [S('this computer', 'secondary'), S(` ${c.g.sep} `, 'secondary'), S(route.words, route.ready ? 'text' : 'secondary')];
-  return { lines: [row.line, spread(left, right, width, c.g.ellipsis)], hits: row.hits };
+  return { lines: [row.line, fit(left, width, c.g.ellipsis)], hits: row.hits, foot: stopRight(c, Math.max(8, width - 2)) };
 }
 
 // ── the center ─────────────────────────────────────────────────────────────────
@@ -669,7 +670,7 @@ function toolsView(c: ViewCtx): View {
 // ── the overlays (drawn in the center) ─────────────────────────────────────────
 
 export const HELP: ReadonlyArray<[string, string]> = [
-  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace'],
+  ['1 … 9  0', 'the ten tabs: 1 Home, 2 Chat & Intent, 3 Workflows, 4 Studio, 5 VoxVision, 6 3D & Motion, 7 Control Room, 8 Fleet & Clef, 9 Tools & MCP, 0 Logs & Receipts (not while a field has the keyboard); a tab\'s key again shows its next workspace. Row 1 says their full labels where they fit, else their first words, else their keys with the open tab\'s name at the end; a tab never moves, and ⚠ with a count over a tab is what waits on you there'],
   ['Tab / Shift+Tab', 'the next or previous zone: the body\'s columns, Activity & log, the workflow actions (the one with the keyboard has a heavy amber border and ◆)'],
   ['↑ ↓ or k j', 'move within the zone; PgUp PgDn a page'],
   ['← →', 'the workflow actions (row 2); Context\'s tabs (Tools, Inspector, Files)'],
