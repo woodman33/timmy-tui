@@ -79,7 +79,10 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 
 A terminal draws text. Where the references show a live 3D, canvas or browser preview, the Workbench draws what is there in
 words (the board, the files, the last run, its state) and `c` or `s` opens it rendered in your browser. Colors are the
-terminal's 16 slots as the Timmy Homebrew profile sets them; every state also carries its word and glyph.
+terminal's 16 slots as the Timmy Homebrew profile sets them; every state also carries its word and glyph. The REPL colors
+a role only when your terminal answered its color question, so inside tmux (which may not answer) it can draw without
+color: `TIMMY_PALETTE=homebrew ./review.sh repl` says the Timmy Homebrew profile is installed (the launcher passes that
+one setting through).
 
 ## Stop
 

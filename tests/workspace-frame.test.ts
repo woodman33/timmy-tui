@@ -9,6 +9,7 @@ import {
   CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 
 let home: string;
 let project: string;
@@ -50,7 +51,7 @@ describe('a connection', () => {
     const c = connectionOf('ollama', 'Ollama', { ...base, check: { answer: 'accepted', at: at(60_000), detail: '2 models listed' } });
     expect(c.state).toBe('live');
     expect(c.observedAt).toBe(at(60_000));
-    expect(c.words).toContain('answered 60 s ago');
+    expect(c.words).toContain('answered 1 min ago');
     expect(c.words).toContain('2 models listed');
   });
   it('is configured, not live, once the answer is older than the window, and asks for a new check', () => {
@@ -74,12 +75,12 @@ describe('a connection', () => {
   it('a surface started on demand that is not running is set up, not failed, and says how to start it', () => {
     const c = connectionOf('studio', 'Studio', { ...base, startWords: 's starts it', check: { answer: 'not running', at: at(5000) } });
     expect(c.state).toBe('configured');
-    expect(c.words).toBe('not running when checked 5 s ago; s starts it');
+    expect(c.words).toBe('not running when checked just now; s starts it');
   });
   it('an optional service nobody chose that does not answer is not set up, with its step, not a failure', () => {
     const c = connectionOf('ollama', 'Ollama', { ...base, configured: false, setupWords: 'optional: run Ollama', check: { answer: 'no answer', at: at(2000), detail: 'connection refused' } });
     expect(c.state).toBe('not set up');
-    expect(c.words).toBe('nothing answered when checked 2 s ago (connection refused); optional: run Ollama');
+    expect(c.words).toBe('nothing answered when checked just now (connection refused); optional: run Ollama');
     expect(c.observedAt).toBe(at(2000));
   });
   it('ignores an observation whose time is not a time', () => {
@@ -169,6 +170,10 @@ describe('the primary next step follows the records', () => {
     const a = actionsOf(wb({ ready: true, waiting: 0, running: 0, docs: [{ rel: 'plan.up.md', blocks: [{ name: 'build', needs_person: false }] }] }));
     expect(a.workflows[0]).toMatchObject({ primary: true, command: '/run plan.up.md build' });
     expect(a.workflows[2]).toMatchObject({ enabled: false, why: 'nothing runs' });
+  });
+  it('R5 lead: with Studio running, Studio\'s next step is to have Timmy draw on it, not to open it again', () => {
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 })).studio[0]).toMatchObject({ label: 'Open Studio', command: '/studio', primary: true });
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [], { studioRunning: true }).studio[0]).toMatchObject({ command: '/canvas open', primary: true });
   });
   it('R5 lead: "needs you" has one meaning: Workflows counts what waits on a person now, never the blocks that ask first', () => {
     const docs = [{ rel: 'APPROVAL.md', blocks: [{ name: 'tidy', needs_person: true }] }];
@@ -297,5 +302,45 @@ describe('R5 lead: H131\'s contract notes', () => {
   });
   it('Home lists its connections first, as every surface draws it', () => {
     expect(TABS[0]).toMatchObject({ id: 'home', workbench: ['connections', 'overview'] });
+  });
+});
+
+describe('R5 lead: a chat turn being answered (the independent review, defect 1)', () => {
+  it('counts as running: Stop the turn becomes the Chat tab\'s one next step, a second message waits, Stop current names the turn', async () => {
+    const t = takeTurnHold(project, 'workbench');
+    expect(t.ok).toBe(true);
+    try {
+      const f = await frame();
+      expect(f.activity.running).toBe(1);
+      expect(f.activity.chatTurn).toMatchObject({ surface: 'workbench' });
+      expect(f.activity.stopCurrent.words).toMatch(/^Stop current: the chat turn in .*Workbench.*\(Esc in its composer\)$/);
+      const chat = f.actions.chat;
+      expect(chat[0]).toMatchObject({ label: 'Send a message', enabled: false, primary: false });
+      expect(chat[0].why).toMatch(/^one turn at a time: a turn is being answered in /);
+      expect(chat[2]).toMatchObject({ label: 'Stop the turn', enabled: true, primary: true });
+      expect(chat.filter((a) => a.primary)).toHaveLength(1);
+    } finally {
+      if (t.ok) t.hold.release();
+    }
+    const after = await frame();
+    expect(after.activity.running).toBe(0);
+    expect(after.activity.chatTurn).toBeNull();
+    expect(after.actions.chat[2]).toMatchObject({ enabled: false, primary: false });
+  });
+});
+
+describe('R5 lead: H132\'s notes on the frame', () => {
+  it('a revision does not tick with the clock: the same records a few seconds apart give the same revision', async () => {
+    writeConnections({ schema: CONNECTIONS_SCHEMA, checks: { studio: { answer: 'accepted', at: new Date(NOW - 5_000).toISOString(), detail: 'running' } } }, env);
+    const a = await frame(NOW);
+    const b = await frame(NOW + 20_000);
+    expect(b.revision).toBe(a.revision);
+    expect(a.connections.find((c) => c.id === 'studio')?.words).toContain('just now');
+    const c = await frame(NOW + 70_000);
+    expect(c.connections.find((x) => x.id === 'studio')?.words).toContain('1 min ago');
+  });
+  it('each tab carries its purpose', async () => {
+    const f = await frame();
+    for (const t of f.tabs) expect(t.purpose, t.id).toBe(TABS.find((x) => x.id === t.id)?.purpose);
   });
 });

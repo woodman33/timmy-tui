@@ -134,10 +134,12 @@ export interface WorkspaceFrame {
     switch: string;
     create: string;
   };
-  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; waiting: number }>;
+  /** R5 lead: each tab's purpose too (H132's note), as TABS says it */
+  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; purpose?: string; waiting: number }>;
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
-  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string } };
+  /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
+  activity: { running: number; waitingOnYou: number; stopCurrent: { job: string | null; words: string }; chatTurn?: { surface: string; since: string; words: string } | null };
   log: WorkspaceLogEntry[];
   surfaces: { companion: SurfaceState; studio: SurfaceState };
   unknown: Array<{ field: string; why: string }>;

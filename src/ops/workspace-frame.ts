@@ -27,6 +27,7 @@ import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
+import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -83,13 +84,17 @@ export function writeConnections(rec: ConnectionsRecord, env: Env = process.env)
   return file;
 }
 
+/**
+ * How long ago, in words that change at most once a minute (R5 lead, H132's note: words in seconds changed the frame's
+ * revision every second, so a revision check went stale by itself): "just now", then minutes, hours, days. The exact time is the connection's observedAt.
+ */
 const ago = (at: string, now: number): string => {
-  const s = Math.max(0, Math.round((now - Date.parse(at)) / 1000));
-  if (s < 90) return `${s} s ago`;
-  const m = Math.round(s / 60);
+  const s = Math.max(0, Math.floor((now - Date.parse(at)) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
   if (m < 90) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h ago` : `${Math.floor(h / 24)} d ago`;
 };
 
 /** A connection's state from its setting and its last observation (pure: the frame's tests drive it with FAKE checks). */
@@ -175,7 +180,7 @@ const act = (n: number, label: string, command: string, o: Partial<Pick<Workspac
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
   const routeReady = wb.route.ready;
@@ -194,10 +199,16 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
       act(3, 'New project', '/project new <name>', { effect: 'local change' }),
       act(4, 'Switch project', '/project <name>'),
     ],
+    // R5 lead (the independent review, defect 1): a turn being answered is running; Stop the turn is the next step then, and a
+    // second message waits (one turn at a time per project)
     chat: [
-      act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: 'no chat route: timmy setup' }) }),
+      turns.length
+        ? act(1, 'Send a message', 'type in Chat, then Enter', { enabled: false, effect: 'network', why: `one turn at a time: a turn is being answered in ${surfaceWords(turns[0].surface as Parameters<typeof surfaceWords>[0])}` })
+        : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: 'no chat route: timmy setup' }) }),
       act(2, 'Choose the model', '/model'),
-      act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
+      turns.length
+        ? act(3, 'Stop the turn', 'Esc in the composer that sent it (Ctrl+C in the REPL)', { primary: true })
+        : act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
       act(4, 'Show it in the companion', 'timmy watch'),
     ],
     workflows: [
@@ -212,8 +223,11 @@ export function actionsOf(wb: WorkbenchJson): Record<TabId, WorkspaceAction[]> {
       act(3, 'Stop current', '/stop', { enabled: stop.job !== null, ...(stop.job ? {} : { why: 'nothing runs' }) }),
       act(4, 'Receipts of this project', '/receipts'),
     ],
+    // R5 lead: with Studio running, the next step is to have Timmy draw on it (a REPL holds the canvas: /canvas open)
     studio: [
-      act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
+      o.studioRunning
+        ? act(1, 'Ask Timmy to draw: /canvas open in the REPL, then ask', '/canvas open', { primary: true, effect: 'local change' })
+        : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
       act(4, 'Show the board', '/board'),
@@ -273,6 +287,10 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
     const running = c?.state === 'live';
     return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state: running ? 'running' as const : c?.observedAt ? 'not running' as const : 'unknown' as const };
   };
+  // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one
+  const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })();
+  const turn = turns[0];
+  const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)} (since ${turn.taken.slice(11, 19)} UTC)` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
     at: e.at, tag: e.output ? 'job.output' : e.job ? 'job' : 'event', words: e.words, tone: tone(e),
     ...(e.operation ? { operation: e.operation } : {}), source: e.job ? `job ${e.job}` : e.key,
@@ -281,10 +299,14 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number } = {}):
   const body = {
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
-    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
-    actions: actionsOf(wb),
+    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live' }),
     connections,
-    activity: { running: wb.activity.running, waitingOnYou: wb.activity.waiting_on_you, stopCurrent: wb.activity.stop_current },
+    activity: {
+      running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,
+      stopCurrent: wb.activity.stop_current.job || !turn ? wb.activity.stop_current : { job: null, words: `Stop current: the chat turn in ${surfaceWords(turn.surface)} (Esc in its composer)` },
+      chatTurn: turn ? { surface: turn.surface, since: turn.taken, words: turnWordsNow } : null,
+    },
     log,
     surfaces: { companion: surface('companion', settings.openCompanionAtStart), studio: surface('studio', settings.openStudioAtStart) },
     unknown,
