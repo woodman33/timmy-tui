@@ -22,14 +22,18 @@ describe('following the active project, and boards pinned to one', () => {
   });
 
   it('says whether a board follows or is pinned, and what the canvas and the active project are when they differ', () => {
-    expect(followWords({ project: A }, null)).toBe('This board follows the project the canvas shows (the active project).');
-    expect(followWords({ project: A, active: A }, null)).toBe('This board follows the project the canvas shows (the active project).');
-    expect(followWords({ project: A, active: B }, null)).toBe('This board follows the project the canvas shows (the active project). The active project of this Timmy home is beta; the canvas shows alpha, as Timmy\'s REPL named it.');
+    // R6 (H139): each project has its own board, so a board is its project's own, and the whole board changes with the project
+    const own = "This is alpha's own board: Studio shows the board of the project the canvas shows, and switches to another project's own board when the active project changes.";
+    expect(followWords({ project: A }, null)).toBe(own);
+    expect(followWords({ project: A, active: A }, null)).toBe(own);
+    expect(followWords({ project: A, active: B }, null)).toBe(`${own} The active project of this Timmy home is beta; the canvas shows alpha, as Timmy's REPL named it.`);
+    expect(followWords({ project: null }, null)).toBe('This board follows the project the canvas shows (the active project).');
+    // a pin kept from the canvas a Timmy home had before (every project's boards in one): the board reads its pinned project's cards
     const pin = { projectId: A.id, project: 'alpha', at: null };
-    expect(followWords({ project: A, pinned: true, shown: B }, pin)).toBe('Pinned to alpha: this board keeps it when the active project changes, and its cards are read from it. The canvas shows beta now.');
-    expect(followWords({ project: A, pinned: true, shown: A }, pin)).toBe('Pinned to alpha: this board keeps it when the active project changes, and its cards are read from it.');
+    expect(followWords({ project: A, pinned: true, shown: B }, pin)).toBe("Pinned to alpha: this board reads alpha's cards, whichever project's board holds it. The canvas shows beta now.");
+    expect(followWords({ project: A, pinned: true, shown: A }, pin)).toBe("Pinned to alpha: this board reads alpha's cards, whichever project's board holds it.");
     // the canvas's project not told (another REPL's): not named
-    expect(followWords({ project: A, pinned: true, shown: null }, pin)).toBe('Pinned to alpha: this board keeps it when the active project changes, and its cards are read from it.');
+    expect(followWords({ project: A, pinned: true, shown: null }, pin)).toBe("Pinned to alpha: this board reads alpha's cards, whichever project's board holds it.");
   });
 
   it("says when a following board's project changed (and only then), and that its cards stay as they were", () => {

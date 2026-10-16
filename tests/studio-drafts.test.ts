@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCanvasTools } from '../src/agent/canvas-tools.js';
+import { projectId } from '../src/project/index.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { bearer, call, exec, fakePage, nameProject, pageSession } from './helpers/canvas-auth.js';
 import { guardRealHome } from './fixtures/home-guard.js';
@@ -35,7 +36,9 @@ afterEach(async () => {
   await new Promise<void>((done) => server.close(() => done()));
   rmSync(home, { recursive: true, force: true });
 });
-const canvasDir = () => join(home, 'canvas');
+/** R6 (H139): the project named here (its folder is the test's home), and its own board's folder, where its records are */
+const drafts = () => ({ id: projectId(home), name: 'drafts' });
+const canvasDir = () => join(home, 'canvas', 'projects', projectId(home));
 const records = () => (existsSync(join(canvasDir(), 'drafts.jsonl')) ? readFileSync(join(canvasDir(), 'drafts.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []);
 type Seen = { id: number; code: string; jobId: string; draft?: { id: string; baseRevision: number | null } };
 
@@ -54,8 +57,8 @@ describe('a call sent as a draft', () => {
     expect(r.status).toBe(200);
     expect(seen).toHaveLength(1);
     expect(seen[0].draft).toEqual({ id: expect.stringMatching(/^draft-[0-9a-f]{12}$/), baseRevision: 4 });
-    expect(r.json).toEqual({ ok: true, result: 'drawn', jobId: 'turn-a', revision: 6, sourceRevision: SOURCE, changed: true, draft: { id: seen[0].draft!.id, shapes: 2, from: 4 } });
-    expect(records()).toEqual([{ draft: seen[0].draft!.id, event: 'proposed', job: 'turn-a', shapes: 2, from: 4, revision: 6, sourceRevision: SOURCE, at: expect.any(String) }]);
+    expect(r.json).toEqual({ ok: true, result: 'drawn', jobId: 'turn-a', revision: 6, sourceRevision: SOURCE, changed: true, draft: { id: seen[0].draft!.id, shapes: 2, from: 4 }, project: drafts() });
+    expect(records()).toEqual([{ draft: seen[0].draft!.id, event: 'proposed', job: 'turn-a', shapes: 2, from: 4, revision: 6, sourceRevision: SOURCE, project: drafts().id, at: expect.any(String) }]);
     expect(statSync(join(canvasDir(), 'drafts.jsonl')).mode & 0o777).toBe(0o600);
   });
   it('takes the page\'s refusal of a stale draft (nothing ran), records it with why, and keeps no draft of another call\'s', async () => {
@@ -123,7 +126,7 @@ describe('a decision on a draft', () => {
     const body = { draft: 'draft-0a1b2c3d4e5f', decision: 'accepted', shapes: 2, job: 'turn-a', from: 1, at: '2026-10-15T20:00:00.000Z', revision: 3, sourceRevision: saved.json.sourceRevision };
     const r = await decide(session, body);
     expect(r.status).toBe(200);
-    expect(r.json.recorded).toEqual({ draft: 'draft-0a1b2c3d4e5f', event: 'accepted', job: 'turn-a', shapes: 2, from: 1, revision: 3, sourceRevision: saved.json.sourceRevision, by: 'page', proposed: false, at: '2026-10-15T20:00:00.000Z' });
+    expect(r.json.recorded).toEqual({ draft: 'draft-0a1b2c3d4e5f', event: 'accepted', job: 'turn-a', shapes: 2, from: 1, revision: 3, sourceRevision: saved.json.sourceRevision, by: 'page', proposed: false, project: drafts().id, at: '2026-10-15T20:00:00.000Z' });
     expect((await decide(server.projectToken, { ...body, decision: 'discarded' })).json.recorded).toMatchObject({ event: 'discarded', by: 'token' });
     expect(records().map((x) => x.event)).toEqual(['accepted', 'discarded']);
     // nothing else was touched: no job, and the canvas file is as the save left it

@@ -97,17 +97,22 @@ export const pinFor = (project, now = new Date()) => ({ projectId: String(projec
  * The line under the panel's heading: whether this board follows the project the canvas shows (the active project) or is pinned,
  * and, when they differ, the project the canvas shows and the active project of this Timmy home. `now`: the reading; `pin`: the
  * board's pin (readPin), or null.
+ *
+ * R6 (H139): each project has its own board now (src/studio/boards.ts), and Studio shows the board of the project the canvas
+ * shows: when the active project changes, the whole board changes with it (its drafts, jobs and cards). A board pinned to a project
+ * (a pin kept from the canvas a Timmy home had before, when every project's boards were in one) still reads that project's cards.
  */
 export function followWords(now, pin) {
   const o = now || {};
   if (pin) {
     const shown = o.shown && o.shown.id !== pin.projectId ? ` The canvas shows ${o.shown.name} now.` : '';
-    return `Pinned to ${pin.project}: this board keeps it when the active project changes, and its cards are read from it.${shown}`;
+    return `Pinned to ${pin.project}: this board reads ${pin.project}'s cards, whichever project's board holds it.${shown}`;
   }
   const active = o.active && o.project && o.active.id !== o.project.id
     ? ` The active project of this Timmy home is ${o.active.name}; the canvas shows ${o.project.name}, as Timmy's REPL named it.`
     : '';
-  return `This board follows the project the canvas shows (the active project).${active}`;
+  const own = o.project ? `${o.project.name}'s own board: Studio shows the board of the project the canvas shows, and switches to another project's own board when the active project changes.` : 'This board follows the project the canvas shows (the active project).';
+  return `${o.project ? 'This is ' : ''}${own}${active}`;
 }
 
 /**
@@ -223,6 +228,13 @@ export function createProjectPanel(deps) {
   /** R4 (H109): the board and pin the last reading was for, and the project a following board showed last */
   let readFor = '';
   let lastShown = null;
+  /**
+   * R6 (H139): `deps.accept(now)`, optional: whether a reading belongs to the board on screen (canvas.js: asked since the last switch,
+   * of its project); one that does not is never drawn, placed from or handed to the drawn cards. `deps.hold()`, optional: the words
+   * the panel shows instead of a project while Studio switches boards (null when it does not), when it reads nothing.
+   */
+  const fits = (now) => !deps.accept || deps.accept(now) === true;
+  const NOT_NOW = 'Not now: Studio is switching to another project\'s board, so nothing of this reading is placed.';
 
   /** R4 (H109): the current board, and the project it is pinned to (null: it follows the project the canvas shows). */
   function boardNow() {
@@ -274,6 +286,7 @@ export function createProjectPanel(deps) {
   /** Places card `id` from the project as it is now; returns what was placed. */
   async function place(id, editor = deps.editor()) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     if (!now.project) throw new Error(now.message || 'No project is named to this canvas.');
     const card = (now.cards || []).find((c) => c.id === id);
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${now.project.name} now. Its cards: ${(now.cards || []).map((c) => c.id).join(', ').slice(0, 2000) || 'none'}.`);
@@ -293,6 +306,7 @@ export function createProjectPanel(deps) {
   /** Reads every placed card again from the project's records (all pages); counts what happened. */
   async function refreshAll(editor = deps.editor()) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     const counts = { same: 0, update: 0, gone: 0, other: 0, none: 0 };
     const placed = editor.store.allRecords().filter((r) => r.typeName === 'shape' && placedMeta(r));
     const updates = [];
@@ -360,6 +374,7 @@ export function createProjectPanel(deps) {
   /** R4 (H75): places card `id`'s drawn card from the project as it is now. */
   async function placeCard(id) {
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     show(now);
     return deps.placeCard(id, now);
   }
@@ -368,6 +383,7 @@ export function createProjectPanel(deps) {
   async function placeOperation(id) {
     if (!deps.placeOperation) throw new Error('This page cannot place an operation\'s cards.');
     const now = await read();
+    if (!fits(now)) throw new Error(NOT_NOW);
     show(now);
     return deps.placeOperation(String(id), now);
   }
@@ -434,6 +450,8 @@ export function createProjectPanel(deps) {
 
   /** Draws the panel from an API answer; only when it changed, keeping the focus on the button it was on. */
   function show(now) {
+    // R6 (H139): a reading of another board than the one on screen is never drawn (nor handed to the drawn cards)
+    if (!fits(now)) return;
     api = now;
     // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
     try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
@@ -443,7 +461,8 @@ export function createProjectPanel(deps) {
     if (follow) { follow.textContent = followWords(now, pin); follow.hidden = false; follow.dataset.kind = pin ? 'pinned' : 'follows'; }
     if (pinBadge) { pinBadge.hidden = !pin; pinBadge.textContent = pin ? 'pinned' : ''; }
     if (pinButton) {
-      pinButton.hidden = !pin && !now.project;
+      // R6 (H139): a board is its project's own now, so there is nothing to pin it to; a pin kept from before can be let go
+      pinButton.hidden = !pin;
       pinButton.textContent = pin ? 'Follow the active project' : now.project ? `Pin this board to ${short(now.project.name, 40)}` : 'Pin this board';
       pinButton.title = pin ? `This board is pinned to ${pin.project}; let it follow the project the canvas shows again` : 'Keep this board on this project when the active project changes (kept in the board, so every window shows it pinned)';
     }
@@ -496,7 +515,31 @@ export function createProjectPanel(deps) {
     });
   }
 
+  /** R6 (H139): while Studio switches boards: the panel names no project's cards, and says what it waits for. */
+  function hold() {
+    const words = deps.hold ? deps.hold() : null;
+    if (!words) return false;
+    name.textContent = words;
+    note.hidden = true;
+    groups.replaceChildren();
+    refresh.hidden = true;
+    if (by) by.hidden = true;
+    if (pinButton) pinButton.hidden = true;
+    if (follow) follow.hidden = true;
+    shown = '';
+    return true;
+  }
+  /** R6 (H139): another project's board is on screen now: the panel starts again from it (its last reading was the board before's). */
+  function reset() {
+    api = null;
+    shown = '';
+    lastShown = null;
+    readFor = '';
+    void poll();
+  }
+
   async function poll() {
+    if (hold()) return;
     try { show(await read()); } catch (e) {
       name.textContent = 'not read';
       note.hidden = false;
@@ -518,5 +561,5 @@ export function createProjectPanel(deps) {
   }, deps.fast && deps.fast() ? 1500 : 5000);
   void poll().finally(next);
   // R4 (H109): boardChanged (the canvas shows another board, or a board's pin changed)
-  return { place, placeCard, placeOperation, refreshAll, poll, setMode, boardChanged, togglePin, get mode() { return mode; }, get api() { return api; } };
+  return { place, placeCard, placeOperation, refreshAll, poll, setMode, boardChanged, togglePin, hold, reset, get mode() { return mode; }, get api() { return api; } };
 }

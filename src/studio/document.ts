@@ -53,6 +53,8 @@ export interface CanvasJob {
   sourceRevision: string;
   at: string;
   receipt?: string;
+  /** R6 (H139): the project the job ran for (its id), as the canvas server stamped the call; absent in ledgers from before R6. */
+  project?: string;
 }
 
 /**
@@ -78,6 +80,8 @@ export interface DraftRecord {
   /** accepted or discarded: who decided (a person, through this canvas page's session; or the REPL's token), and whether this record holds its proposal. */
   by?: 'page' | 'token';
   proposed?: boolean;
+  /** R6 (H139): the project whose board the draft is on (its id); absent in records from before R6. */
+  project?: string;
 }
 
 export const DRAFT_ID = /^draft-[0-9a-f]{8,32}$/;
@@ -235,10 +239,14 @@ export class CanvasDocuments {
     }
   }
 
-  /** A call of job `id` ended, leaving the canvas at `revision` (`sourceRevision`). A failed call marks the job failed. */
-  recordJob(id: string, call: { ok: boolean; revision: number; sourceRevision: string }): CanvasJob {
+  /**
+   * A call of job `id` ended, leaving the canvas at `revision` (`sourceRevision`). A failed call marks the job failed. R6 (H139):
+   * with the project it ran for (its id), kept on the job.
+   */
+  recordJob(id: string, call: { ok: boolean; revision: number; sourceRevision: string; project?: string }): CanvasJob {
     if (!JOB_ID.test(id)) throw new Error(`Not a job ID: ${JSON.stringify(id).slice(0, 40)}`);
     if (!SHA256.test(call.sourceRevision) || !isRevision(call.revision)) throw new Error('A job call needs its revision and its source revision (a sha256).');
+    if (call.project !== undefined && !/^[0-9a-f]{16}$/.test(call.project)) throw new Error('A job\'s project is its id (16 hex).');
     const list = this.jobs();
     const before = list.find((j) => j.id === id);
     // A ledger from before round R1 has no count: its job failed at least once if it says failed.
@@ -251,6 +259,7 @@ export class CanvasDocuments {
       failed: failedBefore + (call.ok ? 0 : 1),
       revision: call.revision,
       sourceRevision: call.sourceRevision,
+      ...(call.project ? { project: call.project } : {}),
       at: new Date().toISOString(),
     };
     mkdirSync(this.dir, { recursive: true });

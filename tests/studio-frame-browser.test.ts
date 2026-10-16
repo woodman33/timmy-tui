@@ -80,7 +80,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
     const context = await browser.newContext({ viewport });
     await context.route('**/*', (route) => (new URL(route.request().url()).origin === base || /^(data|blob):/.test(route.request().url()) ? route.continue() : route.abort()));
     if (edit) {
-      await context.route('**/api/workspace', async (route) => {
+      // R6 (H139): the page names the project it shows (/api/workspace?project=<id>), so the path is matched, not the whole address
+      await context.route((url) => url.pathname === '/api/workspace', async (route) => {
         const r = await route.fetch();
         const j = await r.json() as { ok?: boolean; frame?: FrameJson };
         if (j.ok && j.frame) edit(j.frame);

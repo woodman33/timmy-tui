@@ -124,7 +124,7 @@ export function bridgeGate(link: ProjectLink, relay: CardRelay): BridgeGate {
     },
     counts(key: string): PageCheck {
       const c = relay.countsByKey(key, link.project);
-      return c.ok ? { ok: true } : { ok: false, why: c.why, words: PAGE_WORDS[c.why] ?? PAGE_WORDS.none, ended: c.why === 'expired' || c.why === 'unknown' };
+      return c.ok ? { ok: true } : { ok: false, why: c.why, words: PAGE_WORDS[c.why] ?? PAGE_WORDS.none, ended: c.why === 'expired' || c.why === 'unknown', session: c.words };
     },
   };
 }
