@@ -20,7 +20,7 @@ import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
-import { KIND_ORDER, KIND_TITLE, KIND_WORD, TURNS_SHOWN, type FileRow, type JobRow } from './state.js';
+import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, pick, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
@@ -74,15 +74,6 @@ const ago = (iso: string | number | undefined, now: number): string => {
 };
 
 const humanBytes = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
-
-/** A job's mark: the judged mark as a glyph, its word always beside it. */
-const markOf = (j: JobRow, g: Glyphs): { glyph: string; role: Role } => (
-  j.mark === 'ok' ? { glyph: g.ok, role: 'text' }
-    : j.mark === 'failed' ? { glyph: g.fail, role: 'failure' }
-      : j.mark === 'running' ? { glyph: g.run, role: 'text' }
-        : j.mark === 'unchanged' ? { glyph: '=', role: 'text' }
-          : j.mark === 'stopped' ? { glyph: g.unicode ? '■' : '#', role: 'text' }
-            : { glyph: '?', role: 'secondary' });
 
 // ── the navigation ─────────────────────────────────────────────────────────────
 
@@ -997,8 +988,14 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       lines.push(...para(j.ownerWords, w, 'secondary'));
       if (j.error) lines.push(...para(j.error, w, 'failure'));
       if (j.note) lines.push(...para(j.note, w, 'secondary'));
-      // (R5, H131: each mark has one meaning: ▶ runs, … waits its turn; the word is beside it)
-      for (const s of j.steps.slice(0, 8)) lines.push([S(`  ${s.state === 'completed' ? c.g.ok : s.state === 'failed' ? c.g.fail : s.state === 'running' ? c.g.run : c.g.wait} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`, 'secondary')]);
+      // R5 (H131; the QA round's defect 18): each mark has one meaning, its word beside it: ▶ runs now, ■ stopped, ! interrupted;
+      // a step its record says runs, of a job no process of runs (stale), is said as its record says it, not marked as running
+      for (const s of j.steps.slice(0, 8)) {
+        const claimed = s.state === 'running' && !j.live;
+        const mark = s.state === 'completed' ? c.g.ok : s.state === 'failed' ? c.g.fail : s.state === 'running' ? (claimed ? '?' : c.g.run) : s.state === 'stopped' ? (c.g.unicode ? '■' : '#') : '!';
+        const word = claimed ? 'running, as its record says (no process of it runs)' : `${s.outcome ?? s.state}${s.code !== undefined ? ` exit ${s.code}` : ''}`;
+        lines.push(...wrapSegs([S(`  ${mark} ${s.name}`, s.state === 'failed' ? 'failure' : 'text'), S(`  ${word}`, 'secondary')], w, '    '));
+      }
       lines.push(blank, ...(j.operation ? detailLines(c.data.details[j.operation], c) : para('Run detail: this job names no operation.', w)));
       break;
     }
