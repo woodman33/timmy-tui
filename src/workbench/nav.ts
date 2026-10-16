@@ -7,7 +7,7 @@
 
 export type WorkspaceId =
   | 'chat' | 'studio' | 'voxvision' | 'create3d' | 'motion'
-  | 'workflows' | 'control' | 'overview' | 'rea'
+  | 'workflows' | 'control' | 'overview' | 'rea' | 'fleet' | 'logs'
   | 'files' | 'templates' | 'tools'
   | 'connections';
 
@@ -36,6 +36,9 @@ export const NAV: readonly NavItem[] = [
   { id: 'control', group: 'operate', label: 'Control Room', title: 'Control Room · jobs, chat turns and decisions', task: 'Jobs, chat turns and decisions', purpose: 'What runs, what ended and what waits on you, each with its job and operation, and every surface\'s chat turns by their receipts.' },
   { id: 'overview', group: 'operate', label: 'God\'s Eye View', title: 'God\'s Eye View · the project at a glance', task: 'Overview', purpose: 'What needs you first, then agents, workflows, apps, artifacts and history, each with its source.' },
   { id: 'rea', group: 'operate', label: 'REA', title: 'REA · analysis', task: 'Analysis', purpose: 'REA\'s registered capabilities and this project\'s REA records, as this revision has them.' },
+  // R5 (H134): tab 8's and tab 0's bodies (src/workbench/fleet-tab.ts, src/workbench/logs-tab.ts)
+  { id: 'fleet', group: 'operate', label: 'Fleet & Clef', title: 'Fleet & Clef · plans, recommendations and services', task: 'Fleet and Clef', purpose: 'The project\'s fleet plans with their counts, Clef-Omni\'s mode and decisions, Cloudflare and the services, each as it is.' },
+  { id: 'logs', group: 'operate', label: 'Logs & Receipts', title: 'Logs & Receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, the selected operation from intent to receipt, its raw output, and the receipt chain as verified.' },
   { id: 'files', group: 'library', label: 'Files', title: 'Files · the project tree', task: 'Files', purpose: 'Every project file by kind: editable source, references, workflows, results and run records.' },
   { id: 'templates', group: 'library', label: 'Templates', title: 'Templates · public starters', task: 'Templates', purpose: 'Public project starters and Studio board templates; none holds private work.' },
   { id: 'tools', group: 'library', label: 'All tools', title: 'All tools · capabilities', task: 'Tool library', purpose: 'Every capability Timmy registers, its rung, and the step that sets it up.' },

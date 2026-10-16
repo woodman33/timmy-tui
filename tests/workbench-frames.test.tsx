@@ -356,7 +356,8 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(s.schema).toBe('timmy.workbench/1');
     expect(s.project.name).toBe('tray-json');
     expect(s.navigation.map((g) => g.group)).toEqual(['CREATE', 'OPERATE', 'LIBRARY', 'FOOT']);
-    expect(s.navigation.flatMap((g) => g.items.map((i) => i.label))).toEqual(['Chat', 'Studio', 'VoxVision', '3D Create', 'Motion', 'Workflows', 'Control Room', 'God\'s Eye View', 'REA', 'Files', 'Templates', 'All tools', 'Connections']);
+    // R5 (H134): Fleet & Clef and Logs & Receipts, tab 8's and tab 0's bodies, after REA
+    expect(s.navigation.flatMap((g) => g.items.map((i) => i.label))).toEqual(['Chat', 'Studio', 'VoxVision', '3D Create', 'Motion', 'Workflows', 'Control Room', 'God\'s Eye View', 'REA', 'Fleet & Clef', 'Logs & Receipts', 'Files', 'Templates', 'All tools', 'Connections']);
     expect(s.activity.stop_current).toEqual({ job: null, words: 'Stop current: idle' });
     expect(s.route.words).toMatch(/^chat: /);
     expect(s.workflows.docs.map((d) => d.rel).sort()).toEqual(['APPROVAL.md', 'WORKFLOW.md']);

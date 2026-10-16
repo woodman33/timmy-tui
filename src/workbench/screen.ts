@@ -60,7 +60,7 @@ export function frameOf(a: FrameAsk): Frame {
     columns: a.columns, rows: a.rows, body: isHub(ui.page) ? 'hub' : 'workspace', pipeline: ui.page === 'chat' && !ui.overlay,
     navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityOpen: ui.activityOpen, focusMode: ui.focusMode === true,
   });
-  const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can });
+  const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can, columns: a.columns });
   const placed: Placed[] = [];
   const regions: Frame['regions'] = {};
   const tabs: Frame['tabs'] = [];
