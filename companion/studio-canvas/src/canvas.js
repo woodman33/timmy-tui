@@ -30,6 +30,7 @@ import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, proj
 // R6 (H145): the shown project's artifacts, as cards on its board, and Studio's VoxVision preview; its reference images
 import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
+import { createNodes } from './nodes.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -182,6 +183,21 @@ const references = createReferences({
   forget: (url) => cards.forget(url),
   AssetRecordType, createShapeId, toRichText,
   place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  say: (text, bad = false) => band(text, bad),
+});
+
+/**
+ * R6 (H145, step 4a): the node palette (./nodes.js): the shown project's own cards, by the node each makes, added to its board
+ * through the drawn cards' own place and placeOperation (./cards.js), from the project as it is now; never while switching.
+ */
+const nodes = createNodes({
+  scope: () => ({ project: identity.project, state: identity.state, switching: identity.switching, paused: identity.paused }),
+  current: (t) => identity.current(t),
+  read: async () => { const ticket = identity.ticket(); const r = await cards.read(); return { ...r, ticket }; },
+  kept: (of, detail) => identity.note(keptWords('reading', projectOf(of) ?? of, identity.switching ?? identity.project, detail)),
+  drawnType: (kind) => drawnType(kind),
+  placeCard: (id, now) => cards.place(id, now),
+  placeOperation: (id, now) => cards.placeOperation(id, now),
   say: (text, bad = false) => band(text, bad),
 });
 
@@ -1094,7 +1110,8 @@ function connectPanel() {
     read: async (pinned) => { const ticket = identity.ticket(); const r = await cards.read(pinned); return { ...r, ticket }; },
     accept: (now) => readingFits(now),
     hold: () => holdWords(),
-    onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
+    // R6 (H145): and the node palette, from the same readings (it draws only a reading of the board on screen)
+    onAnswer: (now) => { cards.onAnswer(now); showSession(); nodes.onReading(now); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
     // R4 (H100): Place this operation (its cards at once, left to right in the order they ran, linked)
     placeOperation: (id, now) => cards.placeOperation(id, now),
@@ -1106,6 +1123,7 @@ function connectPanel() {
   // reference images
   artifacts.connect();
   references.connect();
+  nodes.draw();
   // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
   cards.setSessionListener(showSession);
   showSession();
@@ -1230,6 +1248,8 @@ function mount(snapshot, b = canvas) {
             artifacts: () => artifacts.list(),
             // R6 (H145): one of the project's images as a reference image (as the panel's Add to the board does)
             placeReference: (path) => references.add(String(path)),
+            // R6 (H145, step 4a): a node of the shown project, as the palette adds one (kind: params, workflow, result or operation)
+            addNode: (kind, id) => nodes.add(String(kind), String(id)),
           };
           attachEditor(editor, b);
           followEditor(editor);
@@ -1388,6 +1408,7 @@ async function start() {
   // R6 (H145): the artifact cards, the Artifacts list and the reference images follow the board on screen
   artifacts.scopeChanged();
   references.scopeChanged();
+  nodes.scopeChanged();
   // R5 (H133): the strip reads the frame now; R6 (H139): once the board's project is known, so it draws that project's frame only
   startFrame();
   if (typeof saved.board === 'string' && saved.board) document.getElementById('guide-dir').textContent = saved.board;
@@ -1501,6 +1522,7 @@ function showBlocked() {
   // of the board before is shown
   artifacts.scopeChanged();
   references.scopeChanged();
+  nodes.scopeChanged();
   // the header says "switching to <project>…" while switching; paused, it stays the page's own project's, marked as not read now
   if (state === 'switching') frameStrip?.hold(holdWords());
 }
@@ -1577,6 +1599,7 @@ async function switchTo(to) {
   // R6 (H145): the new board's artifacts and reference images, read for it
   artifacts.scopeChanged();
   references.scopeChanged();
+  nodes.scopeChanged();
   showStatus(current);
   showDrafts(current);
   showJobs(current);

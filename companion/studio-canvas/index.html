@@ -446,6 +446,17 @@
   #artifact-preview-images .ta-legend, #artifact-preview-images .ta-caption { font-size: 12px; }
   /* the preview needs room for its images: the panel is wider while it is open (the canvas keeps the rest) */
   #side:has(#artifact-preview:not([hidden])) { width: min(560px, calc(100vw - 16px)); }
+  /* R6 (H145, step 4a): the node palette (src/nodes.js), as the other lists: structure grey, the add buttons as the panel's own */
+  #nodes-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #nodes-note { margin: 4px 0 0; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .ngroup { margin-top: 6px; }
+  #side .ngroup-title { margin: 6px 0 2px; font-size: 12px; font-weight: var(--timmy-weight-strong, 600); color: var(--timmy-text, #F2EFE9); }
+  #side .nitems { list-style: none; margin: 0; padding: 0; }
+  #side li.nitem { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 4px 0; }
+  #side li.nitem + li.nitem { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .nitem-title { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+  #side .nitem-kind, #side .nitem-state, #side .nitem-none { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .nitem-state { flex: 1 1 100%; }
 </style>
 </head>
 <body>
@@ -499,6 +510,12 @@
            board with its file name and where it came from -->
       <details id="references"><summary>Reference images <span id="references-name">reading…</span></summary>
         <ol id="reference-list" aria-label="This project's images (PNG, JPEG, WebP, GIF) to add to its board"></ol>
+      </details>
+      <!-- R6 (H145, step 4a): the node palette (src/nodes.js): the shown project's own cards, by the node each makes, each added to
+           its board bound to it -->
+      <details id="nodes"><summary>Nodes <span id="nodes-name">reading…</span></summary>
+        <p id="nodes-note"></p>
+        <div id="node-palette"></div>
       </details>
       <details id="project" open><summary>Project <span id="project-name">reading…</span> <span id="project-pinned" class="pin-badge" hidden></span></summary>
         <p id="project-follow" hidden></p>
