@@ -6,7 +6,7 @@
  * tests/studio-artifacts-browser.test.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { artifactCommand, artifactMode, artifactProps, cardImage, notNowWords, overlayLine, overlayShapes, receiptMark, runOutputs } from '../companion/studio-canvas/src/artifacts.js';
+import { artifactCommand, artifactFollowed, artifactMode, artifactProps, cardImage, notNowWords, overlayLine, overlayShapes, receiptMark, runOutputs } from '../companion/studio-canvas/src/artifacts.js';
 
 const tray = { id: 'a'.repeat(16), name: 'tray' };
 const blank = { id: 'b'.repeat(16), name: 'blank' };
@@ -70,5 +70,17 @@ describe('the artifact card\'s rules (R6 H145)', () => {
     expect(notNowWords({ state: 'switching', switching: blank })).toBe('Not placed: Studio is switching to blank, so nothing is placed on either board until its board is loaded.');
     expect(notNowWords({ state: 'paused', paused: 'Another REPL holds it.' })).toBe('Not placed: Another REPL holds it.');
     expect(notNowWords({ state: 'none' })).toBe('Not placed: no board is on screen yet.');
+  });
+
+  it('a card fitting its own height while a call of Timmy\'s runs is the page\'s change, never the call\'s; any other change of it is', () => {
+    const card = { id: 'shape:a1', typeName: 'shape', type: 'timmy-artifact', x: 10, y: 20, parentId: 'page:page', meta: {}, props: { w: 360, h: 180, card: 'vox:v12345678', title: 'detect refs/photo.png', data: { state: 'ok' } } };
+    expect(artifactFollowed(card, { ...card, props: { ...card.props, h: 412 } })).toBe(true);
+    expect(artifactFollowed(card, { ...card, props: { ...card.props, h: 412, title: 'another title' } })).toBe(false);
+    expect(artifactFollowed(card, { ...card, x: 11, props: { ...card.props, h: 412 } })).toBe(false);
+    expect(artifactFollowed(card, { ...card, meta: { timmyDraft: { id: 'draft-00aa11bb' } } })).toBe(false);
+    expect(artifactFollowed(card, { ...card, props: { ...card.props, data: { state: 'changed' } } })).toBe(false);
+    // only an artifact card: a note or a drawn card is not this rule's
+    expect(artifactFollowed({ ...card, type: 'note' }, { ...card, type: 'note', props: { ...card.props, h: 412 } })).toBe(false);
+    expect(artifactFollowed(card, undefined)).toBe(false);
   });
 });
