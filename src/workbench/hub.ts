@@ -477,16 +477,20 @@ export function previewView(c: ViewCtx): View {
   const f = data.frame;
   const lines: Line[] = [];
   const para = (t: string, role: Role = 'secondary', indent = ''): Line[] => wrapText(t, Math.max(8, c.width - indent.length)).map((x) => [S(`${indent}${x}`, role)]);
-  const surface = (id: 'companion' | 'studio', name: string, k: string, show: string): void => {
+  const surface = (id: 'companion' | 'studio', name: string, k: string, show: string, what: string): void => {
     const conn = f?.connections.find((x) => x.id === id);
-    const mark = conn ? connectionMark(conn.state, g) : { text: '? unknown', role: 'secondary' as Role };
+    // R5 (H131; the QA of e7f853e, defect 19): the observation's age, as every connection card says it; never ● live without one
+    const observed = conn?.observedAt ?? null;
+    const mark = conn && (conn.state !== 'live' || observed) ? connectionMark(conn.state, g) : { text: '? unknown', role: 'secondary' as Role };
+    const when = conn ? (observed ? `checked ${ago(observed, c.now)}` : 'never checked') : '';
     const at = f ? (f.surfaces[id].openAtStart ? 'opens at start' : 'opens when asked') : '';
-    lines.push([S(name.padEnd(10), 'secondary', { bold: true }), S(mark.text, mark.role), S(at ? `  ${g.sep} ${at}` : '', 'secondary')]);
+    lines.push(...wrapSegs([S(name.padEnd(10), 'secondary', { bold: true }), S(mark.text, mark.role), S([when, at].filter(Boolean).map((x) => `  ${g.sep} ${x}`).join(''), 'secondary')], Math.max(8, c.width), '  '));
     const s = id === 'companion' ? c.ui.companion : c.ui.studio;
-    lines.push([S('  '), key(k), S(` ${show}`, 'text'), S(s.serving ? `  ${g.sep} served here at ${s.address}` : s.other ? `  ${g.sep} served by another Timmy` : '  to see it rendered', 'secondary')]);
+    // R5 (H131; the QA of e7f853e, defect 2): what the key shows, in truth (the companion: these records in words; Studio: the canvas)
+    lines.push(...wrapSegs([S('  '), key(k), S(` ${show}`, 'text'), S(s.serving ? `  ${g.sep} served here at ${s.address}` : s.other ? `  ${g.sep} served by another Timmy` : `  ${what}`, 'secondary')], Math.max(8, c.width), '    '));
   };
-  surface('companion', 'COMPANION', 'c', 'Companion · Show');
-  surface('studio', 'STUDIO', 's', 'Studio · Show');
+  surface('companion', 'COMPANION', 'c', 'Companion · Show', 'these records in a browser page, in words');
+  surface('studio', 'STUDIO', 's', 'Studio · Show', 'the canvas');
   lines.push(blank);
   // the board: Studio's cards for this project, read from its records (src/studio/project-cards.ts)
   const st = data.studio;
@@ -532,7 +536,8 @@ export function previewView(c: ViewCtx): View {
     for (const u of f.unknown) lines.push(...para(`${u.field}: ${u.why}`, 'secondary', '  '));
   }
   lines.push(blank);
-  lines.push(...para('A terminal says these in words: the canvas, images and any 3D are drawn only by the companion and Studio (c, s), never faked here.'));
+  // R5 (H131; the QA of e7f853e, defect 2): the companion says these in words too; only Studio draws (its canvas)
+  lines.push(...para('A terminal says these in words, and so does the companion (c), in a browser page; Studio (s) draws the canvas. No Timmy surface draws images or 3D yet.'));
   return { lines, items: [] };
 }
 
@@ -599,8 +604,14 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const fixed = stages.reduce((n, x) => n + 2 + lineCells([S(`${x.mark}${x.st.name} ${g.sep} `)]), 0) + lineCells([S(arrow)]) * (stages.length - 1);
   // R5 (H131; the QA round's defect 15): the stages share the row: a short one keeps its words whole and leaves the rest to
   // the longer ones (an even share cut "sealed before it ran…" with 20 columns free)
-  // (what is left goes first to the receipt, then the intent, what ran it, and the prediction)
-  const texts = fillShares(stages.map((x) => x.s.words), width - fixed, g, [3, 0, 2, 1]);
+  // (what is left goes first to the receipt, then the intent, what ran it, and the prediction). R5 (H131; the QA of e7f853e,
+  // defect 11): the receipt's words are kept whole first ("sealed fb72a565 · verified here" was cut to "verified…"), and the
+  // other three share the rest (the request is the one cut first: the line under says the run it is)
+  const words = stages.map((x) => x.s.words);
+  const room = width - fixed;
+  const receiptRoom = Math.max(1, Math.min(lineCells([S(words[3])]), room - 3 * 12));
+  const three = fillShares(words.slice(0, 3), room - receiptRoom, g, [2, 1, 0]);
+  const texts = [...three, cut(words[3], receiptRoom, g.ellipsis)];
   const row: Line = [];
   stages.forEach((x, i) => {
     if (i) row.push(S(arrow, 'secondary'));

@@ -33,12 +33,15 @@ import {
   bar, clipRows, fieldRows, first, flow, heading, onBar, para, previewNote, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, windowMarked, type TabCtx,
   type TabView,
 } from './tab-columns.js';
-import { cells, clock, cut, fit, lineCells, pick, spread, wrapText, type Line, type Role, type Seg } from './text.js';
+import { cells, clock, cut, fit, lineCells, pick, spread, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
 
 /** The Workbench list the tab's selection is kept in (src/workbench/screen.ts: `center:<workspace>`). */
 export const FLEET_LIST = 'center:fleet';
+/** R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws of this tab yet, and what the companion shows of it */
+const FLEET_NONE = 'No Timmy surface draws fleet previews yet.';
+const FLEET_C = 'these cards in words';
 /** How many plans and decisions are listed (the newest). */
 export const PLANS_SHOWN = 8;
 export const DECISIONS_SHOWN = 6;
@@ -382,18 +385,26 @@ function serviceRows(frame: WorkspaceFrame | undefined, frameError: string | und
   }
   const n = frame.connections.length;
   const legend = fit([S(`live: an answer seen in the last 30 minutes ${g.sep} timmy workspace check asks each once ${g.sep} 1 Home has each one's step`, 'secondary')], w, g.ellipsis);
-  const two = room === undefined || 1 + n * 2 + 1 <= room;
+  const mw = 15;
+  const wordsOf = (c: WorkspaceFrame['connections'][number]): Seg => S(c.words, c.state === 'unreachable' || c.state === 'refused' ? 'failure' : 'secondary');
+  // R5 (H131; the QA of e7f853e, defect 11): each service's words wrapped under its name, never cut ("c in the…"), where the
+  // column has the rows for all of them; else a row each (cut), else the names and marks alone
+  const under = (c: WorkspaceFrame['connections'][number]): Line[] => (w >= 48
+    ? wrapSegs([S(' '.repeat(2 + mw)), wordsOf(c)], w, ' '.repeat(2 + mw))
+    : wrapSegs([S('    '), S(connectionMark(c.state, g).text, connectionMark(c.state, g).role), S(` ${g.sep} `, 'secondary'), wordsOf(c)], w, '    '));
+  const whole = room === undefined || 1 + n + frame.connections.reduce((a, c) => a + under(c).length, 0) + 1 <= room;
+  const two = whole || 1 + n * 2 + 1 <= room;
   let spare = room === undefined ? n : room - (1 + n + 1);
   for (const c of frame.connections) {
     const m = connectionMark(c.state, g);
-    const words = S(c.words, c.state === 'unreachable' || c.state === 'refused' ? 'failure' : 'secondary');
+    const words = wordsOf(c);
     if (w >= 48) {
-      const mw = 15;
       const mark = cut(m.text, mw - 1, g.ellipsis);
       out.push(fit([S('  '), S(mark, m.role), S(' '.repeat(mw - cells(mark))), S(c.label, 'strong')], w, g.ellipsis));
-      if (two) out.push(fit([S(' '.repeat(2 + mw)), words], w, g.ellipsis));
+      if (whole) out.push(...under(c));
+      else if (two) out.push(fit([S(' '.repeat(2 + mw)), words], w, g.ellipsis));
     } else if (two) {
-      out.push(fit([S('  '), S(c.label, 'strong')], w, g.ellipsis), fit([S('    '), S(m.text, m.role), S(` ${g.sep} `, 'secondary'), words], w, g.ellipsis));
+      out.push(fit([S('  '), S(c.label, 'strong')], w, g.ellipsis), ...(whole ? under(c) : [fit([S('    '), S(m.text, m.role), S(` ${g.sep} `, 'secondary'), words], w, g.ellipsis)]));
     } else {
       const beside = (name: string): boolean => cells(`  ${name} ${m.text}`) <= w;
       const name = beside(c.label) ? c.label : shortName(c.label);
@@ -487,7 +498,7 @@ export function fleetView(c: TabCtx, d: FleetData | undefined, frame?: Workspace
     for (const x of items) if (x.line >= lines.length + room) x.line = -1;
     // Cloudflare first (it is asked for by name), then the services in the rows left, then what a terminal cannot draw
     const cf = cloudflareRows(d, frame, wr, g);
-    const note = previewNote(wr, g);
+    const note = previewNote(wr, g, FLEET_NONE, FLEET_C);
     // a row of air before the services only where every service still has its words under it
     const air: Line[] = cf.length + 1 + 2 + 2 * (frame?.connections.length ?? 0) + note.length <= room ? [[]] : [];
     const right: Line[] = [...cf, ...air, ...serviceRows(frame, frameError, wr, g, room - cf.length - air.length - note.length), ...note];
@@ -502,7 +513,7 @@ export function fleetView(c: TabCtx, d: FleetData | undefined, frame?: Workspace
     if (b.at !== undefined) items[b.at] = { line: lines.length, item: all[b.at], ...(b.lines.length > 1 ? { rows: b.lines.length } : {}) };
     lines.push(...b.lines);
   }
-  lines.push([], ...cloudflareRows(d, frame, W, g), [], ...serviceRows(frame, frameError, W, g), ...previewNote(W, g));
+  lines.push([], ...cloudflareRows(d, frame, W, g), [], ...serviceRows(frame, frameError, W, g), ...previewNote(W, g, FLEET_NONE, FLEET_C));
   return { lines: lines.map((l) => (lineCells(l) > W ? fit(l, W, g.ellipsis) : l)), items };
 }
 

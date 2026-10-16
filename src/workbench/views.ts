@@ -18,13 +18,14 @@ import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, type ActionHit, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
-import { FAMILY_ROWS, GROUP_LABEL, NAV, navItem, type WorkspaceId } from './nav.js';
+import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
+import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
-import { stateMark, workflowsTabView } from './workflows-tab.js';
+import { selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -153,7 +154,27 @@ export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceA
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
   const acts = f.actions[c.ui.page] ?? [];
-  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : acts };
+  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : c.ui.page === 'workflows' || c.ui.page === 'control' ? jobActionsNow(acts, c) : acts };
+}
+
+/**
+ * R5 (H131; the QA of e7f853e, defect 15): tab 3's and tab 7's actions as of now. The run action names the block selected in
+ * Workflows' list (the frame names the document's first block: "Run APPROVAL.md › tidy" stayed with LONG.md › wait selected),
+ * and while a job of this project runs, Stop current (x) is the one next step, as a chat turn's Stop is; what waits on you stays
+ * first (a job may be waiting on it). The frame's labels and commands otherwise.
+ */
+function jobActionsNow(acts: WorkspaceAction[], c: Pick<ViewCtx, 'ui' | 'data'>): WorkspaceAction[] {
+  let out = acts;
+  if (c.ui.page === 'workflows') {
+    const sel = selectedBlock(c);
+    const command = sel ? `/run ${sel.doc.rel} ${sel.block.name}` : '';
+    if (sel && !/\s/.test(sel.doc.rel) && !/\s/.test(sel.block.name)) out = out.map((a) => (routeOf(a).kind === 'run' && a.command !== command ? { ...a, label: `Run ${sel.doc.rel} › ${sel.block.name}`, command } : a));
+  }
+  if (stopWords(c.data).target && !c.data.decisions.total) {
+    const stop = out.findIndex((a) => a.command === '/stop' && a.enabled);
+    if (stop >= 0) out = out.map((a, i) => ({ ...a, primary: i === stop }));
+  }
+  return out;
 }
 
 /**
@@ -500,6 +521,9 @@ function chatView(c: ViewCtx): View {
   // R5 (H131): the conversation is the body's left column now: the hint is short enough for it
   else lines.push([key('Enter'), S(c.can.chat ? ' Type a message (sent through the chat session, on the route above)' : ' Type a message', 'text')]);
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
+  // R5 (H131; the QA of e7f853e, defect 2 and reference 02's difference 3): what a terminal cannot draw here, as the other
+  // tabs say it, and what c and s show for it in truth
+  lines.push(blank, ...limitRows('No Timmy surface draws a chat\'s previews or images yet.', { c: 'this project\'s turns, each as its receipt', s: 'the canvas, where Timmy draws when asked' }, c.width, g));
   return { lines, items };
 }
 
@@ -522,18 +546,23 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   const { data, g } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
-  const match = FAMILY_ROWS[ws];
+  // R5 (H131; the QA of e7f853e, defect 23): tab 6's two views (6, then 6 again) list the tab's every app, their own first:
+  // After Effects is the tab's action 3, so it is in the 3D view's list too
+  const tab6 = ws === 'create3d' || ws === 'motion';
+  const families: WorkspaceId[] = tab6 ? (ws === 'motion' ? ['motion', 'create3d'] : ['create3d', 'motion']) : [ws];
   let rows: CapabilityRow[] = [];
   const wait = lazyLines(data.caps, 'Timmy\'s tools', c);
-  if (!wait && data.caps.state === 'ready' && match) rows = data.caps.value.filter((r) => match(r.id, r.kind));
-  const records = ws === 'voxvision' ? data.vox : data.native[ws] ?? [];
+  if (!wait && data.caps.state === 'ready') {
+    const caps = data.caps.value;
+    rows = families.flatMap((f) => { const m = FAMILY_ROWS[f]; return m ? caps.filter((r) => m(r.id, r.kind)) : []; });
+  }
+  const records = ws === 'voxvision' ? data.vox : tab6 ? families.flatMap((f) => data.native[f] ?? []) : data.native[ws] ?? [];
   const total = rows.length + records.length;
   const cur = cursorOf(c.ui, `center:${ws}`, total);
   let i = 0;
-  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw, and which keys show it rendered
-  if (ws === 'create3d' || ws === 'motion') {
-    lines.push(...wrapSegs([S('A terminal cannot draw images, 3D or live previews: ', 'secondary'), key('c'), S(' Companion · Show, ', 'secondary'), key('s'), S(' Studio · Show.', 'secondary')], c.width, '  '), blank);
-  }
+  // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw; the QA of e7f853e, defect 2: and what
+  // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own)
+  if (tab6) lines.push(...limitRows('No Timmy surface draws 3D, images or a motion timeline yet: each app below draws its own, once it is set up.', { c: 'this tab\'s actions, in words', s: 'the canvas (2D shapes and cards)' }, c.width, g), blank);
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -541,10 +570,24 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
       ? 'No REA capability is registered in this revision: REA\'s core (src/rea) is being built separately, so nothing here runs REA yet.'
       : 'No registered tool belongs here in this revision.', c.width));
   }
-  for (const r of rows) { items.push({ line: lines.length, item: { kind: 'cap', key: `cap:${r.id}`, row: r } }); lines.push(row(capLine(r, g), i === cur, g)); i += 1; }
+  // R5 (H131; the QA of e7f853e, defect 11): a tool's row wraps under itself: its step is never cut off
+  for (const r of rows) {
+    const body = wrapSegs(capLine(r, g), Math.max(8, c.width - 2), '    ');
+    items.push({ line: lines.length, item: { kind: 'cap', key: `cap:${r.id}`, row: r }, rows: body.length });
+    body.forEach((b, k) => lines.push(k === 0 ? row(b, i === cur, g) : [S('  '), ...b.map((x) => (i === cur ? { ...x, selected: true } : x))]));
+    i += 1;
+  }
+  const missing = NOT_IN_TIMMY[tab6 ? 'create3d' : ws] ?? [];
+  if (missing.length) {
+    lines.push(blank, heading(`Not in Timmy yet (${missing.length})`));
+    for (const m of missing) lines.push(...wrapSegs([S(`  ${m.name}`, 'strong'), S(`  ${m.why}`, 'secondary')], Math.max(8, c.width), '    '));
+  }
   lines.push(blank);
   lines.push(heading(`This project's records (${records.length})`));
-  if (!records.length) lines.push([S(ws === 'voxvision' ? '  No VoxVision record yet: /inspect <file> in the REPL makes one.' : ws === 'rea' ? '  No REA record in this project.' : '  No run of these apps in this project yet.', 'secondary')]);
+  if (!records.length) {
+    lines.push(...para(ws === 'voxvision' ? 'No VoxVision record yet: /inspect <file> in the REPL makes one.' : ws === 'rea' ? 'No REA record in this project.'
+      : 'No run of these apps in this project yet: /blender, /scad or /ae in the REPL (the actions above) starts one, once its app is set up (each row above says what it needs).', c.width, 'secondary', '  '));
+  }
   for (const rec of records) {
     items.push({ line: lines.length, item: { kind: 'record', key: `rec:${rec.record}`, rec } });
     lines.push(row([S(rec.id, 'strong'), S(`  ${rec.what}`, 'text'), S(`  ${rec.state}`, rec.state.startsWith('failed') ? 'failure' : 'secondary'), S(rec.at ? ` ${g.sep} ${ago(rec.at, c.now)}` : '', 'secondary')], i === cur, g));
@@ -839,13 +882,14 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       return { lines, items };
     }
     case 'message': {
-      // R5 (H131): a line of one voice wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width:
-      // "Nothing was run from here" was cut off a shown command's words); a line of several voices keeps its row
+      // R5 (H131): a line wider than the body is wrapped, never cut (Home's and Chat's body is ~48% of the width: "Nothing was
+      // run from here" was cut off a shown command's words). QA of e7f853e: a line of several voices too, each word in its
+      // own voice, the rows after the first indented under it ("The chat is set to the local model …" was cut)
       const fitted = o.lines.flatMap((l): Line[] => {
         if (lineCells(l) <= c.width) return [l];
         const voiced = l.filter((s) => s.text.trim());
         const role = voiced[0]?.role ?? 'text';
-        if (voiced.some((s) => (s.role ?? 'text') !== role)) return [l];
+        if (voiced.some((s) => (s.role ?? 'text') !== role)) return wrapSegs(l, c.width, '  ');
         return para(l.map((s) => s.text).join('').trim(), c.width, role);
       });
       lines.push([S(o.title, 'strong')], blank, ...fitted, blank, [key('Esc'), S(' Close', 'text')]);

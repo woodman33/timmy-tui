@@ -57,7 +57,7 @@ import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPl
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
 import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
-import { readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
+import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
 
 /** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
 export const FRAME_EVERY_MS = 1000;
@@ -310,9 +310,12 @@ export class Controller {
   private wfVerified: { key: string; by: Map<string, { ok: true } | { ok: false; reason: string }> } = { key: '', by: new Map() };
   private readWorkflowsTab(): void {
     const root = this.data.project.root;
-    const own = this.records.filter((j) => sameFolder(j.root, root));
+    let own = this.records.filter((j) => sameFolder(j.root, root));
     try {
       const chain = this.chain();
+      // R5 (H131; the QA of e7f853e, defect 7): a job whose outcome is sealed while its record, as read, still runs: the records
+      // (and with them the jobs, Activity, the strip and Stop current) are read again, so all of them follow one reading
+      if (endedOnChain(own, chain)) { this.readJobs(); own = this.records.filter((j) => sameFolder(j.root, root)); }
       const key = this.chainCache?.key ?? '';
       if (this.wfVerified.key !== key) this.wfVerified = { key, by: new Map() };
       const seen = this.wfVerified.by;

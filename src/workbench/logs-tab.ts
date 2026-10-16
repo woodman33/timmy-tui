@@ -40,6 +40,9 @@ type Env = Record<string, string | undefined>;
 
 /** The Workbench list the event log's selection is kept in (src/workbench/screen.ts: `center:<workspace>`). */
 export const LOGS_LIST = 'center:logs';
+/** R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws of this tab yet, and what the companion shows of it */
+const LOGS_NONE = 'No Timmy surface replays runs yet.';
+const LOGS_C = 'events and receipts in words';
 /** How many events the log lists (the newest). */
 export const LOG_MAX = 80;
 /** How many of a run's last lines are read. */
@@ -718,7 +721,7 @@ export function logsView(c: TabCtx, d: LogsData | undefined): TabView<LogsItem> 
     const colA: Line[] = logBlock(wa, room - 1, lines.length + 1);
     const colB: Line[] = [opHead(d, e, g), ...(stages ? stageCards(stages, wb, room - 1, selHash, g) : noOp(wb))];
     // the run's output as text, then what a terminal cannot draw of it and where it is seen
-    const note = previewNote(wc, g);
+    const note = previewNote(wc, g, LOGS_NONE, LOGS_C);
     const raw = rawRows(d, e, wc, Math.max(1, room - 1 - note.length), g);
     const colC: Line[] = [raw.head, ...raw.rows, ...note];
     lines.push(...sideBySide([
@@ -728,7 +731,7 @@ export function logsView(c: TabCtx, d: LogsData | undefined): TabView<LogsItem> 
   }
 
   // stacked: (a), then (b), then (c), each in its share of the rows; each says which of its rows show
-  const note = previewNote(W, g);
+  const note = previewNote(W, g, LOGS_NONE, LOGS_C);
   const fixed = 1 + 1 + (stages ? 4 : 1) + 1 + note.length;
   const rest = Math.max(2, H - lines.length - fixed);
   const logRoom = Math.max(2, Math.ceil(rest * 0.6));

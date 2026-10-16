@@ -81,7 +81,8 @@ export const RECENT_MAX = 30;
 const WEIGHTS = [25, 40, 35] as const;
 
 /** The line under the panes: a terminal draws no picture (the operator's reference 07 shows carbonyl previews). */
-export const PREVIEWS_WORDS = 'Live previews (carbonyl) are not drawn here; the companion (c) shows pages.';
+// R5 (H131; the QA of e7f853e, defect 2): no Timmy surface draws a live preview yet; the companion's page is this, in words
+export const PREVIEWS_WORDS = 'No Timmy surface draws live previews (carbonyl) yet; the companion (c) shows this tab\'s runs and chat turns in a browser page, in words.';
 /** What the references' Add harness, Remove harness, Add pane, Remove pane and Broadcast are, in Timmy now (words only: nothing
  *  here is drawn as a button). */
 export const HARNESS_WORDS = 'Add a harness: install its program (/lanes says how); timmy watch --lanes starts the lanes. Remove a harness, add or remove a pane (the panes follow what runs), broadcast to every pane: not in Timmy yet.';
@@ -796,7 +797,7 @@ function columnOf(blocks: readonly Block[], sel: number, room: number, w: number
 
 /**
  * Tab 7's body: the roster, the panes and the right column side by side from 120 terminal columns (tab-columns.ts
- * sideBySideAt), or stacked below that; every row at most `c.width` cells. The items are the panes, what waits on you, the recent runs and the sealed chat turns, in
+ * sideBySideAt), or stacked below that; every row at most `c.width` cells. The items are the panes, what waits on you, the sealed chat turns and the recent runs (R5 H131: the turns first, in view), in
  * that order at every size: side by side, each column keeps the selection in its own rows (an item out of view has line -1;
  * one in view has the cells it is drawn in), stacked, the body scrolls as every other view does.
  */
@@ -814,8 +815,10 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     ...panes.away.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...panes.quiet.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
     ...decisions.map((decision): ControlItem => ({ kind: 'decision', key: `decision:${decision.key}`, decision })),
-    ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
+    // R5 (H131; the QA of e7f853e, defect 10): the sealed chat turns before the run detail and the recent runs, so they are in
+    // view at 160x45 (they were below the fold); the items in the order drawn
     ...sealed.map((turn): ControlItem => ({ kind: 'turn', key: `turn:${turn.receipt}`, turn })),
+    ...ended.filter((j) => !quietIds.has(j.id)).map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
   ];
   const sel = selectedIn(c.ui, CONTROL_LIST, all.length);
   const selected = sel >= 0 ? all[sel] : null;
@@ -877,8 +880,11 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     const down = g.unicode ? '↓' : 'v';
     const more: Line[] = above || below ? flow([[...(above ? [`+${above} more above: ${up} moves to them`] : []), ...(below ? [`+${below} more below: ${down} moves to them`] : [])]], w, '', `  ${g.sep}  `, 'secondary', g.ellipsis) : [];
     const arrows = g.unicode ? '←→↑↓' : 'arrows';
-    const keys = oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key(arrows), S(' between panes', 'secondary')],
-      [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w), ...keyRows(arrows, 'between panes', w)]);
+    // R5 (H131; the QA of e7f853e, defect 16): the keys of the panes that exist (none with no pane; x only with a running one;
+    // the arrows only with two or more)
+    const paneKeys = ([[['x', 'stops the selected pane\'s job'], running > 0], [['Enter', 'its run detail'], paneCount > 0], [[arrows, 'between panes'], paneCount > 1]] as const)
+      .filter(([, on]) => on).map(([k]) => k);
+    const keys = paneKeys.length ? oneOr(w, paneKeys.flatMap(([k, words], i) => [...(i ? [S(`  ${g.sep}  `, 'secondary')] : []), key(k), S(` ${words}`, 'secondary')]), paneKeys.flatMap(([k, words]) => keyRows(k, words, w))) : [];
     const full: Line[] = [[], ...keys, ...para(HARNESS_WORDS, w), [], ...para(PREVIEWS_WORDS, w)];
     const least: Line[] = [[], ...para(PREVIEWS_WORDS, w)];
     const shown = r1 - r0;
@@ -906,8 +912,12 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const previewsFoot = (w: number): Line[] => [[], ...para(PREVIEWS_WORDS, w)];
   // the keys, and what the references' Add harness, Remove harness and Broadcast are here (side by side: only where they fit
   // without clipping the panes)
-  const keysBlock = (w: number): Block => ({ lines: [[], ...oneOr(w, [key('x'), S(' stops the selected pane\'s job', 'secondary'), S(`  ${g.sep}  `, 'secondary'), key('Enter'), S(' its run detail', 'secondary')],
-    [...keyRows('x', 'stops the selected pane\'s job', w), ...keyRows('Enter', 'its run detail', w)]), ...para(HARNESS_WORDS, w)] });
+  const keysBlock = (w: number): Block => {
+    // R5 (H131; the QA of e7f853e, defect 16): the keys of the panes that exist (none with no pane; x only with a running one)
+    const paneKeys = ([[['x', 'stops the selected pane\'s job'], running > 0], [['Enter', 'its run detail'], paneCount > 0]] as const).filter(([, on]) => on).map(([k]) => k);
+    const keys = paneKeys.length ? oneOr(w, paneKeys.flatMap(([k, words], i) => [...(i ? [S(`  ${g.sep}  `, 'secondary')] : []), key(k), S(` ${words}`, 'secondary')]), paneKeys.flatMap(([k, words]) => keyRows(k, words, w))) : [];
+    return { lines: [[], ...keys, ...para(HARNESS_WORDS, w)] };
+  };
 
   // the right column: what waits on you, the selected run's detail, the recent runs, the sealed chat turns (`dense`: each run
   // and turn on two rows, cut at their end)
@@ -920,6 +930,12 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
     if (!decisions.length) b.push({ lines: para('Nothing waits on you.', w) });
     for (const x of decisions) { b.push({ lines: itemRows(decisionRows(x, w, g), i === sel, g, w), at: i }); i += 1; }
     if (c.data.decisions.more) b.push({ lines: para(`and ${c.data.decisions.more} more: /decisions in the REPL lists them`, w) });
+    // R5 (H131; the QA of e7f853e, defect 10): the sealed chat turns next, in view at 160x45 (under the run detail they were not)
+    b.push({ lines: [[], [heading(`Chat turns (${sealed.length})`)]] });
+    if (!sealed.length) b.push({ lines: para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', w) });
+    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w, dense), i === sel, g, w), at: i }); i += 1; }
+    if (sealed.length >= TURNS_SHOWN) b.push({ lines: para(`The newest ${TURNS_SHOWN} are listed.`, w) });
+    b.push({ lines: para(TURN_STOP_WORDS, w) });
     b.push({ lines: [[], ...detailRows(c, selected, w)], detail: true });
     b.push({ lines: [[], [heading(`Recent (${ended.length})`)]] });
     if (!ended.length) b.push({ lines: para('No job has run in this project yet.', w) });
@@ -929,11 +945,6 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
       b.push({ lines: itemRows(recentRows(j, c, w, dense), i === sel, g, w), at: i });
       i += 1;
     }
-    b.push({ lines: [[], [heading(`Chat turns (${sealed.length})`)]] });
-    if (!sealed.length) b.push({ lines: para('No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).', w) });
-    for (const t of sealed) { b.push({ lines: itemRows(sealedTurnRows(t, c, w, dense), i === sel, g, w), at: i }); i += 1; }
-    if (sealed.length >= TURNS_SHOWN) b.push({ lines: para(`The newest ${TURNS_SHOWN} are listed.`, w) });
-    b.push({ lines: para(TURN_STOP_WORDS, w) });
     for (const n of c.data.decisions.notes) b.push({ lines: para(n, w, 'failure') });
     return b;
   };

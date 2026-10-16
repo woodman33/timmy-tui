@@ -30,8 +30,9 @@ export const NAV: readonly NavItem[] = [
   { id: 'chat', group: 'create', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route says where a message would go and what it costs.' },
   { id: 'studio', group: 'create', label: 'Studio', title: 'Studio · boards and cards', task: 'Studio outline', purpose: 'The project\'s Studio cards in outline, by operation; Studio · Show opens the rich canvas.' },
   { id: 'voxvision', group: 'create', label: 'VoxVision', title: 'VoxVision · 2D and 3D inspection', task: 'Inspection', purpose: 'All of Timmy\'s vision tools with their real status, and this project\'s VoxVision records.' },
-  { id: 'create3d', group: 'create', label: '3D Create', title: '3D Create · native scenes and CAD', task: 'Scenes and CAD', purpose: 'The 3D and CAD apps Timmy drives, what each needs, and this project\'s runs of them.' },
-  { id: 'motion', group: 'create', label: 'Motion', title: 'Motion · compositions and renders', task: 'Compositions', purpose: 'After Effects as Timmy drives it, what it needs, and this project\'s renders.' },
+  // R5 (H131; the QA of e7f853e, defect 23): the pane says the tab's own name (6 3D & Motion), and which of its two views
+  { id: 'create3d', group: 'create', label: '3D Create', title: '3D & Motion · scenes, CAD and compositions', task: 'Scenes and CAD', purpose: 'The 3D, CAD and motion apps Timmy drives, what each needs, and this project\'s runs of them.' },
+  { id: 'motion', group: 'create', label: 'Motion', title: '3D & Motion · compositions and renders first', task: 'Compositions', purpose: 'After Effects as Timmy drives it, what it needs, and this project\'s renders.' },
   { id: 'workflows', group: 'operate', label: 'Workflows', title: 'Workflows · plan and run', task: 'Workflow', purpose: 'Each workflow document\'s named blocks, which need you, and how each one last ended.' },
   { id: 'control', group: 'operate', label: 'Control Room', title: 'Control Room · jobs, chat turns and decisions', task: 'Jobs, chat turns and decisions', purpose: 'What runs, what ended and what waits on you, each with its job and operation, and every surface\'s chat turns by their receipts.' },
   { id: 'overview', group: 'operate', label: 'God\'s Eye View', title: 'God\'s Eye View · the project at a glance', task: 'Overview', purpose: 'What needs you first, then agents, workflows, apps, artifacts and history, each with its source.' },
@@ -72,6 +73,18 @@ export const FAMILY_ROWS: Readonly<Partial<Record<WorkspaceId, (id: string, kind
 };
 
 /** The native apps whose runs each tool workspace lists (src/native's records in .timmy/native). */
+/**
+ * R5 (H131; the QA of e7f853e, defect 23): motion apps tab 6 names that Timmy has no tool for yet: said so, with why, never
+ * as a rung (no plan file of this revision names them, so not even "proposed").
+ */
+export const NOT_IN_TIMMY: Readonly<Partial<Record<WorkspaceId, ReadonlyArray<{ name: string; why: string }>>>> = {
+  create3d: [
+    { name: 'Rive', why: 'no adapter drives Rive\'s editor or its runtime here yet' },
+    { name: 'Theatre.js', why: 'no adapter drives Theatre.js here yet' },
+    { name: 'HyperFrames', why: 'no tool here yet: /lanes names a renderer lane for it (npx --yes hyperframes, a download when first run), and no run of it is recorded here' },
+  ],
+};
+
 export const FAMILY_APPS: Readonly<Partial<Record<WorkspaceId, readonly string[]>>> = {
   create3d: ['c4dpy', 'blender', 'openscad', 'freecad', 'unreal'],
   motion: ['aerender', 'afterfx'],
