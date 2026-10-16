@@ -215,8 +215,13 @@ export function posixSubmitScript(remoteDir: string, id: string, script: Uint8Ar
     ...printfChunks(script, 'part'),
     '  return 0',
     '}',
+    // R6 lead (CI at 6dfdb19, connect-ssh "one id submitted twice starts one run": "claimed there, and its supervisor wrote no
+    // status"): a second submission of the same job that passed the claim check before the first claimed it rewrote run.sh in
+    // place (cat > run.sh) while the first's `sh run.sh` was starting, so that shell could read a truncated supervisor and
+    // write no status. The supervisor is written to a file of its own and renamed over run.sh: a shell that has opened run.sh
+    // keeps the bytes it opened, and one that opens it later finds it whole (the same bytes)
     'timmy_write_runner() {',
-    `  cat > "$job/run.sh" <<'TIMMY_RUNNER_END'`,
+    `  cat > "$job/run.sh.tmp.$$" <<'TIMMY_RUNNER_END' && mv -f "$job/run.sh.tmp.$$" "$job/run.sh"`,
     ...RUNNER,
     'TIMMY_RUNNER_END',
     '}',
