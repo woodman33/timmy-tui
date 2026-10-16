@@ -10,6 +10,7 @@ import { renderApproval } from './approvals.js';
 import { truncate as cutTo, visibleWidth, wrap } from '../term/width.js';
 import type { CancelStage, ToolOutcome } from './seal.js';
 import { labelFor, plural, type StepLabel } from './steps.js';
+import { TURN_STOPPED, turnStopHead } from '../contracts/stop-words.js';
 
 export interface Lane {
   label: string;
@@ -221,7 +222,7 @@ export class Transcript {
         // What the tools did, said with the cancel (third order, checkpoint 1): a cancel never undoes.
         // R5 lead (QA: the REPL said only "Cancelled." for a turn another surface stopped, while its receipt and every other
         // surface named who asked): the line names them too, in the shared stop words
-        const head = e.by ? `Cancelled: stopped, asked from ${e.by}.` : 'Cancelled.';
+        const head = turnStopHead(e.by); // R6 (H140): the one table's words (src/contracts/stop-words.ts)
         const said = e.at ? `${head} ${cancelOutcome(e.at, e.tools ?? [])}` : head;
         const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
         return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
@@ -701,7 +702,7 @@ export class Transcript {
           : [{ text: name(g.bullet), role: 'strong' }, { text: ' signed, not verified yet', role: 'secondary' }];
     // A REPL turn has no lanes (C-8): a lane count of 0 is left out rather than printed.
     // Round R1: and which model answered (after a fallback, the one that actually did); a cancel stays last.
-    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`, ...(e.model ? [e.model] : []), ...(e.cancelled ? ['cancelled'] : [])].join(` ${g.sep} `);
+    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`, ...(e.model ? [e.model] : []), ...(e.cancelled ? [TURN_STOPPED] : [])].join(` ${g.sep} `);
     this.commit([this.line(head), this.line([{ text: `  ${this.cut(facts, this.opts.columns - 2)}`, role: 'secondary' }])], [
       head.map((s) => s.text).join(''),
       facts,

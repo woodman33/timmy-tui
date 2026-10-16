@@ -485,7 +485,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // R5 (H136): the terminal is given back and the run's end is said there. Seen once at b303c1b: EXIT=130 written over
       // the Workbench's last frame, its own screen still up, no closing line; such an end fails here, not passes unnoticed
       expect(t.modes().split(' ')[3], `the alternate screen is left once the Workbench ends:\n${scrub(ended, [box])}`).toBe('0');
-      expect(ended).toContain(`${quit.id} (SLOW.md › long) was stopped as the Workbench ended.`);
+      expect(ended).toContain(`${quit.id} (SLOW.md › long) was cancelled as the Workbench ended.`);
     } finally {
       t.close();
     }

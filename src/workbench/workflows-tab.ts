@@ -43,6 +43,7 @@ import type { BlockRow, WorkflowDoc, WorkflowsView } from './state.js';
 import { card, clipRows, onBar, RULE_CELLS, S, sideBySide, sideBySideAt, widths, windowMarked } from './tab-columns.js';
 import { cells, clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 import { actionsOf, runOfBlock, selectedAction, type ViewCtx } from './views.js';
+import { JOB_CANCELLED, stepStateWords } from '../contracts/stop-words.js'; // R6 (H140)
 
 // ── the readers ────────────────────────────────────────────────────────────────
 
@@ -193,7 +194,7 @@ const shortOf = (r: Pick<Receipt, 'hash' | 'id'>): string => (typeof r.hash === 
 /** The run in its record's words, as the board's card says them (src/repl/board-workflows.ts readRun). */
 export function runWord(j: Pick<JobRecord, 'kind' | 'state' | 'steps' | 'stale' | 'interrupted'>): string {
   if (j.stale || j.interrupted) return 'interrupted';
-  if (j.state === 'cancelled') return 'stopped';
+  if (j.state === 'cancelled') return JOB_CANCELLED; // R6 (H140): a job's word (src/contracts/stop-words.ts)
   if (j.state === 'queued') return 'starting';
   if (j.state === 'ready') return 'running';
   return noChangeOf(j) ? 'no change' : j.state;
@@ -251,7 +252,7 @@ export function stateMark(word: string, g: Pick<Glyphs, 'unicode' | 'ok' | 'fail
     case 'waiting': case 'starting': return { glyph: g.ellipsis, role: 'secondary' };
     case 'completed': return { glyph: g.ok, role: 'text' };
     case 'failed': return { glyph: g.fail, role: 'failure' };
-    case 'stopped': return { glyph: g.unicode ? '■' : '#', role: 'text' };
+    case 'stopped': case 'cancelled': return { glyph: g.unicode ? '■' : '#', role: 'text' };
     case 'interrupted': return { glyph: '!', role: 'attention' };
     case 'no change': return { glyph: '=', role: 'text' };
     case 'not run': return { glyph: g.unicode ? '–' : '-', role: 'secondary' };
@@ -362,7 +363,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
       const sel = items.length === cur;
       if (sel) selRow = rows.length;
       const m = stateMark(b.word, g);
-      const state = `${m.glyph} ${b.word}`;
+      const state = `${m.glyph} ${stepStateWords(b.word)}`;
       const keyText = w >= 30 ? `${b.key.padStart(2)} ` : '';
       const risky = b.risky.length ? ` ${g.warn}` : '';
       const room = Math.max(4, Math.min(nameW, w - 2 - cells(keyText) - cells(risky) - 1 - cells(state)));
@@ -501,7 +502,7 @@ function stepsRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Li
   }
   for (const s of run.steps) {
     const sm = stateMark(s.word, g);
-    const l: Line = [S(`${sm.glyph} `, sm.role), S(s.name, 'strong'), S(` ${s.word}`, sm.role)];
+    const l: Line = [S(`${sm.glyph} `, sm.role), S(s.name, 'strong'), S(` ${stepStateWords(s.word)}`, sm.role)];
     if (s.detail && lineCells(l) + 3 + cells(s.detail) <= w) l.push(S(` ${g.sep} ${s.detail}`, 'secondary'));
     rows.push(l);
   }

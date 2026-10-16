@@ -272,7 +272,7 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     expect(room).toContain('CHAT TURNS (3)');
     expect(room.indexOf(job.id)).toBeLessThan(room.indexOf('CHAT TURNS (3)'));
     expect(columnText(c, 2)).toMatch(inRow(`✓ ${wb}`, 'answered', 'from the Workbench', 'qwen3:8b-fixture', '1\\.2 s', OP_WB, '\\d+ s ago'));
-    expect(columnText(c, 2)).toMatch(inRow(`■ ${stopped}`, 'stopped', 'from the Workbench', 'qwen3:8b', '0\\.8 s', OP_STOP, '\\d+ s ago'));
+    expect(columnText(c, 2)).toMatch(inRow(`■ ${stopped}`, 'stopped by you', 'from the Workbench', 'qwen3:8b', '0\\.8 s', OP_STOP, '\\d+ s ago')); // R6 (H140): who asked, always said (the Workbench: by you)
     expect(columnText(c, 2)).toMatch(inRow(`✓ ${repl}`, 'answered', 'from the REPL', 'fixture/chat-model', '2\\.4 s', 'no operation', '\\d+ s ago'));
     expect(room.indexOf(wb)).toBeLessThan(room.indexOf(stopped));
     expect(room.indexOf(stopped)).toBeLessThan(room.indexOf(repl));
