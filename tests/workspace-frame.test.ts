@@ -9,6 +9,7 @@ import {
   CONNECTIONS_SCHEMA, LIVE_FOR_MS, actionsOf, buildWorkspaceFrame, checkConnections, connectionOf, connectionsPath, readConnections, sentences, writeConnections,
 } from '../src/ops/workspace-frame.js';
 import { workspaceLines, workspaceMain } from '../src/ops/workspace-cli.js';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 
 let home: string;
 let project: string;
@@ -297,5 +298,29 @@ describe('R5 lead: H131\'s contract notes', () => {
   });
   it('Home lists its connections first, as every surface draws it', () => {
     expect(TABS[0]).toMatchObject({ id: 'home', workbench: ['connections', 'overview'] });
+  });
+});
+
+describe('R5 lead: a chat turn being answered (the independent review, defect 1)', () => {
+  it('counts as running: Stop the turn becomes the Chat tab\'s one next step, a second message waits, Stop current names the turn', async () => {
+    const t = takeTurnHold(project, 'workbench');
+    expect(t.ok).toBe(true);
+    try {
+      const f = await frame();
+      expect(f.activity.running).toBe(1);
+      expect(f.activity.chatTurn).toMatchObject({ surface: 'workbench' });
+      expect(f.activity.stopCurrent.words).toMatch(/^Stop current: the chat turn in .*Workbench.*\(Esc in its composer\)$/);
+      const chat = f.actions.chat;
+      expect(chat[0]).toMatchObject({ label: 'Send a message', enabled: false, primary: false });
+      expect(chat[0].why).toMatch(/^one turn at a time: a turn is being answered in /);
+      expect(chat[2]).toMatchObject({ label: 'Stop the turn', enabled: true, primary: true });
+      expect(chat.filter((a) => a.primary)).toHaveLength(1);
+    } finally {
+      if (t.ok) t.hold.release();
+    }
+    const after = await frame();
+    expect(after.activity.running).toBe(0);
+    expect(after.activity.chatTurn).toBeNull();
+    expect(after.actions.chat[2]).toMatchObject({ enabled: false, primary: false });
   });
 });

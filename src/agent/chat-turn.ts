@@ -72,8 +72,11 @@ function readHold(file: string): HoldRecord | undefined {
   } catch { return undefined; }
 }
 
-/** The turns that hold the project now, other than `except` (a file name); a stale one (its writer gone) is removed as it is seen. */
-export function runningTurns(root: string, except?: string): OtherTurn[] {
+/**
+ * The turns that hold the project now, other than `except` (a file name); a stale one (its writer gone) is removed as it is
+ * seen, unless `readOnly` (R5 lead: the workspace frame reads, never writes).
+ */
+export function runningTurns(root: string, except?: string, o: { readOnly?: boolean } = {}): OtherTurn[] {
   const dir = turnsDir(root, false);
   if (!dir.ok) return [];
   let names: string[];
@@ -85,7 +88,7 @@ export function runningTurns(root: string, except?: string): OtherTurn[] {
     if (!r) continue;
     const mine = r.owner.pid === THIS_PROCESS.pid && r.owner.started === THIS_PROCESS.started;
     const proof = mine ? 'alive' : writerState(r.owner);
-    if (proof === 'gone') { try { fs.unlinkSync(file); } catch { /* already gone */ } continue; }
+    if (proof === 'gone') { if (!o.readOnly) { try { fs.unlinkSync(file); } catch { /* already gone */ } } continue; }
     out.push({ surface: r.surface, pid: r.owner.pid, taken: r.taken, mine, proof });
   }
   return out.sort((a, b) => a.taken.localeCompare(b.taken));
