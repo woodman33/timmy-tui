@@ -26,7 +26,7 @@ import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
-import { projectCards } from '../studio/project-cards.js';
+import { projectCards, type ProjectCard, type ProjectOperation } from '../studio/project-cards.js';
 import { publicTemplates } from '../studio/templates.js';
 import type { Segment } from '../term/theme.js';
 import { keyAt, type MouseReport } from '../tui/mouse.js';
@@ -427,6 +427,20 @@ export class Controller {
     this.emit();
   }
 
+  /** Studio's cards for the project shown (src/studio/project-cards.ts), from the records as this Workbench read them. */
+  private cardsNow(): { cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] } {
+    const p = this.data.project;
+    const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
+    return { cards: r.cards, notes: r.notes, operations: r.operations ?? [] };
+  }
+
+  /** R6 (H141): Studio's cards read again once they have been read (a job started, moved or ended); the cards as read stay drawn
+   *  meanwhile, and when a reading fails. */
+  private refreshCards(): void {
+    if (this.data.studio.state !== 'ready') return;
+    try { this.data.studio = { state: 'ready', value: this.cardsNow(), at: this.now() }; } catch { /* the cards as last read */ }
+  }
+
   /** What a workspace reads when it is first opened (and again on [r]). */
   private loadFor(ws: WorkspaceId, force = false): void {
     if (ws === 'overview') {
@@ -436,13 +450,7 @@ export class Controller {
       }, force);
     }
     // R5 (H131): Home's preview says Studio's board too
-    if (ws === 'studio' || ws === 'connections') {
-      void this.lazy('studio', async () => {
-        const p = this.data.project;
-        const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
-        return { cards: r.cards, notes: r.notes, operations: r.operations ?? [] };
-      }, force);
-    }
+    if (ws === 'studio' || ws === 'connections') void this.lazy('studio', async () => this.cardsNow(), force);
     if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
     // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown); R5 (H137): tab 7 too
     if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
@@ -495,6 +503,9 @@ export class Controller {
       // pipeline are read again (the frame at most once a second)
       this.readPipeline();
       this.refreshFrame();
+      // R6 (H141; REMAINING-DEFECTS #31): and Studio's cards, which Home's preview and Studio draw: read once when first shown,
+      // they said a workflow was "not run yet" above LAST RUN's "completed" for the same run
+      this.refreshCards();
     }
     if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
   }

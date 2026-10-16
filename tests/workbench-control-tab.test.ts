@@ -33,7 +33,7 @@ import { glyphsFor, innerWidth } from '../src/workbench/frame.js';
 import { bodyKind, layoutFor } from '../src/workbench/layout.js';
 import type { Data, TurnRow } from '../src/workbench/model.js';
 import { readJobs, type JobRow } from '../src/workbench/state.js';
-import { lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
+import { clock, lineCells, plain, type Line, type Role } from '../src/workbench/text.js';
 
 const g = glyphsFor(true);
 const SIZES = [[160, 45], [120, 40], [100, 30]] as const;
@@ -647,7 +647,13 @@ describe('tab 7, Control Room: the view', () => {
     expect(wide).toMatch(/· pi        not installed/);
     expect(wide).toMatch(/· minds     not installed/);
     expect(wide).toMatch(/▶ Workbench running \(this one\)/);
-    expect(wide).toMatch(/\? REPL      not recorded/);
+    // R6 (H141): no REPL turn being answered, and none sealed in this project: said so (never "not recorded" beside its turns)
+    expect(wide).toMatch(/\? REPL      no turn now · none recorded in this project/);
+    // with REPL turns sealed (the newest first): its newest, when and how it ended; a REPL turn being answered: answering
+    const sealedWide = text(controlRoomView(ctxAt(100, 30, data({ jobs: [RUNNING[0]], turns: [sealed('beef0001', { state: 'stopped', stoppedBy: 'companion', at: ISO(NOW - 5000) }), sealed('beef0002')] })), controlData({ tails: TAILS })).lines);
+    expect(sealedWide).toMatch(new RegExp(`\\? REPL {6}no turn now · last turn ${clock(ISO(NOW - 5000))} stopped \\(asked from the companion\\)`));
+    const answering = text(controlRoomView(ctxAt(100, 30, d), controlData({ tails: TAILS, turns: [{ surface: 'repl', pid: 4243, taken: ISO(NOW - 8000), mine: false, proof: 'alive' }] })).lines);
+    expect(answering).toMatch(/▶ REPL      answering a turn \(pid 4243\)/);
     expect(wide).toMatch(/○ companion configured, served here/);
     expect(wide).toMatch(/○ Studio    configured/);
     expect(wide).toMatch(/● fake-live live, reached 5 min ago/);

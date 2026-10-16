@@ -277,6 +277,10 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     expect(room.indexOf(wb)).toBeLessThan(room.indexOf(stopped));
     expect(room.indexOf(stopped)).toBeLessThan(room.indexOf(repl));
     expect(columnText(c, 2)).toContain('A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C (the REPL) stops it.');
+    // R6 (H141; the interaction review of a77d80d, defect 12): the roster's REPL row, beside the REPL's own turn listed here,
+    // says it answers no turn now (its whole word where the roster is wide: its last turn), never "not recorded"
+    expect(columnText(c, 0)).toMatch(/\? REPL\s+no turn now/);
+    expect(f.text()).not.toMatch(/REPL\s+not recorded/);
     // another project's turn, though in the same chain, is not this project's: absent everywhere
     expect(f.text()).not.toContain(other);
     expect(f.text()).not.toContain(OP_ELSE);
