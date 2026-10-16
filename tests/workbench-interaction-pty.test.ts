@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { visibleWidth } from '../src/term/width.js';
 import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
+import { enterOnBlock, keepScreen, scrub, selectedBlock, sendKeys, settledScreen, waitScreen, workflowsList, type Pane } from './helpers/tmux-frame.js';
 
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
@@ -112,21 +113,13 @@ function focusedPanel(screen: string, fixed = 3): { found: boolean; rows: string
 
 /**
  * R5 (H131, on H136's measurement: 2 of 300 captures at load 13 landed mid-frame, before Ink had drawn Activity): the panel
- * with the keyboard, read until it is drawn whole and two reads 150 ms apart agree, as selectBlock's settled() reads the
- * selection; the deadline names what it waited for. Every read of the panel in this file goes through it.
+ * with the keyboard, read until it is drawn whole and the screen is the same in two reads; the deadline names what it waited
+ * for. Every read of the panel in this file goes through it. R5 (H136; the finish line, item 5): through the one shared wait
+ * (tests/helpers/tmux-frame.ts), a whole frame of the Workbench the same in two reads, its panel drawn to its bottom edge.
  */
-async function focusedSettled(screen: () => string, fixed = 3, ms = 10_000): Promise<ReturnType<typeof focusedPanel>> {
-  let prev = '';
-  let last = '';
-  for (const end = Date.now() + ms; Date.now() < end;) {
-    last = screen();
-    const p = focusedPanel(last, fixed);
-    const key = p.found ? JSON.stringify(p) : '';
-    if (key && key === prev) return p;
-    prev = key;
-    await sleep(150);
-  }
-  throw new Error(`timed out after ${ms} ms waiting for the panel with the keyboard, drawn whole and the same in two reads:\n${last}`);
+async function focusedSettled(pane: Pane, fixed = 3, ms = 10_000): Promise<ReturnType<typeof focusedPanel>> {
+  const screen = await waitScreen(pane, { what: 'the panel with the keyboard, drawn whole', test: (s) => focusedPanel(s, fixed).found, ms });
+  return focusedPanel(screen, fixed);
 }
 
 /**
@@ -149,36 +142,36 @@ function controlColumn(screen: string, k: number): string {
   return body.map((r) => r.slice(edges[k] + 1, edges[k + 1]).join('')).join(' ').replace(/\s+/g, ' ').trim();
 }
 
-/** A tmux server of the test's own (its socket in the test's folder), its screen, its keys, its mouse and a kept capture. */
+/**
+ * A tmux server of the test's own (its socket in the test's folder), its screen, its keys, its mouse and a kept capture. R5
+ * (H136; the finish line, item 5): each through tests/helpers/tmux-frame.ts. A screen is read, waited for and kept only as a
+ * whole frame of the Workbench (row 1's tab titles, the bottom border, the key-hint line or the notice in its place) the same
+ * in two reads, and a key or a mouse report is sent once the Workbench has read the one before it.
+ */
 function terminal(label: string) {
   servers.push(label);
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', label, ...args], { env, encoding: 'utf8', timeout: 10_000 });
-  const screen = (t = 't') => tmux('capture-pane', '-p', '-t', t);
-  const waitFor = async (re: RegExp, ms = 30_000, t = 't'): Promise<string> => {
-    let s = '';
-    for (const end = Date.now() + ms; Date.now() < end;) {
-      s = screen(t);
-      if (re.test(s)) return s;
-      await sleep(100);
-    }
-    throw new Error(`timed out waiting for ${re}:\n${s}`);
-  };
-  const keys = async (...k: string[]) => { for (const one of k) { tmux('send-keys', '-t', 't', one); await sleep(250); } };
-  const typed = async (text: string) => { tmux('send-keys', '-t', 't', '-l', text); await sleep(250); };
+  const pane: Pane = { tmux, target: 't', folders: [box] };
+  const screen = (t = 't') => settledScreen(pane, { target: t });
+  // (frame false: a screen that is not the Workbench's frame though its screen is still up, as a Workbench killed outright leaves it)
+  const waitFor = (re: RegExp, ms = 30_000, t = 't', o: { frame?: boolean } = {}): Promise<string> => waitScreen(pane, { what: `${re}`, re, ms, target: t, ...o });
+  const until = (test: (s: string) => boolean, what: string, ms = 10_000, t = 't'): Promise<string> => waitScreen(pane, { what, test, ms, target: t });
+  const keys = (...k: string[]) => sendKeys(pane, k);
+  const keysTo = (t: string, ...k: string[]) => sendKeys(pane, k, { target: t });
+  const typed = (text: string, t = 't') => sendKeys(pane, [text], { literal: true, target: t });
   // the workspace search: '/', then its prompt on screen, the text, the text on screen, then Enter
-  const find = async (name: string) => {
-    tmux('send-keys', '-t', 't', '/');
-    await waitFor(/^\S?\s*\/ /m, 10_000);
-    tmux('send-keys', '-t', 't', '-l', name);
+  const find = async (name: string, t = 't') => {
+    await keysTo(t, '/');
+    await waitFor(/^\S?\s*\/ /m, 10_000, t);
+    await typed(name, t);
     // the navigation's own search row (the top line's "project / workspace" is not it)
-    await waitFor(new RegExp(`^\\S?\\s*/ ${name}`, 'm'), 10_000);
-    tmux('send-keys', '-t', 't', 'Enter');
-    await sleep(300);
+    await waitFor(new RegExp(`^\\S?\\s*/ ${name}`, 'm'), 10_000, t);
+    await keysTo(t, 'Enter');
   };
   /** The 1-based cell of `needle` on the screen now (its `nth` match), as a mouse report names it. */
   const cellOf = (needle: string, nth = 0, t = 't'): { x: number; y: number } => {
     let rows: string[] = [];
-    // a capture taken while a frame is being written may miss rows: read it again for up to 3 s
+    // (each read a whole frame, the same in two reads: tests/helpers/tmux-frame.ts); read again for up to 3 s for the needle
     for (const end = Date.now() + 3000; ;) {
       rows = screen(t).split('\n');
       let seen = 0;
@@ -190,25 +183,21 @@ function terminal(label: string) {
       if (Date.now() > end) break;
       execFileSync('sleep', ['0.1']);
     }
-    throw new Error(`"${needle}" is not on the screen:\n${rows.join('\n')}`);
+    throw new Error(`"${needle}" is not on the screen in 3 s:\n${scrub(rows.join('\n'), [box])}`);
   };
   /** The cell of `needle` on the first row that matches `row` (a tab on the tabs' row, say). */
   const cellOnRow = (needle: string, row: RegExp, t = 't'): { x: number; y: number } => {
     const rows = screen(t).split('\n');
     const y = rows.findIndex((l) => row.test(l));
     const at = y >= 0 ? rows[y].indexOf(needle, rows[y].search(row)) : -1;
-    if (at < 0) throw new Error(`"${needle}" is not on a row matching ${row}:\n${rows.join('\n')}`);
+    if (at < 0) throw new Error(`"${needle}" is not on a row matching ${row}:\n${scrub(rows.join('\n'), [box])}`);
     return { x: visibleWidth(rows[y].slice(0, at)) + 1, y: y + 1 };
   };
-  const click = async (p: { x: number; y: number }) => { tmux('send-keys', '-t', 't', '-l', `\x1b[<0;${p.x};${p.y}M\x1b[<0;${p.x};${p.y}m`); await sleep(300); };
-  const wheel = async (p: { x: number; y: number }, down: boolean) => { tmux('send-keys', '-t', 't', '-l', `\x1b[<${down ? 65 : 64};${p.x};${p.y}M`); await sleep(200); };
+  const click = (p: { x: number; y: number }) => sendKeys(pane, [`\x1b[<0;${p.x};${p.y}M\x1b[<0;${p.x};${p.y}m`], { literal: true });
+  const wheel = (p: { x: number; y: number }, down: boolean) => sendKeys(pane, [`\x1b[<${down ? 65 : 64};${p.x};${p.y}M`], { literal: true });
   const modes = (t = 't') => tmux('display-message', '-p', '-t', t, '#{mouse_any_flag} #{mouse_standard_flag} #{mouse_sgr_flag} #{alternate_on}').trim();
-  const capture = (name: string, t = 't'): string => {
-    const txt = screen(t);
-    writeFileSync(join(CAPTURES, `${name}.ansi`), tmux('capture-pane', '-e', '-p', '-t', t));
-    writeFileSync(join(CAPTURES, `${name}.txt`), txt);
-    return txt;
-  };
+  // (a kept screen: whole and the same in two reads; a notice may hold the key-hint line's place, as it does in a wait)
+  const capture = (name: string, t = 't'): string => keepScreen(pane, CAPTURES, name, { target: t, foot: 'drawn' });
   const start = (w: number, h: number, raw?: string) => {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', String(w), '-y', String(h), '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
@@ -221,41 +210,30 @@ function terminal(label: string) {
     return Number(child);
   };
   const close = () => { try { tmux('kill-server'); } catch { /* gone */ } };
-  return { tmux, screen, waitFor, keys, typed, find, cellOf, cellOnRow, click, wheel, modes, capture, start, pid, close };
+  return { tmux, pane, screen, waitFor, until, keys, keysTo, typed, find, cellOf, cellOnRow, click, wheel, modes, capture, start, pid, close };
 }
 
-/** Moves the Workflows list's selection to `doc` › `block` (its row's marker), with the keys. */
+/**
+ * Moves the Workflows list's selection to `doc` › `block` (its row's marker), with the keys. R5 (H136; the finish line, item
+ * 5): the selection is read from a whole frame only (tests/helpers/tmux-frame.ts workflowsList: the ▸ row and the document it
+ * sits under, in the list that has the keyboard), and each key's effect is seen before the next key goes: Home, the list's
+ * first block selected; each Down, the selection moved on. No key is on its way when the walk ends (H134 saw a walk end on
+ * STREAM.md › talk once: a Down still on its way moved the selection after the walk had read the block it wanted), and the
+ * Enter that follows waits for that block selected (enterOnBlock).
+ */
 async function selectBlock(t: ReturnType<typeof terminal>, doc: string, block: string, w = 't'): Promise<void> {
-  const selected = (): string => /RUN\s+(\S+ › \S+)/.exec(t.screen(w))?.[1] ?? '';
   const want = `${doc} › ${block}`;
-  // the selection as it settles: the same block read twice, 300 ms apart (a key still on its way would move it)
-  const settled = async (): Promise<string> => {
-    for (let prev = selected(), end = Date.now() + 5000; Date.now() < end;) {
-      await sleep(300);
-      const now = selected();
-      if (now === prev) return now;
-      prev = now;
-    }
-    return selected();
-  };
-  // from the list's first row (Home), one Down at a time, each waited for on the screen (a loaded machine draws later than
-  // the key arrives). R5 (H131): Home is waited for by the selection settling, not by any change of the screen (Activity's
-  // lines and the frame's words change it on their own: the next Down then went while Home was still on its way, and the
-  // last Down moved the selection one block past the one this read); and the selection is read again once it settles, so a
-  // key still on its way is seen, and the walk starts again
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (selected() !== want) {
-      t.tmux('send-keys', '-t', w, 'Home');
-      await settled();
-    }
-    for (let i = 0; i < 20 && selected() !== want; i++) {
-      const before = selected();
-      t.tmux('send-keys', '-t', w, 'Down');
-      for (const end = Date.now() + 3000; selected() === before && Date.now() < end;) await sleep(50);
-    }
-    if (await settled() === want) return;
+  const named = (screen: string): string => { const b = selectedBlock(screen); return b?.focused ? `${b.doc} › ${b.block}` : ''; };
+  let now = named(await t.until((s) => named(s) !== '', 'a block selected in the Workflows list, which has the keyboard', 10_000, w));
+  if (now === want) return;
+  await t.keysTo(w, 'Home');
+  now = named(await t.until((s) => { const l = workflowsList(s); return !!l?.focused && l.fromTop && l.blocks[0]?.selected === true; }, 'the list\'s first block selected (Home)', 10_000, w));
+  for (let steps = 0; now !== want; steps++) {
+    if (steps >= 40) throw new Error(`${want} is not selected after 40 Downs; the list's block now: ${now}:\n${scrub(t.screen(w), [box])}`);
+    const before = now;
+    await t.keysTo(w, 'Down');
+    now = named(await t.until((s) => named(s) !== '' && named(s) !== before, `the selection moved down from ${before} (on the way to ${want})`, 10_000, w));
   }
-  throw new Error(`${want} is not selected:\n${t.screen(w)}`);
 }
 
 /** R5 (H137): Context as tab 7's drawer (i): opened, its title waited for on the screen; shut, its title waited away. */
@@ -320,8 +298,8 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ [\s\S]*Activity/);
       await t.find('Workflows');
       await t.waitFor(/trayA \/ Workflows/, 5000);
-      await sleep(500);
-      // it asked the terminal for button reports in SGR encoding, in its own screen
+      // it asked the terminal for button reports in SGR encoding, in its own screen (R5 H136: it asks before its first frame,
+      // src/workbench/run.ts, so the frame waited for above comes after it)
       expect(t.modes()).toBe('1 1 1 1');
       // a click on row 1's 7 Control Room opens it, and on 3 Workflows (R5: the tabs; the navigation is a drawer)
       await t.click(t.cellOf('Control Room'));
@@ -346,6 +324,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.click(row);
       await t.click(row);
       await t.waitFor(/RUN\s+APPROVAL\.md › tidy/, 5000);
+      // (R5 H136: an observation window, not a wait: nothing is to open in it, and every click was read before it began)
       await sleep(800);
       expect(t.screen()).not.toMatch(/Run APPROVAL\.md › tidy\?|⚠ NEEDS YOU/);
       expect(runsOf('APPROVAL.md › tidy')).toEqual([]);
@@ -389,21 +368,22 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.waitFor(/trayA \/ Workflows/, 5000);
       holdWait();
       await selectBlock(t, 'SLOW.md', 'wait');
-      await t.keys('Enter');
+      await enterOnBlock(t.pane, 'SLOW.md', 'wait');
       await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
       const jobsBefore = records().length;
       const sealedBefore = storeLines();
       // two Enters in one send (as fast as a terminal delivers them)
       t.tmux('send-keys', '-t', 't', 'Enter', 'Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › wait/, 15_000);
+      // (R5 H136: an observation window, not a wait: no second run is to start in it)
       await sleep(1000);
       expect(runsOf('SLOW.md › wait')).toHaveLength(1);
       expect(operations().filter((o) => o.request === '/run SLOW.md wait')).toHaveLength(1);
       expect(records().length).toBe(jobsBefore + 1);
       const [job] = runsOf('SLOW.md › wait');
       expect(job.state).toBe('running');
-      // Run again while it runs: said, nothing started
-      await t.keys('Enter');
+      // Run again while it runs: said, nothing started (R5 H136: Enter once it is seen selected, in the list with the keyboard)
+      await enterOnBlock(t.pane, 'SLOW.md', 'wait');
       await t.waitFor(new RegExp(`Not started: it is running now as ${job.id}, started by this Workbench`), 5000);
       expect(t.screen()).not.toMatch(/Run SLOW\.md › wait\?/);
       t.capture('wb-dup-160x45-run-again');
@@ -413,40 +393,34 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       const sealed = storeLines();
       t.tmux('new-window', '-t', 't', '-c', repo, 'bash', '--norc', '-c', `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
       await t.waitFor(/trayA \/ [\s\S]*Activity/, 30_000, 't:1');
-      t.tmux('send-keys', '-t', 't:1', '/');
-      await t.waitFor(/^\S?\s*\/ /m, 10_000, 't:1');
-      t.tmux('send-keys', '-t', 't:1', '-l', 'Control');
-      await sleep(300);
-      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      await t.find('Control', 't:1');
       // (R5 H137: its pane: its id on the box's edge, its mark, word and label below, then who started it)
       const second = await t.waitFor(new RegExp(`RUNNING NOW \\(1\\)[\\s\\S]*${job.id} [━─][^\\n]*\\n[^\\n]*▶ running {2}SLOW\\.md › wait[^\\n]*\\n[^\\n]*another session`), 10_000, 't:1');
       // R4 lead (CI at f22e044): the frame matched above can be caught while it is still being drawn (its lower rows blank), so
       // the Activity line is waited for, not read from that same capture
       expect(second).toMatch(/RUNNING NOW \(1\)/);
       await t.waitFor(new RegExp(`Activity\\s+\\S* ?1 running`), 5000, 't:1');
-      t.tmux('send-keys', '-t', 't:1', 'a');
+      await t.keysTo('t:1', 'a');
       await t.waitFor(new RegExp(`${job.id} started: SLOW\\.md › wait`), 5000, 't:1');
       t.capture('wb-dup-160x45-second-workbench', 't:1');
+      // (R5 H136: an observation window, not a wait: the second Workbench is to start and seal nothing in it)
       await sleep(1000);
       expect(records().length).toBe(jobsBefore + 1);
       expect(operations().length).toBe(ops);
       expect(storeLines()).toBe(sealed);
       // its Run on the same block: who runs it, and nothing starts
-      t.tmux('send-keys', '-t', 't:1', 'a');
-      t.tmux('send-keys', '-t', 't:1', '/');
-      await t.waitFor(/^\S?\s*\/ /m, 10_000, 't:1');
-      t.tmux('send-keys', '-t', 't:1', '-l', 'Workflows');
-      await sleep(300);
-      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      await t.keysTo('t:1', 'a');
+      await t.find('Workflows', 't:1');
       await t.waitFor(/trayA \/ Workflows/, 5000, 't:1');
       await selectBlock(t, 'SLOW.md', 'wait', 't:1');
-      t.tmux('send-keys', '-t', 't:1', 'Enter');
+      await enterOnBlock(t.pane, 'SLOW.md', 'wait', { target: 't:1' });
       await t.waitFor(new RegExp(`Not started: it is running now as ${job.id}, started by another Timmy session`), 5000, 't:1');
+      // (R5 H136: an observation window after the refusal was drawn: nothing is to start in it)
       await sleep(500);
       expect(runsOf('SLOW.md › wait')).toHaveLength(1);
       expect(operations().length).toBe(ops);
       // the second one quits at once (nothing of its own runs); the run goes on
-      t.tmux('send-keys', '-t', 't:1', 'C-c');
+      await t.keysTo('t:1', 'C-c');
       await t.waitFor(/EXIT=130/, 20_000, 't:1');
       expect(runsOf('SLOW.md › wait')[0].state).toBe('running');
       expect(sealedBefore).toBeLessThan(storeLines()); // only the first run's prediction (and nothing of the second window)
@@ -456,6 +430,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('p');
       await t.waitFor(/Switch project/, 5000);
       await t.typed('trayB');
+      await t.waitFor(/› trayB\b[\s\S]*▸ trayB\b/, 10_000);
       await t.keys('Enter');
       const b = await t.waitFor(/trayB \/ Workflows/, 10_000);
       expect(b).toContain(`[x] Stop current: ${job.id} SLOW.md › wait (in trayA)`);
@@ -467,6 +442,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('p');
       await t.waitFor(/Switch project/, 5000);
       await t.typed('trayA');
+      await t.waitFor(/› trayA\b[\s\S]*▸ trayA\b/, 10_000);
       await t.keys('Enter');
       await t.waitFor(/trayA \/ Workflows/, 10_000);
       releaseWait();
@@ -495,7 +471,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.find('Workflows');
       await t.waitFor(/trayA \/ Workflows/, 15_000);
       await selectBlock(t, 'SLOW.md', 'long');
-      await t.keys('Enter');
+      await enterOnBlock(t.pane, 'SLOW.md', 'long');
       await t.waitFor(/Run SLOW\.md › long\?/, 15_000);
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
@@ -531,14 +507,15 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await k.find('Workflows');
       await k.waitFor(/trayA \/ Workflows/, 15_000);
       await selectBlock(k, 'SLOW.md', 'long');
-      await k.keys('Enter');
+      await enterOnBlock(k.pane, 'SLOW.md', 'long');
       await k.waitFor(/Run SLOW\.md › long\?/, 15_000);
       await k.keys('Enter');
       await k.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › long/, 15_000);
       killed = runsOf('SLOW.md › long').find((j) => j.state === 'running')!;
       await blockStarted(killed.id);
       process.kill(k.pid(), 'SIGKILL');
-      await k.waitFor(/EXIT=137/, 10_000);
+      // (killed outright, it never left its screen: the shell's EXIT line is written over its last frame, not a frame)
+      await k.waitFor(/EXIT=137/, 10_000, 't', { frame: false });
     } finally {
       k.close();
     }
@@ -682,7 +659,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.find('Workflows');
       await t.waitFor(/trayA \/ Workflows/, 5000);
       await selectBlock(t, 'STREAM.md', 'talk');
-      await t.keys('Enter');
+      await enterOnBlock(t.pane, 'STREAM.md', 'talk');
       await t.waitFor(/Run STREAM\.md › talk\?/, 5000);
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ STREAM\.md › talk/, 15_000);
@@ -691,7 +668,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('a', 'Tab');
       await t.waitFor(/following the newest/, 5000);
       await t.waitFor(new RegExp(`${job.id} │ line 10\\b`), 15_000);
-      const activity = () => focusedSettled(() => t.screen());
+      const activity = () => focusedSettled(t.pane);
       const first = await activity();
       expect(first.total).toBeGreaterThan(first.rows.length);
       // three rows up: held there
@@ -715,8 +692,9 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       expect(following.rows.findIndex((r) => /^\s?▸ /.test(r))).toBeGreaterThan(-1);
       for (const end = Date.now() + 20_000; runsOf('STREAM.md › talk')[0]?.state === 'running' && Date.now() < end;) await sleep(200);
       expect(runsOf('STREAM.md › talk')[0].state).toBe('completed');
-      // every line once, in order, whatever upmd redrew (Activity, all of it, by its rows' words)
-      await sleep(1500);
+      // every line once, in order, whatever upmd redrew (Activity, all of it, by its rows' words); R5 (H136): read once the
+      // run's end is drawn (its job's completed event), not after a set time
+      await t.waitFor(new RegExp(`${job.id} completed`), 10_000);
       const ended = await activity();
       expect(ended.range.endsWith(`–${ended.total}`)).toBe(true);
 
@@ -724,7 +702,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       await t.keys('BTab');
       holdWait();
       await selectBlock(t, 'SLOW.md', 'wait');
-      await t.keys('Enter');
+      await enterOnBlock(t.pane, 'SLOW.md', 'wait');
       await t.waitFor(/Run SLOW\.md › wait\?/, 5000);
       await t.keys('Enter');
       await t.waitFor(/Stop current: j[0-9a-f]+ SLOW\.md › wait/, 15_000);
@@ -732,7 +710,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       for (const [w, h] of [[120, 40], [100, 30], [160, 45]] as const) {
         t.tmux('resize-window', '-t', 't', '-x', String(w), '-y', String(h));
         await t.waitFor(new RegExp(`Stop current: ${wait.id}`), 10_000);
-        await sleep(500);
+        // (kept once whole at this size and the same in two reads: the redraw for the new size, not a set time after it)
         const shot = t.capture(`wb-resize-run-${w}x${h}`);
         expect(count(shot, 'Workflow actions'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
@@ -751,7 +729,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // resized during a NEEDS YOU box: one box each time, answerable; y allows it once: one job, one operation, its receipts
       await t.waitFor(/Stop current: idle/, 10_000);
       await selectBlock(t, 'APPROVAL.md', 'tidy');
-      await t.keys('Enter');
+      await enterOnBlock(t.pane, 'APPROVAL.md', 'tidy');
       await t.waitFor(/Run APPROVAL\.md › tidy\?/, 5000);
       const sealed = storeLines();
       await t.keys('Enter');
@@ -759,7 +737,6 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       for (const [w, h] of [[120, 40], [100, 30], [160, 45]] as const) {
         t.tmux('resize-window', '-t', 't', '-x', String(w), '-y', String(h));
         await t.waitFor(/⚠ NEEDS YOU[\s\S]*\[y\] allow once/, 10_000);
-        await sleep(500);
         const shot = t.capture(`wb-resize-needs-you-${w}x${h}`);
         expect(count(shot, '⚠ NEEDS YOU'), shot).toBe(1);
         expect(count(shot, '[y] allow once'), shot).toBe(1);
