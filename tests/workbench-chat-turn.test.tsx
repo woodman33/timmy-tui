@@ -337,6 +337,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(region(c, 'top')).not.toMatch(/\/setup|\/model/);
     // the frame's own action says the same step
     const send = pageActions(c).acts.find((a) => routeOf(a).kind === 'composer')!;
-    expect(send.why).toContain('timmy setup');
+    // R5 lead (c2de0f9): the frame's step is timmy init (the setup's questions); `timmy setup` scaffolds a folder
+    expect(send.why).toContain('timmy init --chat openrouter');
   }, 30_000);
 });
