@@ -1,30 +1,30 @@
-                                 ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ┏━━━━━━━━━━━┓ ╭───╮ ╭───╮ ╭───╮
-TIMMY · tray1                    │ 1 │ │ 2 │ │ 3 │ │ 4 │ │ 5 │ │ 6 │ ┃ 7 Control ┃ │ 8 │ │ 9 │ │ 0 │
-                                 ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ┗━━━━━━━━━━━┛ ╰───╯ ╰───╯ ╰───╯
+                         ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ╭───╮ ┏━━━┓ ╭───╮ ╭───╮ ╭───╮
+TIMMY · tray1            │ 1 │ │ 2 │ │ 3 │ │ 4 │ │ 5 │ │ 6 │ ┃ 7 ┃ │ 8 │ │ 9 │ │ 0 │    Control Room
+                         ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ╰───╯ ┗━━━┛ ╰───╯ ╰───╯ ╰───╯
 ╭─ Workflow actions ─────────────────────────────────────────────────────────────── 7 Control Room ╮
 │  [1 What waits on you]  [2 Jobs]  [3 Stop current]  [4 Recover what a crash left]                │
-│ this computer · chat: loca… run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+│ this computer · chat: local · no model chosen                                                    │
+╰─────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1–14 of 58 ┓
 ┃ RUNNING NOW (1)                                                                                  ┃
-┃ ▸ ● j66b3d9  running    FAKE job (test): sleep 300 · left running · 13 s · no operation · an…    ┃
+┃ ┏━ j90d179 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 14 s ┓ ┃
+┃ ┃ ▶ running  FAKE job (test): sleep 300                                                        ┃ ┃
+┃ ┃ left running                                                                                 ┃ ┃
+┃ ┃ an ended session · no operation                                                              ┃ ┃
+┃ ┃ nothing printed yet                                                                          ┃ ┃
+┃ ┃ log read every 1 s                                                                           ┃ ┃
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃
 ┃                                                                                                  ┃
-┃ WAITING ON YOU (0)                                                                               ┃
-┃   Nothing waits on you.                                                                          ┃
-┃                                                                                                  ┃
-┃ RECENT (1)                                                                                       ┃
-┃   ✓ j3e9b07  completed  APPROVAL.md › tidy · 1 of 1 step · 0.2 s · oea7f5785 · this Workbench    ┃
-┃                                                                                                  ┃
-┃ CHAT TURNS (0)                                                                                   ┃
-┃   No chat turn of this project is sealed yet: a turn is listed once its receipt is sealed, from  ┃
-┃   whichever surface sent it (the REPL, the Workbench, the monitor, a companion page).            ┃
-┃   A turn being answered now is on the surface that sent it, where Esc (the Workbench) or Ctrl+C  ┃
-┃   (the REPL) stops it.                                                                           ┃
+┃ NEWEST ENDED RUNS (1)                                                                            ┃
+┃ ╭─ j01b6ca ───────────────────────────────────────────────────────────────────── ended 8 s ago ╮ ┃
+┃ │ ✓ completed  APPROVAL.md › tidy · 1 of 1 step                                                │ ┃
+┃ │ this Workbench · oc6e9fe3a                                                                   │ ┃
+┃ │  [1/1] Bash                                                                                  │ ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠦ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run…        [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                    │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                   │
-│ 16:10:11 [job] j3e9b07 tidy started                                                              │
-│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show         │
+│ ▸ Activity  ⠙ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed…      [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                    │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                   │
+│ 20:47:39 [job] j01b6ca tidy started                                                              │
+│ [1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [a] log  [?] keys         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

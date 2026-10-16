@@ -2,39 +2,39 @@
 TIMMY · tray1   │1 Home│ │2 Chat│ ┃3 Workflows┃ │4 Studio│ │5 VoxVision│ │6 3D│ │7 Control│ │8 Fleet│ │9 Tools│ │0 Logs│
                 ╰──────╯ ╰──────╯ ┗━━━━━━━━━━━┛ ╰────────╯ ╰───────────╯ ╰────╯ ╰─────────╯ ╰───────╯ ╰───────╯ ╰──────╯
 ╭─ Workflow actions ────────────────────────────────────────────────────────────────────────────────────── 3 Workflows ╮
-│  [1 Run APPROVAL.md › tidy]  [2 Review what needs you (1)]  [3 Stop current]  [4 Receipts of this project]           │
-│ this computer · chat: local · no model chosen…  run: 1 running  [x] Stop current: j66b3d9 FAKE job (test): sleep 300 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-┏━ ◆ tray1 / Workflows · plan and run ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭─ Context ──────────────────────────────────╮
-┃ upmd found · a block runs after the blocks it needs                    ┃│   Tools │ ▸ Inspector │   Files            │
-┃                                                                        ┃│                                            │
-┃ APPROVAL.md  Approval: see a NEEDS YOU box  1 named block              ┃│ WORKFLOW BLOCK                             │
-┃     #  BLOCK         NEEDS           LAST STATE                        ┃│ Document   APPROVAL.md                     │
-┃ ▸  1  tidy          —               ✓ completed exit 0 · <0.1 s · j3e… ┃│ Block      tidy (block 1)                  │
-┃                                                                        ┃│ Language   bash                            │
-┃ WORKFLOW.md  Tray workflow: change, inspect, result  4 named blocks    ┃│ Needs      nothing                         │
-┃     #  BLOCK         NEEDS           LAST STATE                        ┃│ Runs       tidy                            │
-┃    1  change        —               · not run yet                      ┃│ Last state ✓ completed exit 0 · <0.1 s     │
-┃    2  inspect       change          · not run yet                      ┃│ Last run   j3e9b07                         │
-┃    3  result        inspect         · not run yet                      ┃│ ⚠ tidy needs you before it runs: mkdir -p  │
-┃    4  lesson        result          · not run yet                      ┃│ scratch && touch scratch/x && rm scratch/x │
-┃                                                                        ┃│                                            │
-┃ RUN APPROVAL.md › tidy                                                 ┃│ COMMAND                                    │
-┃   Runs tidy  ⚠ its NEEDS YOU box asks first                            ┃│   mkdir -p scratch && touch scratch/x &&…  │
-┃   [Enter] Run it here, through the REPL's own /run (one job, one…      ┃│                                            │
-┃   In the REPL: /run APPROVAL.md tidy   in a shell, in the project: ti… ┃│                                            │
-┃                                                                        ┃│                                            │
-┃                                                                        ┃│                                            │
-┃                                                                        ┃│                                            │
-┃                                                                        ┃│                                            │
-┃                                                                        ┃│                                            │
-┃                                                                        ┃│                                            │
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰────────────────────────────────────────────╯
+│  [1 Run APPROVAL.md › tidy]  [2 Review the last run]  [3 Stop current]  [4 Receipts of this project]                 │
+│ this computer · chat: local · no model chosen                                                                        │
+╰─────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Workflows · plan and run ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ PLAN · upmd found                       │ SANDBOX · where it runs                  │ ╭─ tidy.receipt ───── j01b6ca ╮ ┃
+┃ APPROVAL.md · 1 block                   │ this computer, in the project folder     │ │ id     1204a00d             │ ┃
+┃ ▸  1 tidy    ⚠ ✓ completed              │ (upmd)                                   │ │ kind   workflow             │ ┃
+┃ WORKFLOW.md · 4 blocks                  │ runner      upmd on a pty                │ │ sealed 20:47:39             │ ┃
+┃    1 change  · not run yet              │             (workers/upmd/pty_run.py)    │ │ ✓ verified                  │ ┃
+┃    2 inspect · not run yet              │ environment linux 6.18.44-fc-v139 x64    │ │ its link, body, signature:  │ ┃
+┃    3 result  · not run yet              │ STEPS · j01b6ca ✓ completed              │ │ read now                    │ ┃
+┃    4 lesson  · not run yet              │ APPROVAL.md › tidy · 0.4 s               │ ╰─────────────────────────────╯ ┃
+┃                                         │ ✓ tidy completed · exit 0 · <0.1 s       │                                 ┃
+┃ ╭─ tidy.intent ────────────── block 1 ╮ │ OUTPUT · its log's last lines            │ CHECKS · predicted vs actual    ┃
+┃ │ document  APPROVAL.md               │ │ … 4 earlier lines (/jobs j01b6ca)        │ ✓ block tidy matches            ┃
+┃ │ command   mkdir -p scratch && touch │ │   ✔ exited with code 0                   │   exits 0 → exit 0              ┃
+┃ │           scratch/x && rm scratch/x │ │                                          │                                 ┃
+┃ │ needs     nothing                   │ │ ┏━ RUN APPROVAL.md › tidy ━━━━━━━━━━━━━┓ │ VERDICT                         ┃
+┃ │ ⚠ needs you before it runs          │ │ ┃ [Enter] Run it here                  ┃ │ ✓ completed                     ┃
+┃ ╰─────────────────────────────────────╯ │ ┃ the REPL's own /run, one job; it     ┃ │ succeeded: job j01b6ca          ┃
+┃ ╭─ tidy.predict ───────────── j01b6ca ╮ │ ┃ asks first                           ┃ │ completed                       ┃
+┃ │ frozen before the run               │ │ ┃ runs  tidy                           ┃ │                                 ┃
+┃ │ /run APPROVAL.md tidy: tidy, each   │ │ ┃ ⚠ its NEEDS YOU box asks first       ┃ │ timmy op oc6e9fe3a              ┃
+┃ │ block exits 0; asked first in a     │ │ ┃ REPL  /run APPROVAL.md tidy          ┃ │ the whole run detail, in a      ┃
+┃ │ NEEDS YOU box: tidy                 │ │ ┃ shell timmy md APPROVAL.md tidy      ┃ │ shell                           ┃
+┃ │ receipt   f70035dd                  │ │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │                                 ┃
+┃ ╰─────────────────────────────────────╯ │ ↓ 1–22 of 25 rows                        │                                 ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ▸ Activity  ⠼ 1 running · 0 waiting on you · last: 16:10:12 j3e9b07 │ pty_run: fake-upmd.mjs runs as…     [a] expand │
-│ 16:10:11 [job] j3e9b07 completed: 1 of 1 step                                                                        │
-│ 16:10:11 [job] j3e9b07 tidy completed (exit 0)                                                                       │
-│ 16:10:11 [job] j3e9b07 tidy started                                                                                  │
-│ 16:10:11 [job] j3e9b07 started: APPROVAL.md › tidy                                                                   │
-│ ✓ j3e9b07 completed  operation oea7f5785 · APPROVAL.md › tidy · 1 of 1 steps · 0.2 s · prediction met · receipt…     │
+│ ▸ Activity  ⠧ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a…     [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                        │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                       │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                  │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt      │
+│ 1204a00d · /op oc6e9fe3a                                                                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
