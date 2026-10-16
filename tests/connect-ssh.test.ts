@@ -61,6 +61,13 @@ const writeRecord = (j: RemoteJobRecord): void => {
   fs.writeFileSync(jobFile(p, j.id), `${JSON.stringify(j, null, 2)}\n`, { mode: 0o600 });
 };
 const hasPython = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim().startsWith('/');
+/** A dir holding one FAKE program (0755), to prepend to a device's PATH so the device's script finds it first. */
+const fakeBin = (name: string, script: string): string => {
+  const dir = fs.mkdtempSync(path.join(kit.root, `fakebin-${name}-`));
+  fs.writeFileSync(path.join(dir, name), script, { mode: 0o755 });
+  return dir;
+};
+const DEVICE_PATH = '/usr/local/bin:/usr/bin:/bin';
 
 describe('host keys: fetched, shown, trusted only when a person confirms the exact fingerprint', () => {
   it.skipIf(!hasPython)('adding fetches the keys and trusts none; a wrong fingerprint is refused; the exact one, typed at a terminal, is pinned under the device\'s own name, with a receipt', async () => {
@@ -183,7 +190,7 @@ describe('probes: the words and JSON tell each outcome apart', () => {
     const cli = await kit.cli(['probe', id, '--json']);
     expect(cli.code, cli.stdout + cli.stderr).toBe(0);
     const j = lastJson(cli.stdout);
-    expect(j).toMatchObject({ ok: true, outcome: 'connected', device: { os: 'linux', shell: 'posix' }, facts: { detach: 'setsid', job_folder: 'absent, can be made', found_on_path: expect.arrayContaining(['sh']) } });
+    expect(j).toMatchObject({ ok: true, outcome: 'connected', device: { os: 'linux', shell: 'posix' }, facts: { detach: 'setsid', job_folder: 'absent, can be made', identity: 'gnu', found_on_path: expect.arrayContaining(['sh']) } });
     expect(j.words).toMatch(/found on PATH: .*\(found on PATH only: not proven supported or working\)$/);
     expect(j.words.replace('not proven supported or working', '')).not.toMatch(/support|working/);
     // a macOS-like device (no setsid, no sha256sum): a job detaches through perl's setsid
@@ -492,7 +499,7 @@ describe('fetch: only the job\'s own files, sha256 checked on both computers', (
     expect(readChain('runs').filter((x) => x.kind === 'remote-fetch').map((x) => x.status)).toEqual(['ok', 'failed']);
   }, 90_000);
 
-  it('a file swapped for a link while it is fetched is never followed out of the job\'s folder (what is hashed and sent is one copy); held still as a regular file, it is fetched whole', async () => {
+  it('a file swapped for a link while it is fetched is never followed out of the job\'s folder (what is hashed and sent is the one open descriptor, no copy); held still as a regular file, it is fetched whole', async () => {
     // Two claims, one job (R5 H130). SAFETY: while the job swaps work/x between a regular file and a link to a file outside
     // its folder, no byte from outside the folder reaches this computer, whatever the timing: every fetch gives the 7 inside
     // bytes or a refusal that sends nothing. That must hold for every interleaving, so it is asserted of every outcome; how
@@ -569,13 +576,11 @@ describe('fetch: only the job\'s own files, sha256 checked on both computers', (
     const fetched = new RegExp(`^fetched work/x from dev: 7 bytes, sha256 ${insideSha} equal on both computers; saved as `);
     const refusals = [
       'not fetched: work/x is or passes through a symbolic link on dev: refused',
-      // "could not be copied" is a refusal that sends nothing too. GNU cp -P (this kit's FAKE devices run this computer's
-      // cp) lstats the file, opens it with O_NOFOLLOW and checks that what it opened is what it lstat'd (strace: newfstatat
-      // AT_SYMLINK_NOFOLLOW, openat O_RDONLY|O_NOFOLLOW, fstat); a swap landing between them fails the copy ("Too many levels
-      // of symbolic links", "cannot read symbolic link: Invalid argument"), and the device's script answers no-copy before
-      // any byte is sent. Against the same swap loop, 8 of 6000 copies failed so, and none of the 6000 held an outside byte.
-      // A BSD cp (macOS's) opens the file without O_NOFOLLOW: not exercised here.
-      'not fetched: work/x could not be copied inside the job\'s folder on dev to be sent (a fetch sends one copy, so the file needs room for a copy there): refused',
+      // the fetch no longer copies the file (R5 H138): it opens the file once and refuses when the open descriptor and the
+      // name differ by dev:inode (a swap landed between the path checks and the open, or between the hash and the send), so
+      // nothing is sent. This holds whatever `cp` the device has — GNU cp's O_NOFOLLOW is no longer what protects the fetch;
+      // a BSD/macOS cp (which opens following a symlink) cannot be raced into sending an outside byte, because no cp runs.
+      'not fetched: work/x changed on dev while it was being read (swapped for another file or a link): refused, nothing was sent',
     ];
     for (const t of tried) {
       if (fetched.test(t.words)) expect(fs.readFileSync(t.dest, 'utf8'), t.words).toBe(INSIDE);
@@ -591,6 +596,91 @@ describe('fetch: only the job\'s own files, sha256 checked on both computers', (
     expect(receipts).toHaveLength(ok.length);
     for (const x of receipts) expect(x).toMatchObject({ status: 'ok', outputs: [{ sha256: insideSha, bytes: 7 }], sources: [{ remote_sha256: insideSha, remote_bytes: 7 }] });
   }, 120_000);
+
+  it('a BSD-style cp on the device cannot make a fetch follow a link swapped in while it is read: the fetch runs no cp (R5 H138)', async () => {
+    // A FAKE BSD-like cp first on the device's PATH: it lstats the source and, for a regular file, re-opens it by path
+    // (following a link) after a short window — exactly how BSD/macOS cp differs from GNU cp (no O_NOFOLLOW). The OLD
+    // copy-first fetch could be raced into copying an outside file's bytes through such a cp (H130's commit 47f43dc); the
+    // fixed fetch opens the file once and checks dev:inode, uses no cp at all, so this cp is never run and nothing outside
+    // the folder is ever sent — whatever the timing.
+    const cpDir = fakeBin('cp', [
+      '#!/bin/sh',
+      'src=; dst=; for a in "$@"; do case $a in -*) : ;; *) if [ -z "$src" ]; then src=$a; else dst=$a; fi ;; esac; done',
+      '[ -n "$src" ] && [ -n "$dst" ] || exit 2',
+      'if [ -L "$src" ]; then ln -s "$(readlink "$src")" "$dst" 2>/dev/null || exit 1; exit 0; fi',
+      'i=0; while [ "$i" -lt 3000 ]; do i=$((i+1)); done',
+      'cat "$src" > "$dst" 2>/dev/null || exit 1',  // follows a link swapped in during the window (BSD behaviour)
+    ].join('\n'));
+    const { id, home } = await ready(2248, { path: `${cpDir}:${DEVICE_PATH}` });
+    const INSIDE = 'inside\n';
+    fs.writeFileSync(path.join(home, 'outside.txt'), 'OUTSIDE-THE-JOB-FOLDER\n');
+    const r = await runJob(p, id, { command: ['sh', '-c', [
+      'echo inside > in.txt',
+      'while :; do ln -s "$HOME/outside.txt" l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x; done',
+    ].join('\n')] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state, r.words).toBe('running');
+    const work = path.join(jobDir(home, r.job.id), 'work');
+    await until(() => fs.existsSync(path.join(work, 'x')), 20_000, 'the job to make x');
+    const to = path.join(kit.root, 'bsd-race');
+    const tried: string[] = [];
+    for (let i = 0; i < 40; i++) tried.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
+    await stopJob(p, r.job.id);
+    // nothing outside the folder reached this computer, in any saved file or any .partial
+    const received = fs.existsSync(to) ? fs.readdirSync(to).map((n) => fs.readFileSync(path.join(to, n), 'utf8')) : [];
+    expect(received.join(''), tried.join('\n')).not.toContain('OUTSIDE');
+    for (const text of received) expect(text, tried.join('\n')).toBe(INSIDE);
+    // every outcome was the inside bytes or a refusal that sent nothing (a link, or a swap caught mid-read)
+    const okLine = new RegExp(`^fetched work/x from dev: 7 bytes, sha256 .* equal on both computers; saved as `);
+    for (const w of tried) {
+      if (!okLine.test(w)) expect(w, w).toMatch(/^not fetched: work\/x (is or passes through a symbolic link on dev: refused|changed on dev while it was being read .*nothing was sent)$/);
+    }
+  }, 120_000);
+
+  it('a device whose stat cannot identify an open file refuses a fetch (no-identity) and sends nothing', async () => {
+    // a FAKE stat that fails both forms (GNU -c and BSD -f): the device cannot say what an open descriptor is, so a swap
+    // could not be ruled out and the fetch refuses before any byte — the job still runs (it uses ps, not stat)
+    const statDir = fakeBin('stat', '#!/bin/sh\nexit 1\n');
+    const { id, home } = await ready(2249, { path: `${statDir}:${DEVICE_PATH}` });
+    // the probe already says so
+    const probe = findDevice(p, id).device!.probe!;
+    expect(probe.facts?.identity).toBe('none');
+    expect(probe.words).toContain('no stat can identify an open file there (fetch will refuse');
+    const r = await runJob(p, id, { command: ['sh', '-c', 'echo held > held.txt; sleep 1'] });
+    if ('error' in r) throw new Error(r.error);
+    await ended(r.job.id);
+    const to = path.join(kit.root, 'noid', 'held.txt');
+    const f = await fetchFile(p, r.job.id, 'work/held.txt', { to });
+    expect(f.ok).toBe(false);
+    expect(f.words).toMatch(/^not fetched: dev has no stat that can say what an open file is .*refused$/);
+    expect(fs.existsSync(to)).toBe(false);
+    expect(fs.existsSync(`${to}.partial`)).toBe(false);
+    expect(readChain('runs').filter((x) => x.kind === 'remote-fetch')).toEqual([]);
+  }, 60_000);
+
+  it('a nested path with spaces is fetched whole; a job folder that is itself a symbolic link is refused', async () => {
+    const { id, home } = await ready(2241);
+    const r = await runJob(p, id, { command: ['sh', '-c', 'mkdir -p "a b/c"; printf "deep bytes\\n" > "a b/c/x y.txt"'] });
+    if ('error' in r) throw new Error(r.error);
+    await ended(r.job.id);
+    const deep = await fetchFile(p, r.job.id, 'work/a b/c/x y.txt');
+    expect(deep.ok, deep.words).toBe(true);
+    expect(deep.bytes).toBe(11);
+    expect(fs.readFileSync(path.join(p.results, r.job.id, 'work', 'a b', 'c', 'x y.txt'), 'utf8')).toBe('deep bytes\n');
+    // a hand-built job whose folder on the device is a symbolic link to a real folder: the fetch refuses (job-link),
+    // nothing is read through it, even though the target holds a readable regular file
+    const jobId = 'r5eed0138';
+    const realDir = path.join(home, 'real-elsewhere');
+    fs.mkdirSync(path.join(realDir, 'work'), { recursive: true });
+    fs.writeFileSync(path.join(realDir, 'work', 'f.txt'), 'through the link\n');
+    fs.mkdirSync(path.join(home, '.timmy-connect', 'jobs'), { recursive: true });
+    fs.symlinkSync(realDir, path.join(home, '.timmy-connect', 'jobs', jobId));
+    const now = new Date().toISOString();
+    writeRecord({ id: jobId, kind: 'remote', label: 'link job', device: id, remote_dir: `.timmy-connect/jobs/${jobId}`, script: { sha256: 'b'.repeat(64), bytes: 1, from: 'command', shell: 'posix' }, state: 'ended', submitted_at: now, confirmed_at: now, events: [] });
+    const linked = await fetchFile(p, jobId, 'work/f.txt');
+    expect(linked.ok).toBe(false);
+    expect(linked.words).toMatch(/^not fetched: the job's folder for r5eed0138 on dev is a symbolic link: refused/);
+  }, 90_000);
 });
 
 describe('secrets and words', () => {

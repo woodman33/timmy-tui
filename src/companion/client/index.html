@@ -366,7 +366,10 @@
             <h2 id="proof-title" class="box-title">Latest receipt this page received</h2>
             <div class="box-body">
             <p><span class="status-badge">AS RECEIVED · NOT CHECKED HERE</span></p>
-            <div class="proof-box">
+            <!-- R5 lead (QA-R5E defect 28): one sentence while nothing has reached this page, not seven "none received yet"
+                 rows beside a list of sealed receipts; the rows show once Timmy's terminal sends one -->
+            <p id="proof-none" class="empty">No receipt has been sent to this page since it opened. The project's sealed receipts so far are in Structured events, as the frame read them.</p>
+            <div id="proof-box" class="proof-box" hidden>
               <div class="proof-row"><span class="proof-label">Run ID:</span><strong id="proof-run-id">none received yet</strong></div>
               <div class="proof-row"><span class="proof-label">Prompt:</span><span id="proof-prompt">none received yet</span></div>
               <div class="proof-row"><span class="proof-label">Agent:</span><span id="proof-agent">none received yet</span></div>

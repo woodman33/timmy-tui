@@ -16,7 +16,8 @@
  * The server reads only what the REPL named: the project's folder, its jobs folder and its receipts store. It never answers
  * with a path it was given: the project's name, its id (a hash of its folder, as receipts name it) and project-relative
  * paths only. R4 (H81): the cards' detail (?detail=1: every block's command, every parameter file's values) only with the
- * server's token or a canvas page's session that counts now (src/studio/card-relay.ts), else 401. R4 (H83): the card list
+ * server's token or a canvas page's session that counts now (src/studio/card-relay.ts), else 401 (R5 H137: to a page's session
+ * paused now, a plain 200 that says why, with nothing of the project: src/studio/session-pause.ts). R4 (H83): the card list
  * (GET /api/project) and the named project's name and id (GET /api/project/active) likewise: they are the project's content;
  * without a credential, /api/project/active says only whether a project is named and whether a page is open. The live
  * board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas links to it and keeps it
@@ -29,6 +30,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type express from 'express';
 import { projectId } from '../project/index.js';
 import { projectCards, type CardSource, type ProjectCards } from './project-cards.js';
+import { pausedRefusal } from './session-pause.js';
 
 export const PROJECT_TOKEN = /^[0-9a-f]{64}$/;
 /** The live board's address as /board live prints it, without its token: nothing after the slash. */
@@ -309,10 +311,13 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     const asked = typeof req.query.project === 'string' ? req.query.project : null;
     if (asked !== null && !/^[0-9a-f]{16}$/.test(asked)) { res.status(400).json({ ok: false, error: 'project is a project\'s id: 16 hex characters.' }); return; }
     const pinned = asked !== null && asked !== (named?.id ?? null);
+    // R5 (H137): a paused session's refusal is a plain 200 with nothing of the project (src/studio/session-pause.ts): the panel
+    // reads the cards every few seconds by itself, and a REPL's /canvas open may have taken the canvas since its last reading
+    const refusing = (why: string): express.Response => (pausedRefusal(why) ? res.status(200) : res.status(401).set('WWW-Authenticate', 'Bearer'));
     if (pinned) {
       const r = o.link.authorized(req.headers.authorization) ? { ok: true as const } : o.reach?.(req.headers.authorization, asked) ?? { ok: false as const, why: 'none', words: CARDS_REFUSED };
       if (!r.ok) {
-        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: r.why === 'none' ? (detail ? DETAIL_REFUSED : CARDS_REFUSED) : r.words, session: r.why, pinned: true });
+        refusing(r.why).json({ ok: false, error: r.why === 'none' ? (detail ? DETAIL_REFUSED : CARDS_REFUSED) : r.words, session: r.why, pinned: true });
         return;
       }
     }
@@ -325,7 +330,7 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
       const s = credited(req, p);
       if (!s.ok) {
         const refused = detail ? DETAIL_REFUSED : CARDS_REFUSED;
-        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
+        refusing(s.why).json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
         return;
       }
     }

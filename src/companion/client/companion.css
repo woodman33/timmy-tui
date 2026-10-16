@@ -466,6 +466,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .ws-foot { color: var(--timmy-text-secondary); }
 
 .proof-box { background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.proof-box[hidden] { display: none; }
 .proof-row { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--timmy-line); padding-bottom: 6px; }
 .proof-row:last-child { border-bottom: 0; padding-bottom: 0; }
 /* as received, checked nowhere here: never green */

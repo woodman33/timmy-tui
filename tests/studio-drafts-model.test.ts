@@ -146,7 +146,8 @@ describe('the save line', () => {
   it('says saved, saving and not saved yet, in words and a glyph, never in green or amber', () => {
     expect(saveState({ ...base, revision: 0, savedRevision: 0 })).toEqual({ state: 'saved', glyph: '■', needsYou: false, words: 'Saved: nothing drawn yet (revision 0).' });
     expect(saveState(base)).toMatchObject({ state: 'saved', needsYou: false, words: 'Saved: revision 4.' });
-    expect(saveState({ ...base, savedAt: '2026-10-15T20:00:00.000Z' }).words).toMatch(/^Saved: revision 4, at .+\.$/);
+    // R5 (H137; the QA round, defect 6): its time in the one format, this computer's 24-hour clock (never "10:53:00 PM")
+    expect(saveState({ ...base, savedAt: '2026-10-15T20:00:00.000Z' }).words).toMatch(/^Saved: revision 4, at \d\d:\d\d:\d\d\.$/);
     expect(saveState({ ...base, revision: 6 })).toEqual({ state: 'unsaved', glyph: '○', needsYou: false, words: 'Not saved yet: revision 6 (saving in a moment).' });
     expect(saveState({ ...base, revision: 6, saving: true })).toEqual({ state: 'saving', glyph: '◔', needsYou: false, words: 'Saving revision 6…' });
   });
