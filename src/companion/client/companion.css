@@ -695,3 +695,170 @@ body.slate-absent p { max-width: 72ch; }
   .log-msg { animation: none; }
   *, ::before, ::after { transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ==========================================================================================================================
+ * R6 (H143): the VoxVision panel (tab 5; references 04, 05, 15 and 16), drawn by src/companion/client/panel-vox.js into
+ * data-panel-host="voxvision". Three working columns: the records and the entity tree; the viewport (the observed image with
+ * what was measured drawn over it, or a mesh's three views, or a recording), its timeline and commands; the pipeline and
+ * receipt, the values and the engines. Colors (B10): the selection and the one next step amber; green only for the verified
+ * receipt and a passed check (.is-verified); what was measured over an image in silver, the selected thing amber, a model's
+ * boxes dashed; the image itself keeps its own colors.
+ * ========================================================================================================================== */
+.vox-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.vox-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 24fr) minmax(0, 46fr) minmax(0, 30fr); }
+.vox-cols > * { min-height: 0; min-width: 0; }
+.vox-cols [data-vox-box][hidden] { display: none; }
+/* (each rule names .vox-cols and .box, so it outranks the page's .col-stack > .box rules) */
+.vox-cols .vox-left > .box.vox-records-box { flex: 0 0 auto; max-height: 36%; min-height: 0; }
+.vox-cols .vox-left > .box.vox-tree-box { flex: 1 1 0; min-height: 8em; }
+.vox-cols .vox-centre > .box.vox-view-box { flex: 1 1 auto; min-height: 14em; }
+.vox-cols .vox-centre > .box.vox-timeline-box, .vox-cols .vox-centre > .box.vox-acts-box { flex: 0 0 auto; min-height: 0; max-height: 32%; }
+.vox-cols .vox-right > .box.vox-pipeline-box { flex: 0 0 auto; max-height: 58%; min-height: 0; }
+.vox-cols .vox-right > .box.vox-values-box { flex: 1 1 0; min-height: 6em; }
+.vox-cols .vox-right > .box.vox-engines-box { flex: 0 1 auto; max-height: 28%; min-height: 4em; }
+.vox-view-body { gap: 6px; }
+
+/* the records, newest first: the selected one with an amber border */
+.vox-records { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.vox-rec { width: 100%; display: flex; flex-direction: column; gap: 1px; text-align: left; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 5px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.vox-rec:hover { border-color: var(--timmy-text-secondary); }
+.vox-rec[aria-current="true"] { border-color: var(--timmy-accent); }
+.vox-rec-id { font-weight: var(--timmy-weight-strong); }
+.vox-rec-action { color: var(--timmy-text); text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; }
+.vox-rec-status { color: var(--timmy-text-secondary); font-size: 11px; }
+.vox-rec-status.st-failed, .vox-rec-status.st-partial, .vox-rec-status.st-untrusted, .vox-rec-status.st-needs-setup { color: var(--timmy-attention); }
+.vox-rec-inputs { color: var(--timmy-text); overflow-wrap: anywhere; }
+.vox-rec-meta { color: var(--timmy-text-secondary); font-size: 11px; }
+.vox-tag-fake, .vox-fake { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); letter-spacing: 0.04em; }
+.vox-fake { border: 1px solid var(--timmy-attention); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+.vox-fake[hidden] { display: none; }
+
+/* the entity tree */
+.vox-tree, .vox-tree ul { list-style: none; }
+.vox-tree ul { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--timmy-line); }
+.vox-tree li { margin: 2px 0; }
+.vox-ent { display: inline; max-width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 3px; color: var(--timmy-text); font: inherit; font-size: 12px; padding: 0 4px; cursor: pointer; overflow-wrap: anywhere; }
+.vox-ent:hover { border-color: var(--timmy-line-strong); }
+.vox-ent[aria-current="true"] { border-color: var(--timmy-accent); color: var(--timmy-accent); }
+.vox-ent-path { color: var(--timmy-text-secondary); }
+.vox-ent[aria-current="true"] .vox-ent-path { color: var(--timmy-accent); }
+.vox-ent.kind-group > .vox-ent-label, .vox-ent.kind-record > .vox-ent-label { font-weight: var(--timmy-weight-strong); }
+.vox-ent-detail { display: block; margin-left: 4px; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+
+/* the viewport: the image keeps its own colors; what was measured over it is an SVG in the image's own pixel frame */
+.vox-image-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.vox-image-tabs:empty { display: none; }
+.vox-image-tab { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text-secondary); font: inherit; font-size: 11px; padding: 1px 6px; cursor: pointer; }
+.vox-image-tab[aria-pressed="true"] { color: var(--timmy-text); border-color: var(--timmy-accent); }
+.vox-stage { position: relative; flex: 1 1 auto; min-height: 11em; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; overflow: hidden; }
+.vox-stage > .empty { padding: 10px; }
+.vox-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.vox-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.vox-overlay .ov { fill: none; stroke: var(--timmy-silver); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.vox-overlay g.ov circle, .vox-overlay g.ov line { stroke: inherit; vector-effect: non-scaling-stroke; }
+.vox-overlay .ov.is-generated { stroke-dasharray: 7 4; }
+.vox-overlay .ov.is-unverified { stroke-dasharray: 2 4; stroke: var(--timmy-text-secondary); }
+.vox-overlay .ov.is-selected { stroke: var(--timmy-accent); stroke-width: 3; }
+.vox-overlay .ov-label { fill: var(--timmy-silver); stroke: var(--timmy-ground); stroke-width: 3px; paint-order: stroke; font-family: var(--timmy-font-mono); cursor: pointer; }
+.vox-overlay .ov-label.is-selected { fill: var(--timmy-accent); }
+.vox-caption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-caption:empty { display: none; }
+
+/* a mesh as three views, one scale for all */
+.vox-spatial { position: absolute; inset: 0; overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 8px; }
+.vox-mesh-what, .vox-mesh-words { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vox-proj { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vox-proj-svg { width: 100%; height: 12em; background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 3px; }
+.vox-proj-frame { fill: none; stroke: var(--timmy-line); stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.vox-proj-lines { fill: none; stroke: var(--timmy-silver); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.vox-proj-axis { fill: var(--timmy-text-secondary); font-family: var(--timmy-font-mono); }
+.vox-proj figcaption { font-size: 11px; color: var(--timmy-text-secondary); }
+
+/* a recording: what Timmy reads of it */
+.vox-recordings { position: absolute; inset: 0; overflow: auto; padding: 8px; }
+.vox-recording { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.vox-fact { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--timmy-line); padding-bottom: 3px; }
+.vox-fact dt { color: var(--timmy-text-secondary); }
+.vox-fact dd { margin: 0; overflow-wrap: anywhere; }
+
+/* the timeline of a video's sampled frames: the chosen frame amber */
+.vox-timeline { list-style: none; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 6px 0 2px; border-top: 1px solid var(--timmy-line-strong); }
+.vox-tick { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text-secondary); font: inherit; font-size: 11px; padding: 2px 6px; cursor: pointer; }
+.vox-tick:hover { color: var(--timmy-text); }
+.vox-tick[aria-current="true"] { color: var(--timmy-accent); border-color: var(--timmy-accent); }
+.vox-timeline-note { font-size: 11px; color: var(--timmy-text-secondary); }
+
+/* the record's commands: copied for Timmy's terminal; the one next step in amber words and border (the strip's primary is
+   the tab's one amber fill) */
+.box-body.vox-acts { flex-direction: row; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.vox-act { display: inline-flex; gap: 6px; align-items: baseline; font-size: 11px; }
+.vox-act-label { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.vox-act.is-next { border-color: var(--timmy-accent); }
+.vox-act.is-next .vox-act-label, .vox-act.is-next .vox-act-cmd { color: var(--timmy-accent); }
+.vox-act[aria-disabled="true"] { border-style: dashed; cursor: not-allowed; }
+.vox-act[aria-disabled="true"] .vox-act-label, .vox-act[aria-disabled="true"] .vox-act-cmd { color: var(--timmy-text-secondary); }
+.vox-act-why { width: 100%; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+
+/* the pipeline as the record ran it, then what this computer has not */
+.vox-steps { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.vox-step { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 1px 6px; font-size: 11px; color: var(--timmy-text); overflow-wrap: anywhere; }
+.vox-step.tone-intent { border-color: var(--timmy-accent); color: var(--timmy-accent); }
+.vox-step.tone-verified.is-verified { border-color: var(--timmy-live); color: var(--timmy-live); }
+.vox-step.tone-failed, .vox-step.tone-setup { border-color: var(--timmy-attention); color: var(--timmy-attention); }
+.vox-step.tone-none, .vox-step.tone-sealed { color: var(--timmy-text-secondary); }
+.vox-arrow { color: var(--timmy-text-secondary); font-size: 11px; }
+.vox-absent, .vox-setup, .vox-verdict, .vox-together { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-absent-item.tone-setup { color: var(--timmy-attention); }
+.vox-receipt { border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.vox-receipt.is-verified { border-color: var(--timmy-live); }
+.vox-receipt-mark { font-size: 12px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); }
+.vox-receipt-mark.is-verified, .vox-check.is-verified { color: var(--timmy-live); }
+.vox-receipt-words { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-check { font-size: 11px; }
+.vox-cols .tone-attention, .vox-cols .tone-failed { color: var(--timmy-attention); }
+
+/* the values: each with its word, provenance and evidence state */
+.vox-vals { list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+.vox-val { border-bottom: 1px solid var(--timmy-line); padding-bottom: 3px; display: flex; flex-direction: column; gap: 1px; }
+.vox-val[aria-current="true"] .vox-val-title, .vox-val[aria-current="true"] .vox-val-text { color: var(--timmy-accent); }
+.vox-val-title { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
+.vox-val-text { color: var(--timmy-text); overflow-wrap: anywhere; }
+.vox-val.is-claim .vox-val-text { color: var(--timmy-silver); }
+.vox-val-tags { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-values-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.vox-values-table th, .vox-values-table td { text-align: left; vertical-align: top; padding: 3px 4px; border-bottom: 1px solid var(--timmy-line); overflow-wrap: anywhere; }
+.vox-values-table thead th { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
+.vox-values-table tbody th { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); width: 32%; }
+.vox-values-table tr[aria-current="true"] th, .vox-values-table tr[aria-current="true"] td { color: var(--timmy-accent); }
+.vox-values-table tr.is-claim td { color: var(--timmy-silver); }
+.vox-method { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); font-size: 10.5px; }
+.vox-word { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; color: var(--timmy-text); }
+.vox-word.w-stale, .vox-word.w-unknown { color: var(--timmy-attention); border-color: var(--timmy-attention); }
+.vox-word.w-model-prediction { color: var(--timmy-silver); }
+.vox-notes { font-size: 11px; color: var(--timmy-text-secondary); }
+.vox-notes summary { cursor: pointer; }
+.vox-notes ul { padding-left: 16px; }
+.vox-doctrine { font-size: 11px; color: var(--timmy-text); border-left: 3px solid var(--timmy-attention); padding-left: 8px; }
+
+/* the engines this computer has (in the text color: found is not working, so never green) and has not */
+.vox-engines { list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.vox-engine { border-left: 3px solid var(--timmy-line-strong); padding-left: 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.vox-engine-name { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.vox-engine-state { color: var(--timmy-text); }
+.vox-engine.tone-setup { border-left-color: var(--timmy-attention); }
+.vox-engine.tone-setup .vox-engine-state { color: var(--timmy-attention); }
+.vox-engine.tone-absent .vox-engine-state, .vox-engine-words { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.vox-engine .cmd { align-self: flex-start; }
+
+@media (max-width: 1180px) {
+  .vox-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .vox-cols > .vox-right { grid-column: 1 / -1; }
+}
+@media (max-width: 860px) {
+  .vox-host { flex: none; }
+  .vox-cols { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .vox-left > .vox-records-box { max-height: none; }
+  .vox-stage { min-height: 52vw; }
+  .vox-views { grid-template-columns: minmax(0, 1fr); }
+}

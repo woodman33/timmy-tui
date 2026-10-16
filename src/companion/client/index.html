@@ -217,16 +217,10 @@
 
     <!-- 5 · VoxVision (references 04, 05, 15, 16) -->
     <section id="ws-voxvision" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-voxvision" data-ws-page="voxvision" hidden>
-      <div class="cols cols-two">
-        <section class="box" aria-labelledby="vox-acts-title">
-          <h2 id="vox-acts-title" class="box-title">This tab's actions, in full</h2>
-          <div class="box-body"><div class="acts-full" data-acts-for="voxvision"></div></div>
-        </section>
-        <section class="box" aria-labelledby="vox-here-title">
-          <h2 id="vox-here-title" class="box-title">On this page</h2>
-          <div class="box-body"><div data-panel-host="voxvision"><p class="empty" data-gather="voxvision">Nothing of this tab's records reaches the companion yet: its actions run in Timmy's terminal, where its records show.</p></div></div>
-        </section>
-      </div>
+      <!-- R6 (H143): the VoxVision panel (src/companion/client/panel-vox.js) draws its three columns here: the records and the
+           entity tree; the viewport with what was measured over the image, the timeline and the record's commands; the
+           pipeline and receipt, the values and the engines. The tab's own actions are the strip's, above. -->
+      <div class="vox-host" data-panel-host="voxvision"><p class="empty">Reading this project's VoxVision records…</p></div>
     </section>
 
     <!-- 6 · 3D & Motion (reference 06): Slate 3D, the mission board as a scene, lit from the bus (companion/slate3d) -->
