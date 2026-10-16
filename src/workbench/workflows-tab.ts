@@ -8,11 +8,14 @@
  *            before the run" only when the run detail's frozenAt is earlier than the run's start, else not recorded)
  *   centre   the sandbox and the run: where it runs (this computer, in the project folder, by upmd, and the environment its
  *            run detail names, its env lock; no record names an isolated environment for a workflow run, so none is drawn),
- *            the newest run's blocks with their states, the last lines of its log (cut with an ellipsis, never wrapped through
- *            a border), the RUN box (what Enter does now, and to which block), and the line that says a preview is drawn only
- *            by the companion
+ *            the newest run's blocks with their states, R6 (H144): its source (the document as it ran, its sha256, and whether
+ *            it holds those bytes now, both hashes when not), its changes (each file it wrote or changed, and the first one's
+ *            line diff against the version Timmy kept, + and − marked), the last lines of its log (cut with an ellipsis,
+ *            never wrapped through a border), the RUN box (what Enter does now, and to which block), and where the companion
+ *            draws its diffs, images and outputs
  *   right    the receipt and its review: the newest run's receipt card (green and "verified" only when verifyReceiptIn
- *            passes in this reading), the run detail's checks (predicted against actual), its verdict, and timmy op <id>
+ *            passes in this reading) and, R6 (H144), each stage's receipts (.predict, run, .receipt) as verified now, the
+ *            run detail's checks (predicted against actual), its verdict, and timmy op <id>
  *
  * The operator's order (Intent → Predict → Sandbox → Review → Run → Logs → Receipt → Analyze) reads left to right: Review is
  * the Run confirm and, for a destructive command, its NEEDS YOU box, both asked before anything runs; Analyze is the checks.
@@ -21,7 +24,9 @@
  * src/repl/board-workflows.ts connectWorkflow), so a row never says waiting once its job has ended (the review of 2026-10-15
  * saw it lag by more than 2 s: the documents are read every few seconds, the jobs every second). The selected block's newest
  * run is read by readWorkflowsTab (its record, its log's last lines, its receipt verified); its run detail is the one
- * producer's (src/ops/run-detail.ts readRunDetail, read by the controller), never computed here.
+ * producer's (src/ops/run-detail.ts readRunDetail, read by the controller), never computed here, and so is the run
+ * inspected (R6, H144: src/ops/run-detail.ts readRunInspection, its source, changes, outputs and receipts, the companion's
+ * run detail's reading too), read here at most every INSPECT_MS while the chain and the run's record stay the same.
  *
  * Marks, one meaning each (the review of 2026-10-15): ● is only a live connection and ○ a configured one, so a block or a run
  * that runs is ▶ running and one that waits is … waiting; ✓ completed or verified, ✕ failed (amber), ■ stopped. Green is only
@@ -31,6 +36,7 @@
  */
 import type { RunDetail } from '../contracts/run-detail.js';
 import type { JobRecord } from '../jobs/index.js';
+import { readRunInspection, type InspectChange, type InspectReceipt, type RunInspection } from '../ops/run-detail.js';
 import { NODE_GLYPH, runOf, type NodeWord } from '../repl/board-workflows.js';
 import type { Receipt } from '../utils/receipts.js';
 import { blockDetail, runBlocks } from '../workflows/run-blocks.js';
@@ -163,6 +169,9 @@ export interface RunNow {
   named?: string;
 }
 
+/** R6 (H144): the newest run inspected by the producer (src/ops/run-detail.ts readRunInspection), or why it was not. */
+export type InspectionNow = { op: string; value: RunInspection } | { op: string; why: string };
+
 /** What tab 3 read for the selected block (src/workbench/controller.ts, each frame while the tab is shown). */
 export interface WorkflowsTabData {
   /** the block it was read for (blockKey), '' for none */
@@ -170,6 +179,8 @@ export interface WorkflowsTabData {
   at: number;
   /** its newest run; null: none has run it */
   run: RunNow | null;
+  /** R6 (H144): its newest run inspected (its source, changes, outputs and receipts), when its job names an operation */
+  inspection?: InspectionNow;
 }
 
 export interface WorkflowsTabInput {
@@ -189,6 +200,37 @@ export interface WorkflowsTabInput {
 }
 
 const shortOf = (r: Pick<Receipt, 'hash' | 'id'>): string => (typeof r.hash === 'string' && r.hash.length > 15 ? r.hash.slice(7, 15) : String(r.id ?? '?'));
+
+/** R6 (H144): how many lines of each file's preview the inspection keeps for this tab (it draws a few of them). */
+const INSPECT_LINES = 12;
+/** R6 (H144): a run is inspected again at most this often while the chain read and its record stay the same (its files
+ *  may change meanwhile); a new chain reading or a change of its record inspects it again at once. */
+export const INSPECT_MS = 5000;
+/** Each chain reading by its identity (the controller keeps one array per reading of the chain's file). */
+const chainIds = new WeakMap<readonly Receipt[], number>();
+let chainCount = 0;
+const chainId = (chain: readonly Receipt[]): number => { let n = chainIds.get(chain); if (n === undefined) { n = ++chainCount; chainIds.set(chain, n); } return n; };
+/** The last inspection of each operation: what it was read for, when, and what it gave. */
+const inspected = new Map<string, { sig: string; at: number; got: InspectionNow }>();
+
+/** R6 (H144): a run inspected by the producer, reused while what it was read for is the same and it is younger than INSPECT_MS. */
+function inspectionOf(j: JobRecord, op: string, o: WorkflowsTabInput): InspectionNow {
+  const sig = `${chainId(o.chain)}:${j.id}:${j.state}:${j.endedAt ?? ''}:${j.root}`;
+  const was = inspected.get(op);
+  if (was && was.sig === sig && o.now >= was.at && o.now - was.at < INSPECT_MS) return was.got;
+  let got: InspectionNow;
+  try {
+    const r = readRunInspection(op, { project: j.root, jobs: o.records, chain: o.chain, lines: INSPECT_LINES, verify: o.verify });
+    got = r.ok ? { op, value: r.inspection } : { op, why: r.why };
+  } catch (e) {
+    got = { op, why: `it could not be inspected (${e instanceof Error ? e.message.split('\n')[0] : String(e)})` };
+  }
+  inspected.delete(op);
+  inspected.set(op, { sig, at: o.now, got });
+  // the newest few kept
+  while (inspected.size > 12) inspected.delete(inspected.keys().next().value as string);
+  return got;
+}
 
 /** The run in its record's words, as the board's card says them (src/repl/board-workflows.ts readRun). */
 export function runWord(j: Pick<JobRecord, 'kind' | 'state' | 'steps' | 'stale' | 'interrupted'>): string {
@@ -236,6 +278,8 @@ export function readWorkflowsTab(o: WorkflowsTabInput): WorkflowsTabData {
       tail: { lines: lines.slice(-TAIL_READ), ...(why ? { why } : {}) },
       receipt, ...(!receipt && j.receipt ? { named: j.receipt } : {}),
     },
+    // R6 (H144): the run inspected by the producer, the companion's run detail's reading (read here no more than INSPECT_MS)
+    ...(j.operation ? { inspection: inspectionOf(j, j.operation, o) } : {}),
   };
 }
 
@@ -508,6 +552,132 @@ function stepsRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Li
   return rows;
 }
 
+/** R6 (H144): the selected block's newest run inspected, when this frame read it for that run's operation. */
+function inspectionFor(c: TabViewCtx, run: RunNow | null | undefined): InspectionNow | undefined {
+  const t = c.data.workflowsTab;
+  return run?.operation && t?.inspection?.op === run.operation ? t.inspection : undefined;
+}
+
+const short12 = (sha: string | null | undefined): string => (sha ? sha.slice(0, 12) : 'not recorded');
+
+/**
+ * R6 (H144): the run's source, as the producer read it: the document as upmd ran it (its sha256, the one its prediction
+ * sealed, and where those bytes were read from) and the document now (✓ when it holds those bytes; ✕ and both hashes, with
+ * the size of its diff, when it changed since). Nothing for a run that ran no workflow document.
+ */
+function sourceRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Line[] {
+  const { g } = c;
+  const ins = inspectionFor(c, run);
+  if (!ins || !('value' in ins)) return [];
+  const s = ins.value.source;
+  if (!('doc' in s)) return [];
+  const rows: Line[] = [...head('Source', `${s.doc} as it ran ${g.sep} sha256 ${short12(s.asRan.sha256)}`, w, g)];
+  const from = s.copy.state === 'kept' ? 'the copy upmd read' : s.copy.state === 'project' ? `${s.doc} in the project` : '';
+  if (s.now.state === 'same') {
+    const l: Line = [S(`${g.ok} `, 'live'), S('the same bytes now', 'text')];
+    if (from && lineCells(l) + cells(` ${g.sep} read from ${from}`) <= w) l.push(S(` ${g.sep} read from ${from}`, 'secondary'));
+    rows.push(l);
+  } else if (s.now.state === 'changed') {
+    const diff = s.diff?.shown ? ` (+${s.diff.added} −${s.diff.removed})` : '';
+    rows.push(...para(`${g.fail} changed since the run: sha256 ${short12(s.now.sha256)} now, ${short12(s.asRan.sha256)} as it ran${diff}`, w, 'failure', '', 2, g.ellipsis));
+  } else rows.push(...para(s.now.words, w, 'secondary', '', 2, g.ellipsis));
+  return rows;
+}
+
+/** A change's kind of content in a few words: its diff's size, an image, a binary, a text or a JSON. */
+function changeWhat(ch: InspectChange): string {
+  if (ch.diff.shown) return `+${ch.diff.added} −${ch.diff.removed}`;
+  const p = ch.preview;
+  if (!p) return '';
+  if (p.kind === 'image') return `image${p.width && p.height ? ` ${p.width}×${p.height}` : ''}`;
+  if (p.kind === 'binary') return `binary ${p.bytes} B`;
+  if (p.kind === 'text') return p.json ? 'JSON' : `text ${p.lines.length + p.more} lines`;
+  return '';
+}
+
+/**
+ * R6 (H144): what the run changed, as /review reads it (the producer's inspection): a row per file (how, its path, its
+ * content's kind or its diff's size, whether it is still what the run left, and whether /restore can bring its kept version
+ * back), then the first one with a line diff: each hunk's head and its lines from the one before its first change to the one
+ * after its last, or only its changed lines where the room is short, + and − marked (the terminal has no diff colours: the
+ * marks carry it), within `room` rows; the files give way to the diff's first five rows.
+ */
+function changesRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, room: number): Line[] {
+  const { g } = c;
+  if (!run?.operation) return [];
+  const ins = inspectionFor(c, run);
+  if (!ins) return [...head('Changes', 'what it wrote', w, g, true), [S('reading…', 'secondary')]];
+  if (!('value' in ins)) return [...head('Changes', 'what it wrote', w, g, true), ...para(`not read: ${ins.why}`, w, 'secondary', '', 2, g.ellipsis)];
+  const i = ins.value;
+  const list = i.changes.list;
+  const total = list.length + i.changes.more;
+  if (!total) return [...head('Changes', 'none that Timmy records', w, g), ...(i.changes.notes[0] ? para(i.changes.notes[0], w, 'secondary', '', 2, g.ellipsis) : [])];
+  const rows: Line[] = [...head('Changes', `${count(total, 'file')} ${g.sep} /review ${i.operation}`, w, g, true)];
+  // the first change with a line diff: each hunk's head, then its lines from the one before its first change to the one after
+  // its last (`full`), or only its changed lines where the room is short (`core`): a terminal's few rows go to what changed
+  const withDiff = list.find((x) => x.diff.shown);
+  type DiffRow = { op: '@' | ' ' | '+' | '-'; text: string };
+  const full: DiffRow[] = [];
+  const core: DiffRow[] = [];
+  if (withDiff?.diff.shown) {
+    for (const h of withDiff.diff.hunks) {
+      const changed = h.lines.map((l, k) => (l.op !== ' ' ? k : -1)).filter((k) => k >= 0);
+      const from = Math.max(0, (changed[0] ?? 0) - 1);
+      const to = Math.min(h.lines.length, (changed.at(-1) ?? h.lines.length - 1) + 2);
+      full.push({ op: '@', text: h.header }, ...h.lines.slice(from, to));
+      core.push({ op: '@', text: h.header }, ...h.lines.filter((l) => l.op !== ' '));
+    }
+  }
+  // the files: as many as leave the diff its first five rows (where the room allows), the rest counted on a row of their own
+  // (the heading says how many there are, so that row gives way first)
+  const need = Math.min(full.length, 5);
+  const filesMax = Math.max(1, room - rows.length - need);
+  const shown = list.length <= filesMax ? list : list.slice(0, Math.max(1, filesMax - 1));
+  const moreRow = total > shown.length && shown.length < filesMax;
+  for (const ch of shown) {
+    const how = ch.how.padEnd(7);
+    // its content, then whether it is still what the run left (said only when it is not), and /restore's offer
+    const now = ch.now.state === 'changed since' ? 'changed since the run' : ch.now.state === 'gone' ? 'gone since the run' : '';
+    // its path whole: where the row is too narrow for all of it, its content's kind gives way first, then the rest
+    const parts = [changeWhat(ch), now, ch.restore.offered ? 'restore offered' : ''].filter(Boolean);
+    while (parts.length && cells(how) + 1 + cells(ch.path) + 1 + cells(parts.join(` ${g.sep} `)) > w) parts.shift();
+    const extra = parts.join(` ${g.sep} `);
+    const pathRoom = Math.max(4, w - cells(how) - 1 - (extra ? cells(extra) + 1 : 0));
+    rows.push([S(`${how} `, 'secondary'), S(cut(ch.path, pathRoom, g.ellipsis), 'text'), ...(extra ? [S(` ${extra}`, 'secondary')] : [])]);
+  }
+  if (moreRow) rows.push([S(cut(`${g.ellipsis} ${count(total - shown.length, 'more file')} (/review ${i.operation})`, w, g.ellipsis), 'secondary')]);
+  if (withDiff?.diff.shown && full.length && rows.length < room) {
+    const d = withDiff.diff;
+    const against = d.against === 'kept' ? 'against the version Timmy kept' : d.against === 'nothing' ? 'added by the run' : 'as it ran → now';
+    const named = shown.includes(withDiff) ? against : `${withDiff.path} ${against}`;
+    const left = room - rows.length;
+    const pick = full.length <= left ? full : core.length <= left ? core : core.slice(0, Math.max(1, left - 1));
+    pick.forEach((l, k) => {
+      if (l.op === '@') rows.push([S(cut(k ? l.text : `${l.text} ${named}`, w, g.ellipsis), 'secondary')]);
+      else rows.push([S(l.op === '+' ? '+ ' : l.op === '-' ? '− ' : '  ', l.op === ' ' ? 'secondary' : 'strong'), S(cut(l.text || ' ', Math.max(1, w - 2), g.ellipsis), l.op === ' ' ? 'secondary' : 'text')]);
+    });
+    const missing = (pick === full ? full : core).length - pick.length;
+    if (missing > 0) rows.push([S(cut(`${g.ellipsis} ${count(missing, 'more changed line')} (the companion draws the whole diff)`, w, g.ellipsis), 'secondary')]);
+  }
+  return rows;
+}
+
+/** R6 (H144): each stage's receipts as verified now (✓ green only where verifyReceiptIn passed in this reading; ✕ amber). */
+function chainRow(ins: InspectionNow | undefined, w: number, g: Glyphs): Line[] {
+  if (!ins || !('value' in ins)) return [];
+  const list = ins.value.receipts.list;
+  if (!list.length) return [];
+  const stage = (st: InspectReceipt['stage'], name: string): Seg[] => {
+    const rs = list.filter((r) => r.stage === st);
+    if (!rs.length) return [];
+    const bad = rs.filter((r) => !r.verified.ok).length;
+    return [S(`${name} `, 'text'), bad ? S(`${g.fail}${rs.length > 1 ? ` ${bad} of ${rs.length}` : ''}`, 'failure') : S(`${g.ok}${rs.length > 1 ? ` ${rs.length}` : ''}`, 'live')];
+  };
+  const parts = [stage('predict', '.predict'), stage('run', 'run'), stage('receipt', '.receipt')].filter((p) => p.length);
+  const one: Line = parts.flatMap((p, k) => (k ? [S(` ${g.sep} `, 'secondary'), ...p] : p));
+  return lineCells(one) <= w ? [one] : parts.map((p) => p);
+}
+
 /** The newest run's log, its last lines (`room` rows at most, a count of the earlier ones first), each cut at the column's
  *  edge with an ellipsis, never wrapped. */
 function outputRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, room: number): Line[] {
@@ -557,9 +727,10 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
   return card({ w, title: [S(fits ? full : `RUN ${cut(b.name, Math.max(1, w - 10), g.ellipsis)}`, here ? 'focus' : 'strong')], body: rows, edge: here ? 'focus' : 'border', heavy: here, g });
 }
 
-/** The one line where the references draw a picture: a terminal says the run in words. */
-// R5 (H131; the QA of e7f853e, defect 2): no Timmy surface has a run's preview yet; the companion's run page is this, in words
-const PREVIEW = 'No Timmy surface shows a run\'s browser or sandbox preview yet; the companion (c) shows this run detail in a browser page, in words.';
+/** The one line where the references draw a picture: a terminal says the run in words, and where it is drawn. */
+// R5 (H131; the QA of e7f853e, defect 2): no Timmy surface had a run's preview. R6 (H144): the companion's run detail draws
+// the run's changes (their diffs), its images and its outputs
+const previewWords = (op: string | null | undefined): string => `The companion (c) draws this run's diffs, images and outputs: its Workflows tab${op ? `, /run/${op} on it` : ''}.`;
 
 /** The newest run's receipt card: green and verified only when verifyReceiptIn passed in this reading. */
 function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined, w: number): Line[] {
@@ -580,6 +751,8 @@ function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
     if (r.verified.ok) { edge = 'live'; rows.push([S(`${g.ok} verified`, 'live')], ...para('its link, body, signature: read now', iw, 'secondary', '', 2, g.ellipsis)); }
     else { edge = 'failure'; rows.push(...para(`${g.fail} not verified: ${r.verified.why}`, iw, 'failure', '', 4, g.ellipsis)); }
   }
+  // R6 (H144): each stage's receipts of the run (the producer's inspection), as verified now
+  if (run) rows.push(...chainRow(inspectionFor(c, run), iw, g));
   const title = titled(b.name, '.receipt', w, g.ellipsis);
   const note = run ? noteFor(title, run.job, w) : undefined;
   return card({ w, title: [S(title, edge === 'live' ? 'live' : edge === 'failure' ? 'failure' : 'strong', { bold: true })], ...(note ? { note } : {}), body: rows, edge, g });
@@ -671,16 +844,20 @@ export function workflowsTabView(c0: ViewCtx): View {
     for (const r of plan.rows) { if (r.item) items.push({ line: lines.length, item: r.item }); lines.push(r.line); }
     if (selDoc && selBlock) {
       lines.push([], ...runBox(c, selDoc, selBlock, W), [], ...intentCard(selDoc, selBlock, W, g), ...predictCard(c, selBlock, run, W));
-      lines.push([], ...sandboxRows(c, run, W), ...stepsRows(c, run, W), ...outputRows(c, run, W, 8), ...para(PREVIEW, W, 'secondary', '', 4, g.ellipsis));
+      lines.push([], ...sandboxRows(c, run, W), ...stepsRows(c, run, W), ...sourceRows(c, run, W), ...changesRows(c, run, W, 12), ...outputRows(c, run, W, 8), ...para(previewWords(run?.operation), W, 'secondary', '', 4, g.ellipsis));
       lines.push([], ...receiptCard(c, selBlock, run, W), ...reviewRows(c, run, W));
     }
     return { lines: lines.map((l) => fit(l, W, g.ellipsis)), items };
   }
 
   // ── side by side ──
-  // the left column: the head, the list (windowed to keep the selected row in view), the .intent and .predict cards
+  // the left column: the head, the list (windowed to keep the selected row in view), the .intent and .predict cards, and
+  // (R6, H144) the run's source under them where it fits beside the whole list (else in the centre column)
   const head = planHead(c, lw);
-  const cards = selDoc && selBlock ? [...intentCard(selDoc, selBlock, lw, g), ...predictCard(c, selBlock, run, lw)] : [];
+  const cards0 = selDoc && selBlock ? [...intentCard(selDoc, selBlock, lw, g), ...predictCard(c, selBlock, run, lw)] : [];
+  const sourceLeft = cards0.length ? sourceRows(c, run, lw) : [];
+  const leftHere = sourceLeft.length > 0 && head.length + plan.rows.length + 1 + cards0.length + 1 + sourceLeft.length <= H;
+  const cards = leftHere ? [...cards0, [], ...sourceLeft] : cards0;
   // the list keeps at least a third of the column (all of it when shorter); the cards take what is left, clipped when they
   // do not fit (the column then says which of its rows show)
   const floor = Math.min(plan.rows.length, Math.max(5, Math.floor((H - head.length) / 3)));
@@ -700,12 +877,17 @@ export function workflowsTabView(c0: ViewCtx): View {
   const centre: Line[] = [];
   if (selDoc && selBlock) {
     const box = runBox(c, selDoc, selBlock, cw);
-    const note = para(PREVIEW, cw, 'secondary', '', 4, g.ellipsis);
+    const note = para(previewWords(run?.operation), cw, 'secondary', '', 4, g.ellipsis);
     const sandbox = sandboxRows(c, run, cw);
     const steps = stepsRows(c, run, cw);
-    // the log's last lines take the room the rest leaves (its heading, a blank row before the box; at least one line)
-    const tailRoom = Math.max(1, H - sandbox.length - steps.length - 1 - 1 - box.length - note.length);
-    centre.push(...sandbox, ...steps, ...outputRows(c, run, cw, tailRoom), []);
+    const source = leftHere ? [] : sourceRows(c, run, cw);
+    // R6 (H144): its changes take what the rest leaves but the log's three rows once the run has ended (three fifths of it while
+    // it runs; at least four rows), the log's last lines the remainder (a blank row before the box)
+    const free = H - sandbox.length - steps.length - source.length - 1 - box.length - note.length;
+    // (the log's heading, its "earlier lines" row and one line: three rows)
+    const changes = changesRows(c, run, cw, Math.max(4, run && !run.live ? free - 3 : Math.floor((free - 3) * 0.6)));
+    const tailRoom = Math.max(1, free - changes.length - 1);
+    centre.push(...sandbox, ...steps, ...source, ...changes, ...outputRows(c, run, cw, tailRoom), []);
     // a click on [Enter] selects the row under it first: the box's [Enter] is kept off every row a block of the list is on
     const lastItemRow = Math.max(-1, ...items.filter((x) => x.line >= 0 && x.line < H).map((x) => x.line));
     const enterAt = box.findIndex((l) => l.some((s) => s.text === '[Enter]'));
