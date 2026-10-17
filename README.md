@@ -193,10 +193,16 @@ so color never carries a meaning alone. Timmy Night and Timmy Day are still
 there.
 
 - **The Workbench's colors.** `timmy workbench` writes these colors exactly
-  only where the terminal says it draws 24-bit color (`COLORTERM=truecolor` or
-  `24bit`). Otherwise it writes the nearest of the standard 256 colors, so its
-  off-white text comes out white, and it does not use the 16 slots the Timmy
-  Homebrew profile sets. The REPL and `timmy watch` color by those 16 slots.
+  where the terminal says it draws 24-bit color (`COLORTERM=truecolor` or
+  `24bit`). Otherwise, when it knows the terminal uses the Timmy Homebrew
+  profile (`TIMMY_PALETTE=homebrew`, or the terminal's own answer to OSC 11
+  and OSC 4 matches the profile's ground and slots 2, 3, 7 and 8), it colors
+  by the profile's 16 slots, as the REPL and `timmy watch` do: text in the
+  terminal's own foreground, secondary text slot 8, amber slot 3, green slot
+  2 and silver slot 7, with structure and the selection's ground in the 256
+  colors' grey ramp (16 colors only: slot 8 and an inverted selection). Any
+  other 256-color terminal gets the nearest of the 256 colors by perceived
+  difference (#F2EFE9 → 255, #8E8E93 → 245, #FFB000 → 214).
 - **Your terminal.** `timmy theme install` copies the palettes where your
   terminal looks for them and prints the lines that pick Timmy Homebrew. On
   macOS Terminal it gives you a profile to open,
