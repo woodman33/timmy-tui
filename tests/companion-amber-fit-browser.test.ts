@@ -124,6 +124,8 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             const list = await ambers(page);
             const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
             report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page) };
+            // with TIMMY_CAPTURE_DIR, each tab as measured (the window's view; at 800x600 the page's top, it scrolls on)
+            if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });
             if (id === 'chat') {
               // the chat tab's other view, this page's own chat (its Send is the composer's amber words, not a fill)
               await page.click('#btn-streamdown');
