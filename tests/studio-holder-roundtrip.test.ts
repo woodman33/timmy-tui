@@ -10,7 +10,7 @@
  * grant gives and answers each call; it saves no board, so the boards on disk change only if the server writes them.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -56,6 +56,14 @@ function boards(home: string): Record<string, string> {
   };
   walk(dir);
   return out;
+}
+
+/** R7: when TIMMY_R7_CAPTURES names a folder, each step's canvas state (its own answers) as plain text. */
+const CAPTURES = process.env.TIMMY_R7_CAPTURES?.trim() || '';
+function captureSteps(name: string, steps: string[]): void {
+  if (!CAPTURES) return;
+  mkdirSync(CAPTURES, { recursive: true });
+  writeFileSync(join(CAPTURES, `${name}.txt`), `FAKE canvas page (a ws client); a real canvas server, the REPL's Workspace, CanvasProject and record follower; the record written as the Workbench's picker writes it.\n\n${steps.join('\n')}\n`);
 }
 
 /** The canvas server and a REPL's side, wired as src/repl/main.ts wires them. */
@@ -121,19 +129,39 @@ describe('the REPL that holds Timmy Canvas keeps it through tray → blank → t
     const w = await world({ start: tray });
     const r = w.repl(tray);
     const page = await r.open();
-    expect(await r.draw()).toEqual({ status: 200, error: null });
+    const steps: string[] = [];
+    const state = async (what: string, drew?: { status: number; error: string | null }) => {
+      const a = await w.active();
+      steps.push(`${what}: the REPL is in ${r.ws.project.name}; the canvas shows ${a.project?.name ?? 'nothing'} (via ${a.via}), its actions held by this REPL: ${(await w.actions())?.holder === true}${drew ? `; a draw: HTTP ${drew.status}${drew.error ? ` ${drew.error}` : ''}` : ''}`);
+    };
+    const first = await r.draw();
+    expect(first).toEqual({ status: 200, error: null });
+    await state('1 /canvas open on tray, then a draw', first);
+    // each project's own board, saved through the canvas's document route with the token (as the REPL's side may save one)
+    for (const p of [tray, blank]) {
+      const snapshot = { schema: { schemaVersion: 2, sequences: {} }, store: { 'shape:r7': { id: 'shape:r7', typeName: 'shape', type: 'text', x: 0, y: 0, rotation: 0, index: 'a1', parentId: 'page:page', isLocked: false, opacity: 1, meta: {}, props: { mark: `R7-H149-${p.name}` } } } };
+      const put = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(w.server.projectToken), 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, revision: 1, baseRevision: 0, project: projectId(p.root) }) });
+      expect(put.status, put.body).toBe(200);
+    }
     const before = boards(w.home);
+    expect(Object.keys(before).filter((f) => f.startsWith(projectId(tray.root))).length).toBeGreaterThan(0);
+    expect(Object.keys(before).filter((f) => f.startsWith(projectId(blank.root))).length).toBeGreaterThan(0);
     saveActiveProject(blank, { by: 'workbench' });
     // the REPL follows within the server's grace and names blank itself, with its holder
     await until(async () => (await w.active()).project?.name === 'blank' && r.ws.project.name === 'blank');
     expect(await w.active()).toMatchObject({ project: { name: 'blank', id: projectId(blank.root) }, via: 'repl' });
+    await state('2 the Workbench chooses blank');
     saveActiveProject(tray, { by: 'workbench' });
     await until(async () => (await w.active()).project?.name === 'tray' && r.ws.project.name === 'tray');
     await sleep(500); // past the server's grace: its own follow, had it one to make, has been made
     expect(await w.active()).toMatchObject({ project: { name: 'tray' }, via: 'repl' });
-    expect(await r.draw()).toEqual({ status: 200, error: null });
+    const again = await r.draw();
+    expect(again).toEqual({ status: 200, error: null });
+    await state('3 the Workbench chooses tray; the same REPL draws, with no second /canvas open', again);
     expect(page.seen.length).toBe(2);
     expect(boards(w.home)).toEqual(before);
+    steps.push(`boards on disk (tray's and blank's, each saved before the switches): ${Object.keys(before).length} files, every one unchanged by the switches (sha256 compared)`);
+    captureSteps('canvas-roundtrip', steps);
   });
 
   it('the server\'s own follow first (the REPL busy with a turn): once the turn ends the REPL follows and takes the canvas back', async () => {
