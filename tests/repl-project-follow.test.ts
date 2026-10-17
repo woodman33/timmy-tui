@@ -211,6 +211,9 @@ describe('the Workspace follows without writing the record again, and what runs 
     expect({ project: job.project, root: job.root }).toEqual({ project: 'tray', root: tray.root });
     expect(ws.runningIn(tray.root).map((r) => r.id)).toContain(id);
     expect(ws.runningIn(blank.root)).toEqual([]);
+    // /project in blank names the job with the project it runs in
+    await until(() => ws.jobs.get(id!)?.state === 'running', 5000);
+    expect(ws.summary().map(text).join('\n')).toContain(`Jobs     ${id} running (in tray)`);
     const predicted = readChain('runs').filter((r) => r.kind === 'predict');
     expect(predicted.map((r) => ({ project: r.project, project_id: r.project_id }))).toEqual([{ project: 'tray', project_id: projectId(tray.root) }]);
     // it stops as tray's, and its receipt says so

@@ -526,7 +526,8 @@ export class Workspace {
       [{ text: '  Project  ', role: 'secondary' }, { text: this.project.name, role: 'strong' }, { text: this.project.chosen ? '' : '  (this folder)', role: 'secondary' }],
       [{ text: '  Folder   ', role: 'secondary' }, { text: this.d.link(this.tilde(this.root), fileUrl(this.root)) }],
       [{ text: '  Files    ', role: 'secondary' }, { text: `${files.length}${truncated ? '+' : ''}: ${counts}` }],
-      [{ text: '  Jobs     ', role: 'secondary' }, { text: live.length ? live.map((j) => `${j.id} ${j.state}`).join(', ') : 'none running' }],
+      // R7 (H149): a job keeps the project it started in, and says so here when that is another project than this one
+      [{ text: '  Jobs     ', role: 'secondary' }, { text: live.length ? live.map((j) => `${j.id} ${j.state}${sameFolder(j.root, this.root) ? '' : ` (in ${j.project})`}`).join(', ') : 'none running' }],
       ...(this.switched ? [[{ text: '  Context  ', role: 'secondary' as const }, { text: this.switched }]] : []),
       [{ text: '  Next     ', role: 'secondary' }, { text: '/files, /workflows, /preview, /results', role: 'secondary' }],
     ];
