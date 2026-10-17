@@ -95,8 +95,9 @@ export interface MeshListInput {
   root: string;
   /** PATH and TIMMY_RERUN, for Rerun's viewer (found or not; nothing is run) */
   env: NodeJS.ProcessEnv;
-  /** the runs chain, to say whether a vox receipt sealed a tessellation's bytes; absent: not checked */
-  chain?: readonly Receipt[];
+  /** the runs chain (or how to read it, read only when a tessellation is named), to say whether a vox receipt sealed a
+   *  tessellation's bytes; absent: not checked */
+  chain?: readonly Receipt[] | (() => readonly Receipt[]);
 }
 
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
@@ -241,6 +242,8 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } =
   const found = filesOf(i.root);
   const named = found.stl.some((f) => f.path.startsWith(`${VOX_DIR}/`)) ? tessellationsOf(i.root) : new Map<string, Named>();
   const pid = i.chain ? projectId(i.root) : '';
+  let chain: readonly Receipt[] | undefined;
+  const chainNow = (): readonly Receipt[] | undefined => { if (!chain && i.chain) chain = typeof i.chain === 'function' ? i.chain() : i.chain; return chain; };
 
   const meshes = found.stl.slice(0, max).map((f): MeshRow => {
     const m = measure(i.root, f.path);
@@ -248,7 +251,8 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } =
     let origin: MeshOrigin = { provenance: 'not recorded', words: "where the file came from is not recorded: Timmy's records do not say what made it" };
     let tessellation: MeshRow['tessellation'];
     if (n && m.sha256 === n.sha256) {
-      const seal = i.chain ? sealOf(i.chain, pid, n) : undefined;
+      const c = chainNow();
+      const seal = c ? sealOf(c, pid, n) : undefined;
       const sealed = i.chain ? Boolean(seal) : null;
       tessellation = { record: n.record, from: n.from, made_by: n.made_by, tolerance: n.tolerance, sealed };
       origin = {

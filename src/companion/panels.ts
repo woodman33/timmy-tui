@@ -16,6 +16,7 @@ import type { ActiveProject } from '../project/index.js';
 import { mountVoxPanel } from './panels/vox.js';
 import { mountToolsPanel } from './panels/tools.js';
 import { mountStudioPanel } from './panels/studio.js';
+import { mountCreatePanel } from './panels/create.js';
 
 export interface PanelContext {
   /** The token check every content route of the companion uses (a request without the token is refused, 401). */
@@ -33,4 +34,6 @@ export function mountPanels(app: express.Express, ctx: PanelContext): void {
   mountVoxPanel(app, ctx);
   mountToolsPanel(app, ctx);
   mountStudioPanel(app, ctx);
+  // R7 (H153): tab 6, the project's meshes and recordings (src/companion/panels/create.ts)
+  mountCreatePanel(app, ctx);
 }
