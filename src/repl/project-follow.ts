@@ -126,6 +126,15 @@ export function waitLine(from: ActiveProject, to: ActiveRecord, busy: Busy, g: G
   ];
 }
 
+/** The notice when this REPL could not move to the project the record names (its folder could not be entered). */
+export function stuckLine(here: ActiveProject, to: ActiveRecord, why: string, g: GlyphSet): Segment[] {
+  return [
+    { text: `  ${g.fail} `, role: 'failure' },
+    { text: `The active project is now ${shown(to.project.name)}`, role: 'strong' },
+    { text: ` (${where(to.by)}), but this REPL could not move there (${why}): it stays in ${shown(here.name)}; /project ${shown(to.project.name)} tries again.`, role: 'secondary' },
+  ];
+}
+
 /** The notice when the record names this REPL's project again before a follow it waited for happened. */
 export function staysLine(here: ActiveProject, g: GlyphSet): Segment[] {
   return [{ text: `  ${g.arrow} ` }, { text: `The active project is ${shown(here.name)} again`, role: 'strong' }, { text: `: this REPL stays in ${shown(here.name)}.`, role: 'secondary' }];
@@ -212,7 +221,14 @@ export class ActiveProjectFollower {
   private follow(rec: ActiveRecord): void {
     const from = this.d.current();
     const left = this.d.running(from.root);
-    this.d.move(rec.project);
+    try {
+      this.d.move(rec.project);
+    } catch (e) {
+      // the folder could not be entered (gone since, or not readable): this REPL stays where it is, and says why
+      const why = e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : String(e);
+      this.d.notify(stuckLine(from, rec, shown(why), this.d.glyphs));
+      return;
+    }
     this.moves.push({ from: from.name, to: rec.project.name, at: Date.now() });
     this.d.notify(followedLine(from, rec, left, this.d.glyphs));
   }

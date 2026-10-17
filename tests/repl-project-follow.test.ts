@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activeProjectPath, folderProject, projectId, saveActiveProject, type ActiveProject } from '../src/project/index.js';
-import { ActiveProjectFollower, readActiveRecord, type Busy, type StillRunning } from '../src/repl/project-follow.js';
+import { ActiveProjectFollower, followedLine, readActiveRecord, type Busy, type StillRunning } from '../src/repl/project-follow.js';
 import { Workspace } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Segment } from '../src/term/theme.js';
@@ -126,6 +126,27 @@ describe('the follower of the active-project record (R7 H149)', () => {
     expect(w.notes[2]).toBe('  → The active project is now blank (chosen in the Workbench): this REPL follows blank once the action running now ends; it finishes in tray.');
   });
 
+  it('a folder it cannot enter: the REPL stays, says why, and keeps following later changes', async () => {
+    const tray = project('tray');
+    const locked = project('locked');
+    const blank = project('blank');
+    let here = tray;
+    const notes: string[] = [];
+    const f = new ActiveProjectFollower({
+      file: activeProjectPath(), current: () => here, busy: () => null, glyphs: g, running: () => [], notify: (l) => notes.push(text(l)),
+      move: (p) => { if (p.root === locked.root) throw Object.assign(new Error('permission denied'), { code: 'EACCES' }); here = p; },
+    });
+    stops.push(() => f.stop());
+    f.start();
+    chooseElsewhere(locked, 'workbench');
+    await until(() => notes.length === 1);
+    expect(notes[0]).toBe('  ✖ The active project is now locked (chosen in the Workbench), but this REPL could not move there (EACCES): it stays in tray; /project locked tries again.');
+    expect(here.name).toBe('tray');
+    chooseElsewhere(blank, 'workbench');
+    await until(() => notes.length === 2);
+    expect(here.name).toBe('blank');
+  });
+
   it('reads the record as readActiveProject does: a folder that is one; `by` only when it is a surface it knows; a name with control characters is said without them', () => {
     const p = project('tray');
     const file = activeProjectPath();
@@ -138,6 +159,9 @@ describe('the follower of the active-project record (R7 H149)', () => {
     expect(readActiveRecord(file)).toBeNull();
     writeFileSync(file, 'not json');
     expect(readActiveRecord(file)).toBeNull();
+    // a name a record gives is said without its control characters (no escape sequence reaches the terminal)
+    const said = text(followedLine(p, { project: { name: 'evil\u001b[2J\u0007name', root: p.root, chosen: true }, by: null, text: '' }, [], g));
+    expect(said).toBe('  → Now in evil[2Jname: the active project changed (chosen elsewhere), and this REPL follows it; /project shows it.');
   });
 });
 
