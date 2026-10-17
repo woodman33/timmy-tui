@@ -83,6 +83,14 @@ export interface WorkspaceAction {
   enabled: boolean;
   why?: string;
   effect: ActionEffect;
+  /**
+   * R7 lead (the operator's order of 2026-10-16, 22:08 PT: "Fix Enter unexpectedly stopping another surface's turn"): the
+   * one surface that does this action, when only that surface does it (the chat tab's Stop the turn: the surface that sent
+   * the turn, as `command` says in words). Any other surface shows the action and where it is done, and never runs it on a
+   * key: a stop asked from another surface is its own deliberate step there, never the Enter that a primary next step takes.
+   * Absent: the action is done where it is shown.
+   */
+  doneIn?: 'repl' | 'monitor' | 'workbench' | 'companion';
 }
 
 /** A connection, as Timmy last observed it. `live` needs an answered request with its time; a setting alone is `configured`. */

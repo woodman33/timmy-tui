@@ -27,6 +27,7 @@ import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
 import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
+import { pendingDrafts } from '../studio/boards.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
@@ -456,14 +457,15 @@ export const turnStopWords = (s: ChatSurface): string => (s === 'repl' ? 'Ctrl+C
 /** The same, as the chat tab's "Stop the turn" command (the Workbench reads "Esc in the composer" as its own Esc). */
 export const turnStopCommand = (s: ChatSurface): string => (s === 'repl' ? 'Ctrl+C in the REPL that sent it' : s === 'companion' ? 'Stop on the companion page that sent it' : `Esc in the composer that sent it (${surfaceWords(s)})`);
 
-const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect'>> = {}): WorkspaceAction => ({
-  n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}),
+const act = (n: number, label: string, command: string, o: Partial<Pick<WorkspaceAction, 'primary' | 'enabled' | 'why' | 'effect' | 'doneIn'>> = {}): WorkspaceAction => ({
+  n, label, command, primary: o.primary ?? false, enabled: o.enabled ?? true, effect: o.effect ?? 'read', ...(o.why ? { why: o.why } : {}), ...(o.doneIn ? { doneIn: o.doneIn } : {}),
 });
 
 /** Each tab's actions. Only commands that exist (the REPL's registry, `timmy`'s verbs); the primary one comes from the records. */
-export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[]; ollamaStart?: string } = {}): Record<TabId, WorkspaceAction[]> {
+export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'surface'>[] = [], o: { studioRunning?: boolean; connections?: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[]; recentTurns?: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[]; ollamaStart?: string; drafts?: number } = {}): Record<TabId, WorkspaceAction[]> {
   const waiting = wb.activity.waiting_on_you;
   const running = wb.activity.running;
+  const drafts = Math.max(0, Math.floor(o.drafts ?? 0));
   const routeReady = wb.route.ready;
   const stop = wb.activity.stop_current;
   const firstBlock = wb.workflows.docs.flatMap((d) => d.blocks.map((b) => ({ doc: d.rel, block: b.name })))[0];
@@ -490,7 +492,8 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
         : act(1, 'Send a message', 'type in Chat, then Enter', { primary: routeReady && !fix, enabled: routeReady, effect: 'network', ...(routeReady ? {} : { why: fix ? `${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)}: ${fix.command}` : 'no chat route: timmy init --chat openrouter' }) }),
       fix && !turns.length ? act(2, fix.label, fix.command, { primary: true, effect: fix.effect }) : act(2, 'Choose the model', '/model'),
       turns.length
-        ? act(3, 'Stop the turn', turnStopCommand(turns[0].surface as ChatSurface), { primary: true })
+        // R7 lead (H148's N3): done only where the turn was sent; another surface shows where, and never stops it on Enter
+        ? act(3, 'Stop the turn', turnStopCommand(turns[0].surface as ChatSurface), { primary: true, doneIn: turns[0].surface as ChatSurface })
         : act(3, 'Stop the turn', 'Esc in the composer', { enabled: false, why: 'only while a turn runs' }),
       act(4, 'Show it in the companion', 'timmy watch'),
     ],
@@ -510,10 +513,15 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
     // R6 lead (the R5 interaction review, item 13): the label names what the command does and leaves the drawing request
     // to words, since the strip shows the command after it; before, "… then ask /canvas open" read as if /canvas open were
     // the request. Short enough that an 800 px strip stays two rows.
+    // R7 lead (H147's R6 finding 2; the operator: "Make Studio's primary action reflect the actual next step when a draft is
+    // waiting"): a draft Timmy proposed on the project's board (src/studio/boards.ts pendingDrafts, the one the waiting count
+    // reads) is the next step until it is accepted or discarded, done on the draft itself in Studio
     studio: [
-      o.studioRunning
-        ? act(1, 'Open the canvas for Timmy (then ask it to draw)', '/canvas open', { primary: true, effect: 'local change' })
-        : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
+      drafts > 0
+        ? act(1, drafts === 1 ? 'Accept or discard the draft Timmy proposed' : `Accept or discard the ${drafts} drafts Timmy proposed`, o.studioRunning ? 'Accept or Discard on the draft, in Studio' : '/studio, then Accept or Discard on the draft', { primary: true, effect: 'local change' })
+        : o.studioRunning
+          ? act(1, 'Open the canvas for Timmy (then ask it to draw)', '/canvas open', { primary: true, effect: 'local change' })
+          : act(1, 'Open Studio', '/studio', { primary: true, effect: 'local change' }),
       act(2, 'Where Studio is, and its state', '/canvas'),
       act(3, 'Start a project from a public starter', '/project new <name> --from <starter>', { effect: 'local change' }),
       act(4, 'Show the board', '/board'),
@@ -613,6 +621,8 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })()
     .filter((t) => !recentTurns.some((r) => r.turn === t.id));
   const turn = turns[0];
+  // R7 lead: the drafts waiting on the project's board, as the waiting count reads them (src/ops/waiting.ts)
+  const draftsNow = (() => { try { return pendingDrafts(wb.project.root, env)?.count ?? 0; } catch { return 0; } })();
   // R5 lead (the QA round, defect 6): no clock time in the words; each surface shows `since` in its own one format
   const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)}` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({
@@ -624,7 +634,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
     tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) })),
-    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns, ollamaStart: ollamaStartStep({ cli: ollamaCli(d, env), platform: d.platform ?? process.platform }) }),
+    actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns, ollamaStart: ollamaStartStep({ cli: ollamaCli(d, env), platform: d.platform ?? process.platform }), drafts: draftsNow }),
     connections,
     activity: {
       running: wb.activity.running + turns.length, waitingOnYou: wb.activity.waiting_on_you,

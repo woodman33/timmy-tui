@@ -325,6 +325,36 @@ describe('the primary next step follows the records', () => {
     expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 })).studio[0]).toMatchObject({ label: 'Open Studio', command: '/studio', primary: true });
     expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [], { studioRunning: true }).studio[0]).toMatchObject({ command: '/canvas open', primary: true });
   });
+  // R7 lead (H147's R6 finding 2; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting")
+  it('R7 lead: while a draft waits on the board, Studio\'s one next step is its Accept or Discard, opened or not', () => {
+    const open = actionsOf(wb({ ready: true, waiting: 1, running: 0 }), [], { studioRunning: true, drafts: 1 });
+    expect(open.studio[0]).toMatchObject({ label: 'Accept or discard the draft Timmy proposed', command: 'Accept or Discard on the draft, in Studio', primary: true, enabled: true });
+    expect(open.studio.filter((x) => x.primary)).toHaveLength(1);
+    expect(open.studio.map((x) => x.command)).not.toContain('/canvas open');
+    const closed = actionsOf(wb({ ready: true, waiting: 1, running: 0 }), [], { drafts: 2 });
+    expect(closed.studio[0]).toMatchObject({ label: 'Accept or discard the 2 drafts Timmy proposed', command: '/studio, then Accept or Discard on the draft', primary: true });
+    // none waiting: as before
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [], { studioRunning: true, drafts: 0 }).studio[0]).toMatchObject({ command: '/canvas open', primary: true });
+  });
+  it('R7 lead: the frame reads the drafts from the project\'s saved board, as the waiting count does', async () => {
+    const dir = join(home, 'timmy', 'canvas', 'projects', projectId(project));
+    mkdirSync(dir, { recursive: true });
+    const draft = (id: string, n: number) => ({ id: `shape:${id}`, typeName: 'shape', type: 'geo', meta: { timmyDraft: { id: `draft-0000000${n}`, job: `cj-${n}` } } });
+    writeFileSync(join(dir, 'canvas.json'), JSON.stringify({ format: 'timmy-canvas', snapshot: { store: { 'shape:a': draft('a', 1), 'shape:b': draft('b', 1) } } }));
+    const f = await frame();
+    expect(f.actions.studio[0]).toMatchObject({ label: 'Accept or discard the draft Timmy proposed', primary: true });
+    expect(f.activity.waitingOnYou).toBe(1);
+  });
+  // R7 lead (H148's N3: "While the REPL answers, the primary is ▶ 3 Stop the turn … Yet Enter … stops the REPL's turn at once")
+  it('R7 lead: Stop the turn names the one surface that stops it (the one that sent the turn), so no other surface runs it on a key', () => {
+    const a = actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [{ surface: 'repl' }]);
+    expect(a.chat[2]).toMatchObject({ label: 'Stop the turn', command: turnStopCommand('repl'), primary: true, doneIn: 'repl' });
+    expect(actionsOf(wb({ ready: true, waiting: 0, running: 0 }), [{ surface: 'companion' }]).chat[2]).toMatchObject({ doneIn: 'companion' });
+    const idle = actionsOf(wb({ ready: true, waiting: 0, running: 0 }));
+    expect(idle.chat[2]).toMatchObject({ enabled: false });
+    expect(idle.chat[2].doneIn).toBeUndefined();
+    for (const tab of Object.values(idle)) for (const x of tab) expect(x.doneIn, x.label).toBeUndefined();
+  });
   it('R5 lead: "needs you" has one meaning: Workflows counts what waits on a person now, never the blocks that ask first', () => {
     const docs = [{ rel: 'APPROVAL.md', blocks: [{ name: 'tidy', needs_person: true }] }];
     const quiet = actionsOf(wb({ ready: true, waiting: 0, running: 0, docs }));
