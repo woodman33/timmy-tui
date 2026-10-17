@@ -204,6 +204,12 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     expect(no(a, 'refs/cube.stl', { sha: 'a'.repeat(64) })).toEqual([409, `Not served: refs/cube.stl changed since the list was read (sha256 ${sha(cubeStl(10)).slice(0, 12)} now): read the list again.`]);
     put(a, 'refs/bad.stl', 'not an STL at all, and long enough to be read as one: '.repeat(4));
     expect(no(a, 'refs/bad.stl')[0]).toBe(422);
+    // a binary STL whose corner is not a finite number: not measured in the list, and not drawn
+    const nan = cubeStl(10);
+    nan.writeFloatLE(Number.NaN, 84 + 50 * 3 + 12 + 4);
+    put(a, 'refs/nan.stl', nan);
+    expect(listMeshes({ root: a, env }).meshes.find((m) => m.path === 'refs/nan.stl')?.why).toBe('not measured: triangle 4 has a coordinate that is not a finite number');
+    expect(no(a, 'refs/nan.stl')).toEqual([422, 'Not drawn: triangle 4 of refs/nan.stl has a coordinate that is not a finite number.']);
   });
 
   it('recordings: an .rrd\'s header facts and what stays unknown, with why; Rerun\'s viewer named found or needing setup, never run', () => {

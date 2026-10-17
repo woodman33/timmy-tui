@@ -333,19 +333,19 @@ export function meshView(root: string, rel: string, o: { cap?: number; sha?: str
   }
   const sha = sha256(read.body);
   if (o.sha !== undefined && o.sha !== sha) return { ok: false, status: 409, error: `Not served: ${rel} changed since the list was read (sha256 ${sha.slice(0, 12)} now): read the list again.` };
-  const r = readbackOf(read.body, rel, sha);
-  if (!r.ok) return { ok: false, status: 422, error: `Not drawn: ${rel} is ${r.error}.` };
-  // the corners, from the bytes just measured (readbackOf keeps no triangles; parseStl is the reader it uses)
-  const tris = trianglesOf(read.body);
-  if (!tris) return { ok: false, status: 422, error: `Not drawn: ${rel} could not be read as triangles.` };
+  // the corners, read by the reader that measured them (parseStl, which readbackOf uses); the view measures nothing
+  const p = parseStl(read.body);
+  if ('error' in p) return { ok: false, status: 422, error: `Not drawn: ${rel} is ${p.error}.` };
+  const tris = p.triangles;
   const total = tris.length / 9;
   const pick = viewPick(total, o.cap ?? VIEW_MAX_TRIANGLES);
   const body = Buffer.alloc(pick.length * 36);
-  pick.forEach((t, k) => { for (let j = 0; j < 9; j += 1) body.writeFloatLE(tris[t * 9 + j], k * 36 + j * 4); });
+  for (let k = 0; k < pick.length; k += 1) {
+    for (let j = 0; j < 9; j += 1) {
+      const v = tris[pick[k] * 9 + j];
+      if (!Number.isFinite(v)) return { ok: false, status: 422, error: `Not drawn: triangle ${pick[k] + 1} of ${rel} has a coordinate that is not a finite number.` };
+      body.writeFloatLE(v, k * 36 + j * 4);
+    }
+  }
   return { ok: true, path: rel, body, shown: pick.length, total, sha256: sha };
-}
-
-function trianglesOf(body: Buffer): Float32Array | null {
-  const p = parseStl(body);
-  return 'error' in p ? null : p.triangles;
 }
