@@ -122,7 +122,9 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
     const j = lastJson(d.stdout);
-    expect(j.why).toMatch(/^SIGINT received; job j[0-9a-f]{6} stopped$/);
+    // R7 lead (H148's N5): a job a cancel ended is "cancelled" in its run's words since 31b0eb5 (src/ops/outcome.ts jobOutcome);
+    // c56303c's suite saw "stopped", the word then
+    expect(j.why).toMatch(/^SIGINT received; job j[0-9a-f]{6} cancelled$/);
     expect(j.at_once).toBeUndefined();
     expect(receipts(j)).toEqual(NORMAL_STOP);
     // one stop, by one SIGINT
@@ -145,7 +147,7 @@ describe('R4 (H114): why "a second SIGINT 80 ms after the first" was not inside 
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
     const j = lastJson(d.stdout);
-    expect(j.why).toMatch(/^SIGINT received; job j[0-9a-f]{6} stopped$/);
+    expect(j.why).toMatch(/^SIGINT received; job j[0-9a-f]{6} cancelled$/);
     expect(receipts(j)).toEqual(NORMAL_STOP);
     { const stop = await wrapperStop(s); expect(stop.signals, `the pty wrapper's stop record: ${JSON.stringify(stop)}`).toEqual(['SIGTERM', 'SIGKILL']); }
   }, 120_000);
