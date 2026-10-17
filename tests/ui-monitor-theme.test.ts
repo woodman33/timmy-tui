@@ -35,10 +35,20 @@ function shown(token: keyof typeof theme, palette: TerminalPalette, measured: Me
 }
 
 describe('the monitor\'s colors, as a terminal shows them', () => {
-  it('every text token reads at 7:1 or better on Night, Day and the audited terminal', () => {
+  it('every neutral text token reads at 6:1 or better (B10; 7:1 before) on Night, Day and the audited terminal', () => {
     for (const [palette, measured] of CASES) {
-      for (const token of ['textPrimary', 'textSecondary', 'textMuted', 'accent', 'warn', 'structure'] as const) {
-        expect(contrastRatio(...shown(token, palette, measured)), `${token} on ${palette.name}`).toBeGreaterThanOrEqual(7);
+      for (const token of ['textPrimary', 'textSecondary', 'textMuted', 'structure'] as const) {
+        expect(contrastRatio(...shown(token, palette, measured)), `${token} on ${palette.name}`).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+  it('B10: focus, the selection and attention are amber (law predict) and read at 4.5:1 or better, like every meaning', () => {
+    expect(theme.accent).toBe(theme.predict);
+    expect(theme.warn).toBe(theme.predict);
+    expect(theme.lineFocus).toBe(theme.predict);
+    for (const [palette, measured] of CASES) {
+      for (const token of ['accent', 'warn'] as const) {
+        expect(contrastRatio(...shown(token, palette, measured)), `${token} on ${palette.name}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

@@ -1,0 +1,16 @@
+{
+  "id": "G3",
+  "kind": "guided",
+  "title": "VoxVision review",
+  "domain": "spatial review",
+  "intro": "Review a VoxVision result: what was asked, what was measured, and what was only generated or predicted. Keep each in its own frame.",
+  "columns": 3,
+  "frames": [
+    { "name": "Request", "guide": "What was asked, and the source it worked from: a file name or a record id." },
+    { "name": "Reference images", "guide": "Drop your own reference images here. They keep their own colors, and on their own they prove nothing about size." },
+    { "name": "Measured", "guide": "Dimensions and checks that came from native geometry or a calibrated observation, each with its source, its units and its frame." },
+    { "name": "Generated or predicted", "guide": "Anything a model made or estimated: views, masks, depth, guesses. It stays here until a check confirms it." },
+    { "name": "Checks", "guide": "Each check that ran, its outcome in words (passed, failed, not run), and its receipt. A check that did not run is not a pass." },
+    { "name": "Decision", "guide": "Accept, redo or stop, and why." }
+  ]
+}

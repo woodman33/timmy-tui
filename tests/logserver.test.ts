@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { folderWords, isLocalIp, startManagedLogServer } from '../src/utils/logserver.js';
-import { theme } from '../src/tui/theme.js';
+import { HOMEBREW } from '../src/theme/tokens.js';
 
 describe('companion back-event authorization', () => {
   it('accepts loopback callers only', () => {
@@ -20,7 +20,7 @@ describe('companion back-event authorization', () => {
   });
 });
 
-// Execute the script actually served by the HTTP listener. Keeping `theme`
+// Execute the script actually served by the HTTP listener. Keeping the server's palette object
 // absent from the browser global reproduces the reported event-row failure.
 // R4 (H84): the page reads its token from its fragment (a FAKE one here) and its
 // event stream with fetch, the token in a header (an EventSource cannot send one):
@@ -83,11 +83,14 @@ async function pageScript(receipts: unknown = [], failRequests = false, token = 
 describe('live-log browser script', () => {
   it('renders incoming event kinds with the server palette and escapes payload text', async () => {
     const page = await pageScript();
+    // R5 (B10): the page is a browser page and paints the shared tokens. An event says what happened in its word: a sealed
+    // receipt is recorded, not verified, so it is plain text; a failure and what waits on you are amber; nothing is green.
     const cases = [
-      ['receipt.sealed', theme.seal], ['job.failed', theme.danger],
-      ['approval.gated', theme.warn], ['run.started', theme.accent],
-      ['agent.observed', theme.textSecondary],
+      ['receipt.sealed', HOMEBREW.text], ['job.failed', HOMEBREW.failure],
+      ['approval.gated', HOMEBREW.attention], ['run.started', HOMEBREW.text],
+      ['agent.observed', HOMEBREW.textSecondary],
     ];
+    for (const [, color] of cases) expect([HOMEBREW.live, HOMEBREW.liveDim]).not.toContain(color);
     // the stream answered: the page says live
     expect(page.get('conn').textContent).toBe('live');
     for (const [kind, color] of cases) {

@@ -377,7 +377,7 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
 }
 
 const LIVE_CSS = `
-.live { color: ${HOMEBREW.accent}; }
+.live { color: ${HOMEBREW.live}; }
 .live.not-live { color: ${HOMEBREW.attention}; font-weight: 400; }
 #status { min-height: 1.5em; }
 #status.bad { color: ${HOMEBREW.failure}; }

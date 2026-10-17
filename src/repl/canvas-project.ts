@@ -65,6 +65,8 @@ export type CanvasSeen =
   | { state: 'running'; project: { name: string; id: string } | null; pageConnected: boolean; board: boolean; hidden?: boolean };
 
 const LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
+/** R7 (H149): what handOff says when the canvas is from before R7 and knows no `follow` (switched then passes on as before). */
+const OLDER_FOLLOW = 'this Timmy Canvas is from before R7 and knows no follow';
 const SHORT_MS = 2000;
 /** R4 (H75): a grant is kept for the page this long (the server keeps it for two minutes). */
 const GRANT_KEEP_MS = 100_000;
@@ -84,8 +86,13 @@ export class CanvasProject {
   private grant: { code: string; at: number } | null = null;
   /** R4 (H75): the canvas did not know the holder field (a Timmy Canvas from before card actions) */
   private older = false;
+  /**
+   * R6 (H139): how many times this REPL has opened the canvas page (/canvas open): the agent's canvas tools read the board's
+   * revision again after one (src/agent/canvas-tools.ts), so the first draw after a reopen is made from what the board holds now.
+   */
+  private opens = 0;
   /** R4 (H75): what the last ask for actions ended with (for /canvas and the tests) */
-  private heard: 'not asked' | 'listening' | 'stopped: another REPL holds the project' | 'stopped: the canvas names no project now' | 'stopped: the canvas did not answer' | 'stopped: the REPL is ending' = 'not asked';
+  private heard: 'not asked' | 'listening' | 'standby: the canvas shows a project this REPL does not hold' | 'stopped: another REPL holds the project' | 'stopped: the canvas names no project now' | 'stopped: the canvas did not answer' | 'stopped: the REPL is ending' = 'not asked';
 
   constructor(private readonly d: CanvasProjectDeps) {}
 
@@ -116,15 +123,19 @@ export class CanvasProject {
   /**
    * R4 (H83): what the agent's canvas tools send: the token, and this REPL's holder id while it names itself the holder of its
    * project (a REPL that takes the cards' actions, and a canvas that knows the field). Null: no token here (or a canvas off
-   * this machine): the canvas then refuses the call and says why.
+   * this machine): the canvas then refuses the call and says why. R6 (H139): and the project this REPL draws on (its id: a canvas
+   * that shows another runs nothing for it), and how many times this REPL has opened the canvas page (`opened`).
    */
-  credentials(): { token: string; holder: string | null } | null {
+  credentials(): { token: string; holder: string | null; project: string; opened: number } | null {
     const token = this.tokenNow();
-    return token ? { token, holder: this.d.act && !this.older ? this.holder : null } : null;
+    return token ? { token, holder: this.d.act && !this.older ? this.holder : null, project: this.d.projectId(this.d.project().root), opened: this.opens } : null;
   }
 
-  /** Names the active project to the canvas; says why not when it cannot. R4 (H75): `grant`, for /canvas open's page. */
-  async handOff(o: { grant?: boolean } = {}): Promise<HandOff> {
+  /**
+   * Names the active project to the canvas; says why not when it cannot. R4 (H75): `grant`, for /canvas open's page. R7 (H149):
+   * `follow`, a switch passed on (switched): the canvas takes it only while it is this REPL's.
+   */
+  async handOff(o: { grant?: boolean; follow?: boolean } = {}): Promise<HandOff> {
     if (this.closed) return { ok: false, why: 'this REPL is ending' };
     if (!this.local()) return { ok: false, why: 'this canvas is at TIMMY_STUDIO_URL, not on this machine, and is never sent a folder' };
     const token = this.token();
@@ -139,7 +150,7 @@ export class CanvasProject {
         res = await this.http(`${this.base()}/api/project/active`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: this.d.receipts(), board: this.d.board(), ...(holder ? { holder: this.holder } : {}) }),
+          body: JSON.stringify({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: this.d.receipts(), board: this.d.board(), ...(holder ? { holder: this.holder } : {}), ...(o.follow && holder ? { follow: true } : {}) }),
           signal: AbortSignal.timeout(SHORT_MS),
         });
       } catch {
@@ -151,11 +162,19 @@ export class CanvasProject {
       if (holder && res.status === 400 && typeof body.error === 'string' && /^Unknown field: "holder"\. The fields are root, name, jobs, receipts and board\.$/.test(body.error)) {
         this.older = true;
         holder = false;
+        // R7 (H149): a switch passed on goes as before to such a canvas (switched), never as a naming that takes it from another
+        if (o.follow) return { ok: false, why: OLDER_FOLLOW };
         continue;
       }
       break;
     }
     if (res.status === 404 && body.ok === undefined) return { ok: false, why: 'this Timmy Canvas is older and cannot show projects: restart it' };
+    // R7 (H149): a canvas from before R7 refuses the field it does not know; one that knows it refuses a switch while another REPL holds it
+    if (o.follow && res.status === 400 && typeof body.error === 'string' && body.error.startsWith('Unknown field: "follow"')) return { ok: false, why: OLDER_FOLLOW };
+    if (o.follow && res.status === 409) {
+      void this.check();
+      return { ok: false, why: typeof body.error === 'string' ? body.error : 'another Timmy REPL holds the canvas now' };
+    }
     if (!res.ok || body.ok !== true || typeof body.project?.id !== 'string' || typeof body.project?.name !== 'string') {
       return { ok: false, why: `the canvas refused it: ${typeof body.error === 'string' ? body.error : `HTTP ${res.status}`}` };
     }
@@ -163,8 +182,28 @@ export class CanvasProject {
     this.seen = { state: 'running', project: { name: body.project.name, id: body.project.id }, pageConnected: this.seen.state === 'running' ? this.seen.pageConnected : false, board: body.board === true };
     // R4 (H75): this REPL takes the project's card actions, and /canvas open's page gets its grant.
     if (holder) void this.listen();
-    if (o.grant) await this.askGrant(token);
+    if (o.grant) {
+      await this.askGrant(token);
+      // R6 (H139): a reopen: the next draw reads the board's revision again
+      this.opens += 1;
+    }
     return { ok: true, name: body.project.name };
+  }
+
+  /**
+   * R7 (H149): this REPL moved to another project (/project, or its follow of the active project: src/repl/project-follow.ts), or
+   * its live board started or stopped: a REPL that named a project to the canvas before passes the switch on, with its holder,
+   * and the canvas server takes it while the canvas is this REPL's: it shows what this REPL named, or it followed the active
+   * project itself since this REPL last named one (src/studio/project-link.ts `follow`). So this REPL's naming wins over the
+   * server's own follow, whichever comes first. A canvas another REPL holds keeps what it shows (null: nothing to pass on).
+   */
+  async switched(): Promise<HandOff | null> {
+    if (this.named === null || this.closed) return null;
+    if (this.older || !this.d.act) return this.follows ? this.handOff() : null;
+    const told = await this.handOff({ follow: true });
+    // a canvas from before R7 knows no `follow`: the switch is passed on as before, while it still shows what this REPL named
+    if (!told.ok && told.why === OLDER_FOLLOW) return this.follows ? this.handOff() : null;
+    return told;
   }
 
   /** R4 (H75): a one-time grant for the page /canvas open opens (kept until openTarget takes it). */
@@ -201,6 +240,7 @@ export class CanvasProject {
     this.listening = true;
     this.heard = 'listening';
     let misses = 0;
+    let quickBefore = false;
     try {
       while (!this.closed) {
         const token = this.token();
@@ -210,7 +250,9 @@ export class CanvasProject {
         const asked = Date.now();
         let res: Response;
         try {
-          res = await this.http(`${this.base()}/api/project/inbox?holder=${this.holder}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.any([this.asking.signal, timeout]) });
+          // R7 (H149): with the project this REPL works in now: while it holds no project the canvas shows, it waits in standby,
+          // and the canvas that follows the active project back to that project gives it back (src/studio/card-relay.ts)
+          res = await this.http(`${this.base()}/api/project/inbox?holder=${this.holder}&project=${this.d.projectId(this.d.project().root)}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.any([this.asking.signal, timeout]) });
         } catch {
           if (this.closed) { this.heard = 'stopped: the REPL is ending'; return; }
           if (timeout.aborted) continue;
@@ -221,8 +263,12 @@ export class CanvasProject {
         misses = 0;
         if (res.status === 204) {
           await res.body?.cancel();
-          // An empty answer is the server's 25 s wait ending; one that came at once is not asked again at once.
-          if (Date.now() - asked < 1000) await new Promise((r) => setTimeout(r, 1000).unref());
+          this.heard = 'listening';
+          // An empty answer is the server's 25 s wait ending, or (R7 H149) the canvas named another holder: asked again at once
+          // (in standby, then), but never twice in a row at once
+          const quick = Date.now() - asked < 1000;
+          if (quick && quickBefore) await new Promise((r) => setTimeout(r, 1000).unref());
+          quickBefore = quick;
           continue;
         }
         if (!res.ok) {
@@ -231,8 +277,16 @@ export class CanvasProject {
           return;
         }
         let envelope: { id?: unknown } | undefined;
-        try { envelope = ((await res.json()) as { action?: { id?: unknown } }).action; } catch { envelope = undefined; }
+        let standing: { standby?: unknown; woken?: unknown } = {};
+        try { standing = (await res.json()) as typeof standing & { action?: { id?: unknown } }; envelope = (standing as { action?: { id?: unknown } }).action; } catch { envelope = undefined; }
+        if (standing.standby === true) {
+          // R7 (H149): this REPL holds no project the canvas shows: it asks again (at once when woken, else a second later)
+          this.heard = 'standby: the canvas shows a project this REPL does not hold';
+          if (standing.woken !== true && Date.now() - asked < 1000) await new Promise((r) => setTimeout(r, 1000).unref());
+          continue;
+        }
         if (!envelope || typeof envelope.id !== 'string' || !/^[0-9a-f-]{36}$/.test(envelope.id)) continue;
+        this.heard = 'listening';
         let answer: { status: number; text: string };
         try { answer = await this.d.act(envelope); } catch (e) { answer = { status: 500, text: `This REPL could not run the action: ${e instanceof Error ? e.message : String(e)}` }; }
         try {

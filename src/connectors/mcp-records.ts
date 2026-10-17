@@ -15,6 +15,10 @@
  *                replaced by "…" there too, and `redacted` counts them; output_sha256 stays the sha256 of the bytes as
  *                printed, kept_sha256 is output.json's own.
  *
+ *   wire.ndjson  R6 (H142): only for a call made through Timmy's wire tap (the companion's Tools & MCP inspector puts one
+ *                between the route and a stdio server, src/mcp/wire-tap.ts): one line per JSON-RPC frame with the time it
+ *                passed, measured there; mode 0600; call.json names its sha256 and the receipt binds it too.
+ *
  * Then an `mcp.call` receipt is sealed on the runs chain binding call.json's sha256 and the output's. Never stored:
  * header or environment values (names only), and never a server URL beyond its safe form (mcp-cli.ts safeServerUrl).
  *
@@ -41,6 +45,8 @@ export const MCP_CALL_ID = /^m[0-9a-f]{8}$/;
 export const newMcpCallId = (): string => `m${randomBytes(4).toString('hex')}`;
 export const mcpCallRel = (id: string): string => `${MCP_CALLS_DIR}/${id}/call.json`;
 export const mcpOutputRel = (id: string): string => `${MCP_CALLS_DIR}/${id}/output.json`;
+/** R6 (H142): a call's JSON-RPC traffic as Timmy's wire tap saw it (src/mcp/wire-tap.ts), when the call went through one. */
+export const mcpWireRel = (id: string): string => `${MCP_CALLS_DIR}/${id}/wire.ndjson`;
 
 export type McpOutcome = 'answered' | 'failed' | 'needs authorization' | 'stopped';
 
@@ -277,6 +283,12 @@ export interface McpCallFacts {
   annotations: Record<string, boolean | number | string> | null;
   annotationsNote?: string;
   notes: string[];
+  /**
+   * R6 (H142): the call's JSON-RPC traffic, one line per frame with the time it passed, as Timmy's wire tap between the route
+   * and a stdio server wrote it (src/mcp/wire-tap.ts): kept as wire.ndjson beside the record (mode 0600) and bound by the
+   * receipt with the others; absent when the call went through no tap (/mcp call in the REPL, the agent's call_mcp_tool).
+   */
+  wire?: { kept: Buffer; frames: number; sessions: number };
 }
 
 /** Where a record goes and how it is sealed: the project, its name, and the REPL's seal (a short receipt id back). */
@@ -287,7 +299,7 @@ export interface McpRecordContext {
 }
 
 export type McpRecordWritten =
-  | { ok: true; id: string; call: string; output?: string; callSha256: string; receipt?: string }
+  | { ok: true; id: string; call: string; output?: string; wire?: string; callSha256: string; receipt?: string }
   | { ok: false; error: string; receipt?: string };
 
 /** Creates a new file that must not exist, mode 0600 whatever the umask, and writes it whole. */
@@ -306,7 +318,7 @@ function writeNew(path: string, data: Buffer | string): void {
  * cannot be written is said, and the receipt is still sealed with why (the call happened either way).
  */
 export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordWritten {
-  let written: { id: string; call: string; output?: string; callSha256: string; callBytes: number } | undefined;
+  let written: { id: string; call: string; output?: string; wire?: string; callSha256: string; callBytes: number } | undefined;
   let failure: string | undefined;
   try {
     let id = '';
@@ -321,6 +333,7 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
     if (!dir) throw new Error('no free call id');
     const kept = f.output?.kept;
     if (f.output && kept) writeNew(`${dir}/output.json`, kept);
+    if (f.wire) writeNew(`${dir}/wire.ndjson`, f.wire.kept);
     const record = {
       schema: MCP_CALL_SCHEMA,
       id,
@@ -344,6 +357,8 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
       truncated: f.output?.truncated ?? false,
       ...(f.output && kept ? { kept_bytes: kept.length, kept_sha256: sha256(kept) } : {}),
       ...(f.output?.redacted ? { redacted: f.output.redacted } : {}),
+      // R6 (H142): the wire tap's trace of the call, when it went through one
+      ...(f.wire ? { wire_file: 'wire.ndjson', wire_bytes: f.wire.kept.length, wire_sha256: sha256(f.wire.kept), wire_frames: f.wire.frames, wire_sessions: f.wire.sessions } : {}),
       annotations: f.annotations,
       ...(f.annotationsNote ? { annotations_note: f.annotationsNote } : {}),
       ...(f.notes.length ? { notes: f.notes } : {}),
@@ -353,7 +368,7 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
     };
     const text = `${JSON.stringify(record, null, 2)}\n`;
     writeNew(`${dir}/call.json`, text);
-    written = { id, call: mcpCallRel(id), ...(f.output ? { output: mcpOutputRel(id) } : {}), callSha256: sha256(text), callBytes: Buffer.byteLength(text) };
+    written = { id, call: mcpCallRel(id), ...(f.output ? { output: mcpOutputRel(id) } : {}), ...(f.wire ? { wire: mcpWireRel(id) } : {}), callSha256: sha256(text), callBytes: Buffer.byteLength(text) };
   } catch (e) {
     // Its code (EACCES, ENOSPC, …) or Timmy's own words: an OS message would name the folder by its absolute path.
     const code = (e as NodeJS.ErrnoException).code;
@@ -373,6 +388,7 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
         outputs: [
           { path: written.call, sha256: written.callSha256, bytes: written.callBytes },
           ...(written.output && f.output ? [{ path: written.output, sha256: sha256(f.output.kept), bytes: f.output.kept.length }] : []),
+          ...(written.wire && f.wire ? [{ path: written.wire, sha256: sha256(f.wire.kept), bytes: f.wire.kept.length }] : []),
         ],
       } : {}),
       ...(f.output ? { output_sha256: f.output.sha256 } : {}),
@@ -385,7 +401,7 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
     });
   } catch { receipt = undefined; }
   if (!written) return { ok: false, error: failure ?? 'the record could not be written', ...(receipt ? { receipt } : {}) };
-  return { ok: true, id: written.id, call: written.call, ...(written.output ? { output: written.output } : {}), callSha256: written.callSha256, ...(receipt ? { receipt } : {}) };
+  return { ok: true, id: written.id, call: written.call, ...(written.output ? { output: written.output } : {}), ...(written.wire ? { wire: written.wire } : {}), callSha256: written.callSha256, ...(receipt ? { receipt } : {}) };
 }
 
 // ── reading records back (the board) ─────────────────────────────────────────────
@@ -397,6 +413,8 @@ export interface McpCallRecord {
   annotations: Record<string, unknown> | null; annotations_note?: string; notes?: string[]; project?: string; project_id?: string;
   /** Round R4 (H51): the operation (one request) the call was made in; absent before, or outside one */
   operation?: string;
+  /** R6 (H142): the wire tap's trace (wire.ndjson), when the call went through one */
+  wire_file?: string; wire_bytes?: number; wire_sha256?: string; wire_frames?: number; wire_sessions?: number;
 }
 
 export interface McpCallRead {

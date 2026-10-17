@@ -217,9 +217,10 @@ describe('a /run\'s end lines, cut at 80 and 100 columns, keep its operation (R4
     const l = await start('SLOW.md', 'long');
     await ws.stop(l.job);
     expect((await ws.jobs.done(l.job)).state).toBe('cancelled');
-    await until(() => notes.some((n) => n.startsWith(`  ${l.job} stopped`)), 10_000, 'the stopped line');
-    const stopped = notes.find((n) => n.startsWith(`  ${l.job} stopped`))!;
-    expect(stopped).toMatch(new RegExp(`^ {2}${l.job} stopped {2}operation ${l.op} · SLOW\\.md › long.* · /op ${l.op}$`));
-    for (const cols of [80, 100]) expect(stopped.slice(0, cols)).toContain(`${l.job} stopped  operation ${l.op}`);
+    // R7 lead (H148's N5): a job a cancel ended is cancelled, in the REPL's notice as in /stop's own line
+    await until(() => notes.some((n) => n.startsWith(`  ${l.job} cancelled`)), 10_000, 'the cancelled line');
+    const stopped = notes.find((n) => n.startsWith(`  ${l.job} cancelled`))!;
+    expect(stopped).toMatch(new RegExp(`^ {2}${l.job} cancelled {2}operation ${l.op} · SLOW\\.md › long.* · /op ${l.op}$`));
+    for (const cols of [80, 100]) expect(stopped.slice(0, cols)).toContain(`${l.job} cancelled  operation ${l.op}`);
   }, 120_000);
 });

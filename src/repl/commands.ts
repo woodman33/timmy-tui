@@ -8,6 +8,7 @@ import type { ApprovalRequest, Decision } from './approvals.js';
 import { plural } from './steps.js';
 import { nearest } from './suggest.js';
 import { surfacesSegments } from '../setup/surfaces.js';
+import { freeModels, freeOnlyOn, modelPrice } from '../agent/model-price.js';
 
 /** The four meanings with a color of their own (DESIGN.md §10 B2, B4). */
 export type MeaningRole = 'verified' | 'estimate' | 'failure' | 'ai';
@@ -389,15 +390,49 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'model',
     group: 'setup',
-    description: 'Show the model, or switch: /model <id>',
+    description: 'Model and price; /model <id>, free, free-only',
     run: (args, ctx) => {
-      // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it)
+      const a = args.trim();
+      // R5: what a model costs and can do, from OpenRouter's catalog as this computer has it (src/agent/model-price.ts)
+      const priceLine = (id: string): Segment[] => {
+        const p = modelPrice(id);
+        return [{ text: '  Price: ', role: 'secondary' }, { text: p.words, role: p.free === true ? 'primary' : p.free === false ? 'estimate' : 'secondary' }];
+      };
+      const freeOnlyLine = (): Segment[] => freeOnlyOn()
+        ? [{ text: '  Free-only: on', role: 'strong' }, { text: ' · a message to an OpenRouter model not known to be free is not sent (a local model costs nothing)', role: 'secondary' }]
+        : [{ text: '  Free-only: off', role: 'secondary' }, { text: ' · /model free-only on refuses any OpenRouter model not known to be free', role: 'secondary' }];
+      if (a === 'free') {
+        const free = freeModels();
+        if (!free.length) return void ctx.print([{ text: '  No free model in the catalog this computer has. ', role: 'secondary' }, { text: 'timmy models --refresh' }, { text: ' fetches it (free); OpenRouter names its free variants <id>:free.', role: 'secondary' }]);
+        ctx.print([{ text: `  Free models in the OpenRouter catalog (${free.length}; free by the catalog, not by a check of the account):`, role: 'secondary' }]);
+        for (const m of free.slice(0, 15)) ctx.print([{ text: `    ${m.id}` }, { text: `${m.ctx ? `  ${m.ctx >= 1e6 ? `${Number((m.ctx / 1e6).toFixed(2))}M` : `${Math.round(m.ctx / 1000)}k`} context` : ''}${m.tools === true ? '  tools' : m.tools === false ? '  no tools' : ''}`, role: 'secondary' }]);
+        if (free.length > 15) ctx.print([{ text: `    and ${free.length - 15} more: timmy models`, role: 'secondary' }]);
+        return void ctx.print([{ text: '  Switch: ', role: 'secondary' }, { text: '/model <id>' }, { text: ' · or the local model, no charge: ', role: 'secondary' }, { text: '/setup chat' }]);
+      }
+      const fo = /^free-only(?:\s+(on|off))?$/.exec(a);
+      if (fo) {
+        if (!fo[1]) return void ctx.print(freeOnlyLine());
+        return import('../utils/config.js').then(({ saveConfig }) => {
+          saveConfig({ freeOnly: fo[1] === 'on' });
+          ctx.print(freeOnlyLine());
+          if (process.env.TIMMY_CHAT_FREE_ONLY?.trim()) ctx.print([{ text: '  TIMMY_CHAT_FREE_ONLY is set in this environment and wins over this setting.', role: 'secondary' }]);
+        });
+      }
+      // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it).
+      // R5 lead: after free and free-only, which are the same on every route (the rehearsal of the review build found
+      // `/model free-only on` taken as an Ollama model's name on the local route)
       const local = ctx.chatModel?.(args);
       if (local) return local.then((lines) => { for (const line of lines) ctx.print(line); });
       const current = ctx.agent.getModel();
-      if (!args) return void ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
-      ctx.agent.setModel(args);
-      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current} ${ctx.glyphs.arrow} ` }, { text: args, role: 'strong' }]);
+      if (!a) {
+        ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
+        ctx.print(priceLine(current));
+        return void ctx.print(freeOnlyLine());
+      }
+      ctx.agent.setModel(a);
+      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current} ${ctx.glyphs.arrow} ` }, { text: a, role: 'strong' }]);
+      ctx.print(priceLine(a));
+      if (freeOnlyOn() && modelPrice(a).free !== true) ctx.print([{ text: `  ${ctx.glyphs.fail} free-only is on, and ${a} is not known to be free: messages will not be sent until you choose a free one.`, role: 'failure' }]);
     },
   },
   {

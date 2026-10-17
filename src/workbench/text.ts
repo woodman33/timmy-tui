@@ -13,14 +13,21 @@ export type Role =
   | 'secondary'
   /** a name or a heading: off-white, bold */
   | 'strong'
-  /** a command, a key, a button: Homebrew green */
+  /** a command, a key, a button: the text's colour. R7 (H150; DESIGN.md §10 B10 "Amber is exact"; R5 visual 10 "amber key hints
+   *  and commands"): keys, key hints and commands are not amber; their brackets and their words say what they are */
   | 'action'
+  /** R7 (H150): amber, where B10 puts it: the selection's marker, the one primary next step, a field's prompt (the field has the
+   *  keyboard), .intent and .predict, and a recommendation (a prediction) */
+  | 'accent'
   /** a link or a place to go: blue */
   | 'link'
   /** a named decision that waits on a person (NEEDS YOU, waiting on you): amber */
   | 'attention'
   /** failed, refused */
   | 'failure'
+  /** R5 (H131): an observed live connection, a passed check, a verified sealed receipt, and nothing else: green (DESIGN.md
+   *  B10). Never a command, a setting, a recommendation, a running process or a delivered result; always with its word. */
+  | 'live'
   /** made by a model, or sent over the network */
   | 'ai'
   /** a border or a rule */
@@ -108,6 +115,84 @@ export function pick(pieces: Line[], width: number, gap: Seg = { text: '  ' }): 
   });
   const out: Line = [];
   pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p); } });
+  return out;
+}
+
+/**
+ * R5 (H131; the QA round's defect 16): pieces with a rank (0 first), each kept whole or left out, the most important first:
+ * what fits in `width` cells, drawn in the order given (a less important piece is left out before a more important one).
+ */
+export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: number, gap: Seg = { text: '  ' }): Line {
+  const order = pieces.map((p, i) => ({ ...p, i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
+  const kept = new Set<number>();
+  let used = 0;
+  for (const p of order) {
+    const w = lineCells(p.line) + (kept.size ? cells(gap.text) : 0);
+    if (used + w <= width) { kept.add(p.i); used += w; }
+  }
+  const out: Line = [];
+  pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p.line); } });
+  return out;
+}
+
+/** Where a word too long for a row breaks best: just after a separator (a path's /, a ·, -, comma or colon) within `room`. */
+function breakAt(word: string, room: number): number {
+  const chars = [...word];
+  let fits = 0;
+  let w = 0;
+  for (const ch of chars) { const cw = visibleWidth(ch); if (w + cw > room) break; w += cw; fits += 1; }
+  if (fits <= 0) return 1;
+  for (let i = fits; i > Math.floor(fits / 3); i--) if (/[/·\-,:]/.test(chars[i - 1])) return chars.slice(0, i).join('').length;
+  return chars.slice(0, fits).join('').length;
+}
+
+/**
+ * R5 (H131; the QA round's defects 5, 15 and 25): a line of several voices wrapped to rows of at most `width` cells at its
+ * spaces, each piece keeping its role; a word wider than a row (a path) breaks just after a separator where it has one, else
+ * where the row ends, never with an ellipsis. Rows after the first begin with `indent`. A line that fits is returned as it is.
+ */
+export function wrapSegs(line: Line, width: number, indent = ''): Line[] {
+  if (width <= 0 || lineCells(line) <= width) return [line];
+  const indentW = visibleWidth(indent);
+  const out: Line[] = [];
+  let cur: Line = [];
+  let used = 0;
+  let fresh = false;
+  const trim = (): void => {
+    while (cur.length) {
+      const last = cur[cur.length - 1];
+      const t = last.text.replace(/\s+$/, '');
+      if (t === last.text) break;
+      used -= visibleWidth(last.text) - visibleWidth(t);
+      if (t) { cur[cur.length - 1] = { ...last, text: t }; break; }
+      cur.pop();
+    }
+  };
+  const newRow = (): void => { trim(); out.push(cur); cur = indent ? [{ text: indent }] : []; used = indentW; fresh = true; };
+  const add = (s: Seg, text: string): void => { cur.push({ ...s, text }); used += visibleWidth(text); fresh = false; };
+  for (const s of line) {
+    for (const tok of s.text.match(/\s+|\S+/g) ?? []) {
+      const w = visibleWidth(tok);
+      if (/^\s/.test(tok)) {
+        if (fresh) continue;
+        if (used + w > width) { newRow(); continue; }
+        add(s, tok);
+        continue;
+      }
+      if (used + w <= width) { add(s, tok); continue; }
+      if (!fresh && used > indentW) newRow();
+      let rest = tok;
+      while (visibleWidth(rest) > width - used) {
+        const n = breakAt(rest, Math.max(1, width - used));
+        add(s, rest.slice(0, n));
+        rest = rest.slice(n);
+        newRow();
+      }
+      if (rest) add(s, rest);
+    }
+  }
+  trim();
+  if (cur.length && !(fresh && cur.length === (indent ? 1 : 0))) out.push(cur);
   return out;
 }
 

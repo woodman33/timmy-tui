@@ -209,7 +209,8 @@ describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
     expect(typeof turn?.cost_usd).toBe('number');
     expect(turn?.cost_usd).toBe(0.125);
     expect(turn?.model_resolved).toBe('fixture/sovereign');
-    expect(agent.send).toHaveBeenCalledExactlyOnceWith('hello world');
+    // R5 lead: every turn carries a stop signal (src/agent/chat-turn.ts projectTurn), so any surface can stop it
+    expect(agent.send).toHaveBeenCalledExactlyOnceWith('hello world', { signal: expect.any(AbortSignal) });
     view.unmount();
   });
 

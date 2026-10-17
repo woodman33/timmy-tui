@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readChain, measuredCostUsd } from '../utils/receipts.js';
+import { timmyHome } from '../setup/home.js';
 
 // CONTROL PLANE (ORDER control-plane-k3e7) — MODEL REGISTRY (data only).
 // Extends the /models slimming with architecture, supported_parameters and
@@ -48,16 +49,25 @@ interface ORModel {
 // catalog and cached WITH a fetched-at timestamp; dashes only for models the
 // API doesn't list.
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
+/** The snapshot shipped with Timmy, dated by its fetchedAt: what Timmy knows when this computer has fetched no catalog. */
 export function cachePath(): string { return join(here, 'cache.json'); }
+/**
+ * R5 lead: the catalog this computer fetched (`timmy models --refresh`), kept in the Timmy home. Before, a refresh wrote the
+ * shipped snapshot in place: a tracked file in a checkout, the package's own folder when installed (which may not be
+ * writable), and the installed package shipped no snapshot at all, so every price read as unlisted.
+ */
+export function catalogPath(env: Record<string, string | undefined> = process.env): string { return join(timmyHome(env), 'models', 'openrouter-catalog.json'); }
 export interface ModelCache { fetchedAt: string; models: ORModel[] }
-export function readCache(): ModelCache | null {
+function readCacheAt(path: string): ModelCache | null {
   try {
-    const j = JSON.parse(readFileSync(cachePath(), 'utf8')) as ModelCache | ORModel[];
+    const j = JSON.parse(readFileSync(path, 'utf8')) as ModelCache | ORModel[];
     if (Array.isArray(j)) return { fetchedAt: '1970-01-01T00:00:00.000Z', models: j }; // legacy shape
     if (j && Array.isArray(j.models)) return j;
     return null;
   } catch { return null; }
 }
+/** The catalog this computer fetched, else the shipped snapshot, else none. */
+export function readCache(): ModelCache | null { return readCacheAt(catalogPath()) ?? readCacheAt(cachePath()); }
 
 export async function fetchOpenRouterModels(): Promise<ORModel[]> {
   try {
@@ -72,7 +82,9 @@ export async function refreshModels(): Promise<{ ok: boolean; count: number; fet
   const models = await fetchOpenRouterModels();
   if (!models.length) return { ok: false, count: 0, fetchedAt: readCache()?.fetchedAt ?? '' };
   const fetchedAt = new Date().toISOString();
-  writeFileSync(cachePath(), JSON.stringify({ fetchedAt, models }, null, 2));
+  const path = catalogPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ fetchedAt, models }, null, 2));
   return { ok: true, count: models.length, fetchedAt };
 }
 

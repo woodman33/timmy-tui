@@ -15,7 +15,7 @@
 // excluded) plus the named surfaces outside it that C1b-1 re-pointed —
 // src/tui-opentui, src/forge, cli.tsx, headless.ts, scripts/timmy-ui-smoke.tsx,
 // src/utils/{markdown,humanlog,logserver,dash,logger}.ts — and chatpage.html's
-// hex set, which must be a subset of the law. Declared debt, still outside the
+// hex set, which must be a subset of the shared tokens (B10; it was the law's until R5). Declared debt, still outside the
 // gate (counts at C1b-1): src/utils/slash-commands.ts (20 raw SGR escapes),
 // src/utils/test-sandboxes.ts (18 chalk colour members).
 import { describe, it, expect } from 'vitest';
@@ -23,6 +23,7 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { theme, visualLaw, BINDINGS } from '../src/tui/theme.js';
 import { lawViolations, sourceColorViolations } from '../src/tui/color-contract.js';
+import { HOMEBREW } from '../src/theme/tokens.js';
 
 const TUI = join(process.cwd(), 'src', 'tui');
 const LAW_PATH = join(process.cwd(), 'lanes', 'visual', 'tokens.json');
@@ -60,15 +61,16 @@ describe('the visual law — theme bound to lanes/visual/tokens.json', () => {
     expect(Object.keys(theme).sort()).toEqual(Object.keys(BINDINGS).sort());
   });
 
-  it('the four accents and the ground are exactly the law; interaction is white, not a fifth hue', () => {
+  it('the four accents and the ground are exactly the law; interaction is amber (B10), not a fifth hue', () => {
     expect(theme.seal).toBe('#33FF66');
     expect(theme.refuse).toBe('#FF3B3B');
     expect(theme.predict).toBe('#FFB020');
     expect(theme.generated).toBe('#8B5CF6');
     expect(theme.ground).toBe('#000000');
     expect(theme.textPrimary).toBe('#FFFFFF');
-    expect(theme.accent).toBe(theme.structure);
-    expect(theme.lineFocus).toBe(theme.structure);
+    expect(theme.accent).toBe(theme.predict);
+    expect(theme.lineFocus).toBe(theme.predict);
+    expect(theme.warn).toBe(theme.predict);
     expect(theme.danger).toBe(theme.refuse);
   });
 
@@ -103,8 +105,10 @@ describe('no colour is chosen outside theme.ts', () => {
     expect(bad).toEqual([]);
   });
 
-  it('chatpage.html paints only law colours', () => {
-    const law = new Set(Object.values(visualLaw.color).map(c => c.value.toUpperCase()));
+  // R5 (B10): chatpage.html is a browser page, so it paints the shared tokens (src/theme/tokens.ts HOMEBREW), not the
+  // terminal law, whose raw hexes (violet, red) a browser would show as they are. The rule is as closed as before.
+  it('chatpage.html paints only the shared tokens\' colours (B10)', () => {
+    const law = new Set(Object.values(HOMEBREW).map(c => c.toUpperCase()));
     const hexes = [...new Set((readFileSync(CHATPAGE, 'utf8').match(/#[0-9a-fA-F]{6}\b/g) ?? []).map(h => h.toUpperCase()))];
     expect(hexes.length).toBeGreaterThan(0);
     expect(hexes.filter(h => !law.has(h))).toEqual([]);
@@ -139,10 +143,10 @@ describe('§12 negative controls — the gate must FAIL on known-defective artif
     expect(lawViolations({ ...theme, danger: theme.predict }, law, BINDINGS).join('\n')).toMatch(/theme\.danger must be law\.refuse/);
   });
   it('a fifth hue fails even with every binding otherwise intact', () => {
-    expect(lawViolations({ ...theme, accent: '#37D2FF' }, law, BINDINGS).join('\n')).toMatch(/theme\.accent must be law\.white/);
+    expect(lawViolations({ ...theme, accent: '#37D2FF' }, law, BINDINGS).join('\n')).toMatch(/theme\.accent must be law\.predict/);
   });
   it('a structural token painted in an accent fails (line, textMuted, surfaceRaised, void, structure, grey3, sealDim)', () => {
-    for (const [token, bad] of [['line', theme.seal], ['textMuted', theme.generated], ['surfaceRaised', theme.seal], ['void', theme.seal], ['structure', theme.refuse], ['grey3', theme.generated], ['sealDim', theme.refuse], ['textSecondary', theme.predict], ['surface', theme.generated], ['lineFocus', theme.predict]] as [string, string][]) {
+    for (const [token, bad] of [['line', theme.seal], ['textMuted', theme.generated], ['surfaceRaised', theme.seal], ['void', theme.seal], ['structure', theme.refuse], ['grey3', theme.generated], ['sealDim', theme.refuse], ['textSecondary', theme.predict], ['surface', theme.generated], ['lineFocus', theme.seal]] as [string, string][]) {
       const v = lawViolations({ ...theme, [token]: bad }, law, BINDINGS);
       expect(v.length, token).toBeGreaterThan(0);
       expect(v.join('\n'), token).toContain(`theme.${token} must be`);

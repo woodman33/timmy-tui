@@ -67,6 +67,23 @@
  *   GET /run/<operation id>                nothing more                      the page (as GET /), its RUN DETAIL tab on that id
  *   GET /api/chat/route                    the token                         the chat's route in words (never a key)
  *   GET /api/run/<operation id>            the token                         the operator's records, as a run detail
+ *   GET /api/newest-run-image              the token                         R7 H152: the newest run that holds an image
+ *
+ * R5 (H132, the operator's completion order of 2026-10-15: one project workspace across the terminal, the companion and
+ * Studio): the page draws the workspace frame every surface shares (src/contracts/workspace.ts, made only by
+ * src/ops/workspace-frame.ts) around its own content, and may change the two start-up settings the terminal Workbench keeps
+ * (src/companion/workspace.ts says what each answer is). Timmy's shared look is served beside the page (src/companion/page.ts).
+ *
+ *   route                                  requires                          why
+ *   GET /api/workspace                     the token                         the frame of the project the page shows: the
+ *                                                                            operator's records (projects, jobs, connections)
+ *   POST /api/workspace/prefs              the token                         writes the Workbench's settings file, checked
+ *                                                                            against the frame's revision (409 when stale)
+ *   POST /api/chat/stop                    the token                         R5 lead: asks the process answering the chat
+ *                                                                            turn {turn: <id>} of the shown project to stop
+ *                                                                            it (409 when that turn is not running now)
+ *   GET /timmy-theme.css,                  nothing more                      Timmy's look and Monaspace Argon: no content
+ *       /web/fonts/monaspace-argon-*
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -86,7 +103,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
-import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountTheme, mountWebAssets, sendSlateAbsent } from './page.js';
 // R4 (H104): the page's icon (r25's D11)
 import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
@@ -94,6 +111,9 @@ import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
 import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
+// R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
+import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
+import { mountPanels } from './panels.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -105,14 +125,16 @@ const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 /** R4 (H84): the subprotocol the server selects (a page offers it beside its token). */
 export const COMPANION_PROTOCOL = 'timmy-companion';
 /** R4 (H84): what a request without the token is told. */
-export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in `timmy watch`, press q on HOME; it shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
+export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in the Workbench (`timmy workbench`), press c; or in `timmy watch`, press q on HOME, which shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
 /**
  * R4 (H87): the files this server serves beside its code at run time, package-relative: every file of its client folder
  * (served as they are). The build copies each into dist/ (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS);
  * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
  * R4 (H92): the page and the files it needs (its scripts and style sheet were inline, or from CDNs).
  */
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js'] as const;
+// R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
+// R6 (H144): panel-run.js, the Workflows tab's run detail
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -152,6 +174,12 @@ export interface CompanionOptions {
    * src/ops/run-detail.ts when absent, and words saying there is none where it is not built yet.
    */
   runDetail?: RunDetailProducer;
+  /**
+   * R5 (H132): what GET /api/workspace and POST /api/workspace/prefs read and write with (src/companion/workspace.ts): a test's
+   * environment (its TIMMY_HOME and TIMMY_SETTINGS_DIR), a FAKE frame producer, or a settings saver that fails; this
+   * process's environment, src/ops/workspace-frame.ts and src/workbench/settings.ts when absent.
+   */
+  workspace?: WorkspaceDeps;
 }
 
 /**
@@ -315,6 +343,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         const whole = chunk.slice(0, cut + 1);
         busOffsets[i] += Buffer.byteLength(whole, 'utf8');
         for (const event of parseBusLines(whole)) {
+          // R5 lead (the final QA of a77d80d, defect 1): a sealed receipt changes the frame (a turn's end, a run's): the frame
+          // shared between reads is let go first, so a page that reads it again on this event is given the frame after it
+          if (event.kind === 'receipt.sealed') workspace.forget(root);
           const msg = JSON.stringify({ type: 'bus', event });
           for (const [c, v] of views) if (v.project.root === root && c.readyState === 1) c.send(msg);
         }
@@ -353,6 +384,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // Serve static client files
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
+  // R5 (H132): Timmy's shared look (DESIGN.md §10 B10): the theme's variables and Monaspace Argon's files, at /web/fonts/
+  // before the built web code's own (src/companion/page.ts)
+  mountTheme(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   // R4 (H104, r25's D11): the page's icon, this server's own (the page declared none, so the browser's /favicon.ico was a 404)
@@ -442,8 +476,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // Serve Clerk publishable key dynamically
   // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
   // read-only, never the drawing (with --lan, this server can be reached from a phone on the network).
-  app.get('/api/canvas', withToken, (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(canvasSummary(process.env));
+  // R6 lead: the board of the project the page shows (?project=<id>, else the one followed): each project has its own (H139)
+  app.get('/api/canvas', withToken, (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    res.set('Cache-Control', 'no-store').json({ ...canvasSummary(process.env, project.root), project: project.name });
   });
   app.get('/api/clerk-config', withToken, (_req, res) => {
     res.json({
@@ -733,6 +770,65 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
   });
 
+  // R7 (H152; the R6 interaction review's N9): Home's newest run image, the newest run of the shown project's records that holds
+  // one, whatever ran after it (src/companion/home-images.ts), asked of the same producer as the run detail
+  app.get('/api/newest-run-image', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const { newestRunImage } = await import('./home-images.js');
+    res.set('Cache-Control', 'no-store').json(await newestRunImage(project.root, options.runDetail));
+  });
+
+  // R5 (H132): the workspace frame of the project the page shows (?project=<id>, else the one followed), and the two start-up
+  // settings it may change (src/companion/workspace.ts: 409 with the newer frame when the page's revision is stale)
+  const workspace = new CompanionWorkspace(options.workspace);
+  // R5 lead (the QA round, defect 4): this companion answering its page is an answer observed now, as Studio notes its own
+  // (src/studio/server.ts): the frame then says the companion answered, not "not running" from an older check. Only for the
+  // companion the frame names (its address, src/ops/workspace-frame.ts companionBaseUrl); at most once in SELF_NOTE_MS.
+  // It notes that it started and that it stopped, too (noteStopped), so no surface says it answered after it ended.
+  let selfPort: number | null = null;
+  const noteSelf = async (what: 'started' | 'asked' | 'stopped'): Promise<void> => {
+    const env = options.workspace?.env ?? process.env;
+    try {
+      const { companionBaseUrl, noteAnswered, noteStopped } = await import('../ops/workspace-frame.js');
+      if (selfPort === null || companionBaseUrl(env) !== `http://127.0.0.1:${selfPort}/`) return;
+      if (what === 'stopped') noteStopped('companion', env);
+      else noteAnswered('companion', what === 'started' ? 'it started listening' : 'its page asked for its frame', env);
+    } catch { /* the record cannot be written: the frame says what the last check saw */ }
+  };
+  app.get('/api/workspace', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    await noteSelf('asked');
+    const answer = await workspace.answerFrame(project);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+  // R5 lead (the operator's 22:32 order, item 2): the page's Stop for the chat turn being answered in the project it shows,
+  // whichever surface sent it. It asks the process that holds the turn (src/agent/chat-turn.ts requestTurnStop), which stops
+  // it as its own Esc or Ctrl+C would; the turn is named by its id (the frame's activity.chatTurn.id), so the page stops the
+  // turn it shows and never another. 200 {ok, words}; 400 for a body that names no turn; 409 when that turn is not being
+  // answered now (it ended, or its process did). The token first, as every content route.
+  app.post('/api/chat/stop', withToken, express.json({ limit: '1kb' }), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const project = projectFor(req);
+    if (!project) { res.status(404).json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const { requestTurnStop, surfaceWords, TURN_ID } = await import('../agent/chat-turn.js');
+    const id = req.body && typeof req.body === 'object' ? (req.body as { turn?: unknown }).turn : undefined;
+    if (typeof id !== 'string' || !TURN_ID.test(id)) { res.status(400).json({ ok: false, error: 'Not stopped: the request names no chat turn ({turn: <its id>, as the frame gives it}).' }); return; }
+    const r = requestTurnStop(project.root, id, 'companion');
+    if (!r.ok) { res.status(409).json({ ok: false, error: `Not stopped: ${r.why}.` }); return; }
+    res.json({ ok: true, words: `Stop asked of the turn being answered in ${surfaceWords(r.surface)}: it stops there at once, and its receipt says it was stopped, asked from this page.` });
+  });
+  app.post('/api/workspace/prefs', withToken, express.json({ limit: '4kb' }), async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.status(404).set('Cache-Control', 'no-store').json({ error: PROJECT_UNKNOWN }); return; }
+    const answer = await workspace.answerPrefs(project, req.body);
+    res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+
+  // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
+  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env });
+
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
   const sendPage = (res: express.Response): void => {
@@ -880,6 +976,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R4 (H87): an error of the listening server itself (a connection it could not take) never ends the monitor
   httpServer.on('error', () => undefined);
   const bound = (httpServer.address() as import('net').AddressInfo).port;
+  selfPort = bound;
+  await noteSelf('started');
   const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
   return {
@@ -901,6 +999,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
         // R4 (H84): a chat still streaming ends with the server
         httpServer.closeAllConnections();
       });
+      await noteSelf('stopped');
     },
     setState: (state: string) => {
       currentState = state;

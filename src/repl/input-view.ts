@@ -59,7 +59,7 @@ function belowInput(editor: LineEditor, theme: Theme, columns: number, commands:
   const fit = (text: string) => truncate(text, columns, theme.glyphs.ellipsis);
   if (!matches.length) return [serialize([{ text: fit(hintText(theme)), role: 'secondary' }], theme)];
   return [
-    // B9 (round R1): the selected command, the one Tab completes, is in Homebrew green.
+    // B10 (2026-10-15): the selected command, the one Tab completes, is amber (B9 had it green).
     ...matches.slice(0, MENU_ROWS).map((c, i) => serialize([{ text: fit(`  /${c.name.padEnd(11)}`), role: i === 0 ? 'accent' : undefined }, { text: ` ${c.description}`, role: 'secondary' }], theme)),
     serialize([{ text: fit(`  Tab completes /${matches[0].name}`), role: 'secondary' }], theme),
   ];
@@ -68,7 +68,7 @@ function belowInput(editor: LineEditor, theme: Theme, columns: number, commands:
 export function renderInput(editor: LineEditor, theme: Theme, columns: number, commands: readonly MenuCommand[] = []): InputView {
   const g = theme.glyphs;
   const block = theme.tint !== null;
-  // B9 (round R1): the prompt is Homebrew green where the terminal's green reads; its color closes with
+  // B10 (2026-10-15): the prompt is amber where the terminal's amber reads (B9 had it green); its color closes with
   // 39 alone, so the tint behind it stays.
   const mark = serialize([{ text: g.prompt, role: 'accent' }], theme);
   const first = block ? ` ${mark} ` : `${mark} `;

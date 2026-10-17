@@ -11,9 +11,9 @@ import { runAsync } from './helpers/run-async.js';
 
 const ROOT = join(__dirname, '..');
 const deps = spawnSync('python3', ['-c', 'import numpy, scipy'], { encoding: 'utf8' }).status === 0;
-// callGeoTool runs its lane script synchronously, as the MCP server does. Back-to-back calls held this worker's event
-// loop for 32 s on a loaded machine (R4 H31): each call now first yields one turn of the loop, so vitest's worker RPC
-// replies are read between calls instead of after the whole chain, and the setup scripts are awaited.
+// callGeoTool runs its lane script in a child python3, awaited (R5 lead: it was synchronous, and back-to-back calls held this
+// worker's event loop for 32 s on a loaded machine, R4 H31, and single calls up to 22 s in the gate on a77d80d, by its heartbeat). Each call
+// still first yields one turn of the loop, and the setup scripts are awaited.
 const call = async (...args: Parameters<typeof callGeoTool>) => { await new Promise<void>((resolve) => setImmediate(resolve)); return callGeoTool(...args); };
 const python = (args: string[]) => runAsync('python3', args);
 const PLANES = `

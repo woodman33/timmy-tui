@@ -6,7 +6,7 @@
 // are the FAKE workers of the same helper.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines } from '../src/capabilities/render.js';
@@ -25,6 +25,8 @@ const kit = tempKit();
 afterEach(async () => { resetLookChecks(); await kit.cleanup(); });
 
 const SYSTEM_PATH = '/usr/bin:/bin';
+/** R6 (H143): the Rerun recording in the repository (read, never changed). */
+const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
 /** R4 (H70): Rerun is told to listen on this computer only. */
 const BIND = ['--bind', '127.0.0.1'];
 /** R4 (H70): the command as a person sees it: the lines printed (notified) while it ran, then its answer. */
@@ -120,6 +122,26 @@ describe('/vox view: a record\'s files in Rerun\'s viewer (FAKE rerun on the PAT
     expect((await rerunLog(p.log))!.args).toEqual([...BIND, join(p.root, 'refs/photo.png'), join(p.root, `results/vox/${p.image}/annotated.png`)]);
   });
 
+  // R6 (H143): the companion's tab 5 offers /vox view for a recording; Rerun's viewer opens its own .rrd files
+  it('a Rerun recording (.rrd) a record names is passed as a recording (the repository\'s context.rrd, copied in, never changed)', async () => {
+    const root = realpathSync(kit.temp('vox-view-rrd-'));
+    put(root, 'refs/context.rrd', readFileSync(RRD));
+    const bin = kit.temp('vox-rerun-');
+    fakeRerun(bin);
+    const log = join(kit.temp('vox-rerun-log-'), 'rerun.log');
+    const env: NodeJS.ProcessEnv = { PATH: `${bin}:${SYSTEM_PATH}`, FAKE_RERUN_LOG: log };
+    const w = workspace(root, kit, { env, onPath: (c) => realOnPath(c, env) });
+    await w.ws.inspect('refs/context.rrd');
+    await settled(w.ws);
+    const id = recordOf(root, (r) => r.inputs[0]?.path === 'refs/context.rrd').id;
+    const out = await seen(w, `view ${id}`);
+    expect(out).toContain('passed     refs/context.rrd (recording, rrd)');
+    expect(out).not.toContain(DOCTRINE_15);
+    expect((await rerunLog(log))!.args).toEqual([...BIND, join(root, 'refs/context.rrd')]);
+    expect(recordOf(root, (r) => r.id === id).views?.[0]).toMatchObject({ viewer: 'rerun', passed: [{ path: 'refs/context.rrd', sha256: sha(readFileSync(RRD)), loader: 'recording (rrd)' }] });
+    expect(sha(readFileSync(RRD))).toBe('8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f');
+  });
+
   it('starts nothing and writes nothing when no file can be passed: a STEP (without its tessellation\'s Python) and its drawing, an input changed since, a record not verified', async () => {
     const p = await viewProject();
     const unchanged = (id: string) => { const rel = `results/vox/${id}.json`; const s = fileSha(p.root, rel); return () => expect(fileSha(p.root, rel)).toBe(s); };
@@ -128,7 +150,7 @@ describe('/vox view: a record\'s files in Rerun\'s viewer (FAKE rerun on the PAT
     // R4 (H70): a STEP is shown as its tessellation by OCP (tests/vox-view-launch.test.ts); without that Python, needs setup.
     delete p.env.TIMMY_CADQUERY_PYTHON;
     const out = await seen(p, `view ${p.step}`);
-    expect(out).toContain(`Nothing of ${p.step} can be opened in Rerun's viewer (it reads images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4)):`);
+    expect(out).toContain(`Nothing of ${p.step} can be opened in Rerun's viewer (it reads images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4), its own recordings (.rrd)):`);
     expect(out).toContain("not passed cad/part.step: Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh), and its tessellation for the viewer needs setup");
     expect(out).toContain('needs setup its tessellation for the viewer (OCP), of cad/part.step: TIMMY_CADQUERY_PYTHON is not set · set TIMMY_CADQUERY_PYTHON to the absolute path of a Python with CadQuery (its OCP reads the STEP)');
     expect(out).toContain('Nothing was started and nothing was written.');
@@ -210,6 +232,12 @@ describe('which files Rerun\'s loaders read', () => {
     expect(rerunLoaderFor('clip.mov', Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypqt  ', 'latin1')]))).toEqual({ why: "a QuickTime movie by its bytes: Rerun's video loader reads MP4 only" });
     expect(rerunLoaderFor('a.blend', Buffer.from('BLENDER-v402'))).toMatchObject({ why: expect.stringContaining('no .blend loader') });
     expect(rerunLoaderFor('notes.txt', Buffer.from('hi'))).toEqual({ why: "Rerun's viewer has no loader for .txt files" });
+    // R6 (H143): Rerun's own recordings, by the name and the header together (the repository's recording, read)
+    const rrd = readFileSync(RRD).subarray(0, 512);
+    expect(rerunLoaderFor('refs/context.rrd', rrd)).toEqual({ loader: 'recording', format: 'rrd' });
+    expect(rerunLoaderFor('refs/context.rrd', PNG)).toEqual({ why: "its name says .rrd but its bytes are a PNG: Rerun picks a loader by the name, so it is not passed" });
+    expect(rerunLoaderFor('refs/context.bin', rrd)).toEqual({ why: 'a Rerun recording by its bytes, but its name is not .rrd: Rerun picks a loader by the name, so it is not passed' });
+    expect(rerunLoaderFor('a.png', rrd)).toEqual({ why: 'its name says .png but its bytes are a Rerun recording: Rerun picks a loader by the name, so it is not passed' });
   });
 
   it('a plan passes only bytes the record names, and one 3D file unless two share a known frame and unit', () => {

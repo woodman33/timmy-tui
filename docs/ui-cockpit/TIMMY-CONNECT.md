@@ -222,21 +222,37 @@ status (cmd.exe's line limit), and Timmy reads the status with a call of its own
 ## Fetching results
 
 `timmy connect fetch <job> <path> [--to <local file>]`: only a path inside the job's folder (`work/out.bin`, `out.log`):
-no `..`, no absolute path, and no symbolic link at any part of it (refused on the device). On the device each folder on the
-path is entered on its own (`cd -P`), refused when it is a link or when the folder reached is not inside the job's folder;
-the file is refused when it is a link or not a regular file. Then it is **copied once** inside the job's folder without
-following a link (`cp -RP`, into a folder of that call's own), and what is hashed and sent is that copy, whatever the path
-holds afterwards: a job that swaps a link in while it is fetched gets a refusal, never the link's target sent. The copy is
-removed after; the device needs room for one copy of the file. The device computes the copy's sha256 (`sha256sum`,
-`shasum -a 256` or `openssl`), then sends its bytes over the ssh channel; Timmy computes the local sha256 as they arrive.
-Equal: the file, never over an existing one, and a `remote-fetch` receipt on the runs chain (the same chain and sealing the
-native jobs use). Different: the bytes are kept as `<file>.partial`, the fetch is said failed, and a failed receipt names
-both hashes. On Windows: the file's bytes are read once and the sha256 is of those very bytes; the path is checked for a
-reparse point (a link) before and after the read (built, not run on Windows).
+no `..`, no absolute path, and no symbolic link at any part of it (refused on the device). On the device the job's folder
+itself is refused when it is a symbolic link; each folder on the path is entered on its own (`cd -P`), refused when it is a
+link or when the folder reached is not inside the job's folder; the file is refused when it is a link or not a regular file.
+Then, **with no copy anywhere**, the file is opened once on a descriptor (`command exec 3<`) and its identity is pinned, so
+nothing afterwards depends on how a `cp` opens the file: the descriptor's `dev:inode` (an `fstat`, `stat -c '%d:%i' - <&3`
+on GNU, `stat -f '%d:%i' <&3` on BSD/macOS) must equal the name's `dev:inode` read without following a link (an `lstat`,
+`stat` of the path, which both forms do by default), and the name must still not be a link. A job that swaps `work/x` for a
+symbolic link to a file outside its folder between the checks and the open is caught here — the opened file and the name
+then differ — and refused; **no outside byte is ever sent, by any link, swap or race.** The sha256 (`sha256sum`,
+`shasum -a 256` or `openssl`, reading the descriptor) and the size (`fstat`) are taken from that one descriptor; a second
+descriptor is opened on the name and checked to be the same `dev:inode` as the first and as the name again before its bytes
+are sent. Timmy computes the local sha256 as they arrive. Equal: the file, never over an existing one, and a `remote-fetch`
+receipt on the runs chain (the same chain and sealing the native jobs use). Different (the file's own bytes changed in place
+between the hash and the send): the bytes are kept as `<file>.partial` — then they are the job's own file's bytes, never
+outside ones — the fetch is said failed, and a failed receipt names both hashes. Refused with `no-identity` when the device
+has no `stat` that can report an open file's `dev:inode` (busybox and the like): the fetch cannot rule out a swap, so it
+sends nothing; `timmy connect probe` reports which `stat` a device has (`identity=gnu|bsd|none`) so this is visible before a
+fetch. On Windows: the file's bytes are read once and the sha256 is of those very bytes; the path is checked for a reparse
+point (a link) before and after the read (built, not run on Windows).
 
-What these checks are not: the job runs as the same account, so it can copy any file that account can read into its folder,
-and a fetch then brings it as the job's own file. The checks keep Timmy from following a link out of the job's folder; the
-moment between the copy's check and its read is left, in a folder of that call's own.
+Why not `cp`: GNU `cp -P` opens the source with `O_NOFOLLOW` and checks the opened file is the one it `lstat`'d, so a swap
+fails the copy — but BSD/macOS `cp` opens **following** a symlink, so the old copy-first path could be raced into copying a
+file from outside the job's folder and sending its bytes as a regular file (found by H130, fixed by H138). Opening once and
+checking the descriptor's identity removes that dependency: it holds whatever `cp` the device has, and needs no room for a
+copy.
+
+What these checks are not: the job runs as the same account, so it can read any file that account can read, and a **hard
+link** the job itself makes inside its folder is a file of its folder — its bytes are fetched like any other of its files
+(a hard link names an inode, not a path, so there is no link to refuse and nothing is "outside"). The checks keep Timmy from
+following a **symbolic** link out of the job's folder, by any swap or race; they do not police what the job legitimately
+places in its own folder.
 
 ## Secrets and words
 
@@ -361,9 +377,11 @@ probe (`connected`); a detached job whose wait's local ssh is killed, found and 
 sha256 equal and a receipt; one id sent twice starting one run, and a confirmed stop; a stop refused while the job's status
 file is rewritten to name an unrelated process of the same account (neither is signalled), then confirmed once the file is
 restored (this reads `ps -ww -o args=` on the Mac); a fetch while the job swaps a link to a file outside its folder in and
-out (nothing from outside arrives; `cp -RP` on the Mac); sshd stopped (`unreachable: refused`), restarted with the second
-host key (`host-key-changed`, recorded), and a stranger's key (`auth-refused`). The two cases about the stop and the fetch
-were added on `r4/connect-2`.
+out (nothing from outside arrives; on the Mac this exercises BSD `stat -f` for the open-descriptor identity check, the path
+the Linux FAKE devices cannot run); sshd stopped (`unreachable: refused`), restarted with the second host key
+(`host-key-changed`, recorded), and a stranger's key (`auth-refused`). The two cases about the stop and the fetch were added
+on `r4/connect-2`; the fetch no longer copies the file (R5 H138) — see "Fetching results" and
+`scratchpad/r5/fetch-race/fetch-race-mac.sh` (a standalone Mac reproduction the lead runs, not committed).
 
 What it checks afterwards: every job's process group is ended; its sshd has exited (its pid no longer answers `kill -0`);
 the account's `~/.ssh/known_hosts` and `~/.ssh/config` have the same bytes as before; no `~/.timmy-connect` appeared; the

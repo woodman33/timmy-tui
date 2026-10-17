@@ -1,4 +1,6 @@
 {
   "note": "Basic TIMMY Slate board seeds shipped in-repo (capability ids only — no keys, paths, or job IDs). The full 62-board gallery (42 distilled production templates + 20 seeds, W1–W9 loadouts) stays in the private sceneforge tree.",
-  "boards": ["P63", "T20", "V111", "T9", "P59", "T19", "T21", "T18"]
+  "boards": ["P63", "T20", "V111", "T9", "P59", "T19", "T21", "T18"],
+  "guidedNote": "Guided blank boards (R5): a title, what the board is for, and one empty frame per part with a line saying what goes in it. Text only: no image, sample, metric, asset or path.",
+  "guided": ["G1", "G2", "G3"]
 }

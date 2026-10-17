@@ -50,7 +50,8 @@ export function turnFlash(r: ChatTurnResult): string {
   const receipt = r.receipt ? ` · receipt ${r.receipt.slice(7, 15)}` : '';
   if (r.status === 'answered') return `Answered${r.model ? ` by ${r.model}` : ''} · ${r.costWords}${receipt}`;
   if (r.status === 'refused') return `Not sent: ${(r.lines?.[0] ?? 'the chat has no route to a model.').replace(/^(Error|Not sent):\s*/, '')}`;
-  if (r.status === 'cancelled') return `Cancelled${r.sent ? '' : ': nothing was sent to any model'}${receipt}`;
+  // R7 lead (H148's N5): a chat turn a person stopped is stopped (src/contracts/stop-words.ts), never cancelled
+  if (r.status === 'cancelled') return `Stopped${r.sent ? '' : ': nothing was sent to any model'}${receipt}`;
   return `The turn failed: ${(r.lines?.find((l) => !/^OpenRouter failed:/.test(l)) ?? 'no reason came back').replace(/^Error:\s*/, '')}${r.sent ? '' : ' Nothing was sent to any model.'}${receipt}`;
 }
 

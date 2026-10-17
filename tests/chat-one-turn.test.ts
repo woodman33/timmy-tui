@@ -150,7 +150,8 @@ describe('one turn implementation (R4 H113, part 1)', () => {
     setTimeout(() => b.abort(), 100);
     const r = await chat.send('list', { onText: () => undefined, askPerson: async () => 'deny', signal: b.signal });
     const fromSession = readChain('runs', project).at(-1)! as unknown as Record<string, unknown>;
-    expect(r).toMatchObject({ status: 'cancelled', sent: true, lines: ['Cancelled after the request went out: what it did stands, and nothing was rolled back.'] });
+    // R7 lead (H148's N5): the turn's word, stopped (its receipt keeps its sealed status, cancelled)
+    expect(r).toMatchObject({ status: 'cancelled', sent: true, lines: ['Stopped after the request went out: what it did stands, and nothing was rolled back.'] });
     expect(facts(fromSession)).toEqual(facts(fromRepl));
     expect(fromSession).toMatchObject({ status: 'cancelled', cancelled_at: 'during-tool', rollback: 'none', tool_outcomes: [{ name: 'list_project_files', outcome: 'unknown' }], cost_measured: false });
     expect(fromRepl).toMatchObject({ subject: 'repl · cancelled · 1 step', cancelled_at: 'during-tool', rollback: 'none' });
