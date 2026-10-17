@@ -715,6 +715,9 @@ function connectBridge() {
       try { message = JSON.parse(event.data); } catch { return; }
       // R6 (H139): the project named to the canvas changed: the board on screen switches with it at once
       if (message.type === 'project') { onProjectNamed(message.project, typeof message.paused === 'string' ? message.paused : null); return; }
+      // R7 (H151): a switch is pending (the active-project record names another project, not named to the canvas yet): Studio stops
+      // taking edits at once and begins the switch; it loads the new board once the canvas names it
+      if (message.type === 'pending') { onPending(message.pending ?? null); return; }
       if (message.type !== 'exec') return;
       calls = calls.then(() => run(message)).catch(() => undefined);
     };
@@ -1651,9 +1654,64 @@ function onProjectNamed(p, paused = null) {
     if (paused) pauseBoard(paused);
     return;
   }
+  // R7 (H151): a switch that began while it was pending learns here that the canvas names its project now; and while it waits, the
+  // canvas still naming the project before it is what pending means, never a reason to go back (only its giving up is: onPending)
+  namedNow = to;
+  if (waitingFor && identity.state === 'switching' && sameProject(waitingFor.from, to)) return;
   if (identity.state === 'switching' && sameProject(identity.switching, to)) return;
   if (identity.state === 'shown' && sameProject(identity.project, to)) return;
   void switchTo(to);
+}
+
+/**
+ * R7 (H151; H147's R6 finding 9, REMAINING-DEFECTS row 18: "For about 2 s after Enter, Studio still shows the old project and
+ * accepts edits for it"): the server says a switch is pending the moment the active-project record names another project
+ * (src/studio/active-follow.ts, H149's; its bridge push, or GET /api/project/active on the page's 1.5 s ask), before the canvas
+ * names it. Studio begins the switch at once: from that moment nothing on the page edits, accepts or discards (the board is read
+ * only and covered, the cover and the save line say why), and the board before is saved and put away; the new project's board is
+ * loaded once the canvas names it (switchTo `named`). `p` null: the switch was made or given up: the page asks which project the
+ * canvas shows (back to the board before when the record went back to it).
+ */
+function onPending(p) {
+  if (identity.state === 'none' || identity.state === 'paused') return;
+  const to = p && p.project ? projectOf(p.project) : null;
+  if (!to) {
+    // made or given up: a switch still waiting stops waiting, and the page follows what the canvas names now
+    if (waitingFor) waitingFor.given = true;
+    else if (identity.state === 'switching') void watchProject();
+    return;
+  }
+  if (identity.state === 'shown' && sameProject(identity.project, to)) return;
+  if (identity.state === 'switching' && sameProject(identity.switching, to)) return;
+  void switchTo(to, { named: false });
+}
+/** R7 (H151): the project the canvas named last (the bridge's message, or an answer of the page's ask), for a pending switch's wait. */
+let namedNow = null;
+/** R7 (H151): the pending switch waiting for the canvas to name its project ({ to, from, given }), or null. */
+let waitingFor = null;
+/** R7 (H151): how long a pending switch waits for the canvas to name its project before it asks which one the canvas shows (ms). */
+const NAMED_WAIT_MS = 8000;
+/**
+ * R7 (H151): waits until the canvas names project `to` (true), or the switch of generation `gen` is overtaken or given up, or
+ * NAMED_WAIT_MS pass (false), asking Timmy every 150 ms as well (a page off the bridge, or a message missed).
+ */
+async function namedAs(to, gen) {
+  const until = Date.now() + NAMED_WAIT_MS;
+  while (Date.now() < until) {
+    if (gen !== identity.gen) return false;
+    if (namedNow && namedNow.id === to.id) return true;
+    if (waitingFor && waitingFor.given) return false;
+    try {
+      const a = await cards.active();
+      if (gen !== identity.gen) return false;
+      if (a && a.project && a.project.id === to.id) return true;
+      // no switch pending any more (said so: an answer without the field says nothing), and the canvas names another: given up
+      // (the page follows the canvas from here)
+      if (a && a.pending === null && a.project && a.project.id !== to.id) return false;
+    } catch { /* asked again in a moment */ }
+    await sleep(150);
+  }
+  return false;
 }
 
 /** Asks Timmy which project the canvas shows now; one ask at a time. */
@@ -1667,6 +1725,8 @@ function watchProject() {
     try {
       const a = await cards.active();
       if (!a || gen !== identity.gen) return;
+      // R7 (H151): a switch pending that the page missed on the bridge begins now
+      if (a.pending && a.pending.project && !(a.project && a.project.id === a.pending.project.id)) { onPending(a.pending); return; }
       if (a.project) onProjectNamed(a.project);
       else if (a.hidden) pauseBoard('The canvas shows a project of another Timmy REPL now (or one this page was not opened for), so this page shows no board: nothing of it is shown here, and nothing here is saved into it. In Timmy: /canvas open, in that project, opens a page for it.');
     } catch { /* asked again in a moment */ } finally {
@@ -1745,9 +1805,12 @@ function showKept() {
  * cards and frame. Until then, editing, Accept and Discard are blocked. A switch that another one overtakes stops where it is; the
  * newest one finishes.
  */
-async function switchTo(to) {
+async function switchTo(to, o = {}) {
   const from = identity.project;
   const b = canvas;
+  // R7 (H151): a switch begun while it is pending (onPending) loads the new board only once the canvas names it
+  const named = o.named !== false;
+  namedNow = named ? to : null;
   // a call already running on the board (it began before the switch) ends on it, as that board's
   const afterCall = Promise.race([calls, sleep(CALL_WAIT_MS)]);
   const gen = identity.begin(to);
@@ -1762,6 +1825,15 @@ async function switchTo(to) {
   })().catch(() => undefined);
   await Promise.race([putAway, afterCall.then(() => sleep(SWITCH_WAIT_MS))]);
   if (gen !== identity.gen) return;
+  if (!named) {
+    const wait = { to, from, given: false };
+    waitingFor = wait;
+    let made = false;
+    try { made = await namedAs(to, gen); } finally { if (waitingFor === wait) waitingFor = null; }
+    if (gen !== identity.gen) return;
+    // given up (the record back on the project before, or another named first): the page shows what the canvas shows now
+    if (!made) { await watchProject(); return; }
+  }
   let opened;
   try { opened = await cards.loadDocument(to.id); } catch (e) { opened = { status: 0, ok: false, body: null, why: e instanceof Error ? e.message : String(e) }; }
   if (gen !== identity.gen) {

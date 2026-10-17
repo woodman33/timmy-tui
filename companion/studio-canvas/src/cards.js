@@ -643,7 +643,11 @@ export function createCards(deps) {
     if (!token) return null;
     const r = await request('/api/project/active', 'GET', token);
     if (!r.ok || !r.body || r.body.ok !== true) return null;
-    return { project: r.body.project && typeof r.body.project === 'object' ? r.body.project : null, hidden: r.body.hidden === true, words: one(r.body.words), via: one(r.body.via) };
+    // R7 (H151; H149's route): a switch pending, { project: { id, name }, since }; null: none pending; undefined: the answer does
+    // not say (a server without the field), which is never taken for none
+    const said = r.body.pending;
+    const pending = said && typeof said === 'object' && said.project && typeof said.project === 'object' ? { project: said.project, since: one(said.since) } : said === null ? null : undefined;
+    return { project: r.body.project && typeof r.body.project === 'object' ? r.body.project : null, hidden: r.body.hidden === true, words: one(r.body.words), via: one(r.body.via), pending };
   }
   /**
    * R6 (H145): the shown project's artifacts (src/studio/artifacts.ts), read with this page's session for the artifact cards and the

@@ -217,6 +217,31 @@ export class CanvasBridge {
     return told;
   }
 
+  /**
+   * R7 (H151; H147's R6 finding 9, REMAINING-DEFECTS row 18: for about 2 s after a switch Studio still showed the old project and
+   * took edits for it): a switch is pending: the active-project record names another project than the one shown, and the server
+   * has not named it yet (src/studio/active-follow.ts FollowDeps.pending, H149's, the shape agreed in the R7 handoff). Every page
+   * joined whose session counts now is told at once, `{ type: 'pending', pending: { project: { id, name }, since } }`, so it stops
+   * taking edits from that moment until the new project's board is shown; `pending: null` once the switch is made or given up (the
+   * switch's end is announce's own message). How many pages were told.
+   */
+  announcePending(p: { id: string; name: string; since: string } | null): number {
+    this.said = p ? { id: p.id, name: p.name, since: p.since } : null;
+    let told = 0;
+    for (const page of [...this.pages]) {
+      if (page.ws.readyState !== WebSocket.OPEN) continue;
+      const c = this.gate ? this.gate.counts(page.key) : { ok: false as const };
+      if (!c.ok) continue;
+      page.ws.send(JSON.stringify({ type: 'pending', pending: p ? { project: { id: p.id, name: p.name }, since: p.since } : null }));
+      told += 1;
+    }
+    return told;
+  }
+
+  /** R7 (H151): the switch last said pending to the pages (announcePending), or null: what GET /api/project/active says too. */
+  get lastPending(): { id: string; name: string; since: string } | null { return this.said; }
+  private said: { id: string; name: string; since: string } | null = null;
+
   close(): void {
     for (const [id, p] of this.pending) this.settle(id, p, { status: 503, body: { ok: false, error: 'The canvas server stopped.', jobId: p.jobId } });
     for (const ws of this.sockets.clients) ws.terminate();

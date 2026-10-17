@@ -97,7 +97,12 @@ import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOB
 // R4 (H84): the local-request rule, shared with the browser companion and `timmy logs`.
 import { isLocalRequest as isLocal } from '../utils/local-request.js';
 // R4 (H109): the canvas follows the active project of its Timmy home (state/active-project.json)
-import { ActiveFollower, activeProjectFile } from './active-follow.js';
+import { ActiveFollower, activeProjectFile, type FollowDeps } from './active-follow.js';
+/**
+ * R7 (H151 and H149, the shape agreed in the R7 handoff): a switch pending, as src/studio/active-follow.ts says it (H149's
+ * FollowDeps.pending and ActiveFollower.pending): the project the active-project record names now, and when the server saw it.
+ */
+export interface SwitchPending { id: string; name: string; since: string }
 // R4 (H109): an operation's run detail (src/contracts/run-detail.ts), drawn in the canvas page's side panel
 import { mountRunDetailRoute, type RunDetailProducer } from './run-detail-route.js';
 // R6 (H145): the shown project's artifacts, for the board's artifact cards
@@ -143,7 +148,12 @@ export interface StudioOptions {
 }
 
 /** R4 (H55): the server, with the token its REPL names the active project with. */
-export type StudioServer = Server & { projectToken: string };
+/**
+ * R7 (H151): `switchPending(p)` says to every page joined that a switch is pending now (`p`), or no longer (null): what the server's
+ * own follower says the moment the active-project record names another project (src/studio/active-follow.ts); a REPL, or a test,
+ * may say it too. How many pages were told.
+ */
+export type StudioServer = Server & { projectToken: string; switchPending: (p: SwitchPending | null) => number };
 
 /** R4 (H75): the card relay a server uses, with the port its page routes check Host and Origin against. */
 export interface CardWiring { relay: CardRelay; port: () => number }
@@ -605,6 +615,9 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     // server that follows it (one that does not reads no Timmy home's file)
     reach: (authorization, id) => relay.reaches(authorization, id),
     ...(follower ? { active: () => follower.active() } : {}),
+    // R7 (H151; H149's route option `pending`): GET /api/project/active says to a credited caller (a page that missed the push) the
+    // switch this server last said pending to its pages (its follower, or switchPending): one answer, the push's
+    ...{ pending: (): SwitchPending | null => bridge.lastPending },
   });
   mountCardRoutes(app, { link, relay, port: cardWiring.port });
   // R4 (H109): an operation's run detail, for the canvas page's side panel (the same credentials as the project's cards)
@@ -648,7 +661,9 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   const bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs, bridgeGate(link, relay));
   // R4 (H109): a change of this Timmy home's active project, made after the server starts, is followed (src/studio/active-follow.ts)
   const env = options.env ?? process.env;
-  const follower = !(options.followActive ?? options.projectTokenFile === true) ? undefined : new ActiveFollower({
+  // R7 (H151; H149's FollowDeps.pending, the shape agreed in the R7 handoff): a switch pending is said to every page at once, so it
+  // stops taking edits from the moment the record changes (typed here with its own field, so this builds with or without it)
+  const followDeps: FollowDeps & { pending?: (p: SwitchPending | null) => void } = {
     file: activeProjectFile(env),
     shown: () => link.project,
     follow: (a) => {
@@ -657,11 +672,13 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
       // R6 (H139): every page joined is told at once, so its board, drafts and jobs switch with the active project
       bridge.announce({ id: p.id, name: p.name });
     },
+    pending: (p) => { bridge.announcePending(p); },
     ...(options.followEveryMs ? { everyMs: options.followEveryMs } : {}),
     ...(options.followGraceMs !== undefined ? { graceMs: options.followGraceMs } : {}),
-  });
+  };
+  const follower = !(options.followActive ?? options.projectTokenFile === true) ? undefined : new ActiveFollower(followDeps);
   let bound = 0;
-  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound }, follower)), { projectToken: link.token });
+  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound }, follower)), { projectToken: link.token, switchPending: (p: SwitchPending | null) => bridge.announcePending(p) });
   bridge.attach(server);
   // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
   const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
