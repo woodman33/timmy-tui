@@ -292,7 +292,7 @@ describe('duplicates and retries (R4 H112, slice C item 2)', () => {
     // Stop there names it and leaves it to the session that started it
     two.c.selectWorkspace('control');
     await press(f2.r, 'x');
-    await until('the answer', () => two.c.data.activity.events.some((e) => /^Nothing stopped: .* belongs to another Timmy session that is still running/.test(e.words)), 5000, f2.text);
+    await until('the answer', () => two.c.data.activity.events.some((e) => /^Not cancelled: .* belongs to another Timmy session that is still running/.test(e.words)), 5000, f2.text);
     expect(runsOf(p.root, 'SLOW.md › long')[0].state).toBe('running');
   }, 60_000);
 });

@@ -650,7 +650,7 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // x stops what the top line named: through recovery's stop; its record says cancelled; its process is gone
       const leftPid = recordOf(leftId).pid!;
       await w.keys('x');
-      await w.waitFor(new RegExp(`Stopped ${leftId}; its record says cancelled\\.`), 10_000);
+      await w.waitFor(new RegExp(`Cancelled ${leftId}; its record says cancelled\\.`), 10_000);
       expect(recordOf(leftId)).toMatchObject({ state: 'cancelled' });
       for (const end = Date.now() + 5000; alive(leftPid) && Date.now() < end;) await sleep(100);
       expect(alive(leftPid)).toBe(false);

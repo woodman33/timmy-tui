@@ -233,6 +233,9 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(c.ui.input.field).toBe('composer');
     expect(c.ui.flash?.text).toBe('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).');
     await until('the turn stopped', () => c.data.turn?.state === 'cancelled', 10_000, () => screen(c));
+    // R7 (H150; H148's N5): the stop's notice in the turn's word, once: the session's own line ("Stopped: Cancelled: …" before)
+    await until('the stop\'s notice', () => /^Stopped/.test(c.ui.flash?.text ?? ''), 5000, () => screen(c));
+    expect(c.ui.flash?.text).toBe('Stopped: nothing was sent to any model.');
     expect(region(c, 'top')).toContain('run: idle');
     expect(region(c, 'top')).toContain('Stop current: idle');
     expect(region(c, 'right')).toContain('RUNNING NOW (0)');

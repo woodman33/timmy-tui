@@ -223,7 +223,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // x: the job a session that ended left, stopped through recovery's stop; its record says cancelled; its process is gone
     await keys('x');
     // the outcome first, so the one row of a narrow terminal shows it; the whole answer in Activity, expanded
-    await waitFor(new RegExp(`Stopped ${id}; its record says cancelled\\.`));
+    await waitFor(new RegExp(`Cancelled ${id}; its record says cancelled\\.`));
     for (const end = Date.now() + 10_000; recordOf(id).state === 'running' && Date.now() < end;) await sleep(100);
     expect(recordOf(id)).toMatchObject({ state: 'cancelled', cleanup: 'complete' });
     for (const end = Date.now() + 5000; argsOf(pid) === 'sleep 300' && Date.now() < end;) await sleep(100);
@@ -231,7 +231,7 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     await waitFor(/Stop current: idle/);
     await keys('a');
     const activity = await waitFor(/▾ Activity[\s\S]*All operations/);
-    expect(activity.replace(/[│┃]/g, ' ').replace(/\s+/g, ' ')).toContain(`Stopped ${id}; its record says cancelled. FAKE job (test): sleep 300: the session that started it had ended, so recovery's stop ended its process group`);
+    expect(activity.replace(/[│┃]/g, ' ').replace(/\s+/g, ' ')).toContain(`Cancelled ${id}; its record says cancelled. FAKE job (test): sleep 300: the session that started it had ended, so recovery's stop ended its process group`);
     // R6 (H141): collapsed again, as tray1's layout is left (Remember layout: slice B's Workbench opens tray1 with it)
     await keys('a');
     await waitFor(/▸ Activity/);

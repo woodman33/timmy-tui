@@ -1234,7 +1234,10 @@ export class Controller {
         this.holdsNow();
       }
       // (the receipt by its short id, as the Control Room and the event log name it)
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+      // R7 (H150; H148's N5 "Stopped: Cancelled after the request went out"; the lead's e686809): a stopped turn's line is
+      // the session's own, which says "Stopped" itself, printed as it is (a session that still says "Cancelled…" is said
+      // "Stopped…"); a refusal or a failure keeps its word before it
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
         r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
@@ -2022,6 +2025,14 @@ export class Controller {
     // work keeps running). Every quit exited 130 before, the documented one with nothing running included.
     this.d.onExit?.(own.length || turnHere ? 130 : 0, after);
   }
+}
+
+/** R7 (H150; H148's N5): a stopped turn's line in the turn's word: the session's own when it says "Stopped", else "Stopped". */
+function stoppedLine(line: string | undefined): string {
+  if (!line) return 'Stopped.';
+  if (/^Stopped\b/.test(line)) return line;
+  if (/^Cancelled\b/.test(line)) return `Stopped${line.slice('Cancelled'.length)}`;
+  return `Stopped: ${line}`;
 }
 
 /** The REPL's segment roles in the Workbench's. */

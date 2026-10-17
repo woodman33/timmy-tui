@@ -184,7 +184,7 @@ describe('tab 7 Control Room: the panes as a 2×2 grid from 160 columns (R5 H137
     await press(f.r, RIGHT);
     expect(f.text()).toContain(`Stop current: ${talk.id} FAKE job (test): a line every 0.1 s`);
     await press(f.r, 'x');
-    await until('the answer', () => c.data.activity.events.some((e) => e.words.startsWith(`Nothing stopped: ${talk.id} belongs to another Timmy session that is still running`)), 5000, f.text);
+    await until('the answer', () => c.data.activity.events.some((e) => e.words.startsWith(`Not cancelled: ${talk.id} belongs to another Timmy session that is still running`)), 5000, f.text);
     expect(jobs.get(talk.id)?.state).toBe('running');
     // Context's drawer open: the body narrower, the panes stacked again (no two on one row), the grid back once it is shut
     await press(f.r, 'i');

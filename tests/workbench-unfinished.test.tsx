@@ -127,6 +127,26 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     }
   }, 60_000);
 
+  it('only on the tab\'s own workspaces: tab 0\'s Files (the project tree every tab reaches) and tab 8\'s God\'s Eye View (Home\'s too) say nothing of it', async () => {
+    const c = workbench('own-workspaces');
+    c.start();
+    await until('the frame', () => c.data.frame);
+    c.key('0', {});
+    expect(c.ui.workspace).toBe('logs');
+    expect(center(c, 100, 30).text).toContain('◌ Unfinished');
+    c.key('0', {});
+    expect(c.ui.workspace).toBe('files');
+    expect(center(c, 100, 30).text).not.toContain('Unfinished');
+    c.key('8', {});
+    c.key('8', {});
+    expect(c.ui.workspace).toBe('overview');
+    expect(center(c, 100, 30).text).not.toContain('Unfinished');
+    c.key('6', {});
+    c.key('6', {});
+    expect(c.ui.workspace).toBe('motion');
+    expect(center(c, 100, 30).text).toContain('◌ Unfinished');
+  }, 30_000);
+
   it('the words are the frame\'s own: a frame with other words shows those', async () => {
     const c = workbench('frame-words');
     c.start();

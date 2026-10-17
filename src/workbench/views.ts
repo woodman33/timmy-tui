@@ -12,7 +12,7 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
-import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
+import { TABS, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
@@ -356,12 +356,16 @@ export function centerView(c: ViewCtx): View {
  */
 export function unfinishedBox(c: Pick<ViewCtx, 'ui' | 'data' | 'g' | 'width'>): Line[] {
   const u = frameTabs(c.data.frame).find((t) => t.id === c.ui.page)?.unfinished;
-  if (!u) return [];
+  if (!u || !ownWorkspaces(c.ui.page).includes(c.ui.workspace)) return [];
   const w = Math.max(8, c.width);
   const said = (label: string, words: string): Line[] => wrapSegs([S('  '), S(`${label} `, 'secondary'), S(words, 'text')], w, '  ');
   // (no side borders: the page's own columns keep their rules; a rule of structure grey closes it)
   return [[S(`${unfinishedMark(c.g)} Unfinished`, 'strong')], ...said('Works now:', u.works), ...said('Not yet:', u.missing), [S((c.g.unicode ? '─' : '-').repeat(w), 'border')]];
 }
+
+/** The workspaces that are a tab's own matter: those no other tab gathers, and never Files (the project tree, which every tab
+ *  reaches): an unfinished tab's words are about these (6: 3D Create and Motion; 7: the Control Room; 8: Fleet; 0: Logs). */
+const ownWorkspaces = (page: TabId): readonly WorkspaceId[] => tabOf(page).workbench.filter((w) => w !== 'files' && !TABS.some((o) => o.id !== page && o.workbench.includes(w)));
 
 function withUnfinished(c: ViewCtx, v: View): View {
   const box = unfinishedBox(c);
@@ -588,8 +592,9 @@ function chatView(c: ViewCtx): View {
       ? [`being answered${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc in the composer, or x, stops it']
       : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', receipt ? `receipt ${receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
     const statusRole: Role = turn.state === 'failed' ? 'failure' : 'secondary';
-    // a stopped turn: its stop is said once, in Timmy's own words (the session's "Cancelled…" line says the same stop)
-    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^Cancelled\b/.test(l))) : turn.lines;
+    // a stopped turn: its stop is said once, in Timmy's own words (the session's "Stopped…" line says the same stop; R7 H150:
+    // "Cancelled…" as the session said it before the lead's e686809)
+    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^(?:Stopped|Cancelled)\b/.test(l))) : turn.lines;
     if (turn.state !== 'sending' && kept) {
       // kept in the conversation above: its receipt and what came of it, under it while it is the newest exchange (a stopped
       // one's said there, once); with another surface's turn after it, its receipt is in the log beside, and its stop at it

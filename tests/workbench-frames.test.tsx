@@ -278,7 +278,8 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
       expect(f.text()).toMatch(new RegExp(`Activity\\s+\\S* ?1 running[\\s\\S]*${job.id} started: FAKE job`));
       await press(f.r, 'x');
       await sleep(400);
-      expect(f.text()).toContain(`Nothing stopped: ${job.id} belongs to another Timmy session that is still running`);
+      // (R7 H150: a job's outcome in the job's word, cancelled; H148's N5)
+      expect(f.text()).toContain(`Not cancelled: ${job.id} belongs to another Timmy session that is still running`);
       expect(other.get(job.id)?.state).toBe('running');
     } finally {
       await other.stop(job.id);
