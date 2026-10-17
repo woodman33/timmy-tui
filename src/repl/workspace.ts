@@ -140,6 +140,7 @@ import { buildOverview, type Overview } from '../overview/index.js';
 import { overviewLines } from './overview.js';
 import { overviewShape } from './board-overview.js';
 import { REPL_END_REASON, STOPPED_WITH_STOP, stopReason } from '../utils/stop-words.js';
+import { JOB_CANCELLED, stepStateWords } from '../contracts/stop-words.js';
 // Round R4 (H65): Results and review (/review, /restore, the board's section); hooks are marked "R4 (H65)".
 import { MAX_CHANGES_ONE, operationReview, reviewView, visible } from '../review/changes.js';
 import { restore as restoreKept } from '../review/restore.js';
@@ -1227,7 +1228,8 @@ export class Workspace {
       // first (the last build's state, and what upmd does with its exit), the flow's long words last. R4 (H107): upmd's word
       // in the words every view uses
       const still = s?.outcome === 'no change';
-      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (${s.state === 'failed' ? upmdCounted(s.code) : `exit ${s.code ?? '?'}`})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state;
+      // R7 lead (H148's N5): the step a cancel cut off is cancelled (its record says stopped: src/contracts/stop-words.ts)
+      const word = !s ? '' : still ? `no change: ${lastBuildWords(s)} (${s.state === 'failed' ? upmdCounted(s.code) : `exit ${s.code ?? '?'}`})` : s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : stepStateWords(s.state);
       if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${word}${this.sep}${done} of ${total}${sealed ? `${this.sep}block ${s.name}: receipt ${sealed}` : ''}${still && s.why ? `${this.sep}${s.why}` : ''}`, role: s.state === 'failed' && !still ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
@@ -1304,7 +1306,8 @@ export class Workspace {
       const why = job.error ?? (step ? `${step.name} exited ${step.code ?? '?'}` : `exit ${job.exitCode ?? job.signal ?? '?'}`);
       this.d.notify([{ text: `  ${g.fail} ` }, { text: `${job.id} failed`, role: 'failure' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}: ${why}${this.sep}/jobs ${job.id} shows its output${opTail(job, this.sep)}`, role: 'secondary' }]);
     } else if (job.state === 'cancelled') {
-      this.d.notify([{ text: '  ' }, { text: `${job.id} stopped`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
+      // R7 lead (H148's N5; H149's PTY capture beside /stop's own "cancelled"): a job a cancel ended is cancelled
+      this.d.notify([{ text: '  ' }, { text: `${job.id} ${JOB_CANCELLED}`, role: 'strong' }, { text: opLead(job), role: 'strong' }, { text: `${opJoint(job, this.sep)}${job.label}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${opTail(job, this.sep)}`, role: 'secondary' }]);
     }
   }
 
