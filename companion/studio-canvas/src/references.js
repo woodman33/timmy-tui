@@ -20,6 +20,8 @@ export const CAPTION_META = 'timmyRefCaption';
 export const REF_SRC = /^\/api\/canvas\/ref\/([0-9a-f]{16})\/([0-9a-f]{64})\.(png|jpg|gif|webp)$/;
 /** The widest a reference image is placed at first (page units); the person's to change. */
 export const REF_PLACE_W = 360;
+/** R7 (H151): the height a reference image's caption is placed with in mind (two or three lines of small text, under the image). */
+export const REF_CAPTION_H = 72;
 
 const one = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
@@ -149,10 +151,11 @@ export function createReferences(deps) {
       }]);
     }
     const dims = placedSize(size ? size.w : null, size ? size.h : null);
-    // beside the reference images and Timmy's cards already on this page (right of the rightmost), so one never covers another
-    const others = editor.getCurrentPageShapes().filter((x) => (x.meta && (x.meta[REF_META] || x.meta[CAPTION_META])) || /^timmy-/.test(x.type)).map((x) => editor.getShapePageBounds(x.id)).filter(Boolean);
-    const right = others.reduce((a, x) => (!a || x.maxX > a.maxX ? x : a), null);
-    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: REF_PLACE_W, h: REF_PLACE_W });
+    // R7 (H151; H147's R6 finding 5, review/H147/caps/studio/24-image-added.png: an added image covered the cards beside it):
+    // the image and its caption where they overlap no shape on the page (canvas.js placeAt, ./placement.js); they had gone right
+    // of the rightmost image or card, over whatever was there. The caption's height is a guess until drawn: then the two are
+    // moved clear, together, if they grew over a shape.
+    const at = deps.place(editor, { w: Math.max(dims.w, REF_PLACE_W), h: dims.h + 8 + REF_CAPTION_H });
     const image = deps.createShapeId();
     const caption = deps.createShapeId();
     editor.createShapes([
@@ -163,6 +166,7 @@ export function createReferences(deps) {
     const group = editor.getShape(image)?.parentId ?? image;
     if (editor.getShape(group)) editor.select(group);
     try { deps.reveal(editor, [image, caption]); } catch { /* showing it is a courtesy */ }
+    if (deps.keepClear) await deps.keepClear(editor, [editor.getShape(group) ? group : image]);
     return { added: true, image, caption, group, asset: assetId, ref, project: b.project.name, copied: b.copied === true };
   }
 

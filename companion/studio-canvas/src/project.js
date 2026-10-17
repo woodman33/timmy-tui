@@ -32,6 +32,9 @@ export const GROUPS = [
 const BOARD = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/$/;
 const SECTIONS = new Set(['room', 'workflows', 'parameters', 'flows', 'voxvision']);
 const META_KEY = 'timmyProjectCard';
+/** R7 (H151): a project card's note as it is placed in mind: tldraw's note, 200 wide, a little taller as its words grow it. */
+const NOTE_W = 200;
+const NOTE_PLACE_H = 240;
 /** R4 (H100): where this browser keeps the panel's grouping (By kind or By operation). */
 const MODE_KEY = 'timmy-canvas-group-by';
 
@@ -290,7 +293,10 @@ export function createProjectPanel(deps) {
     if (!now.project) throw new Error(now.message || 'No project is named to this canvas.');
     const card = (now.cards || []).find((c) => c.id === id);
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${now.project.name} now. Its cards: ${(now.cards || []).map((c) => c.id).join(', ').slice(0, 2000) || 'none'}.`);
-    const at = deps.place(editor);
+    // R7 (H151; H147's R6 finding 5): where the note overlaps no shape on the page (canvas.js placeAt, ./placement.js); it had gone
+    // to the middle of the area beside the panel, a step lower each time, over whatever was there. A note grows with its words:
+    // once it has, it is moved clear if it grew over a shape.
+    const at = deps.place(editor, { w: NOTE_W, h: NOTE_PLACE_H });
     const shapeId = deps.createShapeId();
     editor.createShape({
       id: shapeId, type: 'note', x: at.x, y: at.y,
@@ -299,6 +305,7 @@ export function createProjectPanel(deps) {
     });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
+    if (deps.keepClear) await deps.keepClear(editor, [shapeId]);
     show(now);
     return { placed: true, shape: shapeId, card: { id: card.id, title: card.title, state: card.state, command: card.command, record: card.record, receipt: card.receipt, operation: opOf(card) }, project: now.project.name };
   }

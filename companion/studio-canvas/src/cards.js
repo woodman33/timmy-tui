@@ -187,6 +187,8 @@ export const CARD_SHAPES = { workflow: 'timmy-workflow', params: 'timmy-params',
 const KIND_TO_TYPE = { workflow: 'workflow', params: 'params', flow: 'result', vox: 'result', run: 'result' };
 const TYPE_OF_SHAPE = Object.fromEntries(Object.entries(CARD_SHAPES).map(([t, s]) => [s, t]));
 const WIDTH = { workflow: 380, params: 360, result: 380 };
+/** R7 (H151): the height a drawn card is placed with in mind (it is made 160 tall, then follows its content; canvas.js keepClear moves one that grew over a shape). */
+const PLACE_H = 240;
 
 /** The drawn card a project card kind gets ('workflow', 'params', 'result'), or null (an unreadable record has none). */
 export const drawnType = (kind) => KIND_TO_TYPE[kind] ?? null;
@@ -847,17 +849,17 @@ export function createCards(deps) {
     if (!card) throw new Error(`No card ${JSON.stringify(String(id)).slice(0, 120)} in ${answer.project.name} now.`);
     const type = drawnType(card.kind);
     if (!type) throw new Error(`${card.title} has no drawn card (an unreadable record): Place on canvas makes a note of it.`);
-    // Beside the drawn cards already on this page (right of the rightmost), so cards placed one after another never cover
-    // each other; the first goes where the panel's notes go.
-    const others = editor.getCurrentPageShapes().filter(isDrawnCard).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
-    const right = others.reduce((a, b) => (!a || b.maxX > a.maxX ? b : a), null);
-    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: WIDTH[type], h: 160 });
+    // R7 (H151; H147's R6 finding 5: "placed cards cover existing shapes"): where it overlaps no shape on the page (canvas.js
+    // placeAt, ./placement.js), cards placed one after another included; it had gone right of the rightmost drawn card, over
+    // whatever was there. Its height is a guess until it follows its content: once it has, it is moved clear if it grew over one.
+    const at = deps.place(editor, { w: WIDTH[type], h: PLACE_H });
     const shapeId = deps.createShapeId();
     editor.createShape({ id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y, props: propsFor(card, answer, type) });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
     // R4 (H100): and again once it has its height, so its lower part (its buttons) is not left under tldraw's toolbar
     await revealSized(editor, [shapeId]);
+    if (deps.keepClear) await deps.keepClear(editor, [shapeId]);
     return { placed: true, shape: shapeId, type: CARD_SHAPES[type], card: { id: card.id, title: card.title } };
   }
 
@@ -904,18 +906,20 @@ export function createCards(deps) {
     const plan = placementPlan(op, cards, (kind) => drawnType(kind) !== null, kept, (id) => !!editor.getShape(id));
     if (!plan.order.length) throw new Error(`Operation ${op.id} has no card that draws: ${plan.skipped.length ? 'its records cannot be read as cards' : 'none of its cards is listed now'}.`);
     const widthOf = (id) => WIDTH[drawnType(cards.get(id).kind)];
-    // Where the new cards go: after the rightmost card of the operation still on the canvas; else below everything on this
-    // page; else where the panel's cards go (beside the panel).
+    // Where the new cards go: after the rightmost card of the operation still on the canvas, when that row is clear; else (R7
+    // H151) where the row overlaps no shape on the page (canvas.js placeAt, ./placement.js): it had gone below everything on the
+    // page, or beside the panel over whatever was there
     const present = plan.already.map((a) => editor.getShapePageBounds(a.shape)).filter(Boolean);
-    let start;
+    const width = Math.max(1, plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP));
+    let start = null;
     if (present.length) {
       const right = present.reduce((x, y) => (y.maxX > x.maxX ? y : x));
-      start = { x: right.maxX + ROW_GAP, y: right.minY };
-    } else {
-      const all = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
-      const width = plan.place.reduce((w, id) => w + widthOf(id) + ROW_GAP, -ROW_GAP);
-      start = all.length ? { x: Math.min(...all.map((b) => b.minX)), y: Math.max(...all.map((b) => b.maxY)) + 96 } : deps.place(editor, { w: Math.max(1, width), h: 160 });
+      const next = { x: right.maxX + ROW_GAP, y: right.minY };
+      const row = { minX: next.x, minY: next.y, maxX: next.x + width, maxY: next.y + PLACE_H };
+      const others = editor.getCurrentPageShapes().map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
+      if (!others.some((b) => !(row.maxX + ROW_GAP <= b.minX || row.minX >= b.maxX + ROW_GAP || row.maxY + ROW_GAP <= b.minY || row.minY >= b.maxY + ROW_GAP))) start = next;
     }
+    if (!start) start = deps.place(editor, { w: width, h: PLACE_H });
     // R4 (H109; r25 D9): one press is one step of tldraw's undo: the mark below, then the cards, their arrows and the page's
     // record, and nothing else (a drawn card's height and the cards' readings are written outside the history; the camera is
     // not in it). A press that adds nothing writes nothing, so it leaves no empty step behind.
@@ -948,6 +952,9 @@ export function createCards(deps) {
     // on one of them moved them all); the band offers to select what was placed (`select`)
     try { deps.reveal(editor, shown); } catch { /* showing them is a courtesy */ }
     await revealSized(editor, shown);
+    // R7 (H151): the cards placed now, once their heights have followed their content, moved clear (as one) if they grew over a
+    // shape (their arrows follow them, bound); the cards that were already on the board stay where the person left them
+    if (deps.keepClear && made.length) await deps.keepClear(editor, made.map((m) => m.shape));
     const words = placementWords(op.id, { ...plan, drawn: drawn.length });
     return { operation: op.id, placed: made, already: plan.already, deleted: plan.deleted, skipped: plan.skipped, arrows: drawn, cut: plan.cut, gone: plan.gone, linked: plan.linked, words, select: made.map((m) => m.shape) };
   }

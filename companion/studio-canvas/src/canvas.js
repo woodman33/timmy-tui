@@ -31,6 +31,8 @@ import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, proj
 import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
 import { createNodes } from './nodes.js';
+// R7 (H151): where Timmy places on the board, clear of every shape
+import { freeSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -130,6 +132,8 @@ function showRunDetail(op, projectId = null) {
 const cards = createCards({
   React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
   editor: () => current, place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  // R7 (H151): a placed card that grew over a shape is moved clear of it
+  keepClear: (editor, ids) => keepClear(editor, ids),
   // R4 (H109): what Timmy did on its own (the arrows it removed with a deleted card), in the panel's band
   say: (text) => band(text),
   // R4 (H109): a card's Run detail
@@ -165,7 +169,7 @@ const artifacts = createArtifacts({
   forget: (url) => cards.forget(url),
   readRun: (op, projectId) => cards.runDetail(op, projectId),
   runDetail: (op, projectId) => showRunDetail(op, projectId),
-  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids), keepClear: (editor, ids) => keepClear(editor, ids),
   say: (text, bad = false) => band(text, bad),
   render: (host, element) => renderInto(host, element),
 });
@@ -185,7 +189,7 @@ const references = createReferences({
   image: (projectId, file) => cards.refImage(projectId, file),
   forget: (url) => cards.forget(url),
   AssetRecordType, createShapeId, toRichText,
-  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids), keepClear: (editor, ids) => keepClear(editor, ids),
   say: (text, bad = false) => band(text, bad),
 });
 
@@ -1219,7 +1223,7 @@ function connectPanel() {
   const acts = document.getElementById('project-acts');
   const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
-    editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
+    editor: () => current, toRichText, createShapeId, place: placeAt, reveal, keepClear,
     // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows. R6
     // (H139): each reading records whose board was on screen when it was asked (`ticket`), and is drawn only when it still is
     read: async (pinned) => { const ticket = identity.ticket(); const r = await cards.read(pinned); return { ...r, ticket }; },
@@ -1270,19 +1274,76 @@ function holdWords() {
   return identity.state === 'switching' ? switchingTo(identity.switching) : null;
 }
 
-// Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
-// lower and to the right, so cards placed one after another do not cover each other. R4 (H88; the Mac run r23): the card's
-// own size (`size`, in page units: a note's 200 x 200 by default, a drawn card's width) is kept inside that area at the
-// camera's zoom, its left and top edges never before the area's (it had been placed by a 200-wide note's middle).
+// Round R4 (H55): where a placed project card goes. R4 (H88; the Mac run r23): the card's own size (`size`, in page units) is
+// kept inside the area beside Timmy's panel. R7 (H151; H147's R6 finding 5, row 10: "placed cards cover existing shapes"): every
+// way Timmy places (project cards, drawn cards, an operation's cards, artifact cards, reference images, nodes) comes here, and
+// the block goes where it overlaps no shape on the page (their page bounds, PLACE_MARGIN away) nor tldraw's style panel, in the
+// fixed order of ./placement.js: the visible area beside the panel first, row by row; then just right of it; then right of
+// everything. It had gone to the area's middle (a project card a step lower each time) or right of the rightmost card, over
+// whatever was there. `o.except`: shapes not to count (a block being moved clear of the others: keepClear).
 let projectPanel = null;
-function placeAt(editor, size = { w: 200, h: 200 }) {
-  const area = freeArea();
-  const z = editor.getCamera().z || 1;
-  const x = area.x + Math.max(0, (area.w - size.w * z) / 2);
-  const y = area.y + Math.max(0, (area.h - size.h * z) / 2);
-  const at = editor.screenToPage({ x, y });
-  const placed = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyProjectCard).length % 6;
-  return { x: Math.round(at.x + placed * 24), y: Math.round(at.y + placed * 24) };
+/** R7 (H151): the visible area beside the panel (freeArea), in page units. */
+function pageArea(editor) {
+  const a = freeArea();
+  const from = editor.screenToPage({ x: a.x, y: a.y });
+  const to = editor.screenToPage({ x: a.x + Math.max(1, a.w), y: a.y + Math.max(1, a.h) });
+  return { x: from.x, y: from.y, w: Math.max(1, to.x - from.x), h: Math.max(1, to.y - from.y) };
+}
+/**
+ * R7 (H151): what a placed block must not cover, in page units: every shape on the page shown (its page bounds), but `except`
+ * (and what is inside those); and, for a new place (`panel`), tldraw's style panel where it is over the board, so what is placed
+ * shows without moving the camera.
+ */
+function obstacles(editor, except = new Set(), panel = true) {
+  const inside = (id) => { for (let at = editor.getShape(id); at; at = editor.getShape(at.parentId)) if (except.has(at.id)) return true; return false; };
+  const boxes = editor.getCurrentPageShapes().filter((s) => !inside(s.id)).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean)
+    .map((b) => ({ minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY }));
+  const style = panel ? document.querySelector('.tlui-style-panel__wrapper')?.getBoundingClientRect() : null;
+  if (style && style.width > 0 && style.height > 0) {
+    const a = editor.screenToPage({ x: style.left, y: style.top });
+    const z = editor.screenToPage({ x: style.right, y: style.bottom });
+    boxes.push({ minX: a.x, minY: a.y, maxX: z.x, maxY: z.y });
+  }
+  return boxes;
+}
+function placeAt(editor, size = { w: 200, h: 200 }, o = {}) {
+  const at = freeSpot(obstacles(editor, o.except), size, pageArea(editor));
+  return { x: Math.round(at.x), y: Math.round(at.y) };
+}
+/**
+ * R7 (H151): a block Timmy just placed (`ids`: its top shapes), once its size has settled (a drawn card follows its content, an
+ * artifact card fits its height, a note grows with its words: at most 24 frames), still overlaps no other shape: one that grew
+ * over another is moved, whole, to the next clear place (placeAt), and brought into view. Part of the same undo step as the
+ * placement (no stopping point is set). Nothing is moved on a board Studio has left.
+ */
+async function keepClear(editor, ids) {
+  const frame = () => new Promise((done) => { const t = setTimeout(done, 50); requestAnimationFrame(() => { clearTimeout(t); done(); }); });
+  const sizeOf = () => ids.map((id) => { const b = editor.getShapePageBounds(id); return b ? `${Math.round(b.w)}x${Math.round(b.h)}` : '-'; }).join(',');
+  let last = '';
+  for (let i = 0; i < 24; i++) {
+    await frame();
+    const now = sizeOf();
+    if (now === last) break;
+    last = now;
+  }
+  if (current !== editor || identity.blocked()) return;
+  const group = new Set(ids.filter((id) => editor.getShape(id)));
+  if (!group.size) return;
+  const boxes = [...group].map((id) => editor.getShapePageBounds(id)).filter(Boolean);
+  const own = { minX: Math.min(...boxes.map((b) => b.minX)), minY: Math.min(...boxes.map((b) => b.minY)), maxX: Math.max(...boxes.map((b) => b.maxX)), maxY: Math.max(...boxes.map((b) => b.maxY)) };
+  // the arrows bound to the block are its links (they touch the cards they join, and follow them), never in its way
+  const except = new Set(group);
+  for (const id of group) {
+    try { for (const b of editor.getBindingsToShape(id, 'arrow')) except.add(b.fromId); } catch { /* none */ }
+  }
+  // only shapes count here (a block under tldraw's style panel on screen is brought into view, not moved)
+  if (!overlapsAny(own, obstacles(editor, except, false), PLACE_MARGIN / 4)) return;
+  const at = freeSpot(obstacles(editor, except), { w: own.maxX - own.minX, h: own.maxY - own.minY }, pageArea(editor));
+  const dx = Math.round(at.x - own.minX);
+  const dy = Math.round(at.y - own.minY);
+  if (!dx && !dy) return;
+  editor.run(() => editor.updateShapes([...group].map((id) => { const s = editor.getShape(id); return { id, type: s.type, x: s.x + dx, y: s.y + dy }; })));
+  try { reveal(editor, [...group]); } catch { /* showing it is a courtesy */ }
 }
 /**
  * The agent's canvas_place_project_card (src/agent/canvas-tools.ts) calls this with the card's id, which reached the page
