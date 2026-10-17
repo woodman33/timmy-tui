@@ -67,6 +67,7 @@
  *   GET /run/<operation id>                nothing more                      the page (as GET /), its RUN DETAIL tab on that id
  *   GET /api/chat/route                    the token                         the chat's route in words (never a key)
  *   GET /api/run/<operation id>            the token                         the operator's records, as a run detail
+ *   GET /api/newest-run-image              the token                         R7 H152: the newest run that holds an image
  *
  * R5 (H132, the operator's completion order of 2026-10-15: one project workspace across the terminal, the companion and
  * Studio): the page draws the workspace frame every surface shares (src/contracts/workspace.ts, made only by
@@ -124,7 +125,7 @@ const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 /** R4 (H84): the subprotocol the server selects (a page offers it beside its token). */
 export const COMPANION_PROTOCOL = 'timmy-companion';
 /** R4 (H84): what a request without the token is told. */
-export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in `timmy watch`, press q on HOME; it shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
+export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in the Workbench (`timmy workbench`), press c; or in `timmy watch`, press q on HOME, which shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
 /**
  * R4 (H87): the files this server serves beside its code at run time, package-relative: every file of its client folder
  * (served as they are). The build copies each into dist/ (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS);
@@ -767,6 +768,15 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     if (!project) { res.set('Cache-Control', 'no-store').json({ ok: false, reason: 'project', error: PROJECT_UNKNOWN }); return; }
     const answer = await runDetailAnswer(String(req.params.op), project.root, options.runDetail);
     res.status(answer.status).set('Cache-Control', 'no-store').json(answer.body);
+  });
+
+  // R7 (H152; the R6 interaction review's N9): Home's newest run image, the newest run of the shown project's records that holds
+  // one, whatever ran after it (src/companion/home-images.ts), asked of the same producer as the run detail
+  app.get('/api/newest-run-image', withToken, async (req, res) => {
+    const project = projectFor(req);
+    if (!project) { res.set('Cache-Control', 'no-store').json({ ok: false, error: PROJECT_UNKNOWN }); return; }
+    const { newestRunImage } = await import('./home-images.js');
+    res.set('Cache-Control', 'no-store').json(await newestRunImage(project.root, options.runDetail));
   });
 
   // R5 (H132): the workspace frame of the project the page shows (?project=<id>, else the one followed), and the two start-up

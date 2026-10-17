@@ -426,7 +426,13 @@ async function openRun(op, address = true, o = {}) {
   if (address) { try { history.replaceState(null, '', `/run/${id}`); } catch (e) { /* the address stays as it was */ } }
   if (!companion.token || companion.refused) {
     rvShown = null;
-    box.replaceChildren(rvEl('p', { class: 'run-error', 'data-run': 'no-token' }, 'The run detail is read with the companion’s token, which this page does not have, so nothing was read. Open the companion from Timmy: in ', rvEl('code', null, 'timmy watch'), ', press q on HOME.'));
+    // R7 (H152; the R6 interaction review's N7: /run/<op> typed in the address bar has no token, and the remedy named only
+    // `timmy watch`, q on HOME): why nothing was read, and the two ways to see this run with the token. The token is never kept
+    // anywhere (no storage): an address opened by hand has none, by design.
+    const code = (t) => rvEl('code', null, t);
+    box.replaceChildren(rvEl('div', { class: 'run-error', 'data-run': 'no-token' },
+      rvEl('p', null, `Run ${id} was not read: ${companion.refused ? 'this page’s token is not the companion’s' : 'this page has no token'}. Timmy gives the companion’s token only in the address it opens (after #), and the page keeps it in its memory, never in storage, so an address typed or opened by hand, as `, code(`/run/${id}`), ' was, carries none.'),
+      rvEl('p', null, 'To see this run: in the Workbench (', code('timmy workbench'), '), select the run on its Workflows tab (3) and press ', code('c'), ': this page opens there with its token. Or in ', code('timmy watch'), ', press q on HOME, which shows the address with its token. Then type ', code(id), ' in this page’s Operation id box, above, and press Open its run detail.')));
     return;
   }
   if (!o.quiet) { rvShown = rvShown && rvShown.op === id ? rvShown : null; box.replaceChildren(rvEl('p', { class: 'run-empty' }, `Reading the run detail of ${id}…`)); }

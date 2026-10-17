@@ -15,6 +15,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { ensureCompanionWeb } from '../../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../../src/companion/server.js';
 import { folderProject, saveActiveProject } from '../../src/project/index.js';
+import type { Workspace } from '../../src/repl/workspace.js';
 import { replOf, sandbox, type OpsKit, type Sandbox } from './ops-sandbox.js';
 import { reportProject, runOf } from './run-inspect-fixture.js';
 import { png, sealRecord, writeFile } from './vox-panel-kit.js';
@@ -69,6 +70,8 @@ export function shotDoc(name: string, o: { image?: { rel: string; w: number; h: 
 
 export interface PageProject {
   s: Sandbox;
+  /** the REPL's Workspace the run was made in (a test may run more) */
+  ws: Workspace;
   /** the run that wrote out/shot.png (640 × 360) */
   op: string;
   companion: CompanionServer;
@@ -96,7 +99,7 @@ export async function pageProject(kit: OpsKit, o: { prefix?: string; records?: b
   const companion = await startCompanionServer(0, { chatEnv: { TIMMY_HOME: settings, TIMMY_SETTINGS_DIR: settings } });
   const origin = `http://127.0.0.1:${companion.port}`;
   const token = /#t=([0-9a-f]{64})$/.exec(companion.url)![1];
-  return { s, op, companion, origin, token };
+  return { s, ws, op, companion, origin, token };
 }
 
 /** A page of the companion at `size`, every request to another origin refused; its errors collected. */

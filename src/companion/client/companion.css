@@ -147,6 +147,17 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* what waits on you, counted in the tab: amber with its number */
 .tab-waiting { color: var(--timmy-attention); font-size: 11px; flex-shrink: 0; }
+/* R7 (H152): a tab whose intended interactions do not all work yet (the frame's tabs[].unfinished): a dashed border and ◌,
+   never a colour alone; its page opens with the Unfinished box below */
+.ws-tab[data-unfinished="true"] { border-style: dashed; }
+.tab-unfinished { color: var(--timmy-text-secondary); font-size: 11px; flex-shrink: 0; }
+
+/* R7 (H152): the Unfinished box, above an unfinished tab's own content: what works now and what does not yet, in the frame's
+   words; structure and text colours only (it is neither a step nor a state, so never amber or green) */
+.unfinished { flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; margin-top: 8px; padding: 5px 12px 6px; border: 1px dashed var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-ground); font-size: 12px; line-height: 1.5; }
+.unfinished-title { font-size: 12px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); letter-spacing: 0.02em; }
+.unfinished-line { color: var(--timmy-text); overflow-wrap: anywhere; }
+.unfinished-k { color: var(--timmy-text-secondary); }
 
 /* ---------- a box: titled on its top border, as the references draw it ---------- */
 
@@ -506,6 +517,8 @@ body.slate-absent p { max-width: 72ch; }
 .run-detail code { color: var(--timmy-text); }
 .run-empty, .run-none { color: var(--timmy-text-secondary); }
 .run-error { border: 1px solid var(--timmy-failure); border-radius: 4px; padding: 8px 12px; color: var(--timmy-text); white-space: pre-wrap; }
+.run-error > p + p { margin-top: 6px; }
+.run-error code { color: var(--timmy-silver); }
 .run-title { font-size: 14px; margin-bottom: 8px; }
 .rd-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .rd-col { position: relative; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 14px 10px 8px; margin-top: 8px; min-width: 0; }
@@ -1212,6 +1225,8 @@ body.slate-absent p { max-width: 72ch; }
 .home-thumb-btn img { display: block; max-width: 100%; max-height: 7.5em; width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
 .home-thumb-btn:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
 .home-thumb figcaption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+/* R7 (H152): what ran after the image shown, beside it (the newest image is not always the newest work) */
+.home-thumb-note { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 
 /* ==========================================================================================================================
  * R6 (H145): the Studio panel (tab 4; reference 06), drawn by src/companion/client/panel-studio.js into

@@ -278,7 +278,7 @@ function App() {
     if (!text || streaming) return;
     const page = window.timmyCompanion;
     if (!page || !page.ready()) {
-      setError('This page has no token from Timmy, so it asks nothing: open the companion from `timmy watch` (q on HOME).');
+      setError('This page has no token from Timmy, so it asks nothing: open the companion from Timmy, with the Workbench\'s c (`timmy workbench`) or q on HOME in `timmy watch`.');
       return;
     }
     // R4 (H104, second part): only on a route the companion named; with none, its words, and nothing is sent
