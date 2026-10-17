@@ -13,11 +13,11 @@ import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
-import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopWords } from '../ops/workspace-frame.js';
+import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
+import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -151,7 +151,7 @@ export function navView(c: ViewCtx): View & { prompt: number } {
  * here. None while the frame is being read, or while it names another project than the one shown (Follow active project off
  * and another surface chose another: its actions are that project's); `why` says which.
  */
-export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; why?: string } {
+export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; why?: string } {
   const f = c.data.frame;
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
@@ -183,19 +183,37 @@ function jobActionsNow(acts: WorkspaceAction[], c: Pick<ViewCtx, 'ui' | 'data'>)
  * R5 (H131; the QA round's defect 1): the Chat tab's actions as of now. The frame is read at most once a second, so while
  * this Workbench's own turn is being answered and the frame read does not name it yet, its Send waits and its Stop is the next
  * step at once (and the other way round when its turn has ended since); the labels and commands stay the frame's.
+ *
+ * R7 (H150; H148's N3, the operator: "Fix Enter unexpectedly stopping another surface's turn and the contradictory running/idle
+ * state afterward"): one answer for every part of the tab, the turn chatTurnNow names (the run line, Stop current, Activity and
+ * RUNNING NOW read it too), never the frame's older reading beside it. While another surface answers a turn, Stop the turn is
+ * done there (`away`: the frame's doneIn, or the turn's own surface when the frame has not named it yet) and never here; Send
+ * opens the composer to type, and what is typed is sent once that turn has ended (one turn at a time per project). With no
+ * turn being answered, Send is offered and Stop the turn is not, whatever an older frame said.
  */
-function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
+function chatActionsNow(acts: WorkspaceAction[], d: Data): ActNow[] {
   const turn = chatTurnNow(d);
   const framed = !!(d.frame && d.frame.project.id === d.project.id && d.frame.activity.chatTurn);
-  if (!!turn === framed) return acts;
-  return acts.map((a) => {
+  const ready = routeShown(d).ready;
+  const noWhy = (a: WorkspaceAction): WorkspaceAction => { const { why: _why, ...rest } = a; return rest; };
+  return acts.map((a): ActNow => {
     const r = routeOf(a);
-    if (turn && r.kind === 'composer') return { ...a, primary: false, enabled: false, why: `one turn at a time: a turn is being answered in ${turn.where}` };
-    if (turn && r.kind === 'abort') {
-      const { why: _why, ...rest } = a;
-      return { ...rest, primary: true, enabled: true };
+    if (r.kind === 'composer') {
+      if (turn?.mine) return { ...a, primary: false, enabled: false, why: 'one turn at a time: a turn is being answered in this Workbench (Esc in the composer, or x, stops it)' };
+      if (turn) return { ...noWhy(a), primary: false, enabled: ready, ...(ready ? { note: `Enter opens the composer: type now, sent once the turn in ${turn.where} ends (one turn at a time per project)` } : { why: 'no chat route is ready here' }) };
+      // (the frame read while a turn ran: nothing runs now, so Send is the step again, as the frame's next reading will say)
+      if (framed) return { ...noWhy(a), primary: ready, enabled: ready, ...(ready ? {} : { why: 'no chat route is ready here' }) };
+      return a;
     }
-    if (!turn && r.kind === 'abort') return { ...a, primary: false, enabled: false, why: 'only while a turn runs' };
+    if (r.kind === 'abort') {
+      if (turn?.mine) return { ...noWhy(a), primary: true, enabled: true, command: turnStopCommand('workbench'), doneIn: 'workbench' };
+      if (turn) {
+        const command = a.doneIn === turn.surface ? a.command : turnStopCommand(turn.surface);
+        return { ...noWhy(a), primary: true, enabled: true, command, doneIn: turn.surface, away: turn.where };
+      }
+      const { doneIn: _doneIn, ...rest } = a;
+      return framed || a.enabled ? { ...rest, primary: false, enabled: false, command: 'Esc in the composer', why: 'only while a turn runs' } : a;
+    }
     // (R5 H134, at the merge of the frame's chat fix: Stop is the one next step while the turn runs; the frame, not knowing of
     // the turn yet, may still make the chat's fix primary)
     if (turn && a.primary) return { ...a, primary: false };
@@ -203,13 +221,20 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
   });
 }
 
-/** R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it. */
-export function selectedAction(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; at: number } {
+/**
+ * R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it.
+ * R7 (H150; H148's N3): when the primary next step is done on another surface (a Stop the turn of the REPL's), the first
+ * action this Workbench does is selected instead, so Enter never lands on what is done elsewhere (on Chat, 2 → Enter opens the
+ * composer, as the README says).
+ */
+export function selectedAction(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; at: number } {
   const { acts } = pageActions(c);
   if (!acts.length) return { acts, at: -1 };
   const chosen = c.ui.cursor.top;
   const primary = acts.findIndex((a) => a.primary);
-  const at = chosen === undefined ? Math.max(0, primary) : Math.max(0, Math.min(acts.length - 1, chosen));
+  const here = acts.findIndex((a) => a.enabled && !awayOf(a));
+  const start = primary >= 0 && awayOf(acts[primary]) && here >= 0 ? here : Math.max(0, primary);
+  const at = chosen === undefined ? start : Math.max(0, Math.min(acts.length - 1, chosen));
   return { acts, at };
 }
 
@@ -864,6 +889,23 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       if (req.detail) { lines.push(blank); for (const l of req.detail.split('\n').slice(0, 12)) lines.push(...para(l, c.width, 'text', '  ')); }
       lines.push(blank);
       lines.push(...para('Nothing runs until you answer, with a key: a click never allows (a click on [n] denies). The Control Room lists it as waiting on you.', c.width, 'secondary'));
+      return { lines, items };
+    }
+    // R7 (H150; H148's N3): x's own way to stop another surface's turn asks first and names that surface
+    case 'confirm-stop': {
+      const t = o.turn;
+      const now = chatTurnNow(data);
+      lines.push([S(`Stop the chat turn being answered in ${t.where}?`, 'strong')]);
+      lines.push(blank);
+      if (!now || now.id !== t.id) {
+        lines.push(...para(`It has ended since this box opened: there is nothing to stop. Its end is in the event log once its receipt is sealed.`, c.width, 'secondary'));
+        lines.push(blank, [key('n'), S(' Close (Esc, Enter)', 'text')]);
+        return { lines, items };
+      }
+      lines.push(...para(`It was sent from ${t.where}, and it stops there (${turnStopWords(t.surface)}). y asks that process to stop it as its own key would; its receipt says the Workbench asked.`, c.width));
+      lines.push(...para('Nothing is asked until you press y. A click never stops a turn.', c.width, 'secondary'));
+      lines.push(blank);
+      lines.push([key('y'), S(' Stop it there   ', 'text'), key('n'), S(' Keep it (Esc, Enter)', 'text')]);
       return { lines, items };
     }
     case 'quit': {

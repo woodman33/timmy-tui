@@ -203,6 +203,7 @@ function overlayTitle(ui: Ui): string {
     case 'confirm-run': return 'Run a workflow block';
     case 'needs-you': return 'NEEDS YOU';
     case 'quit': return 'Quit';
+    case 'confirm-stop': return 'Stop another surface\'s turn';
     case 'message': return o.title;
     case 'free-models': return 'Choose a free model';
     case 'local-models': return 'Choose the local model';

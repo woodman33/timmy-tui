@@ -189,6 +189,23 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
 
 export interface ActionHit { x0: number; x1: number; i: number }
 
+/**
+ * R7 (H150; H148's N3): an action as the Workbench offers it now: the frame's, with where it is done when that is not this
+ * Workbench (`away`, in words: the frame's `doneIn`, or the surface whose turn a Stop the turn names), and what Enter does
+ * with it here when that differs from its route's words (`note`). An action done elsewhere is shown, with where; it is never
+ * run here on any key (src/workbench/controller.ts runAction).
+ */
+export type ActNow = WorkspaceAction & { away?: string; note?: string };
+
+const DONE_IN_WORDS: Readonly<Record<NonNullable<WorkspaceAction['doneIn']>, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+
+/** Where an action is done when that is not this Workbench, in words; undefined: it is done here. */
+export function awayOf(a: Pick<ActNow, 'away' | 'doneIn'> | undefined): string | undefined {
+  if (!a) return undefined;
+  if (a.away) return a.away;
+  return a.doneIn && a.doneIn !== 'workbench' ? DONE_IN_WORDS[a.doneIn] : undefined;
+}
+
 /** What Enter does with an action: a path the Workbench has, or the command shown to copy. */
 export type ActionRoute =
   | { kind: 'page'; page: TabId; words: string }
@@ -236,7 +253,8 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   // "Esc in the composer that sent it (the Workbench)", "Ctrl+C in the REPL that sent it", "Stop on the companion page …")
   // R5 (H131; the QA of e7f853e, item 16): and one sent elsewhere is asked to stop, by its id (src/agent/chat-turn.ts
   // requestTurnStop), as its own key would stop it there
-  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does), or asks one sent from elsewhere to stop, as its own key would' };
+  // R7 (H150; H148's N3): Enter stops only this Workbench's own turn; one sent elsewhere is done there (the action's doneIn)
+  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does)' };
   // R5 (H131; the finish line, item 3): the frame's fixes for a chat that cannot answer, done here where the Workbench can do
   // them honestly; the setup, which asks for a key, is a shell's (its command and what it asks are shown)
   if (cmd === '/model free') return { kind: 'free-models', words: 'Enter lists the free models in this computer\'s catalog; Enter on one makes it the chat\'s model (free-only stays on)' };
@@ -335,7 +353,7 @@ export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focuse
 }
 
 /** The selected action's words for the row below the buttons: what it is, and what Enter does or why it is not now. */
-export function actionWords(a: WorkspaceAction | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
+export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
   if (!a) return [S('No action is selected.', 'secondary')];
   const route = routeOf(a);
   const head: Seg[] = [S(`${a.n} ${a.label}`, a.enabled ? 'strong' : 'secondary'), S(` ${g.sep} `, 'secondary')];
@@ -343,6 +361,17 @@ export function actionWords(a: WorkspaceAction | undefined, g: Glyphs, width = N
   // the command first (the same on every surface), then what Enter does with it here, then what it touches. R5 (H131; the QA
   // round's defect 15): where the row is short, what it touches goes first, then Enter's words are said shorter, whole
   const sep = S(` ${g.sep} `, 'secondary');
+  // R7 (H150; H148's N3): an action done on another surface says where, and that Enter does not do it here
+  const away = awayOf(a);
+  if (away) {
+    const words = route.kind === 'abort' ? `done in ${away}, not here: Enter does not stop it; x asks you first` : `done in ${away}, not here: Enter does not do it`;
+    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(words, 'text')], [...head, S(`done in ${away}, not here`, 'text')]];
+    return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
+  }
+  if (a.note) {
+    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(a.note, 'text')], [...head, S(a.note, 'text')]];
+    return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
+  }
   const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : route.words;
   const forms: Line[] = [
     [...head, S(a.command, 'action'), S(` ${g.sep} ${a.effect} ${g.sep} `, 'secondary'), S(route.words, 'text')],
@@ -637,7 +666,8 @@ export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project' | 'turns'
  *  x or Enter does here: this Workbench's own stops here; another surface's is asked to stop by its id, as its own key would. */
 export function turnStopHere(t: TurnNow): string {
   if (t.mine) return 'Esc in the composer or x stops it';
-  return t.id ? `x asks it to stop, as ${turnStopWords(t.surface)} does` : `${turnStopWords(t.surface)} stops it, there`;
+  // R7 (H150; H148's N3): stopped where it was sent; x here is the Workbench's own deliberate way, and it asks first
+  return t.id ? `${turnStopWords(t.surface)} stops it there; x here asks you first` : `${turnStopWords(t.surface)} stops it, there`;
 }
 
 /** R5 (H131; the QA of e7f853e, item 17): how a sealed turn ended, in the frame's words (src/ops/workspace-frame.ts turnOf):
