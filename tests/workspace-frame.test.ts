@@ -44,6 +44,21 @@ describe('the tabs', () => {
     const refs = new Set(TABS.flatMap((t) => t.refs));
     for (let i = 1; i <= 18; i++) expect(refs.has(String(i).padStart(2, '0')), `reference ${i}`).toBe(true);
   });
+  // R7 lead (the operator, 2026-10-16 22:08 PT): "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished
+  // until their intended interactions work."
+  it('R7 lead: 3D & Motion, Control Room, Fleet & Clef and Logs & Receipts say they are unfinished: what works now, and what does not yet', async () => {
+    const unfinished = TABS.filter((t) => t.unfinished).map((t) => t.id);
+    expect(unfinished).toEqual(['create', 'control', 'fleet', 'logs']);
+    for (const t of TABS.filter((x) => x.unfinished)) {
+      expect(t.unfinished!.works.length, t.id).toBeGreaterThan(20);
+      expect(t.unfinished!.missing.length, t.id).toBeGreaterThan(20);
+    }
+    expect(TABS.find((t) => t.id === 'fleet')!.unfinished!.missing).toContain('on HOLD');
+    // the frame every surface draws carries the same words, and none on a tab whose interactions work
+    const f = await frame();
+    for (const t of f.tabs) expect(t.unfinished, t.id).toEqual(TABS.find((x) => x.id === t.id)!.unfinished);
+    expect(f.tabs.filter((t) => t.unfinished).map((t) => t.id)).toEqual(['create', 'control', 'fleet', 'logs']);
+  });
 });
 
 describe('a connection', () => {

@@ -623,7 +623,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   const body = {
     schema: WORKSPACE_SCHEMA, version: WORKSPACE_VERSION,
     project: { id: wb.project.id, name: wb.project.name, shown: wb.project.shown, chosen: wb.project.chosen, switch: '/project <name>', create: '/project new <name>' },
-    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0 })),
+    tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, purpose: t.purpose, waiting: t.id === 'control' || t.id === 'home' ? wb.activity.waiting_on_you : 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) })),
     actions: actionsOf(wb, turns, { studioRunning: connections.find((c) => c.id === 'studio')?.state === 'live', connections, recentTurns, ollamaStart: ollamaStartStep({ cli: ollamaCli(d, env), platform: d.platform ?? process.platform }) }),
     connections,
     activity: {

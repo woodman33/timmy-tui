@@ -34,6 +34,13 @@ export interface TabDef {
   refs: readonly string[];
   /** one line: what the tab is for */
   purpose: string;
+  /**
+   * R7 lead (the operator's order of 2026-10-16, 22:08 PT: "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts
+   * visibly unfinished until their intended interactions work"): a tab whose intended interactions do not all work yet says
+   * so on every surface, in these words: what works on it now, and what it does not do yet. Drawn in structure and text
+   * colors only (never amber or green: it is neither a step nor a state). Absent on a tab whose interactions work.
+   */
+  unfinished?: { works: string; missing: string };
 }
 
 /**
@@ -46,11 +53,15 @@ export const TABS: readonly TabDef[] = [
   { id: 'workflows', key: '3', label: 'Workflows', workbench: ['workflows'], refs: ['03', '12'], purpose: 'Intent, prediction, sandbox, review, run, logs, receipt and analysis, kept apart.' },
   { id: 'studio', key: '4', label: 'Studio', workbench: ['studio'], refs: ['06'], purpose: 'The tldraw canvas: boards, cards, drafts to accept or discard, saved and reopened.' },
   { id: 'voxvision', key: '5', label: 'VoxVision', workbench: ['voxvision'], refs: ['04', '05', '15', '16'], purpose: 'Every 2D and 3D vision tool with its observed status, and this project\'s observations.' },
-  { id: 'create', key: '6', label: '3D & Motion', workbench: ['create3d', 'motion'], refs: ['06'], purpose: 'Native scenes, CAD, compositions and renders Timmy drives, with what each needs.' },
-  { id: 'control', key: '7', label: 'Control Room', workbench: ['control'], refs: ['07', '14'], purpose: 'Devices, harnesses, jobs, chat turns and decisions: what runs, what ended, what waits.' },
-  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['fleet', 'overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.' },
+  { id: 'create', key: '6', label: '3D & Motion', workbench: ['create3d', 'motion'], refs: ['06'], purpose: 'Native scenes, CAD, compositions and renders Timmy drives, with what each needs.',
+    unfinished: { works: 'each native tool\'s status and its setup step (Blender, OpenSCAD, FreeCAD, Unreal Engine, CadQuery, After Effects)', missing: 'a 3D view you can turn, a motion timeline, scene editing and render previews; Rive, Theatre.js and HyperFrames are not in Timmy' } },
+  { id: 'control', key: '7', label: 'Control Room', workbench: ['control'], refs: ['07', '14'], purpose: 'Devices, harnesses, jobs, chat turns and decisions: what runs, what ended, what waits.',
+    unfinished: { works: 'this project\'s jobs, chat turns and runs, each run\'s pane (the Workbench draws up to four as a grid) and what waits on you', missing: 'adding or removing harnesses, a broadcast to every pane, live browser panes, and a pane grid in the companion' } },
+  { id: 'fleet', key: '8', label: 'Fleet & Clef', workbench: ['fleet', 'overview'], refs: ['09', '18'], purpose: 'Fleet plans and their counts, Clef recommendations and Cloudflare, labelled as they are.',
+    unfinished: { works: 'fleet plans on the FAKE backend with their counts, and Clef\'s settings (its routing is off by default, its thresholds uncalibrated)', missing: 'probability bars, service cards, and any real fleet (on HOLD)' } },
   { id: 'tools', key: '9', label: 'Tools & MCP', workbench: ['tools', 'rea', 'templates'], refs: ['08', '17'], purpose: 'Every capability with its rung, both MCP-to-CLI routes, REA, and public templates.' },
-  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['logs', 'files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.' },
+  { id: 'logs', key: '0', label: 'Logs & Receipts', workbench: ['logs', 'files'], refs: ['10'], purpose: 'Raw output, structured events and the receipt chain, linked by operation id.',
+    unfinished: { works: 'the receipt chain, checked in the Workbench, and each operation\'s raw log and events', missing: 'replaying a run from here, the durable spine table, and a chain check in the companion' } },
 ];
 
 export const tabOf = (id: TabId): TabDef => TABS.find((t) => t.id === id) ?? TABS[0];
@@ -163,7 +174,8 @@ export interface WorkspaceFrame {
     create: string;
   };
   /** R5 lead: each tab's purpose too (H132's note), as TABS says it */
-  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; purpose?: string; waiting: number }>;
+  /** R7 lead: `unfinished` as TabDef carries it (a tab whose intended interactions do not all work yet) */
+  tabs: Array<{ id: TabId; key: string; label: string; refs: readonly string[]; purpose?: string; waiting: number; unfinished?: { works: string; missing: string } }>;
   actions: Record<TabId, WorkspaceAction[]>;
   connections: WorkspaceConnection[];
   /** R5 lead: `running` counts a chat turn being answered too; `chatTurn` names it (one turn at a time per project) */
