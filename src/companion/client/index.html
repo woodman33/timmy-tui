@@ -231,9 +231,13 @@
       <div class="vox-host" data-panel-host="voxvision"><p class="empty">Reading this project's VoxVision records…</p></div>
     </section>
 
-    <!-- 6 · 3D & Motion (reference 06): Slate 3D, the mission board as a scene, lit from the bus (companion/slate3d) -->
-    <section id="ws-create" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-create" data-ws-page="create" hidden>
-      <div class="cols cols-wide">
+    <!-- 6 · 3D & Motion (reference 06). R7 (H153): the project's meshes, drawn by panel-create.js into the host below (its
+         routes: src/companion/panels/create.ts): the meshes and the recordings Timmy can read; Timmy's own view of the
+         selected file's triangles, which you can turn; what Timmy's own STL reader measured from the whole file. Under it (the
+         tab scrolls) this tab's actions in full, and Slate 3D, the mission board as a scene, lit from the bus (companion/slate3d). -->
+    <section id="ws-create" class="ws-page ws-create-page" role="tabpanel" aria-labelledby="ws-tab-create" data-ws-page="create" hidden>
+      <div class="create-host" data-panel-host="create"><p class="empty">Reading this project's meshes…</p></div>
+      <div class="cols cols-wide create-more">
         <section class="box" aria-labelledby="create-acts-title">
           <h2 id="create-acts-title" class="box-title">This tab's actions, in full</h2>
           <div class="box-body"><div class="acts-full" data-acts-for="create"></div></div>
@@ -412,6 +416,7 @@
   <script src="/panel-studio.js"></script>
   <script src="/panel-vox.js"></script>
   <script src="/panel-tools.js"></script>
+  <script src="/panel-create.js"></script>
   <!-- R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts) -->
   <script src="/panel-run.js"></script>
   <script src="/companion.js"></script>

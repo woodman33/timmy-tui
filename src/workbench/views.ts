@@ -15,6 +15,7 @@ import type { RunDetail } from '../contracts/run-detail.js';
 import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
 import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
+import { createTabLines } from './create-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
@@ -649,7 +650,8 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw; the QA of e7f853e, defect 2: and what
   // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own). R6 lead (H146's
   // finding): images are drawn now (the companion's Home, tab 5 and run detail), so this says interactive 3D and motion only
-  if (tab6) lines.push(...limitRows('No Timmy surface draws interactive 3D or a motion timeline yet: each app below draws its own, once set up.', { c: 'this tab\'s actions, in words', s: 'the canvas (2D shapes and cards)' }, c.width, g), blank);
+  // R7 (H153): the companion's tab 6 draws the project's meshes now: this says so first, then lists them (src/workbench/create-tab.ts)
+  if (tab6) lines.push(...createTabLines(c), blank);
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
