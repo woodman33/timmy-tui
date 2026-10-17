@@ -10,9 +10,11 @@
  *   --timmy-ground / --timmy-surface          the canvas and the wells (cards, panels, inputs)
  *   --timmy-line / --timmy-line-strong        separators and structure (a control is also told by its words or its fill)
  *   --timmy-text / --timmy-text-secondary     primary and secondary text (6.4:1 on the canvas)
- *   --timmy-accent (amber)                    focus, the active tab, the ONE primary next step (the only amber fill), .intent
- *                                             and .predict, what waits on you, and a failure (with ✕ and its word: the
- *                                             palette has no red)
+ *   --timmy-accent (amber)                    focus, the active tab, the selection, the ONE primary next step (the only amber
+ *                                             fill; R7 H152: the same step elsewhere on the screen is a brighter neutral),
+ *                                             .intent and .predict, what waits on you, and a failure (with ✕ and its word:
+ *                                             the palette has no red); never a key, a command, a destructive button, a FAKE
+ *                                             mark, a spend or a log level (each says itself in words)
  *   --timmy-silver                            made by a model, links (underlined), commands to copy
  *   --timmy-live (green)                      ONLY through .is-live (an observed live connection) and .is-verified (a passed
  *                                             check, a verified sealed receipt); saved, delivered, running, enabled or
@@ -244,7 +246,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .act[aria-disabled="true"] { color: var(--timmy-text-secondary); border-style: dashed; cursor: not-allowed; }
 .act-why { font-size: 11px; color: var(--timmy-text-secondary); padding-left: 2px; }
 .act-effect { font-size: 11px; color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
-.act-effect.spends { color: var(--timmy-attention); }
+.act-effect.spends { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); } /* R7 (H152, B10): its word says it spends; amber is not a warning colour */
 .strip-note { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 6px; }
 /* R5 lead: the Stop beside a chat turn being answered (the mirror's row, the Control Room's line) */
 .stop-turn { margin-left: 8px; }
@@ -351,10 +353,12 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 
 .acts-full { display: flex; flex-direction: column; gap: 8px; }
 .act-row { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 7px 10px; background: var(--timmy-surface); }
-.act-row.is-primary { border-color: var(--timmy-accent); }
+/* R7 (H152, B10: one amber next step per screen, the strip's): the same step in this list is a brighter neutral, its words
+   "the next step" saying it, as the run detail's and VoxVision's own next steps are */
+.act-row.is-primary { border-color: var(--timmy-text); }
 .act-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 12px; font-weight: var(--timmy-weight-strong); }
 .act-row-tag { font-size: 11px; color: var(--timmy-text-secondary); white-space: nowrap; font-weight: var(--timmy-weight-body); }
-.act-row-tag.is-next { color: var(--timmy-accent); }
+.act-row-tag.is-next { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
 .act-row-why { font-size: 11px; color: var(--timmy-text-secondary); }
 
 /* ---------- the Chat tab: the mirror or this page's own model chat, switched in place ---------- */
@@ -446,9 +450,10 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .btn-action:disabled { color: var(--timmy-text-secondary); cursor: not-allowed; }
 .btn-action.tiny { padding: 1px 7px; font-size: 11px; }
 .btn-action.success { color: var(--timmy-text); }
-/* destructive: amber words, the palette has no red (the button says what it deletes) */
-.btn-action.danger { color: var(--timmy-failure); }
-.btn-action.danger:hover { border-color: var(--timmy-failure); }
+/* destructive: the button says what it deletes (✕ and its words); R7 (H152; the R5 visual review's 10, H148's reading: it was
+   still amber): never amber, which is for focus, the selection, the one next step, what waits on you and a failure (B10) */
+.btn-action.danger { color: var(--timmy-text); }
+.btn-action.danger:hover { border-color: var(--timmy-text-secondary); }
 .btn-action.wide { width: 100%; justify-content: center; padding: 6px; }
 .btn-action.project-pin-btn:disabled { cursor: default; }
 .badge-planned { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); font-size: 11px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; letter-spacing: 0.04em; }
@@ -461,7 +466,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .log-line .log-stamp { color: var(--timmy-text-secondary); }
 .log-level { color: var(--timmy-text-secondary); }
 .log-level.error { color: var(--timmy-failure); font-weight: var(--timmy-weight-strong); }
-.log-level.warn { color: var(--timmy-attention); }
+.log-level.warn { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); } /* R7 (H152, B10): a WARN level is a word, not amber */
 .log-level.success { color: var(--timmy-text); }
 
 /* ---------- where work happens (Control Room), the latest receipt as received (Logs), the canvas (Studio) ---------- */
@@ -749,8 +754,9 @@ body.slate-absent p { max-width: 72ch; }
 .vox-rec-status.st-failed, .vox-rec-status.st-partial, .vox-rec-status.st-untrusted, .vox-rec-status.st-needs-setup { color: var(--timmy-attention); }
 .vox-rec-inputs { color: var(--timmy-text); overflow-wrap: anywhere; }
 .vox-rec-meta { color: var(--timmy-text-secondary); font-size: 11px; }
-.vox-tag-fake, .vox-fake { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); letter-spacing: 0.04em; }
-.vox-fake { border: 1px solid var(--timmy-attention); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+/* FAKE: said in its word, in the text colour and bold (R7 H152, B10: amber is for where to act, not for a label) */
+.vox-tag-fake, .vox-fake { color: var(--timmy-text); font-weight: var(--timmy-weight-heading); letter-spacing: 0.04em; }
+.vox-fake { border: 1px solid var(--timmy-text-secondary); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
 .vox-fake[hidden] { display: none; }
 
 /* the entity tree */
@@ -907,8 +913,9 @@ body.slate-absent p { max-width: 72ch; }
 /* ==========================================================================================================================
    R6 (H142): the Tools & MCP inspector (tab 9; references 08 and 17; drawn by panel-tools.js). Its steps and its four panes
    fill the tab (Ingest & tools, Request, the JSON-RPC wire & schema gate, Result & receipt); under them the tab scrolls to the
-   project's newest calls and the frame's own words for the routes. Amber: the one primary next step, the next step, what is
-   picked, NEEDS YOU and a failure (with ✕ and its word). Green only through .is-live (an answer observed now) and
+   project's newest calls and the frame's own words for the routes. Amber: the one primary next step, what is picked, NEEDS
+   YOU and a failure (with ✕ and its word); R7 (H152): the next step in the steps is a brighter neutral with its ▶ (one amber
+   next step per screen). Green only through .is-live (an answer observed now) and
    .is-verified (a passed check, a receipt verified now). The flame graph's bars are structure and text colors.
    ========================================================================================================================== */
 
@@ -920,8 +927,10 @@ body.slate-absent p { max-width: 72ch; }
 .tools-step-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); white-space: nowrap; }
 .tools-step-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools-step.is-done .tools-step-n { color: var(--timmy-text); }
-.tools-step.is-next { border-color: var(--timmy-accent); }
-.tools-step.is-next .tools-step-n { color: var(--timmy-accent); }
+/* R7 (H152, B10: one amber next step per screen): the next step in the steps is a brighter neutral with its ▶; the amber is the
+   panel's (or the strip's) one primary action for it */
+.tools-step.is-next { border-color: var(--timmy-text); }
+.tools-step.is-next .tools-step-n { color: var(--timmy-text); }
 .tools-step.is-verified { border-color: var(--timmy-live); }
 .tools-step.is-verified .tools-step-n { color: var(--timmy-live); }
 .tools-grid { flex: 0 0 calc(100% - 46px); min-height: 340px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; }
@@ -1261,7 +1270,9 @@ body.slate-absent p { max-width: 72ch; }
 .sb-thumb-failed { width: 120px; height: 80px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--timmy-failure); border-radius: 3px; color: var(--timmy-failure); font-size: 12px; cursor: help; }
 .sb-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .sb-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; color: var(--timmy-text-secondary); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
-.sb-fake, .sb-draft { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+.sb-draft { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+/* R7 (H152, B10): FAKE in its word, not in amber (a draft waits on you, so it stays amber) */
+.sb-fake { color: var(--timmy-text); font-weight: var(--timmy-weight-heading); }
 .sb-title { color: var(--timmy-text); font-size: 12px; font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
 .sb-excerpt { color: var(--timmy-text); font-size: 12px; overflow-wrap: anywhere; }
 .sb-where { color: var(--timmy-text-secondary); font-size: 11px; }
