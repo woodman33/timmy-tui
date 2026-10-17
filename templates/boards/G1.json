@@ -1,0 +1,16 @@
+{
+  "id": "G1",
+  "kind": "guided",
+  "title": "Workflow: intent → predict → sandbox → review → receipt",
+  "domain": "workflow review",
+  "intro": "One frame per stage, left to right. Each frame says what goes in it and starts empty: nothing here is an example, and nothing on this board runs anything.",
+  "flow": true,
+  "columns": 5,
+  "frames": [
+    { "name": "Intent", "guide": "What you want done, in your own words: the outcome, its limits, and how you will know it worked." },
+    { "name": "Predict", "guide": "What you expect before anything runs: what changes, how long it takes, what it may cost. Each line stays a prediction until a check confirms it." },
+    { "name": "Sandbox", "guide": "Where a trial runs and what it may touch. Put the job or run id here once one exists; until then this frame stays empty." },
+    { "name": "Review", "guide": "What the trial did beside what was predicted: each difference, and whether you accept it. What is not known stays marked unknown." },
+    { "name": "Receipt", "guide": "The receipt of the accepted run (its short hash, from Timmy). A receipt proves what ran and who signed it, not that the result is right." }
+  ]
+}

@@ -43,7 +43,15 @@ interface HoldRecord {
 }
 
 /** Another turn's hold on the project, as a refusal names it. */
-export interface OtherTurn { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown' }
+/**
+ * Another turn's hold on the project, as a refusal names it. R5 lead (the operator's 22:32 order, item 1): `id` is the hold's
+ * own name (t<pid>-<8 hex>), the turn's identity: its receipt names it (turn_id), so a reader matches a hold to its receipt by
+ * identity, never by surface and time.
+ */
+export interface OtherTurn { id: string; surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown' }
+/** A hold's name without its .json: the turn's id. */
+export const TURN_ID = /^t[0-9]+-[0-9a-f]{8}$/;
+const STOP_SCHEMA = 'timmy.chat-turn-stop/1';
 
 /** The project's chat-turns folder, inside the project and through no link (made when `make`). */
 function turnsDir(root: string, make: boolean): { ok: true; abs: string } | { ok: false; error: string; missing?: true } {
@@ -72,8 +80,11 @@ function readHold(file: string): HoldRecord | undefined {
   } catch { return undefined; }
 }
 
-/** The turns that hold the project now, other than `except` (a file name); a stale one (its writer gone) is removed as it is seen. */
-export function runningTurns(root: string, except?: string): OtherTurn[] {
+/**
+ * The turns that hold the project now, other than `except` (a file name); a stale one (its writer gone) is removed as it is
+ * seen, unless `readOnly` (R5 lead: the workspace frame reads, never writes).
+ */
+export function runningTurns(root: string, except?: string, o: { readOnly?: boolean } = {}): OtherTurn[] {
   const dir = turnsDir(root, false);
   if (!dir.ok) return [];
   let names: string[];
@@ -85,8 +96,9 @@ export function runningTurns(root: string, except?: string): OtherTurn[] {
     if (!r) continue;
     const mine = r.owner.pid === THIS_PROCESS.pid && r.owner.started === THIS_PROCESS.started;
     const proof = mine ? 'alive' : writerState(r.owner);
-    if (proof === 'gone') { try { fs.unlinkSync(file); } catch { /* already gone */ } continue; }
-    out.push({ surface: r.surface, pid: r.owner.pid, taken: r.taken, mine, proof });
+    // a hold whose writer is gone (it ended, or crashed mid-turn) is no running turn; a stop asked of it goes with it
+    if (proof === 'gone') { if (!o.readOnly) { for (const f of [file, file.replace(/\.json$/, '.stop')]) { try { fs.unlinkSync(f); } catch { /* already gone */ } } } continue; }
+    out.push({ id: n.replace(/\.json$/, ''), surface: r.surface, pid: r.owner.pid, taken: r.taken, mine, proof });
   }
   return out.sort((a, b) => a.taken.localeCompare(b.taken));
 }
@@ -105,7 +117,8 @@ export function busyLines(t: OtherTurn): string[] {
   ];
 }
 
-export interface TurnHold { release(): void }
+/** A turn's hold: its id (the turn's identity, sealed on its receipt as turn_id), and its release. */
+export interface TurnHold { id: string; release(): void }
 
 /**
  * Takes the project for one turn: writes this turn's hold, then reads the others; another live one refuses it (this hold is
@@ -129,7 +142,55 @@ export function takeTurnHold(root: string, surface: ChatSurface): { ok: true; ho
   const release = (): void => { if (released) return; released = true; try { fs.unlinkSync(file); } catch { /* already gone */ } };
   const other = runningTurns(root, name)[0];
   if (other) { release(); return { ok: false, lines: busyLines(other) }; }
-  return { ok: true, hold: { release } };
+  return { ok: true, hold: { id: name.replace(/\.json$/, ''), release } };
+}
+
+/**
+ * R5 lead (the operator's 22:32 order, item 2): asks the turn `id` of the project to stop, from any surface (the companion's
+ * Stop, the Workbench's Enter on Stop the turn): a request file beside its hold, which the process that holds the turn watches
+ * (watchTurnStop) and answers by stopping the turn as its own Esc or Ctrl+C would. Refused when no such turn is being answered
+ * now: the id is not a turn's, there is no such hold, or its writer has ended (nothing to stop). Writes nothing else.
+ */
+export function requestTurnStop(root: string, id: string, by: ChatSurface): { ok: true; surface: ChatSurface; pid: number } | { ok: false; why: string } {
+  if (!TURN_ID.test(id)) return { ok: false, why: 'that is not a chat turn\'s id' };
+  const dir = turnsDir(root, false);
+  if (!dir.ok) return { ok: false, why: 'that chat turn is not being answered now (it ended, or it was never this project\'s)' };
+  const r = readHold(path.join(dir.abs, `${id}.json`));
+  if (!r) return { ok: false, why: 'that chat turn is not being answered now (it ended, or it was never this project\'s)' };
+  const mine = r.owner.pid === THIS_PROCESS.pid && r.owner.started === THIS_PROCESS.started;
+  if (!mine && writerState(r.owner) === 'gone') return { ok: false, why: 'that chat turn\'s process has ended, so there is nothing left to stop' };
+  try {
+    const tmp = path.join(dir.abs, `.${id}.stop.${randomBytes(4).toString('hex')}.tmp`);
+    fs.writeFileSync(tmp, `${JSON.stringify({ schema: STOP_SCHEMA, by, at: new Date().toISOString() })}\n`, { flag: 'wx' });
+    fs.renameSync(tmp, path.join(dir.abs, `${id}.stop`));
+  } catch (e) {
+    return { ok: false, why: `the stop could not be written (${(e as NodeJS.ErrnoException).code ?? 'error'} in ${CHAT_TURNS_DIR})` };
+  }
+  return { ok: true, surface: r.surface, pid: r.owner.pid };
+}
+
+/**
+ * Watches for a stop asked of this process's turn `id` (requestTurnStop), every `everyMs`: `onStop` is told once, with the
+ * surface that asked. close() ends the watch and removes the request (the turn has ended).
+ */
+export function watchTurnStop(root: string, id: string, onStop: (by: ChatSurface | null) => void, everyMs = 200): { close(): void } {
+  const dir = turnsDir(root, false);
+  if (!dir.ok || !TURN_ID.test(id)) return { close: () => undefined };
+  const file = path.join(dir.abs, `${id}.stop`);
+  let done = false;
+  const look = (): void => {
+    if (done) return;
+    let raw: string;
+    try { const st = fs.lstatSync(file); if (!st.isFile() || st.size > 4096) return; raw = fs.readFileSync(file, 'utf8'); } catch { return; }
+    done = true;
+    clearInterval(timer);
+    let by: ChatSurface | null = null;
+    try { const x = JSON.parse(raw) as { schema?: string; by?: string }; if (x?.schema === STOP_SCHEMA && typeof x.by === 'string' && ['repl', 'monitor', 'workbench', 'companion'].includes(x.by)) by = x.by as ChatSurface; } catch { /* a request with no readable surface still stops */ }
+    onStop(by);
+  };
+  const timer = setInterval(look, everyMs);
+  timer.unref?.();
+  return { close: () => { done = true; clearInterval(timer); try { fs.unlinkSync(file); } catch { /* none asked */ } } };
 }
 
 /**
@@ -339,18 +400,34 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
     const r = sealed as SealedTurn | null;
     keepKey(root, { key, surface: i.surface, at: new Date().toISOString(), state: 'ended', ...(s ? { sent: s.sent, status: s.result } : {}), ...(r ? { receipt: r.hash } : {}) });
   };
+  // R5 lead (the operator's 22:32 order, items 1 and 2): the turn's identity (its hold's id) is sealed on its receipt
+  // (turn_id), so every surface tells this turn's end from another's by identity; and a stop any surface asks of it
+  // (requestTurnStop) stops it here as this surface's own Esc or Ctrl+C would, its receipt naming who asked (stopped_by)
+  const turnId = taken.hold.id;
+  let stoppedBy: ChatSurface | null | undefined;
+  const asked = new AbortController();
+  const signal = i.signal ? AbortSignal.any([i.signal, asked.signal]) : asked.signal;
+  const watch = watchTurnStop(root, turnId, (by) => { stoppedBy = by; asked.abort(); });
+  const own = (facts: TurnFacts): TurnFacts => ({ ...facts, turnId, ...(stoppedBy !== undefined && facts.status === 'cancelled' ? { stoppedBy: stoppedBy ?? 'unknown' } : {}) });
   try {
     const continued = continueConversation(i.agent, root);
     i.onContinue?.(continued);
-    const seal = i.seal ? (facts: TurnFacts): SealedTurn => { sealed = i.seal!({ ...facts, surface: i.surface }); return sealed; } : undefined;
+    const seal = i.seal ? (facts: TurnFacts): SealedTurn => { sealed = i.seal!({ ...own(facts), surface: i.surface }); return sealed; } : undefined;
     // the hold is given back once the turn has ended and is sealed (its summary), the key's end kept first, before the REPL's
-    // inspector looks for where to inspect it: the conversation is whole by then
-    const more: TurnInspect = { ...i.more, summary: (s) => { summary = s; endKey(); taken.hold.release(); i.more?.summary?.(s); } };
-    const status = await runTurn(i.agent, i.sink as Transcript, i.text, i.clock, i.marks, i.signal, seal, i.abandon, more);
+    // inspector looks for where to inspect it: the conversation is whole by then. A surface that seals after the turn (the
+    // chat session) gets the facts with the turn's id in them.
+    const more: TurnInspect = {
+      ...i.more,
+      summary: (s) => { summary = s; if (s.facts) s.facts = own(s.facts); endKey(); watch.close(); taken.hold.release(); i.more?.summary?.(s); },
+      // who asked this turn to stop, when another surface did: the cancel line names them (src/repl/transcript.ts)
+      stoppedBy: () => (stoppedBy === undefined ? undefined : stoppedBy === null ? 'another surface' : surfaceWords(stoppedBy)),
+    };
+    const status = await runTurn(i.agent, i.sink as Transcript, i.text, i.clock, i.marks, signal, seal, i.abandon, more);
     return { status, continued };
   } finally {
     // a turn that ended without its summary (abandoned, or thrown): its end kept, whether it sent not recorded
     endKey();
+    watch.close();
     taken.hold.release();
   }
 }

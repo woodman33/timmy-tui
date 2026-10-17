@@ -52,7 +52,19 @@ import { pathToFileURL } from 'url';
 import { readEvents, eventsPath, TimmyEvent } from './eventbus.js';
 import { readChain, verifyChain, verifySignature, hashOf, appendReceipt } from './receipts.js';
 import { listEscrows } from './escrow-engine.js';
-import { theme } from '../tui/theme.js';
+import { HOMEBREW } from '../theme/tokens.js';
+
+/**
+ * R5 lead (DESIGN.md §10 B10): the log companion's pages are browser pages, so they paint the shared tokens, not the
+ * terminal law (src/tui/theme.ts binds the monitor to lanes/visual/tokens.json, and the terminal maps it onto palette
+ * slots; a browser would show the law's raw hexes, violet and red included). Amber is focus and attention, a failure is
+ * amber with ✕ and its word, and green is only the observed live stream, a passed run and a passed verification.
+ */
+const web = {
+  ground: HOMEBREW.ground, well: HOMEBREW.surface, line: HOMEBREW.line, control: HOMEBREW.lineStrong,
+  text: HOMEBREW.text, secondary: HOMEBREW.textSecondary, accent: HOMEBREW.accent, attention: HOMEBREW.attention,
+  failure: HOMEBREW.failure, live: HOMEBREW.live, link: HOMEBREW.link,
+} as const;
 // R4 (H84): the local rule and the token (shared with Timmy Canvas and the browser companion).
 import { dropTokenFile, isLocalRequest, LocalToken, logsTokenFile, readTokenFile, refuseRequest, TOKEN_IN_ADDRESS, writeTokenFile } from './local-request.js';
 import { carriesSecret, writeLaunchPage } from './launch-page.js';
@@ -191,43 +203,46 @@ function sendPage(res: ServerResponse, html: string, page: '/' | '/mission' | '/
 }
 
 /** R4 (H84): where a page says it has no token, or that its token was refused (theme colours only). */
-const TOKEN_NOTE = `<p id="timmy-token-note" role="alert" hidden style="margin:8px 16px;padding:8px 12px;border:1px solid ${theme.warn};border-radius:6px;color:${theme.textPrimary};background:${theme.surfaceRaised}"></p>`;
+const TOKEN_NOTE = `<p id="timmy-token-note" role="alert" hidden style="margin:8px 16px;padding:8px 12px;border:1px solid ${web.attention};border-radius:6px;color:${web.text};background:${web.well}"></p>`;
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <title>TIMMY :: LIVE LOGS</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; }
-  body { background: ${theme.ground}; color: ${theme.textPrimary}; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid ${theme.surfaceRaised}; position: sticky; top: 0; background: ${theme.ground}; }
-  header .logo { color: ${theme.accent}; font-weight: 700; letter-spacing: .08em; }
-  header .dot { width: 8px; height: 8px; border-radius: 50%; background: ${theme.danger}; }
-  header .dot.on { background: ${theme.accent}; box-shadow: 0 0 8px ${theme.accent}88; }
-  header .meta { color: ${theme.textMuted}; }
+  body { background: ${web.ground}; color: ${web.text}; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid ${web.line}; position: sticky; top: 0; background: ${web.ground}; }
+  header .logo { color: ${web.text}; font-weight: 700; letter-spacing: .08em; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: ${web.secondary}; }
+  header .dot.on { background: ${web.live}; }
+  header .meta { color: ${web.secondary}; }
   header .right { margin-left: auto; display: flex; gap: 8px; }
-  button { background: ${theme.surfaceRaised}; color: ${theme.accent}; border: 1px solid ${theme.line}; border-radius: 4px; font: inherit; padding: 3px 10px; cursor: pointer; }
-  button:hover { border-color: ${theme.accent}; }
+  button { background: ${web.well}; color: ${web.text}; border: 1px solid ${web.control}; border-radius: 4px; font: inherit; padding: 3px 10px; cursor: pointer; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid ${web.accent}; outline-offset: 2px; }
+  button:hover { border-color: ${web.accent}; }
   main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0; height: calc(100vh - 42px); }
   section { overflow-y: auto; padding: 12px 16px; }
-  section + section { border-left: 1px solid ${theme.surfaceRaised}; }
-  h2 { color: ${theme.accent}; font-size: 11px; letter-spacing: .18em; margin-bottom: 10px; }
-  .empty { color: ${theme.textMuted}; margin-bottom: 10px; }
+  section + section { border-left: 1px solid ${web.line}; }
+  h2 { color: ${web.secondary}; font-size: 11px; letter-spacing: .18em; margin-bottom: 10px; }
+  .empty { color: ${web.secondary}; margin-bottom: 10px; }
   .ev { display: flex; gap: 10px; padding: 2px 0; white-space: pre-wrap; word-break: break-word; }
-  .ev .ts { color: ${theme.textMuted}; flex: 0 0 86px; }
+  .ev .ts { color: ${web.secondary}; flex: 0 0 86px; }
   .ev .kind { flex: 0 0 150px; font-weight: 600; }
-  .ev .pl { color: ${theme.textSecondary}; }
-  .rc { border: 1px solid ${theme.surfaceRaised}; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: ${theme.ground}; }
-  .rc .sub { color: ${theme.textPrimary}; }
-  .rc .hash { color: ${theme.seal}; }
-  .rc .prev { color: ${theme.textMuted}; }
-  .rc .meta { color: ${theme.textMuted}; font-size: 11px; }
-  #verify-out { color: ${theme.warn}; padding: 6px 16px; border-top: 1px solid ${theme.surfaceRaised}; }
+  .ev .pl { color: ${web.secondary}; }
+  .rc { border: 1px solid ${web.line}; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: ${web.ground}; }
+  .rc .sub { color: ${web.text}; }
+  .rc .hash { color: ${web.secondary}; }
+  .rc .prev { color: ${web.secondary}; }
+  .rc .meta { color: ${web.secondary}; font-size: 11px; }
+  #verify-out { color: ${web.text}; padding: 6px 16px; border-top: 1px solid ${web.line}; }
+  #verify-out.passed { color: ${web.live}; }
+  #verify-out.failed { color: ${web.failure}; }
 </style></head><body>
 <header>
   <span class="logo">TIMMY</span><span class="meta">:: LIVE LOGS</span>
   <span class="dot" id="dot"></span><span class="meta" id="conn">connecting…</span>
   <span class="meta" id="cwd"></span>
-  <span class="meta"><a style="color:${theme.accent}" data-timmy-page="/mission">mission studio</a> · <a style="color:${theme.accent}" data-timmy-page="/browser">receipt browser</a> · <a style="color:${theme.accent}" data-timmy-page="/chat">chat mirror</a></span>
+  <span class="meta"><a style="color:${web.link}" data-timmy-page="/mission">mission studio</a> · <a style="color:${web.link}" data-timmy-page="/browser">receipt browser</a> · <a style="color:${web.link}" data-timmy-page="/chat">chat mirror</a></span>
   <span class="right"><button id="verify">verify chain</button></span>
 </header>
 ${TOKEN_NOTE}
@@ -240,7 +255,7 @@ ${TOKEN_NOTE}
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
 // Serialize server palette values; the browser has no imported theme module.
-const eventPalette = ${JSON.stringify({ seal: theme.seal, danger: theme.danger, warn: theme.warn, accent: theme.accent, textSecondary: theme.textSecondary })};
+const eventPalette = ${JSON.stringify({ seal: web.text, danger: web.failure, warn: web.attention, accent: web.text, textSecondary: web.secondary })};
 const colors = KIND => KIND.includes('sealed') ? eventPalette.seal
   : KIND.includes('failed')||KIND.includes('broken') ? eventPalette.danger
   : KIND.includes('approval')||KIND.includes('gated') ? eventPalette.warn
@@ -276,10 +291,12 @@ function loadChain() {
 }
 document.getElementById('verify').onclick = () => {
   timmyFetch('/verify?stream=runs').then(r=> { if (!r.ok) throw new Error('verification request failed'); return r.json(); }).then(v => {
-    document.getElementById('verify-out').textContent = v.ok
+    const out = document.getElementById('verify-out');
+    out.className = v.ok ? 'passed' : 'failed';
+    out.textContent = v.ok
       ? '✓ chain intact · '+v.count+' receipts · ed25519 signed · hash-linked'
-      : '× chain BROKEN at '+(v.brokenAt||'?');
-  }).catch(()=> { document.getElementById('verify-out').textContent = 'Chain verification unavailable · try again.'; });
+      : '✕ chain BROKEN at '+(v.brokenAt||'?');
+  }).catch(()=> { const out = document.getElementById('verify-out'); out.className = ''; out.textContent = 'Chain verification unavailable · try again.'; });
 };
 timmyLinks();
 // R4 (H84): with the token only: the event stream (fetch, with the token in a header), the folder and the chain
@@ -328,23 +345,24 @@ const MISSION_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; }
-  body { background: ${theme.ground}; color: ${theme.textPrimary}; font: 13px/1.5 ui-monospace, Menlo, monospace; padding: 16px; }
-  h1 { color: ${theme.accent}; font-size: 14px; letter-spacing: .12em; margin-bottom: 10px; }
-  h2 { color: ${theme.accent}; font-size: 11px; letter-spacing: .18em; margin: 14px 0 6px; }
+  body { background: ${web.ground}; color: ${web.text}; font: 13px/1.5 ui-monospace, Menlo, monospace; padding: 16px; }
+  h1 { color: ${web.text}; font-size: 14px; letter-spacing: .12em; margin-bottom: 10px; }
+  h2 { color: ${web.secondary}; font-size: 11px; letter-spacing: .18em; margin: 14px 0 6px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  textarea { flex: 1; min-width: 320px; background: ${theme.surfaceRaised}; color: ${theme.textPrimary}; border: 1px solid ${theme.line}; border-radius: 6px; padding: 8px; font: inherit; height: 170px; }
-  button { background: ${theme.surfaceRaised}; border: 1px solid ${theme.accent}; color: ${theme.accent}; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
-  button:hover { border-color: ${theme.accent}; color: ${theme.accent}; }
-  input { background: ${theme.surfaceRaised}; border: 1px solid ${theme.line}; color: ${theme.textPrimary}; border-radius: 6px; padding: 6px 8px; font: inherit; }
-  .plan { border: 1px solid ${theme.line}; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: ${theme.surfaceRaised}; }
+  textarea { flex: 1; min-width: 320px; background: ${web.well}; color: ${web.text}; border: 1px solid ${web.control}; border-radius: 6px; padding: 8px; font: inherit; height: 170px; }
+  button { background: ${web.well}; border: 1px solid ${web.control}; color: ${web.text}; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid ${web.accent}; outline-offset: 2px; }
+  button:hover { border-color: ${web.accent}; color: ${web.accent}; }
+  input { background: ${web.well}; border: 1px solid ${web.control}; color: ${web.text}; border-radius: 6px; padding: 6px 8px; font: inherit; }
+  .plan { border: 1px solid ${web.control}; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: ${web.well}; }
   .plan .obj { font-weight: 600; }
-  .plan .meta { color: ${theme.textSecondary}; font-size: 11px; }
-  .plan .hash { color: ${theme.textPrimary}; }
-  .err { color: ${theme.danger}; margin: 6px 0; }
-  #stage { width: 260px; height: 130px; border: 1px solid ${theme.line}; background: ${theme.surfaceRaised}; position: relative; margin: 8px 0; }
-  #actor { position: absolute; left: 20px; top: 50px; width: 24px; height: 24px; background: ${theme.accent}; border-radius: 4px; }
-  #clock { color: ${theme.warn}; }
-  .note { color: ${theme.textMuted}; font-size: 11px; }
+  .plan .meta { color: ${web.secondary}; font-size: 11px; }
+  .plan .hash { color: ${web.text}; }
+  .err { color: ${web.failure}; margin: 6px 0; }
+  #stage { width: 260px; height: 130px; border: 1px solid ${web.control}; background: ${web.well}; position: relative; margin: 8px 0; }
+  #actor { position: absolute; left: 20px; top: 50px; width: 24px; height: 24px; background: ${web.accent}; border-radius: 4px; }
+  #clock { color: ${web.secondary}; }
+  .note { color: ${web.secondary}; font-size: 11px; }
 </style></head><body>
 <h1>TIMMY :: MISSION STUDIO · compile + playback</h1>
 ${TOKEN_NOTE}
@@ -375,30 +393,30 @@ ${TOKEN_NOTE}
   <input id="vout" type="number" value="5" step="0.1" style="width:70px">
   <button data-run="playVid">play fragment</button>
 </div>
-<video id="vid" controls style="max-width:480px;width:100%;margin-top:8px;border:1px solid ${theme.line}"></video>
+<video id="vid" controls style="max-width:480px;width:100%;margin-top:8px;border:1px solid ${web.line}"></video>
 
 <h2>4 · LIVE MISSION TELEMETRY (container runs · event-bus SSE)</h2>
-<div style="max-height:180px;overflow-y:auto;border:1px solid ${theme.line};border-radius:6px;background:${theme.surfaceRaised}">
-  <pre id="telelog" style="padding:8px;color:${theme.textSecondary};font:inherit;white-space:pre-wrap">no live run yet — arm + launch an openhands/docker plan above</pre>
+<div style="max-height:180px;overflow-y:auto;border:1px solid ${web.line};border-radius:6px;background:${web.well}">
+  <pre id="telelog" style="padding:8px;color:${web.secondary};font:inherit;white-space:pre-wrap">no live run yet — arm + launch an openhands/docker plan above</pre>
 </div>
 
 <h2>5 · INSPECTORS (Merkle proof tree · USD stage hierarchy)</h2>
 <div style="display:flex;gap:12px;flex-wrap:wrap">
   <div style="flex:1;min-width:280px">
-    <h3 style="color:${theme.seal}">Merkle proof</h3>
-    <textarea id="passjson" rows="4" style="width:100%;background:${theme.surfaceRaised};color:${theme.textSecondary};border:1px solid ${theme.line};border-radius:6px;font:inherit">paste AgentPass JSON</textarea>
+    <h3 style="color:${web.live}">Merkle proof</h3>
+    <textarea id="passjson" rows="4" style="width:100%;background:${web.well};color:${web.secondary};border:1px solid ${web.line};border-radius:6px;font:inherit">paste AgentPass JSON</textarea>
     <button id="btnmerkle">inspect merkle</button>
   </div>
   <div style="flex:1;min-width:280px">
-    <h3 style="color:${theme.accent}">USD stage</h3>
-    <textarea id="scenejson" rows="4" style="width:100%;background:${theme.surfaceRaised};color:${theme.textSecondary};border:1px solid ${theme.line};border-radius:6px;font:inherit">paste UsdScene JSON</textarea>
+    <h3 style="color:${web.secondary}">USD stage</h3>
+    <textarea id="scenejson" rows="4" style="width:100%;background:${web.well};color:${web.secondary};border:1px solid ${web.line};border-radius:6px;font:inherit">paste UsdScene JSON</textarea>
     <button id="btnstage">inspect stage</button>
   </div>
 </div>
-<pre id="insp" style="max-height:240px;overflow-y:auto;padding:8px;border:1px solid ${theme.line};border-radius:6px;background:${theme.surfaceRaised};color:${theme.textSecondary};font:inherit;white-space:pre-wrap"></pre>
+<pre id="insp" style="max-height:240px;overflow-y:auto;padding:8px;border:1px solid ${web.line};border-radius:6px;background:${web.well};color:${web.secondary};font:inherit;white-space:pre-wrap"></pre>
 
 <h2>6 · ESCROW LEDGER (live locks · refunds · slashes)</h2>
-<pre id="escrows" style="max-height:160px;overflow-y:auto;padding:8px;border:1px solid ${theme.line};border-radius:6px;background:${theme.surfaceRaised};color:${theme.textSecondary};font:inherit;white-space:pre-wrap">no escrows yet</pre>
+<pre id="escrows" style="max-height:160px;overflow-y:auto;padding:8px;border:1px solid ${web.line};border-radius:6px;background:${web.well};color:${web.secondary};font:inherit;white-space:pre-wrap">no escrows yet</pre>
 
 <script nonce="${NONCE}">${PAGE_TOKEN_JS}
 async function refreshEscrows() {
@@ -605,7 +623,7 @@ function playVid() {
 </script></body></html>`;
 
 const DISPATCH_HTML = `
-<div style="border-top:1px solid ${theme.surfaceRaised};padding:12px 16px">
+<div style="border-top:1px solid ${web.line};padding:12px 16px">
   <h2>DISPATCH · COMMAND POST</h2>
   <div id="plans" style="display:flex;flex-direction:column;gap:6px"></div>
 </div>
@@ -628,18 +646,18 @@ async function loadPlans() {
   const r = await timmyFetch('/dispatch');
   const plans = await r.json();
   document.getElementById('plans').innerHTML = plans.length ? plans.map(p =>
-    '<div style="border:1px solid ${theme.surfaceRaised};border-radius:6px;padding:6px 10px;background:${theme.ground}">'
-    + '<span style="color:${theme.accent}">' + p.id + '</span> '
-    + '<span style="color:${theme.accent}">' + p.lifecycle + '</span> '
-    + '<span style="color:${theme.textSecondary}">' + p.harness + ' · ' + p.objective + '</span> '
-    + '<span style="color:${theme.textMuted}">hash ' + (p.plan_hash || '').slice(0, 12) + '…</span>'
-    + (p.blocked ? ' <span style="color:${theme.danger}">' + p.blocked.state + ': ' + p.blocked.note + '</span>' : '')
+    '<div style="border:1px solid ${web.line};border-radius:6px;padding:6px 10px;background:${web.ground}">'
+    + '<span style="color:${web.text}">' + p.id + '</span> '
+    + '<span style="color:${web.secondary}">' + p.lifecycle + '</span> '
+    + '<span style="color:${web.secondary}">' + p.harness + ' · ' + p.objective + '</span> '
+    + '<span style="color:${web.secondary}">hash ' + (p.plan_hash || '').slice(0, 12) + '…</span>'
+    + (p.blocked ? ' <span style="color:${web.failure}">' + p.blocked.state + ': ' + p.blocked.note + '</span>' : '')
     + ' <button data-act="arm" data-plan="' + planAttr(p.id) + '">arm</button>'
     + ' <button data-act="launch" data-plan="' + planAttr(p.id) + '">launch</button>'
     + ' <button data-act="hold" data-plan="' + planAttr(p.id) + '">hold</button>'
     + ' <button data-act="cancel" data-plan="' + planAttr(p.id) + '">cancel</button>'
     + ' <button data-act="collect" data-plan="' + planAttr(p.id) + '">collect</button>'
-    + '</div>').join('') : '<div style="color:${theme.textMuted}">no plans — prepare one from chat (ctrl+d rail) or timmy_plan_dispatch</div>';
+    + '</div>').join('') : '<div style="color:${web.secondary}">no plans — prepare one from chat (ctrl+d rail) or timmy_plan_dispatch</div>';
 }
 // R4 (H84): with the token only; a refused token stops the polling
 if (timmyToken) { loadPlans().catch(() => {}); const poll = setInterval(() => { if (timmyStopped) clearInterval(poll); else loadPlans().catch(() => {}); }, 3000); }
@@ -651,20 +669,22 @@ const BROWSER_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; }
-  body { background: ${theme.ground}; color: ${theme.textPrimary}; font: 13px/1.5 ui-monospace, Menlo, monospace; padding: 16px; }
+  body { background: ${web.ground}; color: ${web.text}; font: 13px/1.5 ui-monospace, Menlo, monospace; padding: 16px; }
   header { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-  header .logo { color: ${theme.accent}; font-weight: 700; letter-spacing: .08em; }
-  button { background: ${theme.surfaceRaised}; border: 1px solid ${theme.line}; color: ${theme.accent}; border-radius: 6px; font: inherit; padding: 4px 10px; cursor: pointer; }
-  input { background: ${theme.surfaceRaised}; border: 1px solid ${theme.line}; color: ${theme.textPrimary}; border-radius: 6px; font: inherit; padding: 4px 10px; }
-  #chainstat { color: ${theme.seal}; }
-  .epoch { color: ${theme.accent}; margin: 14px 0 6px; letter-spacing: .12em; }
-  .rc { border: 1px solid ${theme.line}; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: ${theme.ground}; }
+  header .logo { color: ${web.text}; font-weight: 700; letter-spacing: .08em; }
+  button { background: ${web.well}; border: 1px solid ${web.control}; color: ${web.text}; border-radius: 6px; font: inherit; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: ${web.accent}; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid ${web.accent}; outline-offset: 2px; }
+  input { background: ${web.well}; border: 1px solid ${web.control}; color: ${web.text}; border-radius: 6px; font: inherit; padding: 4px 10px; }
+  #chainstat { color: ${web.text}; } #chainstat.passed { color: ${web.live}; } #chainstat.failed { color: ${web.failure}; }
+  .epoch { color: ${web.secondary}; margin: 14px 0 6px; letter-spacing: .12em; }
+  .rc { border: 1px solid ${web.control}; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: ${web.ground}; }
   .rc .row1 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-  .rc .sub { color: ${theme.textPrimary}; font-weight: 600; }
-  .rc .st-ok { color: ${theme.seal}; } .rc .st-failed { color: ${theme.danger}; } .rc .st-denied { color: ${theme.refuse}; }
-  .rc .hash { color: ${theme.seal}; } .rc .prev { color: ${theme.textMuted}; }
-  .rc .meta { color: ${theme.textSecondary}; font-size: 11px; }
-  .rc .vf { color: ${theme.accent}; font-size: 11px; }
+  .rc .sub { color: ${web.text}; font-weight: 600; }
+  .rc .st-ok { color: ${web.live}; } .rc .st-failed { color: ${web.failure}; } .rc .st-denied { color: ${web.failure}; }
+  .rc .hash { color: ${web.secondary}; } .rc .prev { color: ${web.secondary}; }
+  .rc .meta { color: ${web.secondary}; font-size: 11px; }
+  .rc .vf { color: ${web.secondary}; font-size: 11px; } .rc .vf.passed { color: ${web.live}; } .rc .vf.failed { color: ${web.failure}; }
 </style></head><body>
 <header>
   <span class="logo">TIMMY ● RECEIPT BROWSER</span>
@@ -689,8 +709,9 @@ async function load() {
   CHAIN = await (await timmyFetch('/receipts?stream=' + stream)).json();
   render();
   const v = await (await timmyFetch('/verify?stream=' + stream)).json();
-  document.getElementById('chainstat').textContent =
-    (v.ok ? '✓ chain intact · ' : '× broken @ ' + (v.brokenAt ?? '?') + ' · ') + v.count + ' receipts · epoch ' + v.current_epoch;
+  const stat = document.getElementById('chainstat');
+  stat.className = v.ok ? 'passed' : 'failed';
+  stat.textContent = (v.ok ? '✓ chain intact · ' : '✕ broken @ ' + (v.brokenAt ?? '?') + ' · ') + v.count + ' receipts · epoch ' + v.current_epoch;
 }
 function render() {
   const q = document.getElementById('q').value.toLowerCase();
@@ -715,7 +736,10 @@ function render() {
 async function vf(id) {
   const stream = document.getElementById('stream').value;
   const v = await (await timmyFetch('/verify-receipt?stream=' + stream + '&id=' + id)).json();
-  document.getElementById('vf-' + id).textContent = v.ok ? '✓ body+sig' : '× ' + (v.bodyOk ? 'sig' : 'body');
+  const el = document.getElementById('vf-' + id);
+  el.classList.remove('passed', 'failed');
+  el.classList.add(v.ok ? 'passed' : 'failed');
+  el.textContent = v.ok ? '✓ body+sig' : '✕ ' + (v.bodyOk ? 'sig' : 'body');
 }
 document.getElementById('q').oninput = render;
 document.getElementById('stream').onchange = load;

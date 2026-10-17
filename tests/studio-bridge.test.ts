@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
+import { projectId } from '../src/project/index.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { bearer, nameProject, pageProtocols, pageSession } from './helpers/canvas-auth.js';
 import { guardRealHome, ownHome } from './fixtures/home-guard.js';
@@ -30,11 +31,14 @@ const port = (): number => (server!.address() as AddressInfo).port;
 // R4 (H83): the REPL's token, sent with every call; a project named (with no holder: no REPL takes card actions here).
 const token = (): string => (server as StudioServer).projectToken;
 let named = false;
+/** R6 (H139): the project named, as the server stamps each call's answer with it (the board the call ran on is its) */
+let bridge = { id: '', name: 'bridge' };
 async function nameOnce(): Promise<void> {
   if (named) return;
   const root = mkdtempSync(join(tmpdir(), 'studio-bridge-project-'));
   roots.push(root);
   await nameProject(port(), token(), { root, name: 'bridge' });
+  bridge = { id: projectId(root), name: 'bridge' };
   named = true;
 }
 const roots: string[] = [];
@@ -68,7 +72,7 @@ describe('the canvas bridge', () => {
     await page((m) => { seen = m; return { ok: true, result: { shapes: 2 }, revision: 7 }; });
     const r = await exec({ code: 'return editor.getCurrentPageShapes().length', jobId: 'job-42' });
     expect(seen).toMatchObject({ code: 'return editor.getCurrentPageShapes().length', jobId: 'job-42' });
-    expect(r).toEqual({ status: 200, body: { ok: true, result: { shapes: 2 }, jobId: 'job-42', revision: 7 } });
+    expect(r).toEqual({ status: 200, body: { ok: true, result: { shapes: 2 }, jobId: 'job-42', revision: 7, project: bridge } });
   });
   it('gives every call a job ID when the caller has none', async () => {
     server = await startStudioServer(0, { env: own.env });
@@ -86,7 +90,7 @@ describe('the canvas bridge', () => {
     server = await startStudioServer(0, { env: own.env });
     await page(() => ({ ok: false, error: 'TypeError: editor.nope is not a function', revision: 3 }));
     const r = await exec({ code: 'editor.nope()', jobId: 'j1' });
-    expect(r).toEqual({ status: 200, body: { ok: false, error: 'TypeError: editor.nope is not a function', jobId: 'j1', revision: 3 } });
+    expect(r).toEqual({ status: 200, body: { ok: false, error: 'TypeError: editor.nope is not a function', jobId: 'j1', revision: 3, project: bridge } });
   });
   it('gives up on a page that never answers (504)', async () => {
     server = await startStudioServer(0, { env: own.env, execTimeoutMs: 150 });
@@ -126,10 +130,10 @@ describe('the canvas bridge', () => {
       { ok: true, result: 1, revision: 4, sourceRevision: 'not-a-hash', saveError: 'Another window saved this canvas at revision 5 after this one opened it.' },
     ];
     await page(() => answers.shift());
-    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, sourceRevision: 'ab'.repeat(32) });
-    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, saveError: 'Another window saved this canvas at revision 5 after this one opened it.' });
+    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, sourceRevision: 'ab'.repeat(32), project: bridge });
+    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, saveError: 'Another window saved this canvas at revision 5 after this one opened it.', project: bridge });
   });
-  it('records each call the page answered with a source revision in the canvas jobs ledger, in Timmy\'s home', async () => {
+  it('records each call the page answered with a source revision in the canvas jobs ledger, in Timmy\'s home (R6 H139: in the ledger of its project\'s board, with its project)', async () => {
     const home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
     try {
       server = await startStudioServer(0, { env: { HOME: home, TIMMY_HOME: home } });
@@ -138,7 +142,11 @@ describe('the canvas bridge', () => {
       await exec({ code: 'return 1', jobId: 'turn-9' });
       await exec({ code: 'return 2', jobId: 'turn-10' }); // no source revision: nothing was saved, so no job is recorded
       const jobs = await fetch(`http://127.0.0.1:${port()}/api/canvas/jobs`, { headers: bearer(token()) }).then((r) => r.json());
-      expect(jobs).toEqual([{ id: 'turn-9', ok: true, calls: 1, failed: 0, revision: 4, sourceRevision: 'ab'.repeat(32), at: expect.any(String) }]);
+      expect(jobs).toEqual([{ id: 'turn-9', ok: true, calls: 1, failed: 0, revision: 4, sourceRevision: 'ab'.repeat(32), project: bridge.id, at: expect.any(String) }]);
+      // R6 (H139): the ledger is the project's own, beside its board, and the home-wide ledger of the old layout is not written
+      const { existsSync } = await import('node:fs');
+      expect(existsSync(join(home, 'canvas', 'projects', bridge.id, 'jobs.json'))).toBe(true);
+      expect(existsSync(join(home, 'canvas', 'jobs.json'))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

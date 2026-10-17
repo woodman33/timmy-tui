@@ -225,7 +225,12 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
 
   const connected = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const idle = (page: Page): Promise<unknown> => page.waitForFunction(() => document.getElementById('sd-status')?.textContent === 'IDLE', null, { timeout: 30_000 });
@@ -273,14 +278,15 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await page.waitForTimeout(500);
       expect(seen.outside).toEqual([]);
       for (const r of seen.requests) expect(new URL(r).origin, r).toBe(base);
-      // the chat's code, its styles and the page's fonts came from this server
-      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/web/fonts/outfit-latin-wght-normal.woff2', '/web/fonts/inter-latin-wght-normal.woff2', '/web/fonts/fira-code-latin-wght-normal.woff2']) {
+      // the chat's code, its styles and Timmy's shared look came from this server (R5 H132: the theme's sheet; its face's
+      // files are this server's too, or the font installed here: the face test below)
+      for (const p of ['/web/island/companion-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/timmy-theme.css']) {
         expect(seen.requests, p).toContain(`${base}${p}`);
       }
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
-      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, Timmy's theme, Monaspace's
-      // files, marked): no page of the companion asks for any of them, so they are no longer shipped or served
-      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|timmy-theme\.css|fonts\/|vendor\/)/.test(new URL(r).pathname))).toEqual([]);
+      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, marked): no page of the
+      // companion asks for any of them, so they are no longer shipped or served. R5 (H132): nor b69ab12's three fonts.
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|vendor\/|web\/fonts\/(?:outfit|inter|fira-code)-)/.test(new URL(r).pathname))).toEqual([]);
       expect(upstream).toEqual([]);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
       expect(await violations(page)).toEqual([]);
@@ -316,12 +322,25 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // other site (the built chat's files carry its packages' licence comments, which name their sites as text: what the page
     // fetches is the browser checks' business, above and below)
     const named = [...html.matchAll(/\s(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]).filter((p) => !p.startsWith('/slate3d'));
-    expect(named).toEqual(expect.arrayContaining(['/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
+    expect(named).toEqual(expect.arrayContaining(['/timmy-theme.css', '/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
     // R4 (H97): what H92's page had and H95's replaced is not served any more (no page asks for it: the test above)
-    for (const p of ['/chat.js', '/markdown.js', '/timmy-theme.css', '/fonts/monaspace-argon-latin-400-normal.woff2', '/vendor/marked.esm.js']) {
+    for (const p of ['/chat.js', '/markdown.js', '/vendor/marked.esm.js']) {
       const gone = await fetch(`${base}${p}`);
       expect(gone.status, p).toBe(404);
       expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
+    }
+    // R5 (H132, DESIGN.md §10 B10): Timmy's shared look is served again: the --timmy-* variables with Monaspace Argon's faces,
+    // and the faces' files by their exact names only, beside the page's web files (anything else is a 404 in words, no path)
+    const theme = await fetch(`${base}/timmy-theme.css`);
+    expect(theme.status).toBe(200);
+    expect(await theme.text()).toMatch(/--timmy-ground: #000000;[\s\S]*--timmy-accent: #FFB000;[\s\S]*--timmy-live: #28FE14;/);
+    const face = await fetch(`${base}/web/fonts/monaspace-argon-latin-400-normal.woff2`);
+    expect(face.status).toBe(200);
+    expect(face.headers.get('content-type')).toMatch(/^font\/woff2/);
+    for (const p of ['/fonts/monaspace-argon-latin-400-normal.woff2', '/web/fonts/monaspace-argon-latin-400-normal.woff', '/web/fonts/..%2F..%2Fpackage.json']) {
+      const no = await fetch(`${base}${p}`);
+      expect(no.status, p).toBe(404);
+      expect(await no.text(), p).not.toMatch(/\/(?:home|root|Users|tmp)\/|node_modules/);
     }
     // R4 (H104, r25's D11): the page names its icon, this server's own SVG
     expect(named).toContain('/favicon.svg');
@@ -536,22 +555,23 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     } finally { await context.close(); }
   });
 
-  it('its three fonts are its own files, each loaded: Outfit for headings, Inter for text, Fira Code for code', async () => {
+  it('its one face is Monaspace Argon, the theme\'s (R5 H132, DESIGN.md §10 B10): loaded from this computer (installed, or the companion\'s own file), for headings, text and code alike', async () => {
     const { page, context, seen } = await open();
     try {
       await connected(page);
       await page.evaluate(() => document.fonts.ready);
-      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.status}`).sort());
-      expect(fonts).toEqual(expect.arrayContaining(['Fira Code loaded', 'Inter loaded', 'Outfit loaded']));
-      expect(await page.evaluate(() => getComputedStyle(document.querySelector('h1')!).fontFamily)).toMatch(/^"?Outfit"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toMatch(/^"?Inter"?/);
-      expect(await page.evaluate(() => getComputedStyle(document.getElementById('status')!).fontFamily)).toMatch(/^"?Fira Code"?/);
-      for (const f of ['outfit', 'inter', 'fira-code']) expect(seen.requests).toContain(`${base}/web/fonts/${f}-latin-wght-normal.woff2`);
+      const fonts = await page.evaluate(() => [...document.fonts].map((f) => `${f.family.replace(/["']/g, '')} ${f.weight} ${f.status}`));
+      expect(fonts).toContain('Monaspace Argon 400 loaded');
+      for (const s of ['h1', 'body', '#status', '#project-name']) {
+        expect(await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).fontFamily, s), s).toMatch(/^"?Monaspace Argon"?/);
+      }
+      // a face's file the browser asked for was this server's (none, where the font is installed); b69ab12's three were not asked for
+      for (const r of seen.requests.filter((u) => /\.woff2?$/.test(new URL(u).pathname))) expect(r).toMatch(new RegExp(`^${base}/web/fonts/monaspace-argon-latin-\\d00-(?:normal|italic)\\.woff2$`));
       expect(seen.outside).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('the tabs fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), and switch at once where reduced motion is asked', async () => {
+  it('the chat\'s two views fade with GSAP\'s timing (out 0.15 s power2.in, then in 0.25 s power2.out), a workspace tab fades in (0.15 s power2.out), and both switch at once where reduced motion is asked', async () => {
     const record = (page: Page): Promise<void> => page.evaluate(() => {
       const w = window as unknown as { __anims: Array<{ id: string; from: unknown; to: unknown; duration: unknown; easing: unknown }> };
       w.__anims = [];
@@ -567,10 +587,13 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     try {
       await connected(moving.page);
       await record(moving.page);
-      await tab(moving.page, 'workspace');
+      // R5 (H132): a workspace tab (here 2, Chat & Intent) fades its page in; the chat's two views keep GSAP's fade
+      await tab(moving.page, 'chat');
+      await tab(moving.page, 'streamdown');
       expect(await moving.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([
+        { id: 'ws-chat', from: 0, to: 1, duration: 150, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
         { id: 'tab-chat', from: 1, to: 0, duration: 150, easing: 'cubic-bezier(0.32, 0, 0.67, 0)' },
-        { id: 'tab-workspace', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
+        { id: 'tab-streamdown', from: 0, to: 1, duration: 250, easing: 'cubic-bezier(0.33, 1, 0.68, 1)' },
       ]);
     } finally { await moving.context.close(); }
     const still = await open({ reducedMotion: 'reduce' });
@@ -578,7 +601,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await connected(still.page);
       await record(still.page);
       await still.page.click('[data-tab="logs"]');
-      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active'), null, { timeout: 5_000 });
+      await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active') && !document.getElementById('ws-logs')?.hidden, null, { timeout: 5_000 });
+      await tab(still.page, 'streamdown');
       expect(await still.page.evaluate(() => (window as unknown as { __anims: unknown[] }).__anims)).toEqual([]);
       expect(await still.page.evaluate(() => getComputedStyle(document.querySelector('.log-line')!).animationName)).toBe('none');
     } finally { await still.context.close(); }
@@ -599,25 +623,29 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         console.warn('companion-page-browser: Slate 3D is built here, so its absence words were not checked');
         return;
       }
-      // the page's --text-main (#e6edf3) on the frame's ground (#0A1628), in Inter
-      expect(look.color).toBe('rgb(230, 237, 243)');
-      expect(look.ground).toBe('rgb(10, 22, 40)');
-      expect(look.font).toMatch(/^"?Inter"?/);
+      // R5 (H132): the theme's text (#F2EFE9) on the canvas (#000000), in Monaspace Argon
+      expect(look.color).toBe('rgb(242, 239, 233)');
+      expect(look.ground).toBe('rgb(0, 0, 0)');
+      expect(look.font).toMatch(/^"?Monaspace Argon"?/);
       expect(contrast(look.color, look.ground)).toBeGreaterThan(7);
       expect(seen.outside).toEqual([]);
       expect(await violations(page)).toEqual([]);
     } finally { await context.close(); }
   });
 
-  it('its sheet holds b69ab12\'s design: the same palette, glass panels, glows, gradient title and tab look', () => {
-    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8');
-    for (const rule of [
-      '--bg-base: #07090e;', '--bg-card: rgba(13, 17, 23, 0.75);', '--border-color: #21262d;', '--text-main: #e6edf3;', '--text-muted: #8b949e;',
-      "--font-outfit: 'Outfit', sans-serif;", "--font-inter: 'Inter', sans-serif;", "--font-fira: 'Fira Code', monospace;",
-      'background: radial-gradient(circle, var(--secondary-glow) 0%, transparent 70%);', 'filter: blur(80px);',
-      'background: linear-gradient(135deg, var(--text-main), var(--secondary-hsl));', 'backdrop-filter: blur(12px);',
-      'box-shadow: 0 0 20px hsla(var(--secondary-h), 80%, 60%, 0.35);', 'transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);',
-    ]) expect(css, rule).toContain(rule);
+  it('its sheet colors with Timmy\'s shared variables only (R5 H132, DESIGN.md §10 B10): no color of its own, none of b69ab12\'s palette, glows, blur or gradient title', () => {
+    const css = readFileSync(new URL('../src/companion/client/companion.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // no literal color anywhere (the shadcn tokens Streamdown's parts name are the palette's own values, as HSL triplets)
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
+    for (const gone of ['--bg-base', '--secondary-hsl', '--primary-hsl', '--success-hsl', 'radial-gradient', 'linear-gradient', 'backdrop-filter', 'blur(', 'Outfit', 'Fira Code']) expect(css, gone).not.toContain(gone);
+    // every color a declaration gives is one of the theme's variables (or transparent, currentColor, inherit, none)
+    const decl = /(?:^|[;{\s])((?:background|border|outline|box-shadow|text-decoration|caret|scrollbar|column-rule)(?:-[a-z-]+)?|color|fill|stroke)\s*:\s*([^;}]+)/g;
+    for (const [, prop, value] of css.matchAll(decl)) {
+      if (/^(?:border(?:-[a-z]+)*-(?:width|style|radius|collapse|spacing)|border-(?:top|right|bottom|left)-(?:width|style)|scrollbar-width|text-decoration-(?:line|thickness|style)|background-(?:clip|image|position|repeat|size)|outline-(?:offset|width|style))$/.test(prop)) continue;
+      // R6 lead: `inset` (a box-shadow's side) and `line-through` (a decoration's line) are keywords, not colors (H142's tab 9)
+      const rest = value.replace(/var\(--timmy-[a-z-]+\)/g, '').replace(/!important|\b(?:solid|dashed|dotted|none|transparent|currentColor|inherit|underline|line-through|inset|thin|auto)\b|-?\d*\.?\d+(?:px|em|rem|%)?/g, '').trim();
+      expect(rest, `${prop}: ${value}`).toBe('');
+    }
   });
 
   // ---------- R4 (H104): the chat mirror (r24: empty, nothing said why) and readable diagrams (r24: labels about 6 px) ----------
@@ -648,6 +676,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own, viewport });
     try {
       await connected(page);
+      // R5 (H132): the mirror is the Chat tab's (2)
+      await tab(page, 'chat');
       // the tail reached the page (its log says so), then the mirror is read
       await page.waitForFunction(() => /Event bus: 1 recent event, latest receipt\.sealed/.test(document.getElementById('logs-list')?.textContent ?? ''), null, { timeout: 15_000 });
       await page.waitForFunction(() => /since this companion started at/.test(document.querySelector('#console-logs [data-mirror="empty"]')?.textContent ?? ''), null, { timeout: 10_000 });
@@ -687,6 +717,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       const first = fakeTurn(new Date(), 'repl · 2 steps');
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
@@ -706,8 +737,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // all three events reached the page (its log names each) before the mirror is read
       await page.waitForFunction(() => ((document.getElementById('logs-list')?.textContent ?? '').match(/Event bus: receipt\.sealed/g) ?? []).length >= 3, null, { timeout: 15_000 });
       const order = await page.$$eval('#console-logs .log-msg', (els) => els.map((e) => (e.querySelector('.log-header span')?.textContent ?? '').trim()));
-      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · cancelled', '◀ TIMMY Agent']);
-      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) cancelled (1 step);');
+      // R5 lead: a cancelled turn is said stopped, the word the Workbench and the shared frame use (1598141)
+      expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · stopped', '◀ TIMMY Agent']);
+      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) stopped (1 step);');
       // the same sealed turn again (as a reconnect's tail brings it) is still one row
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
       await page.waitForTimeout(1_500);
@@ -726,6 +758,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const { page, context, seen } = await open({ on: own });
     try {
       await connected(page);
+      await tab(page, 'chat');
       await page.waitForSelector('#console-logs [data-mirror="empty"]');
       // SYNTHETIC turn facts (no model was asked); the sealing, its signature, its chain and its bus event are the real ones
       const sealed = sealTurn({ prompt: 'SYNTHETIC prompt, never shown', answer: 'SYNTHETIC answer, never shown', steps: 3, spend: 0, costMeasured: false, ms: 1_200, status: 'ok', model: 'SYNTHETIC/model' }, root);
@@ -788,29 +821,29 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(shown.labels[0].left).toBeGreaterThanOrEqual(blockBox.x);
         // the page's column fits the window (at 390 it was laid out 712 px wide)
         expect(await page.evaluate(() => document.querySelector('.right-col')!.getBoundingClientRect().right)).toBeLessThanOrEqual(viewport.width + 1);
-        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing
-        const settle = (): Promise<void> => page.waitForTimeout(400); // its transform eases in 150 ms
+        // zoom in, zoom out, Reset: Streamdown's own buttons scale the drawing. A click's new state reaches the drawing's frame
+        // (role="application") as an inline transform that then eases in 150 ms, so each reading is taken again until it is the
+        // one asked for or 10 s pass, and then the last reading is what fails. A fixed 400 ms wait read the scale before a
+        // zoom had landed on a loaded computer ("expected 1 to be close to 0.9", R5 H130).
+        const again = { timeout: 10_000, interval: 50 };
+        const scale = async (): Promise<number> => (await shownLabels(page, 'chat'))!.scale;
+        const left = async (): Promise<number> => (await shownLabels(page, 'chat'))!.left;
         await block.locator('button[title="Zoom in"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(1.1, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(1.1, 2);
         await block.locator('button[title="Zoom out"]').click();
         await block.locator('button[title="Zoom out"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale / shown.scale).toBeCloseTo(0.9, 2);
+        await expect.poll(async () => (await scale()) / shown.scale, again).toBeCloseTo(0.9, 2);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.scale).toBeCloseTo(shown.scale, 3);
+        await expect.poll(scale, again).toBeCloseTo(shown.scale, 3);
         // pan: a drag moves the drawing by as much; Reset brings it back
         const a = (await area.boundingBox())!;
         await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
         await page.mouse.down();
         await page.mouse.move(a.x + a.width / 2 - 120, a.y + a.height / 2, { steps: 12 });
         await page.mouse.up();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left - shown.left).toBeCloseTo(-120, 0);
+        await expect.poll(async () => (await left()) - shown.left, again).toBeCloseTo(-120, 0);
         await block.locator('button[title="Reset zoom and pan"]').click();
-        await settle();
-        expect((await shownLabels(page, 'chat'))!.left).toBeCloseTo(shown.left, 0);
+        await expect.poll(left, again).toBeCloseTo(shown.left, 0);
         // fullscreen: the drawing in Streamdown's own view (in the page's body), its labels at least 12 px too; Escape closes it
         await block.locator('[data-streamdown="mermaid-block-actions"] button[title="View fullscreen"]').click();
         await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Mermaid chart"] > svg')].some((s) => !s.closest('#streamdown-root')), null, { timeout: 15_000 });
@@ -865,9 +898,10 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(icon.headers.get('content-type'), p).toMatch(/^image\/svg\+xml/);
         const svg = await icon.text();
         expect(svg, p).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-        // Timmy Homebrew's charcoal surface and green (src/theme/tokens.ts), and no script or other site
-        expect(svg, p).toContain('fill="#121212"');
-        expect(svg, p).toContain('stroke="#28FE14"');
+        // Timmy Homebrew's well and amber accent (src/theme/tokens.ts, B10: an icon is never green), and no script or other site
+        expect(svg, p).toContain('fill="#070707"');
+        expect(svg, p).toContain('stroke="#FFB000"');
+        expect(svg.toUpperCase(), p).not.toContain('#28FE14');
         expect(svg.replace('http://www.w3.org/2000/svg', ''), p).not.toMatch(/<script|https?:|href=/i);
       }
       expect(seen.errors).toEqual([]);

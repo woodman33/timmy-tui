@@ -64,6 +64,13 @@ export interface TurnFacts {
   surface?: 'repl' | 'monitor' | 'workbench' | 'companion';
   /** R4 (H113): the model that answered, when the surface knows it apart from a route (the chat session's OpenRouter turns) */
   modelResolved?: string;
+  /**
+   * R5 lead (the operator's 22:32 order, item 1): the turn's identity, its hold's id in the project's chat-turns folder
+   * (src/agent/chat-turn.ts takeTurnHold), sealed as turn_id: a surface matches a turn being answered to its receipt by it
+   */
+  turnId?: string;
+  /** R5 lead (item 2): a cancelled turn that another surface asked to stop (requestTurnStop): that surface, sealed as stopped_by */
+  stoppedBy?: 'repl' | 'monitor' | 'workbench' | 'companion' | 'unknown';
 }
 
 export interface SealedTurn {
@@ -107,6 +114,8 @@ export function sealTurn(
     ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome, ...(t.receipt ? { receipt: t.receipt } : {}) })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
+    ...(cancelled && facts.stoppedBy ? { stopped_by: facts.stoppedBy } : {}),
+    ...(facts.turnId ? { turn_id: facts.turnId } : {}),
     ...(facts.canvas?.length || facts.route ? { sources: [
       ...(facts.route ? [{
         kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis,

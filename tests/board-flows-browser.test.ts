@@ -184,7 +184,7 @@ describe.skipIf(!browserPath)('the flow cards on the live board in a real browse
     await close();
   }, 60_000);
 
-  it('green is for actions: on a flow card no outcome, verdict or seal is drawn green, and the commands are (a snapshot of FAKE records with FAKE receipts)', async () => {
+  it('B10: the commands are amber (actions), and no outcome or verdict on a flow card is drawn green; its words keep the text colour (a snapshot of FAKE records with FAKE receipts)', async () => {
     const root = temp('flows-browser-colours-');
     const sha = (b: string): string => createHash('sha256').update(b).digest('hex');
     const pid = 'fake-project-id';

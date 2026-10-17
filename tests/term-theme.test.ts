@@ -17,7 +17,7 @@ const unknown = buildTheme(TRUECOLOR);
 const opens = (t: ReturnType<typeof buildTheme>, roles: Role[]) => roles.map((r) => t.open(r));
 
 describe('secondary text (B3: measured, dim banned)', () => {
-  it('uses white on dark and gray on light, picking the first that clears 7:1', () => {
+  it('uses white on dark and gray on light, picking the first that clears 6:1 (B10; 7:1 before)', () => {
     expect(night.open('secondary')).toBe('\x1b[37m');
     expect(day.open('secondary')).toBe('\x1b[90m');
   });
@@ -28,10 +28,12 @@ describe('secondary text (B3: measured, dim banned)', () => {
 });
 
 describe('roles', () => {
-  it('emits the 16 theme colors with glyph-carrying weights', () => {
+  it('emits the 16 theme colors with glyph-carrying weights (B10: failure amber and bold, made-by-a-model silver)', () => {
     expect(opens(night, ['primary', 'strong', 'verified', 'estimate', 'failure', 'ai', 'rule', 'diffAdd', 'diffRemove'])).toEqual([
-      '', '\x1b[1m', '\x1b[1;32m', '\x1b[33m', '\x1b[1;31m', '\x1b[35m', '\x1b[90m', '\x1b[32m', '\x1b[31m',
+      '', '\x1b[1m', '\x1b[1;32m', '\x1b[33m', '\x1b[1;33m', '\x1b[37m', '\x1b[90m', '\x1b[32m', '\x1b[31m',
     ]);
+    // accent (focus, prompts, the next step) is amber, never green; only verified is green
+    expect(night.open('accent')).toBe('\x1b[33m');
     expect([night.close('verified'), night.close('estimate'), night.close('strong'), night.close('primary')]).toEqual([
       '\x1b[22;39m', '\x1b[39m', '\x1b[22m', '',
     ]);
@@ -39,19 +41,21 @@ describe('roles', () => {
   it('drops a color that fails its floor on this terminal and keeps the bold word', () => {
     // macOS Terminal "Basic": green #00A600 is 3.3:1 and yellow #999900 is 3.0:1 on white.
     const basic = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_BASIC));
-    expect(opens(basic, ['verified', 'estimate', 'failure', 'ai', 'rule'])).toEqual(['\x1b[1m', '', '\x1b[1;31m', '\x1b[35m', '\x1b[90m']);
+    // B10: failure is amber (yellow #999900, 3.0:1 here, bright yellow too pale), so it keeps only its bold and word;
+    // made by a model is silver (white #BFBFBF and bright white miss on white), so it keeps only its word.
+    expect(opens(basic, ['verified', 'estimate', 'failure', 'ai', 'rule'])).toEqual(['\x1b[1m', '', '\x1b[1m', '', '\x1b[90m']);
   });
   // Fourth order, step 2 (readability): a normal slot that misses its floor gives way to its bright twin
   // (the same meaning in the same theme) when the twin clears; only when both miss is the color dropped.
-  it("takes Night's bright violet on the operator's audited #191919 ground: violet is 4.15:1 there, bright violet 6.46:1", () => {
+  it("on the operator's audited #191919 ground every B10 role clears its floor in its own slot (violet, the old made-by-a-model color, is no longer used)", () => {
     const audited = buildTheme(TRUECOLOR, { ...measuredFromPalette(TIMMY_NIGHT), background: '#191919' });
-    expect(opens(audited, ['ai', 'verified', 'failure', 'secondary'])).toEqual(['\x1b[95m', '\x1b[1;32m', '\x1b[1;31m', '\x1b[37m']);
+    expect(opens(audited, ['ai', 'verified', 'failure', 'secondary', 'accent'])).toEqual(['\x1b[37m', '\x1b[1;32m', '\x1b[1;33m', '\x1b[37m', '\x1b[33m']);
     expect(audited.close('ai')).toBe('\x1b[39m');
   });
-  it('keeps failure red on macOS Terminal "Clear Dark" as measured on the Mac: red is 3.09:1 there, bright red 4.61:1', () => {
+  it('on macOS Terminal "Clear Dark" as measured on the Mac, failure is amber (B10) and a diff removal takes bright red: red is 3.09:1 there, bright red 4.61:1', () => {
     const clearDark = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_CLEAR_DARK));
     expect(opens(clearDark, ['verified', 'estimate', 'failure', 'ai', 'rule', 'secondary', 'diffAdd', 'diffRemove']))
-      .toEqual(['\x1b[1;32m', '\x1b[33m', '\x1b[1;91m', '\x1b[35m', '', '\x1b[37m', '\x1b[32m', '\x1b[91m']);
+      .toEqual(['\x1b[1;32m', '\x1b[33m', '\x1b[1;33m', '\x1b[37m', '', '\x1b[37m', '\x1b[32m', '\x1b[91m']);
   });
   it('drops a color only when its bright twin misses too (Basic: green 3.25:1, bright green 1.92:1)', () => {
     const basic = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_BASIC));

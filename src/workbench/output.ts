@@ -51,6 +51,23 @@ const HEADER = /^ ?\[(\d+)\/\d+\] \S/;
 const SUMMARY = /^==> (.+) \[block (\d+)\]$/;
 const EXITED = /^[✔✘] exited with code -?\d+$/;
 
+/** R6 (H141): a line made only of a rule's marks (and blanks between them). */
+const RULE = /^[\s─━═╌╍┄┅┈┉\-–—_=~*]+$/u;
+
+/**
+ * R6 (H141; the R5 review's defect 23, REMAINING-DEFECTS #16): a line a job printed that is only a rule (eight or more of
+ * ─ ━ ═ - = _ ~ * and their kin; upmd prints one between blocks), as Activity and the Control Room's panes say it: drawn as
+ * printed, cut at the pane's edge, it read as the box's own border. Its first three marks, then the words that it is the job's
+ * output, and how many marks it had; null for any other line (drawn as printed).
+ */
+export function ruleWords(text: string): string | null {
+  const t = text.trim();
+  if (!t || !RULE.test(t)) return null;
+  const marks = [...t].filter((ch) => !/\s/.test(ch));
+  if (marks.length < 8) return null;
+  return `${marks.slice(0, 3).join('')} a rule in its output (${marks.length} ${marks[0]})`;
+}
+
 /** A line's text: escape sequences and control characters removed, tabs as two spaces, its trailing blanks dropped. */
 export function lineText(raw: string): string {
   return raw.replace(ESCAPE, '').replace(/\t/g, '  ').replace(/[\x00-\x1f\x7f-\x9f]/g, '').replace(/\s+$/, '');

@@ -245,7 +245,7 @@ describe('/vox view of a STEP: its tessellation by OCP (FAKE worker), never the 
     const none = await p.view(`view ${p.step}`);
     expect(none.said).toEqual([]);
     expect(text(none.out)).toBe([
-      `  Nothing of ${p.step} can be opened in Rerun's viewer (it reads images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4)):`,
+      `  Nothing of ${p.step} can be opened in Rerun's viewer (it reads images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4), its own recordings (.rrd)):`,
       "  not passed cad/part.step: Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh), and its tessellation for the viewer needs setup",
       `  not passed results/vox/${p.step}/bbox.svg: an SVG drawing: Rerun's viewer reads no SVG (the board shows it)`,
       '  needs setup its tessellation for the viewer (OCP), of cad/part.step: TIMMY_CADQUERY_PYTHON is not set · set TIMMY_CADQUERY_PYTHON to the absolute path of a Python with CadQuery (its OCP reads the STEP)',

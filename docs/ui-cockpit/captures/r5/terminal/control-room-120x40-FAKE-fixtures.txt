@@ -1,0 +1,40 @@
+                ╭──────╮ ╭──────╮ ╭───────────╮ ╭────────╮ ╭───────────╮ ╭────╮ ┏━━━━━━━━━┓ ╭───────╮ ╭───────╮ ╭──────╮
+TIMMY · tray1   │1 Home│ │2 Chat│ │3 Workflows│ │4 Studio│ │5 VoxVision│ │6 3D│ ┃7 Control┃ │8 Fleet│ │9 Tools│ │0 Logs│
+                ╰──────╯ ╰──────╯ ╰───────────╯ ╰────────╯ ╰───────────╯ ╰────╯ ┗━━━━━━━━━┛ ╰───────╯ ╰───────╯ ╰──────╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────── 7 Control Room ╮
+│  [1 What waits on you]  [2 Jobs]  [3 Stop current]  [4 Recover what a crash left]                                    │
+│ this computer · chat: local · no model chosen                                                                        │
+╰─────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Control Room · jobs, chat turns and decisions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ HARNESSES (6)               │ RUNNING NOW (1)                              │ WAITING ON YOU (0)                      ┃
+┃ · opencode  not installed   │ ┏━ j90d179 ━━━━━━━━━━━━━━━━━━━━━━━━━━ 12 s ┓ │ Nothing waits on you.                   ┃
+┃ · hermes    not installed   │ ┃ ▶ running  FAKE job (test): sleep 300    ┃ │                                         ┃
+┃ · pi        not installed   │ ┃ left running                             ┃ │ RUN DETAIL                              ┃
+┃ · openhands not installed   │ ┃ an ended session · no operation          ┃ │ this job names no operation             ┃
+┃ · jcode     not installed   │ ┃ nothing printed yet                      ┃ │                                         ┃
+┃ · minds     not installed   │ ┃ log read every 1 s                       ┃ │ RECENT (1)                              ┃
+┃                             │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │ the newest is drawn as a pane           ┃
+┃ SURFACES (4)                │                                              │                                         ┃
+┃ ▶ Workbench running         │ NEWEST ENDED RUNS (1)                        │ CHAT TURNS (0)                          ┃
+┃ ? REPL      not recorded    │ ╭─ j01b6ca ───────────────── ended 6 s ago ╮ │ No chat turn of this project is sealed  ┃
+┃ ○ companion configured      │ │ ✓ completed  APPROVAL.md › tidy          │ │ yet: a turn is listed once its receipt  ┃
+┃ ○ Studio    configured      │ │ this Workbench · oc6e9fe3a · 1 of 1 step │ │ is sealed, from whichever surface sent  ┃
+┃                             │ │   mkdir -p scratch && touch scratch/x…   │ │ it (the REPL, the Workbench, the        ┃
+┃ DEVICES (0)                 │ │ ==> tidy [block 1]                       │ │ monitor, a companion page).             ┃
+┃ none added: timmy connect   │ │   ✔ exited with code 0                   │ │ A turn being answered now is on the     ┃
+┃ add <name> <user>@<address> │ │ exit 0 · ✓ receipt 1204a00d verified     │ │ surface that sent it, where Esc (the    ┃
+┃                             │ ╰──────────────────────────────────────────╯ │ Workbench) or Ctrl+C (the REPL) stops   ┃
+┃                             │                                              │ it.                                     ┃
+┃                             │ Live previews (carbonyl) are not drawn here; │                                         ┃
+┃                             │ the companion (c) shows pages.               │                                         ┃
+┃                                                                                                                      ┃
+┃                                                                                                                      ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠙ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a…     [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                        │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                       │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                  │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt      │
+│ 1204a00d · /op oc6e9fe3a                                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

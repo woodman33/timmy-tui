@@ -137,23 +137,29 @@ describe('Timmy Canvas follows the active project, unless a board is pinned', ()
     // its own REPL names another project (its /project): the page follows
     await nameProject(w.port, w.token, { root: e.root, name: 'epsilon', holder: H });
     expect((await call(w.port, 'GET', '/api/project?detail=1', { headers: page })).json).toMatchObject({ project: { name: 'epsilon' }, via: 'repl' });
-    // another REPL names its project: refused, as before (the session was given by another REPL)
+    // another REPL names its project: refused, as before (the session was given by another REPL); R5 (H137): the session is
+    // paused, so the panel's reading is answered with a plain 200 that says why, and nothing of phi (src/studio/session-pause.ts)
     await nameProject(w.port, w.token, { root: f.root, name: 'phi', holder: H2 });
     const other = await call(w.port, 'GET', '/api/project?detail=1', { headers: page });
-    expect(other.status).toBe(401);
-    expect(other.json).toMatchObject({ session: 'project', error: expect.stringMatching(/given for another project/) });
+    expect(other.status).toBe(200);
+    expect(other.json).toEqual({ ok: false, session: 'project', error: expect.stringMatching(/given for another project/) });
+    expect(other.body).not.toContain('phi');
     // ... while a board pinned to a project it reached still reads it, and is not told which project the canvas shows
     const still = await call(w.port, 'GET', `/api/project?detail=1&project=${e.id}`, { headers: page });
     expect(still.status).toBe(200);
     expect(still.json).toMatchObject({ project: { name: 'epsilon' }, pinned: true, shown: null });
     expect(still.body).not.toContain('phi');
-    // a project the page never counted for: refused, with why; one this server never named: unknown
+    // a project the page never counted for: refused, with why; one this server never named: unknown. R5 (H137): a pinned board's
+    // reading is the panel's own too: to a session this server keeps, a plain 200 that says why, and nothing of the project
     const s2 = await pageSession(w.port, w.token);
     const never = await call(w.port, 'GET', `/api/project?detail=1&project=${a.id}`, { headers: bearer(s2) });
-    expect(never.status).toBe(401);
-    expect(never.json).toMatchObject({ ok: false, session: 'project', error: PIN_WORDS, pinned: true });
+    expect(never.status).toBe(200);
+    expect(never.json).toEqual({ ok: false, session: 'project', error: PIN_WORDS, pinned: true });
     const unknown = await call(w.port, 'GET', `/api/project?detail=1&project=${'0'.repeat(16)}`, { headers: page });
-    expect(unknown.status).toBe(401);
+    expect(unknown.status).toBe(200);
+    expect(unknown.json).toMatchObject({ ok: false, session: 'project', pinned: true });
+    // a session this server never made, refused as before (401)
+    expect((await call(w.port, 'GET', `/api/project?detail=1&project=${a.id}`, { headers: bearer('f'.repeat(64)) })).status).toBe(401);
     const unknownByToken = await call(w.port, 'GET', `/api/project?detail=1&project=${'0'.repeat(16)}`, { headers: bearer(w.token) });
     expect(unknownByToken.status).toBe(404);
     expect(unknownByToken.json).toMatchObject({ ok: false, error: PIN_UNKNOWN });
@@ -172,16 +178,27 @@ describe('Timmy Canvas follows the active project, unless a board is pinned', ()
       id, typeName: 'shape', type: 'timmy-params', x: 0, y: 0, rotation: 0, index: 'a1', parentId: 'page:page', isLocked: false, opacity: 1, meta: {},
       props: { w: 360, h: 160, card: 'params:recipes/tray.params.json', kind: 'params', projectId: p.id, project: p.name, title: 't', command: '/recipe tray', data: { kept: `${p.name}-kept-detail` }, readAt: '2026-10-11T00:00:00.000Z', open: false, gone: false },
     });
+    // R6 (H139): beta's own board, holding a card of alpha and one of zed (as a board of the old home-wide canvas could)
     const snapshot = { schema: { schemaVersion: 2, sequences: {} }, store: { 'shape:a': card('shape:a', a), 'shape:z': card('shape:z', z) } };
-    const put = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(w.token), 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, revision: 1, baseRevision: 0 }) });
+    const put = await call(w.port, 'PUT', '/api/canvas/document', { headers: { ...bearer(w.token), 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, revision: 1, baseRevision: 0, project: b.id }) });
     expect(put.status).toBe(200);
     const s = await pageSession(w.port, w.token);
+    // the page, given for alpha, loads alpha's own board (blank: nothing of beta's)
+    const own = await call(w.port, 'GET', '/api/canvas/document', { headers: bearer(s) });
+    expect(own.json).toMatchObject({ revision: 0, snapshot: null, project: { id: a.id, name: 'alpha' } });
     choose(w.home, b);
     await until(async () => (await w.active()).project?.name === 'beta');
+    // followed to beta, it loads beta's board: the card of alpha (a project it reached) whole, zed's withheld
     const doc = await call(w.port, 'GET', '/api/canvas/document', { headers: bearer(s) });
     expect(doc.status).toBe(200);
+    expect(doc.json.project).toEqual({ id: b.id, name: 'beta' });
     expect(doc.body).toContain('alpha-kept-detail');
     expect(doc.body).not.toContain('zed-kept-detail');
     expect(doc.json.withheld).toBe(1);
+    // and a reading the page asked for alpha's board (asked before the switch) is told the canvas shows beta now
+    const late = await call(w.port, 'GET', `/api/canvas/document?project=${a.id}`, { headers: bearer(s) });
+    expect(late.status).toBe(409);
+    expect(late.json).toMatchObject({ ok: false, notShown: true, shows: { id: b.id, name: 'beta' }, error: 'The canvas shows beta now, not the project this page asked for (alpha).' });
+    expect(late.body).not.toContain('kept-detail');
   });
 });
