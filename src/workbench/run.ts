@@ -59,6 +59,7 @@ export async function runWorkbench(): Promise<number> {
     seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
     jobsDir, recoverAtStart: false, tildify: (p) => tildePath(p, env),
     askPerson: (req) => ask(req),
+    surface: 'workbench', // R7 (H149): the record says the Workbench chose (a REPL that follows it says so)
   }, start);
 
   const opener = systemOpener(env, onPath);

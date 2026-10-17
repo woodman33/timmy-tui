@@ -56,12 +56,15 @@ export function createProject(name: string): ActiveProject | { error: string } {
   return { name, root, chosen: true };
 }
 
-/** Remembers the choice for the other surfaces (monitor, canvas) — in the Timmy home, not the project. */
-export function saveActiveProject(p: ActiveProject): void {
+/**
+ * Remembers the choice for the other surfaces (monitor, canvas) — in the Timmy home, not the project. R7 (H149): `by`, the surface
+ * that chose it (src/repl/project-follow.ts CHOSEN_IN: a REPL that follows the choice says where it was made).
+ */
+export function saveActiveProject(p: ActiveProject, o: { by?: string } = {}): void {
   const file = activeProjectPath();
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ name: p.name, root: p.root, at: new Date().toISOString() })}\n`, { mode: 0o600 });
+  writeFileSync(tmp, `${JSON.stringify({ name: p.name, root: p.root, at: new Date().toISOString(), ...(o.by ? { by: o.by } : {}) })}\n`, { mode: 0o600 });
   renameSync(tmp, file);
 }
 
