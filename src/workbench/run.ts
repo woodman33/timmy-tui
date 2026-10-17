@@ -6,6 +6,7 @@
  * overview. It recovers nothing at start (the REPL does).
  */
 import React from 'react';
+import chalk from 'chalk';
 import { appendFileSync, closeSync, constants, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from 'ink';
@@ -16,6 +17,7 @@ import { Workspace } from '../repl/workspace.js';
 import { timmyHome } from '../setup/home.js';
 import { currentCapabilities } from '../term/capabilities.js';
 import { glyphSet } from '../term/glyphs.js';
+import { measureTerminal } from '../term/probe.js';
 import { screenStream } from '../term/screen-stream.js';
 import { TerminalSession } from '../term/session.js';
 import { MOUSE_OFF, MOUSE_ON } from '../tui/mouse.js';
@@ -26,12 +28,18 @@ import { WorkbenchApp } from './app.js';
 import { Controller } from './controller.js';
 import { glyphsFor } from './frame.js';
 import { CompanionControl, StudioControl, systemOpener } from './servers.js';
+import { workbenchPalette } from './theme.js';
 
 export async function runWorkbench(): Promise<number> {
   const env = process.env;
   const caps = currentCapabilities();
   const glyphs = glyphsFor(caps.unicode);
   const colour = caps.color > 0;
+  // R7 (H150; H147's R6 finding 1): the colours this terminal gets: 24-bit exactly; the Timmy Homebrew profile's slots when it
+  // is known (TIMMY_PALETTE=homebrew, or the terminal's answer, measured as the REPL measures it, before the screen is taken);
+  // else the nearest of the 256 (src/workbench/theme.ts). chalk writes at the terminal's own level, so Ink writes what it says
+  const palette = colour ? workbenchPalette(caps, await measureTerminal(caps, env, { stdin: process.stdin, stdout: process.stdout })) : 'none';
+  chalk.level = caps.color;
   const onPath = (cmd: string): string | null => realOnPath(cmd, env);
   const jobsDir = join(timmyHome(env), 'jobs');
 
@@ -98,7 +106,7 @@ export async function runWorkbench(): Promise<number> {
   process.stdout.prependListener('resize', clear);
   session.beforeRestore(() => { process.stdout.off('resize', clear); });
 
-  const app = render(React.createElement(WorkbenchApp, { controller, colour }), { exitOnCtrlC: false, patchConsole: false, stdout: screenStream(process.stdout) });
+  const app = render(React.createElement(WorkbenchApp, { controller, colour, palette }), { exitOnCtrlC: false, patchConsole: false, stdout: screenStream(process.stdout) });
   session.beforeRestore(() => app.unmount());
   // SIGTERM or SIGHUP: what this Workbench started stops with it (its records say so), then the terminal comes back
   session.install(process, { drain: async () => { controller.dispose(); await ws.close({ by: 'as the Workbench ended (a signal)' }); } });
