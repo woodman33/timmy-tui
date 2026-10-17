@@ -301,6 +301,36 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     } finally { await page.close(); }
   });
 
+  it('a mesh still being measured says so, and the page asks again until the list holds its measurements', async () => {
+    const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    // FAKE: the page's first list answer is the server's own with the demo tray marked as not measured yet (as a reading
+    // whose time budget ran out leaves a large mesh); every later answer is the server's, untouched
+    let asked = 0;
+    await page.route('**/api/panel/create/meshes?**', async (route) => {
+      asked += 1;
+      if (asked > 1) { await route.continue(); return; }
+      const res = await route.fetch();
+      const body = await res.json() as { meshes: Array<Record<string, unknown>>; pending: number };
+      body.meshes = body.meshes.map((m) => (m.path === 'refs/demo-tray.stl' ? { path: m.path, kind: 'stl', bytes: m.bytes, origin: { provenance: 'not recorded', words: 'not read yet' }, pending: true, why: "being measured: Timmy's own STL reader reads it next (the list is read again in a moment)" } : m));
+      body.pending = 1;
+      await route.fulfill({ response: res, json: body });
+    });
+    try {
+      await page.goto(companion.url);
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      await page.keyboard.press('6');
+      const sub = '.create-mesh[data-create-mesh="refs/demo-tray.stl"] .create-mesh-sub';
+      await page.waitForSelector(sub, { timeout: 15_000 });
+      expect(await text(page, sub)).toBe('STL · being measured… · 1.4 KB');
+      await page.waitForFunction((sel) => /28 triangles/.test(document.querySelector(sel)?.textContent ?? ''), sub, { timeout: 15_000 });
+      expect(await text(page, sub)).toBe('STL · 28 triangles · 1.4 KB');
+      expect(asked).toBeGreaterThanOrEqual(2);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
   it('at 800 × 600 the panel fits: nothing scrolls sideways, the view is drawn, every text 11 px or more', async () => {
     const { page, errors } = await open({ width: 800, height: 600 });
     try {

@@ -72,6 +72,8 @@ export interface MeshRow {
   why?: string;
   /** what the view draws of it: every triangle, or an even pick of them */
   view?: { shown: number; total: number; words: string };
+  /** not measured yet: a reading with a time budget measures it next (`why` says so) */
+  pending?: true;
   /** a tessellation: the VoxVision record that names these bytes, what it was made from and how */
   tessellation?: { record: string; from: string; made_by: string; tolerance: string; sealed: boolean | null };
 }
@@ -82,6 +84,8 @@ export interface MeshList {
   schema: typeof MESHES_SCHEMA;
   meshes: MeshRow[];
   more: number;
+  /** how many listed meshes are still to be measured (a reading with a time budget leaves them for the next) */
+  pending: number;
   recordings: RecordingRow[];
   recordingsMore: number;
   /** Rerun's own viewer as this computer has it: found (never run here) or needing setup */
@@ -174,6 +178,12 @@ function sigOf(root: string, rel: string): string | null {
 /** What a file was measured as, kept while its identity is unchanged (the list is read every few seconds). */
 interface Measured { sha256?: string; readback?: StlReadback; declared?: MeshRow['declared']; why?: string }
 const measured = new Map<string, { sig: string; m: Measured }>();
+/** What is kept of a file measured before, while its identity is unchanged; undefined when it is to be measured. */
+function measuredBefore(root: string, rel: string): Measured | undefined {
+  const known = measured.get(`${root}\0${rel}`);
+  const sig = known ? sigOf(root, rel) : null;
+  return known && sig && known.sig === sig ? known.m : undefined;
+}
 const recorded = new Map<string, { sig: string; r: { facts?: RecordingFacts; why?: string } }>();
 const keep = <V>(map: Map<string, V>, key: string, value: V): void => { if (map.size > 500) map.clear(); map.set(key, value); };
 
@@ -260,9 +270,14 @@ function sealOf(chain: readonly Receipt[], pid: string, n: Named): Receipt | und
 const shortOf = (r: Receipt): string => (r.hash ?? '').replace(/^sha256[:_]/, '').slice(0, 8);
 
 /** The project's meshes (measured) and recordings (their header facts), and Rerun's viewer as this computer has it. */
-export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } = {}): MeshList {
+export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number; budgetMs?: number } = {}): MeshList {
   const max = o.max ?? MESH_LIST_MAX;
   const cap = o.cap ?? VIEW_MAX_TRIANGLES;
+  // a reading with a time budget (a server's, a terminal's frame) measures what it can in that time, at least one new file,
+  // and says the others are measured next: Timmy's reader is synchronous, and a large mesh takes seconds
+  const until = o.budgetMs === undefined ? Infinity : Date.now() + o.budgetMs;
+  let newly = 0;
+  let pending = 0;
   const found = filesOf(i.root);
   const named = found.stl.some((f) => f.path.startsWith(`${VOX_DIR}/`)) ? tessellationsOf(i.root) : new Map<string, Named>();
   const pid = i.chain ? projectId(i.root) : '';
@@ -270,7 +285,12 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } =
   const chainNow = (): readonly Receipt[] | undefined => { if (!chain && i.chain) chain = typeof i.chain === 'function' ? i.chain() : i.chain; return chain; };
 
   const meshes = found.stl.slice(0, max).map((f): MeshRow => {
-    const m = measure(i.root, f.path);
+    let m = measuredBefore(i.root, f.path);
+    if (!m && newly > 0 && Date.now() >= until) {
+      pending += 1;
+      return { path: f.path, kind: 'stl', bytes: f.bytes, origin: { provenance: 'not recorded', words: 'not read yet' }, pending: true, why: "being measured: Timmy's own STL reader reads it next (the list is read again in a moment)" };
+    }
+    if (!m) { m = measure(i.root, f.path); newly += 1; }
     const n = named.get(f.path);
     let origin: MeshOrigin = { provenance: 'not recorded', words: "where the file came from is not recorded: Timmy's records do not say what made it" };
     let tessellation: MeshRow['tessellation'];
@@ -306,7 +326,7 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } =
     : { name: "Rerun's viewer", state: 'needs setup', words: `Rerun's viewer needs setup here: ${rr.why}`, setup: rr.setup ?? RERUN_SETUP };
 
   return {
-    schema: MESHES_SCHEMA, meshes, more: Math.max(0, found.stl.length - max), recordings, recordingsMore: Math.max(0, found.rrd.length - RECORDING_LIST_MAX),
+    schema: MESHES_SCHEMA, meshes, more: Math.max(0, found.stl.length - max), pending, recordings, recordingsMore: Math.max(0, found.rrd.length - RECORDING_LIST_MAX),
     viewer, walk: { files: found.walked, truncated: found.truncated }, cap, view: VIEW_WORDS, reader: READER_WORDS, doctrine: DOCTRINE_15,
   };
 }

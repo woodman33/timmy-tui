@@ -28,6 +28,8 @@ export const CREATE_PANEL = {
 } as const;
 
 const FAILED = 'The 3D & Motion panel could not read what this request needs, so it answers with nothing. The companion is still running.';
+/** How long one list answer may spend measuring meshes it has not measured before (at least one is measured each time). */
+export const LIST_BUDGET_MS = 400;
 /** What a mesh answer carries beside its bytes: no caching, never sniffed, and a policy under which it runs nothing. */
 const MESH_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } as const;
 
@@ -42,7 +44,8 @@ export function mountCreatePanel(app: express.Express, ctx: PanelContext): void 
     const project = ctx.projectFor(req);
     if (!project) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }
     try {
-      const list = listMeshes({ root: project.root, env: { ...ctx.env } as NodeJS.ProcessEnv, chain: () => chainOf(project.root) });
+      // within a time budget: a large mesh not measured yet is measured on a later read (the page asks again while any is)
+      const list = listMeshes({ root: project.root, env: { ...ctx.env } as NodeJS.ProcessEnv, chain: () => chainOf(project.root) }, { budgetMs: LIST_BUDGET_MS });
       res.json({ ok: true, ...list, project: { id: projectId(project.root), name: project.name } });
     } catch { res.status(500).json({ ok: false, error: FAILED }); }
   });

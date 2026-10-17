@@ -135,6 +135,8 @@
       const paths = body.meshes.map((m) => m.path);
       if (!S.sel || !paths.includes(S.sel)) S.sel = (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
       drawList(); drawRecordings(); drawMeasure();
+      // a mesh still being measured: the list is read again in a moment while this tab is shown
+      if (body.pending > 0) setTimeout(() => { if (S.root && document.contains(S.root) && !S.root.closest('[hidden]')) { S.listAt = 0; void refreshList(); } }, 1200);
       const row = body.meshes.find((m) => m.path === S.sel);
       const want = row && row.readback ? row.readback.sha256 : '';
       if (!S.mesh || S.mesh.path !== S.sel || S.mesh.sha !== want) await loadMesh(row);
@@ -158,7 +160,7 @@
           h('span', { class: 'create-mesh-path' }, m.path),
           h('span', { class: 'create-mesh-sub' }, [
             m.kind === 'tessellation' ? `tessellation of ${m.tessellation.from}` : 'STL',
-            m.readback ? `${m.readback.triangles} triangle${m.readback.triangles === 1 ? '' : 's'}` : 'not measured',
+            m.readback ? `${m.readback.triangles} triangle${m.readback.triangles === 1 ? '' : 's'}` : m.pending ? 'being measured…' : 'not measured',
             bytesWords(m.bytes),
           ].join(' · ')))))),
       L.more ? h('p', { class: 'create-note' }, `and ${L.more} more not listed here (the list names the first ${L.meshes.length}, by path)`) : null,
@@ -238,6 +240,7 @@
     put(q('label'), S.list ? S.list.view : '');
     put(q('count'), '');
     if (!row) { stageNote('No mesh in this project to draw.'); paint(); return; }
+    if (!row.readback && row.pending) { stageNote(`${row.path} is being measured by Timmy's own STL reader: it is drawn once the list holds its measurements.`); paint(); return; }
     if (!row.readback) { stageNote(`Not drawn: ${row.path} was not measured (${row.why || 'unknown'}).`); paint(); return; }
     stageNote(`Reading ${row.path}…`);
     const ctx = S.ctx;

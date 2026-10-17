@@ -35,7 +35,8 @@ function readingOf(root: string, at: number): MeshList | { error: string } {
   const key = `${root}\0${at}`;
   if (kept?.key === key) return kept.list;
   let list: MeshList | { error: string };
-  try { list = listMeshes({ root, env: process.env, chain: () => chainOf(root) }); } catch (e) { list = { error: e instanceof Error ? e.message : String(e) }; }
+  // within a time budget (the Workbench draws its frame synchronously): a large mesh is measured by a later reading
+  try { list = listMeshes({ root, env: process.env, chain: () => chainOf(root) }, { budgetMs: 150 }); } catch (e) { list = { error: e instanceof Error ? e.message : String(e) }; }
   kept = { key, list };
   return list;
 }

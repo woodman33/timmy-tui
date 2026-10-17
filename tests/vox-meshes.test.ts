@@ -105,6 +105,23 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     expect(list.meshes[1].bytes).toBe(MESH_READ_MAX + 1);
   });
 
+  it('measures within a time budget: what is measured already is kept, at least one new file each reading, the rest said to be measured next', () => {
+    const root = project();
+    for (const n of ['a', 'b', 'c']) put(root, `parts/${n}.stl`, cubeStl(n === 'a' ? 1 : n === 'b' ? 2 : 3));
+    const first = listMeshes({ root, env }, { budgetMs: 0 });
+    expect(first.meshes.map((m) => [m.path, m.readback?.triangles ?? null, m.pending ?? false])).toEqual([['parts/a.stl', 12, false], ['parts/b.stl', null, true], ['parts/c.stl', null, true]]);
+    expect(first.meshes[1].why).toBe("being measured: Timmy's own STL reader reads it next (the list is read again in a moment)");
+    expect(first.meshes[1].view).toBeUndefined();
+    expect(first.pending).toBe(2);
+    const second = listMeshes({ root, env }, { budgetMs: 0 });
+    expect(second.meshes.map((m) => m.pending ?? false)).toEqual([false, false, true]);
+    const third = listMeshes({ root, env }, { budgetMs: 0 });
+    expect(third.meshes.map((m) => m.pending ?? false)).toEqual([false, false, false]);
+    expect(third.pending).toBe(0);
+    // with no budget, everything at once
+    expect(listMeshes({ root: project(), env }).pending).toBe(0);
+  });
+
   it('caps the list: at most `max` meshes, the rest counted', () => {
     const root = project();
     for (const n of ['a', 'b', 'c', 'd']) put(root, `parts/${n}.stl`, cubeStl(1));
