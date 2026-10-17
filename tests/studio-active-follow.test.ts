@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { activeProjectFile, readActiveFile } from '../src/studio/active-follow.js';
+import { ActiveFollower, activeProjectFile, readActiveFile } from '../src/studio/active-follow.js';
 import { PIN_WORDS } from '../src/studio/card-relay.js';
 import { PIN_UNKNOWN } from '../src/studio/project-link.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
@@ -26,6 +26,7 @@ afterEach(async () => {
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); made.push(d); return d; };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const until = async (what: () => Promise<boolean>, ms = 5000): Promise<void> => {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (await what()) return; await new Promise((r) => setTimeout(r, 50)); }
@@ -200,5 +201,121 @@ describe('Timmy Canvas follows the active project, unless a board is pinned', ()
     expect(late.status).toBe(409);
     expect(late.json).toMatchObject({ ok: false, notShown: true, shows: { id: b.id, name: 'beta' }, error: 'The canvas shows beta now, not the project this page asked for (alpha).' });
     expect(late.body).not.toContain('kept-detail');
+  });
+});
+
+/**
+ * R7 (H149; R6 row 18): the server sees the file change as it is written (a watch of its folder; the poll kept), and says at once
+ * that a switch is pending (FollowDeps.pending and ActiveFollower.pending, the shape agreed with H151, whose page blocks edits from
+ * it), until the switch is made (followed after the grace, or a REPL named the project) or given up (the file back on the project
+ * shown, or a REPL named another project since the change).
+ */
+describe('the pending switch, said at once (R7 H149)', () => {
+  type Shown = { root: string; via?: 'repl' | 'active'; since?: string } | null;
+  function follower(home: string, o: { shown: () => Shown; graceMs?: number }) {
+    const file = activeProjectFile({ TIMMY_HOME: home });
+    const said: Array<{ at: number; p: { id: string; name: string; since: string } | null }> = [];
+    const followed: string[] = [];
+    // a poll far slower than the grace: what is seen at once is the watch's
+    const f = new ActiveFollower({ file, shown: o.shown, follow: (a) => { followed.push(a.name); }, pending: (p) => { said.push({ at: Date.now(), p }); }, everyMs: 5000, graceMs: o.graceMs ?? 400 });
+    return { f, said, followed };
+  }
+
+  it('says a switch is pending within moments of the write (not the poll), then that it is made once the grace ends', async () => {
+    const home = temp('timmy-pending-home-');
+    mkdirSync(join(home, 'state'), { recursive: true });
+    const a = { name: 'alpha', root: join(temp('timmy-pending-a-'), 'alpha') };
+    const b = { name: 'beta', root: join(temp('timmy-pending-b-'), 'beta') };
+    mkdirSync(a.root); mkdirSync(b.root);
+    let shown: Shown = { root: a.root, via: 'repl', since: new Date().toISOString() };
+    const w = follower(home, { shown: () => shown });
+    w.f.start();
+    try {
+      const t0 = Date.now();
+      choose(home, b);
+      await until(async () => w.said.length === 1, 2000);
+      expect(w.said[0].at - t0).toBeLessThan(1000);
+      expect(w.said[0].p).toMatchObject({ id: projectId(b.root), name: 'beta' });
+      expect(Number.isFinite(Date.parse(w.said[0].p!.since))).toBe(true);
+      expect(w.f.pending).toEqual(w.said[0].p);
+      expect(w.followed).toEqual([]);
+      // the grace ends with no REPL naming beta: the server follows it, and the switch is no longer pending
+      await until(async () => w.followed.length === 1, 2000);
+      shown = { root: b.root, via: 'active', since: new Date().toISOString() };
+      expect(w.said.at(-1)!.p).toBeNull();
+      expect(w.f.pending).toBeNull();
+    } finally { w.f.stop(); }
+  });
+
+  it('a REPL that names the project first ends the pending switch; the file back on the project shown gives it up; a REPL naming another project after the change wins over the file', async () => {
+    const home = temp('timmy-pending-home2-');
+    mkdirSync(join(home, 'state'), { recursive: true });
+    const [a, b, c] = ['alpha', 'beta', 'gamma'].map((name) => { const root = join(temp(`timmy-pending-${name}-`), name); mkdirSync(root); return { name, root }; });
+    let shown: Shown = { root: a.root, via: 'repl', since: new Date().toISOString() };
+    const w = follower(home, { shown: () => shown, graceMs: 500 });
+    w.f.start();
+    try {
+      // a REPL names beta itself (its follow of the file): the pending switch ends, nothing is followed by the server
+      choose(home, b);
+      await until(async () => w.f.pending !== null, 2000);
+      shown = { root: b.root, via: 'repl', since: new Date().toISOString() };
+      expect(w.f.pending).toBeNull();
+      await sleep(700);
+      expect(w.followed).toEqual([]);
+      expect(w.said.at(-1)!.p).toBeNull();
+      // the file names gamma, then beta (the project shown) again before the grace ends: given up at once, nothing followed
+      const n = w.said.length;
+      choose(home, c);
+      await until(async () => w.said.length === n + 1, 2000);
+      expect(w.said.at(-1)!.p).toMatchObject({ name: 'gamma' });
+      choose(home, b);
+      await until(async () => w.said.length === n + 2, 2000);
+      expect(w.said.at(-1)!.p).toBeNull();
+      await sleep(700);
+      expect(w.followed).toEqual([]);
+      // the file names gamma; a REPL names alpha (its /canvas open) after that: its naming stands over the file's
+      choose(home, c);
+      await until(async () => w.f.pending !== null, 2000);
+      await sleep(50);
+      shown = { root: a.root, via: 'repl', since: new Date().toISOString() };
+      await sleep(800);
+      expect(w.followed).toEqual([]);
+      expect(w.f.pending).toBeNull();
+      expect(w.f.last).toMatchObject({ name: 'gamma', followed: false });
+    } finally { w.f.stop(); }
+  });
+});
+
+describe('GET /api/project/active says the pending switch to a credited caller (R7 H149, the shape agreed with H151)', () => {
+  it('pending: { project: { id, name }, since } or null with the token; nothing of it without a credential; absent where no follower serves it', async () => {
+    const { default: express } = await import('express');
+    const { mountProjectRoutes, ProjectLink } = await import('../src/studio/project-link.js');
+    const root = join(temp('timmy-pending-route-'), 'alpha');
+    mkdirSync(root);
+    let pending: { id: string; name: string; since: string } | null = null;
+    const serve = async (withPending: boolean) => {
+      const app = express();
+      const link = new ProjectLink();
+      mountProjectRoutes(app, { link, pageOpen: () => false, ...(withPending ? { pending: () => pending } : {}) });
+      const srv = await new Promise<import('node:http').Server>((done) => { const s = app.listen(0, '127.0.0.1', () => done(s)); });
+      return { link, port: (srv.address() as AddressInfo).port, close: () => new Promise<void>((done) => srv.close(() => done())) };
+    };
+    const s = await serve(true);
+    try {
+      expect((await call(s.port, 'GET', '/api/project/active', { headers: bearer(s.link.token) })).json).toMatchObject({ project: null, pending: null });
+      pending = { id: 'b'.repeat(16), name: 'beta', since: '2026-10-16T23:00:00.000Z' };
+      expect((await call(s.port, 'GET', '/api/project/active', { headers: bearer(s.link.token) })).json).toMatchObject({ pending: { project: { id: 'b'.repeat(16), name: 'beta' }, since: '2026-10-16T23:00:00.000Z' } });
+      // a project named: without a credential the answer hides it, and says nothing of the switch either
+      await nameProject(s.port, s.link.token, { root, name: 'alpha', holder: H });
+      const hidden = await call(s.port, 'GET', '/api/project/active');
+      expect(hidden.json).toMatchObject({ hidden: true, project: null });
+      expect(hidden.json).not.toHaveProperty('pending');
+      expect(hidden.body).not.toContain('beta');
+      expect((await call(s.port, 'GET', '/api/project/active', { headers: bearer(s.link.token) })).json).toMatchObject({ project: { name: 'alpha' }, pending: { project: { name: 'beta' } } });
+    } finally { await s.close(); }
+    const quiet = await serve(false);
+    try {
+      expect((await call(quiet.port, 'GET', '/api/project/active', { headers: bearer(quiet.link.token) })).json).not.toHaveProperty('pending');
+    } finally { await quiet.close(); }
   });
 });
