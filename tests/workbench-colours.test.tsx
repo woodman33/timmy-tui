@@ -25,7 +25,7 @@ import { isHomebrewProfile, nearest256, styleOf, workbenchPalette, type Workbenc
 const level = chalk.level;
 afterEach(() => { chalk.level = level; cleanup(); });
 
-const ROLES: Role[] = ['text', 'strong', 'secondary', 'action', 'focus', 'attention', 'failure', 'live', 'ai', 'link', 'border'];
+const ROLES: Role[] = ['text', 'strong', 'secondary', 'action', 'accent', 'focus', 'attention', 'failure', 'live', 'ai', 'link', 'border'];
 
 /** The bytes Ink prints for one segment, with chalk at `lv` (as the Workbench sets it from the terminal's colour level). */
 function bytes(seg: Seg, palette: WorkbenchPalette, lv: 0 | 1 | 2 | 3): string {
@@ -77,18 +77,18 @@ describe('the Workbench\'s colours without truecolor (R7 H150; H147\'s R6 findin
   it('the bytes each role writes, in each mode (Ink\'s own output)', () => {
     // 24-bit: B10's colours exactly
     const truecolor: Record<string, string> = {
-      text: '38;2;242;239;233', strong: '1 38;2;242;239;233', secondary: '38;2;142;142;147', action: '38;2;255;176;0', focus: '1 38;2;255;176;0',
+      text: '38;2;242;239;233', strong: '1 38;2;242;239;233', secondary: '38;2;142;142;147', action: '38;2;242;239;233', accent: '38;2;255;176;0', focus: '1 38;2;255;176;0',
       attention: '38;2;255;176;0', failure: '38;2;255;176;0', live: '1 38;2;40;254;20', ai: '38;2;232;228;217', link: '38;2;232;228;217', border: '38;2;68;68;68',
     };
     // the Homebrew profile's slots (text: the terminal's own foreground), structure in the fixed grey ramp
     const slots: Record<string, string> = {
-      text: '', strong: '1', secondary: '90', action: '33', focus: '1 33', attention: '33', failure: '33', live: '1 32', ai: '37', link: '37', border: '38;5;238',
+      text: '', strong: '1', secondary: '90', action: '', accent: '33', focus: '1 33', attention: '33', failure: '33', live: '1 32', ai: '37', link: '37', border: '38;5;238',
     };
     // the profile on a 16-colour terminal: structure in slot 8
     const basicSlots: Record<string, string> = { ...slots, border: '90' };
     // the nearest of the 256
     const n256: Record<string, string> = {
-      text: '38;5;255', strong: '1 38;5;255', secondary: '38;5;245', action: '38;5;214', focus: '1 38;5;214', attention: '38;5;214', failure: '38;5;214', live: '1 38;5;46', ai: '38;5;254', link: '38;5;254', border: '38;5;238',
+      text: '38;5;255', strong: '1 38;5;255', secondary: '38;5;245', action: '38;5;255', accent: '38;5;214', focus: '1 38;5;214', attention: '38;5;214', failure: '38;5;214', live: '1 38;5;46', ai: '38;5;254', link: '38;5;254', border: '38;5;238',
     };
     for (const role of ROLES) {
       const seg: Seg = { text: 'X', role };
@@ -114,7 +114,9 @@ describe('the Workbench\'s colours without truecolor (R7 H150; H147\'s R6 findin
   it('the hex the 24-bit mode writes is B10\'s tokens (src/theme/tokens.ts), never chosen here', () => {
     expect(styleOf({ text: 'X', role: 'text' }, true, 'truecolor').color).toBe(HOMEBREW.text);
     expect(styleOf({ text: 'X', role: 'secondary' }, true, 'truecolor').color).toBe(HOMEBREW.textSecondary);
-    expect(styleOf({ text: 'X', role: 'action' }, true, 'truecolor').color).toBe(HOMEBREW.accent);
+    expect(styleOf({ text: 'X', role: 'accent' }, true, 'truecolor').color).toBe(HOMEBREW.accent);
+    // (R7 H150, B10 "Amber is exact": a command, a key, a button in the text's colour)
+    expect(styleOf({ text: 'X', role: 'action' }, true, 'truecolor').color).toBe(HOMEBREW.text);
     expect(styleOf({ text: 'X', role: 'live' }, true, 'truecolor').color).toBe(HOMEBREW.live);
     expect(styleOf({ text: 'X', role: 'border' }, true, 'truecolor').color).toBe(HOMEBREW.lineStrong);
   });

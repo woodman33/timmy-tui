@@ -482,7 +482,7 @@ export function laneMark(l: LaneRow, g: Glyphs): { glyph: string; word: string; 
  *  words in the primary text colour, as #8E8E93 on the bar's #333 is below the contrast floor), each fitted to `w`. */
 function itemRows(lines: readonly Line[], selected: boolean, g: Glyphs, w: number): Line[] {
   return lines.map((l, i) => {
-    const row: Line = [S(i === 0 && selected ? `${g.cursor} ` : '  ', 'action'), ...l];
+    const row: Line = [S(i === 0 && selected ? `${g.cursor} ` : '  ', 'accent'), ...l];
     return fit(selected ? onBar(row) : row, w, g.ellipsis);
   });
 }

@@ -106,7 +106,7 @@ export const notHere = (r: Pick<CapabilityRow, 'rung'>): boolean => r.rung === '
  */
 export function capRows(r: CapabilityRow, w: number, selected: boolean, g: Glyphs): Line[] {
   const sel = selected ? { selected: true } : {};
-  const mark = selected ? S(`${g.cursor} `, 'action', sel) : S('  ');
+  const mark = selected ? S(`${g.cursor} `, 'accent', sel) : S('  ');
   const rung = S(r.rung, notHere(r) ? 'secondary' : 'text', sel);
   const bar = (l: Line): Line => (selected ? onBar(l) : l);
   const rows: Line[] = lineCells([mark, S(r.name)]) + 1 + lineCells([rung]) <= w

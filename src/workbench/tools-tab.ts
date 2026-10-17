@@ -196,7 +196,7 @@ function receiptSegs(c: McpCallRow, d: ToolsData, g: Glyphs, short: boolean): Se
 function callRows(c: McpCallRow, d: ToolsData, w: number, selected: boolean, g: Glyphs): Line[] {
   const r = c.read.record;
   const sel = selected ? { selected: true as const } : {};
-  const mark = selected ? S(`${g.cursor} `, 'action', sel) : S('  ');
+  const mark = selected ? S(`${g.cursor} `, 'accent', sel) : S('  ');
   const outcome = [outcomeSeg(r.outcome, g, sel)];
   const bar = (l: Line): Line => (selected ? onBar(l) : l);
   // the receipt's verdict first (a narrow column keeps it whole), then when and how long

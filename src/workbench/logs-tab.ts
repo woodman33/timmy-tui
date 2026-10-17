@@ -453,7 +453,7 @@ function eventRows(e: LogEvent, w: number, o: { selected: boolean; linked: boole
   const { g } = o;
   const sel = o.selected ? { selected: true } : {};
   const all = (l: Line): Line => (o.selected ? onBar(l) : l);
-  const mark: Seg = o.selected ? S(`${g.cursor} `, 'action', sel) : o.linked ? S(`${g.dot} `, 'secondary') : S('  ');
+  const mark: Seg = o.selected ? S(`${g.cursor} `, 'accent', sel) : o.linked ? S(`${g.dot} `, 'secondary') : S('  ');
   const seq = e.seq !== undefined ? `#${e.seq}` : '';
   const status: Seg[] = e.status.word ? [S(statusText(e.status, g), toneRole(e.status.tone), sel)] : [];
   const out: Line[] = [];
@@ -535,7 +535,7 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
   const started = job ? Date.parse(job.row.startedAt) : Number.NaN;
   // .intent: the operation's request, from its record
   const intent: Stage = op?.record
-    ? { name: 'intent', label: '.intent', role: 'action', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
+    ? { name: 'intent', label: '.intent', role: 'accent', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
     : op?.unreadable
       ? { name: 'intent', label: '.intent', role: 'failure', note: opId, rows: [[S(`${g.fail} its record could not be read`, 'failure')], [S(op.why ?? '', 'secondary')]] }
       : notRecorded('intent', '.intent', `no .timmy/operations/${opId}.json in this project`);
@@ -552,7 +552,7 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
     const what = p.prediction ? `${p.prediction.doc} › ${p.prediction.block}: ${p.prediction.order.join(` ${g.arrow} `)}`
       : p.fleet ? `${p.fleet.workers} workers, ${p.fleet.isolation} on ${p.fleet.backend}${p.fleet.simulation ? ' (simulation)' : ''}` : p.subject;
     predict = {
-      name: 'predict', label: '.predict', role: 'action', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
+      name: 'predict', label: '.predict', role: 'accent', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
       rows: [order, verdictRow(receiptVerdict(d, p.hash), g), [S(what, 'text')]],
     };
   }

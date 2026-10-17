@@ -335,10 +335,10 @@ export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focuse
   let x = 0;
   acts.forEach((a, i) => {
     const on = focused && i === sel;
-    const marker = S(on ? g.cursor : ' ', 'action');
+    const marker = S(on ? g.cursor : ' ', 'accent');
     const t = text(a, rooms[i]);
     const segs: Seg[] = a.primary && a.enabled
-      ? [S('[', 'action', { inverse: true, bold: true }), S(t, 'action', { inverse: true, bold: true }), S(']', 'action', { inverse: true, bold: true })]
+      ? [S('[', 'accent', { inverse: true, bold: true }), S(t, 'accent', { inverse: true, bold: true }), S(']', 'accent', { inverse: true, bold: true })]
       : a.enabled
         ? [S('[', 'border'), S(t, 'text'), S(']', 'border')]
         : [S('[', 'secondary'), S(t, 'secondary'), S(']', 'secondary')];
@@ -688,7 +688,7 @@ function stageRole(id: string, s: PipelineStage): Role {
   if (s.state === 'failed') return 'failure';
   if (s.state === 'not run yet' || s.state === 'none' || s.state === 'unknown') return 'secondary';
   if (id === 'receipt') return s.verified ? 'live' : 'text';
-  if (id === 'intent' || id === 'predict') return 'action';
+  if (id === 'intent' || id === 'predict') return 'accent';
   return 'text';
 }
 
@@ -716,7 +716,7 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const row: Line = [];
   stages.forEach((x, i) => {
     if (i) row.push(S(arrow, 'secondary'));
-    const edge: Role = x.role === 'action' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
+    const edge: Role = x.role === 'accent' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
     row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(texts[i], x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
   });
   const from = p?.kind === 'chat'

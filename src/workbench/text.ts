@@ -13,8 +13,12 @@ export type Role =
   | 'secondary'
   /** a name or a heading: off-white, bold */
   | 'strong'
-  /** a command, a key, a button: amber (DESIGN.md B10) */
+  /** a command, a key, a button: the text's colour. R7 (H150; DESIGN.md §10 B10 "Amber is exact"; R5 visual 10 "amber key hints
+   *  and commands"): keys, key hints and commands are not amber; their brackets and their words say what they are */
   | 'action'
+  /** R7 (H150): amber, where B10 puts it: the selection's marker, the one primary next step, a field's prompt (the field has the
+   *  keyboard), .intent and .predict, and a recommendation (a prediction) */
+  | 'accent'
   /** a link or a place to go: blue */
   | 'link'
   /** a named decision that waits on a person (NEEDS YOU, waiting on you): amber */

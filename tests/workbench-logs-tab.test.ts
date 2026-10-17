@@ -216,8 +216,9 @@ describe('tab 0: the event log, the sequence cards and the raw output', () => {
       const v = logsView(ctxAt(c, r, k), d);
       const all = text(v.lines);
       expect(all).toMatch(/OPERATION o1a2b3c4d/);
-      expect(rolesOf(v.lines, /^\s*\.intent\s*$/)).toEqual(['action']);
-      expect(rolesOf(v.lines, /^\s*\.predict\s*$/)).toEqual(['action']);
+      // (R7 H150: .intent and .predict amber, role accent; keys and commands are role action, the text's colour: B10)
+      expect(rolesOf(v.lines, /^\s*\.intent\s*$/)).toEqual(['accent']);
+      expect(rolesOf(v.lines, /^\s*\.predict\s*$/)).toEqual(['accent']);
       // the run is structure: its card's title grey beside the others, its label plain in the stacked rows
       expect(rolesOf(v.lines, /^\s*sandbox \/ run\s*$/)).toEqual([c >= COLUMNS_FROM ? 'border' : 'strong']);
       expect(rolesOf(v.lines, /^\s*\.receipt\s*$/)).toEqual(['live']);

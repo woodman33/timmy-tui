@@ -1,8 +1,9 @@
 /**
  * R4 (H110): the terminal Workbench's look, Timmy Homebrew (src/theme/tokens.ts). Since DESIGN.md §10 B10 (the operator's
- * palette of 2026-10-15): readable off-white text, labels a step quieter (#8E8E93), amber for commands, keys, the region that
- * has the keyboard and a decision that waits on a person, silver for places to go and for made-by-a-model, and amber with ✕
- * and its word for failed or refused; green only for an observed live, passed or sealed state. No colour is chosen here:
+ * palette of 2026-10-15): readable off-white text, labels a step quieter (#8E8E93), amber for the region that has the keyboard,
+ * the active tab, the selection, the one primary next step, .intent and .predict and a decision that waits on a person (R7,
+ * H150: commands, keys and key hints are in the text's colour), silver for places to go and for made-by-a-model, and amber
+ * with ✕ and its word for failed or refused; green only for an observed live, passed or sealed state. No colour is chosen here:
  * every value is a token.
  * Colour never carries a meaning alone: each role's meaning is also in its words, and the focused region also has its
  * marker and a heavier border (src/workbench/frame.ts).
@@ -46,7 +47,10 @@ const ROLE_COLOR: Readonly<Record<Role, string>> = {
   text: HOMEBREW.text,
   secondary: HOMEBREW.textSecondary,
   strong: HOMEBREW.text,
-  action: HOMEBREW.accent,
+  // R7 (H150; B10 "Amber is exact"): a command, a key, a button in the text's colour; amber is `accent`, `focus`, `attention`
+  // and `failure` only (src/workbench/text.ts Role)
+  action: HOMEBREW.text,
+  accent: HOMEBREW.accent,
   link: HOMEBREW.link,
   attention: HOMEBREW.attention,
   failure: HOMEBREW.failure,
@@ -128,7 +132,7 @@ export function workbenchPalette(caps: { color: ColorLevel }, measured: Measured
 const SLOT_NAME: Readonly<Record<number, string>> = { 2: 'green', 3: 'yellow', 7: 'white', 8: 'blackBright' };
 /** Each role's slot under the profile; undefined: the terminal's own foreground (the profile's #F2EFE9). */
 const ROLE_SLOT: Readonly<Record<Role, number | undefined>> = {
-  text: undefined, strong: undefined, secondary: 8, action: 3, focus: 3, attention: 3, failure: 3, live: 2, ai: 7, link: 7, border: undefined,
+  text: undefined, strong: undefined, secondary: 8, action: undefined, accent: 3, focus: 3, attention: 3, failure: 3, live: 2, ai: 7, link: 7, border: undefined,
 };
 
 /** A role's colour for Ink in `palette` (undefined: the terminal's own foreground). */

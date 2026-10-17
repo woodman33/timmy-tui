@@ -209,11 +209,12 @@ describe('tab 8: Clef-Omni', () => {
       // what it recommended and that it is not a run, at every size
       expect(all).toMatch(/Clef recommended Codex[^\n]*not a run/);
       expect(all).toMatch(/deterministic: pi/);
-      expect(rolesOf(v.lines, /^Codex$/)).toEqual(['action']);
+      // (R7 H150: a recommendation is a prediction, amber as .predict is: role accent, B10)
+      expect(rolesOf(v.lines, /^Codex$/)).toEqual(['accent']);
       // the bars: one for each option scored, the recommended amber
       expect(all).toMatch(/Codex +█+░*  \d+\.\d%/);
       expect(all).toMatch(/pi +█*░+ +\d+\.\d%/);
-      expect(rolesOf(v.lines, /^█+$/)).toContain('action');
+      expect(rolesOf(v.lines, /^█+$/)).toContain('accent');
       for (const s of greens(v.lines)) expect(s).not.toMatch(/Codex|recommend|█/);
     }
     const stacked = text(fleetView(ctxAt(100, 30, at), d, frame).lines);
@@ -328,7 +329,8 @@ describe('tab 8: the layout, the items and the Inspector', () => {
     const t = text(lines).replace(/\s+/g, ' ');
     expect(t).toMatch(/a model recommendation, not evidence/);
     expect(t).toMatch(/A recommendation is not a run: nothing was dispatched from it/);
-    expect(rolesOf(lines, /Recommendation:/)).toEqual(['action']);
+    // (R7 H150: a recommendation is a prediction, amber as .predict is: role accent, B10)
+    expect(rolesOf(lines, /Recommendation:/)).toEqual(['accent']);
     expect(greens(lines)).toEqual([]);
   });
 

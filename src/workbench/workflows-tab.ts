@@ -359,7 +359,8 @@ function titled(name: string, suffix: string, w: number, ellipsis: string): stri
 
 /** A row on the selection's bar (the shared one: every segment selected, quiet words in the primary text colour), its name and
  *  cursor amber while the list has the keyboard. */
-const onBarHere = (l: Line, focused: boolean): Line => onBar(l).map((s) => (focused && (s.role === 'strong' || s.role === 'action') ? { ...s, role: 'focus' as Role } : s));
+// (R7 H150: its name only; a command on it keeps the text's colour: commands are not amber, B10)
+const onBarHere = (l: Line, focused: boolean): Line => onBar(l).map((s) => (focused && s.role === 'strong' ? { ...s, role: 'focus' as Role } : s));
 
 /** A card's note where the shared card draws it beside a title that stays whole (else none). */
 const noteFor = (title: string, note: string, w: number): Seg[] | undefined => (cells(title) + cells(note) + 7 <= w - 2 ? [S(note, 'secondary')] : undefined);
@@ -397,7 +398,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
       const item: Item = { kind: 'doc', key: `doc:${d.rel}`, doc: d };
       const sel = items.length === cur;
       if (sel) selRow = rows.length;
-      const l: Line = [S(sel ? `${g.cursor} ` : '  ', 'action'), S('no named blocks', 'secondary')];
+      const l: Line = [S(sel ? `${g.cursor} ` : '  ', 'accent'), S('no named blocks', 'secondary')];
       rows.push({ line: sel ? onBarHere(l, focused) : l, item });
       items.push(item);
       continue;
@@ -413,7 +414,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
       const room = Math.max(4, Math.min(nameW, w - 2 - cells(keyText) - cells(risky) - 1 - cells(state)));
       const name = cut(b.name, room, g.ellipsis);
       const l: Line = [
-        S(sel ? `${g.cursor} ` : '  ', 'action'), S(keyText, 'secondary'), S(`${name}${' '.repeat(Math.max(0, room - cells(name)))}`, 'strong'),
+        S(sel ? `${g.cursor} ` : '  ', 'accent'), S(keyText, 'secondary'), S(`${name}${' '.repeat(Math.max(0, room - cells(name)))}`, 'strong'),
         S(risky, 'attention'), S(' '), S(state, m.role),
       ];
       // its exit code and own time where they fit whole (the row is never cut inside them)
@@ -444,7 +445,7 @@ function intentCard(d: WorkflowDoc, b: BlockRow, w: number, g: Glyphs): Line[] {
   else rows.push(...para('no destructive command', iw, 'secondary', '', 2, g.ellipsis));
   const title = titled(b.name, '.intent', w, g.ellipsis);
   const note = noteFor(title, `block ${b.key}`, w);
-  return card({ w, title: [S(title, 'action', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'action', g });
+  return card({ w, title: [S(title, 'accent', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'accent', g });
 }
 
 /** The selected block's newest run, when this frame read it for that block; undefined: not read for it (yet). */
@@ -501,7 +502,7 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
   }
   const title = titled(b.name, '.predict', w, g.ellipsis);
   const note = run ? noteFor(title, run.job, w) : undefined;
-  return card({ w, title: [S(title, 'action', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'action', g });
+  return card({ w, title: [S(title, 'accent', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'accent', g });
 }
 
 /** Where a run runs, as its records say it: this computer, in the project folder, by upmd (on a pty or over a pipe); the

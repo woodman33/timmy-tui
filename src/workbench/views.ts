@@ -53,7 +53,7 @@ const key = (k: string): Seg => S(`[${k}]`, 'action');
 /** A row a person can select: the cursor's marker and the selection's ground when it is the selected one. */
 function row(line: Line, selected: boolean, g: Glyphs): Line {
   const mark = selected ? `${g.cursor} ` : '  ';
-  const out: Line = [S(mark, 'action', selected ? { selected: true } : {}), ...line.map((s) => (selected ? { ...s, selected: true } : s))];
+  const out: Line = [S(mark, 'accent', selected ? { selected: true } : {}), ...line.map((s) => (selected ? { ...s, selected: true } : s))];
   return out;
 }
 
@@ -101,7 +101,7 @@ export function navView(c: ViewCtx): View & { prompt: number } {
   // row's place, so nothing below moves). R5 (H131): its row is `prompt`, which a short drawer keeps in view while it searches
   const prompt = lines.length;
   const how = ui.input.field === 'search' ? undefined : finderKeys(ui);
-  if (ui.input.field === 'search') lines.push([S('/ ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
+  if (ui.input.field === 'search') lines.push([S('/ ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
   else if (how) lines.push([S('Find a workspace:', 'secondary')], [S(`  ${how}`, 'secondary')]);
   else lines.push([key('/'), S(' Find a workspace', 'secondary')], blank);
   const q = ui.input.field === 'search' ? ui.input.text.trim().toLowerCase() : '';
@@ -586,7 +586,7 @@ function chatView(c: ViewCtx): View {
   lines.push(blank);
   lines.push(heading('Composer'));
   if (ui.input.field === 'composer') {
-    lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+    lines.push([S('› ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
     // R5 (H131; the QA round's defect 1): what Esc does now, one thing at a time
     lines.push([S(turn?.state === 'sending' ? '  Esc stops the turn being answered · Enter sends once it is answered' : '  Enter sends · Esc leaves the composer', 'secondary')]);
   }
@@ -796,7 +796,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       return { lines, items };
     case 'picker': {
       lines.push([S('Switch project', 'strong'), S('  type to search; Enter chooses; a path (with /) opens that folder; Esc keeps this one', 'secondary')]);
-      lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+      lines.push([S('› ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
       lines.push(blank);
       const q = ui.input.text.trim().toLowerCase();
       const isPath = /[\\/]/.test(ui.input.text) || ui.input.text.startsWith('~') || ui.input.text.startsWith('.');
@@ -824,7 +824,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
     }
     case 'new':
       lines.push([S(o.from ? `New project from ${o.from}` : 'New project (blank)', 'strong'), S('  type its name; Enter makes it; Esc cancels', 'secondary')]);
-      lines.push([S('Name › ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+      lines.push([S('Name › ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
       lines.push(blank);
       lines.push(...para(o.from
         ? `A new folder in Timmy's home with ${o.from}'s files, yours to edit; then it becomes the active project.`
@@ -1361,7 +1361,7 @@ export function rightView(c: ViewCtx): View {
     const on = c.ui.tab === t;
     const label = t === 'tools' ? 'Tools' : t === 'inspector' ? 'Inspector' : 'Files';
     const mark = compact ? (on ? c.g.cursor : '') : (on ? `${c.g.cursor} ` : '  ');
-    return [...(i ? [S(c.g.unicode ? ' │ ' : ' | ', 'border')] : []), ...(mark ? [S(mark, 'action')] : []), S(label, on ? 'strong' : 'secondary', on ? { underline: true } : {})];
+    return [...(i ? [S(c.g.unicode ? ' │ ' : ' | ', 'border')] : []), ...(mark ? [S(mark, 'accent')] : []), S(label, on ? 'strong' : 'secondary', on ? { underline: true } : {})];
   });
   // a narrow drawer keeps all three tabs whole: the marker loses its column
   const tabs = lineCells(tabRow(false)) <= c.width ? tabRow(false) : tabRow(true);
@@ -1401,7 +1401,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   // the newest of this Workbench's own Activity (a notice of what it did, a job's line) stays on the first row, as R4 drew it;
   // the rows under it, collapsed, are the shared log's
   const strip: Line = [
-    S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'action'), S('Activity  ', 'strong'),
+    S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'secondary'), S('Activity  ', 'strong'),
     S(`${motion && g.unicode ? `${motion} ` : ''}${running}`, 'text'), S(` ${g.sep} `, 'secondary'),
     S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'),
     S(` ${g.sep} last: `, 'secondary'), S(last, newest?.failed ? 'failure' : 'text'),
