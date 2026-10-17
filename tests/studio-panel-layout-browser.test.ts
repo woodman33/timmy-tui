@@ -109,7 +109,9 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
           expect(r.status).toBe(200);
         }
         await page.waitForFunction((n) => document.querySelectorAll('#job-list li.job').length >= n, 6, { timeout: 15_000 });
-        // a narrow screen starts with both lists folded: a person opens them
+        // a narrow screen starts with both lists folded: a person opens them. R7 (H151): below 1100 px the panel's lists themselves
+        // start folded behind #side-fold (the board keeps most of the window): opened first
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
         await page.evaluate(() => { for (const id of ['jobs', 'project']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
         // A press that says something ("Placed card: …"), from a row in the middle of the list
         await page.locator('#project-groups li.pcard[data-card="workflow:WF12.md"] .pcard-drawn').scrollIntoViewIfNeeded();

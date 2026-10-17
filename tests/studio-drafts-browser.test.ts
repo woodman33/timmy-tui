@@ -86,24 +86,31 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       expect((await page.evaluate((s) => (window as never as Win).timmyCanvas.editor.getShape(s)!.meta, a)).timmyDraft).toMatchObject({ id, job: 'draft-accept' });
       await page.waitForSelector(`.timmy-draft-mark[data-draft="${id}"]`);
       const look = await page.$eval(`.timmy-draft-mark[data-draft="${id}"]`, (el) => { const s = getComputedStyle(el); const l = el.querySelector('.timmy-draft-label')!; return { style: s.borderTopStyle, color: s.borderTopColor, label: l.textContent, labelColor: getComputedStyle(l).color, events: s.pointerEvents }; });
-      expect(look).toEqual({ style: 'dashed', color: 'rgb(255, 176, 0)', label: 'DRAFT · proposed by Timmy', labelColor: 'rgb(255, 176, 0)', events: 'none' });
+      // R7 (H151; one amber next step: the strip's primary and the draft's Accept): the outline is silver, as what a model made is
+      // (B10, B4), and its label says so in words
+      expect(look).toEqual({ style: 'dashed', color: 'rgb(232, 228, 217)', label: 'DRAFT · proposed by Timmy', labelColor: 'rgb(232, 228, 217)', events: 'none' });
       await page.waitForSelector('#drafts:not([hidden])');
       expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · job draft-accept · from revision \d+$/);
       expect(await page.locator(`#draft-list li[data-draft="${id}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
-      // R5 (H137; QA defect 13): one amber next step on screen, the strip's primary (B10): while the draft waits, Accept and New
-      // board's Open are outlined, no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's
-      // selection), and the drafts' heading is off-white. R6 (H139): the strip reads its frame once the board's project is known
-      // (the board is loaded), so it is drawn a moment later than the board: counted once it is drawn
-      await page.waitForFunction(() => Boolean(document.getElementById('frame')?.dataset.revision), null, { timeout: 15_000 });
+      // R5 (H137; QA defect 13): one amber next step on screen (B10): no fill of the page's own is amber (tldraw's own chrome, its
+      // selected tool, is tldraw's selection), New board's Open is outlined, and the drafts' heading is off-white. R6 (H139): the
+      // strip reads its frame once the board's project is known (the board is loaded), so it is drawn a moment later than the board:
+      // counted once it is drawn. R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is
+      // waiting"): the frame's one primary is now the draft's Accept or Discard, and the draft's Accept is that same step: it is
+      // outlined in amber (never filled), its Discard neutral (tests/studio-draft-step-browser.test.ts counts every amber element)
+      await page.waitForFunction(() => document.querySelector('#frame-acts li.is-primary .fr-label')?.textContent === 'Accept or discard the draft Timmy proposed', null, { timeout: 15_000 });
       const amber = await page.evaluate(() => {
         const AMBER = 'rgb(255, 176, 0)';
         const fills = [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === AMBER)
           .map((e) => `${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ''}${typeof (e as HTMLElement).className === 'string' && (e as HTMLElement).className ? `.${(e as HTMLElement).className}` : ''}`);
-        const accept = document.querySelector('#draft-list button.draft-accept')!;
-        return { fills, accept: getComputedStyle(accept).backgroundColor, open: getComputedStyle(document.getElementById('board-open')!).backgroundColor, heading: getComputedStyle(document.querySelector('#drafts h2')!).color, primaries: document.querySelectorAll('#frame-acts li.is-primary').length };
+        const accept = getComputedStyle(document.querySelector('#draft-list button.draft-accept')!);
+        const discard = getComputedStyle(document.querySelector('#draft-list button.draft-discard')!);
+        return { fills, accept: [accept.backgroundColor, accept.borderTopColor, accept.color], discard: [discard.borderTopColor, discard.color], open: getComputedStyle(document.getElementById('board-open')!).backgroundColor, heading: getComputedStyle(document.querySelector('#drafts h2')!).color, primaries: document.querySelectorAll('#frame-acts li.is-primary').length };
       });
       expect(amber.fills).toEqual([]);
-      expect([amber.accept, amber.open, amber.heading]).not.toContain('rgb(255, 176, 0)');
+      expect(amber.accept[0]).not.toBe('rgb(255, 176, 0)');
+      expect(amber.accept.slice(1)).toEqual(['rgb(255, 176, 0)', 'rgb(255, 176, 0)']);
+      expect([...amber.discard, amber.open, amber.heading]).not.toContain('rgb(255, 176, 0)');
       expect(amber.primaries).toBe(1);
       // the mark covers both shapes on screen (R5 H133: on the page, as the mark's box is measured: the canvas starts under the
       // workspace strip now, so tldraw's viewport is no longer the page's origin)

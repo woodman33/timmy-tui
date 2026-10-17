@@ -10,7 +10,7 @@
 // a glyph, with a recovery path (./save-state.js); and the guided blank templates open as text and empty frames.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
+import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, DefaultStylePanel, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { band, createProjectPanel } from './project.js';
@@ -31,6 +31,8 @@ import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, proj
 import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
 import { createNodes } from './nodes.js';
+// R7 (H151): where Timmy places on the board, clear of every shape
+import { freeSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -94,6 +96,9 @@ const newBoard = (project = null, saved = null) => ({
   project, revision: saved?.revision ?? 0, savedRevision: saved?.revision ?? 0, sourceRevision: saved?.sourceRevision ?? null, savedAt: saved?.savedAt ?? null,
   saving: false, failed: null, conflict: null, stale: null, kept: null, keptRevision: undefined, refused: null, notice: saved?.notice ?? null, timer: null,
   queue: Promise.resolve(), flushing: Promise.resolve(), decisions: [], jobs: [], answered: new Map(), jobNotes: new Map(), frozen: null, editor: null,
+  // R7 (H151): how many drafts waited in the board's last save that landed (null: none landed yet), so a save that changed it reads
+  // the frame again at once
+  draftsSaved: null,
 });
 let canvas = newBoard();
 /** The agent's bridge: whether its socket is open now (the page's, whichever board it shows). */
@@ -127,6 +132,8 @@ function showRunDetail(op, projectId = null) {
 const cards = createCards({
   React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
   editor: () => current, place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  // R7 (H151): a placed card that grew over a shape is moved clear of it
+  keepClear: (editor, ids) => keepClear(editor, ids),
   // R4 (H109): what Timmy did on its own (the arrows it removed with a deleted card), in the panel's band
   say: (text) => band(text),
   // R4 (H109): a card's Run detail
@@ -162,7 +169,7 @@ const artifacts = createArtifacts({
   forget: (url) => cards.forget(url),
   readRun: (op, projectId) => cards.runDetail(op, projectId),
   runDetail: (op, projectId) => showRunDetail(op, projectId),
-  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids), keepClear: (editor, ids) => keepClear(editor, ids),
   say: (text, bad = false) => band(text, bad),
   render: (host, element) => renderInto(host, element),
 });
@@ -182,7 +189,7 @@ const references = createReferences({
   image: (projectId, file) => cards.refImage(projectId, file),
   forget: (url) => cards.forget(url),
   AssetRecordType, createShapeId, toRichText,
-  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
+  place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids), keepClear: (editor, ids) => keepClear(editor, ids),
   say: (text, bad = false) => band(text, bad),
 });
 
@@ -317,6 +324,16 @@ async function saveNow(b) {
     b.flushing = b.flushing.then(() => flushDecisions(b, saved)).catch(() => undefined);
     // R6 (H139): it landed on its own board's file, whichever board is on screen now
     if (b !== canvas) identity.note(keptWords('save', b.project, identity.project ?? identity.switching, `revision ${saved.revision}`));
+    // R7 (H151; H148's N6, H147's R6 finding 8: "1 waiting" stayed 3 s after an Accept): the frame reads the drafts from the saved
+    // board, so a save that changed how many wait (a draft accepted, discarded, or one Timmy proposed) is followed by a reading of
+    // the frame at once, not at the timer's next turn
+    if (b === canvas) {
+      const waiting = pendingDrafts(Object.values(snapshot.store || {})).length;
+      if (waiting !== b.draftsSaved) {
+        b.draftsSaved = waiting;
+        try { frameStrip?.soon(); } catch { /* the next reading follows */ }
+      }
+    }
   } else if (status === 409) {
     b.conflict = { words: saved.error, revision: Number.isInteger(saved.revision) ? saved.revision : null };
   } else if (reached && (status === 401 || status === 0)) {
@@ -698,6 +715,9 @@ function connectBridge() {
       try { message = JSON.parse(event.data); } catch { return; }
       // R6 (H139): the project named to the canvas changed: the board on screen switches with it at once
       if (message.type === 'project') { onProjectNamed(message.project, typeof message.paused === 'string' ? message.paused : null); return; }
+      // R7 (H151): a switch is pending (the active-project record names another project, not named to the canvas yet): Studio stops
+      // taking edits at once and begins the switch; it loads the new board once the canvas names it
+      if (message.type === 'pending') { onPending(message.pending ?? null); return; }
       if (message.type !== 'exec') return;
       calls = calls.then(() => run(message)).catch(() => undefined);
     };
@@ -855,6 +875,9 @@ function showDrafts(editor) {
     li.append(acts);
     return li;
   }));
+  // R7 (H151): the strip follows at once: a draft this page decided is no longer the step, and the waiting is one less, until the
+  // frame is read again (once the decision's save lands: saveNow)
+  try { frameStrip?.redraw(); } catch { /* the next reading draws it */ }
 }
 function showDraft(id) {
   const editor = current;
@@ -865,6 +888,28 @@ function showDraft(id) {
   const here = d.shapes.filter((s) => editor.getAncestorPageId(s) === editor.getCurrentPageId());
   editor.select(...here);
   reveal(editor, here);
+}
+/**
+ * R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting"): the strip's
+ * primary while a draft waits is its Accept or Discard (the frame's), and choosing it comes here: the first waiting draft is
+ * shown on the board (its page, its shapes brought into view), the panel's lists stay as they are (the drafts are never folded),
+ * and the focus goes to that draft's Accept, the same step's control. Enter there accepts. Its shapes are not selected, as its
+ * Show selects them: a selection is drawn amber (tldraw's handles, the panel's job row), and the one amber step on screen is the
+ * Accept; the draft's silver outline and label already say which shapes it is.
+ */
+function goToDraft() {
+  const editor = current;
+  if (!editor || identity.blocked() || !canvas.project) { band(blockedWords(identity) ?? 'Not now: no board is on screen.', true); return; }
+  const d = pendingDrafts(editor.store.allRecords())[0];
+  if (!d) { band('No draft waits on this board now: it was accepted or discarded. The workspace is read again for the next step.'); frameStrip?.soon(); return; }
+  if (!d.pages.includes(editor.getCurrentPageId()) && d.pages[0]) editor.setCurrentPage(d.pages[0]);
+  reveal(editor, d.shapes);
+  showDrafts(editor);
+  const accept = [...document.querySelectorAll('#draft-list li.draft')].find((li) => li.dataset.draft === d.id)?.querySelector('button.draft-accept');
+  if (accept && !accept.disabled) {
+    try { accept.scrollIntoView({ block: 'nearest' }); } catch { /* it is in the panel's own box */ }
+    accept.focus();
+  }
 }
 /**
  * R5 (H133): a person's decision on draft `id`: Accept clears its mark (its shapes stay), Discard removes its shapes (and assets
@@ -942,6 +987,31 @@ function DraftMarks() {
   const h = React.createElement;
   return h(React.Fragment, null, ...marks.map((m) => h('div', { key: m.id, className: 'timmy-draft-mark', 'data-draft': m.id, style: { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` } },
     h('span', { className: 'timmy-draft-label' }, DRAFT_LABEL))));
+}
+
+/**
+ * R7 (H151; H147's R6 finding 3: at 800 x 600 "the panels bury the board"): tldraw's style panel. Its swatches are the board's
+ * content colours, the ones a person chooses for their shapes (the operator: "Preserve editable content colours where
+ * appropriate"; B10: "Content keeps its colors ... tldraw artwork ... never recolored"), so they stay tldraw's: nothing here or in
+ * ./theme.js recolours them, and only the panel's own chrome around them (its well, its dividers, the selected control, focus) is
+ * on Timmy's tokens (index.html .tl-container). Below FOLD_BELOW_PX of width it is shown while there is something to style
+ * (shapes selected, or a tool that draws chosen) and folds away while the board is idle, so a small window keeps its board; at
+ * 1100 px and wider it is shown always, as tldraw shows it. tldraw's own phone layout (below 640 px: its style button in the
+ * toolbar, `isMobile`) is left as tldraw makes it.
+ */
+const IDLE_TOOLS = ['select', 'hand', 'zoom', 'laser', 'eraser'];
+function TimmyStylePanel(props) {
+  const editor = useEditor();
+  const mobile = Boolean(props && props.isMobile);
+  const folded = useValue('timmy: style panel folded while idle on a small window', () => {
+    if (mobile) return false;
+    if (editor.getViewportScreenBounds().w >= FOLD_BELOW_PX) return false;
+    if (editor.getSelectedShapeIds().length > 0) return false;
+    return IDLE_TOOLS.includes(editor.getCurrentToolId());
+  }, [editor, mobile]);
+  // the blank board's guide keeps clear of it as it shows and folds (--board-right: measureFoot)
+  React.useEffect(() => { const t = requestAnimationFrame(() => measureFoot()); return () => cancelAnimationFrame(t); }, [folded]);
+  return folded ? null : React.createElement(DefaultStylePanel, props);
 }
 
 /** R5 (H133): tldraw's main menu without its color-scheme choice: Timmy Canvas is dark only (DESIGN.md §10 B10). */
@@ -1082,9 +1152,59 @@ async function offerBoards() {
   const all = [...guided, ...templates];
   document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, all.find((t) => t.id === pick.value)));
 }
+/**
+ * R7 (H151; H147's R6 finding 3: "at 800×600 ... the panels bury the board"): below this width the panel's lists (jobs, artifacts,
+ * reference images, nodes, the project) and New board start folded behind #side-fold, so the board keeps most of the window; the
+ * status, the save line, a newer version on disk, the drafts with Accept and Discard, and the band stay shown. At 1100 px and wider
+ * the panel's 280 px are a quarter of the window or less, and the lists start open.
+ */
+const FOLD_BELOW_PX = 1100;
+/** The person's own choice (true: folded), kept until the page loads again; null: the width decides. */
+let foldChosen = null;
+function applyFold() {
+  const side = document.getElementById('side');
+  const button = document.getElementById('side-fold');
+  if (!side || !button) return;
+  const folded = foldChosen ?? window.innerWidth < FOLD_BELOW_PX;
+  if (side.dataset.folded === String(folded) && button.dataset.drawn === 'true') return;
+  side.dataset.folded = String(folded);
+  button.dataset.drawn = 'true';
+  button.setAttribute('aria-expanded', String(!folded));
+  button.textContent = folded ? "▸ Show Timmy's lists" : '▾ Fold';
+  button.setAttribute('aria-label', folded ? "Show Timmy's lists" : "Fold Timmy's lists");
+  button.title = folded
+    ? 'Shows the canvas jobs, artifacts, reference images, nodes, the project and New board in this panel'
+    : 'Folds the canvas jobs, artifacts, reference images, nodes, the project and New board, so the board keeps more of the window';
+}
+function connectFold() {
+  document.getElementById('side-fold')?.addEventListener('click', () => {
+    foldChosen = document.getElementById('side')?.dataset.folded !== 'true';
+    applyFold();
+  });
+  window.addEventListener('resize', () => { if (foldChosen === null) applyFold(); }, { passive: true });
+  applyFold();
+}
+
+/** R7 (H151): the panel's right edge (--side-right), followed as it changes, so the blank board's guide sits beside it. */
+function watchSide() {
+  const side = document.getElementById('side');
+  if (!side) return;
+  const set = () => {
+    const b = side.getBoundingClientRect();
+    const right = `${b.width > 0 ? Math.ceil(b.right) : 0}px`;
+    if (document.documentElement.style.getPropertyValue('--side-right') !== right) document.documentElement.style.setProperty('--side-right', right);
+  };
+  set();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(side);
+  window.addEventListener('resize', set, { passive: true });
+}
+
 /** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
 function connectPanel() {
   document.getElementById('side-ready').hidden = false;
+  // R7 (H151): the lists fold on a small window
+  connectFold();
+  watchSide();
   watchEdge(document.getElementById('side-scroll'));
   // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
@@ -1109,7 +1229,7 @@ function connectPanel() {
   const acts = document.getElementById('project-acts');
   const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
-    editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
+    editor: () => current, toRichText, createShapeId, place: placeAt, reveal, keepClear,
     // R4 (H109): a board pinned to a project reads that project (its id); a following board, the project the canvas shows. R6
     // (H139): each reading records whose board was on screen when it was asked (`ticket`), and is drawn only when it still is
     read: async (pinned) => { const ticket = identity.ticket(); const r = await cards.read(pinned); return { ...r, ticket }; },
@@ -1160,19 +1280,76 @@ function holdWords() {
   return identity.state === 'switching' ? switchingTo(identity.switching) : null;
 }
 
-// Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
-// lower and to the right, so cards placed one after another do not cover each other. R4 (H88; the Mac run r23): the card's
-// own size (`size`, in page units: a note's 200 x 200 by default, a drawn card's width) is kept inside that area at the
-// camera's zoom, its left and top edges never before the area's (it had been placed by a 200-wide note's middle).
+// Round R4 (H55): where a placed project card goes. R4 (H88; the Mac run r23): the card's own size (`size`, in page units) is
+// kept inside the area beside Timmy's panel. R7 (H151; H147's R6 finding 5, row 10: "placed cards cover existing shapes"): every
+// way Timmy places (project cards, drawn cards, an operation's cards, artifact cards, reference images, nodes) comes here, and
+// the block goes where it overlaps no shape on the page (their page bounds, PLACE_MARGIN away) nor tldraw's style panel, in the
+// fixed order of ./placement.js: the visible area beside the panel first, row by row; then just right of it; then right of
+// everything. It had gone to the area's middle (a project card a step lower each time) or right of the rightmost card, over
+// whatever was there. `o.except`: shapes not to count (a block being moved clear of the others: keepClear).
 let projectPanel = null;
-function placeAt(editor, size = { w: 200, h: 200 }) {
-  const area = freeArea();
-  const z = editor.getCamera().z || 1;
-  const x = area.x + Math.max(0, (area.w - size.w * z) / 2);
-  const y = area.y + Math.max(0, (area.h - size.h * z) / 2);
-  const at = editor.screenToPage({ x, y });
-  const placed = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyProjectCard).length % 6;
-  return { x: Math.round(at.x + placed * 24), y: Math.round(at.y + placed * 24) };
+/** R7 (H151): the visible area beside the panel (freeArea), in page units. */
+function pageArea(editor) {
+  const a = freeArea();
+  const from = editor.screenToPage({ x: a.x, y: a.y });
+  const to = editor.screenToPage({ x: a.x + Math.max(1, a.w), y: a.y + Math.max(1, a.h) });
+  return { x: from.x, y: from.y, w: Math.max(1, to.x - from.x), h: Math.max(1, to.y - from.y) };
+}
+/**
+ * R7 (H151): what a placed block must not cover, in page units: every shape on the page shown (its page bounds), but `except`
+ * (and what is inside those); and, for a new place (`panel`), tldraw's style panel where it is over the board, so what is placed
+ * shows without moving the camera.
+ */
+function obstacles(editor, except = new Set(), panel = true) {
+  const inside = (id) => { for (let at = editor.getShape(id); at; at = editor.getShape(at.parentId)) if (except.has(at.id)) return true; return false; };
+  const boxes = editor.getCurrentPageShapes().filter((s) => !inside(s.id)).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean)
+    .map((b) => ({ minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY }));
+  const style = panel ? document.querySelector('.tlui-style-panel__wrapper')?.getBoundingClientRect() : null;
+  if (style && style.width > 0 && style.height > 0) {
+    const a = editor.screenToPage({ x: style.left, y: style.top });
+    const z = editor.screenToPage({ x: style.right, y: style.bottom });
+    boxes.push({ minX: a.x, minY: a.y, maxX: z.x, maxY: z.y });
+  }
+  return boxes;
+}
+function placeAt(editor, size = { w: 200, h: 200 }, o = {}) {
+  const at = freeSpot(obstacles(editor, o.except), size, pageArea(editor));
+  return { x: Math.round(at.x), y: Math.round(at.y) };
+}
+/**
+ * R7 (H151): a block Timmy just placed (`ids`: its top shapes), once its size has settled (a drawn card follows its content, an
+ * artifact card fits its height, a note grows with its words: at most 24 frames), still overlaps no other shape: one that grew
+ * over another is moved, whole, to the next clear place (placeAt), and brought into view. Part of the same undo step as the
+ * placement (no stopping point is set). Nothing is moved on a board Studio has left.
+ */
+async function keepClear(editor, ids) {
+  const frame = () => new Promise((done) => { const t = setTimeout(done, 50); requestAnimationFrame(() => { clearTimeout(t); done(); }); });
+  const sizeOf = () => ids.map((id) => { const b = editor.getShapePageBounds(id); return b ? `${Math.round(b.w)}x${Math.round(b.h)}` : '-'; }).join(',');
+  let last = '';
+  for (let i = 0; i < 24; i++) {
+    await frame();
+    const now = sizeOf();
+    if (now === last) break;
+    last = now;
+  }
+  if (current !== editor || identity.blocked()) return;
+  const group = new Set(ids.filter((id) => editor.getShape(id)));
+  if (!group.size) return;
+  const boxes = [...group].map((id) => editor.getShapePageBounds(id)).filter(Boolean);
+  const own = { minX: Math.min(...boxes.map((b) => b.minX)), minY: Math.min(...boxes.map((b) => b.minY)), maxX: Math.max(...boxes.map((b) => b.maxX)), maxY: Math.max(...boxes.map((b) => b.maxY)) };
+  // the arrows bound to the block are its links (they touch the cards they join, and follow them), never in its way
+  const except = new Set(group);
+  for (const id of group) {
+    try { for (const b of editor.getBindingsToShape(id, 'arrow')) except.add(b.fromId); } catch { /* none */ }
+  }
+  // only shapes count here (a block under tldraw's style panel on screen is brought into view, not moved)
+  if (!overlapsAny(own, obstacles(editor, except, false), PLACE_MARGIN / 4)) return;
+  const at = freeSpot(obstacles(editor, except), { w: own.maxX - own.minX, h: own.maxY - own.minY }, pageArea(editor));
+  const dx = Math.round(at.x - own.minX);
+  const dy = Math.round(at.y - own.minY);
+  if (!dx && !dy) return;
+  editor.run(() => editor.updateShapes([...group].map((id) => { const s = editor.getShape(id); return { id, type: s.type, x: s.x + dx, y: s.y + dy }; })));
+  try { reveal(editor, [...group]); } catch { /* showing it is a courtesy */ }
 }
 /**
  * The agent's canvas_place_project_card (src/agent/canvas-tools.ts) calls this with the card's id, which reached the page
@@ -1319,6 +1496,11 @@ function startFrame() {
   if (!strip || frameStrip) return;
   frameStrip = createFrameStrip({
     root: strip,
+    // R7 (H151): what the page knows of its own board now (its pending drafts, every page of it): a draft it just accepted or
+    // discarded shows at once, before the frame is read again (none while Studio switches or shows no board)
+    local: () => (current && canvas.project && !identity.blocked() ? { drafts: pendingDrafts(current.store.allRecords()).length } : null),
+    // R7 (H151): the draft step's Go to the draft (a person's press only: ./frame.js)
+    go: (what) => { if (what === 'draft') goToDraft(); },
     // each reading records whose board was on screen when it was asked (`ticket`): one asked before a switch or a pause is of then
     read: async () => { const ticket = identity.ticket(); return { ...(await cards.workspace(ticket.project)), ticket }; },
     accept: (frame, r) => !!frame && !!frame.project && identity.current(r && r.ticket) && frame.project.id === identity.project.id,
@@ -1354,6 +1536,11 @@ function measureFoot() {
   }
   const foot = `${Math.max(8, Math.ceil(window.innerHeight - top) + 8)}px`;
   if (document.documentElement.style.getPropertyValue('--side-foot') !== foot) document.documentElement.style.setProperty('--side-foot', foot);
+  // R7 (H151): where tldraw's style panel begins (--board-right), so the blank board's guide sits between it and Timmy's panel
+  const style = document.querySelector('.tlui-style-panel__wrapper');
+  const sb = style ? style.getBoundingClientRect() : null;
+  const right = sb && sb.width > 0 && sb.height > 0 ? `${Math.floor(sb.left)}px` : '100vw';
+  if (document.documentElement.style.getPropertyValue('--board-right') !== right) document.documentElement.style.setProperty('--board-right', right);
 }
 function watchFoot() {
   if (!footWatch) {
@@ -1364,7 +1551,7 @@ function watchFoot() {
   footWatch.disconnect();
   let frames = 0;
   const look = () => {
-    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom`)) footWatch.observe(part);
+    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom, .tlui-style-panel__wrapper`)) footWatch.observe(part);
     measureFoot();
     frames += 1;
     if (frames < 30 || (!document.querySelector('.tlui-main-toolbar__inner') && frames < 240)) requestAnimationFrame(look);
@@ -1440,7 +1627,8 @@ async function start() {
     colorScheme: 'dark',
     overrides: { actions: (_editor, actions) => { const { 'toggle-dark-mode': _dark, ...kept } = actions; return kept; } },
     // R5 (H133): a pending draft's outline and label, in front of the canvas; the main menu without the color scheme
-    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu },
+    // R7 (H151): and tldraw's style panel, folded while the board is idle on a small window (TimmyStylePanel)
+    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel },
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.
@@ -1469,9 +1657,64 @@ function onProjectNamed(p, paused = null) {
     if (paused) pauseBoard(paused);
     return;
   }
+  // R7 (H151): a switch that began while it was pending learns here that the canvas names its project now; and while it waits, the
+  // canvas still naming the project before it is what pending means, never a reason to go back (only its giving up is: onPending)
+  namedNow = to;
+  if (waitingFor && identity.state === 'switching' && sameProject(waitingFor.from, to)) return;
   if (identity.state === 'switching' && sameProject(identity.switching, to)) return;
   if (identity.state === 'shown' && sameProject(identity.project, to)) return;
   void switchTo(to);
+}
+
+/**
+ * R7 (H151; H147's R6 finding 9, REMAINING-DEFECTS row 18: "For about 2 s after Enter, Studio still shows the old project and
+ * accepts edits for it"): the server says a switch is pending the moment the active-project record names another project
+ * (src/studio/active-follow.ts, H149's; its bridge push, or GET /api/project/active on the page's 1.5 s ask), before the canvas
+ * names it. Studio begins the switch at once: from that moment nothing on the page edits, accepts or discards (the board is read
+ * only and covered, the cover and the save line say why), and the board before is saved and put away; the new project's board is
+ * loaded once the canvas names it (switchTo `named`). `p` null: the switch was made or given up: the page asks which project the
+ * canvas shows (back to the board before when the record went back to it).
+ */
+function onPending(p) {
+  if (identity.state === 'none' || identity.state === 'paused') return;
+  const to = p && p.project ? projectOf(p.project) : null;
+  if (!to) {
+    // made or given up: a switch still waiting stops waiting, and the page follows what the canvas names now
+    if (waitingFor) waitingFor.given = true;
+    else if (identity.state === 'switching') void watchProject();
+    return;
+  }
+  if (identity.state === 'shown' && sameProject(identity.project, to)) return;
+  if (identity.state === 'switching' && sameProject(identity.switching, to)) return;
+  void switchTo(to, { named: false });
+}
+/** R7 (H151): the project the canvas named last (the bridge's message, or an answer of the page's ask), for a pending switch's wait. */
+let namedNow = null;
+/** R7 (H151): the pending switch waiting for the canvas to name its project ({ to, from, given }), or null. */
+let waitingFor = null;
+/** R7 (H151): how long a pending switch waits for the canvas to name its project before it asks which one the canvas shows (ms). */
+const NAMED_WAIT_MS = 8000;
+/**
+ * R7 (H151): waits until the canvas names project `to` (true), or the switch of generation `gen` is overtaken or given up, or
+ * NAMED_WAIT_MS pass (false), asking Timmy every 150 ms as well (a page off the bridge, or a message missed).
+ */
+async function namedAs(to, gen) {
+  const until = Date.now() + NAMED_WAIT_MS;
+  while (Date.now() < until) {
+    if (gen !== identity.gen) return false;
+    if (namedNow && namedNow.id === to.id) return true;
+    if (waitingFor && waitingFor.given) return false;
+    try {
+      const a = await cards.active();
+      if (gen !== identity.gen) return false;
+      if (a && a.project && a.project.id === to.id) return true;
+      // no switch pending any more (said so: an answer without the field says nothing), and the canvas names another: given up
+      // (the page follows the canvas from here)
+      if (a && a.pending === null && a.project && a.project.id !== to.id) return false;
+    } catch { /* asked again in a moment */ }
+    await sleep(150);
+  }
+  return false;
 }
 
 /** Asks Timmy which project the canvas shows now; one ask at a time. */
@@ -1485,6 +1728,8 @@ function watchProject() {
     try {
       const a = await cards.active();
       if (!a || gen !== identity.gen) return;
+      // R7 (H151): a switch pending that the page missed on the bridge begins now
+      if (a.pending && a.pending.project && !(a.project && a.project.id === a.pending.project.id)) { onPending(a.pending); return; }
       if (a.project) onProjectNamed(a.project);
       else if (a.hidden) pauseBoard('The canvas shows a project of another Timmy REPL now (or one this page was not opened for), so this page shows no board: nothing of it is shown here, and nothing here is saved into it. In Timmy: /canvas open, in that project, opens a page for it.');
     } catch { /* asked again in a moment */ } finally {
@@ -1563,9 +1808,12 @@ function showKept() {
  * cards and frame. Until then, editing, Accept and Discard are blocked. A switch that another one overtakes stops where it is; the
  * newest one finishes.
  */
-async function switchTo(to) {
+async function switchTo(to, o = {}) {
   const from = identity.project;
   const b = canvas;
+  // R7 (H151): a switch begun while it is pending (onPending) loads the new board only once the canvas names it
+  const named = o.named !== false;
+  namedNow = named ? to : null;
   // a call already running on the board (it began before the switch) ends on it, as that board's
   const afterCall = Promise.race([calls, sleep(CALL_WAIT_MS)]);
   const gen = identity.begin(to);
@@ -1580,6 +1828,15 @@ async function switchTo(to) {
   })().catch(() => undefined);
   await Promise.race([putAway, afterCall.then(() => sleep(SWITCH_WAIT_MS))]);
   if (gen !== identity.gen) return;
+  if (!named) {
+    const wait = { to, from, given: false };
+    waitingFor = wait;
+    let made = false;
+    try { made = await namedAs(to, gen); } finally { if (waitingFor === wait) waitingFor = null; }
+    if (gen !== identity.gen) return;
+    // given up (the record back on the project before, or another named first): the page shows what the canvas shows now
+    if (!made) { await watchProject(); return; }
+  }
   let opened;
   try { opened = await cards.loadDocument(to.id); } catch (e) { opened = { status: 0, ok: false, body: null, why: e instanceof Error ? e.message : String(e) }; }
   if (gen !== identity.gen) {

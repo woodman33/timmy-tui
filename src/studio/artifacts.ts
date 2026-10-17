@@ -29,7 +29,8 @@
  *                                                   project, reached with no link, an image by its bytes), never anything else
  */
 import type express from 'express';
-import { listOperationRecords } from '../ops/operations.js';
+import { JOB_CANCELLED } from '../contracts/stop-words.js';
+import { listOperationRecords, type OperationRecord } from '../ops/operations.js';
 import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { listVoxRecords, voxFile, voxPreview, type PreviewInput } from '../vox/preview.js';
 import type { CardRelay } from './card-relay.js';
@@ -119,6 +120,21 @@ export function receiptRows(chain: readonly Receipt[], p: Pick<NamedProject, 'id
   });
 }
 
+/**
+ * R7 (H151; H148's R6 finding N5): an operation's state and why, in the shared words (src/contracts/stop-words.ts): a stop that
+ * ended a run Timmy started (a job, a flow, a native or agent run: any run on the record) is that job's cancel, "cancelled"
+ * (JOB_CANCELLED), and its runs' words say so ("job j… cancelled"); an operation that ran nothing but a chat turn keeps the
+ * turn's "stopped". The lead's rule for the run detail (src/ops/run-detail.ts stopKind: a turn's operation was stopped, anything
+ * else cancelled), read from the operation's record. Other states are as recorded.
+ */
+export function runStateWords(r: Pick<OperationRecord, 'state' | 'why' | 'runs'>): string {
+  const job = r.state === 'stopped' && r.runs.length > 0;
+  const word = job ? JOB_CANCELLED : r.state;
+  const why = typeof r.why === 'string' && r.why ? r.why : '';
+  const said = job ? why.replace(/^stopped(?=:|$)/, JOB_CANCELLED).replace(/\b((?:job|flow|native|agent|mcp|vox|fleet) [0-9a-z]+) stopped\b/g, `$1 ${JOB_CANCELLED}`) : why;
+  return `${word}${said ? ` · ${said}` : ''}`;
+}
+
 /** The project's operations (their records), newest first: each a run artifact whose run detail is its preview. */
 export function runRows(p: Pick<NamedProject, 'root'>, max = ARTIFACTS_PER_KIND): { rows: ArtifactRow[]; notes: string[] } {
   const listed = listOperationRecords(p.root, max);
@@ -126,7 +142,8 @@ export function runRows(p: Pick<NamedProject, 'root'>, max = ARTIFACTS_PER_KIND)
   if (listed.more) notes.push(`${listed.more} older operations are not listed (the newest ${max} are).`);
   const rows = listed.list.map(({ record: r, rel }): ArtifactRow => ({
     id: `run:${r.id}`, kind: 'run', title: cardText(`operation ${r.id}: ${r.request}`, p.root, 160),
-    state: cardText(`${r.state}${r.why ? ` · ${r.why}` : ''}${r.runs.length ? ` · ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}` : ''}`, p.root, 240),
+    // R7 (H151; N5): in the shared job and turn words
+    state: cardText(`${runStateWords(r)}${r.runs.length ? ` · ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}` : ''}`, p.root, 240),
     at: r.started, record: rel, receipt: null, fake: /\bFAKE\b/.test(r.request), preview: { kind: 'run', op: r.id },
   }));
   return { rows, notes };

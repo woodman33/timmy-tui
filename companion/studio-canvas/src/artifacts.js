@@ -33,6 +33,8 @@ const PROJECT_ID = /^[0-9a-f]{16}$/;
 export const KIND_WORDS = { vox: 'VoxVision record', run: 'Run', receipt: 'Receipt' };
 /** The card's width (the person's to change; its height follows its content). */
 export const ARTIFACT_WIDTH = 360;
+/** R7 (H151): the height an artifact card is placed with in mind (it then fits its content; canvas.js keepClear moves one that grew over a shape). */
+export const ARTIFACT_PLACE_H = 320;
 /** What Open preview says it opens, per kind. */
 export const OPENS = { vox: 'Open preview', run: 'Open run detail', receipt: 'Open receipt page' };
 /** Where the companion's tab 5 shows a VoxVision record in full (this page cannot hold the companion's token: ./frame.js). */
@@ -489,15 +491,17 @@ export function createArtifacts(deps) {
     if (!row) throw new Error(`Not placed: no artifact ${id} in ${b.project.name} now.`);
     const editor = deps.editor();
     if (!editor || !deps.current(got.ticket)) throw new Error(`Not placed: Studio switched boards, so nothing was placed on either board.`);
-    // beside the cards already on this page (right of the rightmost), so cards placed one after another never cover each other
-    const others = editor.getCurrentPageShapes().filter((s) => s.type === ARTIFACT_SHAPE || /^timmy-/.test(s.type)).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
-    const right = others.reduce((a, x) => (!a || x.maxX > a.maxX ? x : a), null);
-    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: ARTIFACT_WIDTH, h: 220 });
+    // R7 (H151; H147's R6 finding 5, review/H147/caps/studio/24-image-added.png: "placed cards cover existing shapes"): where it
+    // overlaps no shape on the page (canvas.js placeAt, ./placement.js), cards placed one after another included; it had gone right
+    // of the rightmost card, over whatever was there. Its height fits its content once drawn: then it is moved clear if it grew
+    // over a shape.
+    const at = deps.place(editor, { w: ARTIFACT_WIDTH, h: ARTIFACT_PLACE_H });
     const shapeId = deps.createShapeId();
     justPlaced.set(shapeId, Date.now() + KEEP_IN_VIEW_MS);
     editor.createShape({ id: shapeId, type: ARTIFACT_SHAPE, x: at.x, y: at.y, props: artifactProps(row, b.project) });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
+    if (deps.keepClear) await deps.keepClear(editor, [shapeId]);
     return { placed: true, shape: shapeId, artifact: row.id, kind: row.kind, title: row.title, project: b.project.name };
   }
 

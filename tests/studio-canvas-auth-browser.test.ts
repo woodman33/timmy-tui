@@ -270,6 +270,8 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await page.waitForTimeout(100);
       const wf = await page.evaluate(() => (window as never as Win).timmyCanvas.placeDrawnCard('workflow:RUN.md'));
       await page.waitForSelector(`[data-timmy-card="${wf.shape}"] .tc-title`);
+      // R7 (H151): below 1100 px the panel's lists start folded behind #side-fold too: the person opens them, and the panel grows
+      if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
       await page.evaluate(() => { for (const id of ['project', 'jobs']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
       await page.waitForTimeout(400);
       const side = (await page.locator('#side').boundingBox())!;
