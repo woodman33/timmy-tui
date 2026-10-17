@@ -17,7 +17,7 @@ import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } fr
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type ActNow, type TurnNow } from './hub.js';
+import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, frameTabs, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -344,6 +344,32 @@ export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: Acti
 export function centerView(c: ViewCtx): View {
   const o = c.ui.overlay;
   if (o) return overlayView(c, o);
+  return withUnfinished(c, pageView(c));
+}
+
+/**
+ * R7 (H150; the operator, 2026-10-16: "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished until
+ * their intended interactions work"): an unfinished tab's page begins with what the workspace frame says of it
+ * (tabs[].unfinished, src/contracts/workspace.ts TabDef.unfinished; never words of its own): what works on it now and what it
+ * does not do yet, in a box of structure and text colours (neither a step nor a state, so neither amber nor green). The
+ * page's own rows follow under it (tab 6's meshes among them).
+ */
+export function unfinishedBox(c: Pick<ViewCtx, 'ui' | 'data' | 'g' | 'width'>): Line[] {
+  const u = frameTabs(c.data.frame).find((t) => t.id === c.ui.page)?.unfinished;
+  if (!u) return [];
+  const w = Math.max(8, c.width);
+  const said = (label: string, words: string): Line[] => wrapSegs([S('  '), S(`${label} `, 'secondary'), S(words, 'text')], w, '  ');
+  // (no side borders: the page's own columns keep their rules; a rule of structure grey closes it)
+  return [[S(`${unfinishedMark(c.g)} Unfinished`, 'strong')], ...said('Works now:', u.works), ...said('Not yet:', u.missing), [S((c.g.unicode ? '─' : '-').repeat(w), 'border')]];
+}
+
+function withUnfinished(c: ViewCtx, v: View): View {
+  const box = unfinishedBox(c);
+  if (!box.length) return v;
+  return { ...v, lines: [...box, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + box.length })) };
+}
+
+function pageView(c: ViewCtx): View {
   switch (c.ui.workspace) {
     case 'files': return filesView(c);
     // R5 (H136): tab 3's three columns, references 03 and 12 (src/workbench/workflows-tab.ts)

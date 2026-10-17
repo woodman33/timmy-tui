@@ -90,7 +90,9 @@ export function frameOf(a: FrameAsk): Frame {
     const c = ctx(layout.top);
     const t = topLines(c, layout.topDetail);
     const tab = tabOf(ui.page);
-    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}`, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
+    // R7 (H150): an unfinished tab says so beside its name (the frame's tabs[].unfinished), in words, not by colour
+    const unfinished = frameTabs(data.frame).find((x) => x.id === ui.page)?.unfinished;
+    placed.push({ rect: layout.top, rows: panel({ title: 'Workflow actions', lines: t.lines, focused: ui.focus === 'top', note: `${tab.key} ${tab.label}${unfinished ? ` ${g.sep} unfinished` : ''}`, ...(t.foot ? { footRight: t.foot } : {}) }, layout.top, g) });
     regions.top = { rect: layout.top, list: 'top', items: [], scroll: 0, fixed: 0, height: 0, total: 0 };
     // where each button is drawn: inside the border and its one cell of air
     const x0 = layout.top.x + 1 + (layout.top.w - 2 >= 6 ? 1 : 0);

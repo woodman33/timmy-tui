@@ -62,8 +62,12 @@ export function pageOf(ws: WorkspaceId): TabId {
   return (others.find((t) => t.workbench[0] === ws) ?? others.find((t) => t.workbench.includes(ws)) ?? TABS[0]).id;
 }
 
-/** The frame's tabs, or the contract's (no waiting count) until the frame is first read. */
-export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0 }));
+/** The frame's tabs, or the contract's (no waiting count) until the frame is first read (R7 H150: with their `unfinished`, the
+ *  same object the frame carries). */
+export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
+
+/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits). */
+export const unfinishedMark = (g: Pick<Glyphs, 'unicode'>): string => (g.unicode ? '◌' : '~');
 
 /** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
 export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
@@ -144,8 +148,9 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
     tabs.forEach((t, i) => {
       const on = t.id === active;
       const label = labelIn(t, form);
-      const mark = t.waiting > 0 ? g.warn : ' ';
-      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, 'attention')];
+      // (R7 H150: an unfinished tab's ◌ in the cell every tab keeps, where nothing waits there: what waits on you comes first)
+      const mark = t.waiting > 0 ? g.warn : t.unfinished ? unfinishedMark(g) : ' ';
+      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, t.waiting > 0 ? 'attention' : 'secondary')];
       const w = lineCells(segs);
       hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: t.id });
       line.push(...segs);
@@ -157,7 +162,11 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
   }
   const top: Line = [S(' '.repeat(prefixW))];
   const mid: Line = [...prefixSegs];
-  const bot: Line = [S(' '.repeat(prefixW))];
+  // R7 (H150; the operator's order of 2026-10-16): the unfinished tabs' mark, said in words once under TIMMY where it fits
+  // (each such tab's box carries the mark in its bottom edge, and the word too where its box has room)
+  const legend = `${unfinishedMark(g)} unfinished`;
+  const legendFits = tabs.some((t) => t.unfinished) && prefixW >= lineCells([S(legend)]) + 1;
+  const bot: Line = [legendFits ? S(legend.padEnd(prefixW), 'secondary') : S(' '.repeat(prefixW))];
   let x = prefixW;
   tabs.forEach((t, i) => {
     const on = t.id === active;
@@ -176,7 +185,11 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
       ? [S(`${b.tl}${b.h.repeat(before)}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - before - badgeW))}${b.tr}`, edge)]
       : [S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge)]));
     mid.push(S(b.v, edge), S(`${half}${label}${half}`, on ? 'focus' : 'text'), S(b.v, edge));
-    bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
+    if (t.unfinished && inner >= 3) {
+      const word = inner >= lineCells([S(legend)]) + 2 ? legend : unfinishedMark(g);
+      const w = lineCells([S(word)]);
+      bot.push(S(`${b.bl}${b.h}`, edge), S(word, 'secondary'), S(`${b.h.repeat(Math.max(0, inner - 1 - w))}${b.br}`, edge));
+    } else bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
     hits.push({ x0: x, x1: x + inner + 1, y0: 0, y1: 2, page: t.id });
     x += inner + 2;
     if (i < tabs.length - 1 && gap) { for (const l of [top, mid, bot]) l.push(S(' ')); x += 1; }
