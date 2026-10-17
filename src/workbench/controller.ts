@@ -1280,8 +1280,10 @@ export class Controller {
     }
     // R7 (H150; H148's N3): x's box for another surface's turn: y asks it to stop there; n, Esc or Enter keep it (the default)
     if (o.kind === 'confirm-stop') {
-      if (input === 'y') { this.ui.overlay = null; this.askTurnStop(o.turn, 'x, then y'); this.emit(); return true; }
-      if (input === 'n' || k.escape || k.return) { this.ui.overlay = null; this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); return true; }
+      // (the keyboard goes back where x was pressed)
+      const close = (): void => { this.ui.overlay = null; if (o.back) this.ui.focus = o.back; };
+      if (input === 'y') { close(); this.askTurnStop(o.turn, 'x, then y'); this.emit(); return true; }
+      if (input === 'n' || k.escape || k.return) { close(); this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); return true; }
       return true;
     }
     if (o.kind === 'confirm-run') {
@@ -1695,7 +1697,7 @@ export class Controller {
       // that surface (the box: y asks it to stop, n keeps it). A turn the screen named that has ended since is asked at once
       // (its hold is gone: nothing is stopped, and x says it had ended)
       const fresh = chatTurnNow(this.data);
-      if (turn && fresh && fresh.id === turn.id && !fresh.mine && fresh.id) { this.open({ kind: 'confirm-stop', turn: fresh }); return; }
+      if (turn && fresh && fresh.id === turn.id && !fresh.mine && fresh.id) { this.open({ kind: 'confirm-stop', turn: fresh, back: this.ui.focus }); return; }
       if (turn) { this.askTurnStop(turn, 'x'); return; }
       this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
       return;
@@ -1918,7 +1920,7 @@ export class Controller {
     if (o?.kind === 'quit') { if (hint === 'Esc') { this.ui.overlay = null; this.emit(); } return; }
     // R7 (H150): a click on [n] keeps the turn; a click never asks a stop ([y] says the key to press)
     if (o?.kind === 'confirm-stop') {
-      if (hint === 'n') { this.ui.overlay = null; this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); }
+      if (hint === 'n') { this.ui.overlay = null; if (o.back) this.ui.focus = o.back; this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); }
       else if (hint === 'y') this.say('A click never stops a turn: press y to ask it to stop, or n to keep it.', 'secondary');
       return;
     }

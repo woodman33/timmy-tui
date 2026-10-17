@@ -225,7 +225,7 @@ export type Overlay =
   | { kind: 'needs-you'; req: ApprovalRequest; since: number; answer: (d: 'once' | 'session' | 'deny') => void }
   | { kind: 'quit'; own: JobRow[]; others: JobRow[] }
   /** R7 (H150; H148's N3): x on a chat turn another surface is answering asks first, naming that surface */
-  | { kind: 'confirm-stop'; turn: TurnNow }
+  | { kind: 'confirm-stop'; turn: TurnNow; back?: Region }
   | { kind: 'message'; title: string; lines: Line[] }
   // R5 (H131; the finish line, item 3): the chat's fixes, done here (src/workbench/setup-paths.ts)
   | { kind: 'free-models'; state: 'reading' }

@@ -254,6 +254,8 @@ describe('Enter never stops another surface\'s turn; one answer for being answer
     expect(asked, 'nothing is asked before y').toEqual([]);
     c.key('n', {});
     expect(c.ui.overlay).toBe(null);
+    // the keyboard back where x was pressed (the actions bar, where the Workbench starts)
+    expect(c.ui.focus).toBe('top');
     expect(c.ui.flash?.text).toBe('Kept: the chat turn in the REPL goes on (nothing was asked of it).');
     await sleep(300);
     expect(asked).toEqual([]);
