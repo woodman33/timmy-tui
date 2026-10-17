@@ -371,7 +371,7 @@ const ownWorkspaces = (page: TabId): readonly WorkspaceId[] => tabOf(page).workb
 function withUnfinished(c: ViewCtx, v: View): View {
   const box = unfinishedBox(c);
   if (!box.length) return v;
-  return { ...v, lines: [...box, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + box.length })) };
+  return { ...v, lines: [...box, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + box.length })), unfinished: box.length };
 }
 
 function pageView(c: ViewCtx): View {

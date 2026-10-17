@@ -128,9 +128,17 @@ export function frameOf(a: FrameAsk): Frame {
     const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
     // R5 (H131; the QA round's defect 8): the conversation follows its newest rows until the person selects a message
     const follow = list === 'center:chat' && chatFollows(ui);
+    // R7 lead (the rehearsal's dry run on 3453b3b: tab 6 at 160x45, with the demo's mesh, opened 3 rows into its Unfinished
+    // box, and tab 7 at 100x30 past all of it, to keep the first item whole in view): an unfinished tab's page opens at its
+    // top, so what works on it now and what it does not do yet are in view (the operator: "visibly unfinished"). While the
+    // cursor is on the first item and the wheel has not scrolled the page: from the top when the body does not have the
+    // keyboard; when it does, only as far down as that item's first row needs. A moved cursor is kept in view as before.
+    const opening = !follow && (v.unfinished ?? 0) > 0 && i === 0 && !ui.wheel[list];
     const scroll = follow
       ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: c.height, total: v.lines.length })
-      : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
+      : opening
+        ? (ui.focus === 'center' ? Math.max(0, Math.min(v.items[0].line - c.height + 1, v.lines.length - c.height)) : 0)
+        : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
     const title = ui.overlay ? overlayTitle(ui) : `${bodyTitle(ui, data)}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
     placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
     regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };

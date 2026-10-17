@@ -8,12 +8,13 @@
 // Drawn by the Workbench's own frame (Controller.frame, the rows Ink prints) over a real Timmy home in a temporary folder: a
 // tray-workflow project made by the starter code and the REPL's own Workspace. The run detail's and the chat session's
 // producers have none; the browser opener and the server starts are FAKE.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TABS } from '../src/contracts/workspace.js';
-import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
+import { JobManager } from '../src/jobs/index.js';
+import { createProject, projectId, projectsHome, saveActiveProject } from '../src/project/index.js';
 import { copyStarter } from '../src/project/starters.js';
 import { Workspace } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -146,6 +147,55 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     expect(c.ui.workspace).toBe('motion');
     expect(center(c, 100, 30).text).toContain('◌ Unfinished');
   }, 30_000);
+
+  // R7 lead (the package rehearsal's dry run on 3453b3b): with what fills a page below its box (the demo's mesh on tab 6, ended
+  // runs on tab 7), the page opened at its first selectable item and the box went above the window: tab 6 at 160x45 showed
+  // its box from its third row, and tab 7 at 100x30 none of it. The page now opens at its top; a cursor moved down the list
+  // is kept in view as before.
+  it('an unfinished tab whose page is full still opens with its box in view: tab 6 with a mesh, tab 7 with ended runs, at 160x45 and 100x30; a moved cursor is kept in view', async () => {
+    const c = workbench('full-pages');
+    const root = join(projectsHome(), 'full-pages');
+    expect(existsSync(root)).toBe(true);
+    mkdirSync(join(root, 'refs'), { recursive: true });
+    copyFileSync(join(process.cwd(), 'examples', 'visual-tools', 'demo-tray.stl'), join(root, 'refs', 'demo-tray.stl'));
+    // FAKE jobs (test): two that print 60 lines and end, so the Control Room's newest ended runs fill its page
+    const jobs = new JobManager({ dir: jobsDir });
+    try {
+    for (const n of ['A', 'B']) {
+      const j = jobs.start({ kind: 'task', label: `FAKE job (test): 60 lines ${n}`, project: 'full-pages', root, command: 'sh', args: ['-c', 'i=0; while [ $i -lt 60 ]; do i=$((i+1)); echo "FAKE line $i"; done'] });
+      await jobs.done(j.id);
+    }
+    c.start();
+    await until('the frame', () => c.data.frame);
+    // each look opens the tab afresh (from Home), so a second 6 never turns tab 6 to its Motion view
+    await until('the mesh listed', () => { c.key('1', {}); c.key('6', {}); return /MESHES IN THIS PROJECT \(1\)/.test(center(c, 160, 45).text); }, 15_000);
+    await until('the ended runs', () => { c.key('1', {}); c.key('7', {}); return /NEWEST ENDED RUNS \(2\)/.test(center(c, 160, 45).text); }, 15_000);
+    for (const [cols, rows] of [[160, 45], [100, 30]] as const) {
+      for (const key of ['6', '7']) {
+        c.key('1', {});
+        c.key(key, {});
+        await sleep(100);
+        const t = c.data.frame!.tabs.find((x) => x.key === key)!;
+        const v = center(c, cols, rows);
+        expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain('◌ Unfinished');
+        expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain(squash(`Works now: ${t.unfinished!.works}`).slice(0, 60));
+      }
+    }
+    // tab 7 at 100x30 with the keyboard in its body: the box stays as far as the first item's first row allows, and a cursor
+    // moved down the list is in view
+    c.key('7', {});
+    for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) c.key('', { tab: true });
+    expect(c.ui.focus).toBe('center');
+    const opened = c.frame(100, 30).regions.center!;
+    expect(opened.scroll, 'the body as it opens with the keyboard').toBeLessThanOrEqual(Math.max(0, opened.items[0].line - opened.height + 1));
+    c.key('', { downArrow: true });
+    const moved = c.frame(100, 30).regions.center!;
+    const cur = c.ui.cursor[moved.list] ?? 0;
+    expect(cur, 'the cursor moved down the list').toBeGreaterThan(0);
+    expect(moved.items[cur].line, 'the moved cursor\'s row in view').toBeGreaterThanOrEqual(moved.scroll);
+    expect(moved.items[cur].line, 'the moved cursor\'s row in view').toBeLessThan(moved.scroll + moved.height);
+    } finally { await jobs.stopAll(); }
+  }, 60_000);
 
   it('the words are the frame\'s own: a frame with other words shows those', async () => {
     const c = workbench('frame-words');

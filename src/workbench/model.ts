@@ -212,8 +212,9 @@ export type Item =
 /** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one; `x`
  *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in
  *  another column is not on it); `near` (R5, H137): where each arrow moves from it, when its view lays items out as a grid
- *  (an arrow it does not name moves as in any list). */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string }
+ *  (an arrow it does not name moves as in any list); `unfinished` (R7 lead): how many of its first rows are the Unfinished box
+ *  (src/workbench/views.ts unfinishedBox), so the page opens at its top (src/workbench/screen.ts). */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number }
 
 export type Overlay =
   | null
