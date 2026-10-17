@@ -2011,7 +2011,9 @@ export class Controller {
     const own = live.filter((j) => j.owner === 'workbench');
     const others = live.filter((j) => j.owner !== 'workbench');
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
-    const after = others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`);
+    // R7 (H150; H148's N10): with no job of its own running no box opens, and the words say it quit at once and stopped nothing,
+    // then name each job another session started, which keeps running
+    const after = [...(others.length && !own.length ? ['The Workbench quit at once: no job it started was running, so it stopped nothing and asked nothing.'] : []), ...others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`)];
     if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was ${JOB_CANCELLED} as the Workbench ended.`)); // R6 (H140): a job's word
     // R6 (H141; the interaction review of a77d80d, defect 15): a chat turn being answered here stops with the Workbench too
     const turnHere = this.data.turn?.state === 'sending' && this.turnAbort !== null;

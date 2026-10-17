@@ -281,6 +281,17 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
       // (R7 H150: a job's outcome in the job's word, cancelled; H148's N5)
       expect(f.text()).toContain(`Not cancelled: ${job.id} belongs to another Timmy session that is still running`);
       expect(other.get(job.id)?.state).toBe('running');
+      // R7 (H150; H148's N10): Ctrl+C with only another session's job running: no box, the Workbench quits at once (exit 0) and
+      // says so, naming the job, which keeps running
+      let ended: { code: number; words: string[] } | null = null;
+      (c as unknown as { d: { onExit?: (code: number, words: string[]) => void } }).d.onExit = (code, words) => { ended = { code, words }; };
+      await c.quit();
+      expect(c.ui.overlay).toBe(null);
+      expect(ended).toEqual({ code: 0, words: [
+        'The Workbench quit at once: no job it started was running, so it stopped nothing and asked nothing.',
+        `${job.id} (FAKE job (test): sleep 60) keeps running: started by another Timmy session (pid ${process.pid}), which is still running.`,
+      ] });
+      expect(other.get(job.id)?.state).toBe('running');
     } finally {
       await other.stop(job.id);
     }
