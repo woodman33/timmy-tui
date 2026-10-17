@@ -498,7 +498,9 @@ body.slate-absent p { max-width: 72ch; }
  * fills the tab, and the tab scrolls under it to its actions in full and Slate 3D's frame. Every text is 11 px or more.
  * ========================================================================================================================== */
 .ws-create-page { overflow-y: auto; overflow-x: hidden; }
-.create-host { flex: 0 0 calc(100% - 72px); min-height: 380px; display: flex; flex-direction: column; }
+.create-host { flex: 0 0 calc(100% - 40px); min-height: 380px; display: flex; flex-direction: column; }
+/* with the frame's Unfinished box above it (src/companion/client/companion.js drawUnfinished prepends it), room for the box */
+.ws-create-page:has(> .unfinished) > .create-host { flex-basis: calc(100% - 112px); }
 .create-more { flex: 0 0 auto; min-height: 300px; margin-top: 6px; }
 .create-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 24fr) minmax(0, 46fr) minmax(0, 30fr); }
 .create-cols > * { min-height: 0; min-width: 0; }

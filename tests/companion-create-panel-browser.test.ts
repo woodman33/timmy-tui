@@ -205,17 +205,32 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       await settled(page);
       expect(await viewName(page)).toMatch(/^top · seen from \+z: x to the right, y up/);
 
-      // the page's tab 6: the frame's Unfinished words belong above the panel (H152's box): nothing of the panel is above them
+      // the page's tab 6: the frame's Unfinished words are drawn above the panel (H152's box, prepended to the tab's page):
+      // nothing of the panel is above them, and the panel's view stays in sight under them. Where this branch draws no box,
+      // a FAKE stand-in of its shape is prepended the same way (labelled FAKE), so the panel's side of it is still checked.
       const order = await page.evaluate(() => {
         const page6 = document.getElementById('ws-create')!;
         const host = page6.querySelector('[data-panel-host="create"]')!;
-        const box = page6.querySelector('.ws-unfinished, [data-unfinished]');
+        let box = page6.querySelector(':scope > .unfinished, :scope > [data-unfinished]');
+        const real = Boolean(box);
+        if (!box) {
+          box = document.createElement('section');
+          box.className = 'unfinished';
+          box.setAttribute('data-unfinished', 'create');
+          for (const t of ['◌ Unfinished · 3D & Motion (FAKE stand-in: the test drew it)', 'Works now: FAKE words the frame would give', 'Not yet: FAKE words the frame would give']) { const p = document.createElement('p'); p.textContent = t; box.append(p); }
+          page6.prepend(box);
+        }
         const kids = [...page6.children];
-        return { hostIndex: kids.indexOf(host), before: kids.slice(0, kids.indexOf(host)).map((e) => e.className), box: box ? box.getBoundingClientRect().bottom <= host.getBoundingClientRect().top + 1 : null };
+        const at = (e: Element) => e.getBoundingClientRect();
+        const view = page6.querySelector('[data-create="stage"]')!;
+        return { real, before: kids.slice(0, kids.indexOf(host)).map((e) => e.className), above: at(box).bottom <= at(host).top + 1, viewInSight: at(view).bottom <= at(page6).bottom + 1 && at(view).height > 150 };
       });
-      expect(order.before.every((c) => /unfinished/.test(c))).toBe(true);
-      if (order.box === null) console.warn('companion-create-panel-browser: no Unfinished box is drawn on this branch (H152 draws it), so only its place above the panel was checked');
-      else expect(order.box).toBe(true);
+      await settled(page);
+      await shot(page, order.real ? 'h153-09-tab6-under-the-unfinished-box' : 'h153-09-tab6-under-a-FAKE-stand-in-unfinished-box');
+      expect(order.before).toEqual(['unfinished']);
+      expect(order.above).toBe(true);
+      expect(order.viewInSight).toBe(true);
+      if (!order.real) console.warn('companion-create-panel-browser: no Unfinished box is drawn on this branch (H152 draws it), so a FAKE stand-in of its shape was checked');
 
       // another project's mesh, asked from this page with its token, is refused; the list holds only this project's
       const token = /t=([0-9a-f]{64})/.exec(new URL(companion.url).hash)?.[1] ?? '';

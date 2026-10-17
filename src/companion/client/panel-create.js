@@ -90,7 +90,7 @@
               key('f', 'F front', 'The front view (key F)'), key('t', 'T top', 'The top view (key T)'), key('s', 'S side', 'The side view (key S)'),
               key('i', 'I isometric', 'An isometric view (key I)'), key('r', 'R reset', 'Back to the first view, at its size (key R)'),
               key('+', '+ zoom in', 'Closer (key +, or the wheel)'), key('-', '− zoom out', 'Farther (key −, or the wheel)')),
-            h('p', { class: 'create-hint' }, 'Drag the view or press the arrow keys to turn it; the wheel or + and − zoom; F, T, S and I show the front, top, side and an isometric view; R resets.')))),
+            h('p', { class: 'create-hint' }, 'Drag or arrows: turn · wheel or + −: zoom · F T S I: front, top, side, isometric · R: reset')))),
       h('div', { class: 'col-stack create-right' },
         box('Measured from the file', 'measure', 'create-measure-box', 'create-measure-body')));
     root.addEventListener('click', onClick);
