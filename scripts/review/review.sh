@@ -149,6 +149,14 @@ HELP
     else
       say "The package's example image is not in this install ($EX): the demo content (VoxVision, the report run) was skipped"
     fi
+    # R7 (H153): a generated demo mesh in tray, for tab 6's mesh view (Timmy's own STL reader measures it; it is not a
+    # native export, and its file's header says so)
+    MESH="$PREFIX/node_modules/timmy-tui/examples/visual-tools/demo-tray.stl"
+    if [ -f "$MESH" ] && [ -d "$TRAY" ]; then
+      mkdir -p "$TRAY/refs" && cp "$MESH" "$TRAY/refs/demo-tray.stl" && say "A generated demo mesh in tray: refs/demo-tray.stl (tab 6 draws it)"
+    else
+      say "The package's demo mesh is not in this install ($MESH): tab 6 has no mesh to draw"
+    fi
     say ""
     say "Ready: ./review.sh workbench (tray, the active project now), or ./review.sh repl"
     ;;
