@@ -101,6 +101,38 @@ describe.skipIf(!browserPath)("Timmy Canvas's chrome on B10, in a real browser",
     }
   }, 90_000);
 
+  // R7 (H151; H147's R6 finding 4: "tldraw's style panel shows blue, purple and red swatches"; the operator, 2026-10-16: "Preserve
+  // editable content colours where appropriate"): the swatches are the board's content colours, the ones a person chooses for their
+  // shapes (B10: "Content keeps its colors ... tldraw artwork ... never recolored"), so each shows tldraw's own palette colour; the
+  // panel around them is Timmy's chrome: its well #070707, its words off-white, the selected control and focus amber.
+  it('R7 (H151): the style panel\'s swatches are tldraw\'s own content palette (blue, violet and red among them, as a person chooses them for shapes), and the panel around them is Timmy\'s chrome', async () => {
+    const { page, context, errors } = await open();
+    try {
+      await page.waitForSelector('[data-testid="style.panel"] [data-testid^="style.color."]');
+      const seen = await page.evaluate(() => {
+        const e = (window as never as { timmyCanvas: { editor: { getCurrentTheme: () => { colors: { dark: Record<string, { solid?: string } | string> } } } } }).timmyCanvas.editor;
+        const dark = e.getCurrentTheme().colors.dark;
+        const rgb = (hex: string) => { const n = parseInt(hex.slice(1, 7), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const panel = document.querySelector('[data-testid="style.panel"]')!;
+        const swatches = [...panel.querySelectorAll('[data-testid^="style.color."]')].map((b) => {
+          const name = (b.getAttribute('data-testid') ?? '').replace('style.color.', '');
+          const icon = b.querySelector('.tlui-icon') ?? b;
+          const want = dark[name] && typeof dark[name] === 'object' ? (dark[name] as { solid?: string }).solid : undefined;
+          return { name, shown: getComputedStyle(icon).color, palette: want ? rgb(want) : null };
+        });
+        return { swatches, well: getComputedStyle(panel).backgroundColor, words: getComputedStyle(panel).color };
+      });
+      expect(seen.swatches.length).toBeGreaterThanOrEqual(12);
+      for (const s of seen.swatches) expect(s.shown, s.name).toBe(s.palette);
+      expect(seen.swatches.map((s) => s.name)).toEqual(expect.arrayContaining(['blue', 'violet', 'red', 'light-blue', 'light-violet']));
+      expect(seen.well).toBe('rgb(7, 7, 7)');
+      expect(seen.words).toBe('rgb(242, 239, 233)');
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
+
   it('has no white, cyan, blue or violet chrome: every background, border and word outside the drawing and the palette\'s swatches', async () => {
     const { page, context } = await open();
     try {

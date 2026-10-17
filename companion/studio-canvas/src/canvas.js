@@ -10,7 +10,7 @@
 // a glyph, with a recovery path (./save-state.js); and the guided blank templates open as text and empty frames.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
+import { AccessibilityMenu, AssetRecordType, BaseBoxShapeUtil, Box, DEFAULT_THEME, DefaultMainMenu, DefaultStylePanel, EditSubmenu, ExportFileContentSubMenu, ExtrasGroup, HTMLContainer, InputModeMenu, KeyboardShortcutsMenuItem, LanguageMenu, T, Tldraw, TldrawUiMenuGroup, TldrawUiMenuSubmenu, ToggleDebugModeItem, ToggleDynamicSizeModeItem, ToggleEdgeScrollingItem, ToggleFocusModeItem, ToggleGridItem, TogglePasteAtCursorItem, ToggleSnapModeItem, ToggleToolLockItem, ToggleWrapModeItem, Vec, ViewSubmenu, atom, createBindingId, createShapeId, getSnapshot, inlineBase64AssetStore, resizeBox, toRichText, useEditor, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { band, createProjectPanel } from './project.js';
@@ -94,6 +94,9 @@ const newBoard = (project = null, saved = null) => ({
   project, revision: saved?.revision ?? 0, savedRevision: saved?.revision ?? 0, sourceRevision: saved?.sourceRevision ?? null, savedAt: saved?.savedAt ?? null,
   saving: false, failed: null, conflict: null, stale: null, kept: null, keptRevision: undefined, refused: null, notice: saved?.notice ?? null, timer: null,
   queue: Promise.resolve(), flushing: Promise.resolve(), decisions: [], jobs: [], answered: new Map(), jobNotes: new Map(), frozen: null, editor: null,
+  // R7 (H151): how many drafts waited in the board's last save that landed (null: none landed yet), so a save that changed it reads
+  // the frame again at once
+  draftsSaved: null,
 });
 let canvas = newBoard();
 /** The agent's bridge: whether its socket is open now (the page's, whichever board it shows). */
@@ -317,6 +320,16 @@ async function saveNow(b) {
     b.flushing = b.flushing.then(() => flushDecisions(b, saved)).catch(() => undefined);
     // R6 (H139): it landed on its own board's file, whichever board is on screen now
     if (b !== canvas) identity.note(keptWords('save', b.project, identity.project ?? identity.switching, `revision ${saved.revision}`));
+    // R7 (H151; H148's N6, H147's R6 finding 8: "1 waiting" stayed 3 s after an Accept): the frame reads the drafts from the saved
+    // board, so a save that changed how many wait (a draft accepted, discarded, or one Timmy proposed) is followed by a reading of
+    // the frame at once, not at the timer's next turn
+    if (b === canvas) {
+      const waiting = pendingDrafts(Object.values(snapshot.store || {})).length;
+      if (waiting !== b.draftsSaved) {
+        b.draftsSaved = waiting;
+        try { frameStrip?.soon(); } catch { /* the next reading follows */ }
+      }
+    }
   } else if (status === 409) {
     b.conflict = { words: saved.error, revision: Number.isInteger(saved.revision) ? saved.revision : null };
   } else if (reached && (status === 401 || status === 0)) {
@@ -855,6 +868,9 @@ function showDrafts(editor) {
     li.append(acts);
     return li;
   }));
+  // R7 (H151): the strip follows at once: a draft this page decided is no longer the step, and the waiting is one less, until the
+  // frame is read again (once the decision's save lands: saveNow)
+  try { frameStrip?.redraw(); } catch { /* the next reading draws it */ }
 }
 function showDraft(id) {
   const editor = current;
@@ -865,6 +881,25 @@ function showDraft(id) {
   const here = d.shapes.filter((s) => editor.getAncestorPageId(s) === editor.getCurrentPageId());
   editor.select(...here);
   reveal(editor, here);
+}
+/**
+ * R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting"): the strip's
+ * primary while a draft waits is its Accept or Discard (the frame's), and choosing it comes here: the first waiting draft is
+ * shown on the board (its page, its shapes selected and brought into view, as its Show does), the panel's lists stay as they
+ * are (the drafts are never folded), and the focus goes to that draft's Accept, the same step's control. Enter there accepts.
+ */
+function goToDraft() {
+  const editor = current;
+  if (!editor || identity.blocked() || !canvas.project) { band(blockedWords(identity) ?? 'Not now: no board is on screen.', true); return; }
+  const d = pendingDrafts(editor.store.allRecords())[0];
+  if (!d) { band('No draft waits on this board now: it was accepted or discarded. The workspace is read again for the next step.'); frameStrip?.soon(); return; }
+  showDraft(d.id);
+  showDrafts(editor);
+  const accept = [...document.querySelectorAll('#draft-list li.draft')].find((li) => li.dataset.draft === d.id)?.querySelector('button.draft-accept');
+  if (accept && !accept.disabled) {
+    try { accept.scrollIntoView({ block: 'nearest' }); } catch { /* it is in the panel's own box */ }
+    accept.focus();
+  }
 }
 /**
  * R5 (H133): a person's decision on draft `id`: Accept clears its mark (its shapes stay), Discard removes its shapes (and assets
@@ -942,6 +977,31 @@ function DraftMarks() {
   const h = React.createElement;
   return h(React.Fragment, null, ...marks.map((m) => h('div', { key: m.id, className: 'timmy-draft-mark', 'data-draft': m.id, style: { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` } },
     h('span', { className: 'timmy-draft-label' }, DRAFT_LABEL))));
+}
+
+/**
+ * R7 (H151; H147's R6 finding 3: at 800 x 600 "the panels bury the board"): tldraw's style panel. Its swatches are the board's
+ * content colours, the ones a person chooses for their shapes (the operator: "Preserve editable content colours where
+ * appropriate"; B10: "Content keeps its colors ... tldraw artwork ... never recolored"), so they stay tldraw's: nothing here or in
+ * ./theme.js recolours them, and only the panel's own chrome around them (its well, its dividers, the selected control, focus) is
+ * on Timmy's tokens (index.html .tl-container). Below FOLD_BELOW_PX of width it is shown while there is something to style
+ * (shapes selected, or a tool that draws chosen) and folds away while the board is idle, so a small window keeps its board; at
+ * 1100 px and wider it is shown always, as tldraw shows it. tldraw's own phone layout (below 640 px: its style button in the
+ * toolbar, `isMobile`) is left as tldraw makes it.
+ */
+const IDLE_TOOLS = ['select', 'hand', 'zoom', 'laser', 'eraser'];
+function TimmyStylePanel(props) {
+  const editor = useEditor();
+  const mobile = Boolean(props && props.isMobile);
+  const folded = useValue('timmy: style panel folded while idle on a small window', () => {
+    if (mobile) return false;
+    if (editor.getViewportScreenBounds().w >= FOLD_BELOW_PX) return false;
+    if (editor.getSelectedShapeIds().length > 0) return false;
+    return IDLE_TOOLS.includes(editor.getCurrentToolId());
+  }, [editor, mobile]);
+  // the blank board's guide keeps clear of it as it shows and folds (--board-right: measureFoot)
+  React.useEffect(() => { const t = requestAnimationFrame(() => measureFoot()); return () => cancelAnimationFrame(t); }, [folded]);
+  return folded ? null : React.createElement(DefaultStylePanel, props);
 }
 
 /** R5 (H133): tldraw's main menu without its color-scheme choice: Timmy Canvas is dark only (DESIGN.md §10 B10). */
@@ -1082,9 +1142,59 @@ async function offerBoards() {
   const all = [...guided, ...templates];
   document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, all.find((t) => t.id === pick.value)));
 }
+/**
+ * R7 (H151; H147's R6 finding 3: "at 800×600 ... the panels bury the board"): below this width the panel's lists (jobs, artifacts,
+ * reference images, nodes, the project) and New board start folded behind #side-fold, so the board keeps most of the window; the
+ * status, the save line, a newer version on disk, the drafts with Accept and Discard, and the band stay shown. At 1100 px and wider
+ * the panel's 280 px are a quarter of the window or less, and the lists start open.
+ */
+const FOLD_BELOW_PX = 1100;
+/** The person's own choice (true: folded), kept until the page loads again; null: the width decides. */
+let foldChosen = null;
+function applyFold() {
+  const side = document.getElementById('side');
+  const button = document.getElementById('side-fold');
+  if (!side || !button) return;
+  const folded = foldChosen ?? window.innerWidth < FOLD_BELOW_PX;
+  if (side.dataset.folded === String(folded) && button.dataset.drawn === 'true') return;
+  side.dataset.folded = String(folded);
+  button.dataset.drawn = 'true';
+  button.setAttribute('aria-expanded', String(!folded));
+  button.textContent = folded ? "▸ Show Timmy's lists" : '▾ Fold';
+  button.setAttribute('aria-label', folded ? "Show Timmy's lists" : "Fold Timmy's lists");
+  button.title = folded
+    ? 'Shows the canvas jobs, artifacts, reference images, nodes, the project and New board in this panel'
+    : 'Folds the canvas jobs, artifacts, reference images, nodes, the project and New board, so the board keeps more of the window';
+}
+function connectFold() {
+  document.getElementById('side-fold')?.addEventListener('click', () => {
+    foldChosen = document.getElementById('side')?.dataset.folded !== 'true';
+    applyFold();
+  });
+  window.addEventListener('resize', () => { if (foldChosen === null) applyFold(); }, { passive: true });
+  applyFold();
+}
+
+/** R7 (H151): the panel's right edge (--side-right), followed as it changes, so the blank board's guide sits beside it. */
+function watchSide() {
+  const side = document.getElementById('side');
+  if (!side) return;
+  const set = () => {
+    const b = side.getBoundingClientRect();
+    const right = `${b.width > 0 ? Math.ceil(b.right) : 0}px`;
+    if (document.documentElement.style.getPropertyValue('--side-right') !== right) document.documentElement.style.setProperty('--side-right', right);
+  };
+  set();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(side);
+  window.addEventListener('resize', set, { passive: true });
+}
+
 /** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
 function connectPanel() {
   document.getElementById('side-ready').hidden = false;
+  // R7 (H151): the lists fold on a small window
+  connectFold();
+  watchSide();
   watchEdge(document.getElementById('side-scroll'));
   // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
@@ -1319,6 +1429,11 @@ function startFrame() {
   if (!strip || frameStrip) return;
   frameStrip = createFrameStrip({
     root: strip,
+    // R7 (H151): what the page knows of its own board now (its pending drafts, every page of it): a draft it just accepted or
+    // discarded shows at once, before the frame is read again (none while Studio switches or shows no board)
+    local: () => (current && canvas.project && !identity.blocked() ? { drafts: pendingDrafts(current.store.allRecords()).length } : null),
+    // R7 (H151): the draft step's Go to the draft (a person's press only: ./frame.js)
+    go: (what) => { if (what === 'draft') goToDraft(); },
     // each reading records whose board was on screen when it was asked (`ticket`): one asked before a switch or a pause is of then
     read: async () => { const ticket = identity.ticket(); return { ...(await cards.workspace(ticket.project)), ticket }; },
     accept: (frame, r) => !!frame && !!frame.project && identity.current(r && r.ticket) && frame.project.id === identity.project.id,
@@ -1354,6 +1469,11 @@ function measureFoot() {
   }
   const foot = `${Math.max(8, Math.ceil(window.innerHeight - top) + 8)}px`;
   if (document.documentElement.style.getPropertyValue('--side-foot') !== foot) document.documentElement.style.setProperty('--side-foot', foot);
+  // R7 (H151): where tldraw's style panel begins (--board-right), so the blank board's guide sits between it and Timmy's panel
+  const style = document.querySelector('.tlui-style-panel__wrapper');
+  const sb = style ? style.getBoundingClientRect() : null;
+  const right = sb && sb.width > 0 && sb.height > 0 ? `${Math.floor(sb.left)}px` : '100vw';
+  if (document.documentElement.style.getPropertyValue('--board-right') !== right) document.documentElement.style.setProperty('--board-right', right);
 }
 function watchFoot() {
   if (!footWatch) {
@@ -1364,7 +1484,7 @@ function watchFoot() {
   footWatch.disconnect();
   let frames = 0;
   const look = () => {
-    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom`)) footWatch.observe(part);
+    for (const part of document.querySelectorAll(`${FOOT_PARTS}, .tlui-layout__bottom, .tlui-style-panel__wrapper`)) footWatch.observe(part);
     measureFoot();
     frames += 1;
     if (frames < 30 || (!document.querySelector('.tlui-main-toolbar__inner') && frames < 240)) requestAnimationFrame(look);
@@ -1440,7 +1560,8 @@ async function start() {
     colorScheme: 'dark',
     overrides: { actions: (_editor, actions) => { const { 'toggle-dark-mode': _dark, ...kept } = actions; return kept; } },
     // R5 (H133): a pending draft's outline and label, in front of the canvas; the main menu without the color scheme
-    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu },
+    // R7 (H151): and tldraw's style panel, folded while the board is idle on a small window (TimmyStylePanel)
+    components: { InFrontOfTheCanvas: DraftMarks, MainMenu: TimmyMainMenu, StylePanel: TimmyStylePanel },
   };
   reactRoot = createRoot(document.getElementById('root'));
   // The saved canvas from Timmy's home; none means a blank one.

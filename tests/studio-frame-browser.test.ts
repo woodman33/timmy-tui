@@ -131,7 +131,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
         text: (l.textContent ?? '').replace(/\s+/g, ' ').trim(), current: l.getAttribute('aria-current'), title: l.getAttribute('title') ?? '',
         controls: l.querySelectorAll('a, button, [tabindex]').length, border: `${getComputedStyle(l).borderTopWidth} ${getComputedStyle(l).borderTopStyle} ${getComputedStyle(l).borderTopColor}`,
       })));
-      expect(tabs.map((t) => t.text)).toEqual(TABS.map((t) => `${t.key} ${t.label}`));
+      // R7 (H151): an unfinished tab carries its mark (◌, never colour alone; its words are the strip's description)
+      expect(tabs.map((t) => t.text)).toEqual(TABS.map((t) => `${t.key} ${t.label}${t.unfinished ? ' ◌' : ''}`));
       // 4 Studio is this page: a 1px amber border; the others are labels, never links (this page cannot hold the companion's token)
       expect(tabs.filter((t) => t.current === 'page').map((t) => t.text)).toEqual(['4 Studio']);
       expect(tabs.find((t) => t.current === 'page')!.border).toBe(`1px solid ${AMBER}`);
@@ -216,8 +217,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(await page.$eval('#frame-tabs li[aria-current="page"]', (l) => (l.textContent ?? '').replace(/\s+/g, ' ').trim())).toBe('4 Studio');
 
       // a low window (800 x 600): R5 (H137) the actions wrap onto more rows (never past the edge), the commands shortened where two
-      // can then share a row, so the strip stays short and the panel keeps room for its lists; the ten tabs are all there (that
-      // row scrolls sideways), the next step is first, and the canvas still starts under the strip
+      // can then share a row, so the strip stays short and the panel keeps room for its lists; the ten tabs are all there (R7 H151:
+      // whole, wrapped between tabs), the next step is first, and the canvas still starts under the strip
       await page.setViewportSize({ width: 800, height: 600 });
       // R5 lead (CI at ca2ebfc and aa247e5: "expected 23 to be less than or equal to 1"): the strip settles over a few frames (its
       // actions wrap, then shorten), and the canvas follows each height a frame later (a ResizeObserver sets --frame-h). The
@@ -229,7 +230,9 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
         const m = { strip: r('#frame').bottom, height: r('#frame').height, root: r('#root').top, tabs: document.querySelectorAll('#frame-tabs li').length, sideways: acts.scrollWidth - acts.clientWidth,
           primary: r('#frame-acts li.is-primary').left, first: acts.firstElementChild === acts.querySelector('li.is-primary'), menu: r('[data-testid="main-menu.button"]').top, side: r('#side').top };
         const w = window as unknown as { lowSettle?: { n: number; height: number } };
-        const settled = m.height < 130 && Math.abs(m.root - m.strip) <= 1;
+        // R7 (H151; H147's R6 finding 3): every tab whole, so the tabs take a second row at 800 px (they had scrolled sideways, cut at
+        // "7 Contro"): the strip settles under 150 px, and the board keeps most of the window (tests/studio-small-window-browser.test.ts)
+        const settled = m.height < 150 && Math.abs(m.root - m.strip) <= 1;
         const was = w.lowSettle;
         w.lowSettle = { n: !settled ? 0 : was && was.n > 0 && was.height === m.height ? was.n + 1 : 1, height: m.height };
         return w.lowSettle.n >= 3 ? m : null;
@@ -517,7 +520,9 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       const where = `${width}x${height}`;
       try {
         await page.waitForFunction(() => document.querySelectorAll('#project-groups li.pcard').length >= 20, null, { timeout: 15_000 });
-        // a narrow window starts with the lists folded: a person opens them
+        // a narrow window starts with the lists folded: a person opens them. R7 (H151): below 1100 px the panel's lists themselves
+        // start folded behind #side-fold (the board keeps most of the window): opened first
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
         await page.evaluate(() => { for (const id of ['jobs', 'project']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
         const read = () => page.evaluate(() => {
           const side = document.getElementById('side')!.getBoundingClientRect();

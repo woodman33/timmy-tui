@@ -6,7 +6,9 @@
  * primary action first in reading order with the number the frame gave it. The frames here are FAKE (written by this test).
  */
 import { describe, expect, it } from 'vitest';
-import { eventsOf, frameView, LOG_MAX } from '../companion/studio-canvas/src/frame.js';
+import { DRAFT_STEP, eventsOf, FRAME_EVERY_MS, FRAME_FAST_MS, frameView, isDraftStep, LOG_MAX, nextReadMs } from '../companion/studio-canvas/src/frame.js';
+import { TABS } from '../src/contracts/workspace.js';
+import { actionsOf } from '../src/ops/workspace-frame.js';
 import { saveState } from '../companion/studio-canvas/src/save-state.js';
 import { clockOf, dateTimeOf } from '../companion/studio-canvas/src/when.js';
 
@@ -90,5 +92,86 @@ describe("the Studio strip's view of a frame (R5 H137)", () => {
     expect(v.actions.map((a) => [a.n, a.label, a.primary])).toEqual([[2, 'Ask Timmy to draw', true], [1, 'Open Studio', false], [3, 'Show the board', false]]);
     const two = frameView(frame({ actions: { studio: [{ n: 1, label: 'A', command: '/a', primary: true }, { n: 2, label: 'B', command: '/b', primary: true }] } }))!;
     expect(two.actions.filter((a) => a.primary).map((a) => a.n)).toEqual([1]);
+  });
+});
+
+/**
+ * R7 (H151): the frame's own words, from its producer (src/ops/workspace-frame.ts actionsOf, the lead's 2ee969f) and its tabs
+ * (src/contracts/workspace.ts TABS), so the strip's reading of them is checked against what the frame really sends.
+ */
+describe("the Studio strip's view of a frame (R7 H151): the draft's step, the page's own decision, the unfinished tabs, the cadence", () => {
+  const wb = (waiting: number, running = 0) => ({
+    route: { ready: true }, activity: { waiting_on_you: waiting, running, stop_current: { job: null, words: 'Stop current: idle' } }, workflows: { docs: [] }, jobs: [],
+  }) as unknown as Parameters<typeof actionsOf>[0];
+  /** a FAKE frame whose Studio actions and tabs are the producer's, with `drafts` waiting on the board (the frame counts them once) */
+  const drafted = (drafts: number, o: { running?: number; studioRunning?: boolean } = {}) => {
+    const waiting = drafts > 0 ? 1 : 0;
+    return frame({
+      tabs: TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, waiting: t.id === 'home' || t.id === 'control' ? waiting : 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) })),
+      actions: { studio: actionsOf(wb(waiting, o.running ?? 0), [], { studioRunning: o.studioRunning ?? true, drafts }).studio },
+      activity: { running: o.running ?? 0, waitingOnYou: waiting, stopCurrent: { job: null, words: 'Stop current: idle' } },
+    });
+  };
+
+  it('knows the frame\'s draft step by its command (opened or not): it is the one primary, done on this page', () => {
+    for (const studioRunning of [true, false]) {
+      const v = frameView(drafted(1, { studioRunning }))!;
+      const primary = v.actions.filter((a) => a.primary);
+      expect(primary).toHaveLength(1);
+      expect(primary[0]).toMatchObject({ n: 1, label: 'Accept or discard the draft Timmy proposed', draft: true, decided: false });
+      expect(v.actions.filter((a) => a.draft)).toHaveLength(1);
+      expect(isDraftStep(primary[0])).toBe(true);
+    }
+    expect(frameView(drafted(2))!.actions[0]).toMatchObject({ label: 'Accept or discard the 2 drafts Timmy proposed', draft: true, primary: true });
+    // no draft: Studio's step is the canvas's, and no action is the draft's
+    const none = frameView(drafted(0))!;
+    expect(none.actions.find((a) => a.primary)).toMatchObject({ command: '/canvas open', draft: false });
+    expect(none.actions.some((a) => a.draft)).toBe(false);
+    expect(DRAFT_STEP.test('/canvas open')).toBe(false);
+  });
+
+  it('the page\'s own decision shows at once: with no draft left on its board, the frame\'s draft step is drawn as decided (no primary), and its waiting counts one less until the frame is read again', () => {
+    const f = drafted(1);
+    const before = frameView(f, { drafts: 1 })!;
+    expect(before.activity.waiting).toBe(1);
+    expect(before.tabs.filter((t) => t.waiting).map((t) => [t.id, t.waiting])).toEqual([['home', 1], ['control', 1]]);
+    expect(before.actions.filter((a) => a.primary).map((a) => a.draft)).toEqual([true]);
+    const after = frameView(f, { drafts: 0 })!;
+    expect(after.actions.filter((a) => a.primary)).toEqual([]);
+    expect(after.actions.find((a) => a.draft)).toMatchObject({ decided: true, primary: false, label: 'Accept or discard the draft Timmy proposed' });
+    expect(after.activity.waiting).toBe(0);
+    expect(after.tabs.filter((t) => t.waiting)).toEqual([]);
+    expect(after.decided).toBe(true);
+    // a frame that names no draft step is never changed by the page's count (the frame is read again for what came since)
+    const plain = frameView(drafted(0), { drafts: 1 })!;
+    expect(plain.decided).toBe(false);
+    expect(plain.actions.find((a) => a.primary)).toMatchObject({ command: '/canvas open' });
+    // nothing known of the page's board (switching, or nothing loaded): the frame as it is
+    expect(frameView(f, null)!.actions.filter((a) => a.primary).map((a) => a.draft)).toEqual([true]);
+    // and never below none waiting
+    const other = { ...drafted(1), activity: { running: 0, waitingOnYou: 0, stopCurrent: { job: null, words: '' } } };
+    expect(frameView(other, { drafts: 0 })!.activity.waiting).toBe(0);
+  });
+
+  it('carries each unfinished tab\'s words as the frame gives them (works now, not yet), and none for a tab whose interactions work', () => {
+    const v = frameView(drafted(0))!;
+    const unfinished = TABS.filter((t) => t.unfinished);
+    expect(unfinished.map((t) => t.key)).toEqual(['6', '7', '8', '0']);
+    expect(v.tabs.filter((t) => t.unfinished).map((t) => [t.key, t.unfinished])).toEqual(unfinished.map((t) => [t.key, t.unfinished]));
+    expect(v.tabs.filter((t) => !t.unfinished).map((t) => t.key)).toEqual(['1', '2', '3', '4', '5', '9']);
+    // its title names it unfinished too (the strip's own description says it in full, where it can be read)
+    for (const t of v.tabs.filter((x) => x.unfinished)) expect(t.title).toContain(`unfinished. Works now: ${t.unfinished!.works}. Not yet: ${t.unfinished!.missing}.`);
+    // a malformed entry is none, never made up
+    const odd = frameView(frame({ tabs: [{ id: 'create', key: '6', label: '3D & Motion', waiting: 0, unfinished: { works: 7 } }] }))!;
+    expect(odd.tabs[0].unfinished).toBeNull();
+  });
+
+  it(`reads the frame every ${FRAME_FAST_MS} ms while something runs or a chat turn is being answered (a stop elsewhere shows at once), else every ${FRAME_EVERY_MS} ms`, () => {
+    expect(FRAME_FAST_MS).toBeLessThanOrEqual(250);
+    expect(nextReadMs(frameView(drafted(0))!)).toBe(FRAME_EVERY_MS);
+    expect(nextReadMs(frameView(drafted(0, { running: 1 }))!)).toBe(FRAME_FAST_MS);
+    const turning = frameView(frame({ activity: { running: 0, waitingOnYou: 0, stopCurrent: { job: null, words: '' }, chatTurn: { surface: 'repl', since: at(1), words: 'a chat turn is being answered in the REPL' } } }))!;
+    expect(nextReadMs(turning)).toBe(FRAME_FAST_MS);
+    expect(nextReadMs(null)).toBe(FRAME_EVERY_MS);
   });
 });

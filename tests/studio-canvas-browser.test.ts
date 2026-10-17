@@ -165,6 +165,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
           const b = row(`${t}-b`);
           return !!a && !a.dataset.waiting && !!a.querySelector('.job-row[data-row="Receipt"] a') && !!b && !b.dataset.waiting;
         }, tag, { timeout: 15_000 });
+        // R7 (H151): below 1100 px the panel's lists start folded behind #side-fold (the board keeps most of the window): opened first
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
         if (!(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open))) await page.click('#jobs > summary');
         const api = await getJson<Array<{ id: string; revision: number; at: string; ok: boolean }>>('/api/canvas/jobs');
         const read = (id: string) => page.$eval(`#job-list li[data-job="${id}"]`, (li) => ({
