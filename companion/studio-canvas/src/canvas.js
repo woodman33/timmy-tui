@@ -892,15 +892,18 @@ function showDraft(id) {
 /**
  * R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting"): the strip's
  * primary while a draft waits is its Accept or Discard (the frame's), and choosing it comes here: the first waiting draft is
- * shown on the board (its page, its shapes selected and brought into view, as its Show does), the panel's lists stay as they
- * are (the drafts are never folded), and the focus goes to that draft's Accept, the same step's control. Enter there accepts.
+ * shown on the board (its page, its shapes brought into view), the panel's lists stay as they are (the drafts are never folded),
+ * and the focus goes to that draft's Accept, the same step's control. Enter there accepts. Its shapes are not selected, as its
+ * Show selects them: a selection is drawn amber (tldraw's handles, the panel's job row), and the one amber step on screen is the
+ * Accept; the draft's silver outline and label already say which shapes it is.
  */
 function goToDraft() {
   const editor = current;
   if (!editor || identity.blocked() || !canvas.project) { band(blockedWords(identity) ?? 'Not now: no board is on screen.', true); return; }
   const d = pendingDrafts(editor.store.allRecords())[0];
   if (!d) { band('No draft waits on this board now: it was accepted or discarded. The workspace is read again for the next step.'); frameStrip?.soon(); return; }
-  showDraft(d.id);
+  if (!d.pages.includes(editor.getCurrentPageId()) && d.pages[0]) editor.setCurrentPage(d.pages[0]);
+  reveal(editor, d.shapes);
   showDrafts(editor);
   const accept = [...document.querySelectorAll('#draft-list li.draft')].find((li) => li.dataset.draft === d.id)?.querySelector('button.draft-accept');
   if (accept && !accept.disabled) {

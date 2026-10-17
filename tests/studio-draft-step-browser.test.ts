@@ -33,6 +33,27 @@ const SILVER = 'rgb(232, 228, 217)';
 type Answer = { ok: boolean; result?: unknown; error?: string; draft?: { id: string; shapes?: number } };
 type Win = { timmyCanvas: { editor: { selectNone: () => void; getSelectedShapeIds: () => string[]; getShapePageBounds: (id: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number }; setCamera: (c: { x: number; y: number; z: number }) => void } } };
 
+/** A screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind otherwise); it says on
+ *  itself that what it shows is FAKE test data. */
+async function shoot(page: Page, name: string): Promise<void> {
+  const shots = process.env.TIMMY_CANVAS_SHOTS;
+  if (!shots) return;
+  mkdirSync(shots, { recursive: true });
+  await page.evaluate(() => {
+    const label = document.createElement('div');
+    label.id = 'fake-shot-label';
+    label.textContent = 'FAKE test data (a scripted draft and FAKE projects written by the test), not a real project';
+    label.setAttribute('style', 'position:fixed;right:8px;bottom:100px;z-index:2147483647;pointer-events:none;max-width:calc(100vw - 16px);box-sizing:border-box;'
+      + 'padding:2px 6px;font:12px/16px ui-monospace,monospace;color:#F2EFE9;background:#070707;border:1px solid #444444;border-radius:4px');
+    document.body.append(label);
+  });
+  try {
+    await page.screenshot({ path: join(shots, name) });
+  } finally {
+    await page.evaluate(() => document.getElementById('fake-shot-label')?.remove());
+  }
+}
+
 describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and counts that follow at once (R7 H151)", () => {
   let pageRoot = '';
   let home = '';
@@ -126,6 +147,7 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
       await page.evaluate(() => { const e = (window as never as Win).timmyCanvas.editor; e.selectNone(); e.setCamera({ x: 0, y: 0, z: 1 }); (document.activeElement as HTMLElement | null)?.blur(); });
       await page.waitForTimeout(200);
       const shown = await ambers(page);
+      await shoot(page, 'draft-waiting-1440x900.png');
       expect(shown.sort()).toEqual([
         'button.draft-accept: color+border "Accept"',
         'li.fr-act.is-primary.is-draft: border "1 Accept or discard the draft Timmy proposed Go to the draft"',
@@ -145,11 +167,14 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
         .map((e) => (e.closest('[data-state="selected"], [aria-pressed="true"], [aria-checked="true"], [data-isactive="true"]') || e.classList.contains('tlui-slider__range') ? 'selected' : `${e.tagName}.${(e as HTMLElement).className}`)), AMBER);
       expect([...new Set(tl)]).toEqual(tl.length ? ['selected'] : []);
 
-      // choosing the primary takes you to the draft: its shapes in view and selected, the focus on its Accept
+      // choosing the primary takes you to the draft: its shapes in view, the focus on its Accept. They are not selected: a selection
+      // is drawn amber (tldraw's handles, the panel's job row), and the one amber step there is the Accept; the draft's silver
+      // outline and its label say which shapes it is
       await page.click('#frame-acts li.is-primary button.fr-go');
       await page.waitForFunction(() => document.activeElement?.classList.contains('draft-accept') ?? false, null, { timeout: 5_000 });
       expect(await page.evaluate(() => (document.activeElement as HTMLElement).closest('li')?.getAttribute('data-draft'))).toBe(id);
-      expect((await page.evaluate(() => (window as never as Win).timmyCanvas.editor.getSelectedShapeIds())).sort()).toEqual([...shapes].sort());
+      expect(await page.evaluate(() => (window as never as Win).timmyCanvas.editor.getSelectedShapeIds())).toEqual([]);
+      expect(await page.locator('#job-list li[aria-current="true"]').count()).toBe(0);
       await expect.poll(() => page.evaluate((ids) => {
         const e = (window as never as Win).timmyCanvas.editor;
         const side = document.getElementById('side')!.getBoundingClientRect();
@@ -159,6 +184,10 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
           return a.x >= side.right && a.y >= 0 && z.x <= innerWidth && z.y <= (bar ? bar.top : innerHeight);
         });
       }, shapes), { timeout: 3_000, message: 'the draft\'s shapes in view, beside the panel' }).toBe(true);
+      // there, amber is still the same four: the step, its label, the active tab and the Accept (with the focus, when shown)
+      const there = (await ambers(page)).map((a) => a.replace(/^(button\.draft-accept: color\+border)\+outline "/, '$1 "'));
+      await shoot(page, 'draft-go-to-the-draft-1440x900.png');
+      expect(there.sort()).toEqual(shown);
 
       // Enter on the focused Accept (a person's key) accepts: 0 waiting within 500 ms of the key, and the draft step is no longer
       // the primary; the frame read next names the next one
@@ -187,6 +216,7 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
       }, null, { timeout: 5_000 });
       const next = await page.$eval('#frame-acts li.is-primary', (li) => ({ label: li.querySelector('.fr-label')?.textContent, command: li.querySelector('code.fr-cmd')?.textContent, border: getComputedStyle(li).borderTopColor }));
       expect(next).toEqual({ label: 'Open Studio', command: '/studio', border: AMBER });
+      await shoot(page, 'draft-after-accept-1440x900.png');
       expect(await page.locator('#frame-acts li.is-draft').count()).toBe(0);
       expect(await text(page, '#frame-activity')).toMatch(/^0 running · 0 waiting on you ·/);
       // the accepted shapes keep their own look; nothing of the draft's mark is left

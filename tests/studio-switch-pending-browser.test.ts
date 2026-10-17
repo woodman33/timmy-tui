@@ -34,6 +34,27 @@ if (!followsPending) console.warn('studio-switch-pending-browser: this tree\'s A
 
 type Win = { timmyCanvas: { editor: { createShape: (s: unknown) => void; getCurrentPageShapes: () => Array<{ id: string; type: string }>; getInstanceState: () => { isReadonly: boolean } }; project: { id: string; name: string } | null; identity: { state: string; project: { name: string } | null; switching: { name: string } | null } } };
 
+/** A screenshot for a look by eye, only when TIMMY_CANVAS_SHOTS names a folder (a run leaves nothing behind otherwise); it says on
+ *  itself that what it shows is FAKE test data. */
+async function shoot(page: Page, name: string): Promise<void> {
+  const shots = process.env.TIMMY_CANVAS_SHOTS;
+  if (!shots) return;
+  mkdirSync(shots, { recursive: true });
+  await page.evaluate(() => {
+    const label = document.createElement('div');
+    label.id = 'fake-shot-label';
+    label.textContent = 'FAKE test data (a scripted switch between FAKE projects written by the test), not a real project';
+    label.setAttribute('style', 'position:fixed;right:8px;bottom:100px;z-index:2147483647;pointer-events:none;max-width:calc(100vw - 16px);box-sizing:border-box;'
+      + 'padding:2px 6px;font:12px/16px ui-monospace,monospace;color:#F2EFE9;background:#070707;border:1px solid #444444;border-radius:4px');
+    document.body.append(label);
+  });
+  try {
+    await page.screenshot({ path: join(shots, name) });
+  } finally {
+    await page.evaluate(() => document.getElementById('fake-shot-label')?.remove());
+  }
+}
+
 describe.skipIf(!browserPath)('Studio takes no edit from the moment a switch is pending (R7 H151)', () => {
   let pageRoot = '';
   let home = '';
@@ -107,6 +128,7 @@ describe.skipIf(!browserPath)('Studio takes no edit from the moment a switch is 
       expect(await tryEdit(page)).toEqual({ took: false, readonly: true, state: 'switching' });
       const why = await page.evaluate(() => ({ cover: (document.getElementById('switching-title')?.textContent ?? '').trim(), save: (document.getElementById('save-words')?.textContent ?? '').trim(), header: (document.getElementById('frame-project')?.textContent ?? '').trim() }));
       expect(why).toEqual({ cover: 'TIMMY · switching to blank…', save: 'Studio is switching to blank: editing, Accept and Discard wait until blank\'s board is loaded.', header: 'switching to blank…' });
+      await shoot(page, 'switch-pending-blocked-1440x900.png');
       // the canvas names blank a moment later: the server's own follow of the active-project record, after its grace (the record
       // is written here, as the Workbench's picker writes it); blank's own board is then shown, empty
       await page.waitForTimeout(600);
