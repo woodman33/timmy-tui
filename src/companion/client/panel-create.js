@@ -377,17 +377,24 @@
       order[k] = t;
       k += 1;
     }
-    // painter's order: the farthest first
-    const idx = new Uint32Array(k);
-    for (let i = 0; i < k; i += 1) idx[i] = i;
-    idx.sort((a, b) => depth[a] - depth[b]);
+    // painter's order, the farthest first: each triangle's depth (scaled to whole steps of 1/2^20 of the mesh's size, past the
+    // view's own) and its place packed into one number, sorted as numbers (exact: below 2^53)
+    let zmin = Infinity;
+    for (let i = 0; i < k; i += 1) if (depth[i] < zmin) zmin = depth[i];
+    const keys = new Float64Array(k);
+    const step = (2 * m.radius) / 1048576;
+    for (let i = 0; i < k; i += 1) keys[i] = Math.min(4194303, Math.max(0, Math.floor((depth[i] - zmin) / step))) * 65536 * 1024 + i;
+    keys.sort();
+    // the seams between triangles are covered by a stroke of their own colour; while a large mesh is dragged, only at rest
+    const seams = !(S.drag && S.drag.moved && k > 5000);
     g.lineJoin = 'round';
     g.lineWidth = Math.max(1, dpr * 0.75);
     let cur = -1;
+    const flush = () => { g.fill(); if (seams) g.stroke(); };
     for (let i = 0; i < k; i += 1) {
-      const j = idx[i];
+      const j = keys[i] % 67108864;
       if (shade[j] !== cur) {
-        if (cur >= 0) { g.fill(); g.stroke(); }
+        if (cur >= 0) flush();
         cur = shade[j];
         g.fillStyle = GREYS[cur];
         g.strokeStyle = GREYS[cur];
@@ -400,7 +407,7 @@
       if ((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0) < 0) { const tx = x1, ty = y1; x1 = x2; y1 = y2; x2 = tx; y2 = ty; }
       g.moveTo(x0, y0); g.lineTo(x1, y1); g.lineTo(x2, y2); g.closePath();
     }
-    if (cur >= 0) { g.fill(); g.stroke(); }
+    if (cur >= 0) flush();
     cv.dataset.drawn = String(k);
   }
 
@@ -445,8 +452,10 @@
   }
   function onUp(event) {
     if (!S.drag || S.drag.id !== event.pointerId) return;
+    const moved = S.drag.moved;
     S.drag = null;
     event.currentTarget.classList.remove('is-dragging');
+    if (moved) paint(); // at rest: drawn again with its seams covered
   }
   function onWheel(event) {
     if (!S.mesh) return;
