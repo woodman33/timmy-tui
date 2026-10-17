@@ -1,0 +1,323 @@
+/**
+ * R7 (H153): the project's meshes and recordings as tab 6 (3D & Motion; the 3D part of reference 06) lists them, read once
+ * here for both surfaces: the companion's panel (src/companion/panels/create.ts, drawn by src/companion/client/panel-create.js)
+ * and the Workbench's tab (src/workbench/create-tab.ts). Only readers Timmy already has are used; nothing runs, nothing is
+ * installed, no model is asked:
+ *
+ *   STL           each .stl file of the project (src/project/index.ts listProjectFiles: no dependencies, git, dot folders,
+ *                 links or private files), named so (an STL has no magic number) and its bytes checked when read: measured
+ *                 by Timmy's own STL reader (src/native/stl-readback.ts readbackOf, the reading readStlFile makes) from the
+ *                 whole file, read once through one descriptor (./read-plain.ts: no link, no "..", at most MESH_READ_MAX)
+ *   tessellation  an STL a VoxVision record's view names as a STEP's tessellation (src/vox/tessellate.ts writes them into
+ *                 results/vox/<id>/), when its bytes are the ones the record names: a mesh of the STEP's surfaces within the
+ *                 record's tolerance, never the STEP itself. Nothing is tessellated here (that worker needs OCP).
+ *   recording     each .rrd file: its header facts (./recording.ts readRecording). Its chunks are not decoded, so its
+ *                 entities, frames and time range stay unknown, with why; Rerun's own viewer is named found or needing
+ *                 setup, and never started from here.
+ *
+ * meshView gives one listed mesh's own triangles (the file's float32 corners, nine per triangle) for Timmy's drawing on the
+ * companion: every triangle up to the cap, above it an even, deterministic pick through the file's order (viewPick), with its
+ * counts said. The measurements are always of the whole file, and a drawing measures nothing (DOCTRINE §15).
+ */
+import { createHash } from 'node:crypto';
+import { lstatSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { DOCTRINE_15, num, parseStl, readbackOf, STL_READBACK, topologyWords, volumeWords, type StlReadback } from '../native/stl-readback.js';
+import { listProjectFiles, projectId } from '../project/index.js';
+import type { Receipt } from '../utils/receipts.js';
+import { rerunBindArgs, rerunReady, RERUN_SETUP } from './layers.js';
+import { onPathOf } from './preview.js';
+import { plainRel, readPlainInside } from './read-plain.js';
+import { readRecording, type RecordingFacts } from './recording.js';
+import { VOX_DIR, VOX_ID } from './record.js';
+
+export const MESHES_SCHEMA = 'timmy.meshes/1';
+/** The most meshes and recordings one list names (the rest are counted). */
+export const MESH_LIST_MAX = 48;
+export const RECORDING_LIST_MAX = 24;
+/** The largest mesh or recording read here (as the VoxVision panel reads them). */
+export const MESH_READ_MAX = 64 * 1024 * 1024;
+/** The most triangles the view draws; above it, an even pick of this many (viewPick). */
+export const VIEW_MAX_TRIANGLES = 40_000;
+/** The most of the project's files the list walks (src/project/index.ts listProjectFiles). */
+const WALK_MAX = 10_000;
+/** The most VoxVision records read for their tessellations, and the largest one read. */
+const RECORDS_MAX = 200;
+const RECORD_MAX = 1024 * 1024;
+
+/** What the view is, in the words every surface shows beside it. */
+export const VIEW_WORDS = "Timmy's own view of the file's triangles, drawn on a plain canvas (orthographic, flat shading by each face's normal under one fixed light, painter's order): not a render by Blender or any native tool, and it measures nothing";
+/** Who measured, in words. */
+export const READER_WORDS = `Timmy's own STL reader (${STL_READBACK}), from the whole file: a deterministic computation on its bytes, in the file's own units`;
+
+/** Where a mesh file came from, as far as Timmy's records say. */
+export interface MeshOrigin { provenance: 'not recorded' | 'reconstructed'; words: string }
+
+export interface MeshRow {
+  /** the file, relative to the project */
+  path: string;
+  kind: 'stl' | 'tessellation';
+  bytes: number;
+  origin: MeshOrigin;
+  /** a binary STL's 80-byte header, or an ASCII STL's solid name: the file's own words, declared and not checked */
+  declared?: { words: string; what: string };
+  /** Timmy's own STL reader, of the whole file; absent when it was not measured (`why` says why) */
+  readback?: StlReadback;
+  /** the readback's topology and volume in words (src/native/stl-readback.ts topologyWords, volumeWords) */
+  topology?: string;
+  volume?: string;
+  why?: string;
+  /** what the view draws of it: every triangle, or an even pick of them */
+  view?: { shown: number; total: number; words: string };
+  /** a tessellation: the VoxVision record that names these bytes, what it was made from and how */
+  tessellation?: { record: string; from: string; made_by: string; tolerance: string; sealed: boolean | null };
+}
+
+export interface RecordingRow { path: string; bytes: number; facts?: RecordingFacts; why?: string }
+
+export interface MeshList {
+  schema: typeof MESHES_SCHEMA;
+  meshes: MeshRow[];
+  more: number;
+  recordings: RecordingRow[];
+  recordingsMore: number;
+  /** Rerun's own viewer as this computer has it: found (never run here) or needing setup */
+  viewer: { name: string; state: 'found (installed here, not run)' | 'needs setup'; words: string; setup?: string };
+  /** how much of the project was walked */
+  walk: { files: number; truncated: boolean };
+  cap: number;
+  view: string;
+  reader: string;
+  doctrine: string;
+}
+
+export interface MeshListInput {
+  root: string;
+  /** PATH and TIMMY_RERUN, for Rerun's viewer (found or not; nothing is run) */
+  env: NodeJS.ProcessEnv;
+  /** the runs chain, to say whether a vox receipt sealed a tessellation's bytes; absent: not checked */
+  chain?: readonly Receipt[];
+}
+
+const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+const isStl = (rel: string): boolean => /\.stl$/i.test(rel);
+const isRrd = (rel: string): boolean => /\.rrd$/i.test(rel);
+/** Timmy's own folders (.timmy, .sessions): its records' private files are not the project's meshes. */
+const ownFolder = (rel: string): boolean => rel.startsWith('.');
+const byPath = <T extends { path: string }>(a: T, b: T): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
+/** The project's mesh and recording files, by the rules above (sorted by path). */
+function filesOf(root: string): { stl: Array<{ path: string; bytes: number }>; rrd: Array<{ path: string; bytes: number }>; walked: number; truncated: boolean } {
+  const { files, truncated } = listProjectFiles(root, { max: WALK_MAX });
+  const pick = (want: (rel: string) => boolean) => files.filter((f) => want(f.rel) && !ownFolder(f.rel)).map((f) => ({ path: f.rel, bytes: f.bytes })).sort(byPath);
+  return { stl: pick(isStl), rrd: pick(isRrd), walked: files.length, truncated };
+}
+
+/**
+ * The view's pick of a mesh's triangles: every one up to `cap`; above it, triangle ⌊k × total / cap⌋ for k = 0 … cap − 1, an
+ * even spread through the file's order, the same every time.
+ */
+export function viewPick(total: number, cap = VIEW_MAX_TRIANGLES): number[] {
+  if (total <= cap) return Array.from({ length: total }, (_, k) => k);
+  return Array.from({ length: cap }, (_, k) => Math.floor((k * total) / cap));
+}
+
+function viewOf(total: number, cap: number): MeshRow['view'] {
+  if (total <= cap) return { shown: total, total, words: `all ${total} triangle${total === 1 ? '' : 's'}` };
+  return { shown: cap, total, words: `showing ${cap} of ${total} triangles: an even pick through the file's order (triangle ⌊k × ${total} / ${cap}⌋ for k = 0 … ${cap - 1}); the measurements are of all ${total}` };
+}
+
+/** A binary STL's header or an ASCII STL's solid name, as the file says it (printable characters only). */
+function declaredOf(body: Buffer, format: 'binary' | 'ascii'): MeshRow['declared'] {
+  if (format === 'binary') {
+    const words = [...body.subarray(0, 80)].map((c) => (c >= 32 && c < 127 ? String.fromCharCode(c) : '.')).join('').replace(/\.+$/, '').trim();
+    return words ? { words, what: 'its 80-byte header' } : undefined;
+  }
+  const m = /^\s*solid[ \t]*([^\r\n]*)/i.exec(body.subarray(0, 512).toString('latin1'));
+  const words = (m?.[1] ?? '').replace(/[^\x20-\x7e]/g, '.').trim().slice(0, 200);
+  return words ? { words, what: 'its solid\'s name' } : undefined;
+}
+
+/** A file's identity now (device, inode, size and times), or null when it is not a regular file reached without a link. */
+function sigOf(root: string, rel: string): string | null {
+  try {
+    const st = lstatSync(join(root, rel), { bigint: true });
+    return st.isFile() ? `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}` : null;
+  } catch { return null; }
+}
+
+/** What a file was measured as, kept while its identity is unchanged (the list is read every few seconds). */
+interface Measured { sha256?: string; readback?: StlReadback; declared?: MeshRow['declared']; why?: string }
+const measured = new Map<string, { sig: string; m: Measured }>();
+const recorded = new Map<string, { sig: string; r: { facts?: RecordingFacts; why?: string } }>();
+const keep = <V>(map: Map<string, V>, key: string, value: V): void => { if (map.size > 500) map.clear(); map.set(key, value); };
+
+const notRead = (why: string, words: string): string => (why === 'too-large' ? `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is read here` : words);
+
+function measure(root: string, rel: string): Measured {
+  const key = `${root}\0${rel}`;
+  const sig = sigOf(root, rel);
+  const known = measured.get(key);
+  if (sig && known && known.sig === sig) return known.m;
+  const read = readPlainInside(root, rel, MESH_READ_MAX);
+  let m: Measured;
+  if (!read.ok) m = { why: `not measured: ${notRead(read.why, read.words)}` };
+  else {
+    const sha = sha256(read.body);
+    const r = readbackOf(read.body, rel, sha);
+    m = r.ok ? { sha256: sha, readback: r.readback, declared: declaredOf(read.body, r.readback.format) } : { sha256: sha, why: `not measured: ${r.error}` };
+  }
+  if (sig) keep(measured, key, { sig, m });
+  return m;
+}
+
+function recordingOf(root: string, rel: string): { facts?: RecordingFacts; why?: string } {
+  const key = `${root}\0${rel}`;
+  const sig = sigOf(root, rel);
+  const known = recorded.get(key);
+  if (sig && known && known.sig === sig) return known.r;
+  const read = readPlainInside(root, rel, MESH_READ_MAX);
+  let r: { facts?: RecordingFacts; why?: string };
+  if (!read.ok) r = { why: notRead(read.why, read.words) };
+  else { const f = readRecording(read.body); r = 'error' in f ? { why: f.error } : { facts: f }; }
+  if (sig) keep(recorded, key, { sig, r });
+  return r;
+}
+
+type Obj = Record<string, unknown>;
+const obj = (v: unknown): Obj | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Obj : undefined);
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** A tessellation a VoxVision record's view names: its record, the STEP it was made from, how, and the bytes it names. */
+interface Named { record: string; recordFile: string; recordSha: string; path: string; sha256: string; from: string; made_by: string; tolerance: string }
+
+/** The tessellations the project's VoxVision records name (results/vox/v*.json, views[].derived[]), by mesh path. */
+function tessellationsOf(root: string): Map<string, Named> {
+  const out = new Map<string, Named>();
+  let names: string[] = [];
+  try { names = readdirSync(join(root, VOX_DIR)).filter((f) => f.endsWith('.json') && VOX_ID.test(f.slice(0, -5))).sort().slice(-RECORDS_MAX); } catch { return out; }
+  for (const f of names) {
+    const file = `${VOX_DIR}/${f}`;
+    const read = readPlainInside(root, file, RECORD_MAX);
+    if (!read.ok) continue;
+    let rec: Obj | undefined;
+    try { rec = obj(JSON.parse(read.body.toString('utf8'))); } catch { continue; }
+    if (!rec || rec.schema !== 'timmy.vox/1') continue;
+    const id = f.slice(0, -5);
+    for (const v of Array.isArray(rec.views) ? rec.views : []) {
+      for (const x of Array.isArray(obj(v)?.derived) ? obj(v)!.derived as unknown[] : []) {
+        const d = obj(x);
+        const from = obj(d?.from);
+        const tol = obj(d?.tolerance);
+        const path = str(d?.path);
+        if (!d || d.kind !== 'tessellation' || !path || !path.startsWith(`${VOX_DIR}/${id}/`) || !isStl(path) || typeof d.sha256 !== 'string' || !HEX64.test(d.sha256) || !str(from?.path)) continue;
+        const tolerance = tol && finite(tol.linear_deflection_mm) && finite(tol.angular_deflection_rad)
+          ? `${num(tol.linear_deflection_mm)} mm (linear deflection) and ${num(tol.angular_deflection_rad)} rad (angular)` : 'a tolerance the record does not say';
+        out.set(path, { record: id, recordFile: file, recordSha: sha256(read.body), path, sha256: d.sha256, from: str(from?.path)!, made_by: str(d.made_by) ?? 'a worker the record does not name', tolerance });
+      }
+    }
+  }
+  return out;
+}
+
+/** The newest vox receipt of this project that seals the record and these bytes of the mesh, if any. */
+function sealOf(chain: readonly Receipt[], pid: string, n: Named): Receipt | undefined {
+  for (let k = chain.length - 1; k >= 0; k -= 1) {
+    const r = chain[k];
+    if (r.kind !== 'vox' || r.project_id !== pid || r.outputs?.[0]?.path !== n.recordFile) continue;
+    if (r.outputs.some((o) => o.path === n.path && o.sha256 === n.sha256)) return r;
+  }
+  return undefined;
+}
+/** A receipt's short id as /receipts prints it (the store writes sha256_<hex>). */
+const shortOf = (r: Receipt): string => (r.hash ?? '').replace(/^sha256[:_]/, '').slice(0, 8);
+
+/** The project's meshes (measured) and recordings (their header facts), and Rerun's viewer as this computer has it. */
+export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number } = {}): MeshList {
+  const max = o.max ?? MESH_LIST_MAX;
+  const cap = o.cap ?? VIEW_MAX_TRIANGLES;
+  const found = filesOf(i.root);
+  const named = found.stl.some((f) => f.path.startsWith(`${VOX_DIR}/`)) ? tessellationsOf(i.root) : new Map<string, Named>();
+  const pid = i.chain ? projectId(i.root) : '';
+
+  const meshes = found.stl.slice(0, max).map((f): MeshRow => {
+    const m = measure(i.root, f.path);
+    const n = named.get(f.path);
+    let origin: MeshOrigin = { provenance: 'not recorded', words: "where the file came from is not recorded: Timmy's records do not say what made it" };
+    let tessellation: MeshRow['tessellation'];
+    if (n && m.sha256 === n.sha256) {
+      const seal = i.chain ? sealOf(i.chain, pid, n) : undefined;
+      const sealed = i.chain ? Boolean(seal) : null;
+      tessellation = { record: n.record, from: n.from, made_by: n.made_by, tolerance: n.tolerance, sealed };
+      origin = {
+        provenance: 'reconstructed',
+        words: `a tessellation of ${n.from} by ${n.made_by}, within ${n.tolerance}: a mesh of the STEP's surfaces, not the STEP itself; VoxVision record ${n.record} names these bytes${sealed === null ? ' (no receipt was checked here)' : seal ? `, and vox receipt ${shortOf(seal)} sealed them` : ', but no vox receipt of this project seals them'}`,
+      };
+    } else if (n) {
+      origin = { provenance: 'not recorded', words: `VoxVision record ${n.record} names ${n.path} as a tessellation of ${n.from}, but these are not the bytes it names (sha256 ${m.sha256 ? m.sha256.slice(0, 12) : 'not read'} now): where they came from is not recorded` };
+    }
+    const r = m.readback;
+    return {
+      path: f.path, kind: tessellation ? 'tessellation' : 'stl', bytes: r?.bytes ?? f.bytes, origin,
+      ...(m.declared ? { declared: m.declared } : {}),
+      ...(r ? { readback: r, topology: topologyWords(r), volume: volumeWords(r), view: viewOf(r.triangles, cap) } : { why: m.why ?? 'not measured' }),
+      ...(tessellation ? { tessellation } : {}),
+    };
+  });
+
+  const recordings = found.rrd.slice(0, RECORDING_LIST_MAX).map((f): RecordingRow => {
+    const r = recordingOf(i.root, f.path);
+    return { path: f.path, bytes: r.facts?.bytes ?? f.bytes, ...(r.facts ? { facts: r.facts } : {}), ...(r.why ? { why: r.why } : {}) };
+  });
+
+  const rr = rerunReady({ env: i.env, onPath: onPathOf(i.env), root: i.root });
+  const viewer: MeshList['viewer'] = rr.ready
+    ? { name: "Rerun's viewer", state: 'found (installed here, not run)', words: `Rerun's viewer is found here (${rr.via}): found is not run, and this tab runs nothing; \`rerun ${rerunBindArgs().join(' ')} <file>\` in a terminal opens a recording in Rerun's own window, listening on this computer only` }
+    : { name: "Rerun's viewer", state: 'needs setup', words: `Rerun's viewer needs setup here: ${rr.why}`, setup: rr.setup ?? RERUN_SETUP };
+
+  return {
+    schema: MESHES_SCHEMA, meshes, more: Math.max(0, found.stl.length - max), recordings, recordingsMore: Math.max(0, found.rrd.length - RECORDING_LIST_MAX),
+    viewer, walk: { files: found.walked, truncated: found.truncated }, cap, view: VIEW_WORDS, reader: READER_WORDS, doctrine: DOCTRINE_15,
+  };
+}
+
+export type MeshViewAnswer =
+  | { ok: true; path: string; body: Buffer; shown: number; total: number; sha256: string }
+  | { ok: false; status: 400 | 403 | 404 | 409 | 413 | 422; error: string };
+
+/**
+ * One mesh the list names, as the view draws it: its triangles' corners as little-endian float32, nine per triangle (every
+ * triangle up to `cap`, else viewPick's), read through one descriptor. Anything the list does not name as this project's
+ * mesh is refused with why; `sha`, when given, must be the bytes' sha256 now (the list's), else 409.
+ */
+export function meshView(root: string, rel: string, o: { cap?: number; sha?: string } = {}): MeshViewAnswer {
+  if (typeof rel !== 'string' || rel.length > 512 || !plainRel(rel)) return { ok: false, status: 400, error: 'Refused: a mesh is named by its path inside the project, without "..", "." or a leading "/".' };
+  if (!filesOf(root).stl.some((f) => f.path === rel)) return { ok: false, status: 404, error: `Refused: ${rel} is not a mesh of this project (tab 6 lists its STL files and tessellations), so it is not served.` };
+  const read = readPlainInside(root, rel, MESH_READ_MAX);
+  if (!read.ok) {
+    switch (read.why) {
+      case 'link': case 'not-file': case 'changed': return { ok: false, status: 403, error: `Refused: ${rel} ${read.words.replace(/^it /, '')}, so it is not served.` };
+      case 'too-large': return { ok: false, status: 413, error: `Not served: ${rel} is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is read here.` };
+      default: return { ok: false, status: 404, error: `Not served: ${rel} (${read.words}).` };
+    }
+  }
+  const sha = sha256(read.body);
+  if (o.sha !== undefined && o.sha !== sha) return { ok: false, status: 409, error: `Not served: ${rel} changed since the list was read (sha256 ${sha.slice(0, 12)} now): read the list again.` };
+  const r = readbackOf(read.body, rel, sha);
+  if (!r.ok) return { ok: false, status: 422, error: `Not drawn: ${rel} is ${r.error}.` };
+  // the corners, from the bytes just measured (readbackOf keeps no triangles; parseStl is the reader it uses)
+  const tris = trianglesOf(read.body);
+  if (!tris) return { ok: false, status: 422, error: `Not drawn: ${rel} could not be read as triangles.` };
+  const total = tris.length / 9;
+  const pick = viewPick(total, o.cap ?? VIEW_MAX_TRIANGLES);
+  const body = Buffer.alloc(pick.length * 36);
+  pick.forEach((t, k) => { for (let j = 0; j < 9; j += 1) body.writeFloatLE(tris[t * 9 + j], k * 36 + j * 4); });
+  return { ok: true, path: rel, body, shown: pick.length, total, sha256: sha };
+}
+
+function trianglesOf(body: Buffer): Float32Array | null {
+  const p = parseStl(body);
+  return 'error' in p ? null : p.triangles;
+}
