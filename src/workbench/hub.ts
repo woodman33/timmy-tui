@@ -575,7 +575,7 @@ export function previewView(c: ViewCtx): View {
   lines.push(blank);
   // R5 (H131; the QA of e7f853e, defect 2): the companion says these in words too; only Studio draws (its canvas). R6 lead (H146's
   // finding): the companion draws images now (Home's newest, tab 5's observations, a run's image outputs); 3D only as views
-  lines.push(...para('A terminal says these in words. The companion (c) draws them in a browser page: Home the newest images, tab 5 an observation with what was measured over it, a run\'s detail its image outputs; Studio (s) draws the canvas. No Timmy surface draws interactive 3D yet.'));
+  lines.push(...para('A terminal says these in words. The companion (c) draws them in a browser page: Home the newest images, tab 5 an observation with what was measured over it, a run\'s detail its image outputs, tab 6 the project\'s meshes in a view you can turn; Studio (s) draws the canvas.'));
   return { lines, items: [] };
 }
 
