@@ -47,7 +47,12 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-function workbench(name: string): Controller {
+/** R7 lead: FAKE (test) native tools for tab 6's list (the ids src/workbench/nav.ts FAMILY_ROWS puts there), each "needs setup". */
+const FAKE_TOOLS = ['c4dpy', 'blender', 'openscad', 'freecad', 'unreal', 'recipe-tray', 'aerender', 'afterfx'].map((id) => ({
+  id, kind: 'tool' as const, name: `FAKE (test) ${id}`, rung: 'needs setup' as const, detail: `FAKE (test): ${id} is not found here`, setup: `FAKE (test): install ${id}, then check again`,
+}));
+
+function workbench(name: string, tools: typeof FAKE_TOOLS = []): Controller {
   vi.stubEnv('TIMMY_HOME', home);
   vi.stubEnv('TIMMY_SETTINGS_DIR', join(box, 'settings'));
   vi.stubEnv('OPENROUTER_API_KEY', '');
@@ -67,7 +72,7 @@ function workbench(name: string): Controller {
     producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: none' }), openChat: async () => ({ ok: false, why: 'FIXTURE: no chat session in this test' }) },
     companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started in this test'); } }),
     studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(box, 'store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) }),
-    capabilities: async () => [], tickMs: 100, slowMs: 3_600_000,
+    capabilities: async () => tools, tickMs: 100, slowMs: 3_600_000,
   });
   opened.push(c);
   return c;
@@ -152,8 +157,8 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
   // runs on tab 7), the page opened at its first selectable item and the box went above the window: tab 6 at 160x45 showed
   // its box from its third row, and tab 7 at 100x30 none of it. The page now opens at its top; a cursor moved down the list
   // is kept in view as before.
-  it('an unfinished tab whose page is full still opens with its box in view: tab 6 with a mesh, tab 7 with ended runs, at 160x45 and 100x30; a moved cursor is kept in view', async () => {
-    const c = workbench('full-pages');
+  it('an unfinished tab whose page is full still opens with its box in view: tab 6 with a mesh, tab 7 with ended runs, at 160x45 and 100x30, also with the keyboard in the body; a moved cursor is kept in view', async () => {
+    const c = workbench('full-pages', FAKE_TOOLS);
     const root = join(projectsHome(), 'full-pages');
     expect(existsSync(root)).toBe(true);
     mkdirSync(join(root, 'refs'), { recursive: true });
@@ -168,7 +173,7 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     c.start();
     await until('the frame', () => c.data.frame);
     // each look opens the tab afresh (from Home), so a second 6 never turns tab 6 to its Motion view
-    await until('the mesh listed', () => { c.key('1', {}); c.key('6', {}); return /MESHES IN THIS PROJECT \(1\)/.test(center(c, 160, 45).text); }, 15_000);
+    await until('the mesh and the tools listed', () => { c.key('1', {}); c.key('6', {}); const t = center(c, 160, 45).text; return /MESHES IN THIS PROJECT \(1\)/.test(t) && c.data.caps.state === 'ready'; }, 15_000);
     await until('the ended runs', () => { c.key('1', {}); c.key('7', {}); return /NEWEST ENDED RUNS \(2\)/.test(center(c, 160, 45).text); }, 15_000);
     for (const [cols, rows] of [[160, 45], [100, 30]] as const) {
       for (const key of ['6', '7']) {
@@ -181,13 +186,19 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
         expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain(squash(`Works now: ${t.unfinished!.works}`).slice(0, 60));
       }
     }
-    // tab 7 at 100x30 with the keyboard in its body: the box stays as far as the first item's first row allows, and a cursor
-    // moved down the list is in view
-    c.key('7', {});
+    // with the keyboard in the body (tab 6 at 120x40, as the rehearsal had it; tab 7 at 100x30): the page still opens at its
+    // top, and a cursor moved down the list is in view
+    c.key('1', {});
+    c.key('6', {});
     for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) c.key('', { tab: true });
     expect(c.ui.focus).toBe('center');
+    expect(c.frame(120, 40).regions.center!.scroll, 'tab 6 at 120x40 with the keyboard in its body').toBe(0);
+    expect(center(c, 120, 40).text).toContain('◌ Unfinished');
+    c.key('1', {});
+    c.key('7', {});
+    expect(c.ui.focus).toBe('center');
     const opened = c.frame(100, 30).regions.center!;
-    expect(opened.scroll, 'the body as it opens with the keyboard').toBeLessThanOrEqual(Math.max(0, opened.items[0].line - opened.height + 1));
+    expect(opened.scroll, 'tab 7 at 100x30 with the keyboard in its body').toBe(0);
     c.key('', { downArrow: true });
     const moved = c.frame(100, 30).regions.center!;
     const cur = c.ui.cursor[moved.list] ?? 0;
