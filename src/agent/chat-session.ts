@@ -202,7 +202,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     if (key !== undefined) { const d = keyDecision(o.project.root, key); if (!d.send) return refused(d.lines); }
     if (!typed) return refused(['Not sent: the message is empty.']);
     if (typed.startsWith('/')) return refused(slashRefusal(typed, o.surface));
-    if (hooks.signal?.aborted) return { status: 'cancelled', text: '', lines: ['Cancelled before anything was sent.'], sent: false, costWords: NO_REQUEST_COST };
+    // R7 lead (H148's N5; src/contracts/stop-words.ts: a chat turn a person stopped is stopped, never cancelled)
+    if (hooks.signal?.aborted) return { status: 'cancelled', text: '', lines: ['Stopped before anything was sent.'], sent: false, costWords: NO_REQUEST_COST };
     refreshKey();
     const now = routeNow();
     if (!now.state.ready) return refused(now.state.refusal?.length ? [...now.state.refusal] : ['Not sent: the chat has no route to a model.', 'Nothing was sent to any model.']);
@@ -293,7 +294,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}) };
     if (status === 'answered') return { status, text: s.answer, ...(notices.length ? { lines: notices } : {}), ...base };
     if (status === 'cancelled') {
-      return { status, text: s.streamed, lines: [`Cancelled${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
+      // R7 lead (H148's N5: the Workbench's notice read "Stopped: Cancelled after the request went out"): the turn's words
+      return { status, text: s.streamed, lines: [`Stopped${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
     }
     const lines = errorLines(s.error);
     if (!sent && !lines.some((l) => /nothing was sent/i.test(l))) lines.push('Nothing was sent to any model.');
