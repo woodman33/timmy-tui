@@ -22,9 +22,11 @@ import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, re
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { busPath } from '../bus/index.js';
 import { JobManager, type JobRecord } from '../jobs/index.js';
+import { JOB_CANCELLED, receiptSubjectWords, TURN_STOPPED } from '../contracts/stop-words.js';
 import { readFleetView } from '../fleet/service.js';
 import { listOperationRecords, readOperationRecord, type OperationRecord } from '../ops/operations.js';
 import { projectId } from '../project/index.js';
+import { chatTurnOf } from '../repl/seal.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { formatCostUsd, readChain, receiptsPath, verifyChain, verifyReceiptIn, type Receipt, type VerifyResult } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
@@ -226,9 +228,13 @@ function tailOf(file: string, n: number): { lines: string[] } | { why: string } 
   }
 }
 
-const receiptStatus = (s: Receipt['status']): LogEvent['status'] => (
-  s === 'failed' ? { word: 'failed', tone: 'failure' } : s === 'denied' ? { word: 'denied', tone: 'failure' }
-    : s === 'cancelled' ? { word: 'stopped', tone: 'text' } : s === 'surfaced' ? { word: 'surfaced', tone: 'quiet' } : { word: 'sealed', tone: 'text' });
+// R7 (H150; H148's N5): the one table's words (src/contracts/stop-words.ts): a chat turn's cancelled receipt is a turn
+// "stopped"; any other, a job's among them, "cancelled" (before, every one was "stopped"). The receipt keeps its sealed status.
+const receiptStatus = (r: Pick<Receipt, 'status' | 'kind' | 'subject'>): LogEvent['status'] => {
+  const s = r.status;
+  return s === 'failed' ? { word: 'failed', tone: 'failure' } : s === 'denied' ? { word: 'denied', tone: 'failure' }
+    : s === 'cancelled' ? { word: chatTurnOf(r) ? TURN_STOPPED : JOB_CANCELLED, tone: 'text' } : s === 'surfaced' ? { word: 'surfaced', tone: 'quiet' } : { word: 'sealed', tone: 'text' };
+};
 
 const opStatus = (s: OperationRecord['state']): LogEvent['status'] => (
   s === 'failed' || s === 'refused' || s === 'interrupted' ? { word: s, tone: 'failure' } : s === 'differs' ? { word: s, tone: 'attention' } : { word: s, tone: 'text' });
@@ -299,8 +305,9 @@ export function readLogs(i: LogsReadInput): LogsData {
     taken += 1;
     const line = lines.receipt.get(r.hash);
     all.push({
-      key: `rc:${r.hash.slice(7, 23)}`, source: 'receipt', at: r.ts, seq: n + 1, tag: r.kind || 'receipt', summary: scrub(r.subject ?? ''),
-      status: receiptStatus(r.status), ...(str(r.operation_id) ? { operation: r.operation_id } : {}), ...(r.job?.id ? { job: r.job.id } : {}), hash: r.hash,
+      // R7 (H150; H148's N5): a stopped turn's subject in the table's words ("repl · stopped (asked from …)", never "cancelled")
+      key: `rc:${r.hash.slice(7, 23)}`, source: 'receipt', at: r.ts, seq: n + 1, tag: r.kind || 'receipt', summary: scrub(receiptSubjectWords(r)),
+      status: receiptStatus(r), ...(str(r.operation_id) ? { operation: r.operation_id } : {}), ...(r.job?.id ? { job: r.job.id } : {}), hash: r.hash,
       raw: { where: line ? `${store}:${line.n}` : store, text: scrub(line?.text ?? compact(r)).slice(0, RAW_MAX) },
     });
   }
@@ -453,7 +460,7 @@ function eventRows(e: LogEvent, w: number, o: { selected: boolean; linked: boole
   const { g } = o;
   const sel = o.selected ? { selected: true } : {};
   const all = (l: Line): Line => (o.selected ? onBar(l) : l);
-  const mark: Seg = o.selected ? S(`${g.cursor} `, 'action', sel) : o.linked ? S(`${g.dot} `, 'secondary') : S('  ');
+  const mark: Seg = o.selected ? S(`${g.cursor} `, 'accent', sel) : o.linked ? S(`${g.dot} `, 'secondary') : S('  ');
   const seq = e.seq !== undefined ? `#${e.seq}` : '';
   const status: Seg[] = e.status.word ? [S(statusText(e.status, g), toneRole(e.status.tone), sel)] : [];
   const out: Line[] = [];
@@ -535,7 +542,7 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
   const started = job ? Date.parse(job.row.startedAt) : Number.NaN;
   // .intent: the operation's request, from its record
   const intent: Stage = op?.record
-    ? { name: 'intent', label: '.intent', role: 'action', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
+    ? { name: 'intent', label: '.intent', role: 'accent', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
     : op?.unreadable
       ? { name: 'intent', label: '.intent', role: 'failure', note: opId, rows: [[S(`${g.fail} its record could not be read`, 'failure')], [S(op.why ?? '', 'secondary')]] }
       : notRecorded('intent', '.intent', `no .timmy/operations/${opId}.json in this project`);
@@ -552,7 +559,7 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
     const what = p.prediction ? `${p.prediction.doc} › ${p.prediction.block}: ${p.prediction.order.join(` ${g.arrow} `)}`
       : p.fleet ? `${p.fleet.workers} workers, ${p.fleet.isolation} on ${p.fleet.backend}${p.fleet.simulation ? ' (simulation)' : ''}` : p.subject;
     predict = {
-      name: 'predict', label: '.predict', role: 'action', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
+      name: 'predict', label: '.predict', role: 'accent', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
       rows: [order, verdictRow(receiptVerdict(d, p.hash), g), [S(what, 'text')]],
     };
   }
@@ -603,10 +610,10 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
       : notRecorded('receipt', '.receipt', 'no receipt of this operation is sealed');
   } else {
     const v = receiptVerdict(d, own.hash);
-    const st = receiptStatus(own.status);
+    const st = receiptStatus(own);
     receipt = {
       name: 'receipt', label: '.receipt', role: v.ok ? 'live' : 'failure', note: `#${d.seq.get(own.hash) ?? '?'}`, hash: own.hash,
-      rows: [[S(`${own.kind} `, 'text'), S(statusText(st, g), toneRole(st.tone)), S(` ${g.sep} ${clock(own.ts)}`, 'secondary')], verdictRow(v, g), [S(own.subject, 'text')]],
+      rows: [[S(`${own.kind} `, 'text'), S(statusText(st, g), toneRole(st.tone)), S(` ${g.sep} ${clock(own.ts)}`, 'secondary')], verdictRow(v, g), [S(receiptSubjectWords(own), 'text')]],
     };
   }
   return [intent, predict, run, receipt];

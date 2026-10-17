@@ -102,7 +102,8 @@ describe('tab 5: the pipeline, the tools and the records', () => {
       expect(all).toMatch(/needs setup: Look · STEP readback/);
       expect(all).toMatch(/Rerun viewer/);
       // .intent amber (an intent), .receipt plain: no green for a stage (nothing was checked to draw it)
-      expect(rolesOf(v.lines, /^\.intent$/)).toEqual(['action']);
+      // (R7 H150: .intent amber, role accent: B10)
+      expect(rolesOf(v.lines, /^\.intent$/)).toEqual(['accent']);
       expect(rolesOf(v.lines, /^\.receipt$/)).toEqual(['strong']);
       // the layers VoxVision has no use of yet are no stage (they are in the tools list, needing setup)
       expect(v.lines.slice(0, 3).map(plain).join(' ')).not.toMatch(/Viser|FiftyOne/);

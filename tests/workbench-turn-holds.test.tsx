@@ -137,7 +137,7 @@ function replTurn(p: { name: string; root: string }, asked: Array<string | null>
 }
 
 describe('the Workbench sees another process\'s chat turn at once (R6 H141; the interaction review of a77d80d, defect 3)', () => {
-  it('a turn held by another surface shows in the run line and Stop current within half a second, with no frame reading in between; x asks it to stop; its end shows within half a second of its hold let go', async () => {
+  it('a turn held by another surface shows in the run line and Stop current within half a second, with no frame reading in between; x asks first, then y asks it to stop; its end shows within half a second of its hold let go', async () => {
     const p = trayProject('holds-watch');
     const c = workbench(p);
     c.start();
@@ -151,14 +151,17 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     await until('the run line naming the REPL\'s turn', () => top(c).includes('run: 1 running (the chat turn in the REPL)'), 2000, () => top(c));
     const seenIn = Date.now() - taken;
     expect(seenIn, `the run line named the turn ${seenIn} ms after its hold was written`).toBeLessThan(500);
-    expect(top(c)).toContain('[x] Stop current: the chat turn in the REPL (x asks it to stop, as Ctrl+C in the REPL does)');
+    expect(top(c)).toContain('[x] Stop current: the chat turn in the REPL (Ctrl+C in the REPL stops it there; x here asks you first)');
     // the frame, read again since (its log and actions follow, at most once a second), names the same turn by its identity
     await until('the frame naming the turn', () => c.data.frame?.activity.chatTurn?.id === turn.id, 5000, () => screen(c));
     expect(c.data.frame!.revision).not.toBe(framed);
 
-    // x: the turn is asked to stop by its identity; the FAKE REPL ends it, seals its receipt and lets its hold go
+    // x: it asks first (R7 H150), then y: the turn is asked to stop by its identity; the FAKE REPL ends it, seals its receipt
+    // and lets its hold go
     await c.stop();
-    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    expect(c.ui.overlay).toMatchObject({ kind: 'confirm-stop', turn: { id: turn.id, where: 'the REPL' } });
+    c.key('y', {});
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x, then y): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
     await until('the stop answered by the REPL', () => asked.length === 1, 5000);
     expect(asked).toEqual(['workbench']);
     const released = Date.now();
@@ -168,7 +171,7 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     expect(c.data.turns?.find((t) => t.turn === turn.id)).toMatchObject({ surface: 'repl', state: 'stopped', stoppedBy: 'workbench' });
   }, 30_000);
 
-  it('x before the watch has looked: the holds are read before x answers, so a turn just held is asked to stop, never "nothing runs"; with no turn held x says nothing runs; a turn the screen named that has ended since is asked, and x says it had ended', async () => {
+  it('x before the watch has looked: the holds are read before x answers, so a turn just held is the one x asks about (then y asks it to stop), never "nothing runs"; with no turn held x says nothing runs; a turn the screen named that has ended since is asked, and x says it had ended', async () => {
     const p = trayProject('holds-x');
     const c = workbench(p, { watch: false });
     c.start();
@@ -181,14 +184,18 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     // nothing has looked since: the screen still says idle
     expect(top(c)).toContain('run: idle');
     await c.stop();
-    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    expect(c.ui.overlay).toMatchObject({ kind: 'confirm-stop' });
+    c.key('y', {});
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x, then y): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
     await until('the stop answered by the REPL', () => asked.length === 1, 5000);
     expect(asked).toEqual(['workbench']);
 
     // a turn the screen names (read by x a moment ago) that ends before the next x: x asks it, and says it had ended
     const second = replTurn(p, asked, false);
     await c.stop();
-    expect(c.ui.flash?.text).toMatch(/^Stop asked of the turn being answered in the REPL \(x\)/);
+    expect(c.ui.overlay).toMatchObject({ kind: 'confirm-stop', turn: { id: second.id } });
+    c.key('', { escape: true });
+    expect(c.ui.flash?.text).toBe('Kept: the chat turn in the REPL goes on (nothing was asked of it).');
     expect(top(c)).toContain('run: 1 running (the chat turn in the REPL)');
     second.release();
     await c.stop();
@@ -198,7 +205,7 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     expect(c.ui.flash?.text).toBe('Stop current: nothing runs in holds-x.');
   }, 30_000);
 
-  it('Enter on Stop the turn reads the holds first: drawn not available a moment before (no reading had seen the turn), it asks the turn to stop', async () => {
+  it('Enter on Stop the turn reads the holds first: drawn not available a moment before (no reading had seen the turn), it names where the turn is done and asks nothing of it (R7 H150: Enter never stops another surface\'s turn)', async () => {
     const p = trayProject('holds-enter');
     const c = workbench(p, { watch: false });
     c.start();
@@ -208,17 +215,17 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
     expect(stopAction()).toMatchObject({ enabled: false });
     const asked: Array<string | null> = [];
     replTurn(p, asked);
-    // the bar as drawn before any reading saw the turn: Stop the turn not available; Enter on it reads the holds, then asks
+    // the bar as drawn before any reading saw the turn: Stop the turn not available; Enter on it reads the holds, then says
+    // the turn is the REPL's, stopped there, and asks nothing of it
     const drawn = stopAction()!;
     expect(drawn.enabled).toBe(false);
     await c.runAction(drawn);
-    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (Enter): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
-    await until('the stop answered by the REPL', () => asked.length === 1, 5000);
-    // the FAKE REPL has let its hold go: Enter again stops nothing (the bar may still name the turn that just ended: it is
-    // asked by its identity and refused, as x is), and nothing more is asked of the REPL
+    expect(c.ui.flash?.text).toBe('3 Stop the turn is done in the REPL (Ctrl+C in the REPL that sent it): Enter here does not stop it. x asks you first, then asks it to stop there.');
+    // the bar now names the turn, done in the REPL; Enter on it again asks nothing
+    expect(stopAction()).toMatchObject({ enabled: true, primary: true, doneIn: 'repl', away: 'the REPL' });
     await c.runAction(stopAction()!);
-    expect(c.ui.flash?.text).toMatch(/^Nothing stopped \(Enter\): that chat turn is not being answered now \(it ended, or it was never this project's\)\.$|^3 Stop the turn: not now: only while a turn runs$|^No chat turn is being answered: nothing to stop\.$/);
-    expect(asked).toEqual(['workbench']);
+    await sleep(300);
+    expect(asked).toEqual([]);
   }, 30_000);
 
   it('the holds read at once without the process table (quickTurns): a fresh hold of a process that runs is its writer\'s; an older one asks the process table (null); a hold whose process has ended is no turn; the watch proves a held turn by the table only every few seconds', async () => {

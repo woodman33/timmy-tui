@@ -62,8 +62,12 @@ export function pageOf(ws: WorkspaceId): TabId {
   return (others.find((t) => t.workbench[0] === ws) ?? others.find((t) => t.workbench.includes(ws)) ?? TABS[0]).id;
 }
 
-/** The frame's tabs, or the contract's (no waiting count) until the frame is first read. */
-export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0 }));
+/** The frame's tabs, or the contract's (no waiting count) until the frame is first read (R7 H150: with their `unfinished`, the
+ *  same object the frame carries). */
+export const frameTabs = (f: WorkspaceFrame | undefined): WorkspaceFrame['tabs'] => f?.tabs ?? TABS.map((t) => ({ id: t.id, key: t.key, label: t.label, refs: t.refs, waiting: 0, ...(t.unfinished ? { unfinished: t.unfinished } : {}) }));
+
+/** R7 (H150; the operator's order of 2026-10-16): the mark of a tab that is unfinished (its word beside it where it fits). */
+export const unfinishedMark = (g: Pick<Glyphs, 'unicode'>): string => (g.unicode ? '◌' : '~');
 
 /** A tab's short label: the first word of the frame's label ("Chat & Intent": Chat). */
 export const shortLabel = (label: string): string => label.split(/\s+/)[0] ?? label;
@@ -144,8 +148,9 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
     tabs.forEach((t, i) => {
       const on = t.id === active;
       const label = labelIn(t, form);
-      const mark = t.waiting > 0 ? g.warn : ' ';
-      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, 'attention')];
+      // (R7 H150: an unfinished tab's ◌ in the cell every tab keeps, where nothing waits there: what waits on you comes first)
+      const mark = t.waiting > 0 ? g.warn : t.unfinished ? unfinishedMark(g) : ' ';
+      const segs: Seg[] = [S(`${on ? '[' : ' '}${half}${label}${half}${on ? ']' : ' '}`, on ? 'focus' : 'text'), S(mark, t.waiting > 0 ? 'attention' : 'secondary')];
       const w = lineCells(segs);
       hits.push({ x0: x, x1: x + w - 1, y0: 0, y1: 0, page: t.id });
       line.push(...segs);
@@ -157,7 +162,11 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
   }
   const top: Line = [S(' '.repeat(prefixW))];
   const mid: Line = [...prefixSegs];
-  const bot: Line = [S(' '.repeat(prefixW))];
+  // R7 (H150; the operator's order of 2026-10-16): the unfinished tabs' mark, said in words once under TIMMY where it fits
+  // (each such tab's box carries the mark in its bottom edge, and the word too where its box has room)
+  const legend = `${unfinishedMark(g)} unfinished`;
+  const legendFits = tabs.some((t) => t.unfinished) && prefixW >= lineCells([S(legend)]) + 1;
+  const bot: Line = [legendFits ? S(legend.padEnd(prefixW), 'secondary') : S(' '.repeat(prefixW))];
   let x = prefixW;
   tabs.forEach((t, i) => {
     const on = t.id === active;
@@ -176,7 +185,11 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
       ? [S(`${b.tl}${b.h.repeat(before)}`, edge), S(badge, 'attention'), S(`${b.h.repeat(Math.max(0, inner - before - badgeW))}${b.tr}`, edge)]
       : [S(`${b.tl}${b.h.repeat(inner)}${b.tr}`, edge)]));
     mid.push(S(b.v, edge), S(`${half}${label}${half}`, on ? 'focus' : 'text'), S(b.v, edge));
-    bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
+    if (t.unfinished && inner >= 3) {
+      const word = inner >= lineCells([S(legend)]) + 2 ? legend : unfinishedMark(g);
+      const w = lineCells([S(word)]);
+      bot.push(S(`${b.bl}${b.h}`, edge), S(word, 'secondary'), S(`${b.h.repeat(Math.max(0, inner - 1 - w))}${b.br}`, edge));
+    } else bot.push(S(`${b.bl}${b.h.repeat(inner)}${b.br}`, edge));
     hits.push({ x0: x, x1: x + inner + 1, y0: 0, y1: 2, page: t.id });
     x += inner + 2;
     if (i < tabs.length - 1 && gap) { for (const l of [top, mid, bot]) l.push(S(' ')); x += 1; }
@@ -188,6 +201,23 @@ export function tabBar(tabs: WorkspaceFrame['tabs'], active: TabId, project: str
 // ── row 2: the workflow actions ────────────────────────────────────────────────
 
 export interface ActionHit { x0: number; x1: number; i: number }
+
+/**
+ * R7 (H150; H148's N3): an action as the Workbench offers it now: the frame's, with where it is done when that is not this
+ * Workbench (`away`, in words: the frame's `doneIn`, or the surface whose turn a Stop the turn names), and what Enter does
+ * with it here when that differs from its route's words (`note`). An action done elsewhere is shown, with where; it is never
+ * run here on any key (src/workbench/controller.ts runAction).
+ */
+export type ActNow = WorkspaceAction & { away?: string; note?: string };
+
+const DONE_IN_WORDS: Readonly<Record<NonNullable<WorkspaceAction['doneIn']>, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+
+/** Where an action is done when that is not this Workbench, in words; undefined: it is done here. */
+export function awayOf(a: Pick<ActNow, 'away' | 'doneIn'> | undefined): string | undefined {
+  if (!a) return undefined;
+  if (a.away) return a.away;
+  return a.doneIn && a.doneIn !== 'workbench' ? DONE_IN_WORDS[a.doneIn] : undefined;
+}
 
 /** What Enter does with an action: a path the Workbench has, or the command shown to copy. */
 export type ActionRoute =
@@ -236,7 +266,8 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   // "Esc in the composer that sent it (the Workbench)", "Ctrl+C in the REPL that sent it", "Stop on the companion page …")
   // R5 (H131; the QA of e7f853e, item 16): and one sent elsewhere is asked to stop, by its id (src/agent/chat-turn.ts
   // requestTurnStop), as its own key would stop it there
-  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does), or asks one sent from elsewhere to stop, as its own key would' };
+  // R7 (H150; H148's N3): Enter stops only this Workbench's own turn; one sent elsewhere is done there (the action's doneIn)
+  if (/^(?:Esc in the composer|Ctrl\+C in the REPL|Stop on the companion page)\b/.test(cmd)) return { kind: 'abort', words: 'Enter stops the turn being answered here (as Esc in the composer does)' };
   // R5 (H131; the finish line, item 3): the frame's fixes for a chat that cannot answer, done here where the Workbench can do
   // them honestly; the setup, which asks for a key, is a shell's (its command and what it asks are shown)
   if (cmd === '/model free') return { kind: 'free-models', words: 'Enter lists the free models in this computer\'s catalog; Enter on one makes it the chat\'s model (free-only stays on)' };
@@ -317,10 +348,10 @@ export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focuse
   let x = 0;
   acts.forEach((a, i) => {
     const on = focused && i === sel;
-    const marker = S(on ? g.cursor : ' ', 'action');
+    const marker = S(on ? g.cursor : ' ', 'accent');
     const t = text(a, rooms[i]);
     const segs: Seg[] = a.primary && a.enabled
-      ? [S('[', 'action', { inverse: true, bold: true }), S(t, 'action', { inverse: true, bold: true }), S(']', 'action', { inverse: true, bold: true })]
+      ? [S('[', 'accent', { inverse: true, bold: true }), S(t, 'accent', { inverse: true, bold: true }), S(']', 'accent', { inverse: true, bold: true })]
       : a.enabled
         ? [S('[', 'border'), S(t, 'text'), S(']', 'border')]
         : [S('[', 'secondary'), S(t, 'secondary'), S(']', 'secondary')];
@@ -335,7 +366,7 @@ export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focuse
 }
 
 /** The selected action's words for the row below the buttons: what it is, and what Enter does or why it is not now. */
-export function actionWords(a: WorkspaceAction | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
+export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
   if (!a) return [S('No action is selected.', 'secondary')];
   const route = routeOf(a);
   const head: Seg[] = [S(`${a.n} ${a.label}`, a.enabled ? 'strong' : 'secondary'), S(` ${g.sep} `, 'secondary')];
@@ -343,6 +374,17 @@ export function actionWords(a: WorkspaceAction | undefined, g: Glyphs, width = N
   // the command first (the same on every surface), then what Enter does with it here, then what it touches. R5 (H131; the QA
   // round's defect 15): where the row is short, what it touches goes first, then Enter's words are said shorter, whole
   const sep = S(` ${g.sep} `, 'secondary');
+  // R7 (H150; H148's N3): an action done on another surface says where, and that Enter does not do it here
+  const away = awayOf(a);
+  if (away) {
+    const words = route.kind === 'abort' ? `done in ${away}, not here: Enter does not stop it; x asks you first` : `done in ${away}, not here: Enter does not do it`;
+    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(words, 'text')], [...head, S(`done in ${away}, not here`, 'text')]];
+    return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
+  }
+  if (a.note) {
+    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(a.note, 'text')], [...head, S(a.note, 'text')]];
+    return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
+  }
   const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : route.words;
   const forms: Line[] = [
     [...head, S(a.command, 'action'), S(` ${g.sep} ${a.effect} ${g.sep} `, 'secondary'), S(route.words, 'text')],
@@ -637,7 +679,8 @@ export function chatTurnNow(d: Pick<Data, 'turn' | 'frame' | 'project' | 'turns'
  *  x or Enter does here: this Workbench's own stops here; another surface's is asked to stop by its id, as its own key would. */
 export function turnStopHere(t: TurnNow): string {
   if (t.mine) return 'Esc in the composer or x stops it';
-  return t.id ? `x asks it to stop, as ${turnStopWords(t.surface)} does` : `${turnStopWords(t.surface)} stops it, there`;
+  // R7 (H150; H148's N3): stopped where it was sent; x here is the Workbench's own deliberate way, and it asks first
+  return t.id ? `${turnStopWords(t.surface)} stops it there; x here asks you first` : `${turnStopWords(t.surface)} stops it, there`;
 }
 
 /** R5 (H131; the QA of e7f853e, item 17): how a sealed turn ended, in the frame's words (src/ops/workspace-frame.ts turnOf):
@@ -658,7 +701,7 @@ function stageRole(id: string, s: PipelineStage): Role {
   if (s.state === 'failed') return 'failure';
   if (s.state === 'not run yet' || s.state === 'none' || s.state === 'unknown') return 'secondary';
   if (id === 'receipt') return s.verified ? 'live' : 'text';
-  if (id === 'intent' || id === 'predict') return 'action';
+  if (id === 'intent' || id === 'predict') return 'accent';
   return 'text';
 }
 
@@ -686,7 +729,7 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   const row: Line = [];
   stages.forEach((x, i) => {
     if (i) row.push(S(arrow, 'secondary'));
-    const edge: Role = x.role === 'action' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
+    const edge: Role = x.role === 'accent' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
     row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(texts[i], x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
   });
   const from = p?.kind === 'chat'

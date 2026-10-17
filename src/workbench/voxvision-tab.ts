@@ -190,7 +190,7 @@ export function pipelineRows(caps: Lazy<CapabilityRow[]>, w: number, g: Glyphs, 
   const ready = stages.filter((r) => !notHere(r));
   const setup = stages.filter(notHere);
   const arrow = S(` ${g.arrow} `, 'secondary');
-  const parts: Line[] = [[S('.intent', 'action')], ...(ready.length ? ready.map((r): Line => [S(stageName(r.name), 'text')]) : [[S('no VoxVision tool can run here yet', 'secondary')]]), [S('.receipt', 'strong')]];
+  const parts: Line[] = [[S('.intent', 'accent')], ...(ready.length ? ready.map((r): Line => [S(stageName(r.name), 'text')]) : [[S('no VoxVision tool can run here yet', 'secondary')]]), [S('.receipt', 'strong')]];
   const more = (n: number): string => `and ${n} more`;
   const out = chips(parts, w, { sep: arrow, ellipsis: g.ellipsis, lead, indent: '  ', ...(max !== undefined ? { max: Math.max(1, max - (setup.length ? 1 : 0)), more } : {}) });
   if (setup.length) {
@@ -231,7 +231,7 @@ function toolsWords(r: VoxRow): { used: string; needed: string } {
 function recordRows(r: VoxRow, w: number, selected: boolean, g: Glyphs): Line[] {
   const sel = selected ? { selected: true as const } : {};
   const ind = w >= 44 ? '    ' : '  ';
-  const left: Line = [selected ? S(`${g.cursor} `, 'action', sel) : S('  '), S(r.card.id, 'strong', sel), S(` ${r.card.action}`, 'text', sel)];
+  const left: Line = [selected ? S(`${g.cursor} `, 'accent', sel) : S('  '), S(r.card.id, 'strong', sel), S(` ${r.card.action}`, 'text', sel)];
   const status = statusSeg(r.card.status, g, sel);
   const bar = (l: Line): Line => (selected ? onBar(l) : l);
   const t = toolsWords(r);

@@ -222,7 +222,7 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
   const sel = selected ? { selected: true } : {};
   const ind = under(w);
   const status: Line = [S(v.needsYou.length ? `${g.warn} ${v.status}` : v.status, v.needsYou.length ? 'attention' : 'text', sel)];
-  const id: Line = [selected ? S(`${g.cursor} `, 'action', sel) : S('  '), S(v.planId, 'strong', sel), S(` ${g.sep} `, 'secondary', sel), S(backendWords(v), v.simulation ? 'secondary' : 'text', sel)];
+  const id: Line = [selected ? S(`${g.cursor} `, 'accent', sel) : S('  '), S(v.planId, 'strong', sel), S(` ${g.sep} `, 'secondary', sel), S(backendWords(v), v.simulation ? 'secondary' : 'text', sel)];
   const all = (l: Line): Line => (selected ? onBar(l) : l);
   const beside = (l: Line): boolean => lineCells(l) + 1 + lineCells(status) <= w;
   const counts = flow(countGroups(v), w, ind, ` ${g.sep} `, 'text', g.ellipsis);
@@ -237,7 +237,7 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
   // the selected plan says more: its isolation, harness and model, Clef's route advice, and what needs you
   if (selected) {
     rows.push(fit([S(ind), S(`${v.isolationWords}${v.perWorker === 'dedicated' ? ', one per worker' : ', shared'} ${g.sep} ${v.harness} ${g.sep} ${v.model}`, 'secondary')], w, g.ellipsis));
-    if (p.route) rows.push(fit([S(ind), S(p.route.words, p.route.outcome === 'recommend' ? 'action' : 'secondary')], w, g.ellipsis));
+    if (p.route) rows.push(fit([S(ind), S(p.route.words, p.route.outcome === 'recommend' ? 'accent' : 'secondary')], w, g.ellipsis));
   }
   for (const n of v.needsYou.slice(0, selected ? 3 : 1)) rows.push(fit([S(ind), S(`${g.warn} needs you: ${n}`, 'attention')], w, g.ellipsis));
   return rows.map((l) => fit(l, w, g.ellipsis));
@@ -248,13 +248,13 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
 function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs): Line[] {
   const sel = selected ? { selected: true } : {};
   const ind = under(w);
-  const mark = selected ? S(`${g.cursor} `, 'action', sel) : S('  ');
-  const outcome: Seg = d.outcome === 'recommend' ? S('recommend', 'action', sel) : d.outcome === 'abstain' ? S(`${g.warn} a person decides`, 'attention', sel) : S('deterministic', 'text', sel);
+  const mark = selected ? S(`${g.cursor} `, 'accent', sel) : S('  ');
+  const outcome: Seg = d.outcome === 'recommend' ? S('recommend', 'accent', sel) : d.outcome === 'abstain' ? S(`${g.warn} a person decides`, 'attention', sel) : S('deterministic', 'text', sel);
   const head = spread([mark, S(d.id, 'strong', sel), S(` ${g.sep} ${d.kind} ${g.sep} ${clock(d.at)}`, 'secondary', sel)], [outcome], w, g.ellipsis);
   const rows: Line[] = [selected ? onBar(head) : head];
   if (d.recommended) {
     const r = d.recommended;
-    const said: Line = [S(ind), S('Clef recommended ', 'text'), S(r.label, 'action')];
+    const said: Line = [S(ind), S('Clef recommended ', 'text'), S(r.label, 'accent')];
     rows.push(first(w, g.ellipsis,
       [...said, S(` ${pct(r.top)}, ahead by ${pct(r.margin)}: a recommendation, not a run`, 'text')],
       [...said, S(` ${pct(r.top)}: not a run`, 'text')],
@@ -278,7 +278,7 @@ function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs):
     const barW = Math.max(4, Math.min(24, w - ind.length - lw - 1 - 7));
     for (const x of top) {
       const rec = d.recommended?.option === x.id;
-      rows.push(fit([S(ind), S(`${cut(x.label, lw, g.ellipsis).padEnd(lw)} `, rec ? 'action' : 'text'), ...bar(x.p, barW, rec ? 'action' : 'secondary', g), S(` ${pct(x.p).padStart(6)}`, rec ? 'action' : 'secondary')], w, g.ellipsis));
+      rows.push(fit([S(ind), S(`${cut(x.label, lw, g.ellipsis).padEnd(lw)} `, rec ? 'accent' : 'text'), ...bar(x.p, barW, rec ? 'accent' : 'secondary', g), S(` ${pct(x.p).padStart(6)}`, rec ? 'accent' : 'secondary')], w, g.ellipsis));
     }
     rows.push(first(w, g.ellipsis, [S(ind), S(`${d.asked} ${g.sep} cost not measured`, 'secondary')], [S(ind), S(`cost not measured ${g.sep} ${d.asked}`, 'secondary')]));
   }
@@ -519,7 +519,7 @@ export function fleetView(c: TabCtx, d: FleetData | undefined, frame?: Workspace
 
 // ── the Inspector ──────────────────────────────────────────────────────────────
 
-const DECISION_ROLE: Readonly<Record<DecisionLine['role'], Role>> = { recommendation: 'action', fallback: 'text', policy: 'text', muted: 'secondary' };
+const DECISION_ROLE: Readonly<Record<DecisionLine['role'], Role>> = { recommendation: 'accent', fallback: 'text', policy: 'text', muted: 'secondary' };
 
 /** The Inspector's rows for a selected plan or decision: every count, the backend as it is, and what each recommendation is. */
 export function fleetDetail(item: FleetItem, w: number, g: Glyphs): Line[] {
@@ -545,7 +545,7 @@ export function fleetDetail(item: FleetItem, w: number, g: Glyphs): Line[] {
     f('Made', clock(v.createdAt));
     f('Updated', clock(v.updatedAt));
     f('Runner', v.runner ? `process ${v.runner.pid}, since ${clock(v.runner.started)}${v.cancelAsked ? '; a stop was asked' : ''}` : 'no process runs it now');
-    if (item.plan.route) f('Route', item.plan.route.words, item.plan.route.outcome === 'recommend' ? 'action' : 'text');
+    if (item.plan.route) f('Route', item.plan.route.words, item.plan.route.outcome === 'recommend' ? 'accent' : 'text');
     for (const n of v.needsYou) out.push(...para(`${g.warn} needs you: ${n}`, w, 'attention'));
     out.push([], [heading('Workers'), S(` ${g.sep} ${v.workers.length}`, 'secondary')]);
     for (const x of v.workers.slice(0, 12)) {

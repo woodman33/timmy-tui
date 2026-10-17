@@ -24,6 +24,7 @@ import type { WorkflowsTabData } from './workflows-tab.js';
 import type { FreeCatalog, OllamaList, SetupPlan } from './setup-paths.js';
 import type { Line, Role } from './text.js';
 import type { HoldsReading } from './turn-holds.js';
+import type { TurnNow } from './hub.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
 export const REGIONS: readonly Region[] = ['nav', 'center', 'right', 'bottom', 'top'];
@@ -223,6 +224,8 @@ export type Overlay =
   | { kind: 'confirm-run'; doc: string; block: string; order: string[]; risky: Array<{ name: string; command: string }> }
   | { kind: 'needs-you'; req: ApprovalRequest; since: number; answer: (d: 'once' | 'session' | 'deny') => void }
   | { kind: 'quit'; own: JobRow[]; others: JobRow[] }
+  /** R7 (H150; H148's N3): x on a chat turn another surface is answering asks first, naming that surface */
+  | { kind: 'confirm-stop'; turn: TurnNow; back?: Region }
   | { kind: 'message'; title: string; lines: Line[] }
   // R5 (H131; the finish line, item 3): the chat's fixes, done here (src/workbench/setup-paths.ts)
   | { kind: 'free-models'; state: 'reading' }
@@ -273,7 +276,8 @@ export interface Ui {
   /** R4 (H112): All tools' search words, kept when Enter closes the search (Esc clears them) */
   toolsQuery: string;
   /** the last notice, with when it came (it stays in Activity) */
-  flash: { text: string; role: Role; at: number } | null;
+  /** R7 (H150): `whileTurn`: a notice about a turn being answered (its id): drawn as fresh only while that turn is answered */
+  flash: { text: string; role: Role; at: number; whileTurn?: string } | null;
   mouse: boolean;
   /** the right Files tab shows only the files related to the selection */
   related: boolean;

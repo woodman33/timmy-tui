@@ -12,13 +12,13 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import { sameFolder } from '../project/index.js';
 import { tildePath } from '../utils/home-scrub.js';
 import type { RunDetail } from '../contracts/run-detail.js';
-import { tabOf, type WorkspaceAction } from '../contracts/workspace.js';
-import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopWords } from '../ops/workspace-frame.js';
+import { TABS, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
+import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
 import { createTabLines } from './create-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, chatTurnNow, connectionMark, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, type ActionHit, type TurnNow } from './hub.js';
+import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, frameTabs, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -54,7 +54,7 @@ const key = (k: string): Seg => S(`[${k}]`, 'action');
 /** A row a person can select: the cursor's marker and the selection's ground when it is the selected one. */
 function row(line: Line, selected: boolean, g: Glyphs): Line {
   const mark = selected ? `${g.cursor} ` : '  ';
-  const out: Line = [S(mark, 'action', selected ? { selected: true } : {}), ...line.map((s) => (selected ? { ...s, selected: true } : s))];
+  const out: Line = [S(mark, 'accent', selected ? { selected: true } : {}), ...line.map((s) => (selected ? { ...s, selected: true } : s))];
   return out;
 }
 
@@ -102,7 +102,7 @@ export function navView(c: ViewCtx): View & { prompt: number } {
   // row's place, so nothing below moves). R5 (H131): its row is `prompt`, which a short drawer keeps in view while it searches
   const prompt = lines.length;
   const how = ui.input.field === 'search' ? undefined : finderKeys(ui);
-  if (ui.input.field === 'search') lines.push([S('/ ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
+  if (ui.input.field === 'search') lines.push([S('/ ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
   else if (how) lines.push([S('Find a workspace:', 'secondary')], [S(`  ${how}`, 'secondary')]);
   else lines.push([key('/'), S(' Find a workspace', 'secondary')], blank);
   const q = ui.input.field === 'search' ? ui.input.text.trim().toLowerCase() : '';
@@ -152,7 +152,7 @@ export function navView(c: ViewCtx): View & { prompt: number } {
  * here. None while the frame is being read, or while it names another project than the one shown (Follow active project off
  * and another surface chose another: its actions are that project's); `why` says which.
  */
-export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; why?: string } {
+export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; why?: string } {
   const f = c.data.frame;
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
@@ -184,19 +184,37 @@ function jobActionsNow(acts: WorkspaceAction[], c: Pick<ViewCtx, 'ui' | 'data'>)
  * R5 (H131; the QA round's defect 1): the Chat tab's actions as of now. The frame is read at most once a second, so while
  * this Workbench's own turn is being answered and the frame read does not name it yet, its Send waits and its Stop is the next
  * step at once (and the other way round when its turn has ended since); the labels and commands stay the frame's.
+ *
+ * R7 (H150; H148's N3, the operator: "Fix Enter unexpectedly stopping another surface's turn and the contradictory running/idle
+ * state afterward"): one answer for every part of the tab, the turn chatTurnNow names (the run line, Stop current, Activity and
+ * RUNNING NOW read it too), never the frame's older reading beside it. While another surface answers a turn, Stop the turn is
+ * done there (`away`: the frame's doneIn, or the turn's own surface when the frame has not named it yet) and never here; Send
+ * opens the composer to type, and what is typed is sent once that turn has ended (one turn at a time per project). With no
+ * turn being answered, Send is offered and Stop the turn is not, whatever an older frame said.
  */
-function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
+function chatActionsNow(acts: WorkspaceAction[], d: Data): ActNow[] {
   const turn = chatTurnNow(d);
   const framed = !!(d.frame && d.frame.project.id === d.project.id && d.frame.activity.chatTurn);
-  if (!!turn === framed) return acts;
-  return acts.map((a) => {
+  const ready = routeShown(d).ready;
+  const noWhy = (a: WorkspaceAction): WorkspaceAction => { const { why: _why, ...rest } = a; return rest; };
+  return acts.map((a): ActNow => {
     const r = routeOf(a);
-    if (turn && r.kind === 'composer') return { ...a, primary: false, enabled: false, why: `one turn at a time: a turn is being answered in ${turn.where}` };
-    if (turn && r.kind === 'abort') {
-      const { why: _why, ...rest } = a;
-      return { ...rest, primary: true, enabled: true };
+    if (r.kind === 'composer') {
+      if (turn?.mine) return { ...a, primary: false, enabled: false, why: 'one turn at a time: a turn is being answered in this Workbench (Esc in the composer, or x, stops it)' };
+      if (turn) return { ...noWhy(a), primary: false, enabled: ready, ...(ready ? { note: `Enter opens the composer: type now, sent once the turn in ${turn.where} ends (one turn at a time per project)` } : { why: 'no chat route is ready here' }) };
+      // (the frame read while a turn ran: nothing runs now, so Send is the step again, as the frame's next reading will say)
+      if (framed) return { ...noWhy(a), primary: ready, enabled: ready, ...(ready ? {} : { why: 'no chat route is ready here' }) };
+      return a;
     }
-    if (!turn && r.kind === 'abort') return { ...a, primary: false, enabled: false, why: 'only while a turn runs' };
+    if (r.kind === 'abort') {
+      if (turn?.mine) return { ...noWhy(a), primary: true, enabled: true, command: turnStopCommand('workbench'), doneIn: 'workbench' };
+      if (turn) {
+        const command = a.doneIn === turn.surface ? a.command : turnStopCommand(turn.surface);
+        return { ...noWhy(a), primary: true, enabled: true, command, doneIn: turn.surface, away: turn.where };
+      }
+      const { doneIn: _doneIn, ...rest } = a;
+      return framed || a.enabled ? { ...rest, primary: false, enabled: false, command: 'Esc in the composer', why: 'only while a turn runs' } : a;
+    }
     // (R5 H134, at the merge of the frame's chat fix: Stop is the one next step while the turn runs; the frame, not knowing of
     // the turn yet, may still make the chat's fix primary)
     if (turn && a.primary) return { ...a, primary: false };
@@ -204,13 +222,20 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): WorkspaceAction[] {
   });
 }
 
-/** R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it. */
-export function selectedAction(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: WorkspaceAction[]; at: number } {
+/**
+ * R5 (H131): the action row 2 has selected: its cursor, kept on the bar; the primary next step until the person moves it.
+ * R7 (H150; H148's N3): when the primary next step is done on another surface (a Stop the turn of the REPL's), the first
+ * action this Workbench does is selected instead, so Enter never lands on what is done elsewhere (on Chat, 2 → Enter opens the
+ * composer, as the README says).
+ */
+export function selectedAction(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; at: number } {
   const { acts } = pageActions(c);
   if (!acts.length) return { acts, at: -1 };
   const chosen = c.ui.cursor.top;
   const primary = acts.findIndex((a) => a.primary);
-  const at = chosen === undefined ? Math.max(0, primary) : Math.max(0, Math.min(acts.length - 1, chosen));
+  const here = acts.findIndex((a) => a.enabled && !awayOf(a));
+  const start = primary >= 0 && awayOf(acts[primary]) && here >= 0 ? here : Math.max(0, primary);
+  const at = chosen === undefined ? start : Math.max(0, Math.min(acts.length - 1, chosen));
   return { acts, at };
 }
 
@@ -320,6 +345,36 @@ export function topLines(c: ViewCtx, detail = true): { lines: Line[]; hits: Acti
 export function centerView(c: ViewCtx): View {
   const o = c.ui.overlay;
   if (o) return overlayView(c, o);
+  return withUnfinished(c, pageView(c));
+}
+
+/**
+ * R7 (H150; the operator, 2026-10-16: "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished until
+ * their intended interactions work"): an unfinished tab's page begins with what the workspace frame says of it
+ * (tabs[].unfinished, src/contracts/workspace.ts TabDef.unfinished; never words of its own): what works on it now and what it
+ * does not do yet, in a box of structure and text colours (neither a step nor a state, so neither amber nor green). The
+ * page's own rows follow under it (tab 6's meshes among them).
+ */
+export function unfinishedBox(c: Pick<ViewCtx, 'ui' | 'data' | 'g' | 'width'>): Line[] {
+  const u = frameTabs(c.data.frame).find((t) => t.id === c.ui.page)?.unfinished;
+  if (!u || !ownWorkspaces(c.ui.page).includes(c.ui.workspace)) return [];
+  const w = Math.max(8, c.width);
+  const said = (label: string, words: string): Line[] => wrapSegs([S('  '), S(`${label} `, 'secondary'), S(words, 'text')], w, '  ');
+  // (no side borders: the page's own columns keep their rules; a rule of structure grey closes it)
+  return [[S(`${unfinishedMark(c.g)} Unfinished`, 'strong')], ...said('Works now:', u.works), ...said('Not yet:', u.missing), [S((c.g.unicode ? '─' : '-').repeat(w), 'border')]];
+}
+
+/** The workspaces that are a tab's own matter: those no other tab gathers, and never Files (the project tree, which every tab
+ *  reaches): an unfinished tab's words are about these (6: 3D Create and Motion; 7: the Control Room; 8: Fleet; 0: Logs). */
+const ownWorkspaces = (page: TabId): readonly WorkspaceId[] => tabOf(page).workbench.filter((w) => w !== 'files' && !TABS.some((o) => o.id !== page && o.workbench.includes(w)));
+
+function withUnfinished(c: ViewCtx, v: View): View {
+  const box = unfinishedBox(c);
+  if (!box.length) return v;
+  return { ...v, lines: [...box, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + box.length })) };
+}
+
+function pageView(c: ViewCtx): View {
   switch (c.ui.workspace) {
     case 'files': return filesView(c);
     // R5 (H136): tab 3's three columns, references 03 and 12 (src/workbench/workflows-tab.ts)
@@ -538,8 +593,9 @@ function chatView(c: ViewCtx): View {
       ? [`being answered${turn.operation ? ` as operation ${turn.operation}` : ''}`, 'Esc in the composer, or x, stops it']
       : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', receipt ? `receipt ${receipt}` : '', turn.operation ? `operation ${turn.operation}` : ''];
     const statusRole: Role = turn.state === 'failed' ? 'failure' : 'secondary';
-    // a stopped turn: its stop is said once, in Timmy's own words (the session's "Cancelled…" line says the same stop)
-    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^Cancelled\b/.test(l))) : turn.lines;
+    // a stopped turn: its stop is said once, in Timmy's own words (the session's "Stopped…" line says the same stop; R7 H150:
+    // "Cancelled…" as the session said it before the lead's e686809)
+    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^(?:Stopped|Cancelled)\b/.test(l))) : turn.lines;
     if (turn.state !== 'sending' && kept) {
       // kept in the conversation above: its receipt and what came of it, under it while it is the newest exchange (a stopped
       // one's said there, once); with another surface's turn after it, its receipt is in the log beside, and its stop at it
@@ -562,7 +618,7 @@ function chatView(c: ViewCtx): View {
   lines.push(blank);
   lines.push(heading('Composer'));
   if (ui.input.field === 'composer') {
-    lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+    lines.push([S('› ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
     // R5 (H131; the QA round's defect 1): what Esc does now, one thing at a time
     lines.push([S(turn?.state === 'sending' ? '  Esc stops the turn being answered · Enter sends once it is answered' : '  Enter sends · Esc leaves the composer', 'secondary')]);
   }
@@ -773,7 +829,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       return { lines, items };
     case 'picker': {
       lines.push([S('Switch project', 'strong'), S('  type to search; Enter chooses; a path (with /) opens that folder; Esc keeps this one', 'secondary')]);
-      lines.push([S('› ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+      lines.push([S('› ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
       lines.push(blank);
       const q = ui.input.text.trim().toLowerCase();
       const isPath = /[\\/]/.test(ui.input.text) || ui.input.text.startsWith('~') || ui.input.text.startsWith('.');
@@ -801,7 +857,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
     }
     case 'new':
       lines.push([S(o.from ? `New project from ${o.from}` : 'New project (blank)', 'strong'), S('  type its name; Enter makes it; Esc cancels', 'secondary')]);
-      lines.push([S('Name › ', 'action'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
+      lines.push([S('Name › ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
       lines.push(blank);
       lines.push(...para(o.from
         ? `A new folder in Timmy's home with ${o.from}'s files, yours to edit; then it becomes the active project.`
@@ -866,6 +922,23 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       if (req.detail) { lines.push(blank); for (const l of req.detail.split('\n').slice(0, 12)) lines.push(...para(l, c.width, 'text', '  ')); }
       lines.push(blank);
       lines.push(...para('Nothing runs until you answer, with a key: a click never allows (a click on [n] denies). The Control Room lists it as waiting on you.', c.width, 'secondary'));
+      return { lines, items };
+    }
+    // R7 (H150; H148's N3): x's own way to stop another surface's turn asks first and names that surface
+    case 'confirm-stop': {
+      const t = o.turn;
+      const now = chatTurnNow(data);
+      lines.push([S(`Stop the chat turn being answered in ${t.where}?`, 'strong')]);
+      lines.push(blank);
+      if (!now || now.id !== t.id) {
+        lines.push(...para(`It has ended since this box opened: there is nothing to stop. Its end is in the event log once its receipt is sealed.`, c.width, 'secondary'));
+        lines.push(blank, [key('n'), S(' Close (Esc, Enter)', 'text')]);
+        return { lines, items };
+      }
+      lines.push(...para(`It was sent from ${t.where}, and it stops there (${turnStopWords(t.surface)}). y asks that process to stop it as its own key would; its receipt says the Workbench asked.`, c.width));
+      lines.push(...para('Nothing is asked until you press y. A click never stops a turn.', c.width, 'secondary'));
+      lines.push(blank);
+      lines.push([key('y'), S(' Stop it there   ', 'text'), key('n'), S(' Keep it (Esc, Enter)', 'text')]);
       return { lines, items };
     }
     case 'quit': {
@@ -1321,7 +1394,7 @@ export function rightView(c: ViewCtx): View {
     const on = c.ui.tab === t;
     const label = t === 'tools' ? 'Tools' : t === 'inspector' ? 'Inspector' : 'Files';
     const mark = compact ? (on ? c.g.cursor : '') : (on ? `${c.g.cursor} ` : '  ');
-    return [...(i ? [S(c.g.unicode ? ' │ ' : ' | ', 'border')] : []), ...(mark ? [S(mark, 'action')] : []), S(label, on ? 'strong' : 'secondary', on ? { underline: true } : {})];
+    return [...(i ? [S(c.g.unicode ? ' │ ' : ' | ', 'border')] : []), ...(mark ? [S(mark, 'accent')] : []), S(label, on ? 'strong' : 'secondary', on ? { underline: true } : {})];
   });
   // a narrow drawer keeps all three tabs whole: the marker loses its column
   const tabs = lineCells(tabRow(false)) <= c.width ? tabRow(false) : tabRow(true);
@@ -1340,7 +1413,8 @@ export function rightView(c: ViewCtx): View {
  */
 export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
   const { ui, data, g, width } = c;
-  const fresh = ui.flash && c.now - ui.flash.at < 6000 ? ui.flash : null;
+  // R7 (H150; H148's N3): a notice about a turn being answered is not drawn as fresh once that turn has ended
+  const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || chatTurnNow(data)?.id === ui.flash.whileTurn) ? ui.flash : null;
   // R5 (H131; the QA round's defect 15): a notice wider than the row takes the row above the hints too (for its few seconds),
   // so its words are read to their end ("…so Timmy asks once" was cut); a longer one is cut at the second row's end
   const said = fresh ? wrapSegs([S(fresh.text, fresh.role)], width) : null;
@@ -1360,7 +1434,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   // the newest of this Workbench's own Activity (a notice of what it did, a job's line) stays on the first row, as R4 drew it;
   // the rows under it, collapsed, are the shared log's
   const strip: Line = [
-    S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'action'), S('Activity  ', 'strong'),
+    S(ui.activityOpen ? `${g.expanded} ` : `${g.cursor} `, 'secondary'), S('Activity  ', 'strong'),
     S(`${motion && g.unicode ? `${motion} ` : ''}${running}`, 'text'), S(` ${g.sep} `, 'secondary'),
     S(`${a.waiting} waiting on you`, a.waiting ? 'attention' : 'text'),
     S(` ${g.sep} last: `, 'secondary'), S(last, newest?.failed ? 'failure' : 'text'),

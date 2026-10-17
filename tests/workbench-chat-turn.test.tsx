@@ -233,6 +233,9 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(c.ui.input.field).toBe('composer');
     expect(c.ui.flash?.text).toBe('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).');
     await until('the turn stopped', () => c.data.turn?.state === 'cancelled', 10_000, () => screen(c));
+    // R7 (H150; H148's N5): the stop's notice in the turn's word, once: the session's own line ("Stopped: Cancelled: …" before)
+    await until('the stop\'s notice', () => /^Stopped/.test(c.ui.flash?.text ?? ''), 5000, () => screen(c));
+    expect(c.ui.flash?.text).toBe('Stopped: nothing was sent to any model.');
     expect(region(c, 'top')).toContain('run: idle');
     expect(region(c, 'top')).toContain('Stop current: idle');
     expect(region(c, 'right')).toContain('RUNNING NOW (0)');
@@ -295,7 +298,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     await until('the REPL turn in the event log', () => region(c, 'right').includes(`receipt ${repl.id}`), 10_000, () => screen(c));
     expect(region(c, 'right')).toMatch(new RegExp(`turn stopped \\(asked from the companion\\) in the REPL · [^·]*· receipt ${repl.id}`));
   }, 30_000);
-  it('x stops this Workbench\'s own turn; a turn being answered in the REPL is asked to stop by its identity, by Enter on Stop the turn or by x (QA of e7f853e, item 16): the REPL ends it as its Ctrl+C would and its receipt says who asked, which the event log shows; a turn that has ended by then is not stopped, and the Workbench says so', async () => {
+  it('x stops this Workbench\'s own turn; a turn being answered in the REPL is asked to stop by its identity by x, after it asks first (QA of e7f853e, item 16; R7 H150: Enter on Stop the turn says it is done in the REPL and asks nothing): the REPL ends it as its Ctrl+C would and its receipt says who asked, which the event log shows; a turn that has ended by then is not stopped, and the Workbench says so', async () => {
     sandbox();
     const p = trayProject('turn-stop');
     pinStore(p.root);
@@ -333,17 +336,23 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     const framed = (id: string) => until(`the frame naming the REPL's turn ${id}`, () => c.data.frame?.activity.chatTurn?.id === id, 10_000, () => screen(c));
     const ended = (id: string) => until(`the REPL's turn ${id} ended`, () => c.data.frame && !c.data.frame.activity.chatTurn && c.data.turns?.some((t) => t.turn === id), 10_000, () => screen(c));
 
-    // Enter on Stop the turn (the frame's own step for it: the REPL's Ctrl+C)
+    // Stop the turn (the frame's own step for it: the REPL's Ctrl+C) is done in the REPL: Enter on it asks nothing (R7 H150,
+    // H148's N3); x asks first, then y asks it to stop
     const first = replTurn(true);
     c.refresh();
     await framed(first.id);
     expect(region(c, 'top')).toContain('run: 1 running (the chat turn in the REPL)');
-    expect(region(c, 'top')).toContain('[x] Stop current: the chat turn in the REPL (x asks it to stop, as Ctrl+C in the REPL does)');
-    expect(region(c, 'right')).toMatch(/▶ running chat turn being answered in the REPL · since \d\d:\d\d:\d\d · \S+ s · x asks it to stop, as Ctrl\+C in the REPL does/);
+    expect(region(c, 'top')).toContain('[x] Stop current: the chat turn in the REPL (Ctrl+C in the REPL stops it there; x here asks you first)');
+    expect(region(c, 'right')).toMatch(/▶ running chat turn being answered in the REPL · since \d\d:\d\d:\d\d · \S+ s · Ctrl\+C in the REPL stops it there; x here asks you first/);
     const stop = pageActions(c).acts.find((a) => routeOf(a).kind === 'abort')!;
-    expect(stop).toMatchObject({ enabled: true, primary: true, command: 'Ctrl+C in the REPL that sent it' });
+    expect(stop).toMatchObject({ enabled: true, primary: true, command: 'Ctrl+C in the REPL that sent it', doneIn: 'repl', away: 'the REPL' });
     await c.runAction(stop);
-    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (Enter): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    expect(c.ui.flash?.text).toBe('3 Stop the turn is done in the REPL (Ctrl+C in the REPL that sent it): Enter here does not stop it. x asks you first, then asks it to stop there.');
+    await sleep(300);
+    expect(asked).toEqual([]);
+    await c.stop();
+    c.key('y', {});
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x, then y): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
     await ended(first.id);
     expect(asked).toEqual(['workbench']);
     // its end as its receipt says it, in the frame's words (src/ops/workspace-frame.ts turnOf), and nothing runs
@@ -356,7 +365,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     c.refresh();
     await framed(second.id);
     await c.stop();
-    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
+    c.key('y', {});
+    expect(c.ui.flash?.text).toBe('Stop asked of the turn being answered in the REPL (x, then y): it stops there as Ctrl+C in the REPL would, and its end shows here once its receipt is sealed.');
     await ended(second.id);
     expect(asked).toEqual(['workbench', 'workbench']);
 

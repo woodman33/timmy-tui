@@ -22,7 +22,7 @@ import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
 import { operationRel } from '../ops/operations.js';
-import { buildWorkspaceFrame, turnStopWords } from '../ops/workspace-frame.js';
+import { buildWorkspaceFrame, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { JOB_CANCELLED } from '../contracts/stop-words.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
 import type { Workspace } from '../repl/workspace.js';
@@ -37,7 +37,7 @@ import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
-import { chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
+import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -214,9 +214,9 @@ export class Controller {
 
   /** What the person sees now: say it in Activity and on the controls row. A notice that names a job (or is given an
    *  operation) belongs to that job's operation, so Activity's filter for that operation keeps it. */
-  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string } = {}): void {
+  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string; whileTurn?: string } = {}): void {
     const at = new Date(this.now()).toISOString();
-    this.ui.flash = { text, role, at: this.now() };
+    this.ui.flash = { text, role, at: this.now(), ...(meta.whileTurn ? { whileTurn: meta.whileTurn } : {}) };
     const named = meta.job ?? /\b(j[0-9a-f]{6,})\b/.exec(text)?.[1];
     const job = named ? this.records.find((j) => j.id === named) : undefined;
     const operation = meta.operation ?? job?.operation;
@@ -524,12 +524,18 @@ export class Controller {
   private onHolds(r: HoldsReading): void {
     if (this.disposed || !sameFolder(r.root, this.data.project.root)) return;
     const before = this.data.holds;
+    const shown = chatTurnNow(this.data);
     this.data.holds = r;
     if ((before?.turns ?? []).some((t) => !r.turns.some((x) => x.id === t.id))) {
       const root = this.data.project.root;
       try { this.data.turns = readTurns(this.chain(), root); } catch { /* the next reading */ }
       this.data.chat = readChatTail(root);
       this.readPipeline();
+      // R7 (H150; H148's N3): another surface's turn has ended while a message waits in the composer: said at once, so the
+      // screen never keeps saying a turn is being answered beside RUNNING NOW (0)
+      if (shown && !shown.mine && !chatTurnNow(this.data) && this.ui.input.field === 'composer' && this.ui.input.text.trim()) {
+        this.say(`The chat turn in ${shown.where} has ended: Enter sends what you typed.`, 'secondary');
+      }
     }
     if (this.ui.workspace === 'control') this.readTab('control');
     this.emit();
@@ -1173,6 +1179,16 @@ export class Controller {
       const why = this.can().chatWhy;
       if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
       if (this.data.turn?.state === 'sending') { this.say('One turn at a time: the chat turn is still being answered. Esc stops it, or wait for its answer.', 'secondary'); return; }
+      // R7 (H150; H148's N3): one turn at a time per project, by the one answer RUNNING NOW and the run line read (the holds
+      // read now): while another surface answers, what was typed stays in the composer and nothing is sent; once that turn
+      // has ended, Enter sends it
+      this.holdsNow();
+      const other = chatTurnNow(this.data);
+      if (other && !other.mine) {
+        this.say(`Not sent yet: one turn at a time per project, and a turn is being answered in ${other.where}. What you typed stays here; Enter sends it once that turn has ended (RUNNING NOW 0).`, 'secondary', other.id ? { whileTurn: other.id } : {});
+        this.emit();
+        return;
+      }
       this.ui.input = { field: 'composer', text: '' };
       await this.send(text.trim());
     }
@@ -1211,8 +1227,17 @@ export class Controller {
         state: r.status, answer: r.text || turn.answer, lines: r.lines ?? [], sent: r.sent, costWords: r.costWords,
         ...(r.receipt ? { receipt: r.receipt } : {}), ...(r.model ? { model: r.model } : {}),
       });
+      // R7 (H150; H148's N3): refused because another turn holds the project (it began between the composer's look and the
+      // send): what was typed goes back into the composer, and the holds are read, so RUNNING NOW names that turn too
+      if (r.status === 'refused' && !r.sent) {
+        if (this.ui.input.field === 'composer' && !this.ui.input.text) this.ui.input.text = text;
+        this.holdsNow();
+      }
       // (the receipt by its short id, as the Control Room and the event log name it)
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : `${r.status === 'refused' ? 'Refused' : r.status === 'cancelled' ? 'Stopped' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+      // R7 (H150; H148's N5 "Stopped: Cancelled after the request went out"; the lead's e686809): a stopped turn's line is
+      // the session's own, which says "Stopped" itself, printed as it is (a session that still says "Cancelled…" is said
+      // "Stopped…"); a refusal or a failure keeps its word before it
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
         r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
@@ -1255,6 +1280,14 @@ export class Controller {
       if (k.upArrow || k.downArrow) { this.ui.cursor.overlay = Math.max(0, Math.min(n - 1, (this.ui.cursor.overlay ?? 0) + (k.upArrow ? -1 : 1))); this.emit(); return true; }
       if (input === ' ' || k.return) { this.toggleSetting(cursorOf(this.ui, 'overlay', n)); return true; }
       return false;
+    }
+    // R7 (H150; H148's N3): x's box for another surface's turn: y asks it to stop there; n, Esc or Enter keep it (the default)
+    if (o.kind === 'confirm-stop') {
+      // (the keyboard goes back where x was pressed)
+      const close = (): void => { this.ui.overlay = null; if (o.back) this.ui.focus = o.back; };
+      if (input === 'y') { close(); this.askTurnStop(o.turn, 'x, then y'); this.emit(); return true; }
+      if (input === 'n' || k.escape || k.return) { close(); this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); return true; }
+      return true;
     }
     if (o.kind === 'confirm-run') {
       if (k.return) { void this.runBlock(o); return true; }
@@ -1662,7 +1695,12 @@ export class Controller {
       const turn = stopWords(this.data, this.selected(), this.ui.workspace).turn ?? named.turn;
       // R5 (H131; the QA round's defect 1): a chat turn is what runs: this Workbench's own stops here; another surface's there
       if (turn?.mine && this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here (x)…', 'secondary'); return; }
-      // R5 (H131; the QA of e7f853e, item 16): another surface's turn is asked to stop, by its id, as its own key would stop it
+      // R5 (H131; the QA of e7f853e, item 16): another surface's turn is asked to stop, by its id, as its own key would stop it.
+      // R7 (H150; H148's N3): x is the Workbench's own deliberate way to stop another surface's turn: it asks first, naming
+      // that surface (the box: y asks it to stop, n keeps it). A turn the screen named that has ended since is asked at once
+      // (its hold is gone: nothing is stopped, and x says it had ended)
+      const fresh = chatTurnNow(this.data);
+      if (turn && fresh && fresh.id === turn.id && !fresh.mine && fresh.id) { this.open({ kind: 'confirm-stop', turn: fresh, back: this.ui.focus }); return; }
       if (turn) { this.askTurnStop(turn, 'x'); return; }
       this.say(`Stop current: nothing runs in ${this.data.project.name}.`, 'secondary');
       return;
@@ -1680,7 +1718,7 @@ export class Controller {
    * requestTurnStop, watchTurnStop) and its receipt records who asked; the frame, read again, shows its end. Refused when that
    * turn is not being answered now (it ended, or its process has); a turn the frame names without an id stops only there.
    */
-  private askTurnStop(turn: TurnNow, how: 'x' | 'Enter'): void {
+  private askTurnStop(turn: TurnNow, how: 'x' | 'x, then y'): void {
     const there = turnStopWords(turn.surface);
     if (!turn.id) { this.say(`Stop current: the chat turn is being answered in ${turn.where}; it stops there (${there}), not from here: the workspace frame named no id to ask it by.`, 'secondary'); return; }
     const r = requestTurnStop(this.data.project.root, turn.id, 'workbench');
@@ -1722,6 +1760,9 @@ export class Controller {
     // R6 (H141; the interaction review of a77d80d, defect 3): Stop the turn reads the holds before it answers, even where the bar
     // drew it not available a moment before (a turn another process began since the last look)
     if (routeOf(a).kind === 'abort') { this.stopTurnAction(a); return; }
+    // R7 (H150; H148's N3): an action done on another surface (the frame's doneIn) is never run here: it says where
+    const away = awayOf(a);
+    if (away) { this.say(`${a.n} ${a.label} is done in ${away} (${a.command}): Enter here does not do it.`, 'secondary'); return; }
     if (!a.enabled) { this.say(`${a.n} ${a.label}: not now: ${a.why ?? 'not available'}`, 'secondary'); return; }
     const r = routeOf(a);
     switch (r.kind) {
@@ -1776,11 +1817,16 @@ export class Controller {
    * began since the last look is stopped, and a turn the bar named that has ended since is asked (its process says it ended).
    */
   private stopTurnAction(a: WorkspaceAction): void {
-    const shown = chatTurnNow(this.data);
     this.holdsNow();
-    const turn = chatTurnNow(this.data) ?? shown;
+    const turn = chatTurnNow(this.data);
     if (this.turnAbort) { this.turnAbort.abort(); this.say('Stopping the chat turn being answered here…', 'secondary'); return; }
-    if (turn) { this.askTurnStop(turn, 'Enter'); return; }
+    // R7 (H150; H148's N3, the operator: "Fix Enter unexpectedly stopping another surface's turn"): a turn another surface is
+    // answering is stopped there (the frame's doneIn); Enter here never stops it, and says where; x asks first (stop)
+    if (turn && !turn.mine) {
+      const command = a.doneIn === turn.surface ? a.command : turnStopCommand(turn.surface);
+      this.say(`${a.n} ${a.label} is done in ${turn.where} (${command}): Enter here does not stop it. ${turn.id ? 'x asks you first, then asks it to stop there.' : 'It stops only there.'}`, 'secondary');
+      return;
+    }
     this.say(a.enabled ? 'No chat turn is being answered: nothing to stop.' : `${a.n} ${a.label}: not now: ${a.why ?? 'no chat turn is being answered'}`, 'secondary');
   }
 
@@ -1875,6 +1921,12 @@ export class Controller {
       return;
     }
     if (o?.kind === 'quit') { if (hint === 'Esc') { this.ui.overlay = null; this.emit(); } return; }
+    // R7 (H150): a click on [n] keeps the turn; a click never asks a stop ([y] says the key to press)
+    if (o?.kind === 'confirm-stop') {
+      if (hint === 'n') { this.ui.overlay = null; if (o.back) this.ui.focus = o.back; this.say(`Kept: the chat turn in ${o.turn.where} goes on (nothing was asked of it).`, 'secondary'); this.emit(); }
+      else if (hint === 'y') this.say('A click never stops a turn: press y to ask it to stop, or n to keep it.', 'secondary');
+      return;
+    }
     // R5 (H131): a tab of row 1 opens it (as its key does; a box open in the body closes, nothing runs)
     const page = f.pages.find((p) => y >= p.y0 && y <= p.y1 && x >= p.x0 && x <= p.x1);
     if (page) { this.selectPage(page.page); return; }
@@ -1959,7 +2011,9 @@ export class Controller {
     const own = live.filter((j) => j.owner === 'workbench');
     const others = live.filter((j) => j.owner !== 'workbench');
     if (own.length && this.ui.overlay?.kind !== 'quit') { this.open({ kind: 'quit', own, others }); return; }
-    const after = others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`);
+    // R7 (H150; H148's N10): with no job of its own running no box opens, and the words say it quit at once and stopped nothing,
+    // then name each job another session started, which keeps running
+    const after = [...(others.length && !own.length ? ['The Workbench quit at once: no job it started was running, so it stopped nothing and asked nothing.'] : []), ...others.map((j) => `${j.id} (${j.label}) keeps running: ${j.ownerWords}.`)];
     if (own.length) after.push(...own.map((j) => `${j.id} (${j.label}) was ${JOB_CANCELLED} as the Workbench ended.`)); // R6 (H140): a job's word
     // R6 (H141; the interaction review of a77d80d, defect 15): a chat turn being answered here stops with the Workbench too
     const turnHere = this.data.turn?.state === 'sending' && this.turnAbort !== null;
@@ -1973,6 +2027,14 @@ export class Controller {
     // work keeps running). Every quit exited 130 before, the documented one with nothing running included.
     this.d.onExit?.(own.length || turnHere ? 130 : 0, after);
   }
+}
+
+/** R7 (H150; H148's N5): a stopped turn's line in the turn's word: the session's own when it says "Stopped", else "Stopped". */
+function stoppedLine(line: string | undefined): string {
+  if (!line) return 'Stopped.';
+  if (/^Stopped\b/.test(line)) return line;
+  if (/^Cancelled\b/.test(line)) return `Stopped${line.slice('Cancelled'.length)}`;
+  return `Stopped: ${line}`;
 }
 
 /** The REPL's segment roles in the Workbench's. */

@@ -241,7 +241,7 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
       const y = f.actions[0]?.y ?? -1;
       const segs = cells(f).filter((s) => s.y === y);
       const boxes = f.actions.map((h) => segs.filter((s) => s.x >= h.x0 - 1 && s.x < h.x1 + 1 && s.text.trim()));
-      const amber = boxes.map((b) => b.some((s) => s.role === 'action' && s.inverse === true));
+      const amber = boxes.map((b) => b.some((s) => s.role === 'accent' && s.inverse === true));
       const want = acts.map((a) => a.primary && a.enabled);
       expect(amber, `the amber box on ${t.label}`).toEqual(want);
       if (want.includes(true)) {

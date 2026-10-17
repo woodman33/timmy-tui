@@ -482,7 +482,7 @@ export function laneMark(l: LaneRow, g: Glyphs): { glyph: string; word: string; 
  *  words in the primary text colour, as #8E8E93 on the bar's #333 is below the contrast floor), each fitted to `w`. */
 function itemRows(lines: readonly Line[], selected: boolean, g: Glyphs, w: number): Line[] {
   return lines.map((l, i) => {
-    const row: Line = [S(i === 0 && selected ? `${g.cursor} ` : '  ', 'action'), ...l];
+    const row: Line = [S(i === 0 && selected ? `${g.cursor} ` : '  ', 'accent'), ...l];
     return fit(selected ? onBar(row) : row, w, g.ellipsis);
   });
 }
@@ -563,7 +563,8 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
 
 /** How a turn being answered is stopped, where it was sent from, in the frame's words (src/ops/workspace-frame.ts
  *  turnStopWords). R5 (H131; the QA of e7f853e, item 16): x here asks another surface's turn to stop, by its id. */
-const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopWords(t.surface)} stops it${t.id ? '; x here asks it to stop' : ''}`);
+// R7 (H150; H148's N3): another surface's turn stops there; x here asks you first
+const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopWords(t.surface)} stops it${t.id ? '; x here asks you first' : ''}`);
 
 /** R5 (H131; the operator's 22:32 order, item 1): the turns being answered, less any whose own receipt is sealed (its hold is let
  *  go a moment after): matched by the turn's identity, never by surface and time. */

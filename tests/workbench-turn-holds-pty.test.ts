@@ -1,10 +1,11 @@
 // R6 (H141; the interaction review of a77d80d, defect 3): in real terminals (tmux), a REPL (`timmy repl`) and a Workbench
 // (`timmy workbench`) on one project, each a process of its own. A message sent in the REPL takes the project's chat hold; the
 // Workbench's run line names that turn within about half a second of the hold being written (timed from the hold file's
-// appearance, which this test watches), and x pressed about 0.5 s into the turn stops it there; x pressed at once, as soon as
-// the hold is there, stops it too (the Workbench reads the holds before it answers: never "nothing runs" while a turn is held);
-// and Enter on Stop the turn, the Chat tab's one next step, does the same. The review saw "Stop current: nothing runs in tray."
-// for the first 1 to 4.5 s of a REPL turn, which went on.
+// appearance, which this test watches), and x pressed about 0.5 s into the turn, then y in the box it opens, stops it there; x
+// pressed at once, as soon as the hold is there, names that turn too (the Workbench reads the holds before it answers: never
+// "nothing runs" while a turn is held). R7 (H150; H148's N3): Enter on Stop the turn, done in the REPL, never stops it: it says
+// where it is done, and the turn goes on until x and y. The review saw "Stop current: nothing runs in tray." for the first 1
+// to 4.5 s of a REPL turn, which went on.
 //
 // FAKE pieces, labelled: the model is a FAKE Ollama on 127.0.0.1 (tests/fixtures/fake-ollama-chat.ts: no model behind it), each
 // answer a scripted long paragraph whose every sentence says "FAKE model", one sentence every 120 ms (12 s in all, so only a
@@ -33,7 +34,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterAll(async () => { for (const c of cleanups.splice(0).reverse()) await c(); }, 30_000);
 
 describe('another process\'s chat turn, seen and stopped from the Workbench at once (R6 H141; tmux, FAKE model)', () => {
-  it('the run line names a REPL turn within about half a second of its hold; x about 0.5 s into it stops it; x at once stops it; Enter on Stop the turn stops it', async () => {
+  it('the run line names a REPL turn within about half a second of its hold; x about 0.5 s into it (then y) stops it; x at once (then y) stops it; Enter on Stop the turn says it is done in the REPL and stops nothing', async () => {
     const ollama: FakeOllama = await startFakeOllama({ models: [{ name: 'qwen3:8b' }], chat: Array.from({ length: TURNS }, (_, i) => () => ({ chunks: answer(i + 1), delayMs: 120 })) });
     cleanups.push(() => ollama.close());
     const box = mkdtempSync(join(tmpdir(), 'wb-holds-pty-'));
@@ -108,12 +109,14 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     const one = await sendInRepl('the first long question (turn 1)');
     const named = await seen(RUNNING, one.held);
     expect(named.at, `the run line named the REPL's turn ${named.at} ms after its hold was written`).toBeLessThan(700);
-    expect(named.screen).toMatch(/\[x\] Stop current: the chat turn in the REPL \(x asks it to stop, as Ctrl\+C in the REPL does\)/);
+    expect(named.screen).toMatch(/\[x\] Stop current: the chat turn in the REPL \(Ctrl\+C in the REPL stops it there; x here asks you first\)/);
     keep('holds-1-workbench-running', named.screen, `the Workbench naming the REPL's turn ${named.at} ms after its hold was written (turn 1)`, one.sent);
     await sleep(Math.max(0, one.sent + 500 - Date.now()));
     const xAt = Date.now();
     await sendKeys(wb, ['x']);
-    const asked = await seen(/Stop asked of the turn being answered in the REPL \(x\)/, xAt);
+    await seen(/Stop the chat turn being answered in the REPL\?/, xAt);
+    await sendKeys(wb, ['y']);
+    const asked = await seen(/Stop asked of the turn being answered in the REPL \(x, then y\)/, xAt);
     keep('holds-1-workbench-after-x', asked.screen, `x pressed ${xAt - one.sent} ms into the REPL's turn (turn 1): the Workbench asks it to stop`, one.sent);
     const stopped1 = await replWait(STOPPED_THERE, 10_000);
     const stoppedIn = Date.now() - xAt;
@@ -132,22 +135,31 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     const two = await sendInRepl('the second long question (turn 2)');
     const xAt2 = Date.now();
     await sendKeys(wb, ['x']);
-    const asked2 = await seen(/Stop asked of the turn being answered in the REPL \(x\)|Stop current: nothing runs in tray\./, xAt2);
+    const asked2 = await seen(/Stop the chat turn being answered in the REPL\?|Stop current: nothing runs in tray\./, xAt2);
     keep('holds-2-workbench-after-x', asked2.screen, `x pressed ${xAt2 - two.held} ms after the REPL's hold was written (turn 2)`, two.sent);
     expect(asked2.screen, 'x said nothing runs while a turn was held').not.toMatch(/Stop current: nothing runs in tray\./);
+    await sendKeys(wb, ['y']);
     await replWait(/the second long question \(turn 2\)[\s\S]*asked from the Workbench/, 10_000);
     expect(replCount(STOPPED_THERE)).toBe(2);
     await seen(/run: idle/, Date.now(), 5000);
     await replWait(/Enter to send/);
 
-    // 3. Enter on Stop the turn: the Chat tab (2), where it is the one next step while the turn runs
+    // 3. Stop the turn on the Chat tab (2), the one next step while the turn runs, is done in the REPL (R7 H150): the cursor on
+    // it and Enter say so and stop nothing; x, then y, stops it
     await sendKeys(wb, ['2']);
     await waitScreen(wb, { what: 'the Chat tab', re: /tray \/ Chat/, ms: 10_000 });
     const three = await sendInRepl('the third long question (turn 3)');
     const offered = await seen(/▶ 3 Stop the turn/, three.held);
     expect(offered.at, `the Chat tab offered Stop the turn ${offered.at} ms after the hold was written`).toBeLessThan(700);
+    await sendKeys(wb, ['Right', 'Right']);
+    await seen(/3 Stop the turn · Ctrl\+C in the REPL that sent it · done in the REPL, not here/, Date.now());
     await sendKeys(wb, ['Enter']);
-    await seen(/Stop asked of the turn being answered in the REPL \(Enter\)/, Date.now());
+    await seen(/3 Stop the turn is done in the REPL \(Ctrl\+C in the REPL that sent it\): Enter here does not stop it/, Date.now());
+    await sleep(600);
+    expect(replCount(STOPPED_THERE), 'Enter stopped the REPL\'s turn').toBe(2);
+    await sendKeys(wb, ['x']);
+    await seen(/Stop the chat turn being answered in the REPL\?/, Date.now());
+    await sendKeys(wb, ['y']);
     await replWait(/the third long question \(turn 3\)[\s\S]*asked from the Workbench/, 10_000);
     await seen(/run: idle/, Date.now(), 5000);
     expect(replCount(STOPPED_THERE)).toBe(3);
