@@ -48,9 +48,10 @@
   #frame .fr-tab { display: inline-block; margin: 1px 4px 1px 0; line-height: 16px; vertical-align: top; padding: 0 6px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; white-space: nowrap; }
   #frame .fr-tab.is-active { border-color: var(--timmy-accent, #FFB000); color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
   #frame .fr-key { color: var(--timmy-text-secondary, #8E8E93); font-weight: var(--timmy-weight-body, 400); }
-  /* R7 (H151; the operator's order of 2026-10-16, 22:08 PT: one amber next step; B10): a waiting count is said in words, in the text
-     colour and weight; amber stays for focus, the active tab and the one primary next step */
-  #frame .fr-count, #frame .is-waiting { color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
+  /* R7 lead (DESIGN.md §10 B10 "Amber is exact": things waiting for you are amber, as the Workbench and the companion draw them):
+     a waiting count is amber, said in words and weight beside the one primary next step; H151 had it in the text colour, from the
+     lead's brief, which named only focus, the active tab and the primary */
+  #frame .fr-count, #frame .is-waiting { color: var(--timmy-attention, #FFB000); font-weight: var(--timmy-weight-strong, 600); }
   /* R7 (H151; "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts visibly unfinished"): an unfinished tab carries a mark, never
      colour alone (src/contracts/workspace.ts TabDef.unfinished: structure and text colours only), and the strip's own description
      (#frame-unf, opened by its button) says in the frame's words what works on each now and what does not yet */

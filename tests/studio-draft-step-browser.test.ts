@@ -122,7 +122,7 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
   }), AMBER);
   const twoBoxes = "const { createShapeId, toRichText } = helpers; const a = createShapeId(), b = createShapeId(); editor.createShapes([{ id: a, type: 'geo', x: 2460, y: 1820, props: { w: 160, h: 80, richText: toRichText('FAKE proposed') } }, { id: b, type: 'geo', x: 2700, y: 1820, props: { w: 160, h: 80, richText: toRichText('FAKE also proposed') } }]); return [a, b];";
 
-  it('while a FAKE draft waits, the strip\'s one amber primary is the frame\'s draft step and the draft\'s Accept is that same step: those, the active tab and focus are the only amber; Go to the draft brings the draft into view with the focus on its Accept; Accept makes it 0 waiting within 500 ms, and the primary is then the frame\'s next one', async () => {
+  it('while a FAKE draft waits, the strip\'s one amber primary is the frame\'s draft step and the draft\'s Accept is that same step: those, the waiting counts, the active tab and focus are the only amber; Go to the draft brings the draft into view with the focus on its Accept; Accept makes it 0 waiting within 500 ms, and the primary is then the frame\'s next one', async () => {
     const { page, context, errors } = await open();
     try {
       // before any draft: the frame's Studio primary is not the draft's
@@ -148,11 +148,16 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
       await page.waitForTimeout(200);
       const shown = await ambers(page);
       await shoot(page, 'draft-waiting-1440x900.png');
+      // R7 lead (B10: things waiting for you are amber, as the Workbench and the companion draw them): the two tabs that count the
+      // draft and the activity line's "1 waiting on you" are amber too
       expect(shown.sort()).toEqual([
         'button.draft-accept: color+border "Accept"',
         'li.fr-act.is-primary.is-draft: border "1 Accept or discard the draft Timmy proposed Go to the draft"',
         'li.fr-tab.is-active: border "4 Studio"',
+        'span.fr-count: color "1 waiting"',
+        'span.fr-count: color "1 waiting"',
         'span.fr-label: color "Accept or discard the draft Timmy proposed"',
+        'span.fr-waiting.is-waiting: color "1 waiting on you"',
       ]);
       // the draft's Discard and Show are neutral; the draft's outline and label are silver (made by a model, B10), said in words
       const look = await page.evaluate((d) => {
