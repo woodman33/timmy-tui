@@ -4,8 +4,8 @@
  * and the Workbench's tab (src/workbench/create-tab.ts). Only readers Timmy already has are used; nothing runs, nothing is
  * installed, no model is asked:
  *
- *   STL           each .stl file of the project (src/project/index.ts listProjectFiles: no dependencies, git, dot folders,
- *                 links or private files), named so (an STL has no magic number) and its bytes checked when read: measured
+ *   STL           each .stl file of the project (as its file list walks it: no dependencies, git, dot folders, links or
+ *                 private files), named so (an STL has no magic number) and its bytes checked when read: measured
  *                 by Timmy's own STL reader (src/native/stl-readback.ts readbackOf, the reading readStlFile makes) from the
  *                 whole file, read once through one descriptor (./read-plain.ts: no link, no "..", at most MESH_READ_MAX)
  *   tessellation  an STL a VoxVision record's view names as a STEP's tessellation (src/vox/tessellate.ts writes them into
@@ -20,10 +20,10 @@
  * counts said. The measurements are always of the whole file, and a drawing measures nothing (DOCTRINE §15).
  */
 import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync } from 'node:fs';
+import { lstatSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { DOCTRINE_15, num, parseStl, readbackOf, STL_READBACK, topologyWords, volumeWords, type StlReadback } from '../native/stl-readback.js';
-import { listProjectFiles, projectId } from '../project/index.js';
+import { privatePath, projectId } from '../project/index.js';
 import type { Receipt } from '../utils/receipts.js';
 import { rerunBindArgs, rerunReady, RERUN_SETUP } from './layers.js';
 import { onPathOf } from './preview.js';
@@ -39,8 +39,11 @@ export const RECORDING_LIST_MAX = 24;
 export const MESH_READ_MAX = 64 * 1024 * 1024;
 /** The most triangles the view draws; above it, an even pick of this many (viewPick). */
 export const VIEW_MAX_TRIANGLES = 40_000;
-/** The most of the project's files the list walks (src/project/index.ts listProjectFiles). */
-const WALK_MAX = 10_000;
+/** The most entries of the project's folders the walk looks at, and how deep it goes. */
+const WALK_MAX = 50_000;
+const WALK_DEPTH = 12;
+/** The folders the project's file list never walks (src/project/index.ts listProjectFiles' SKIP_DIRS), and every dot folder. */
+const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'venv', 'coverage']);
 /** The most VoxVision records read for their tessellations, and the largest one read. */
 const RECORDS_MAX = 200;
 const RECORD_MAX = 1024 * 1024;
@@ -103,15 +106,36 @@ export interface MeshListInput {
 const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 const isStl = (rel: string): boolean => /\.stl$/i.test(rel);
 const isRrd = (rel: string): boolean => /\.rrd$/i.test(rel);
-/** Timmy's own folders (.timmy, .sessions): its records' private files are not the project's meshes. */
-const ownFolder = (rel: string): boolean => rel.startsWith('.');
 const byPath = <T extends { path: string }>(a: T, b: T): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
-/** The project's mesh and recording files, by the rules above (sorted by path). */
+/**
+ * The project's mesh and recording files (sorted by path), by the project's file list's rules (src/project/index.ts
+ * listProjectFiles): no dependencies, no git, no link, no private file (keys, .env), no dot file; and no dot folder at all, so
+ * Timmy's own .timmy and .sessions (a record's private files, a rejected tessellation kept as written) are not the project's
+ * meshes. Only .stl and .rrd names are looked at further (one stat each): nothing else is read.
+ */
 function filesOf(root: string): { stl: Array<{ path: string; bytes: number }>; rrd: Array<{ path: string; bytes: number }>; walked: number; truncated: boolean } {
-  const { files, truncated } = listProjectFiles(root, { max: WALK_MAX });
-  const pick = (want: (rel: string) => boolean) => files.filter((f) => want(f.rel) && !ownFolder(f.rel)).map((f) => ({ path: f.rel, bytes: f.bytes })).sort(byPath);
-  return { stl: pick(isStl), rrd: pick(isRrd), walked: files.length, truncated };
+  const stl: Array<{ path: string; bytes: number }> = [];
+  const rrd: Array<{ path: string; bytes: number }> = [];
+  let walked = 0;
+  let truncated = false;
+  const walk = (dirRel: string, depth: number): void => {
+    if (truncated || depth > WALK_DEPTH) return;
+    let entries: Dirent[];
+    try { entries = readdirSync(dirRel ? join(root, dirRel) : root, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (walked >= WALK_MAX) { truncated = true; return; }
+      walked += 1;
+      const rel = dirRel ? `${dirRel}/${e.name}` : e.name;
+      if (e.isSymbolicLink() || e.name.startsWith('.') || privatePath(rel)) continue;
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(rel, depth + 1); continue; }
+      const into = !e.isFile() ? null : isStl(rel) ? stl : isRrd(rel) ? rrd : null;
+      if (!into) continue;
+      try { into.push({ path: rel, bytes: statSync(join(root, rel)).size }); } catch { /* gone since */ }
+    }
+  };
+  walk('', 0);
+  return { stl: stl.sort(byPath), rrd: rrd.sort(byPath), walked, truncated };
 }
 
 /**

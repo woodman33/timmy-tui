@@ -153,5 +153,7 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     }
     // c opens the companion on this tab (tab=create): its page's tab 6 draws the view
     expect(c.ui.page).toBe('create');
+    // a capture of the screen as the frame draws it, where H153_CAPS names a folder
+    if (process.env.H153_CAPS) { mkdirSync(process.env.H153_CAPS, { recursive: true }); writeFileSync(join(process.env.H153_CAPS, 'h153-10-workbench-tab6-160x45-frame.txt'), `${screenText(c.frame(160, 45).screen).join('\n')}\n`); }
   }, 30_000);
 });

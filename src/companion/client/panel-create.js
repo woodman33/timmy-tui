@@ -162,7 +162,7 @@
             bytesWords(m.bytes),
           ].join(' · ')))))),
       L.more ? h('p', { class: 'create-note' }, `and ${L.more} more not listed here (the list names the first ${L.meshes.length}, by path)`) : null,
-      L.walk && L.walk.truncated ? h('p', { class: 'create-note' }, `Only the project's first ${L.walk.files} files were looked through.`) : null);
+      L.walk && L.walk.truncated ? h('p', { class: 'create-note' }, `Only the first ${L.walk.files} files and folders of the project were looked through: a mesh past them is not listed.`) : null);
     }
   }
   const markList = () => { if (S.root) for (const b of S.root.querySelectorAll('.create-mesh')) b.setAttribute('aria-current', b.dataset.createMesh === S.sel ? 'true' : 'false'); };

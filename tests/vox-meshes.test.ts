@@ -54,6 +54,9 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     put(root, 'node_modules/pkg/dep.stl', cubeStl(1));
     put(root, '.git/objects/x.stl', cubeStl(1));
     put(root, '.timmy/vox/v00000001/rejected-j1-tessellation.stl', cubeStl(1));
+    put(root, '.venv/lib/x.stl', cubeStl(1));
+    put(root, 'refs/.hidden.stl', cubeStl(1));
+    put(root, 'notes/readme.md', '# FAKE notes: never read by the mesh list\n');
     symlinkSync(join(root, 'refs', 'cube.stl'), join(root, 'link.stl'));
 
     const list = listMeshes({ root, env });
