@@ -40,6 +40,21 @@ if (!browserPath) console.warn('studio-artifacts-browser: no Chromium or Chrome 
 const HOLDER = 'e'.repeat(32);
 const CAPTURES = process.env.TIMMY_R6_CAPTURES?.trim() || '';
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+// R7 lead: one matcher for page.route and page.unroute. Playwright matches a function matcher by identity, so
+// `page.unroute(() => true, handler)`, given a new arrow function, removed nothing (the same removal in
+// tests/studio-nodes-browser.test.ts left a read in its handler's route.fetch() when the page closed, on e1bea84)
+const ANY_URL = (): boolean => true;
+// The page keeps this route for its whole life, so removing the test's own handler never removes the page's last route (when the
+// last one goes, Playwright continues a request still with a handler by itself, and that handler's own continue then fails:
+// "route.continue: Route is already handled!", an unhandled rejection)
+const passOn = (route: Route): Promise<void> => route.fallback();
+// a held read's handler is off the page once the test removes it: `routed` counts every call of it, and a request made after the
+// removal does not reach it (the page's own address: a plain page, read without a token)
+async function gone(page: Page, routed: () => number): Promise<void> {
+  const before = routed();
+  await page.evaluate(() => fetch('/', { cache: 'no-store' }).then((r) => r.status, () => 0));
+  expect(routed(), 'a request made after the unroute reached a removed handler').toBe(before);
+}
 type Project = { name: string; root: string; id: string };
 type Who = { id: string; name: string } | null;
 type Win = { timmyCanvas: { editor: { getCurrentPageShapes: () => Array<{ id: string; type: string; props: Record<string, unknown> }> }; project: Who; identity: { project: Who; switching: Who; state: string; kept: Array<{ words: string }> }; placeArtifact: (id: string) => Promise<{ shape: string }>; artifacts: () => { answer: { artifacts: Array<{ id: string }> } | null; project: string | null } } };
@@ -173,6 +188,7 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.route('**/*', (route) => (new URL(route.request().url()).origin === base || /^(data|blob):/.test(route.request().url()) ? route.continue() : route.abort()));
     const page = await context.newPage();
+    await page.route(ANY_URL, passOn);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error' && !/status of 409 \(Conflict\)/.test(m.text())) errors.push(m.text()); });
@@ -329,7 +345,9 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       let release: () => void = () => {};
       const gate = new Promise<void>((done) => { release = done; });
       let seen = false;
+      let routed = 0;
       const holdIt = async (route: Route): Promise<void> => {
+        routed += 1;
         const u = new URL(route.request().url());
         if (seen || u.pathname !== '/api/project/artifacts') { await route.fallback(); return; }
         seen = true;
@@ -337,7 +355,7 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
         await gate;
         await route.fulfill({ response: answered });
       };
-      await page.route(() => true, holdIt);
+      await page.route(ANY_URL, holdIt);
       const placing = page.evaluate((id) => (window as never as Win).timmyCanvas.placeArtifact(id).then(() => 'placed', (e: Error) => e.message), `vox:${trayVox}`);
       for (let i = 0; i < 100 && !seen; i++) await page.waitForTimeout(50);
       expect(seen).toBe(true);
@@ -346,7 +364,8 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       await page.waitForFunction((id) => (window as never as Win).timmyCanvas.identity.switching?.id === id || (window as never as Win).timmyCanvas.identity.project?.id === id, blank.id, { timeout: 20_000 });
       release();
       expect(await placing).toBe('Not placed: Studio switched boards while it read tray\'s artifacts, so nothing was placed on either board.');
-      await page.unroute(() => true, holdIt);
+      await page.unroute(ANY_URL, holdIt);
+      await gone(page, () => routed);
       await shows(page, blank);
       // blank's board: none of tray's cards; blank's list: blank's record only
       expect(await cardsOnBoard(page)).toEqual([]);

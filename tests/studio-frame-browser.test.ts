@@ -455,6 +455,10 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       await page.waitForSelector('#frame-log', { state: 'hidden' });
       expect(errors).toEqual([]);
     } finally {
+      // R7 lead: the frame's route reads each frame with route.fetch() until the context closes; one still reading then would
+      // reject after the test ("route.fetch: Target page, context or browser has been closed", as on e1bea84 in
+      // tests/studio-nodes-browser.test.ts), so the routes are taken off first and what they still do is ignored
+      await context.unrouteAll({ behavior: 'ignoreErrors' });
       await context.close();
     }
   }, 120_000);
@@ -487,6 +491,8 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       expect(await line()).toMatch(/^0 running · 0 waiting on you · newest: /);
       expect(errors).toEqual([]);
     } finally {
+      // R7 lead: as above, the frame's fetching route is taken off before the context closes
+      await context.unrouteAll({ behavior: 'ignoreErrors' });
       await context.close();
     }
   }, 120_000);

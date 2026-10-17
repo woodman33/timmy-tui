@@ -53,6 +53,21 @@ if (!browserPath) console.warn('studio-nodes-browser: no Chromium or Chrome foun
 const HOLDER = 'b'.repeat(32);
 const CAPTURES = process.env.TIMMY_R6_CAPTURES?.trim() || '';
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+// R7 lead: one matcher for page.route and page.unroute. Playwright matches a function matcher by identity (urlMatchesEqual:
+// match1 === match2), so `page.unroute(() => true, handler)`, given a new arrow function, removed nothing: on e1bea84 a read still
+// inside the held-read handler's route.fetch() when the page closed raised an unhandled rejection in the full suite
+const ANY_URL = (): boolean => true;
+// The page keeps this route for its whole life, so removing a test's own handlers never removes the page's last route. When the
+// last one goes, Playwright continues a request still with a handler by itself, and that handler's own continue then fails
+// ("route.continue: Route is already handled!", an unhandled rejection: seen once the removal above worked)
+const passOn = (route: Route): Promise<void> => route.fallback();
+// a held read's handlers are off the page once the test removes them: `routed` counts every call of them, and a request made
+// after the removal reaches none of them (the page's own address: a plain page, read without a token)
+async function gone(page: Page, routed: () => number): Promise<void> {
+  const before = routed();
+  await page.evaluate(() => fetch('/', { cache: 'no-store' }).then((r) => r.status, () => 0));
+  expect(routed(), 'a request made after the unroute reached a removed handler').toBe(before);
+}
 type Project = { name: string; root: string; id: string; jobs: string; receipts: string };
 type Who = { id: string; name: string } | null;
 type Rec = { id: string; type: string; typeName: string; x?: number; y?: number; props: Record<string, unknown>; meta: Record<string, unknown> };
@@ -157,6 +172,7 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.route('**/*', (route) => (new URL(route.request().url()).origin === base || /^(data|blob):/.test(route.request().url()) ? route.continue() : route.abort()));
     const page = await context.newPage();
+    await page.route(ANY_URL, passOn);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error' && !/status of 409 \(Conflict\)/.test(m.text())) errors.push(m.text()); });
@@ -279,7 +295,9 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
       // an add whose reading of tray is held until the switch to blank has begun
       const readGate = new Promise<void>((done) => { releaseRead = done; });
       let readHeld = false;
+      let routed = 0;
       const holdRead = async (route: Route): Promise<void> => {
+        routed += 1;
         const u = new URL(route.request().url());
         if (u.pathname !== '/api/project') { await route.fallback(); return; }
         readHeld = true;
@@ -287,18 +305,19 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
         await readGate;
         await route.fulfill({ response: answered });
       };
-      await page.route(() => true, holdRead);
+      await page.route(ANY_URL, holdRead);
       const held = page.evaluate(() => (window as never as Win).timmyCanvas.addNode('params', 'params:recipes/tray.params.json').then((r) => r.words, (e: Error) => e.message));
       await until('the add\'s reading is held', () => readHeld, 10_000);
       // blank's board is held from loading, so Studio stays switching while a person presses Add
       const boardGate = new Promise<void>((done) => { releaseBoard = done; });
       const holdBoard = async (route: Route): Promise<void> => {
+        routed += 1;
         const u = new URL(route.request().url());
         if (u.pathname !== '/api/canvas/document' || u.searchParams.get('project') !== blank.id) { await route.fallback(); return; }
         await boardGate;
         await route.fallback();
       };
-      await page.route(() => true, holdBoard);
+      await page.route(ANY_URL, holdBoard);
       workbench(blank);
       await named(blank);
       await page.waitForFunction((id) => (window as never as Win).timmyCanvas.identity.state === 'switching' && (window as never as Win).timmyCanvas.identity.switching?.id === id, blank.id, { timeout: 20_000 });
@@ -310,9 +329,10 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
       // the held reading of tray comes back now: nothing is placed on either board
       releaseRead();
       expect(await held).toBe("Not added: Studio switched boards while it read tray's cards, so nothing was placed on either board.");
-      await page.unroute(() => true, holdRead);
+      await page.unroute(ANY_URL, holdRead);
       releaseBoard();
-      await page.unroute(() => true, holdBoard);
+      await page.unroute(ANY_URL, holdBoard);
+      await gone(page, () => routed);
       await shows(page, blank);
       // blank's board: none of tray's nodes; blank's palette: blank's own workflow, nothing of tray's
       expect(await onBoard(page)).toEqual([]);
@@ -549,7 +569,9 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
       const trayBefore = files(tray);
       const readGate = new Promise<void>((done) => { releaseRead = done; });
       let readHeld = false;
+      let routed = 0;
       const holdRead = async (route: Route): Promise<void> => {
+        routed += 1;
         const u = new URL(route.request().url());
         if (u.pathname !== '/api/project') { await route.fallback(); return; }
         readHeld = true;
@@ -557,17 +579,18 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
         await readGate;
         await route.fulfill({ response: answered });
       };
-      await page.route(() => true, holdRead);
+      await page.route(ANY_URL, holdRead);
       const held = page.evaluate((x) => (window as never as WinC).timmyCanvas.connectNodes(x.a, x.b).then((r) => r.words, (e: Error) => e.message), { a: P.id, b: F.id });
       await until('the connection\'s reading is held', () => readHeld, 10_000);
       const boardGate = new Promise<void>((done) => { releaseBoard = done; });
       const holdBoard = async (route: Route): Promise<void> => {
+        routed += 1;
         const u = new URL(route.request().url());
         if (u.pathname !== '/api/canvas/document' || u.searchParams.get('project') !== blank.id) { await route.fallback(); return; }
         await boardGate;
         await route.fallback();
       };
-      await page.route(() => true, holdBoard);
+      await page.route(ANY_URL, holdBoard);
       workbench(blank);
       await named(blank);
       await page.waitForFunction((id) => (window as never as Win).timmyCanvas.identity.state === 'switching' && (window as never as Win).timmyCanvas.identity.switching?.id === id, blank.id, { timeout: 20_000 });
@@ -577,9 +600,10 @@ describe.skipIf(!browserPath)("Studio's node palette: the shown project's own ca
       expect(await text(page, '#node-connect-note')).toBe('Not connected: Studio is switching to blank, so nothing is connected on either board until its board is loaded.');
       releaseRead();
       expect(await held).toBe("Not connected: Studio switched boards while it read tray's records, so nothing was connected on either board.");
-      await page.unroute(() => true, holdRead);
+      await page.unroute(ANY_URL, holdRead);
       releaseBoard();
-      await page.unroute(() => true, holdBoard);
+      await page.unroute(ANY_URL, holdBoard);
+      await gone(page, () => routed);
       await shows(page, blank);
       await page.waitForFunction(() => /^No connections on this board yet/.test(document.getElementById('node-link-list')?.textContent ?? ''), null, { timeout: 10_000 });
       expect(await page.locator('#node-link-list li.nlink').count()).toBe(0);
