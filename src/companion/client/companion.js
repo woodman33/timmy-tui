@@ -20,20 +20,29 @@ const companion = (() => {
   // R6 lead: the tab the address asks for (?tab=<id>, or &tab=<id> beside the token after #), read before the token is taken
   // out of the address; the start code opens it (a Workbench tab's `c` opens the companion on the same tab)
   let askedTab = '';
+  // R7 (H152): and the run it asks for (?run=<operation id>, or run=<id> beside the token), opened on Workflows; an operation
+  // id is not a secret, so it may stay in the address (the token never does)
+  let askedRun = '';
   try {
     const fromQuery = new URLSearchParams(location.search).get('tab');
     const fromHash = /(?:^#|&)tab=([a-z]{2,16})(?:&|$)/.exec(location.hash);
     askedTab = (fromHash ? fromHash[1] : fromQuery || '').toLowerCase();
+    const runHash = /(?:^#|&)run=(o[0-9a-f]{8})(?:&|$)/.exec(location.hash);
+    const runQuery = new URLSearchParams(location.search).get('run') || '';
+    askedRun = runHash ? runHash[1] : /^o[0-9a-f]{8}$/.test(runQuery) ? runQuery : '';
     const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
     if (m) {
       token = m[1];
       history.replaceState(null, '', location.pathname + location.search);
     }
   } catch (e) { /* no address to read */ }
-  const OPEN_FROM_TIMMY = 'Open it from Timmy: in `timmy watch`, press q on HOME; it shows the companion’s address with its token.';
+  // R7 (H152; the R6 interaction review's N7): both ways Timmy opens this page with its token: the Workbench's c, and the
+  // monitor's pairing card. The token is kept in this page's memory only, never in storage, so an address typed by hand has none.
+  const OPEN_FROM_TIMMY = 'Open it from Timmy: in the Workbench (`timmy workbench`), press c, which opens this page on the tab it shows, with its token; or in `timmy watch`, press q on HOME, which shows the companion’s address with its token.';
   const c = {
     token,
     askedTab,
+    askedRun,
     refused: false,
     protocols: () => ['timmy-companion', 'timmy-token.' + token],
     say(words) {
@@ -105,7 +114,7 @@ const chatRoute = (() => {
   };
   const refresh = async () => {
     if (!companion.token || companion.refused) {
-      set({ kind: 'none', ready: false, label: 'no token · Send is off', words: 'Send is off: this page has no token from Timmy (or not this companion’s), so it asks nothing. Open the companion from `timmy watch` (q on HOME).' });
+      set({ kind: 'none', ready: false, label: 'no token · Send is off', words: 'Send is off: this page has no token from Timmy (or not this companion’s), so it asks nothing. Open the companion from Timmy: the Workbench’s c, or q on HOME in `timmy watch`.' });
       return now;
     }
     try {
@@ -270,13 +279,15 @@ function replTurnOf(event, live) {
   }
   // R5 lead: the turn's identity, when its receipt names it (turn_id): the id the frame gave it while it was being answered
   const turn = typeof p.turn_id === 'string' && /^t[0-9]+-[0-9a-f]{8}$/.test(p.turn_id) ? p.turn_id : null;
+  // R7 (H152): who asked a stopped turn to stop, when another surface did (the receipt's stopped_by, on the bus beside it)
+  const stoppedBy = typeof p.stopped_by === 'string' && Object.prototype.hasOwnProperty.call(STOP_SURFACE, p.stopped_by) ? p.stopped_by : '';
   if (p.kind === 'chat') {
     const s = SURFACE_TURN.exec(String(p.subject || ''));
     if (!s) return null;
-    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]), turn };
+    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]), turn, stoppedBy };
   }
   const m = REPL_TURN.exec(String(p.subject || ''));
-  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null, turn };
+  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null, turn, stoppedBy };
 }
 
 /** Takes the turns among bus events (every surface's); true when one is new. */
@@ -307,21 +318,40 @@ function mirrorHasSession() {
 function turnEnd(turn) {
   const f = frameDrawn();
   const known = f && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns.find((t) => t && t.receipt === turn.receipt) : null;
-  if (known && typeof known.state === 'string') return known.state;
-  return turn.state === 'cancelled' ? 'stopped' : turn.state;
+  const state = known && typeof known.state === 'string' ? known.state : turn.state === 'cancelled' ? 'stopped' : turn.state;
+  return { state, words: turnEndSaid(state, turn.surface, (known && known.stoppedBy) || turn.stoppedBy || '') };
+}
+
+/**
+ * R7 (H152; the R5 visual review's 13, "mirror rows don't say who stopped"): how a turn ended, in the one table's words
+ * (src/contracts/stop-words.ts turnEndWords; tests/companion-client.test.ts holds the two to the same words): answered, failed,
+ * ended (not known to the frame yet), or "stopped (asked from <the surface that asked>)": the surface its receipt names
+ * (stopped_by) when another one asked, else the one that sent it. Never "cancelled": that word is a workflow job's.
+ */
+const STOP_SURFACE = { repl: 'the REPL', workbench: 'the Workbench', monitor: 'the monitor', companion: 'the companion', unknown: 'another surface' };
+function turnEndSaid(state, surface, stoppedBy) {
+  if (state !== 'stopped') return state;
+  const asker = stoppedBy || surface;
+  return `stopped (asked from ${Object.prototype.hasOwnProperty.call(STOP_SURFACE, asker) ? STOP_SURFACE[asker] : asker})`;
+}
+/** A turn's end and its steps, in one phrase: "ended (2 steps)", "stopped (asked from the REPL; 1 step)". */
+function turnEndPhrase(end, steps) {
+  const n = steps === null || steps === undefined ? '' : `${steps} ${steps === 1 ? 'step' : 'steps'}`;
+  if (end.state === 'stopped') return n ? `${end.words.slice(0, -1)}; ${n})` : end.words;
+  return n ? `${end.words} (${n})` : end.words;
 }
 
 function surfaceTurnHtml(turn) {
   const s = SURFACES[turn.surface];
   const time = clockOf(turn.at);
-  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  const end = turnEnd(turn);
   return `
-      <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}">
+      <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}" data-state="${escapeMirrorText(end.state)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEnd(turn))}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEnd(turn))}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
@@ -329,15 +359,14 @@ function surfaceTurnHtml(turn) {
 function replTurnHtml(turn) {
   if (turn.surface && turn.surface !== 'repl' && SURFACES[turn.surface]) return surfaceTurnHtml(turn);
   const time = clockOf(turn.at);
-  const state = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
-  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  const end = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
   return `
-      <div class="log-msg repl" data-mirror="repl-turn">
+      <div class="log-msg repl" data-mirror="repl-turn" data-state="${escapeMirrorText(end.state)}">
         <div class="log-header repl">
-          <span>⌨ REPL turn · ${state}</span>
+          <span>⌨ REPL turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${state}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
@@ -782,10 +811,10 @@ function frameTurnHtml(t) {
   return `
       <div class="log-msg repl" data-mirror="frame-turn" data-surface="${escapeMirrorText(t.surface)}" data-state="${escapeMirrorText(t.state)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(t.state)}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}</span>
           <span class="log-time">${escapeMirrorText(clockOf(t.at))}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(t.state)}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
       </div>
     `;
 }
@@ -1335,6 +1364,9 @@ window.addEventListener('resize', () => markOverflow());
 
 // ── the ten tabs ──
 
+/** R7 (H152): the frame's words for a tab whose intended interactions do not all work yet (TabDef.unfinished), or null. */
+const unfinishedOf = (t) => (t && t.unfinished && typeof t.unfinished.works === 'string' && typeof t.unfinished.missing === 'string' ? t.unfinished : null);
+
 function drawTabs(f) {
   for (const t of f.tabs || []) {
     const btn = document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(String(t.id))}"]`);
@@ -1345,7 +1377,42 @@ function drawTabs(f) {
     const waiting = btn.querySelector('.tab-waiting');
     waiting.hidden = !(t.waiting > 0);
     waiting.textContent = t.waiting > 0 ? `· ${t.waiting} waiting` : '';
-    btn.title = t.waiting > 0 ? `${t.label}: ${t.waiting} waiting on you (key ${t.key})` : `${t.label} (key ${t.key})`;
+    // R7 (H152; the operator's order of 2026-10-16, 22:08 PT: "Keep 3D/Motion, Control Room, Fleet/Clef and Logs/Receipts
+    // visibly unfinished until their intended interactions work"): marked in the strip by its shape and a glyph, never by a
+    // colour alone (a dashed border and ◌, in structure and text colours), its words in its title and its description
+    const u = unfinishedOf(t);
+    let mark = btn.querySelector('.tab-unfinished');
+    if (u && !mark) { mark = h('span', { class: 'tab-unfinished', 'aria-hidden': 'true' }, '◌'); btn.querySelector('.tab-label').after(mark); }
+    if (!u && mark) mark.remove();
+    if (u) { btn.dataset.unfinished = 'true'; btn.setAttribute('aria-description', `unfinished: works now: ${u.works}; not yet: ${u.missing}`); }
+    else { delete btn.dataset.unfinished; btn.removeAttribute('aria-description'); }
+    btn.title = `${t.label}${t.waiting > 0 ? `: ${t.waiting} waiting on you` : ''}${u ? ' · unfinished (its tab says what works now)' : ''} (key ${t.key})`;
+  }
+  drawUnfinished(f);
+}
+
+/**
+ * R7 (H152): each unfinished tab's page opens with an "Unfinished" box, above the tab's own content: what works on it now and
+ * what it does not do yet, in the frame's words (src/contracts/workspace.ts TabDef.unfinished, carried on the frame's tabs[]);
+ * none is made up here. In structure and text colours: it is neither a step nor a state. A tab the frame no longer marks loses
+ * its box.
+ */
+function drawUnfinished(f) {
+  const marked = new Map((f.tabs || []).filter((t) => unfinishedOf(t)).map((t) => [String(t.id), t]));
+  for (const page of document.querySelectorAll('.ws-page[data-ws-page]')) {
+    const t = marked.get(page.dataset.wsPage);
+    let box = page.querySelector(':scope > .unfinished');
+    if (!t) { if (box) box.remove(); continue; }
+    const u = unfinishedOf(t);
+    const id = `unfinished-${t.id}`;
+    if (!box) {
+      box = h('section', { class: 'unfinished', 'data-unfinished': t.id, role: 'note', 'aria-labelledby': `${id}-title` });
+      page.prepend(box);
+    }
+    box.replaceChildren(
+      h('h2', { class: 'unfinished-title', id: `${id}-title` }, h('span', { 'aria-hidden': 'true' }, '◌ '), `Unfinished · ${t.label}`),
+      h('p', { class: 'unfinished-line', 'data-unfinished-part': 'works' }, h('span', { class: 'unfinished-k' }, 'Works now: '), u.works),
+      h('p', { class: 'unfinished-line', 'data-unfinished-part': 'missing' }, h('span', { class: 'unfinished-k' }, 'Not yet: '), u.missing));
   }
 }
 
@@ -1509,13 +1576,19 @@ function studioItem(f) {
 // run in Workflows, the record in VoxVision. They are read with the page's token from the routes those tabs read: a run once
 // (kept while it is the newest), the records list at most every 10 s while Home is on screen. Nothing is drawn of another
 // project, and an image that cannot be read says why.
-const homeImages = { project: '', run: { key: '', item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
+// R7 (H152; the R6 interaction review's N9: Home followed the newest run only, so after a run with no image the report run's
+// image left Home): the newest images the project's records hold, whatever ran after: the newest run that holds an image (the
+// companion looks back through the project's runs: GET /api/newest-run-image, asked again when the frame's newest run changes)
+// and the newest VoxVision record that has an image it can show; each names its run or record and opens it.
+const homeImages = { project: '', run: { key: null, item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
 const HOME_VOX_EVERY_MS = 10_000;
+/** the most VoxVision records with images read for one look (newest first), when the newer ones' images cannot be shown */
+const HOME_VOX_TRIES = 4;
 
 function homeImagesReset(project) {
   if (homeImages.project === project) return;
   homeImages.project = project;
-  homeImages.run = { key: '', item: null, asking: false };
+  homeImages.run = { key: null, item: null, asking: false };
   homeImages.vox = { key: '', item: null, asking: false, at: 0 };
 }
 
@@ -1526,50 +1599,62 @@ async function homeJson(url) {
   return body;
 }
 
-/** The newest run's first image: { op, path, src, words } or { op, none: why }. */
-async function homeRunImage(op, project) {
-  const body = await homeJson(`/api/run/${encodeURIComponent(op)}${project ? `?project=${encodeURIComponent(project)}` : ''}`);
-  const insp = body.inspection;
-  if (!insp) return { op, none: body.inspectionWhy || 'the run was not inspected' };
-  const files = [...(insp.outputs || []), ...((insp.changes && insp.changes.list) || [])];
-  const hit = files.find((x) => x && x.preview && x.preview.kind === 'image' && typeof x.preview.data === 'string' && x.preview.data.startsWith('data:image/'));
-  if (!hit) return { op, none: 'no image among what it wrote or changed' };
-  const p = hit.preview;
-  return { op, path: hit.path, src: p.data, words: `run ${op} · ${hit.path}${p.width && p.height ? ` · ${p.width} × ${p.height}` : ''}` };
+/** The newest run that holds an image: { op, path, src, words, newer } or { none: why }. */
+async function homeRunImage(project) {
+  const body = await homeJson(`/api/newest-run-image${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+  const im = body.image;
+  // no run in the records yet: nothing to say beside Home's own "No image yet"
+  if (!im) return body.looked ? { none: body.why || 'no run of this project holds an image Timmy can show' } : null;
+  return { op: im.op, path: im.path, src: im.src, newer: Number(im.newer) || 0, words: `run ${im.op} · ${im.path}${im.width && im.height ? ` · ${im.width} × ${im.height}` : ''}` };
 }
 
-/** The newest VoxVision record's image: { id, path, src, words } or { id, none: why }, or null with no record. */
+/** The newest VoxVision record with an image it can show: { id, path, src, words, newer } or { none: why }, or null with no record. */
 async function homeVoxImage(project) {
   const q = project ? `project=${encodeURIComponent(project)}` : '';
   const list = await homeJson(`/api/panel/voxvision/records${q ? `?${q}` : ''}`);
-  const rec = (list.records || [])[0];
-  if (!rec) return null;
-  if (homeImages.vox.item && homeImages.vox.item.id === rec.id) return homeImages.vox.item;
-  const body = await homeJson(`/api/panel/voxvision/record?id=${encodeURIComponent(rec.id)}${q ? `&${q}` : ''}`);
-  const images = (body.preview && body.preview.images) || [];
-  const im = images.find((x) => x.servable && x.role === 'highlight') || images.find((x) => x.servable);
-  if (!im) return { id: rec.id, none: images.length ? 'none of its images can be shown (VoxVision says why)' : 'it observed no image' };
-  const r = await companion.fetch(`/api/panel/voxvision/file?id=${encodeURIComponent(rec.id)}&path=${encodeURIComponent(im.path)}${q ? `&${q}` : ''}`);
-  if (!r.ok) {
-    const b = await r.json().catch(() => null);
-    return { id: rec.id, none: (b && b.error) || `the companion answered HTTP ${r.status}` };
+  const records = list.records || [];
+  if (!records.length) return null;
+  // the records newest first: those that observed no image are passed over (counted, and said beside the one shown)
+  const withImages = records.filter((r) => r && r.counts && r.counts.images > 0);
+  const first = withImages[0];
+  if (!first) return { none: `none of its ${records.length === 1 ? 'one record' : `${records.length} records`} observed an image` };
+  const newerThan = (id) => records.findIndex((r) => r.id === id);
+  if (homeImages.vox.item && homeImages.vox.item.id === first.id && !homeImages.vox.item.none) return { ...homeImages.vox.item, newer: newerThan(first.id) };
+  const why = [];
+  for (const rec of withImages.slice(0, HOME_VOX_TRIES)) {
+    const body = await homeJson(`/api/panel/voxvision/record?id=${encodeURIComponent(rec.id)}${q ? `&${q}` : ''}`);
+    const images = (body.preview && body.preview.images) || [];
+    const im = images.find((x) => x.servable && x.role === 'highlight') || images.find((x) => x.servable);
+    if (!im) { why.push(`${rec.id}: none of its images can be shown (VoxVision says why)`); continue; }
+    const r = await companion.fetch(`/api/panel/voxvision/file?id=${encodeURIComponent(rec.id)}&path=${encodeURIComponent(im.path)}${q ? `&${q}` : ''}`);
+    if (!r.ok) {
+      const b = await r.json().catch(() => null);
+      why.push(`${rec.id}: ${(b && b.error) || `the companion answered HTTP ${r.status}`}`);
+      continue;
+    }
+    const blob = await r.blob();
+    const src = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('the image could not be read in the page'));
+      fr.readAsDataURL(blob);
+    });
+    return { id: rec.id, path: im.path, src, newer: newerThan(rec.id), words: `VoxVision ${rec.id} · ${rec.action} · ${im.path}` };
   }
-  const blob = await r.blob();
-  const src = await new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(new Error('the image could not be read in the page'));
-    fr.readAsDataURL(blob);
-  });
-  return { id: rec.id, path: im.path, src, words: `VoxVision ${rec.id} · ${rec.action} · ${im.path}` };
+  return { none: why.join('; ') || 'no image of its records can be shown' };
 }
 
 function homeFigure(kind, it) {
   if (!it) return null;
-  if (it.none) return h('p', { class: 'preview-note', 'data-home-image': kind }, kind === 'run' ? `Run ${it.op}: ${it.none}.` : `VoxVision ${it.id}: ${it.none}.`);
-  return h('figure', { class: 'home-thumb', 'data-home-image': kind },
+  if (it.none) return h('p', { class: 'preview-note', 'data-home-image': kind }, kind === 'run' ? `Runs: ${it.none}.` : `VoxVision: ${it.none}.`);
+  // what ran after it, said beside it: the newest image is not always the newest work
+  const newer = it.newer > 0 ? (kind === 'run'
+    ? `the newest run that holds an image: ${it.newer} newer ${it.newer === 1 ? 'run holds' : 'runs hold'} none`
+    : `the newest record with an image: ${it.newer} newer ${it.newer === 1 ? 'record observed' : 'records observed'} none it can show`) : '';
+  return h('figure', { class: 'home-thumb', 'data-home-image': kind, 'data-newer': String(it.newer || 0) },
     h('button', { type: 'button', class: 'home-thumb-btn', 'data-enlarge': it.words, title: 'Show it at size' }, h('img', { src: it.src, alt: it.words })),
     h('figcaption', null, it.words),
+    newer ? h('p', { class: 'home-thumb-note', 'data-home-newer': kind }, newer) : null,
     kind === 'run'
       ? h('button', { type: 'button', class: 'btn-action tiny', 'data-open-run': it.op }, `Open run ${it.op}`)
       : h('button', { type: 'button', class: 'btn-action tiny', 'data-open-vox': it.id }, `Open ${it.id} in VoxVision`));
@@ -1594,19 +1679,20 @@ function homeImagesRefresh(f, own) {
     const old = document.querySelector('#home-preview [data-preview="images"]');
     if (old) old.replaceWith(homeImagesItem(true));
   };
+  // asked again when the frame's newest run is another one (a new run may hold a newer image; one without leaves it)
   const run = newestRunOf(f);
-  if (run && run.operation && run.operation !== homeImages.run.key && !homeImages.run.asking) {
-    const key = run.operation;
+  const key = run && run.operation ? run.operation : '';
+  if (key !== homeImages.run.key && !homeImages.run.asking) {
     homeImages.run.asking = true;
-    homeRunImage(key, project).then((it) => { if (homeImages.project === project) homeImages.run = { key, item: it, asking: false }; },
-      (e) => { if (homeImages.project === project) homeImages.run = { key, item: { op: key, none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }; })
+    homeRunImage(project).then((it) => { if (homeImages.project === project) homeImages.run = { key, item: it, asking: false }; },
+      (e) => { if (homeImages.project === project) homeImages.run = { key, item: { none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }; })
       .finally(redraw);
   }
   if (!homeImages.vox.asking && Date.now() - homeImages.vox.at >= HOME_VOX_EVERY_MS) {
     homeImages.vox.asking = true;
     homeImages.vox.at = Date.now();
-    homeVoxImage(project).then((it) => { if (homeImages.project === project) Object.assign(homeImages.vox, { key: it ? it.id : '', item: it, asking: false }); },
-      (e) => { if (homeImages.project === project) Object.assign(homeImages.vox, { item: { id: homeImages.vox.key || 'records', none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }); })
+    homeVoxImage(project).then((it) => { if (homeImages.project === project) Object.assign(homeImages.vox, { key: it && it.id ? it.id : '', item: it, asking: false }); },
+      (e) => { if (homeImages.project === project) Object.assign(homeImages.vox, { item: { none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }); })
       .finally(redraw);
   }
 }
@@ -1969,7 +2055,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) read
   let tab = 'home';
   try { tab = sessionStorage.getItem(WS_TAB_KEY) || 'home'; } catch (e) { tab = 'home'; }
   if (companion.askedTab && document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(companion.askedTab)}"]`)) tab = companion.askedTab;
-  if (!/^\/run\//.test(location.pathname)) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'home');
+  if (!/^\/run\//.test(location.pathname) && !companion.askedRun) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'home');
   let folded = false;
   try { folded = localStorage.getItem('timmy.companion.activity') === 'folded'; } catch (e) { folded = false; }
   if (folded) foldActivity(true);
@@ -1982,9 +2068,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) read
 // has said which project this page shows (at once, in words, without the token)
 (() => {
   const m = /^\/run\/([^/]+)$/.exec(location.pathname);
-  if (!m) return;
-  let op = '';
-  try { op = decodeURIComponent(m[1]); } catch (e) { op = m[1]; }
+  // R7 (H152): or ?run=<operation id> (a Workbench's c on a run can name it): the same, on this page's own address
+  if (!m && !companion.askedRun) return;
+  let op = companion.askedRun;
+  if (m) { try { op = decodeURIComponent(m[1]); } catch (e) { op = m[1]; } }
   switchTab('run');
   const input = document.getElementById('run-op');
   if (input) input.value = op;

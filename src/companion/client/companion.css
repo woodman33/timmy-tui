@@ -10,9 +10,11 @@
  *   --timmy-ground / --timmy-surface          the canvas and the wells (cards, panels, inputs)
  *   --timmy-line / --timmy-line-strong        separators and structure (a control is also told by its words or its fill)
  *   --timmy-text / --timmy-text-secondary     primary and secondary text (6.4:1 on the canvas)
- *   --timmy-accent (amber)                    focus, the active tab, the ONE primary next step (the only amber fill), .intent
- *                                             and .predict, what waits on you, and a failure (with ✕ and its word: the
- *                                             palette has no red)
+ *   --timmy-accent (amber)                    focus, the active tab, the selection, the ONE primary next step (the only amber
+ *                                             fill; R7 H152: the same step elsewhere on the screen is a brighter neutral),
+ *                                             .intent and .predict, what waits on you, and a failure (with ✕ and its word:
+ *                                             the palette has no red); never a key, a command, a destructive button, a FAKE
+ *                                             mark, a spend or a log level (each says itself in words)
  *   --timmy-silver                            made by a model, links (underlined), commands to copy
  *   --timmy-live (green)                      ONLY through .is-live (an observed live connection) and .is-verified (a passed
  *                                             check, a verified sealed receipt); saved, delivered, running, enabled or
@@ -26,6 +28,10 @@
  * Content keeps its own colors: an answer's highlighted code (Shiki's tokens), a drawn diagram, imported images and Slate
  * 3D's scene are not recolored. The page's Content-Security-Policy allows no inline style block or style attribute, so every
  * look is a class here.
+ *
+ * R7 (H152; DESIGN.md §10 B9, the R6 review's defect 17): no text on this page is under 11 px, a badge, a tag, a tiny
+ * button, a tab on a narrow screen or an SVG's words included (tests/companion-text-size-browser.test.ts reads every text
+ * drawn, on every tab, at 1376x768 and 800x600).
  */
 
 /* ---------- the page ---------- */
@@ -143,6 +149,17 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* what waits on you, counted in the tab: amber with its number */
 .tab-waiting { color: var(--timmy-attention); font-size: 11px; flex-shrink: 0; }
+/* R7 (H152): a tab whose intended interactions do not all work yet (the frame's tabs[].unfinished): a dashed border and ◌,
+   never a colour alone; its page opens with the Unfinished box below */
+.ws-tab[data-unfinished="true"] { border-style: dashed; }
+.tab-unfinished { color: var(--timmy-text-secondary); font-size: 11px; flex-shrink: 0; }
+
+/* R7 (H152): the Unfinished box, above an unfinished tab's own content: what works now and what does not yet, in the frame's
+   words; structure and text colours only (it is neither a step nor a state, so never amber or green) */
+.unfinished { flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; margin-top: 8px; padding: 5px 12px 6px; border: 1px dashed var(--timmy-line-strong); border-radius: 6px; background: var(--timmy-ground); font-size: 12px; line-height: 1.5; }
+.unfinished-title { font-size: 12px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); letter-spacing: 0.02em; }
+.unfinished-line { color: var(--timmy-text); overflow-wrap: anywhere; }
+.unfinished-k { color: var(--timmy-text-secondary); }
 
 /* ---------- a box: titled on its top border, as the references draw it ---------- */
 
@@ -229,7 +246,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .act[aria-disabled="true"] { color: var(--timmy-text-secondary); border-style: dashed; cursor: not-allowed; }
 .act-why { font-size: 11px; color: var(--timmy-text-secondary); padding-left: 2px; }
 .act-effect { font-size: 11px; color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
-.act-effect.spends { color: var(--timmy-attention); }
+.act-effect.spends { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); } /* R7 (H152, B10): its word says it spends; amber is not a warning colour */
 .strip-note { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 6px; }
 /* R5 lead: the Stop beside a chat turn being answered (the mirror's row, the Control Room's line) */
 .stop-turn { margin-left: 8px; }
@@ -336,10 +353,12 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 
 .acts-full { display: flex; flex-direction: column; gap: 8px; }
 .act-row { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 7px 10px; background: var(--timmy-surface); }
-.act-row.is-primary { border-color: var(--timmy-accent); }
+/* R7 (H152, B10: one amber next step per screen, the strip's): the same step in this list is a brighter neutral, its words
+   "the next step" saying it, as the run detail's and VoxVision's own next steps are */
+.act-row.is-primary { border-color: var(--timmy-text); }
 .act-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 12px; font-weight: var(--timmy-weight-strong); }
 .act-row-tag { font-size: 11px; color: var(--timmy-text-secondary); white-space: nowrap; font-weight: var(--timmy-weight-body); }
-.act-row-tag.is-next { color: var(--timmy-accent); }
+.act-row-tag.is-next { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
 .act-row-why { font-size: 11px; color: var(--timmy-text-secondary); }
 
 /* ---------- the Chat tab: the mirror or this page's own model chat, switched in place ---------- */
@@ -405,7 +424,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .log-header.repl { color: var(--timmy-text); }
 /* the mirror's state in its words (LIVE, RESTORED, SAVED, WAITING, RECONNECTING): never green (a stream that reached the
    page is not a check); what waits on the person (RECONNECTING, RESTORED) is amber */
-#mirror-status { font-size: 10px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
+#mirror-status { font-size: 11px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
 #mirror-status[data-state="live"], #mirror-status[data-state="saved"] { color: var(--timmy-text); }
 #mirror-status[data-state="restored"], #mirror-status[data-state="reconnecting"] { color: var(--timmy-attention); border-color: var(--timmy-attention); }
 .mirror-empty { color: var(--timmy-text-secondary); text-align: center; margin-top: 30px; font-size: 13px; }
@@ -429,15 +448,16 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .btn-action { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text); padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: var(--timmy-weight-strong); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .btn-action:hover { border-color: var(--timmy-text-secondary); }
 .btn-action:disabled { color: var(--timmy-text-secondary); cursor: not-allowed; }
-.btn-action.tiny { padding: 1px 7px; font-size: 10px; }
+.btn-action.tiny { padding: 1px 7px; font-size: 11px; }
 .btn-action.success { color: var(--timmy-text); }
-/* destructive: amber words, the palette has no red (the button says what it deletes) */
-.btn-action.danger { color: var(--timmy-failure); }
-.btn-action.danger:hover { border-color: var(--timmy-failure); }
+/* destructive: the button says what it deletes (✕ and its words); R7 (H152; the R5 visual review's 10, H148's reading: it was
+   still amber): never amber, which is for focus, the selection, the one next step, what waits on you and a failure (B10) */
+.btn-action.danger { color: var(--timmy-text); }
+.btn-action.danger:hover { border-color: var(--timmy-text-secondary); }
 .btn-action.wide { width: 100%; justify-content: center; padding: 6px; }
 .btn-action.project-pin-btn:disabled { cursor: default; }
-.badge-planned { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); font-size: 10px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; letter-spacing: 0.04em; }
-.status-badge { padding: 1px 8px; border-radius: 4px; font-size: 10px; font-weight: var(--timmy-weight-strong); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
+.badge-planned { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); font-size: 11px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; letter-spacing: 0.04em; }
+.status-badge { padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: var(--timmy-weight-strong); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
 
 /* ---------- the page's own socket log (Logs & Receipts: raw, as it reached this page) ---------- */
 
@@ -446,7 +466,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .log-line .log-stamp { color: var(--timmy-text-secondary); }
 .log-level { color: var(--timmy-text-secondary); }
 .log-level.error { color: var(--timmy-failure); font-weight: var(--timmy-weight-strong); }
-.log-level.warn { color: var(--timmy-attention); }
+.log-level.warn { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); } /* R7 (H152, B10): a WARN level is a word, not amber */
 .log-level.success { color: var(--timmy-text); }
 
 /* ---------- where work happens (Control Room), the latest receipt as received (Logs), the canvas (Studio) ---------- */
@@ -455,7 +475,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .ws-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .ws-card { background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; }
 .ws-name { font-size: 13px; color: var(--timmy-text); }
-.ws-state { font-size: 10px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); }
+.ws-state { font-size: 11px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); }
 .ws-purpose { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 2px; }
 .ws-desc { font-size: 12px; color: var(--timmy-text); margin-top: 6px; line-height: 1.45; }
 .ws-desc code, .proof-note code, .run-hint code { color: var(--timmy-silver); }
@@ -502,6 +522,8 @@ body.slate-absent p { max-width: 72ch; }
 .run-detail code { color: var(--timmy-text); }
 .run-empty, .run-none { color: var(--timmy-text-secondary); }
 .run-error { border: 1px solid var(--timmy-failure); border-radius: 4px; padding: 8px 12px; color: var(--timmy-text); white-space: pre-wrap; }
+.run-error > p + p { margin-top: 6px; }
+.run-error code { color: var(--timmy-silver); }
 .run-title { font-size: 14px; margin-bottom: 8px; }
 .rd-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .rd-col { position: relative; border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 14px 10px 8px; margin-top: 8px; min-width: 0; }
@@ -670,7 +692,7 @@ body.slate-absent p { max-width: 72ch; }
   /* two lines at most here; the whole note is its title */
   .project-folder { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   .ws-tablist { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-  .ws-tab { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; font-size: 10px; white-space: normal; }
+  .ws-tab { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; font-size: 11px; white-space: normal; }
   .tab-label { white-space: normal; overflow-wrap: normal; }
   .strip-actions { flex-direction: column; }
   .strip-actions > li, .act { width: 100%; }
@@ -705,14 +727,17 @@ body.slate-absent p { max-width: 72ch; }
  * boxes dashed; the image itself keeps its own colors.
  * ========================================================================================================================== */
 .vox-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.vox-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 24fr) minmax(0, 46fr) minmax(0, 30fr); }
+/* R7 (H152; the R6 review's defect 16): the viewport's column is the widest, and holds only the viewport (and a video's
+   timeline); the record's commands sit under the entity tree */
+.vox-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 21fr) minmax(0, 53fr) minmax(0, 26fr); }
 .vox-cols > * { min-height: 0; min-width: 0; }
 .vox-cols [data-vox-box][hidden] { display: none; }
 /* (each rule names .vox-cols and .box, so it outranks the page's .col-stack > .box rules) */
-.vox-cols .vox-left > .box.vox-records-box { flex: 0 0 auto; max-height: 36%; min-height: 0; }
-.vox-cols .vox-left > .box.vox-tree-box { flex: 1 1 0; min-height: 8em; }
+.vox-cols .vox-left > .box.vox-records-box { flex: 0 0 auto; max-height: 27%; min-height: 0; }
+.vox-cols .vox-left > .box.vox-tree-box { flex: 1 1 0; min-height: 6em; }
+.vox-cols .vox-left > .box.vox-acts-box { flex: 0 1 auto; max-height: 33%; min-height: 4.5em; }
 .vox-cols .vox-centre > .box.vox-view-box { flex: 1 1 auto; min-height: 14em; }
-.vox-cols .vox-centre > .box.vox-timeline-box, .vox-cols .vox-centre > .box.vox-acts-box { flex: 0 0 auto; min-height: 0; max-height: 32%; }
+.vox-cols .vox-centre > .box.vox-timeline-box { flex: 0 0 auto; min-height: 0; max-height: 32%; }
 .vox-cols .vox-right > .box.vox-pipeline-box { flex: 0 0 auto; max-height: 58%; min-height: 0; }
 .vox-cols .vox-right > .box.vox-values-box { flex: 1 1 0; min-height: 6em; }
 .vox-cols .vox-right > .box.vox-engines-box { flex: 0 1 auto; max-height: 28%; min-height: 4em; }
@@ -729,8 +754,9 @@ body.slate-absent p { max-width: 72ch; }
 .vox-rec-status.st-failed, .vox-rec-status.st-partial, .vox-rec-status.st-untrusted, .vox-rec-status.st-needs-setup { color: var(--timmy-attention); }
 .vox-rec-inputs { color: var(--timmy-text); overflow-wrap: anywhere; }
 .vox-rec-meta { color: var(--timmy-text-secondary); font-size: 11px; }
-.vox-tag-fake, .vox-fake { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); letter-spacing: 0.04em; }
-.vox-fake { border: 1px solid var(--timmy-attention); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+/* FAKE: said in its word, in the text colour and bold (R7 H152, B10: amber is for where to act, not for a label) */
+.vox-tag-fake, .vox-fake { color: var(--timmy-text); font-weight: var(--timmy-weight-heading); letter-spacing: 0.04em; }
+.vox-fake { border: 1px solid var(--timmy-text-secondary); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
 .vox-fake[hidden] { display: none; }
 
 /* the entity tree */
@@ -745,22 +771,41 @@ body.slate-absent p { max-width: 72ch; }
 .vox-ent.kind-group > .vox-ent-label, .vox-ent.kind-record > .vox-ent-label { font-weight: var(--timmy-weight-strong); }
 .vox-ent-detail { display: block; margin-left: 4px; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 
-/* the viewport: the image keeps its own colors; what was measured over it is an SVG in the image's own pixel frame */
+/* the viewport: the image keeps its own colors; what was measured over it is an SVG in the image's own pixel frame.
+   R7 (H152): the stage takes the room its box leaves (its size never follows what it holds); in it, the image's frame at the
+   image's own aspect (sized by panel-vox.js layoutStage) and the band of the marks' labels, below it or beside it, never over
+   it; the leader lines (an SVG over the stage, in its pixels) tie each label to its mark */
 .vox-image-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .vox-image-tabs:empty { display: none; }
 .vox-image-tab { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text-secondary); font: inherit; font-size: 11px; padding: 1px 6px; cursor: pointer; }
 .vox-image-tab[aria-pressed="true"] { color: var(--timmy-text); border-color: var(--timmy-accent); }
-.vox-stage { position: relative; flex: 1 1 auto; min-height: 11em; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; overflow: hidden; }
-.vox-stage > .empty { padding: 10px; }
+.vox-stage { position: relative; flex: 1 1 0; min-height: 11em; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 6px; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; overflow: hidden; }
+.vox-stage[data-band="right"] { flex-direction: row; }
+.vox-stage > .empty { padding: 10px; align-self: stretch; }
+.vox-frame { position: relative; flex: 0 0 auto; width: 0; height: 0; }
 .vox-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .vox-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+/* above the leaders (a label's own background hides the line under it), which are above the image */
+.vox-labels { position: relative; z-index: 1; list-style: none; flex: 0 0 auto; align-self: stretch; display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; gap: 4px 10px; max-height: 45%; overflow: auto; }
+.vox-stage[data-band="right"] > .vox-labels { flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-self: center; max-height: 100%; }
+.vox-stage[data-band="none"] > .vox-labels { display: none; }
+.vox-label-row { display: flex; min-width: 0; max-width: 100%; }
+.vox-label { font: inherit; font-size: 12px; line-height: 1.35; text-align: left; color: var(--timmy-silver); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
+.vox-labels.is-measuring .vox-label { white-space: nowrap; max-width: none; }
+.vox-label:hover { border-color: var(--timmy-text-secondary); }
+.vox-label-tags { color: var(--timmy-text-secondary); }
+.vox-label.is-selected, .vox-label.is-selected .vox-label-tags { color: var(--timmy-accent); }
+.vox-label.is-selected { border-color: var(--timmy-accent); }
+.vox-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.vox-leader { stroke: var(--timmy-silver); stroke-width: 1; }
+.vox-leader-end { fill: var(--timmy-silver); }
+.vox-leader.is-selected { stroke: var(--timmy-accent); stroke-width: 1.5; }
+.vox-leader-end.is-selected { fill: var(--timmy-accent); }
 .vox-overlay .ov { fill: none; stroke: var(--timmy-silver); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
 .vox-overlay g.ov circle, .vox-overlay g.ov line { stroke: inherit; vector-effect: non-scaling-stroke; }
 .vox-overlay .ov.is-generated { stroke-dasharray: 7 4; }
 .vox-overlay .ov.is-unverified { stroke-dasharray: 2 4; stroke: var(--timmy-text-secondary); }
 .vox-overlay .ov.is-selected { stroke: var(--timmy-accent); stroke-width: 3; }
-.vox-overlay .ov-label { fill: var(--timmy-silver); stroke: var(--timmy-ground); stroke-width: 3px; paint-order: stroke; font-family: var(--timmy-font-mono); cursor: pointer; }
-.vox-overlay .ov-label.is-selected { fill: var(--timmy-accent); }
 .vox-caption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 .vox-caption:empty { display: none; }
 
@@ -834,8 +879,8 @@ body.slate-absent p { max-width: 72ch; }
 .vox-values-table tbody th { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); width: 32%; }
 .vox-values-table tr[aria-current="true"] th, .vox-values-table tr[aria-current="true"] td { color: var(--timmy-accent); }
 .vox-values-table tr.is-claim td { color: var(--timmy-silver); }
-.vox-method { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); font-size: 10.5px; }
-.vox-word { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; color: var(--timmy-text); }
+.vox-method { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); font-size: 11px; }
+.vox-word { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; color: var(--timmy-text); }
 .vox-word.w-stale, .vox-word.w-unknown { color: var(--timmy-attention); border-color: var(--timmy-attention); }
 .vox-word.w-model-prediction { color: var(--timmy-silver); }
 .vox-notes { font-size: 11px; color: var(--timmy-text-secondary); }
@@ -860,7 +905,7 @@ body.slate-absent p { max-width: 72ch; }
 @media (max-width: 860px) {
   .vox-host { flex: none; }
   .vox-cols { grid-template-columns: minmax(0, 1fr); flex: none; }
-  .vox-left > .vox-records-box { max-height: none; }
+  .vox-cols .vox-left > .box.vox-records-box, .vox-cols .vox-left > .box.vox-acts-box { max-height: none; }
   .vox-stage { min-height: 52vw; }
   .vox-views { grid-template-columns: minmax(0, 1fr); }
 }
@@ -868,8 +913,9 @@ body.slate-absent p { max-width: 72ch; }
 /* ==========================================================================================================================
    R6 (H142): the Tools & MCP inspector (tab 9; references 08 and 17; drawn by panel-tools.js). Its steps and its four panes
    fill the tab (Ingest & tools, Request, the JSON-RPC wire & schema gate, Result & receipt); under them the tab scrolls to the
-   project's newest calls and the frame's own words for the routes. Amber: the one primary next step, the next step, what is
-   picked, NEEDS YOU and a failure (with ✕ and its word). Green only through .is-live (an answer observed now) and
+   project's newest calls and the frame's own words for the routes. Amber: the one primary next step, what is picked, NEEDS
+   YOU and a failure (with ✕ and its word); R7 (H152): the next step in the steps is a brighter neutral with its ▶ (one amber
+   next step per screen). Green only through .is-live (an answer observed now) and
    .is-verified (a passed check, a receipt verified now). The flame graph's bars are structure and text colors.
    ========================================================================================================================== */
 
@@ -881,8 +927,10 @@ body.slate-absent p { max-width: 72ch; }
 .tools-step-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-strong); white-space: nowrap; }
 .tools-step-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools-step.is-done .tools-step-n { color: var(--timmy-text); }
-.tools-step.is-next { border-color: var(--timmy-accent); }
-.tools-step.is-next .tools-step-n { color: var(--timmy-accent); }
+/* R7 (H152, B10: one amber next step per screen): the next step in the steps is a brighter neutral with its ▶; the amber is the
+   panel's (or the strip's) one primary action for it */
+.tools-step.is-next { border-color: var(--timmy-text); }
+.tools-step.is-next .tools-step-n { color: var(--timmy-text); }
 .tools-step.is-verified { border-color: var(--timmy-live); }
 .tools-step.is-verified .tools-step-n { color: var(--timmy-live); }
 .tools-grid { flex: 0 0 calc(100% - 46px); min-height: 340px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; }
@@ -960,14 +1008,14 @@ body.slate-absent p { max-width: 72ch; }
 
 /* the wire: one bar per request, its time; the gate's checks */
 .tools-flame { width: 100%; height: auto; display: block; font-family: var(--timmy-font-mono); }
-.tools-flame-label { fill: var(--timmy-text); font-size: 10.5px; }
+.tools-flame-label { fill: var(--timmy-text); font-size: 11px; }
 .tools-flame-label.is-session, .tools-flame-label.is-call { fill: var(--timmy-text-secondary); }
 .tools-flame-bar { fill: var(--timmy-line-strong); stroke: var(--timmy-text-secondary); stroke-width: 0.6; }
 .tools-flame-bar.is-tools-call { fill: var(--timmy-text); }
 .tools-flame-bar.is-session { fill: var(--timmy-surface); stroke: var(--timmy-line-strong); }
 .tools-flame-bar.is-call { fill: none; stroke: var(--timmy-text-secondary); stroke-dasharray: 3 2; }
 .tools-flame-bar.is-error { stroke: var(--timmy-failure); stroke-width: 1.2; }
-.tools-flame-axis { fill: var(--timmy-text-secondary); font-size: 10px; }
+.tools-flame-axis { fill: var(--timmy-text-secondary); font-size: 11px; }
 .tools-spans, .tools-checks, .tools-notes { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--timmy-text); }
 .tools-notes { color: var(--timmy-text-secondary); }
 
@@ -1043,7 +1091,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-act-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
 .rv-acts-cmd { flex: 1 1 100%; min-width: 0; margin: 0; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 .rv-cmd-now { color: var(--timmy-text); font-family: var(--timmy-font-mono); }
-.rv-effect { font-size: 10px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em; }
+.rv-effect { font-size: 11px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em; }
 .rv-effect.is-writes, .rv-effect.is-runs { color: var(--timmy-text); border-color: var(--timmy-text-secondary); }
 .rv-acts-note { flex: 1 1 100%; margin: 0; font-size: 11px; color: var(--timmy-text); min-width: 0; overflow-wrap: anywhere; }
 .rv-acts-note:empty { display: none; }
@@ -1107,7 +1155,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-viewer { flex: 1 1 64%; min-height: 8em; display: flex; flex-direction: column; gap: 4px; }
 .rv-v-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; flex-shrink: 0; }
 .rv-v-path { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
-.rv-v-tag { font-size: 10.5px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; }
+.rv-v-tag { font-size: 11px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; }
 .rv-v-acts { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-left: auto; }
 .rv-v-body { flex: 1 1 auto; min-height: 0; border: 1px solid var(--timmy-line); border-radius: 4px; }
 .rv-v-body > .rv-scroll, .rv-lower > .rv-scroll { height: 100%; overflow: auto; padding: 4px 8px 8px; }
@@ -1128,7 +1176,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-pick { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 3px 7px; font-size: 11.5px; cursor: pointer; }
 .rv-pick:hover { border-color: var(--timmy-text-secondary); }
 .rv-pick[aria-current="true"] { border-color: var(--timmy-accent); }
-.rv-pick-how { font-size: 10.5px; color: var(--timmy-text-secondary); min-width: 6ch; }
+.rv-pick-how { font-size: 11px; color: var(--timmy-text-secondary); min-width: 6ch; }
 .rv-pick-path { overflow-wrap: anywhere; }
 .rv-pick-what { font-size: 11px; color: var(--timmy-text-secondary); }
 .rv-notes { margin: 0 0 6px; padding-left: 16px; font-size: 11px; color: var(--timmy-text-secondary); }
@@ -1186,6 +1234,8 @@ body.slate-absent p { max-width: 72ch; }
 .home-thumb-btn img { display: block; max-width: 100%; max-height: 7.5em; width: auto; height: auto; border: 1px solid var(--timmy-line); background: var(--timmy-surface); }
 .home-thumb-btn:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 2px; }
 .home-thumb figcaption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+/* R7 (H152): what ran after the image shown, beside it (the newest image is not always the newest work) */
+.home-thumb-note { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 
 /* ==========================================================================================================================
  * R6 (H145): the Studio panel (tab 4; reference 06), drawn by src/companion/client/panel-studio.js into
@@ -1220,7 +1270,9 @@ body.slate-absent p { max-width: 72ch; }
 .sb-thumb-failed { width: 120px; height: 80px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--timmy-failure); border-radius: 3px; color: var(--timmy-failure); font-size: 12px; cursor: help; }
 .sb-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .sb-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; color: var(--timmy-text-secondary); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
-.sb-fake, .sb-draft { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+.sb-draft { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+/* R7 (H152, B10): FAKE in its word, not in amber (a draft waits on you, so it stays amber) */
+.sb-fake { color: var(--timmy-text); font-weight: var(--timmy-weight-heading); }
 .sb-title { color: var(--timmy-text); font-size: 12px; font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
 .sb-excerpt { color: var(--timmy-text); font-size: 12px; overflow-wrap: anywhere; }
 .sb-where { color: var(--timmy-text-secondary); font-size: 11px; }

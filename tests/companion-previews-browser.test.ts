@@ -9,7 +9,8 @@
  *  - a thumbnail pressed shows the image at size in a dialog (panels.js TimmyEnlarge); Esc closes it and the keyboard is given
  *    back to the thumbnail;
  *  - the run viewer's image fits the box it is seen in at 1376x768 (it showed only its top before);
- *  - VoxVision's labels over a large image are at least 11 px on screen and inside the image's frame;
+ *  - VoxVision's labels of a large image are at least 11 px on screen, on a band outside the image, each tied to its mark
+ *    (R7 H152; they were drawn inside the image's frame);
  *  - one amber next step on tab 5: the strip's primary (the record's own next step is a brighter neutral).
  *
  * Real: the server, its token, a /run in the REPL's own Workspace (upmd is the TEST DOUBLE of tests/helpers/ops-sandbox.ts,
@@ -132,23 +133,27 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
       await page.click('.vox-rec[data-vox-record="vfa4e0b16"]');
       await page.waitForFunction(() => {
         const i = document.querySelector('.vox-img') as HTMLImageElement | null;
-        return !!i && i.dataset.path === 'refs/large.png' && i.complete && i.naturalWidth === 1280 && document.querySelectorAll('.vox-overlay .ov-label').length === 2;
+        return !!i && i.dataset.path === 'refs/large.png' && i.complete && i.naturalWidth === 1280 && document.querySelectorAll('[data-vox="stage"] .vox-label').length === 2;
       }, null, { timeout: 15_000 });
-      const labels = await page.$eval('.vox-overlay', (o) => {
-        const [, , W, H] = (o.getAttribute('viewBox') ?? '').split(' ').map(Number);
-        const r = o.getBoundingClientRect();
-        const scale = Math.min(r.width / W, r.height / H);
-        return [...o.querySelectorAll('.ov-label')].map((l) => {
-          const b = (l as SVGTextElement).getBBox();
-          return { text: l.textContent, px: Math.round(Number(l.getAttribute('font-size')) * scale * 10) / 10, inside: b.x >= -W * 0.01 && b.x + b.width <= W * 1.01 && b.y >= -H * 0.01 && b.y + b.height <= H * 1.01 };
+      // R7 (H152): the labels are on a band outside the image (its frame), at the page's own type size, each tied by a line
+      const labels = await page.$eval('[data-vox="stage"]', (st) => {
+        const f = st.querySelector('.vox-frame')!.getBoundingClientRect();
+        return [...st.querySelectorAll('.vox-label')].map((l) => {
+          const r = l.getBoundingClientRect();
+          return {
+            text: (l.textContent ?? '').replace(/\s+/g, ' ').trim(), px: parseFloat(getComputedStyle(l).fontSize),
+            outside: r.right <= f.left + 0.5 || r.left >= f.right - 0.5 || r.bottom <= f.top + 0.5 || r.top >= f.bottom - 0.5,
+            tied: !!st.querySelector(`.vox-leaders line[data-label-for="${CSS.escape(l.getAttribute('data-label-for') ?? '')}"]`),
+          };
         });
       });
-      // each label is still `<what> · <provenance> · <evidence>` (two lines on screen)
+      // each label is still `<what> · <provenance> · <evidence>`
       expect(labels.map((l) => String(l.text).split(' · ')[0])).toEqual(['colour region rgb(240, 240, 240)', 'centroid']);
       for (const l of labels) expect(String(l.text).split(' · ')).toHaveLength(3);
       for (const l of labels) {
-        expect(l.px, String(l.text)).toBeGreaterThanOrEqual(10.9);
-        expect(l.inside, String(l.text)).toBe(true);
+        expect(l.px, String(l.text)).toBeGreaterThanOrEqual(11);
+        expect(l.outside, String(l.text)).toBe(true);
+        expect(l.tied, String(l.text)).toBe(true);
       }
       // one amber next step on the tab: the strip's primary; the record's own next step is a brighter neutral
       const amber = await page.evaluate((a) => ({

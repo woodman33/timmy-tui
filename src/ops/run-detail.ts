@@ -22,11 +22,11 @@
  * `unknown` with why, never guessed; a cost is a reported number, or unknown with why, never an invented 0. No file is picked
  * by its time. Nothing here runs, writes or seals; the executive summary is written only by writeRunSummary, when asked.
  */
-import { JOB_CANCELLED, STEP_CANCELLED } from '../contracts/stop-words.js';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { RUN_DETAIL_VERSION, type RunDetail, type RunFileRole, type RunVerdict, type Sourced } from '../contracts/run-detail.js';
+import { JOB_CANCELLED, receiptSubjectWords, STEP_CANCELLED } from '../contracts/stop-words.js';
 import { AGENTS_DIR, listAgentRuns, type AgentRunRecord } from '../code-agents/index.js';
 import { NO_CHANGE } from '../flows/iterate.js';
 import { JobManager, type JobRecord } from '../jobs/index.js';
@@ -698,7 +698,8 @@ function built(operationId: string, o: RunDetailOptions): { ok: true; f: Facts; 
     } else f.unknown.push({ field: 'sourceRevision', why: 'no record of this operation names a revision of the project or of a document it started from (Timmy records no git revision for a run)' });
   }
   const checks = checksOf(f, prediction);
-  const receipts = f.receipts.map((r) => ({ id: short(r), kind: r.kind, ...(r.subject ? { subject: f.scrub(String(r.subject)) } : {}) }));
+  // R7 (H152): each receipt in the stop words' table (a stopped chat turn's sealed "cancelled" said stopped, with who asked)
+  const receipts = f.receipts.map((r) => ({ id: short(r), kind: r.kind, ...(r.subject ? { subject: f.scrub(receiptSubjectWords(r)) } : {}) }));
   const cost = costOf(f);
   let predictionOut: RunDetail['prediction'] = null;
   if (prediction?.order) {
@@ -1413,7 +1414,7 @@ function receiptsInspected(f: Facts, verify: NonNullable<RunInspectionOptions['v
       : r.kind === 'workflow' || (!anyOutcome && ended && k === mine.length - 1) ? 'receipt' : 'run';
     const checked = `its body hashes to ${r.hash.slice(0, 19)}…, recomputed now; its prev_hash ${prev === 'genesis' ? `starts epoch ${epoch}` : `is receipt ${prev}'s hash`}, and the ${plural(position, 'link')} and body hashes from the start of epoch ${epoch} up to it hold; its signature verifies against the signer key it carries`;
     return {
-      stage, id: short(r), kind: r.kind, ...(r.subject ? { subject: f.scrub(String(r.subject)) } : {}), ...(r.ts ? { ts: r.ts } : {}),
+      stage, id: short(r), kind: r.kind, ...(r.subject ? { subject: f.scrub(receiptSubjectWords(r)) } : {}), ...(r.ts ? { ts: r.ts } : {}),
       hash: r.hash, prev, epoch, position, signed: typeof r.signature === 'string' && typeof r.signer === 'string',
       verified: v.ok ? { ok: true, checked } : { ok: false, why: v.reason },
     };

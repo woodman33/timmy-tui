@@ -22,7 +22,8 @@
   const LIST_EVERY_MS = 2000;
   const LIST_AT_LEAST_MS = 10000;
   const CACHE_MAX = 24;
-  // R6 lead: the smallest a label over the image is drawn on screen, in CSS pixels
+  // R6 lead: the smallest an SVG's words are drawn on screen, in CSS pixels (R7 H152: a mesh view's axis words; the marks'
+  // labels are the page's own text, on a band outside the image)
   const LABEL_PX = 11;
   // the record an address names (…?vox=<id> or …#t=…&vox=<id>, as the Workbench's c can give it: src/workbench/voxvision-tab.ts
   // voxCompanionHint), read as this script loads, before the page takes the fragment out of the address
@@ -30,7 +31,7 @@
 
   const S = {
     project: null, root: null, ctx: null, revision: null, listAt: 0, listSig: '', list: null, asking: null,
-    sel: '', preview: null, previewSig: '', image: '', entity: '', frame: -1, imageAsk: 0, urls: new Map(), wanted: null,
+    sel: '', preview: null, previewSig: '', image: '', entity: '', frame: -1, imageAsk: 0, urls: new Map(), wanted: null, stageWatch: null,
   };
 
   function svg(tag, attrs, ...kids) {
@@ -57,6 +58,7 @@
   function reset(project) {
     S.project = project; S.listSig = ''; S.list = null; S.sel = ''; S.preview = null; S.previewSig = ''; S.image = ''; S.entity = ''; S.frame = -1; S.listAt = 0;
     S.urls.clear();
+    if (S.stageWatch) { S.stageWatch.disconnect(); S.stageWatch = null; }
     if (S.wanted === null) S.wanted = HINT;
   }
 
@@ -64,10 +66,13 @@
   function skeleton(h) {
     const box = (title, name, o = {}) => h('section', { class: `box${o.fit ? ' box-fit' : ''}${o.cls ? ` ${o.cls}` : ''}`, 'data-vox-box': name },
       h('h2', { class: 'box-title', 'data-vox': `${name}-title` }, title), h('div', { class: `box-body${o.body ? ` ${o.body}` : ''}`, 'data-vox': name }, h('p', { class: 'empty' }, 'Reading…')));
+    // R7 (H152; the R6 review's defect 16: the viewport squeezed to 48% at 1376x768): the centre column is the viewport's (and
+    // a video's timeline); the record's commands sit under its entity tree, so the image has the larger share of the panel
     const root = h('div', { class: 'vox-cols', 'data-vox': 'root' },
       h('div', { class: 'col-stack vox-left' },
         box('Records · results/vox', 'records', { fit: true, cls: 'vox-records-box' }),
-        box('Entity tree', 'tree', { cls: 'vox-tree-box' })),
+        box('Entity tree', 'tree', { cls: 'vox-tree-box' }),
+        box('Commands for this record', 'actions', { fit: true, cls: 'vox-acts-box', body: 'vox-acts' })),
       h('div', { class: 'col-stack vox-centre' },
         h('section', { class: 'box vox-view-box', 'data-vox-box': 'view' },
           h('h2', { class: 'box-title', 'data-vox': 'view-title' }, 'Viewport'),
@@ -76,8 +81,7 @@
             h('div', { class: 'vox-image-tabs', 'data-vox': 'image-tabs', role: 'group', 'aria-label': 'The record\'s images' }),
             h('div', { class: 'vox-stage', 'data-vox': 'stage' }, h('p', { class: 'empty' }, 'Reading…')),
             h('p', { class: 'vox-caption', 'data-vox': 'caption' }))),
-        box('Timeline', 'timeline', { fit: true, cls: 'vox-timeline-box' }),
-        box('Commands for this record', 'actions', { fit: true, cls: 'vox-acts-box', body: 'vox-acts' })),
+        box('Timeline', 'timeline', { fit: true, cls: 'vox-timeline-box' })),
       h('div', { class: 'col-stack vox-right' },
         box('Pipeline · receipt', 'pipeline', { fit: true, cls: 'vox-pipeline-box' }),
         box('Values', 'values', { cls: 'vox-values-box' }),
@@ -267,6 +271,8 @@
     const title = q('view-title');
     if (!el) return;
     const p = S.preview;
+    // R7 (H152): no label band until an image's marks are laid out (a mesh's views and a recording fill the stage)
+    el.dataset.band = 'none';
     if (S.image === 'spatial') { drawSpatial(el, cap, title); return; }
     if (S.image === 'recording') { drawRecording(el, cap, title); return; }
     const im = p.images.find((x) => x.key === S.image);
@@ -284,7 +290,13 @@
     }
     const img = h('img', { class: 'vox-img', alt: `${im.title} (record ${p.id})`, 'data-vox-img': im.key, 'data-path': im.path });
     const over = svg('svg', { class: 'vox-overlay', 'data-vox-overlay': im.key, preserveAspectRatio: 'xMidYMid meet', role: 'group', 'aria-label': 'What was measured over the image' });
-    put(el, img, over);
+    // R7 (H152): the image and its marks in a frame of the image's own aspect; the marks' labels on a band outside it, each
+    // tied to its mark by a leader line
+    const frameBox = h('div', { class: 'vox-frame', 'data-vox': 'frame' }, img, over);
+    const labels = h('ol', { class: 'vox-labels', 'data-vox': 'labels', 'aria-label': 'What each mark over the image is: its provenance and evidence' });
+    const leaders = svg('svg', { class: 'vox-leaders', 'data-vox': 'leaders', 'aria-hidden': 'true' });
+    el.dataset.band = 'none';
+    put(el, frameBox, labels, leaders);
     const mine = p.overlays.filter((o) => o.image === im.key);
     if (cap) {
       put(cap,
@@ -298,15 +310,22 @@
       img.addEventListener('load', () => {
         if (ask !== S.imageAsk) return;
         drawOverlays(over, im, mine, img);
-        // R6 lead: drawn again when the stage's size changes (a window resized, the tab shown after it was drawn hidden),
-        // so the labels keep their size on screen
+        drawLabels(labels, mine);
+        layoutStage(el, im, mine);
+        // R6 lead, R7 (H152): laid out again when the stage's size changes (a window resized, the tab shown after it was drawn
+        // hidden) or the page's face has loaded (the labels' widths change), and the leaders when the band scrolls
         if (typeof ResizeObserver === 'function') {
-          let seen = Math.round(over.getBoundingClientRect().width);
-          new ResizeObserver(() => {
-            const w = Math.round(over.getBoundingClientRect().width);
-            if (w > 0 && w !== seen && ask === S.imageAsk && over.isConnected) { seen = w; redrawSelection(); }
-          }).observe(over);
+          // one watch of the stage at a time (the stage stays; the image in it changes)
+          if (S.stageWatch) S.stageWatch.disconnect();
+          let seen = '';
+          S.stageWatch = new ResizeObserver(() => {
+            const size = `${el.clientWidth}x${el.clientHeight}`;
+            if (el.clientWidth > 0 && size !== seen && ask === S.imageAsk && el.isConnected) { seen = size; layoutStage(el, im, mine); }
+          });
+          S.stageWatch.observe(el);
         }
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (ask === S.imageAsk && el.isConnected) layoutStage(el, im, mine); });
+        labels.addEventListener('scroll', () => { if (ask === S.imageAsk) drawLeaders(el, im, mine); }, { passive: true });
       }, { once: true });
       img.src = url;
     }, (err) => {
@@ -347,61 +366,151 @@
     return url;
   }
 
+  /** whether mark `o` belongs to the entity selected now (itself, or one of the group's marks) */
+  const isOn = (o) => Boolean(S.entity) && (o.entity === S.entity || ((findEntity(S.preview.entities, S.entity) || {}).overlays || []).includes(o.id));
+
+  /** What was measured over the image, in the image's own pixel frame: its boxes, polygons and points (their labels are not here). */
   function drawOverlays(over, im, list, img) {
     const W = (im.frame && im.frame[0]) || img.naturalWidth || 1;
     const H = (im.frame && im.frame[1]) || img.naturalHeight || 1;
     over.setAttribute('viewBox', `0 0 ${W} ${H}`);
     over.dataset.frame = `${W}x${H}`;
     const big = Math.max(W, H);
-    const font = Math.max(8, Math.round(big / 42));
-    // R6 lead (the lead's capture at 1376x768, 12:40 PT): a label is read on screen. The overlay draws in the image's own
-    // pixels and the stage shows the image scaled (the review demo's 640 px image at about 267 px), so 1/42 of the image came
-    // out near 6 px. Each label is now at least LABEL_PX on screen (the overlay's scale, as preserveAspectRatio meet draws it),
-    // in two lines, what it is, then its provenance and evidence, each inside the image's frame; a line the frame cannot hold
-    // at that size is shortened with "…" (its whole words stay in its title, the tree and the values).
-    const box = over.getBoundingClientRect();
-    const scale = box.width > 0 && box.height > 0 ? Math.min(box.width / W, box.height / H) : 0;
-    const least = scale > 0 ? LABEL_PX / scale : 0;
-    const sel = S.entity;
     const kids = [];
     for (const o of list) {
-      const on = sel && (o.entity === sel || (findEntity(S.preview.entities, sel) || {}).overlays?.includes(o.id));
+      const on = isOn(o);
       const cls = `ov ov-${o.shape}${on ? ' is-selected' : ''}${o.provenance === 'generated' ? ' is-generated' : ''}${o.evidence === 'unverified' || o.evidence === 'stale' ? ' is-unverified' : ''}`;
       const common = { class: cls, 'data-vox-entity': o.entity, 'data-overlay': o.id, 'data-shape': o.shape, 'data-provenance': o.provenance, 'data-evidence': o.evidence };
       const p = o.points;
       let shape = null;
-      let at = [0, 0];
-      if (o.shape === 'box' && p.length === 4) { shape = svg('rect', { ...common, x: p[0], y: p[1], width: Math.max(0, p[2] - p[0]), height: Math.max(0, p[3] - p[1]) }); at = [p[0], p[1]]; }
-      else if (o.shape === 'polygon' && p.length >= 6) { const pairs = []; for (let i = 0; i + 1 < p.length; i += 2) pairs.push(`${p[i]},${p[i + 1]}`); shape = svg('polygon', { ...common, points: pairs.join(' ') }); at = [Math.min(...p.filter((_, i) => i % 2 === 0)), Math.min(...p.filter((_, i) => i % 2 === 1))]; }
+      if (o.shape === 'box' && p.length === 4) shape = svg('rect', { ...common, x: p[0], y: p[1], width: Math.max(0, p[2] - p[0]), height: Math.max(0, p[3] - p[1]) });
+      else if (o.shape === 'polygon' && p.length >= 6) { const pairs = []; for (let i = 0; i + 1 < p.length; i += 2) pairs.push(`${p[i]},${p[i + 1]}`); shape = svg('polygon', { ...common, points: pairs.join(' ') }); }
       else if (o.shape === 'point' && p.length >= 2) {
         const r = big / 90;
         const l = big / 36;
         shape = svg('g', common, svg('circle', { cx: p[0], cy: p[1], r }), svg('line', { x1: p[0] - l, y1: p[1], x2: p[0] + l, y2: p[1] }), svg('line', { x1: p[0], y1: p[1] - l, x2: p[0], y2: p[1] + l }));
-        at = [p[0] + l * 0.6, p[1] + l + font];
       }
       if (!shape) continue;
       shape.append(svg('title', null, `${o.label} · provenance ${o.provenance} · evidence ${o.evidence}`));
       kids.push(shape);
-      // the label stays inside the image's frame: smaller when wider than the frame (never under LABEL_PX on screen), moved
-      // left when it would run past its right edge (a monospace advance of 0.62 em, as Monaspace Argon's). Its text is still
-      // `<label> · <provenance> · <evidence>`, in two lines.
-      // (the space between the two parts ends the first line, so the second starts at the label's left edge)
-      let lines = [`${o.label} `, `· ${o.provenance} · ${o.evidence}`];
-      const ems = (s) => s.length * 0.62;
-      let fit = Math.min(Math.max(font, least), W / Math.max(...lines.map(ems)));
-      if (fit < least) {
-        fit = least;
-        const max = Math.max(2, Math.floor(W / (fit * 0.62)));
-        lines = lines.map((s) => (s.length > max ? `${s.slice(0, max - 1)}…` : s));
-      }
-      const step = fit * 1.2;
-      const x = Math.max(0, Math.min(at[0], W - Math.max(...lines.map(ems)) * fit));
-      const below = o.shape === 'point' ? at[1] - font + fit : at[1] - fit * 0.35 - step;
-      const y = Math.max(fit, Math.min(below, H - step));
-      kids.push(svg('text', { class: `ov-label${on ? ' is-selected' : ''}`, x, y, 'font-size': fit, 'data-vox-entity': o.entity, 'data-label-for': o.id },
-        svg('tspan', { x, y }, lines[0]), svg('tspan', { x, dy: step }, lines[1])));
     }
     put(over, ...kids);
+  }
+
+  // R7 (H152; the R6 review's defect 16: at 1376x768 the image was drawn at 48% and the labels drawn over it covered the image's
+  // own red words): each mark's label is on a band outside the image, below it or beside it, whichever leaves the image the
+  // larger, at the page's own type size (11 px or more, B9), and tied to its mark by a leader line from the label's edge to
+  // the mark's nearest edge (and by its selection: a label pressed selects its entity, which turns both amber). Its words are
+  // the ones the labels had: `<what> · <provenance> · <evidence>`, never shortened (the band wraps them).
+  function drawLabels(list, marks) {
+    const h = S.ctx.h;
+    put(list, marks.map((o) => h('li', { class: 'vox-label-row' },
+      h('button', { type: 'button', class: `vox-label${isOn(o) ? ' is-selected' : ''}`, 'data-label-for': o.id, 'data-vox-entity': o.entity, 'data-shape': o.shape,
+        title: `${o.label} · provenance ${o.provenance} · evidence ${o.evidence}` },
+      h('span', { class: 'vox-label-what' }, o.label), ' ', h('span', { class: 'vox-label-tags' }, `· ${o.provenance} · ${o.evidence}`)))));
+  }
+
+  /** a mark's bounds in the image's pixels: [x0, y0, x1, y1] (a point's are the point) */
+  function boundsOf(o) {
+    const p = o.points;
+    if (o.shape === 'box' && p.length === 4) return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])];
+    if (o.shape === 'point' && p.length >= 2) return [p[0], p[1], p[0], p[1]];
+    const xs = p.filter((_, i) => i % 2 === 0);
+    const ys = p.filter((_, i) => i % 2 === 1);
+    return xs.length && ys.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : [0, 0, 0, 0];
+  }
+
+  const BAND_GAP = 8;
+  /**
+   * Sizes the image's frame at the image's own aspect, as large as the stage allows beside its label band: the band below the
+   * image (as wide as the stage, as tall as its labels) or beside it (as wide as its longest label, at most 40% of the stage),
+   * whichever leaves the image the larger. Then the leader lines.
+   */
+  function layoutStage(stage, im, marks) {
+    const box = stage.querySelector('.vox-frame');
+    const list = stage.querySelector('.vox-labels');
+    const img = stage.querySelector('.vox-img');
+    if (!box || !list || !img || !(img.naturalWidth > 0)) return;
+    const W = (im.frame && im.frame[0]) || img.naturalWidth;
+    const H = (im.frame && im.frame[1]) || img.naturalHeight;
+    const cs = getComputedStyle(stage);
+    const sw = stage.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const sh = stage.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    if (!(sw > 0 && sh > 0 && W > 0 && H > 0)) return;
+    let best = { band: 'none', scale: Math.min(sw / W, sh / H), bw: 0 };
+    if (marks.length) {
+      box.style.width = '0px';
+      box.style.height = '0px';
+      // below: the band as wide as the stage
+      stage.dataset.band = 'below';
+      list.style.width = '';
+      const bh = Math.min(list.scrollHeight, sh * 0.45);
+      const below = { band: 'below', scale: Math.min(sw / W, (sh - bh - BAND_GAP) / H), bw: 0 };
+      // beside: as wide as the longest label on one line, at most 40% of the stage (its labels wrap there)
+      list.classList.add('is-measuring');
+      const longest = Math.max(0, ...[...list.querySelectorAll('.vox-label')].map((b) => b.scrollWidth));
+      list.classList.remove('is-measuring');
+      const bw = Math.round(Math.min(Math.max(longest + 2, 150), sw * 0.4));
+      stage.dataset.band = 'right';
+      list.style.width = `${bw}px`;
+      const right = { band: 'right', scale: list.scrollHeight <= sh ? Math.min((sw - bw - BAND_GAP) / W, sh / H) : 0, bw };
+      best = right.scale > below.scale * 1.02 ? right : below;
+    }
+    stage.dataset.band = best.band;
+    list.style.width = best.band === 'right' ? `${best.bw}px` : '';
+    const s = Math.max(0, best.scale);
+    box.style.width = `${Math.floor(W * s)}px`;
+    box.style.height = `${Math.floor(H * s)}px`;
+    box.dataset.scale = String(Math.round(s * 1000) / 1000);
+    drawLeaders(stage, im, marks);
+  }
+
+  /** The leader lines: from each label the band shows to its mark's nearest edge, in the stage's own pixels. */
+  function drawLeaders(stage, im, marks) {
+    const lead = stage.querySelector('.vox-leaders');
+    const box = stage.querySelector('.vox-frame');
+    const list = stage.querySelector('.vox-labels');
+    const img = stage.querySelector('.vox-img');
+    if (!lead || !box || !list || !img) return;
+    // in the leaders' own pixels: the SVG covers the stage's padding box
+    const sr = lead.getBoundingClientRect();
+    const fr = box.getBoundingClientRect();
+    const lr = list.getBoundingClientRect();
+    const W = (im.frame && im.frame[0]) || img.naturalWidth || 1;
+    const H = (im.frame && im.frame[1]) || img.naturalHeight || 1;
+    const s = fr.width / W;
+    lead.setAttribute('viewBox', `0 0 ${Math.max(1, Math.round(sr.width))} ${Math.max(1, Math.round(sr.height))}`);
+    const clamp = (v, a, b) => Math.min(Math.max(v, Math.min(a, b)), Math.max(a, b));
+    const X = (x) => fr.left - sr.left + clamp(x, 0, W) * s;
+    const Y = (y) => fr.top - sr.top + clamp(y, 0, H) * s;
+    const right = stage.dataset.band === 'right';
+    const kids = [];
+    if (s > 0 && stage.dataset.band !== 'none') {
+      for (const o of marks) {
+        const b = list.querySelector(`.vox-label[data-label-for="${CSS.escape(o.id)}"]`);
+        if (!b) continue;
+        const r = b.getBoundingClientRect();
+        // a label scrolled out of the band's view has no line until it is shown
+        if (r.bottom < lr.top + 2 || r.top > lr.bottom - 2 || r.right < lr.left + 2 || r.left > lr.right - 2) continue;
+        const [x0, y0, x1, y1] = boundsOf(o);
+        let ax; let ay; let lx; let ly;
+        if (right) {
+          ax = X(x1);
+          ay = clamp((r.top + r.bottom) / 2 - sr.top, Y(y0), Y(y1));
+          lx = r.left - sr.left;
+          ly = clamp(ay, r.top - sr.top + 4, r.bottom - sr.top - 4);
+        } else {
+          ax = clamp((r.left + r.right) / 2 - sr.left, X(x0), X(x1));
+          ay = Y(y1);
+          lx = clamp(ax, r.left - sr.left + 6, r.right - sr.left - 6);
+          ly = r.top - sr.top;
+        }
+        const sel = isOn(o) ? ' is-selected' : '';
+        kids.push(svg('line', { class: `vox-leader${sel}`, x1: ax.toFixed(1), y1: ay.toFixed(1), x2: lx.toFixed(1), y2: ly.toFixed(1), 'data-label-for': o.id }),
+          svg('circle', { class: `vox-leader-end${sel}`, cx: ax.toFixed(1), cy: ay.toFixed(1), r: 2.5, 'data-label-for': o.id }));
+      }
+    }
+    put(lead, ...kids);
   }
 
   function drawSpatial(el, cap, title) {
@@ -429,6 +538,18 @@
     });
     put(el, h('div', { class: 'vox-spatial' }, blocks));
     if (cap) put(cap, h('span', null, (p.spatial[0] && p.spatial[0].method) || 'a mesh drawn from its own triangles'), p.doctrine ? h('span', { class: 'vox-doctrine' }, ` · ${p.doctrine}`) : null);
+    // R7 (H152, B9): each view's axis words at LABEL_PX or more on screen, at the scale the view is drawn (laid out first)
+    requestAnimationFrame(() => {
+      for (const fig of el.querySelectorAll('.vox-proj-svg')) {
+        const m = fig.getScreenCTM && fig.getScreenCTM();
+        const scale = m ? Math.hypot(m.a, m.b) : 0;
+        if (!(scale > 0)) continue;
+        for (const t of fig.querySelectorAll('.vox-proj-axis')) {
+          const now = Number(t.getAttribute('font-size')) || 0;
+          if (now * scale < LABEL_PX) t.setAttribute('font-size', String(Math.ceil((LABEL_PX / scale) * 100) / 100));
+        }
+      }
+    });
   }
 
   function drawRecording(el, cap, title) {
@@ -488,9 +609,11 @@
         'data-vox-action': a.label, title: a.enabled ? `Copies ${a.command} for Timmy's terminal: ${a.effect}` : `Not now: ${a.why || 'not available'}`,
       }, h('span', { class: 'vox-act-label' }, a.label), ' ', h('span', { class: 'vox-act-cmd' }, a.command))),
       primary ? h('p', { class: 'vox-act-why', 'data-vox': 'next' }, `next: ${primary.effect}`) : null,
-      ...p.actions.filter((a) => !a.enabled).map((a) => h('p', { class: 'vox-act-why' }, `${a.label}: not now: ${a.why}`)));
+      ...p.actions.filter((a) => !a.enabled).map((a) => h('p', { class: 'vox-act-why' }, `${a.label}: not now: ${a.why}`)),
+      // R7 (H152): said in the box, not in its title (a title the narrow column cuts with "…")
+      h('p', { class: 'vox-act-why', 'data-vox': 'acts-how' }, 'A press copies one for Timmy\'s terminal; nothing runs from this page.'));
     const t = q('actions-title');
-    if (t) t.textContent = 'Commands for this record · a press copies one for Timmy\'s terminal; nothing runs from this page';
+    if (t) t.textContent = 'Commands for this record';
   }
 
   // ── the right column ──
@@ -562,10 +685,16 @@
   }
   function redrawSelection() {
     const p = S.preview;
+    const stage = q('stage');
     const over = S.root.querySelector('.vox-overlay');
     const img = S.root.querySelector('.vox-img');
+    const list = S.root.querySelector('.vox-labels');
     const im = p.images.find((x) => x.key === S.image);
-    if (over && img && im && img.complete && img.naturalWidth > 0) drawOverlays(over, im, p.overlays.filter((o) => o.image === im.key), img);
+    if (!stage || !over || !img || !list || !im || !img.complete || !(img.naturalWidth > 0)) return;
+    const marks = p.overlays.filter((o) => o.image === im.key);
+    drawOverlays(over, im, marks, img);
+    drawLabels(list, marks);
+    layoutStage(stage, im, marks);
   }
   function selectImage(key) {
     if (!S.preview) return;

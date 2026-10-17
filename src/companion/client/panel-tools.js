@@ -609,8 +609,9 @@
     const end = Math.max(W.t1, ...W.spans.map((s) => s.end || s.start));
     const total = Math.max(1, end - start);
     const rowH = 18;
-    // drawn at the pane's own width, so a unit is a pixel and the words keep their size
-    const room = Math.max(360, Math.floor((e.graph.clientWidth || 640) - 4));
+    // drawn at the pane's own width, so a unit is a pixel and the words keep their size (R7 H152: 11 px, B9; a floor of 360
+    // drew a narrower pane's graph scaled down, its words under 11 px)
+    const room = Math.max(240, Math.floor((e.graph.clientWidth || 640) - 4));
     const labelW = Math.min(230, Math.floor(room * 0.36));
     const width = room - labelW;
     const sessions = W.sessions.map((s) => s.session);

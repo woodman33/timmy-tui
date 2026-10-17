@@ -313,7 +313,8 @@ export function appendReceipt(stream: string, input: ReceiptInput, dir?: string)
     appendFileSync(p, JSON.stringify(rec) + '\n', 'utf8');
     // CONTROL PLANE: every seal also publishes onto the runs.jsonl event bus
     // R5 lead: a chat turn's identity too (turn_id), so a page that saw the turn being answered matches its end by identity
-    busPublish('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch, ...(rec.turn_id ? { turn_id: rec.turn_id } : {}) }, dir);
+    // R7 (H152): and who asked a stopped turn to stop (stopped_by), so a page's mirror says it at once, as the frame does
+    busPublish('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch, ...(rec.turn_id ? { turn_id: rec.turn_id } : {}), ...(rec.stopped_by ? { stopped_by: rec.stopped_by } : {}) }, dir);
     return rec;
   });
 }
