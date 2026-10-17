@@ -151,7 +151,8 @@ const CHECK_NAMES: ReadonlyArray<[keyof ConnectionsRecord['checks'], string]> = 
 ];
 
 const answerWords = (c: ConnectionCheck): string => {
-  const said = c.answer === 'accepted' ? 'answered' : c.answer === 'refused' ? 'refused' : c.answer === 'no answer' ? 'did not answer' : c.answer === 'not running' ? 'not running' : 'not asked';
+  // R7 lead (H148's N4): 'no model': it answered, with nothing Timmy can use
+  const said = c.answer === 'accepted' ? 'answered' : c.answer === 'refused' ? 'refused' : c.answer === 'no answer' ? 'did not answer' : c.answer === 'not running' ? 'not running' : c.answer === 'no model' ? 'answered, with no model Timmy can use' : 'not asked';
   return c.detail ? `${said}: ${c.detail}` : said;
 };
 

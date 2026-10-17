@@ -62,9 +62,10 @@ export interface ConnectionCheck {
    * accepted: the service answered and took the request; refused: it answered no (a rejected key); no answer: nothing came
    * back, or something else answered; not running: a local surface Timmy starts on demand (Studio, the companion) refused
    * the connection, so it is simply not started. R6 (H140): listening: a local surface noted that it started listening,
-   * which is no answer (nothing has asked it yet)
+   * which is no answer (nothing has asked it yet). R7 lead (H148's N4): no model: the service answered, but holds nothing
+   * Timmy can use (Ollama listed no local model that passed its /api/show check): it is reachable, and not usable for chat
    */
-  answer: 'accepted' | 'refused' | 'no answer' | 'not running' | 'not asked' | 'listening';
+  answer: 'accepted' | 'refused' | 'no answer' | 'not running' | 'not asked' | 'listening' | 'no model';
   /**
    * R6 (H140): the process that noted it, for a local surface's own note (noteAnswered, noteListening): its pid and when it
    * started (src/ops/process-proof.ts writerState), so a server killed before it could note its stop is seen gone at once
@@ -206,6 +207,9 @@ const ago = (at: string, now: number): string => {
   return h < 48 ? `${h} h ago` : `${Math.floor(h / 24)} d ago`;
 };
 
+/** R7 lead (H148's N4): the step for an Ollama that answered with no local model Timmy can use. */
+export const NO_MODEL_STEP = 'pull a local model (ollama pull <model>, not a cloud one), then timmy workspace check';
+
 /** A connection's state from its setting and its last observation (pure: the frame's tests drive it with FAKE checks). */
 export function connectionOf(
   id: ConnectionId, label: string,
@@ -224,6 +228,9 @@ export function connectionOf(
       if (!o.configured) return { ...base, state: o.notConfiguredState ?? 'not set up', words: `nothing answered when checked ${ago(c.at, o.now)}${said}; ${o.setupWords}`, observedAt: c.at };
       return { ...base, state: 'unreachable', words: `no answer when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
     }
+    // R7 lead (H148's N4: "✕ unreachable … (listed)" and Next "Start Ollama" for an Ollama that answered with no usable
+    // model): it answered, so it is not unreachable; it is not set up for chat until a model is there, and says which step
+    if (c.answer === 'no model') return { ...base, state: 'not set up', words: `answered when checked ${ago(c.at, o.now)}, but holds no model Timmy can use${said}; ${NO_MODEL_STEP}`, observedAt: c.at };
     if (c.answer === 'accepted') {
       // R6 (H140): the bound is said beside the answer, so "live" says how current it has to be
       return fresh
@@ -397,7 +404,7 @@ export function chatNotReady(r: Pick<WorkbenchJson['route'], 'kind' | 'refusal'>
  * `/model` chooses the local model among those Ollama lists, `/model free` chooses a free model while free-only stays on
  * (turning free-only off is never the fix offered), `timmy workspace check` asks again once Ollama runs.
  */
-export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'free-only' | 'key-refused';
+export type ChatProblem = 'no-route' | 'no-local-model' | 'ollama-address' | 'ollama-unreachable' | 'ollama-no-model' | 'free-only' | 'key-refused';
 export interface ChatFix { problem: ChatProblem; label: string; command: string; effect: WorkspaceAction['effect']; words: string }
 
 export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | 'refusal'>, conns: readonly (Pick<WorkspaceConnection, 'id' | 'state' | 'words'> & { observedAt?: string | null })[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local'>[] = [], o: { start?: string } = {}): ChatFix | null {
@@ -415,6 +422,12 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
   };
   const first = (route.refusal ?? [])[0] ?? '';
   const conn = (id: string) => conns.find((c) => c.id === id);
+  // R7 lead (H148's N4): Ollama answered the last check but holds no local model Timmy can use (its card's words say so)
+  const noModel = (c: Pick<WorkspaceConnection, 'state' | 'words'>): boolean => c.state === 'not set up' && c.words.includes(NO_MODEL_STEP);
+  const pullFix = (c: Pick<WorkspaceConnection, 'words'>, then: string): ChatFix => ({
+    problem: 'ollama-no-model', label: 'Pull a local model in Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network',
+    words: `Ollama: ${c.words}. Ollama runs; it has no local model the chat can use yet.${then}`,
+  });
   if (route.kind === 'none') {
     return { problem: 'no-route', label: 'Set up chat: an OpenRouter key (asked hidden) or a local model', command: 'timmy init --chat openrouter', effect: 'local change', words: chatNotReady(route) };
   }
@@ -426,6 +439,7 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
       if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
         return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. No local model is chosen, and the models to choose from are what Ollama lists: start it (${start}), check again, then choose one with /model.` };
       }
+      if (ol && noModel(ol) && !answeredSince(ol, 'ollama')) return pullFix(ol, ' Then choose it with /model.');
       return { problem: 'no-local-model', label: 'Choose the local model (from what Ollama lists)', command: '/model', effect: 'local change', words: chatNotReady(route) };
     }
     return { problem: 'ollama-address', label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change', words: chatNotReady(route) };
@@ -435,6 +449,7 @@ export function chatFix(route: Pick<WorkbenchJson['route'], 'kind' | 'ready' | '
     if (ol && (ol.state === 'unreachable' || ol.state === 'refused') && !answeredSince(ol, 'ollama')) {
       return { problem: 'ollama-unreachable', label: 'Start Ollama, then check again (no charge)', command: 'timmy workspace check', effect: 'network', words: `Ollama: ${ol.words}. Start it (${start}), then check again.` };
     }
+    if (ol && noModel(ol) && !answeredSince(ol, 'ollama')) return pullFix(ol, '');
     return null;
   }
   if (route.kind === 'openrouter' && !route.ready) {
@@ -704,7 +719,11 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
     // R5 lead: the same words as /tools (src/capabilities/ollama-row.ts): local models that pass Ollama's own check, and how
     // many more did not (the Mac rehearsal: "8 models listed" while Ollama listed 32, most of them cloud models)
     ? { answer: 'accepted', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true }).detail, asked: olAt }
-    : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer', asked: olAt };
+    // R7 lead (H148's N4): Ollama answered and listed models, none of them a local one that passed its check: an answer with
+    // no usable model (the /tools row's words), never "no answer"
+    : ol.answer?.state === 'listed'
+      ? { answer: 'no model', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true, base: olAt }).detail, asked: olAt }
+      : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer', asked: olAt };
   const studio = d.studio ?? (async (u: string) => (await import('../studio/health.js')).studioHealth(u) as Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>);
   const st = await studio(studioBaseUrl(env));
   const studioAsked = surfaceAddress('studio', env);

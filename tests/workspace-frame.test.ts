@@ -394,6 +394,33 @@ describe('timmy workspace check', () => {
     expect(f.connections.find((c) => c.id === 'studio')?.state).toBe('live');
     expect(f.surfaces.companion).toMatchObject({ state: 'running', url: 'http://127.0.0.1:3001/' });
   });
+  // R7 lead (H148's N4: "An Ollama that answers /api/tags but has no model that passes /api/show reads '✕ unreachable … (listed)',
+  // and Next says 'Start Ollama'")
+  it('R7 lead: an Ollama that answered with no usable model is reachable and not set up for chat, never unreachable, and its fix is a pull, not a start', async () => {
+    // the local chat chosen (an address set), so the card is a set-up one
+    env.OLLAMA_HOST = 'http://127.0.0.1:11434';
+    const { record } = await checkConnections({
+      env, cwd: project, now: () => NOW, key: () => null, openRouter: async () => 'no-key',
+      ollama: async () => ({ ok: false, models: [], answer: { state: 'listed', listed: 2, cloud: 0, checked: 0, failed: 2, late: 0, deadlineMs: 1500 } as never }),
+      studio: async () => ({ state: 'not-running' }), companion: async () => 'refused',
+    });
+    expect(record.checks.ollama).toMatchObject({ answer: 'no model', detail: expect.stringContaining('none passed the /api/show check') });
+    expect(record.checks.ollama?.detail).not.toBe('listed');
+    const f = await frame(NOW + 1000);
+    const ol = f.connections.find((c) => c.id === 'ollama')!;
+    expect(ol).toMatchObject({ state: 'not set up', observedAt: new Date(NOW).toISOString() });
+    expect(ol.words).toMatch(/^answered when checked just now, but holds no model Timmy can use \(Ollama answered at 127\.0\.0\.1:11434: it lists 2 local models; none passed/);
+    expect(ol.words).toContain('ollama pull <model>');
+    expect(ol.words).not.toMatch(/unreachable|no answer|\(listed\)/);
+    // the fix is to pull a model and check again; never "Start Ollama"
+    const fix = chatFix({ kind: 'local', ready: true }, [ol]);
+    expect(fix).toMatchObject({ problem: 'ollama-no-model', label: 'Pull a local model in Ollama, then check again (no charge)', command: 'timmy workspace check' });
+    expect(`${fix!.label} ${fix!.words}`).not.toMatch(/Start Ollama|start it/);
+    const noModelChosen = ['Error: the chat is set to the local model, and no model is chosen.', 'Cause: the setup recorded none.', 'Try: /model', 'Nothing was sent to any model.'];
+    expect(chatFix({ kind: 'local', ready: false, refusal: noModelChosen }, [ol])).toMatchObject({ problem: 'ollama-no-model', words: expect.stringContaining('Then choose it with /model.') });
+    // a turn on the Ollama route that answered after the check outdates it: no fix
+    expect(chatFix({ kind: 'local', ready: true }, [ol], [{ state: 'answered', at: new Date(NOW + 60_000).toISOString(), local: true }])).toBeNull();
+  });
   it('asks the Ollama the local chat asks (the setup\'s recorded address), and names it on the card; else OLLAMA_HOST, else the default (H131\'s finding)', async () => {
     expect(ollamaAddress(env)).toBe('http://127.0.0.1:11434');
     env.OLLAMA_HOST = 'http://127.0.0.1:11500';
