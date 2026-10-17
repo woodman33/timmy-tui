@@ -22,6 +22,7 @@
  * `unknown` with why, never guessed; a cost is a reported number, or unknown with why, never an invented 0. No file is picked
  * by its time. Nothing here runs, writes or seals; the executive summary is written only by writeRunSummary, when asked.
  */
+import { JOB_CANCELLED, STEP_CANCELLED } from '../contracts/stop-words.js';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -724,7 +725,38 @@ function built(operationId: string, o: RunDetailOptions): { ok: true; f: Facts; 
     next: null, unknown: f.unknown,
   };
   detail.next = nextOf(f, detail, prediction);
-  return { ok: true, f, detail, prediction };
+  return { ok: true, f, detail: jobStopWords(detail), prediction };
+}
+
+/**
+ * R6 (H140; the R5 interaction review, claim e) and R7 lead (H148's N5: "`timmy op` has header 'cancelled', verdict 'stopped:
+ * job jb0cc98 stopped', exits '(cancelled)' and '(stopped)'"): what kind of thing a cancelled operation's stop ended: a chat
+ * turn (its receipts are a turn's and no job's) is stopped; anything else, a job a cancel ended, is cancelled.
+ */
+export function stopKind(d: Pick<RunDetail, 'verdict' | 'receipts' | 'exits'>): 'turn' | 'job' | null {
+  if (d.verdict.state !== 'cancelled') return null;
+  const kinds = new Set(d.receipts.map((r) => r.kind));
+  const job = kinds.has('workflow') || kinds.has('workflow-block') || d.exits.length > 0;
+  return (kinds.has('chat') || kinds.has('turn')) && !job ? 'turn' : 'job';
+}
+
+/**
+ * R7 lead (H148's N5): a cancelled job's operation in the job's words on every surface (src/contracts/stop-words.ts): the
+ * verdict, its runs ("job j… cancelled"), the block that was running when the cancel came (src/workflows/run-blocks.ts words
+ * it "stopped"; the stop-words table calls that step cancelled), its check and the next step. A record written before this
+ * keeps its own words on disk ("job j… stopped"); they are shown here in the table's words. A chat turn's operation keeps
+ * "stopped".
+ */
+function jobStopWords(d: RunDetail): RunDetail {
+  if (stopKind(d) !== 'job') return d;
+  const runWords = (w: string): string => w.replace(/^stopped(?=:|$)/, JOB_CANCELLED).replace(/\bjob (j[0-9a-f]{6,}) stopped\b/g, `job $1 ${JOB_CANCELLED}`);
+  return {
+    ...d,
+    verdict: { ...d.verdict, words: runWords(d.verdict.words) },
+    exits: d.exits.map((e) => (e.state === 'stopped' ? { ...e, state: STEP_CANCELLED } : e)),
+    checks: d.checks.map((c) => (c.actual === 'stopped' ? { ...c, actual: STEP_CANCELLED } : c)),
+    next: d.next && d.next.words.startsWith('it was stopped: ') ? { ...d.next, words: `it was ${JOB_CANCELLED}: ${d.next.words.slice('it was stopped: '.length)}` } : d.next,
+  };
 }
 
 /** The operations whose record names this one as its parent, by their start then id (each one's own record says so). */

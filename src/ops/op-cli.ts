@@ -19,7 +19,7 @@ import { chooseProject } from '../project/index.js';
 import { OPERATION_ENV, OPERATION_ID } from './context.js';
 import { JOB_CANCELLED, TURN_STOPPED } from '../contracts/stop-words.js';
 import {
-  readRunDetail, RUN_DETAIL_SCHEMA, runDetailJson, runRecipe, runSummaryMarkdown, summaryRel, writeRunSummary,
+  readRunDetail, RUN_DETAIL_SCHEMA, runDetailJson, runRecipe, runSummaryMarkdown, stopKind, summaryRel, writeRunSummary,
   type RunDetail, type RunDetailResult,
 } from './run-detail.js';
 
@@ -85,10 +85,8 @@ const durWords = (ms: number | null): string => (ms === null ? 'unknown' : ms < 
  * an operation whose receipts are a chat turn's (and no job's) was stopped, one whose job a cancel ended, cancelled.
  */
 export function verdictWord(d: Pick<RunDetail, 'verdict' | 'receipts' | 'exits'>): string {
-  if (d.verdict.state !== 'cancelled') return d.verdict.state;
-  const kinds = new Set(d.receipts.map((r) => r.kind));
-  const job = kinds.has('workflow') || kinds.has('workflow-block') || d.exits.length > 0;
-  return (kinds.has('chat') || kinds.has('turn')) && !job ? TURN_STOPPED : JOB_CANCELLED;
+  const kind = stopKind(d);
+  return kind === null ? d.verdict.state : kind === 'turn' ? TURN_STOPPED : JOB_CANCELLED;
 }
 
 /** The run detail in plain words, one part a line, each with the record it came from (in brackets). */
