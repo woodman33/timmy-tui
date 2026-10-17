@@ -1380,7 +1380,8 @@ export function rightView(c: ViewCtx): View {
  */
 export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
   const { ui, data, g, width } = c;
-  const fresh = ui.flash && c.now - ui.flash.at < 6000 ? ui.flash : null;
+  // R7 (H150; H148's N3): a notice about a turn being answered is not drawn as fresh once that turn has ended
+  const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || chatTurnNow(data)?.id === ui.flash.whileTurn) ? ui.flash : null;
   // R5 (H131; the QA round's defect 15): a notice wider than the row takes the row above the hints too (for its few seconds),
   // so its words are read to their end ("…so Timmy asks once" was cut); a longer one is cut at the second row's end
   const said = fresh ? wrapSegs([S(fresh.text, fresh.role)], width) : null;

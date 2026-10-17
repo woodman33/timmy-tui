@@ -214,9 +214,9 @@ export class Controller {
 
   /** What the person sees now: say it in Activity and on the controls row. A notice that names a job (or is given an
    *  operation) belongs to that job's operation, so Activity's filter for that operation keeps it. */
-  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string } = {}): void {
+  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string; whileTurn?: string } = {}): void {
     const at = new Date(this.now()).toISOString();
-    this.ui.flash = { text, role, at: this.now() };
+    this.ui.flash = { text, role, at: this.now(), ...(meta.whileTurn ? { whileTurn: meta.whileTurn } : {}) };
     const named = meta.job ?? /\b(j[0-9a-f]{6,})\b/.exec(text)?.[1];
     const job = named ? this.records.find((j) => j.id === named) : undefined;
     const operation = meta.operation ?? job?.operation;
@@ -524,12 +524,18 @@ export class Controller {
   private onHolds(r: HoldsReading): void {
     if (this.disposed || !sameFolder(r.root, this.data.project.root)) return;
     const before = this.data.holds;
+    const shown = chatTurnNow(this.data);
     this.data.holds = r;
     if ((before?.turns ?? []).some((t) => !r.turns.some((x) => x.id === t.id))) {
       const root = this.data.project.root;
       try { this.data.turns = readTurns(this.chain(), root); } catch { /* the next reading */ }
       this.data.chat = readChatTail(root);
       this.readPipeline();
+      // R7 (H150; H148's N3): another surface's turn has ended while a message waits in the composer: said at once, so the
+      // screen never keeps saying a turn is being answered beside RUNNING NOW (0)
+      if (shown && !shown.mine && !chatTurnNow(this.data) && this.ui.input.field === 'composer' && this.ui.input.text.trim()) {
+        this.say(`The chat turn in ${shown.where} has ended: Enter sends what you typed.`, 'secondary');
+      }
     }
     if (this.ui.workspace === 'control') this.readTab('control');
     this.emit();
@@ -1179,7 +1185,7 @@ export class Controller {
       this.holdsNow();
       const other = chatTurnNow(this.data);
       if (other && !other.mine) {
-        this.say(`Not sent yet: one turn at a time per project, and a turn is being answered in ${other.where}. What you typed stays here; Enter sends it once that turn has ended (RUNNING NOW 0).`, 'secondary');
+        this.say(`Not sent yet: one turn at a time per project, and a turn is being answered in ${other.where}. What you typed stays here; Enter sends it once that turn has ended (RUNNING NOW 0).`, 'secondary', other.id ? { whileTurn: other.id } : {});
         this.emit();
         return;
       }

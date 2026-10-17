@@ -276,7 +276,8 @@ export interface Ui {
   /** R4 (H112): All tools' search words, kept when Enter closes the search (Esc clears them) */
   toolsQuery: string;
   /** the last notice, with when it came (it stays in Activity) */
-  flash: { text: string; role: Role; at: number } | null;
+  /** R7 (H150): `whileTurn`: a notice about a turn being answered (its id): drawn as fresh only while that turn is answered */
+  flash: { text: string; role: Role; at: number; whileTurn?: string } | null;
   mouse: boolean;
   /** the right Files tab shows only the files related to the selection */
   related: boolean;
