@@ -429,6 +429,18 @@
     });
     put(el, h('div', { class: 'vox-spatial' }, blocks));
     if (cap) put(cap, h('span', null, (p.spatial[0] && p.spatial[0].method) || 'a mesh drawn from its own triangles'), p.doctrine ? h('span', { class: 'vox-doctrine' }, ` · ${p.doctrine}`) : null);
+    // R7 (H152, B9): each view's axis words at LABEL_PX or more on screen, at the scale the view is drawn (laid out first)
+    requestAnimationFrame(() => {
+      for (const fig of el.querySelectorAll('.vox-proj-svg')) {
+        const m = fig.getScreenCTM && fig.getScreenCTM();
+        const scale = m ? Math.hypot(m.a, m.b) : 0;
+        if (!(scale > 0)) continue;
+        for (const t of fig.querySelectorAll('.vox-proj-axis')) {
+          const now = Number(t.getAttribute('font-size')) || 0;
+          if (now * scale < LABEL_PX) t.setAttribute('font-size', String(Math.ceil((LABEL_PX / scale) * 100) / 100));
+        }
+      }
+    });
   }
 
   function drawRecording(el, cap, title) {

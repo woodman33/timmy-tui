@@ -26,6 +26,10 @@
  * Content keeps its own colors: an answer's highlighted code (Shiki's tokens), a drawn diagram, imported images and Slate
  * 3D's scene are not recolored. The page's Content-Security-Policy allows no inline style block or style attribute, so every
  * look is a class here.
+ *
+ * R7 (H152; DESIGN.md §10 B9, the R6 review's defect 17): no text on this page is under 11 px, a badge, a tag, a tiny
+ * button, a tab on a narrow screen or an SVG's words included (tests/companion-text-size-browser.test.ts reads every text
+ * drawn, on every tab, at 1376x768 and 800x600).
  */
 
 /* ---------- the page ---------- */
@@ -405,7 +409,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .log-header.repl { color: var(--timmy-text); }
 /* the mirror's state in its words (LIVE, RESTORED, SAVED, WAITING, RECONNECTING): never green (a stream that reached the
    page is not a check); what waits on the person (RECONNECTING, RESTORED) is amber */
-#mirror-status { font-size: 10px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
+#mirror-status { font-size: 11px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
 #mirror-status[data-state="live"], #mirror-status[data-state="saved"] { color: var(--timmy-text); }
 #mirror-status[data-state="restored"], #mirror-status[data-state="reconnecting"] { color: var(--timmy-attention); border-color: var(--timmy-attention); }
 .mirror-empty { color: var(--timmy-text-secondary); text-align: center; margin-top: 30px; font-size: 13px; }
@@ -429,15 +433,15 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .btn-action { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text); padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: var(--timmy-weight-strong); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .btn-action:hover { border-color: var(--timmy-text-secondary); }
 .btn-action:disabled { color: var(--timmy-text-secondary); cursor: not-allowed; }
-.btn-action.tiny { padding: 1px 7px; font-size: 10px; }
+.btn-action.tiny { padding: 1px 7px; font-size: 11px; }
 .btn-action.success { color: var(--timmy-text); }
 /* destructive: amber words, the palette has no red (the button says what it deletes) */
 .btn-action.danger { color: var(--timmy-failure); }
 .btn-action.danger:hover { border-color: var(--timmy-failure); }
 .btn-action.wide { width: 100%; justify-content: center; padding: 6px; }
 .btn-action.project-pin-btn:disabled { cursor: default; }
-.badge-planned { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); font-size: 10px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; letter-spacing: 0.04em; }
-.status-badge { padding: 1px 8px; border-radius: 4px; font-size: 10px; font-weight: var(--timmy-weight-strong); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
+.badge-planned { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); font-size: 11px; font-weight: var(--timmy-weight-strong); padding: 1px 8px; border-radius: 4px; letter-spacing: 0.04em; }
+.status-badge { padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: var(--timmy-weight-strong); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); background: var(--timmy-ground); }
 
 /* ---------- the page's own socket log (Logs & Receipts: raw, as it reached this page) ---------- */
 
@@ -455,7 +459,7 @@ h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-he
 .ws-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .ws-card { background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; }
 .ws-name { font-size: 13px; color: var(--timmy-text); }
-.ws-state { font-size: 10px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); }
+.ws-state { font-size: 11px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); }
 .ws-purpose { font-size: 11px; color: var(--timmy-text-secondary); margin-top: 2px; }
 .ws-desc { font-size: 12px; color: var(--timmy-text); margin-top: 6px; line-height: 1.45; }
 .ws-desc code, .proof-note code, .run-hint code { color: var(--timmy-silver); }
@@ -670,7 +674,7 @@ body.slate-absent p { max-width: 72ch; }
   /* two lines at most here; the whole note is its title */
   .project-folder { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   .ws-tablist { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-  .ws-tab { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; font-size: 10px; white-space: normal; }
+  .ws-tab { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px; font-size: 11px; white-space: normal; }
   .tab-label { white-space: normal; overflow-wrap: normal; }
   .strip-actions { flex-direction: column; }
   .strip-actions > li, .act { width: 100%; }
@@ -834,8 +838,8 @@ body.slate-absent p { max-width: 72ch; }
 .vox-values-table tbody th { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); width: 32%; }
 .vox-values-table tr[aria-current="true"] th, .vox-values-table tr[aria-current="true"] td { color: var(--timmy-accent); }
 .vox-values-table tr.is-claim td { color: var(--timmy-silver); }
-.vox-method { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); font-size: 10.5px; }
-.vox-word { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; color: var(--timmy-text); }
+.vox-method { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text-secondary); font-size: 11px; }
+.vox-word { border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; color: var(--timmy-text); }
 .vox-word.w-stale, .vox-word.w-unknown { color: var(--timmy-attention); border-color: var(--timmy-attention); }
 .vox-word.w-model-prediction { color: var(--timmy-silver); }
 .vox-notes { font-size: 11px; color: var(--timmy-text-secondary); }
@@ -960,14 +964,14 @@ body.slate-absent p { max-width: 72ch; }
 
 /* the wire: one bar per request, its time; the gate's checks */
 .tools-flame { width: 100%; height: auto; display: block; font-family: var(--timmy-font-mono); }
-.tools-flame-label { fill: var(--timmy-text); font-size: 10.5px; }
+.tools-flame-label { fill: var(--timmy-text); font-size: 11px; }
 .tools-flame-label.is-session, .tools-flame-label.is-call { fill: var(--timmy-text-secondary); }
 .tools-flame-bar { fill: var(--timmy-line-strong); stroke: var(--timmy-text-secondary); stroke-width: 0.6; }
 .tools-flame-bar.is-tools-call { fill: var(--timmy-text); }
 .tools-flame-bar.is-session { fill: var(--timmy-surface); stroke: var(--timmy-line-strong); }
 .tools-flame-bar.is-call { fill: none; stroke: var(--timmy-text-secondary); stroke-dasharray: 3 2; }
 .tools-flame-bar.is-error { stroke: var(--timmy-failure); stroke-width: 1.2; }
-.tools-flame-axis { fill: var(--timmy-text-secondary); font-size: 10px; }
+.tools-flame-axis { fill: var(--timmy-text-secondary); font-size: 11px; }
 .tools-spans, .tools-checks, .tools-notes { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--timmy-text); }
 .tools-notes { color: var(--timmy-text-secondary); }
 
@@ -1043,7 +1047,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-act-n { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
 .rv-acts-cmd { flex: 1 1 100%; min-width: 0; margin: 0; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 .rv-cmd-now { color: var(--timmy-text); font-family: var(--timmy-font-mono); }
-.rv-effect { font-size: 10px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em; }
+.rv-effect { font-size: 11px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em; }
 .rv-effect.is-writes, .rv-effect.is-runs { color: var(--timmy-text); border-color: var(--timmy-text-secondary); }
 .rv-acts-note { flex: 1 1 100%; margin: 0; font-size: 11px; color: var(--timmy-text); min-width: 0; overflow-wrap: anywhere; }
 .rv-acts-note:empty { display: none; }
@@ -1107,7 +1111,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-viewer { flex: 1 1 64%; min-height: 8em; display: flex; flex-direction: column; gap: 4px; }
 .rv-v-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; flex-shrink: 0; }
 .rv-v-path { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); overflow-wrap: anywhere; }
-.rv-v-tag { font-size: 10.5px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; }
+.rv-v-tag { font-size: 11px; color: var(--timmy-text-secondary); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 0 5px; }
 .rv-v-acts { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-left: auto; }
 .rv-v-body { flex: 1 1 auto; min-height: 0; border: 1px solid var(--timmy-line); border-radius: 4px; }
 .rv-v-body > .rv-scroll, .rv-lower > .rv-scroll { height: 100%; overflow: auto; padding: 4px 8px 8px; }
@@ -1128,7 +1132,7 @@ body.slate-absent p { max-width: 72ch; }
 .rv-pick { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); border-radius: 4px; color: var(--timmy-text); padding: 3px 7px; font-size: 11.5px; cursor: pointer; }
 .rv-pick:hover { border-color: var(--timmy-text-secondary); }
 .rv-pick[aria-current="true"] { border-color: var(--timmy-accent); }
-.rv-pick-how { font-size: 10.5px; color: var(--timmy-text-secondary); min-width: 6ch; }
+.rv-pick-how { font-size: 11px; color: var(--timmy-text-secondary); min-width: 6ch; }
 .rv-pick-path { overflow-wrap: anywhere; }
 .rv-pick-what { font-size: 11px; color: var(--timmy-text-secondary); }
 .rv-notes { margin: 0 0 6px; padding-left: 16px; font-size: 11px; color: var(--timmy-text-secondary); }
