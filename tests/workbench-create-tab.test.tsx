@@ -149,7 +149,10 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       const said = center();
       expect(said).toContain(`${CREATE_SENTENCE} [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).`);
       expect(said).toContain('MESHES IN THIS PROJECT (1) refs/demo-tray.stl 28 triangles · box 80 × 50 × 20 · edge-manifold');
-      expect(said.indexOf('MESHES IN THIS PROJECT')).toBeLessThan(said.indexOf('TOOLS ('));
+      // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can
+      // begin below the pane (PgDn shows it): the meshes come before the tools, or the tools are not in view yet
+      const tools = said.indexOf('TOOLS (');
+      expect(tools === -1 || said.indexOf('MESHES IN THIS PROJECT') < tools, `meshes ${said.indexOf('MESHES IN THIS PROJECT')}, tools ${tools}`).toBe(true);
     }
     // c opens the companion on this tab (tab=create): its page's tab 6 draws the view
     expect(c.ui.page).toBe('create');

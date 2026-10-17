@@ -179,11 +179,15 @@ describe('words given room (R5 H131, the QA round)', () => {
     // what c and s show for it in truth, first
     c.key('6', {});
     expect(c.ui.workspace).toBe('create3d');
-    // (R7 H150: after the Unfinished block the frame's tabs[].unfinished draws first: tests/workbench-unfinished.test.tsx)
-    const said = (): string => rows(c, 'center', 160, 45).slice(0, 10).join(' ').replace(/\s+/g, ' ');
+    // (R7 H150: after the Unfinished block the frame's tabs[].unfinished draws first: tests/workbench-unfinished.test.tsx;
+    // R7 lead, at H150's merge: tab 6's works and missing words are the longer ones of 9cd444a, so the block takes more
+    // rows: the first 24 are read, the block first and then this sentence, before anything else the tab lists)
+    const said = (): string => rows(c, 'center', 160, 45).slice(0, 24).join(' ').replace(/\s+/g, ' ');
     // R7 (H153): the companion's tab 6 draws the project's meshes now (src/workbench/create-tab.ts CREATE_SENTENCE)
     const line = 'The companion\'s tab 6 draws this project\'s meshes in a view you can turn: Timmy\'s own drawing of each file\'s triangles, not a render by Blender or any native tool. No Timmy surface draws a motion timeline yet; each app below draws its own, once set up. [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).';
     expect(said()).toContain(line);
+    expect(said().indexOf('◌ Unfinished')).toBeGreaterThanOrEqual(0);
+    expect(said().indexOf('◌ Unfinished')).toBeLessThan(said().indexOf(line));
     c.key('6', {});
     expect(c.ui.workspace).toBe('motion');
     expect(said()).toContain(line);
