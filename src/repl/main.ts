@@ -405,13 +405,15 @@ export async function runRepl(argv: string[]): Promise<number> {
     // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
     onSwitch: (p) => {
       const c = agent.useSessions(join(p.root, '.sessions'));
-      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project.
-      if (canvasProject.follows) void canvasProject.handOff();
+      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project. R7 (H149): or that followed the
+      // active project itself since this REPL last named one (the server decides: src/repl/canvas-project.ts switched)
+      void canvasProject.switched();
       return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
     },
     // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
     canvas: () => canvasProject.boardLine(),
-    onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
+    // R7 (H149): passed on while the canvas is this REPL's (src/repl/canvas-project.ts switched), as a /project switch is
+    onBoardLive: () => { void canvasProject.switched(); },
     // R4 (H74): a /run whose blocks include a risky one asks in this terminal's NEEDS YOU box; in a pipe it is refused
     ...(interactive ? { askPerson: askNeedsYou } : {}),
     // R7 (H149): the record says a REPL chose (a REPL that follows it says so)
