@@ -534,8 +534,10 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
             overflows: region.scrollHeight > region.clientHeight + 1, more: region.dataset.more, scrolls: document.getElementById('side')!.scrollHeight <= document.getElementById('side')!.clientHeight + 1,
           };
         });
-        // the panel follows tldraw's layout (it is measured as tldraw lays out): waited for
+        // the panel follows tldraw's layout (it is measured as tldraw lays out): waited for. R7 (H151; the lead: CI at caf174d once read
+        // |top − strip − 52| = 2 at 1376 x 768): its top too, which follows the strip's height (--frame-h) a frame or two later
         await expect.poll(async () => { const g = await read(); return g.foot - g.bottom; }, { timeout: 10_000 }).toBeGreaterThanOrEqual(7);
+        await expect.poll(async () => { const g = await read(); return Math.abs(g.top - g.strip - 52); }, { timeout: 10_000 }).toBeLessThanOrEqual(1);
         const g = await read();
         expect(g.foot - g.bottom, where).toBeLessThanOrEqual(9);
         expect(Math.abs(g.top - g.strip - 52), where).toBeLessThanOrEqual(1);
