@@ -20,6 +20,7 @@ import { withoutRunner } from './fixtures/repl-pty-env.js';
 import { runAsync } from './helpers/run-async.js';
 import { scrub } from './helpers/tmux-frame.js';
 import { startFakeOllama, textChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+import { newReceipt, receiptsOn } from './helpers/turn-end.js';
 
 const TSX = resolve('node_modules/.bin/tsx');
 const CLI = resolve('src/cli.ts');
@@ -74,25 +75,38 @@ describe('the REPL keeps a long answer streaming at the terminal\'s width (R6 H1
         await sleep(300);
       }
       const ask = `stream a long answer at ${w} columns`;
-      // what the screen shows of this turn: from its prompt, while the prompt is on screen (an earlier turn's receipt is above it)
-      const ofThisTurn = (screen: string): string => (screen.includes(ask) ? screen.slice(screen.lastIndexOf(ask)) : screen);
+      // R6 lead (PR #100; CI at 8d17ec0, attempt 2): this turn ends at its own receipt, known by identity: a receipt the
+      // terminal had not shown before this Enter (tests/helpers/turn-end.ts, tests/turn-end-identity.test.ts). The check
+      // before looked for a receipt after this turn's prompt, and on the whole screen while the prompt was not on it yet; a
+      // read made before the 120-column prompt reached the screen took the 160-column turn's receipt for this turn's end.
+      const before = receiptsOn(history());
       tmux('send-keys', '-t', 't', '-l', ask);
       tmux('send-keys', '-t', 't', 'Enter');
       const sent = Date.now();
       // sampled every 100 ms while it streams: when the screen changed, the newest sentence on it, the widest row
       const samples: Array<{ at: number; screen: string; newest: number; widest: number; ended: boolean }> = [];
       const kept: Array<{ at: number; screen: string }> = [];
+      let receipt: string | null = null;
       for (let done = false; !done && Date.now() - sent < 40_000; await sleep(100)) {
         const screen = shown();
         const at = Date.now() - sent;
         const widest = Math.max(...joined().split('\n').map((l) => [...l].length));
-        done = /RECEIPT [0-9a-f]{8} signed and verified/.test(ofThisTurn(screen));
+        receipt = newReceipt(screen, before);
+        done = receipt !== null;
         const prev = samples[samples.length - 1];
         if (!prev || prev.screen !== screen) samples.push({ at, screen, newest: newestOn(screen, w), widest, ended: done });
         if ((w === 160 || w === 80) && kept.length < 3 && at >= 1500 * (kept.length + 1) && !done) kept.push({ at, screen });
       }
       const streaming = samples.filter((s) => !s.ended);
       const said = (s: { at: number; newest: number }) => `+${s.at} ms: line ${s.newest}`;
+      expect(receipt, `this turn's receipt at ${w} columns (receipts before it: ${[...before].join(', ') || 'none'})`).not.toBeNull();
+      expect(before.has(receipt!)).toBe(false);
+      // after the first turn, the real screen showed the previous turn's receipt together with this turn's prompt while this
+      // turn streamed, and that screen was not taken for this turn's end
+      if (before.size > 0) {
+        const both = streaming.filter((s) => s.screen.includes(ask) && [...receiptsOn(s.screen)].some((r) => before.has(r)));
+        expect(both.length, `at ${w} columns: a streaming screen with the previous receipt and this prompt`).toBeGreaterThan(0);
+      }
       // the screen changed again and again while the answer streamed (not once at the start and once at its end)
       expect(streaming.length, `screens while streaming at ${w} columns: ${streaming.map(said).join(', ')}`).toBeGreaterThanOrEqual(10);
       // the newest sentence on screen kept growing through the stream, to its last before the end
@@ -112,7 +126,7 @@ describe('the REPL keeps a long answer streaming at the terminal\'s width (R6 H1
       // no row wider than the terminal (none came back joined), and the answer wrapped at 80 columns or the width
       for (const s of samples) expect(s.widest, `at ${w} columns, +${s.at} ms`).toBeLessThanOrEqual(w);
       // the end: every sentence, in order, in scrollback, wrapped, then its receipt
-      const end = await waitFor(new RegExp(`${ask}[\\s\\S]*RECEIPT [0-9a-f]{8} signed and verified[\\s\\S]*Enter to send`));
+      const end = await waitFor(new RegExp(`${ask}[\\s\\S]*RECEIPT ${receipt} signed and verified[\\s\\S]*Enter to send`));
       const answer = end.slice(end.lastIndexOf(ask));
       const flat = answer.replace(/\s+/g, ' ');
       let from = 0;
@@ -123,7 +137,7 @@ describe('the REPL keeps a long answer streaming at the terminal\'s width (R6 H1
       }
       // its rows (the rows of the FAKE answer, after the prompt, up to the receipt): each within 80 columns or the width
       const rows = answer.split('\n');
-      const receiptAt = rows.findIndex((l) => /RECEIPT [0-9a-f]{8} signed and verified/.test(l));
+      const receiptAt = rows.findIndex((l) => l.includes(`RECEIPT ${receipt} signed and verified`));
       const answerRows = rows.slice(1, receiptAt).filter((l) => /FAKE|model|columns|line|of \d+|tray|holds|things/.test(l));
       expect(answerRows.length).toBeGreaterThan(10);
       for (const r of answerRows) expect([...r].length, r).toBeLessThanOrEqual(Math.min(w, 80));
