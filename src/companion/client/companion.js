@@ -279,13 +279,15 @@ function replTurnOf(event, live) {
   }
   // R5 lead: the turn's identity, when its receipt names it (turn_id): the id the frame gave it while it was being answered
   const turn = typeof p.turn_id === 'string' && /^t[0-9]+-[0-9a-f]{8}$/.test(p.turn_id) ? p.turn_id : null;
+  // R7 (H152): who asked a stopped turn to stop, when another surface did (the receipt's stopped_by, on the bus beside it)
+  const stoppedBy = typeof p.stopped_by === 'string' && Object.prototype.hasOwnProperty.call(STOP_SURFACE, p.stopped_by) ? p.stopped_by : '';
   if (p.kind === 'chat') {
     const s = SURFACE_TURN.exec(String(p.subject || ''));
     if (!s) return null;
-    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]), turn };
+    return { hash, at, receipt: hash.slice(7, 15), surface: s[1], state: s[2] || 'ended', cancelled: s[2] === 'cancelled', steps: Number(s[3]), turn, stoppedBy };
   }
   const m = REPL_TURN.exec(String(p.subject || ''));
-  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null, turn };
+  return { hash, at, receipt: hash.slice(7, 15), surface: 'repl', state: m && m[1] ? 'cancelled' : 'ended', cancelled: Boolean(m && m[1]), steps: m ? Number(m[2]) : null, turn, stoppedBy };
 }
 
 /** Takes the turns among bus events (every surface's); true when one is new. */
@@ -316,21 +318,40 @@ function mirrorHasSession() {
 function turnEnd(turn) {
   const f = frameDrawn();
   const known = f && f.chat && Array.isArray(f.chat.turns) ? f.chat.turns.find((t) => t && t.receipt === turn.receipt) : null;
-  if (known && typeof known.state === 'string') return known.state;
-  return turn.state === 'cancelled' ? 'stopped' : turn.state;
+  const state = known && typeof known.state === 'string' ? known.state : turn.state === 'cancelled' ? 'stopped' : turn.state;
+  return { state, words: turnEndSaid(state, turn.surface, (known && known.stoppedBy) || turn.stoppedBy || '') };
+}
+
+/**
+ * R7 (H152; the R5 visual review's 13, "mirror rows don't say who stopped"): how a turn ended, in the one table's words
+ * (src/contracts/stop-words.ts turnEndWords; tests/companion-client.test.ts holds the two to the same words): answered, failed,
+ * ended (not known to the frame yet), or "stopped (asked from <the surface that asked>)": the surface its receipt names
+ * (stopped_by) when another one asked, else the one that sent it. Never "cancelled": that word is a workflow job's.
+ */
+const STOP_SURFACE = { repl: 'the REPL', workbench: 'the Workbench', monitor: 'the monitor', companion: 'the companion', unknown: 'another surface' };
+function turnEndSaid(state, surface, stoppedBy) {
+  if (state !== 'stopped') return state;
+  const asker = stoppedBy || surface;
+  return `stopped (asked from ${Object.prototype.hasOwnProperty.call(STOP_SURFACE, asker) ? STOP_SURFACE[asker] : asker})`;
+}
+/** A turn's end and its steps, in one phrase: "ended (2 steps)", "stopped (asked from the REPL; 1 step)". */
+function turnEndPhrase(end, steps) {
+  const n = steps === null || steps === undefined ? '' : `${steps} ${steps === 1 ? 'step' : 'steps'}`;
+  if (end.state === 'stopped') return n ? `${end.words.slice(0, -1)}; ${n})` : end.words;
+  return n ? `${end.words} (${n})` : end.words;
 }
 
 function surfaceTurnHtml(turn) {
   const s = SURFACES[turn.surface];
   const time = clockOf(turn.at);
-  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  const end = turnEnd(turn);
   return `
-      <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}">
+      <div class="log-msg repl" data-mirror="surface-turn" data-surface="${escapeMirrorText(turn.surface)}" data-state="${escapeMirrorText(end.state)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEnd(turn))}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEnd(turn))}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
@@ -338,15 +359,14 @@ function surfaceTurnHtml(turn) {
 function replTurnHtml(turn) {
   if (turn.surface && turn.surface !== 'repl' && SURFACES[turn.surface]) return surfaceTurnHtml(turn);
   const time = clockOf(turn.at);
-  const state = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
-  const steps = turn.steps === null ? '' : ` (${turn.steps} ${turn.steps === 1 ? 'step' : 'steps'})`;
+  const end = turnEnd({ ...turn, state: turn.cancelled ? 'cancelled' : 'ended' });
   return `
-      <div class="log-msg repl" data-mirror="repl-turn">
+      <div class="log-msg repl" data-mirror="repl-turn" data-state="${escapeMirrorText(end.state)}">
         <div class="log-header repl">
-          <span>⌨ REPL turn · ${state}</span>
+          <span>⌨ REPL turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${state}${steps}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
       </div>
     `;
 }
@@ -791,10 +811,10 @@ function frameTurnHtml(t) {
   return `
       <div class="log-msg repl" data-mirror="frame-turn" data-surface="${escapeMirrorText(t.surface)}" data-state="${escapeMirrorText(t.state)}">
         <div class="log-header repl">
-          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(t.state)}</span>
+          <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}</span>
           <span class="log-time">${escapeMirrorText(clockOf(t.at))}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(t.state)}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
       </div>
     `;
 }
