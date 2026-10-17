@@ -40,7 +40,7 @@ describe.skipIf(!browserPath)('the companion\'s text is 11 px or more on every s
           await page.waitForFunction(() => document.querySelectorAll('#home-preview [data-home-image] img').length === 2, null, { timeout: 30_000 });
           for (const [key, id] of TAB_KEYS) {
             await showTab(page, key, id);
-            if (id === 'voxvision') await page.waitForFunction(() => document.querySelectorAll('.vox-overlay .ov-label, .vox-legend-label').length > 0, null, { timeout: 15_000 });
+            if (id === 'voxvision') await page.waitForFunction(() => document.querySelectorAll('[data-vox="stage"] .vox-label').length > 0, null, { timeout: 15_000 });
             if (id === 'workflows') await page.waitForSelector('#run-detail .run-view[data-inspected="true"]', { timeout: 30_000 });
             small[`${at} tab ${key} ${id}`] = await smallText(page);
             if (id === 'chat') {

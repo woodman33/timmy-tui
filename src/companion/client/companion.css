@@ -709,14 +709,17 @@ body.slate-absent p { max-width: 72ch; }
  * boxes dashed; the image itself keeps its own colors.
  * ========================================================================================================================== */
 .vox-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.vox-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 24fr) minmax(0, 46fr) minmax(0, 30fr); }
+/* R7 (H152; the R6 review's defect 16): the viewport's column is the widest, and holds only the viewport (and a video's
+   timeline); the record's commands sit under the entity tree */
+.vox-cols { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px 12px; grid-template-columns: minmax(0, 21fr) minmax(0, 53fr) minmax(0, 26fr); }
 .vox-cols > * { min-height: 0; min-width: 0; }
 .vox-cols [data-vox-box][hidden] { display: none; }
 /* (each rule names .vox-cols and .box, so it outranks the page's .col-stack > .box rules) */
-.vox-cols .vox-left > .box.vox-records-box { flex: 0 0 auto; max-height: 36%; min-height: 0; }
-.vox-cols .vox-left > .box.vox-tree-box { flex: 1 1 0; min-height: 8em; }
+.vox-cols .vox-left > .box.vox-records-box { flex: 0 0 auto; max-height: 27%; min-height: 0; }
+.vox-cols .vox-left > .box.vox-tree-box { flex: 1 1 0; min-height: 6em; }
+.vox-cols .vox-left > .box.vox-acts-box { flex: 0 1 auto; max-height: 33%; min-height: 4.5em; }
 .vox-cols .vox-centre > .box.vox-view-box { flex: 1 1 auto; min-height: 14em; }
-.vox-cols .vox-centre > .box.vox-timeline-box, .vox-cols .vox-centre > .box.vox-acts-box { flex: 0 0 auto; min-height: 0; max-height: 32%; }
+.vox-cols .vox-centre > .box.vox-timeline-box { flex: 0 0 auto; min-height: 0; max-height: 32%; }
 .vox-cols .vox-right > .box.vox-pipeline-box { flex: 0 0 auto; max-height: 58%; min-height: 0; }
 .vox-cols .vox-right > .box.vox-values-box { flex: 1 1 0; min-height: 6em; }
 .vox-cols .vox-right > .box.vox-engines-box { flex: 0 1 auto; max-height: 28%; min-height: 4em; }
@@ -749,22 +752,41 @@ body.slate-absent p { max-width: 72ch; }
 .vox-ent.kind-group > .vox-ent-label, .vox-ent.kind-record > .vox-ent-label { font-weight: var(--timmy-weight-strong); }
 .vox-ent-detail { display: block; margin-left: 4px; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 
-/* the viewport: the image keeps its own colors; what was measured over it is an SVG in the image's own pixel frame */
+/* the viewport: the image keeps its own colors; what was measured over it is an SVG in the image's own pixel frame.
+   R7 (H152): the stage takes the room its box leaves (its size never follows what it holds); in it, the image's frame at the
+   image's own aspect (sized by panel-vox.js layoutStage) and the band of the marks' labels, below it or beside it, never over
+   it; the leader lines (an SVG over the stage, in its pixels) tie each label to its mark */
 .vox-image-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .vox-image-tabs:empty { display: none; }
 .vox-image-tab { background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; color: var(--timmy-text-secondary); font: inherit; font-size: 11px; padding: 1px 6px; cursor: pointer; }
 .vox-image-tab[aria-pressed="true"] { color: var(--timmy-text); border-color: var(--timmy-accent); }
-.vox-stage { position: relative; flex: 1 1 auto; min-height: 11em; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; overflow: hidden; }
-.vox-stage > .empty { padding: 10px; }
+.vox-stage { position: relative; flex: 1 1 0; min-height: 11em; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 6px; background: var(--timmy-surface); border: 1px solid var(--timmy-line); border-radius: 4px; overflow: hidden; }
+.vox-stage[data-band="right"] { flex-direction: row; }
+.vox-stage > .empty { padding: 10px; align-self: stretch; }
+.vox-frame { position: relative; flex: 0 0 auto; width: 0; height: 0; }
 .vox-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .vox-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+/* above the leaders (a label's own background hides the line under it), which are above the image */
+.vox-labels { position: relative; z-index: 1; list-style: none; flex: 0 0 auto; align-self: stretch; display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; gap: 4px 10px; max-height: 45%; overflow: auto; }
+.vox-stage[data-band="right"] > .vox-labels { flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; align-self: center; max-height: 100%; }
+.vox-stage[data-band="none"] > .vox-labels { display: none; }
+.vox-label-row { display: flex; min-width: 0; max-width: 100%; }
+.vox-label { font: inherit; font-size: 12px; line-height: 1.35; text-align: left; color: var(--timmy-silver); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 3px; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
+.vox-labels.is-measuring .vox-label { white-space: nowrap; max-width: none; }
+.vox-label:hover { border-color: var(--timmy-text-secondary); }
+.vox-label-tags { color: var(--timmy-text-secondary); }
+.vox-label.is-selected, .vox-label.is-selected .vox-label-tags { color: var(--timmy-accent); }
+.vox-label.is-selected { border-color: var(--timmy-accent); }
+.vox-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.vox-leader { stroke: var(--timmy-silver); stroke-width: 1; }
+.vox-leader-end { fill: var(--timmy-silver); }
+.vox-leader.is-selected { stroke: var(--timmy-accent); stroke-width: 1.5; }
+.vox-leader-end.is-selected { fill: var(--timmy-accent); }
 .vox-overlay .ov { fill: none; stroke: var(--timmy-silver); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
 .vox-overlay g.ov circle, .vox-overlay g.ov line { stroke: inherit; vector-effect: non-scaling-stroke; }
 .vox-overlay .ov.is-generated { stroke-dasharray: 7 4; }
 .vox-overlay .ov.is-unverified { stroke-dasharray: 2 4; stroke: var(--timmy-text-secondary); }
 .vox-overlay .ov.is-selected { stroke: var(--timmy-accent); stroke-width: 3; }
-.vox-overlay .ov-label { fill: var(--timmy-silver); stroke: var(--timmy-ground); stroke-width: 3px; paint-order: stroke; font-family: var(--timmy-font-mono); cursor: pointer; }
-.vox-overlay .ov-label.is-selected { fill: var(--timmy-accent); }
 .vox-caption { font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
 .vox-caption:empty { display: none; }
 
@@ -864,7 +886,7 @@ body.slate-absent p { max-width: 72ch; }
 @media (max-width: 860px) {
   .vox-host { flex: none; }
   .vox-cols { grid-template-columns: minmax(0, 1fr); flex: none; }
-  .vox-left > .vox-records-box { max-height: none; }
+  .vox-cols .vox-left > .box.vox-records-box, .vox-cols .vox-left > .box.vox-acts-box { max-height: none; }
   .vox-stage { min-height: 52vw; }
   .vox-views { grid-template-columns: minmax(0, 1fr); }
 }
