@@ -134,7 +134,7 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  */
 // R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
 // R6 (H144): panel-run.js, the Workflows tab's run detail
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js'] as const;
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -827,7 +827,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
-  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env });
+  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p) });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)

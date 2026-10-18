@@ -25,24 +25,32 @@
  * only), ✓ completed or verified, ✕ failed (amber), ■ stopped; every mark has its word beside it.
  *
  * readControl reads files only: nothing here runs a program, contacts a device, writes, or asks the network.
+ *
+ * R8 (H155): which runs get a pane, in which order, and what each pane says (its mark, who started it, its exit, its receipt
+ * checked in this reading, how a turn being answered is stopped, its log's last lines) are src/ops/panes.ts's, the one source
+ * the companion's tab 7 (src/companion/panels/control.ts) draws from too; this file draws them in a terminal.
  */
-import { accessSync, closeSync, constants, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS } from '../agent/lanes.js';
 import { readConnect, type ConnectView } from '../connect/read.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import type { JobRecord } from '../jobs/index.js';
-import { LIVE_FOR_MS, turnStopWords } from '../ops/workspace-frame.js';
+import {
+  checkReceipt, exitWords, jobMark, liveTurnsOf as liveTurnsIn, PANES_MAX, paneJobs, paneOrder, paneTailOf, receiptWords, TAIL_MAX, turnStopLine, whoWords,
+  type PaneTail, type ReceiptCheck,
+} from '../ops/panes.js';
+import { LIVE_FOR_MS } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
 import type { Decision as WaitDecision } from '../room/decisions.js';
 import { timmyHome } from '../setup/home.js';
 import { scrubHomes, tildePath } from '../utils/home-scrub.js';
-import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
+import type { Receipt } from '../utils/receipts.js';
 import type { Glyphs } from './frame.js';
 import { connectionMark, tookWords, turnEndWords } from './hub.js';
 import type { Data, TurnRow, TurnView, Ui } from './model.js';
-import { lineText, ruleWords } from './output.js';
+import { ruleWords } from './output.js';
 import { TURNS_SHOWN, type JobRow } from './state.js';
 import {
   card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx,
@@ -53,12 +61,10 @@ type Env = Record<string, string | undefined>;
 
 /** The Workbench list the tab's selection is kept in (src/workbench/screen.ts: `center:<workspace>`). */
 export const CONTROL_LIST = 'center:control';
-/** How many panes the Control Room fills (the references' 2×2 grid): every run that is running first, then the newest ended
- *  runs in the slots left, as quiet panes. More running than this: the grid shows four at a time and says how many more. */
-export const PANES_MAX = 4;
-/** How many of a pane's log lines are drawn: at least (where there is room), and at most. */
+// R8 (H155): the panes' rule, bounds and words, from the one source (src/ops/panes.ts), as this tab always exported them
+export { checkReceipt, jobMark, PANES_MAX, paneJobs, TAIL_MAX, type PaneTail, type ReceiptCheck };
+/** How many of a pane's log lines are drawn: at least (where there is room), and at most (TAIL_MAX, src/ops/panes.ts). */
 export const TAIL_MIN = 3;
-export const TAIL_MAX = 6;
 /** The panes as a 2×2 grid from this many body cells (160 terminal columns give 156): a compact roster, two panes of at least
  *  GRID_PANE_MIN cells side by side, a narrower right column, and the two rules between them. Below it the panes stack. */
 export const GRID_PANE_MIN = 44;
@@ -73,8 +79,6 @@ const PANE_H_MIN = 8;
 const PANE_H_MAX = 14;
 /** The Workbench's own tick (src/workbench/controller.ts), when the reading is not told it: a pane's log is read this often. */
 const TICK_MS = 1000;
-/** The most bytes of a log's end read for its last lines. */
-const TAIL_BYTES = 16 * 1024;
 /** How many ended runs RECENT counts and lists (the newest), as the Control Room always did. */
 export const RECENT_MAX = 30;
 /** The columns' shares of the body: the roster, the panes, the right column (side by side from 120 terminal columns: tab-columns.ts). */
@@ -147,15 +151,6 @@ export interface DeviceRow {
 
 /** A chat turn being answered now, as its hold names it (src/agent/chat-turn.ts OtherTurn). */
 export interface LiveTurnRow { surface: ChatSurface; pid: number; taken: string; mine: boolean; proof: 'alive' | 'unknown'; /** R5 (H131): its hold's id, the turn's identity */ id?: string }
-
-/** A pane's log: its last lines (escapes removed, homes written from ~, the project's folder as .), or why there are none.
- *  `every`: while the job runs, how often its log is read again (the Workbench's tick: no job of Timmy's tells a reader of its
- *  log that it printed, so the pane says how often it looks). */
-export type PaneTail = ({ lines: string[] } | { why: string }) & { every?: number };
-
-/** A quiet pane's receipt, checked in this reading: verified (verifyReceiptIn: its chain link, body hash and signature), not
- *  verified with why, or not found on the chain read here. */
-export type ReceiptCheck = { state: 'verified' } | { state: 'failed'; reason: string } | { state: 'not found'; reason: string };
 
 export interface ControlData {
   /** when this reading was made (ISO) */
@@ -289,53 +284,6 @@ function deviceRows(home: string, now: number, connect: (home: string) => Connec
   });
 }
 
-/** A log's last `n` printed lines (each as a terminal would leave it: after its last carriage return), or why none. */
-function tailOf(file: string, n: number, clean: (t: string) => string): PaneTail {
-  let fd: number;
-  try { fd = openSync(file, 'r'); } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    return { why: code === 'ENOENT' ? 'no log yet (it printed nothing, or never started)' : `its log could not be read (${code ?? 'error'})` };
-  }
-  try {
-    const size = fstatSync(fd).size;
-    const from = Math.max(0, size - TAIL_BYTES);
-    const buf = Buffer.alloc(size - from);
-    const got = readSync(fd, buf, 0, buf.length, from);
-    const raw = buf.subarray(0, got).toString('utf8').split('\n');
-    // a read that starts inside a line leaves that line out
-    if (from > 0) raw.shift();
-    const lines = raw.map((l) => {
-      const shown = l.split('\r').filter((p) => p.trim()).pop() ?? '';
-      return clean(lineText(shown));
-    }).filter((l) => l.trim());
-    return { lines: lines.slice(-n) };
-  } catch (e) {
-    return { why: `its log could not be read (${(e as NodeJS.ErrnoException).code ?? 'error'})` };
-  } finally {
-    try { closeSync(fd); } catch { /* closed */ }
-  }
-}
-
-/** A job's receipt (its short id, as the job store keeps it) checked against `chain`: found by its id and its job, then
- *  verified there (src/utils/receipts.ts verifyReceiptIn). */
-export function checkReceipt(chain: readonly Receipt[], job: string, short: string): ReceiptCheck {
-  const found = chain.filter((r) => typeof r.hash === 'string' && r.hash.slice(7, 15) === short && r.job?.id === job);
-  if (!found.length) return { state: 'not found', reason: 'not found on the chain read here' };
-  if (found.length > 1) return { state: 'not found', reason: 'more than one receipt of this job has this id' };
-  const v = verifyReceiptIn(chain, found[0].hash);
-  return v.ok ? { state: 'verified' } : { state: 'failed', reason: v.reason };
-}
-
-/** The jobs drawn as panes: every live one of the project, and this Workbench's runs in another project (`away`, as the
- *  Control Room always listed them apart); then, in the PANES_MAX slots the running ones (chat turns being answered among them)
- *  leave, the project's newest ended runs, as quiet panes. */
-export function paneJobs(jobs: readonly JobRow[], away: readonly JobRow[], turnsRunning: number): { live: JobRow[]; away: JobRow[]; quiet: JobRow[] } {
-  const live = jobs.filter((j) => j.live);
-  const elsewhere = away.filter((j) => j.live);
-  const left = Math.max(0, PANES_MAX - live.length - elsewhere.length - turnsRunning);
-  return { live, away: elsewhere, quiet: jobs.filter((j) => !j.live).slice(0, left) };
-}
-
 /**
  * The tab's reading: the lanes on PATH and what records show them running, the devices of Timmy Connect, the turns being
  * answered, each pane's log and each quiet pane's receipt. Reads files only.
@@ -359,8 +307,7 @@ export function readControl(i: ControlReadInput): ControlData {
     // a running job: the lines the Workbench read of it for Activity (the same lines, read from where it last looked), else its
     // log's end; either way read again at the next tick, as the pane says. An ended one: its log's end, as it ended.
     if (j.live && i.output?.watching(j.id)) { tails[j.id] = { lines: i.output.lines(j.id).map((l) => l.text).filter((t) => t.trim()).slice(-TAIL_MAX), every }; continue; }
-    const rec = i.records.find((r) => r.id === j.id);
-    const tail = rec ? tailOf(rec.logPath, TAIL_MAX, (t) => scrubHomes(t.split(j.root).join('.'), env as NodeJS.ProcessEnv)) : { why: 'its record was not read here' };
+    const tail = paneTailOf(i.records.find((r) => r.id === j.id), j, env);
     tails[j.id] = j.live ? { ...tail, every } : tail;
   }
   if (i.chain) for (const j of panes.quiet) if (j.receipt) receipts[j.id] = checkReceipt(i.chain, j.id, j.receipt);
@@ -433,19 +380,10 @@ export function controlItemName(item: ControlItem): string {
 
 // ── the marks ──────────────────────────────────────────────────────────────────
 
-/** A job's mark: ▶ running (never ●: that is a live connection), ✓ completed, ✕ failed (amber), ■ stopped, = no change, ? not
- *  known; its word is always beside it. */
-export function jobMark(j: Pick<JobRow, 'mark' | 'live'>, g: Glyphs): { glyph: string; role: Role } {
-  if (j.mark === 'running' || (j.live && j.mark !== 'failed')) return { glyph: g.next, role: 'text' };
-  if (j.mark === 'ok') return { glyph: g.ok, role: 'text' };
-  if (j.mark === 'failed') return { glyph: g.fail, role: 'failure' };
-  if (j.mark === 'stopped') return { glyph: g.unicode ? '■' : '#', role: 'text' };
-  if (j.mark === 'unchanged') return { glyph: '=', role: 'text' };
-  return { glyph: '?', role: 'secondary' };
-}
+// R8 (H155): a job's mark (jobMark) and who started it (whoWords) are src/ops/panes.ts's
 
-/** Who started a job, in the Control Room's words. */
-const whoOf = (j: JobRow): string => (j.owner === 'workbench' ? 'this Workbench' : j.owner === 'live-session' ? 'another session' : j.owner === 'ended-session' ? 'an ended session' : 'started by: not recorded');
+/** Who started a job, in the Control Room's words (src/ops/panes.ts whoWords). */
+const whoOf = (j: JobRow): string => whoWords(j);
 
 /** A sealed turn's mark, as a job's: answered ✓, stopped ■, failed ✕. */
 const turnMark = (t: TurnRow, g: Glyphs): { glyph: string; role: Role } => (
@@ -496,12 +434,9 @@ const flowRows = (pieces: readonly string[], w: number, role: Role, g: Glyphs): 
 /** A quiet pane's exit and receipt, on one row where they fit (else two): the receipt green only when verifyReceiptIn confirmed
  *  it in this reading; amber with ✕ when it does not verify; quiet when it is not found here. */
 function exitAndReceipt(j: JobRow, d: ControlData | undefined, g: Glyphs, w: number): Line[] {
-  const exit: Line = [S(j.exitCode === undefined ? 'exit not recorded' : j.exitCode === null ? 'no exit code' : `exit ${j.exitCode}`, 'secondary')];
-  const v = d?.receipts[j.id];
-  const [words, role]: [string, Role] = !j.receipt ? ['no receipt', 'secondary']
-    : v?.state === 'verified' ? [`${g.ok} receipt ${j.receipt} verified`, 'live']
-      : v?.state === 'failed' ? [`${g.fail} receipt ${j.receipt} does not verify: ${v.reason}`, 'failure']
-        : [`receipt ${j.receipt} (${v ? v.reason : 'not verified here'})`, 'secondary'];
+  const exit: Line = [S(exitWords(j), 'secondary')];
+  // R8 (H155): the receipt's words and their role, src/ops/panes.ts's (the companion's panes say the same)
+  const { words, role } = receiptWords(j, d?.receipts[j.id], g);
   // the receipt's words are never cut: wrapped under themselves where the pane is narrow
   return oneOr(w, [...exit, S(` ${g.sep} `, 'secondary'), S(words, role)], [exit, ...wrapText(words, Math.max(6, w)).map((t) => [S(t, role)])]);
 }
@@ -564,11 +499,12 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
 /** How a turn being answered is stopped, where it was sent from, in the frame's words (src/ops/workspace-frame.ts
  *  turnStopWords). R5 (H131; the QA of e7f853e, item 16): x here asks another surface's turn to stop, by its id. */
 // R7 (H150; H148's N3): another surface's turn stops there; x here asks you first
-const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopWords(t.surface)} stops it${t.id ? '; x here asks you first' : ''}`);
+// R8 (H155): where it stops, in src/ops/panes.ts turnStopLine's words (the companion's panes say the same)
+const turnStop = (t: Pick<LiveTurnRow, 'surface' | 'mine' | 'id'>): string => (t.mine ? 'Esc in its composer stops it' : `${turnStopLine(t.surface)}${t.id ? '; x here asks you first' : ''}`);
 
 /** R5 (H131; the operator's 22:32 order, item 1): the turns being answered, less any whose own receipt is sealed (its hold is let
- *  go a moment after): matched by the turn's identity, never by surface and time. */
-const liveTurnsOf = (d: ControlData | undefined, sealed: readonly TurnRow[]): LiveTurnRow[] => (d?.turns ?? []).filter((t) => !t.id || !sealed.some((x) => x.turn === t.id));
+ *  go a moment after): matched by the turn's identity, never by surface and time (src/ops/panes.ts liveTurnsOf). */
+const liveTurnsOf = (d: ControlData | undefined, sealed: readonly TurnRow[]): LiveTurnRow[] => liveTurnsIn(d?.turns ?? [], sealed);
 
 /** A chat turn's pane: whose surface, which process, since when; the Workbench's own turn its tools as they run (its words
  *  are drawn in Chat, never here); how it is stopped. */
@@ -825,10 +761,8 @@ export function controlRoomView(c: ControlCtx, d: ControlData | undefined): Cont
   const decisions = c.data.decisions.items;
   const sealed = c.data.turns ?? [];
   const all: ControlItem[] = [
-    ...panes.live.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
-    ...liveTurns.map((live): ControlItem => ({ kind: 'live-turn', key: liveTurnKey(live), live })),
-    ...panes.away.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
-    ...panes.quiet.map((job): ControlItem => ({ kind: 'job', key: `job:${job.id}`, job })),
+    // R8 (H155): the panes in src/ops/panes.ts paneOrder's order: running, the turns being answered, elsewhere, the newest ended
+    ...paneOrder(panes, liveTurns).map((p): ControlItem => (p.kind === 'turn' ? { kind: 'live-turn', key: liveTurnKey(p.turn), live: p.turn } : { kind: 'job', key: `job:${p.job.id}`, job: p.job })),
     ...decisions.map((decision): ControlItem => ({ kind: 'decision', key: `decision:${decision.key}`, decision })),
     // R5 (H131; the QA of e7f853e, defect 10): the sealed chat turns before the run detail and the recent runs, so they are in
     // view at 160x45 (they were below the fold); the items in the order drawn
