@@ -29,7 +29,7 @@ import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
 import { selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
-import { clock, count, cut, fit, lineCells, spread, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, spread, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
   ui: Ui;
@@ -282,18 +282,8 @@ export function stopWords(d: Data, selected?: Item | null, workspace?: Workspace
   return { text: 'Stop current: idle', target: null };
 }
 
-const fitTo = (line: Line, w: number, g: Glyphs): Line => {
-  const out: Line = [];
-  let used = 0;
-  for (const s of line) {
-    const sw = lineCells([s]);
-    if (used + sw <= w) { out.push(s); used += sw; continue; }
-    const t = cut(s.text, w - used, g.ellipsis);
-    if (t) out.push({ ...s, text: t });
-    break;
-  }
-  return out;
-};
+// R8 (H157): trimTo's cut (src/workbench/text.ts): after a whole word, never through one
+const fitTo = (line: Line, w: number, g: Glyphs): Line => trimTo(line, w, g.ellipsis);
 
 /**
  * R4 lead (2026-10-12): the chat's route as the Workbench shows it everywhere (the top line, Chat, Settings): the open chat

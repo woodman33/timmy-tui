@@ -2,7 +2,7 @@
 // voices wrapped at its spaces, a word wider than a row broken just after a separator, never with an ellipsis) and pickRanked
 // (pieces kept whole or left out, the least needed first, drawn in their order). Pure: no terminal, no files.
 import { describe, expect, it } from 'vitest';
-import { lineCells, pickRanked, plain, wrapSegs, type Line } from '../src/workbench/text.js';
+import { clip, cut, fit, lineCells, pickRanked, plain, trimTo, wrapSegs, type Line } from '../src/workbench/text.js';
 
 const S = (text: string, role: Line[number]['role'] = 'text'): Line[number] => ({ text, role });
 
@@ -31,6 +31,40 @@ describe('wrapSegs', () => {
     for (const r of rows) expect(lineCells(r)).toBeLessThanOrEqual(30);
     // the words before it on their row; the path on the next rows, broken after its last / that fits
     expect(rows.map(plain)).toEqual(['Kept in', '/tmp/wb-render-abc123/timmy/', 'settings/workbench.json.']);
+  });
+});
+
+// R8 (H157; the R7 package's item E): cut() ends after the last whole word that fits, never through a word (it ended at a
+// space only in the room's last third: "Connect a Cloudro..." at 20 cells, "Check con…" at 10); a first word wider than the
+// whole room shows its start (an id, as DESIGN.md §2.4 draws a hash); raw content is clipped where the row ends
+describe('cut, clip and trimTo', () => {
+  it('cut ends after the last whole word that fits, in both ellipses, and trims the separator before it', () => {
+    expect(cut('Connect a Cloudroom Core', 20, '...')).toBe('Connect a...');
+    expect(cut('Check connections', 10)).toBe('Check…');
+    expect(cut('After Effects composition', 24)).toBe('After Effects…');
+    // all of the room when the text goes on with a space there
+    expect(cut('a person should decide', 16)).toBe('a person should…');
+    expect(cut('Use Clef routing: off (the default)', 18)).toBe('Use Clef routing…');
+    expect(cut('fits whole', 10)).toBe('fits whole');
+    expect(cut('anything', 0)).toBe('');
+    expect(cut('anything', 1)).toBe('…');
+  });
+
+  it('a first word wider than the whole room shows its start (an id), and clip cuts raw content where the row ends', () => {
+    expect(cut('f97cd105c0ffee', 6)).toBe('f97cd…');
+    expect(clip('fetched xxxxxxxxxxxxxxxxxxxxxxxx', 14)).toBe('fetched xxxxx…');
+    expect(clip('{"v":1,"type":"job.end"}', 10, '...')).toBe('{"v":1,...');
+    expect(clip('short', 10)).toBe('short');
+  });
+
+  it('a segment after others whose first word does not fit ends the row with the ellipsis after the words before it; a raw one is clipped', () => {
+    // a wrapped row holds one word a segment (src/workbench/text.ts wrapSegs): the word that does not fit is not cut through
+    const row: Line = [S('or', 'secondary'), S(' ', 'secondary'), S('set', 'secondary'), S(' ', 'secondary'), S('OPENROUTER_API_KEY', 'secondary')];
+    expect(plain(trimTo(row, 12))).toBe('or set…');
+    expect(plain(fit(row, 12))).toBe('or set…     ');
+    expect(lineCells(fit(row, 12))).toBe(12);
+    // what a job printed is evidence: as much of it as fits
+    expect(plain(fit([S('    raw ', 'secondary'), { text: '{"v":1,"type":"job.end","id":"j1"}', role: 'secondary', raw: true }], 24))).toBe('    raw {"v":1,"type":"…');
   });
 });
 
