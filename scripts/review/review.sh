@@ -151,12 +151,19 @@ HELP
       say "The package's example image is not in this install ($EX): the demo content (VoxVision, the report run) was skipped"
     fi
     # R7 (H153): a generated demo mesh in tray, for tab 6's mesh view (Timmy's own STL reader measures it; it is not a
-    # native export, and its file's header says so)
-    MESH="$PREFIX/node_modules/timmy-tui/examples/visual-tools/demo-tray.stl"
-    if [ -f "$MESH" ] && [ -d "$TRAY" ]; then
-      mkdir -p "$TRAY/refs" && cp "$MESH" "$TRAY/refs/demo-tray.stl" && say "A generated demo mesh in tray: refs/demo-tray.stl (tab 6 draws it)"
+    # native export, and its file's header says so). R8 lead (H154): the same tray as OBJ and PLY too, made by the same
+    # script from the STL's own triangles, so tab 6 lists the three kinds its readers take (each file's first comment says
+    # it is generated)
+    MESHES="$PREFIX/node_modules/timmy-tui/examples/visual-tools"
+    if [ -f "$MESHES/demo-tray.stl" ] && [ -d "$TRAY" ]; then
+      mkdir -p "$TRAY/refs"
+      got=""
+      for kind in stl obj ply; do
+        [ -f "$MESHES/demo-tray.$kind" ] && cp "$MESHES/demo-tray.$kind" "$TRAY/refs/demo-tray.$kind" && got="$got refs/demo-tray.$kind"
+      done
+      say "Generated demo meshes in tray:$got (tab 6 lists and draws them)"
     else
-      say "The package's demo mesh is not in this install ($MESH): tab 6 has no mesh to draw"
+      say "The package's demo mesh is not in this install ($MESHES/demo-tray.stl): tab 6 has no mesh to draw"
     fi
     say ""
     say "Ready: ./review.sh workbench (tray, the active project now), or ./review.sh repl"

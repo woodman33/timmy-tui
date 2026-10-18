@@ -9,7 +9,7 @@ acceptance are yours.
 
 | | |
 |---|---|
-| Revision | `__REV__`, branch `r7/review-build` (its draft PR targets `feat/ui-workflow-r1`) |
+| Revision | `__REV__`, branch `r8/review-build` (its draft PR targets `feat/ui-workflow-r1`) |
 | Package | `__TGZ__`; its sha256 and every other file's are in `SHA256SUMS` |
 | Checks | in `REHEARSAL.md` when this package carries one: the full suite, the type checks, the packed-install check and the privacy scan of this revision, each with its counts, and what a script did with this package |
 | Not in this package | merge, publish, tags, deployment (all on HOLD); any live fleet, paid model call or new account |
@@ -123,7 +123,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    the same frame in words, with the chat turns (how each ended and who asked, its model, receipt and time). Tabs 3, 5,
    7, 8, 9 and 0 draw their own columns across the whole width; there, Context (Tools, Inspector, Files) is the `i`
    drawer. The Control Room (7) draws up to four runs as a 2×2 grid of panes at 160 columns and wider (stacked below
-   that); its panes read their logs once a second and say so. `p` switches the project: the choice is the shared active
+   that); its panes read their logs once a second and say so, and the companion's tab 7 shows the same panes, read-only
+   (a pane with a run opens its run detail). `p` switches the project: the choice is the shared active
    project, which `./review.sh check` then names (a companion page follows it unless you pin the page; Studio and a REPL
    at a terminal follow it, and what a REPL is running finishes where it started: step 8 above). `/` finds a workspace,
    such as Files; Enter on a file shows it in the Inspector, and `/open <file>` in the REPL shows its content.
@@ -172,13 +173,15 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    operator verdict or learning queue); and its receipt, green only when it verifies now. The demo's record is OpenCV's
    reading of the example image: a colour region with its box and centroid, no QR code or ArUco marker found. The
    Workbench's tab 5 says the same record in words, and `/vox view <id>` opens Rerun's own viewer where Rerun is installed.
-6. **3D & Motion (6), unfinished.** The companion's tab 6 lists the project's meshes (STL files) with what Timmy's own STL
-   reader measured from the whole file (triangles, bounding box, topology, volume, and DOCTRINE §15's sentence on what
-   that cannot establish) and draws the chosen one in a view you can turn: drag, the wheel or `+`/`−`, `F`, `T`, `S` and
-   `I` for front, top, side and isometric, `R` to start again. It is Timmy's own drawing of the file's triangles, not a
-   render by Blender or any native tool, and it says so; above its cap it draws an even pick of the triangles and says
-   "showing N of M". The demo puts a generated mesh in tray (`refs/demo-tray.stl`, made by a script and labelled
-   generated). Recordings (`.rrd`) are listed with their header facts; their entities, frames and time range are not
+6. **3D & Motion (6), unfinished.** The companion's tab 6 lists the project's meshes (STL, OBJ and PLY files) with what
+   Timmy's own reader for each kind measured from the whole file (triangles, bounding box, topology, volume, and DOCTRINE
+   §15's sentence on what that cannot establish) and draws the chosen one in a view you can turn: drag, the wheel or
+   `+`/`−`, `F`, `T`, `S` and `I` for front, top, side and isometric, `R` to start again. It is Timmy's own drawing of the
+   file's triangles, not a render by Blender or any native tool, and it says so; above its cap it draws an even pick of the
+   triangles and says "showing N of M". A PLY file with no faces (a point cloud), a big-endian PLY, or an OBJ or PLY it
+   cannot read is listed as not measured, with why. The demo puts one generated tray in tray three times
+   (`refs/demo-tray.stl`, `.obj` and `.ply`, made by a script from the same triangles and labelled generated): the three
+   measure the same. Recordings (`.rrd`) are listed with their header facts; their entities, frames and time range are not
    read, and the tab says why. The Workbench's tab 6 lists the same meshes and measurements, and `c` opens the view. Not in
    this build: a native tool's render, a motion timeline, scene editing.
 7. **Tools & MCP (9).** The companion lists servers and their tools with each tool's input schema; makes a request form
@@ -193,7 +196,10 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    id>/`). In the REPL, `/canvas open` gives that REPL the canvas and names the page to open. Ask Timmy to draw: its
    canvas tool asks in a NEEDS YOU box first, and what it draws arrives as a draft outlined in silver, the color of what
    a model made ("DRAFT · proposed by Timmy"): Accept (amber) keeps it, Discard removes it, and neither runs a tool or a
-   job. What Timmy places on the board (a draft, a card, an image, a node) never covers a shape already there. Below
+   job. What Timmy places on the board itself (a card, an image, a node) never covers a shape already there. A model's
+   draft is drawn where the model put it: when it lands on shapes already on the board, its card and its label on the
+   board say so, with how many, and the card has one button, Move it to free space (nothing moves by itself; the move is
+   one undo step, the draft stays a draft, and its words then say from where it was moved). Below
    1100 px wide the side panel's lists fold behind a control at its foot and tldraw's style panel shows only while there
    is something to style, so the board keeps the larger share of a small window. The save line says saved, saving,
    not saved yet, failed (Retry), refused, or that a newer version is on disk (Reload it, or Keep a copy); it never
@@ -246,7 +252,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 A terminal draws text. Where the references show an image, a 3D view, a canvas or a browser preview, the Workbench says
 what is there in words (the board, the files, the run, the record, its state), and `c` or `s` shows it drawn in your
 browser: the companion draws Home's newest images, a run's images and diffs, VoxVision's images with what was measured over
-them and a mesh's views, tab 6's mesh in a view you can turn (Timmy's own drawing of an STL file's triangles), and Tools &
+them and a mesh's views, tab 6's mesh in a view you can turn (Timmy's own drawing of an STL, OBJ or PLY file's
+triangles), and Tools &
 MCP's calls; Studio draws the canvas. No surface draws a scene with materials, depth or voxels, or replays a run.
 
 Every state carries its word and glyph as well as its color. The Workbench writes the system's own colors exactly
