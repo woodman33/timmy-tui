@@ -121,6 +121,9 @@ export function pick(pieces: Line[], width: number, gap: Seg = { text: '  ' }): 
 /**
  * R5 (H131; the QA round's defect 16): pieces with a rank (0 first), each kept whole or left out, the most important first:
  * what fits in `width` cells, drawn in the order given (a less important piece is left out before a more important one).
+ * R8 (H157; the R7 package's item E): in one fixed order: once a piece does not fit, every less important one is left out
+ * too, so a row loses its pieces from the least important as it narrows and never draws a shorter, less important piece in
+ * the place of a more important one (at 100 columns the key row drew [a] log and left out [s] Studio · Show).
  */
 export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: number, gap: Seg = { text: '  ' }): Line {
   const order = pieces.map((p, i) => ({ ...p, i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
@@ -128,7 +131,9 @@ export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: n
   let used = 0;
   for (const p of order) {
     const w = lineCells(p.line) + (kept.size ? cells(gap.text) : 0);
-    if (used + w <= width) { kept.add(p.i); used += w; }
+    if (used + w > width) break;
+    kept.add(p.i);
+    used += w;
   }
   const out: Line = [];
   pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p.line); } });

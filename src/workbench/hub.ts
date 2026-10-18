@@ -830,7 +830,8 @@ export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: numb
 export function hintLine(width: number, o: { tabs?: boolean } = {}): Line {
   const h = (k: string, w: string, rank: number): { line: Line; rank: number } => ({ line: [key(k), S(` ${w}`, 'secondary')], rank });
   // R5 (H131; the QA round's defect 16): [?] keys is the last hint drawn and the last left out; on a narrow row the less
-  // needed hints go first
+  // needed hints go first. R8 (H157; the R7 package's item E): in this one order of rank, each whole (pickRanked), so the
+  // tabs, Enter, Stop, Tab and [?] keys stay at every width from 80 columns and the others go from [,] settings upwards
   return pickRanked([
     ...(o.tabs === false ? [] : [h('1–0', 'tabs', 1)]),
     h('Enter', 'acts', 2), h('Tab', 'zones', 4), h('x', 'Stop', 3), h('c', 'Companion · Show', 5), h('s', 'Studio · Show', 6), h('a', 'log', 7),

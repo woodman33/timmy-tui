@@ -50,4 +50,15 @@ describe('pickRanked', () => {
     expect(plain(pickRanked(pieces, 12))).toBe('[?] ?-words');
     expect(pickRanked(pieces, 3)).toEqual([]);
   });
+
+  // R8 (H157; the R7 package's item E): in one fixed order: a shorter, less important piece never takes the place of a more
+  // important one that does not fit
+  it('once a piece does not fit, every less important one is left out too', () => {
+    const long = { line: [S('[s]', 'action'), S(' a long piece that does not fit', 'secondary')] as Line, rank: 1 };
+    const pieces = [h('a', 0), long, h('b', 2)];
+    // room for [a] and [b], not for the long piece: [b] (rank 2) is not drawn in its place
+    expect(plain(pickRanked(pieces, 30))).toBe('[a] a-words');
+    // room for all three: all of them, in their order
+    expect(plain(pickRanked(pieces, 200))).toBe('[a] a-words  [s] a long piece that does not fit  [b] b-words');
+  });
 });
