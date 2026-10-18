@@ -5,7 +5,10 @@
  * from the lines, and through the Workbench's own frame (Controller.frame, the rows Ink prints) over a real Timmy home in a
  * temporary folder, where one line of src/workbench/views.ts puts them in the tab's body.
  *
- * FAKE or FIXTURE, labelled: the meshes (written by the test, and the demo mesh as its script generated it), the chat
+ * R8 (H154): OBJ and PLY files beside STL, each with its kind, its reader's measurements, its faces and what its reader ignored.
+ *
+ * FAKE or FIXTURE, labelled: the meshes (written by the test, tests/helpers/mesh-fakes.ts for the OBJ and PLY cubes and the point
+ * cloud, and the demo mesh as its script generated it), the chat
  * session's and run detail's producers (none), the browser opener and the server starts (FAKE: nothing presses Show).
  * Real: Timmy's STL reader, its Rerun header reader over the repository's own recording (studio/ctx-c3w8/…/context.rrd, read,
  * never changed), the Workbench's controller, layout and frame.
@@ -26,6 +29,7 @@ import { CompanionControl, StudioControl, type Opener } from '../src/workbench/s
 import { plain } from '../src/workbench/text.js';
 import { VIEW_MAX_TRIANGLES } from '../src/vox/meshes.js';
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
+import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 
 const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
 const g = glyphsFor(true);
@@ -69,6 +73,9 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     put(root, 'refs/demo-tray.stl', readFileSync(resolve(DEMO_MESH)));
     put(root, 'scans/sheet.stl', sheetStl(142));
     put(root, 'bad.stl', 'FAKE: not an STL. '.repeat(6));
+    put(root, 'refs/cube.obj', cubeObj(10));
+    put(root, 'refs/cube.ply', cubePly(10));
+    put(root, 'scans/cloud.ply', pointCloudPly(3));
     mkdirSync(join(root, 'rec'), { recursive: true });
     copyFileSync(RRD, join(root, 'rec', 'context.rrd'));
     const lines = createTabLines({ data: { project: { root } as never, readAt: 1 }, width: 150, g });
@@ -80,13 +87,18 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     const r = readStlFile(join(root, 'refs', 'demo-tray.stl'), 'refs/demo-tray.stl');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(said).toContain('MESHES IN THIS PROJECT (3)');
-    expect(said).toContain(`refs/demo-tray.stl ${r.readback.triangles} triangles · box ${r.readback.bbox!.size.map(num).join(' × ')} · ${topologyWords(r.readback)} · volume ${volumeWords(r.readback)}`);
-    expect(said).toContain('refs/demo-tray.stl 28 triangles · box 80 × 50 × 20 · edge-manifold: every edge shared by exactly two triangles, consistently oriented · volume 21392 (enclosed; normals outward)');
+    expect(said).toContain('MESHES IN THIS PROJECT (6)');
+    expect(said).toContain(`refs/demo-tray.stl STL · ${r.readback.triangles} triangles · box ${r.readback.bbox!.size.map(num).join(' × ')} · ${topologyWords(r.readback)} · volume ${volumeWords(r.readback)}`);
+    expect(said).toContain('refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold: every edge shared by exactly two triangles, consistently oriented · volume 21392 (enclosed; normals outward)');
     expect(said).toContain(`the file says (its 80-byte header; not checked): ${DEMO_HEADER}`);
-    expect(said).toContain(`scans/sheet.stl 40328 triangles · box 142 × 142 × 0 · not edge-manifold: 568 boundary edges (one triangle: the mesh is open) · volume 0, signed: not an enclosed volume (the mesh is not closed and consistently oriented) · the companion's view shows ${VIEW_MAX_TRIANGLES} of 40328`);
-    expect(said).toMatch(/bad\.stl not measured: not an STL: /);
-    expect(said).toContain(`Measured by Timmy's own STL reader (timmy-stl-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units. ${DOCTRINE_15}`);
+    expect(said).toContain(`scans/sheet.stl STL · 40328 triangles · box 142 × 142 × 0 · not edge-manifold: 568 boundary edges (one triangle: the mesh is open) · volume 0, signed: not an enclosed volume (the mesh is not closed and consistently oriented) · the companion's view shows ${VIEW_MAX_TRIANGLES} of 40328`);
+    expect(said).toMatch(/bad\.stl STL · not measured: not an STL: /);
+    // R8 (H154): an OBJ and a PLY of the same cube, each with its kind, the same measurements, its faces and what was ignored
+    const cube = 'box 10 × 10 × 10 · edge-manifold: every edge shared by exactly two triangles, consistently oriented · volume 1000 (enclosed; normals outward)';
+    expect(said).toContain(`refs/cube.obj OBJ · 12 triangles · ${cube} 6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all · ignored: 1 comment, 1 o lines the file says (its first comment; not checked): FAKE: a cube written by a test`);
+    expect(said).toContain(`refs/cube.ply PLY · 12 triangles · ${cube} 6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all · ignored: 1 comment line the file says (its header's first comment; not checked): FAKE: a cube written by a test`);
+    expect(said).toContain('scans/cloud.ply PLY · not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)');
+    expect(said).toContain(`Measured by Timmy's own STL reader (timmy-stl-readback/1), OBJ reader (timmy-obj-readback/1) and PLY reader (timmy-ply-readback/1), each from the whole file: a deterministic computation on its bytes, in the file's own units. ${DOCTRINE_15}`);
     // the recordings: the header's facts, what stays unknown and why; Rerun's viewer as it is here
     expect(said).toContain('RECORDINGS TIMMY CAN READ (1)');
     expect(said).toMatch(/rec\/context\.rrd written by Rerun \d+\.\d+\.\d+ · \d+ data chunks · entities, frames and time range: unknown to Timmy \(inside the recording's data chunks \(compressed Arrow\), which Timmy does not decode; Rerun's viewer shows it\)/);
@@ -102,7 +114,7 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     const root = mkdtempSync(join(box, 'p-'));
     made.push(root);
     const said = words(createTabLines({ data: { project: { root } as never, readAt: 2 }, width: 100, g }));
-    expect(said).toContain('MESHES IN THIS PROJECT (0) No mesh in this project yet: an .stl file in it is listed here (/add <file.stl> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).');
+    expect(said).toContain('MESHES IN THIS PROJECT (0) No mesh in this project yet: an .stl, .obj or .ply file in it is listed here (/add <file> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).');
     expect(said).toContain('RECORDINGS TIMMY CAN READ (0) No Rerun recording (.rrd) in this project.');
   });
 
@@ -148,7 +160,9 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       expect(c.ui.workspace).toBe(view);
       const said = center();
       expect(said).toContain(`${CREATE_SENTENCE} [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).`);
-      expect(said).toContain('MESHES IN THIS PROJECT (1) refs/demo-tray.stl 28 triangles · box 80 × 50 × 20 · edge-manifold');
+      expect(said).toContain('MESHES IN THIS PROJECT (1) refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold');
+      // R8 (H154): the frame's Unfinished words on tab 6 name the three kinds that work now (src/contracts/workspace.ts)
+      expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, a view of each you can turn in the companion");
       // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can
       // begin below the pane (PgDn shows it): the meshes come before the tools, or the tools are not in view yet
       const tools = said.indexOf('TOOLS (');

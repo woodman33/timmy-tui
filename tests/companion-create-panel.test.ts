@@ -5,7 +5,10 @@
  * corners, every one up to the cap, its counts and sha256 said); and the refusals: no token, a project the companion does not
  * know, a path outside the project, another project's mesh, a file that is not a listed mesh, bytes changed since the list.
  *
- * FAKE, labelled: the projects and their meshes (written by the test). Real: the server, its token check, Timmy's STL reader,
+ * R8 (H154): OBJ and PLY files beside STL, each with its kind and reader id, measured by its own reader, and drawn from the
+ * triangles that reader reads.
+ *
+ * FAKE, labelled: the projects and their meshes (written by the test; the OBJ and PLY cubes by tests/helpers/mesh-fakes.ts). Real: the server, its token check, Timmy's STL reader,
  * the Rerun header reader over the repository's own recording (studio/ctx-c3w8/…/context.rrd, read, never changed).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,9 +16,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { parseObj, readObjFile } from '../src/native/obj-readback.js';
+import { readPlyFile } from '../src/native/ply-readback.js';
 import { readStlFile } from '../src/native/stl-readback.js';
 import { projectId } from '../src/project/index.js';
 import { VIEW_MAX_TRIANGLES, type MeshList } from '../src/vox/meshes.js';
+import { cubeObj, cubePly } from './helpers/mesh-fakes.js';
 import { cubeStl, sha } from './helpers/vox-fakes.js';
 
 const TOKEN = 'b2'.repeat(32);
@@ -51,6 +57,8 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     const a = project('FAKE-create-a');
     const b = project('FAKE-create-b');
     put(a.root, 'refs/cube.stl', cubeStl(10));
+    put(a.root, 'refs/cube.obj', cubeObj(10));
+    put(a.root, 'refs/cube.ply', cubePly(10));
     mkdirSync(join(a.root, 'rec'), { recursive: true });
     copyFileSync(RRD, join(a.root, 'rec', 'context.rrd'));
     put(b.root, 'refs/other.stl', cubeStl(3));
@@ -62,10 +70,16 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     expect(list.ok).toBe(true);
     expect(list.schema).toBe('timmy.meshes/1');
     expect(list.project).toEqual({ id: a.id, name: 'FAKE-create-a' });
-    expect(list.meshes.map((m) => m.path)).toEqual(['refs/cube.stl']);
+    expect(list.meshes.map((m) => [m.path, m.kind, m.reader.id])).toEqual([['refs/cube.obj', 'obj', 'timmy-obj-readback/1'], ['refs/cube.ply', 'ply', 'timmy-ply-readback/1'], ['refs/cube.stl', 'stl', 'timmy-stl-readback/1']]);
+    const [obj, ply, stl] = list.meshes;
     const direct = readStlFile(join(a.root, 'refs', 'cube.stl'), 'refs/cube.stl');
-    expect(direct.ok && list.meshes[0].readback).toEqual(direct.ok ? direct.readback : null);
-    expect(list.meshes[0].view).toEqual({ shown: 12, total: 12, words: 'all 12 triangles' });
+    expect(direct.ok && stl.readback).toEqual(direct.ok ? direct.readback : null);
+    const directObj = readObjFile(join(a.root, 'refs', 'cube.obj'), 'refs/cube.obj');
+    expect(directObj.ok && obj.readback).toEqual(directObj.ok ? directObj.readback : null);
+    const directPly = readPlyFile(join(a.root, 'refs', 'cube.ply'), 'refs/cube.ply');
+    expect(directPly.ok && ply.readback).toEqual(directPly.ok ? directPly.readback : null);
+    for (const m of list.meshes) expect([m.path, m.view, m.volume]).toEqual([m.path, { shown: 12, total: 12, words: 'all 12 triangles' }, '1000 (enclosed; normals outward)']);
+    expect(list.reader).toBe("Timmy's own STL reader (timmy-stl-readback/1), OBJ reader (timmy-obj-readback/1) and PLY reader (timmy-ply-readback/1), each from the whole file: a deterministic computation on its bytes, in the file's own units");
     expect(list.cap).toBe(VIEW_MAX_TRIANGLES);
     expect(list.recordings.map((x) => [x.path, x.facts?.format])).toEqual([['rec/context.rrd', 'rrd']]);
     expect(list.viewer.state).toBe('needs setup');
@@ -90,6 +104,16 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     expect(body.length).toBe(12 * 36);
     const file = cubeStl(10);
     for (let t = 0; t < 12; t += 1) for (let j = 0; j < 9; j += 1) expect(body.readFloatLE(t * 36 + j * 4)).toBe(file.readFloatLE(84 + t * 50 + 12 + j * 4));
+
+    // R8 (H154): an OBJ's triangles, as Timmy's own OBJ reader reads them (its quads split as fans)
+    put(a.root, 'refs/cube.obj', cubeObj(10));
+    const o = await get(`/api/panel/create/mesh?path=${encodeURIComponent('refs/cube.obj')}&sha=${sha(cubeObj(10))}&project=${a.id}`);
+    expect([o.status, o.headers.get('x-timmy-triangles'), o.headers.get('x-timmy-sha256')]).toEqual([200, '12/12', sha(cubeObj(10))]);
+    const tris = parseObj(Buffer.from(cubeObj(10)));
+    if ('error' in tris) throw new Error(tris.error);
+    const ob = Buffer.from(await o.arrayBuffer());
+    expect(ob.length).toBe(12 * 36);
+    for (let i = 0; i < 12 * 9; i += 1) expect(ob.readFloatLE(i * 4)).toBe(tris.triangles[i]);
   });
 
   it('refuses: no token, an unknown project, a path outside the project, another project\'s mesh, a file that is not a listed mesh, changed bytes', async () => {
@@ -111,7 +135,7 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     expect(await said(await mesh('../FAKE-create-e/refs/theirs.stl', a.id))).toEqual([400, 'Refused: a mesh is named by its path inside the project, without "..", "." or a leading "/".']);
     expect((await mesh(join(b.root, 'refs', 'theirs.stl'), a.id)).status).toBe(400);
     // another project's mesh, named by its path, asked of the project the page shows: not this project's, refused
-    expect(await said(await mesh('refs/theirs.stl', a.id))).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL files and tessellations), so it is not served.']);
+    expect(await said(await mesh('refs/theirs.stl', a.id))).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL, OBJ and PLY files and its tessellations), so it is not served.']);
     expect((await mesh('refs/theirs.stl', b.id)).status).toBe(200); // asked of its own project
     expect((await mesh('notes.txt', a.id)).status).toBe(404);
     expect(await said(await mesh('refs/cube.stl', a.id, `&sha=${'0'.repeat(64)}`))).toEqual([409, `Not served: refs/cube.stl changed since the list was read (sha256 ${sha(cubeStl(10)).slice(0, 12)} now): read the list again.`]);

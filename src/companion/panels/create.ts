@@ -5,9 +5,10 @@
  * is src/companion/client/panel-create.js.
  *
  *   route                                          answers
- *   GET /api/panel/create/meshes                   the project's meshes (its STL files, and a STEP's tessellations a VoxVision
- *                                                  record names), each measured by Timmy's own STL reader from the whole file,
- *                                                  and its Rerun recordings with their header facts (timmy.meshes/1)
+ *   GET /api/panel/create/meshes                   the project's meshes (its STL, OBJ and PLY files, and a STEP's tessellations a
+ *                                                  VoxVision record names), each with its kind and reader id, measured from the
+ *                                                  whole file by Timmy's own reader of its kind (R8 H154: OBJ and PLY), and its
+ *                                                  Rerun recordings with their header facts (timmy.meshes/1)
  *   GET /api/panel/create/mesh?path=<p>[&sha=<s>]  one listed mesh's triangles for the view: little-endian float32, nine per
  *                                                  triangle (every one up to the cap, else an even pick through the file's
  *                                                  order); X-Timmy-Triangles says shown/total, X-Timmy-Sha256 the bytes read;

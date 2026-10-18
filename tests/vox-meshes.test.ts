@@ -14,11 +14,14 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { parseObj, readObjFile } from '../src/native/obj-readback.js';
+import { parsePly, readPlyFile } from '../src/native/ply-readback.js';
 import { DOCTRINE_15, readStlFile, topologyWords, volumeWords } from '../src/native/stl-readback.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { appendReceipt, readChain } from '../src/utils/receipts.js';
 import { RERUN_SETUP } from '../src/vox/layers.js';
-import { listMeshes, MESH_READ_MAX, MESHES_SCHEMA, meshView, VIEW_MAX_TRIANGLES, VIEW_WORDS, viewPick } from '../src/vox/meshes.js';
+import { listMeshes, MESH_READ_MAX, MESHES_SCHEMA, meshView, READER_WORDS, VIEW_MAX_TRIANGLES, VIEW_WORDS, viewPick } from '../src/vox/meshes.js';
+import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl, sha } from './helpers/vox-fakes.js';
 
 const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
@@ -212,7 +215,7 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     const no = (root: string, rel: string, o: { sha?: string } = {}): [number, string] => { const v = meshView(root, rel, o); return v.ok ? [200, ''] : [v.status, v.error]; };
     expect(no(a, '../FAKE-b/refs/other.stl')).toEqual([400, 'Refused: a mesh is named by its path inside the project, without "..", "." or a leading "/".']);
     expect(no(a, join(b, 'refs', 'other.stl'))[0]).toBe(400);
-    expect(no(a, 'refs/other.stl')).toEqual([404, 'Refused: refs/other.stl is not a mesh of this project (tab 6 lists its STL files and tessellations), so it is not served.']);
+    expect(no(a, 'refs/other.stl')).toEqual([404, 'Refused: refs/other.stl is not a mesh of this project (tab 6 lists its STL, OBJ and PLY files and its tessellations), so it is not served.']);
     expect(no(a, 'notes.txt')[0]).toBe(404);
     expect(no(a, 'node_modules/pkg/dep.stl')[0]).toBe(404);
     expect(no(a, 'refs/linked.stl')[0]).toBe(404);
@@ -227,6 +230,85 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     put(a, 'refs/nan.stl', nan);
     expect(listMeshes({ root: a, env }).meshes.find((m) => m.path === 'refs/nan.stl')?.why).toBe('not measured: triangle 4 has a coordinate that is not a finite number');
     expect(no(a, 'refs/nan.stl')).toEqual([422, 'Not drawn: triangle 4 of refs/nan.stl has a coordinate that is not a finite number.']);
+  });
+
+  // R8 (H154): OBJ and PLY beside STL. FAKE, labelled: the meshes are written by the test (tests/helpers/mesh-fakes.ts), and
+  // build/main.obj is a FAKE compiled object file's first bytes (.obj also names those), not a Wavefront OBJ
+  it('lists OBJ and PLY files beside STL, each with its kind and reader id, measured from the whole file exactly as readObjFile and readPlyFile measure it (R8 H154)', () => {
+    const root = project();
+    put(root, 'refs/cube.stl', cubeStl(10));
+    put(root, 'refs/cube.obj', cubeObj(10));
+    put(root, 'refs/cube.ply', cubePly(10));
+    put(root, 'refs/ASCII.PLY', cubePly(2, 'ascii'));
+    put(root, 'scans/cloud.ply', pointCloudPly(3));
+    put(root, 'scans/big.ply', Buffer.from(cubePly(1).toString('latin1').replace('binary_little_endian', 'binary_big_endian'), 'latin1'));
+    put(root, 'build/main.obj', Buffer.from([0x4c, 0x01, 0x00, 0x00, 0x2e, 0x74, 0x65, 0x78, 0x74]));
+    put(root, 'models/open.obj', 'v 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nf 1/1 2/1 3/1\n');
+
+    const list = listMeshes({ root, env });
+    expect(list.meshes.map((m) => [m.path, m.kind, m.reader.id])).toEqual([
+      ['build/main.obj', 'obj', 'timmy-obj-readback/1'], ['models/open.obj', 'obj', 'timmy-obj-readback/1'], ['refs/ASCII.PLY', 'ply', 'timmy-ply-readback/1'],
+      ['refs/cube.obj', 'obj', 'timmy-obj-readback/1'], ['refs/cube.ply', 'ply', 'timmy-ply-readback/1'], ['refs/cube.stl', 'stl', 'timmy-stl-readback/1'],
+      ['scans/big.ply', 'ply', 'timmy-ply-readback/1'], ['scans/cloud.ply', 'ply', 'timmy-ply-readback/1'],
+    ]);
+    const row = (p: string) => list.meshes.find((m) => m.path === p)!;
+    // each measured from the whole file exactly as its reader measures it
+    for (const p of ['refs/cube.obj', 'models/open.obj']) {
+      const direct = readObjFile(join(root, p), p);
+      expect(direct.ok && row(p).readback, p).toEqual(direct.ok ? direct.readback : null);
+    }
+    for (const p of ['refs/cube.ply', 'refs/ASCII.PLY']) {
+      const direct = readPlyFile(join(root, p), p);
+      expect(direct.ok && row(p).readback, p).toEqual(direct.ok ? direct.readback : null);
+    }
+    // the same cube, three kinds: the same measures, in the same words
+    const stl = row('refs/cube.stl');
+    for (const p of ['refs/cube.obj', 'refs/cube.ply']) {
+      const m = row(p);
+      for (const k of ['triangles', 'corners', 'bbox', 'volume', 'area', 'edges', 'manifold', 'oriented'] as const) expect(m.readback?.[k], `${p} ${k}`).toEqual(stl.readback?.[k]);
+      expect([m.topology, m.volume, m.view], p).toEqual([stl.topology, stl.volume, stl.view]);
+    }
+    expect(row('refs/cube.obj')).toMatchObject({
+      format: 'Wavefront OBJ (text)', declared: { words: 'FAKE: a cube written by a test', what: 'its first comment' },
+      faces: '6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all',
+      ignored: 'ignored: 1 comment, 1 o lines',
+      reader: { id: 'timmy-obj-readback/1', name: "Timmy's own OBJ reader", words: "Timmy's own OBJ reader (timmy-obj-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units" },
+    });
+    expect(row('refs/cube.ply')).toMatchObject({ format: 'PLY (binary little-endian)', declared: { words: 'FAKE: a cube written by a test', what: "its header's first comment" }, ignored: 'ignored: 1 comment line' });
+    expect(row('refs/ASCII.PLY')).toMatchObject({ format: 'PLY (ascii)', readback: { bbox: { size: [2, 2, 2] }, volume: 8 } });
+    expect(row('refs/cube.stl')).toMatchObject({ format: 'binary STL', reader: { id: 'timmy-stl-readback/1', name: "Timmy's own STL reader", words: READER_WORDS } });
+    expect(row('models/open.obj')).toMatchObject({ topology: 'not edge-manifold: 3 boundary edges (one triangle: the mesh is open)', ignored: 'ignored: 1 vt line', faces: '1 face, every one a triangle' });
+    // not measured, with why: a compiled object file, a point cloud, a PLY encoding Timmy does not read yet; and nothing drawn
+    expect(row('build/main.obj').why).toBe('not measured: not a Wavefront OBJ: the byte at offset 1 is 0x01, and an OBJ is text (.obj also names compiled object files)');
+    expect(row('scans/cloud.ply').why).toBe('not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)');
+    expect(row('scans/big.ply').why).toBe('not measured: not read by Timmy yet: the data is binary_big_endian, and this reader reads ascii and binary_little_endian');
+    for (const p of ['build/main.obj', 'scans/cloud.ply', 'scans/big.ply']) expect([row(p).readback, row(p).view], p).toEqual([undefined, undefined]);
+    // who measured, in words: the readers that measured something in this list
+    expect(list.reader).toBe("Timmy's own STL reader (timmy-stl-readback/1), OBJ reader (timmy-obj-readback/1) and PLY reader (timmy-ply-readback/1), each from the whole file: a deterministic computation on its bytes, in the file's own units");
+    expect(listMeshes({ root: project(), env }).reader).toBe(READER_WORDS);
+
+    // the view: each kind's own triangles, as its reader reads them
+    for (const [p, parse] of [['refs/cube.obj', parseObj], ['refs/cube.ply', parsePly]] as const) {
+      const v = meshView(root, p);
+      if (!v.ok) throw new Error(v.error);
+      const tris = parse(readFileSync(join(root, p)));
+      if ('error' in tris) throw new Error(tris.error);
+      expect([v.shown, v.total, v.sha256], p).toEqual([12, 12, sha(readFileSync(join(root, p)))]);
+      for (let i = 0; i < 12 * 9; i += 1) expect(v.body.readFloatLE(i * 4), `${p} ${i}`).toBe(tris.triangles[i]);
+    }
+    const no = (rel: string): [number, string] => { const v = meshView(root, rel); return v.ok ? [200, ''] : [v.status, v.error]; };
+    expect(no('scans/cloud.ply')).toEqual([422, 'Not drawn: scans/cloud.ply: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read).']);
+    expect(no('build/main.obj')[0]).toBe(422);
+  });
+
+  it('measures OBJ and PLY files within the time budget too: the one not measured yet says which reader reads it next (R8 H154)', () => {
+    const root = project();
+    put(root, 'a.obj', cubeObj(1));
+    put(root, 'b.ply', cubePly(1));
+    const first = listMeshes({ root, env }, { budgetMs: 0 });
+    expect(first.meshes.map((m) => [m.path, m.readback?.triangles ?? null, m.pending ?? false])).toEqual([['a.obj', 12, false], ['b.ply', null, true]]);
+    expect(first.meshes[1]).toMatchObject({ kind: 'ply', reader: { id: 'timmy-ply-readback/1' }, why: "being measured: Timmy's own PLY reader reads it next (the list is read again in a moment)" });
+    expect(listMeshes({ root, env }, { budgetMs: 0 }).pending).toBe(0);
   });
 
   it('recordings: an .rrd\'s header facts and what stays unknown, with why; Rerun\'s viewer named found or needing setup, never run', () => {

@@ -2,10 +2,11 @@
  * R7 (H153): tab 6 (3D & Motion) in the Workbench: the project's meshes and the Rerun recordings Timmy can read, in words, from
  * the reading the companion's tab 6 draws (src/vox/meshes.ts listMeshes):
  *
- *   MESHES IN THIS PROJECT        each mesh (an STL file, or a STEP's tessellation a VoxVision record names) with what Timmy's
- *                                 own STL reader measured from the whole file: triangles, box, topology and volume; a file's
- *                                 own header words (declared, not checked); how much of it the companion's view draws; then
- *                                 who measured and DOCTRINE §15's sentence
+ *   MESHES IN THIS PROJECT        each mesh (an STL, OBJ or PLY file, or a STEP's tessellation a VoxVision record names) with
+ *                                 its kind and what Timmy's own reader of that kind measured from the whole file: triangles,
+ *                                 box, topology and volume; an OBJ's or PLY's faces and what its reader ignored; a file's own
+ *                                 words (declared, not checked); how much of it the companion's view draws; then who measured
+ *                                 and DOCTRINE §15's sentence (R8 H154: OBJ and PLY beside STL)
  *   RECORDINGS TIMMY CAN READ     each .rrd with its header's facts, and its entities, frames and time range said unknown, with
  *                                 why; Rerun's viewer as this computer has it (found is not run)
  *
@@ -15,7 +16,7 @@
  */
 import { num } from '../native/stl-readback.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
-import { listMeshes, type MeshList } from '../vox/meshes.js';
+import { listMeshes, type MeshList, type MeshRow } from '../vox/meshes.js';
 import type { Glyphs } from './frame.js';
 import type { Data } from './model.js';
 import { heading, limitRows, para, S } from './tab-columns.js';
@@ -23,6 +24,9 @@ import { wrapSegs, type Line } from './text.js';
 
 /** What the tab says first: where the view you can turn is, and what no Timmy surface draws yet. */
 export const CREATE_SENTENCE = "The companion's tab 6 draws this project's meshes in a view you can turn: Timmy's own drawing of each file's triangles, not a render by Blender or any native tool. No Timmy surface draws a motion timeline yet; each app below draws its own, once set up.";
+
+/** Each kind of mesh in its word. */
+const KIND_WORDS: Record<MeshRow['kind'], string> = { stl: 'STL', obj: 'OBJ', ply: 'PLY', tessellation: 'tessellation (STL)' };
 
 /** The runs chain the companion's panels read: TIMMY_STORE, else the project's own store. */
 function chainOf(root: string): readonly Receipt[] {
@@ -50,14 +54,15 @@ export function createTabLines(c: { data: Pick<Data, 'project' | 'readAt'>; widt
   if ('error' in list) return [...out, ...para(`The project's meshes could not be read: ${list.error}`, w, 'failure', '  '), []];
 
   out.push([heading(`Meshes in this project (${list.meshes.length + list.more})`)]);
-  if (!list.meshes.length) out.push(...para('No mesh in this project yet: an .stl file in it is listed here (/add <file.stl> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).', w, 'secondary', '  '));
+  if (!list.meshes.length) out.push(...para('No mesh in this project yet: an .stl, .obj or .ply file in it is listed here (/add <file> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).', w, 'secondary', '  '));
   for (const m of list.meshes) {
     const r = m.readback;
-    const facts = r
+    const facts = [KIND_WORDS[m.kind] ?? m.kind, ...(r
       ? [`${r.triangles} triangle${r.triangles === 1 ? '' : 's'}`, r.bbox ? `box ${r.bbox.size.map(num).join(' × ')}` : 'no box', m.topology, `volume ${m.volume}`,
-        ...(m.view && m.view.shown < m.view.total ? [`the companion's view shows ${m.view.shown} of ${m.view.total}`] : [])].join(sep)
-      : (m.why ?? 'not measured');
+        ...(m.view && m.view.shown < m.view.total ? [`the companion's view shows ${m.view.shown} of ${m.view.total}`] : [])]
+      : [m.why ?? 'not measured'])].join(sep);
     out.push(...wrapSegs([S(`  ${m.path}`, 'strong'), S(`  ${facts}`, r ? 'text' : 'secondary')], w, '    '));
+    if (r && (m.faces || m.ignored)) out.push(...para([m.faces, m.ignored].filter(Boolean).join(sep), w, 'secondary', '    '));
     if (m.kind === 'tessellation') out.push(...para(m.origin.words, w, 'secondary', '    '));
     if (m.declared) out.push(...para(`the file says (${m.declared.what}; not checked): ${m.declared.words}`, w, 'secondary', '    '));
   }
