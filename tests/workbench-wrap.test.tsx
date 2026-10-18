@@ -97,9 +97,39 @@ function rows(c: Controller, name: 'center' | 'right' | 'bottom', columns: numbe
 
 const joined = (r: string[]): string => r.join(' ').replace(/\s+/g, ' ');
 
+/**
+ * R8 (H156; R7's open item C): `word` read from the rows just after `lead` (one space or one row break between them), each row
+ * read without its leading air, with row breaks allowed inside the word: its pieces, one per row it takes, and whether the first
+ * is on the row of `lead`; or why the rows do not hold it whole and in order. It assumes no row the word starts on: a word that
+ * does not fit beside `lead` goes whole to the next row (src/workbench/text.ts wrapSegs), and how long a path is depends on where
+ * it is.
+ */
+function across(rows: string[], lead: string, word: string): { pieces: string[]; beside: boolean } | { why: string } {
+  const at = rows.findIndex((r) => r.includes(lead));
+  if (at < 0) return { why: `no row holds "${lead}"` };
+  const text = rows.slice(at).map((r, i) => (i ? r.trimStart() : r)).join('\n');
+  let i = text.indexOf(lead) + lead.length;
+  if (text[i] !== ' ' && text[i] !== '\n') return { why: `"${lead}" is followed by ${JSON.stringify(text[i] ?? 'nothing')}` };
+  const beside = text[i] === ' ';
+  i += 1;
+  const pieces = [''];
+  for (const ch of word) {
+    if (text[i] === '\n' && pieces[pieces.length - 1]) { pieces.push(''); i += 1; }
+    if (text[i] !== ch) return { why: `after ${JSON.stringify(pieces.join('|'))} the rows read ${JSON.stringify(text.slice(i, i + 12))}, not ${JSON.stringify(ch)}` };
+    pieces[pieces.length - 1] += ch;
+    i += 1;
+  }
+  return { pieces, beside };
+}
+
 describe('words given room (R5 H131, the QA round)', () => {
   it('the keys sheet and Quick settings at 160 columns on Home (defect 5): each entry whole, wrapped under itself, no row cut; the settings file\'s path broken only at a separator (defect 25)', async () => {
     sandbox();
+    // R8 (H156; R7's open item C): HOME is this test's folder, so the settings file's path is shown from ~ (tildePath reads
+    // HOME) and its length is this test's, never the temporary folder's. Before, the shown path began with TMPDIR: with a
+    // 32-character one it no longer fitted beside "Kept in" and went whole to the next row, as it should, while the test looked
+    // for "Kept in " with its space on one row (a row's trailing space is not drawn) and failed; with a 15-character one it fitted.
+    vi.stubEnv('HOME', box);
     const { c } = workbench('wrap-keys');
     c.start();
     c.selectPage('home');
@@ -119,16 +149,29 @@ describe('words given room (R5 H131, the QA round)', () => {
     expect(settings.filter((r) => r.endsWith('…')), 'a row of Quick settings cut').toEqual([]);
     for (const x of SETTING_LABELS) expect(joined(settings), `the setting ${x.label}`).toContain(`${x.label} ${x.about}`.replace(/\s+/g, ' '));
     for (const p of PRESETS) expect(joined(settings), `the preset ${p.label}`).toContain(`${p.label} ${p.about}`.replace(/\s+/g, ' '));
-    // the path, from ~ where it can be: whole on one row, or broken just after a /
+    // the path, from ~ where it can be: a short one whole beside "Kept in"
     const path = `${tildePath(c.ui.settings.path)}.`;
-    const at = settings.findIndex((r) => r.includes('Kept in '));
-    expect(at).toBeGreaterThanOrEqual(0);
-    const tail = joined(settings.slice(at));
-    if (!settings[at].includes(path)) {
-      const shown = settings[at].slice(settings[at].indexOf('Kept in ') + 'Kept in '.length);
-      expect(path.startsWith(shown) && shown.endsWith('/'), `the path's first row: ${shown}`).toBe(true);
-      expect(tail.replace(`${shown} `, shown)).toContain(`Kept in ${path}`);
-    } else expect(tail).toContain(`Kept in ${path}`);
+    expect(path).toBe('~/settings/workbench.json.');
+    expect(across(settings, 'Kept in', path)).toEqual({ pieces: [path], beside: true });
+    // and one longer than the row (no separator in its folders' names but /): broken, only just after a /, never cut
+    const deep = join(box, 'settings', 'quick_settings_folder_for_the_wrap_test', 'one_more_folder_so_the_path_passes_a_row');
+    vi.stubEnv('TIMMY_SETTINGS_DIR', deep);
+    const { c: d } = workbench('wrap-keys-deep');
+    d.start();
+    d.selectPage('home');
+    await until('the frame', () => d.data.frame);
+    d.key(',', {});
+    expect(d.ui.overlay?.kind).toBe('settings');
+    const long = `${tildePath(d.ui.settings.path)}.`;
+    expect(long).toBe('~/settings/quick_settings_folder_for_the_wrap_test/one_more_folder_so_the_path_passes_a_row/workbench.json.');
+    const deepRows = rows(d, 'center', 160, 120);
+    expect(deepRows.filter((r) => r.endsWith('…')), 'a row of Quick settings cut (the long path)').toEqual([]);
+    const read = across(deepRows, 'Kept in', long);
+    expect('pieces' in read, `the long path across the rows: ${JSON.stringify(read)}`).toBe(true);
+    const { pieces } = read as { pieces: string[] };
+    expect(visibleWidth(long), 'the long path is wider than the row').toBeGreaterThan(Math.max(...deepRows.map((r) => visibleWidth(r))));
+    expect(pieces.length, `the long path's rows: ${JSON.stringify(pieces)}`).toBeGreaterThanOrEqual(2);
+    expect(pieces.slice(0, -1).every((p) => p.endsWith('/')), `each of the long path's rows but its last ends just after a /: ${JSON.stringify(pieces)}`).toBe(true);
   }, 30_000);
 
   it('the Run confirm says each field whole (defect 15); a notice wider than the row takes the row above the hints too, read to its end', async () => {
