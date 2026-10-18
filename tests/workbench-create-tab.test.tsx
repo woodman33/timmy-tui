@@ -161,6 +161,8 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       const said = center();
       expect(said).toContain(`${CREATE_SENTENCE} [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).`);
       expect(said).toContain('MESHES IN THIS PROJECT (1) refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold');
+      // R8 (H154): the frame's Unfinished words on tab 6 name the three kinds that work now (src/contracts/workspace.ts)
+      expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, a view of each you can turn in the companion");
       // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can
       // begin below the pane (PgDn shows it): the meshes come before the tools, or the tools are not in view yet
       const tools = said.indexOf('TOOLS (');
