@@ -19,7 +19,7 @@ import { createCards, drawnType } from './cards.js';
 import { createRunDetailPanel } from './run-detail.js';
 // R5 (H133): B10 for tldraw's canvas colors; drafts; the save's words
 import { timmyThemes } from './theme.js';
-import { DRAFT_ID, DRAFT_LABEL, acceptPlan, decisionWords, documentChanges, draftLine, draftMark, draftOf, draftRefusal, discardPlan, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
+import { DRAFT_ID, DRAFT_LABEL, MOVE_LABEL, MOVE_TITLE, acceptPlan, decisionWords, documentChanges, draftGround, draftLine, draftMark, draftOf, draftRefusal, discardPlan, landsWords, movedMark, movedOf, movedWords, pendingDrafts, remarkPlan, staleWords } from './drafts.js';
 import { saveState } from './save-state.js';
 // R5 (H133): the shared workspace frame (src/contracts/workspace.ts), as a strip above the canvas
 import { createFrameStrip } from './frame.js';
@@ -31,8 +31,8 @@ import { blockedWords, CALL_WAIT_MS, coverWords, createIdentity, keptWords, proj
 import { artifactFollowed, createArtifacts } from './artifacts.js';
 import { createReferences } from './references.js';
 import { createNodes } from './nodes.js';
-// R7 (H151): where Timmy places on the board, clear of every shape
-import { freeSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
+// R7 (H151): where Timmy places on the board, clear of every shape. R8 (H158): what a draft lands on, and where it moves clear
+import { freeSpot, landsOn, nearestSpot, overlapsAny, PLACE_MARGIN } from './placement.js';
 
 // Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
 // once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
@@ -836,12 +836,37 @@ function showGuide(editor) {
 // (`decisions`); the drafts listed are the board on screen's, named as its project's while Studio switches boards, with Show,
 // Accept and Discard off then, saying why.
 let draftsShown = '';
+// ── R8 (H158; open item J, the operator's decision of 2026-10-18, 01:15 PT: "Say so, offer to move it") ─────────────────────────
+// A draft whose shapes land on shapes already on the board says so on its card and on its label on the board, with how many; its
+// card has one button beside those words, Move it to free space (neutral: the one amber step stays the first draft's Accept).
+// Nothing moves by itself.
+/** A shape's page bounds as the placement rules take them, or null. */
+function pageBox(editor, id) {
+  const b = editor.getShapePageBounds(id);
+  return b ? { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY } : null;
+}
+/**
+ * What draft `id` lands on now, among `records` (the store's; or a page's shapes with the bindings of their arrows): its ground page
+ * by page (./drafts.js draftGround), how many of the board's shapes it lands on (`over`), the pages where a move takes it clear
+ * (`plans`: where its shapes but an arrow that follows what it joins land on the board's), and its words: what it lands on, else,
+ * once moved, from where; null for neither.
+ */
+function overOf(editor, id, records) {
+  const ground = draftGround(records, id, (s) => pageBox(editor, s));
+  const over = ground.reduce((n, g) => n + landsOn(g.own, g.board).length, 0);
+  const plans = over ? ground.filter((g) => g.block && landsOn(g.own.filter((o) => !o.follows), g.board).length > 0) : [];
+  const moved = over ? null : movedOf(records, id);
+  return { ground, over, plans, movable: plans.length > 0, words: over ? landsWords(over) : moved ? movedWords(moved) : null };
+}
 function showDrafts(editor) {
   if (!editor) return;
   const blocked = identity.blocked() && identity.state !== 'none';
-  const pending = pendingDrafts(editor.store.allRecords());
+  const records = editor.store.allRecords();
+  const pending = pendingDrafts(records);
+  // R8 (H158): what each lands on, said on its card (and followed: the key changes with the words)
+  const over = new Map(pending.map((d) => [d.id, overOf(editor, d.id, records)]));
   const owner = canvas.project ? canvas.project.name : 'this board';
-  const key = JSON.stringify([blocked ? identity.state : 'open', identity.gen, owner, pending.map((d) => [d.id, d.shapes.length, d.pages])]);
+  const key = JSON.stringify([blocked ? identity.state : 'open', identity.gen, owner, pending.map((d) => [d.id, d.shapes.length, d.pages, over.get(d.id).words, over.get(d.id).movable])]);
   if (key === draftsShown) return;
   draftsShown = key;
   const box = document.getElementById('drafts');
@@ -861,6 +886,22 @@ function showDrafts(editor) {
     li.append(el('p', blocked ? `${owner}'s draft · ${draftLine(d)}` : draftLine(d), { className: 'draft-line' }));
     const here = d.pages.includes(editor.getCurrentPageId());
     if (!here && !blocked) li.append(el('p', `On ${d.pages.map(pageName).join(', ')}.`, { className: 'draft-where' }));
+    // R8 (H158): what it lands on, and the one button beside those words (off while Studio switches, saying why)
+    const o = over.get(d.id);
+    if (o.words) {
+      const row = el('div', undefined, { className: 'draft-over' });
+      row.dataset.over = String(o.over);
+      row.append(el('p', o.words, { className: 'draft-over-words' }));
+      if (o.movable) {
+        const move = el('button', MOVE_LABEL, { type: 'button', className: 'draft-move', title: off ?? MOVE_TITLE });
+        move.disabled = blocked;
+        if (blocked) move.setAttribute('aria-disabled', 'true');
+        // the person's press only, as Accept and Discard (code on the page calling .click() moves nothing)
+        move.addEventListener('click', (e) => { if (e.isTrusted === true) moveDraft(d.id); });
+        row.append(move);
+      }
+      li.append(row);
+    }
     const acts = el('div', undefined, { className: 'draft-acts' });
     const show = el('button', 'Show', { type: 'button', className: 'draft-show', title: off ?? 'Selects the draft\'s shapes and brings them into view' });
     const accept = el('button', 'Accept', { type: 'button', className: 'draft-accept', title: off ?? 'Keeps the draft\'s shapes on the board and clears their draft mark. Nothing runs: no tool, job or file but the canvas.' });
@@ -944,6 +985,41 @@ function decide(id, decision) {
   void save(b);
 }
 /**
+ * R8 (H158): the person's Move it to free space on draft `id`. On each page where its shapes land on the board's, they move
+ * together, as they are arranged, to the nearest place where they cover none, the margin kept (./placement.js nearestSpot); a top
+ * shape of it inside a shape of the board's (a person's frame) comes out onto its page first, where it is. Every shape of it keeps
+ * its mark, which says now that it was moved and from where (./drafts.js movedMark), so its words follow. One undo step, saved
+ * through the normal revision-checked save to the board on screen's own project; never while Studio switches boards (its button
+ * is off then, and tldraw's board is read only). It stays a draft: nothing is accepted and nothing runs.
+ */
+function moveDraft(id) {
+  const editor = current;
+  const b = canvas;
+  if (!editor) return;
+  if (identity.blocked() || !b.project || boardOf.get(editor) !== b) { band(blockedWords(identity) ?? 'Not now: no board is on screen.', true); return; }
+  const records = editor.store.allRecords();
+  const d = pendingDrafts(records).find((x) => x.id === id);
+  if (!d) { band('That draft is no longer on the board.', true); showDrafts(editor); return; }
+  const o = overOf(editor, id, records);
+  const plans = o.plans.map((g) => ({ ...g, to: nearestSpot(g.block, g.board.map((s) => s.box)) })).filter((g) => g.to.dx || g.to.dy);
+  if (!plans.length) { band('Not moved: this draft lands on no shape it can be moved clear of, so it stays where it is.'); showDrafts(editor); return; }
+  const from = plans[0].block;
+  const moved = { x: Math.round(from.minX), y: Math.round(from.minY), over: o.over, at: new Date().toISOString() };
+  editor.markHistoryStoppingPoint(`timmy move ${id}`);
+  editor.run(() => {
+    for (const g of plans) {
+      const out = g.tops.filter((s) => { const p = editor.getShape(s)?.parentId; return typeof p === 'string' && !p.startsWith('page:'); });
+      if (out.length) editor.reparentShapes(out, g.page);
+      editor.updateShapes(g.tops.map((s) => editor.getShape(s)).filter(Boolean).map((s) => ({ id: s.id, type: s.type, x: s.x + g.to.dx, y: s.y + g.to.dy })));
+    }
+    editor.updateShapes(d.shapes.map((s) => editor.getShape(s)).filter((s) => s && draftOf(s)).map((s) => ({ id: s.id, type: s.type, meta: { timmyDraft: movedMark(draftOf(s), moved) } })));
+  }, { ignoreShapeLock: true });
+  band(`${movedWords(moved)} It is still a draft: Accept or Discard it. Undo puts it back.`);
+  showDrafts(editor);
+  try { reveal(editor, d.shapes); } catch { /* showing it is a courtesy */ }
+  void save(b);
+}
+/**
  * R5 (H133): every decision whose save has landed, recorded with the revision and source revision that save produced. R6 (H139): in
  * the drafts record of the board it was made on (`b`), whichever board is on screen by then (the "Kept apart" log says so).
  */
@@ -963,12 +1039,18 @@ async function flushDecisions(b, saved) {
   }
 }
 
-/** R5 (H133): the outline and label of each pending draft on the page shown, in front of the canvas (never taking a click). */
+/**
+ * R5 (H133): the outline and label of each pending draft on the page shown, in front of the canvas (never taking a click). R8
+ * (H158): under its label, what it lands on (or, once moved, from where), in the words of its card.
+ */
 function DraftMarks() {
   const editor = useEditor();
   const marks = useValue('timmy: drafts on this page', () => {
     const groups = new Map();
-    for (const shape of editor.getCurrentPageShapes()) {
+    const shapes = editor.getCurrentPageShapes();
+    // the page's shapes, and what the drafts' arrows join (an arrow does not land on the shape it joins)
+    const records = [...shapes, ...shapes.filter((s) => s.type === 'arrow' && draftOf(s)).flatMap((s) => editor.getBindingsFromShape(s.id, 'arrow'))];
+    for (const shape of shapes) {
       const d = draftOf(shape);
       if (!d) continue;
       const b = editor.getShapePageBounds(shape.id);
@@ -981,12 +1063,12 @@ function DraftMarks() {
     return [...groups.values()].map((g) => {
       const a = editor.pageToViewport({ x: g.minX, y: g.minY });
       const z = editor.pageToViewport({ x: g.maxX, y: g.maxY });
-      return { id: g.id, x: Math.round(a.x - pad), y: Math.round(a.y - pad), w: Math.round(z.x - a.x + 2 * pad), h: Math.round(z.y - a.y + 2 * pad) };
+      return { id: g.id, x: Math.round(a.x - pad), y: Math.round(a.y - pad), w: Math.round(z.x - a.x + 2 * pad), h: Math.round(z.y - a.y + 2 * pad), words: overOf(editor, g.id, records).words };
     });
   }, [editor]);
   const h = React.createElement;
   return h(React.Fragment, null, ...marks.map((m) => h('div', { key: m.id, className: 'timmy-draft-mark', 'data-draft': m.id, style: { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` } },
-    h('span', { className: 'timmy-draft-label' }, DRAFT_LABEL))));
+    h('div', { className: 'timmy-draft-tag' }, h('span', { className: 'timmy-draft-label' }, DRAFT_LABEL), m.words ? h('span', { className: 'timmy-draft-words' }, m.words) : null))));
 }
 
 /**

@@ -280,7 +280,11 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       await page.waitForSelector('#project-groups li.pcard[data-card="workflow:BUILD.md"]');
       expect(await text(page, '#project-groups li.pcard[data-card="workflow:BUILD.md"] .pcard-title')).toBe('Tray build');
       expect(await text(page, '#drafts-count')).toBe('1 waiting for you');
-      expect(await page.locator(`#draft-list li[data-draft="${trayDraft}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
+      // R8 (H158; open item J): the FAKE draft's boxes land on tray's drawn card (placed where Timmy places cards, at the top of the
+      // area beside the panel): its card says so, with Move it to free space beside the words (tests/studio-draft-overlap-browser
+      // .test.ts moves one; here it stays where it is)
+      expect(await text(page, `#draft-list li[data-draft="${trayDraft}"] .draft-over-words`)).toBe('This draft lands on 1 shape already on the board.');
+      expect(await page.locator(`#draft-list li[data-draft="${trayDraft}"] button`).allTextContents()).toEqual(['Move it to free space', 'Show', 'Accept', 'Discard']);
       expect(await page.isEnabled(`#draft-list li[data-draft="${trayDraft}"] .draft-accept`)).toBe(true);
       expect(await page.isEnabled(`#draft-list li[data-draft="${trayDraft}"] .draft-discard`)).toBe(true);
       expect(await readonly(page)).toBe(false);
@@ -332,7 +336,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
         header: { project: 'switching to blank…', acts: 0 },
         panel: { name: 'switching to blank…', cards: 0 },
         jobs: ['Switching to blank: its canvas jobs show once its board is loaded.'],
-        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · job turn-tray-draft · from revision \d+$/), project: tray.id, buttons: [off('Show'), off('Accept'), off('Discard')] }] },
+        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · job turn-tray-draft · from revision \d+$/), project: tray.id, buttons: [off('Move it to free space'), off('Show'), off('Accept'), off('Discard')] }] },
         save: why,
         open: true,
       });

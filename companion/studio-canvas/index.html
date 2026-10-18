@@ -162,9 +162,15 @@
      click (src/drafts.js; the panel's Drafts has Accept and Discard). R7 (H151; one amber next step: the strip's primary and the
      draft's Accept are that step): the outline is silver, as what a model made is (B10, B4), and its label says so in words */
   .timmy-draft-mark { position: absolute; box-sizing: border-box; border: 2px dashed var(--timmy-ai, #E8E4D9); border-radius: 6px; pointer-events: none; }
-  .timmy-draft-label { position: absolute; left: -2px; bottom: 100%; margin-bottom: 4px; white-space: nowrap; padding: 1px 6px; border-radius: 4px;
+  /* R8 (H158; open item J, "Say so, offer to move it"): the label and, under it, what the draft lands on (or, once moved, from
+     where), as one tag above the outline; those words are Studio's own (the text colour on the ground, a structure-grey edge), 11 px */
+  .timmy-draft-tag { position: absolute; left: -2px; bottom: 100%; margin-bottom: 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; pointer-events: none; }
+  .timmy-draft-label { white-space: nowrap; padding: 1px 6px; border-radius: 4px;
     background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-ai, #E8E4D9); color: var(--timmy-ai, #E8E4D9);
     font: var(--timmy-weight-strong, 600) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); letter-spacing: .04em; }
+  .timmy-draft-words { width: max-content; max-width: 56ch; padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere;
+    background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line-strong, #444444); color: var(--timmy-text, #F2EFE9);
+    font: var(--timmy-weight-body, 400) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #F2EFE9); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
@@ -262,6 +268,10 @@
   #drafts .draft-line, #drafts .draft-where { margin: 0; overflow-wrap: anywhere; }
   #drafts .draft-where { color: var(--timmy-text-secondary, #8E8E93); }
   #drafts .draft-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  /* R8 (H158; open item J): what a draft lands on, in words, and the one button beside them, Move it to free space: the words in the
+     text colour, the button neutral like Discard (the one amber step is the first draft's Accept, B10) */
+  #drafts .draft-over { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; }
+  #drafts .draft-over-words { flex: 1 1 14em; min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--timmy-text, #F2EFE9); }
   /* R7 (H151; the operator: "Make Studio's primary action reflect the actual next step when a draft is waiting"): while a draft
      waits, the frame's one Studio primary is its Accept or Discard, and the draft's Accept is that same step: the first waiting
      draft's Accept is the amber control (outlined, never filled), its Discard and Show neutral. Off while Studio switches. */

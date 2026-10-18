@@ -147,7 +147,8 @@ export function staleWords(from, now) {
 
 /**
  * The records that accept draft `id`, as they will be written: each record it marks (shapes and assets), its mark cleared and
- * the rest of its meta kept, with meta.timmyProposed saying who proposed it and when it was accepted (`at`).
+ * the rest of its meta kept, with meta.timmyProposed saying who proposed it and when it was accepted (`at`). R8 (H158): and, for
+ * a draft the person moved to free space before accepting it, from where (`moved`, as its mark said it).
  */
 export function acceptPlan(records, id, at = new Date().toISOString()) {
   const out = [];
@@ -155,9 +156,116 @@ export function acceptPlan(records, id, at = new Date().toISOString()) {
     const d = draftOf(r);
     if (!d || d.id !== id) continue;
     const { timmyDraft: _gone, ...meta } = r.meta;
-    out.push({ ...r, meta: { ...meta, timmyProposed: { by: 'Timmy', draft: id, job: d.job ?? null, accepted: at } } });
+    const moved = isMoved(d.moved) ? { moved: d.moved } : {};
+    out.push({ ...r, meta: { ...meta, timmyProposed: { by: 'Timmy', draft: id, job: d.job ?? null, accepted: at, ...moved } } });
   }
   return out;
+}
+
+// ── R8 (H158; open item J, the operator's decision of 2026-10-18, 01:15 PT: "Say so, offer to move it") ────────────────────────
+// A draft is drawn where the model put its shapes. When they land on shapes already on the board, its card in the panel and its
+// label on the board say so, with how many (landsWords), and the card offers one button, Move it to free space (MOVE_LABEL): the
+// draft's shapes move together, as they are arranged, to the nearest place where they cover no shape (./placement.js
+// nearestSpot), and stay a draft. Their mark then says it was moved and from where (movedMark), so the words follow it (movedWords)
+// and one undo takes both back. Nothing moves by itself.
+
+/** The button that moves a draft clear of the board's shapes, and what it does. */
+export const MOVE_LABEL = 'Move it to free space';
+export const MOVE_TITLE = 'Moves this draft\'s shapes together, as they are arranged, to the nearest place where they cover no shape on the board. It stays a draft: Accept or Discard it after. One undo puts it back.';
+
+const isMoved = (m) => !!m && typeof m === 'object' && [m.x, m.y].every((v) => typeof v === 'number' && Number.isFinite(v)) && Number.isInteger(m.over) && m.over > 0;
+
+/**
+ * Draft `id`'s shapes and the board's, page by page, for what it lands on and where it moves. On each page it is on: its shapes
+ * (`own`: { id, box, joins, follows }, by their page bounds, `joins` the shapes an arrow of it is bound to, `follows` true for an
+ * arrow bound to a shape of the board's), its top shapes (`tops`: those
+ * whose parent is not a shape of it; a move moves these), the block a move moves clear (`block`: its shapes' bounds together, an
+ * arrow that joins a shape of the board's left out, since it follows what it joins), and the board's shapes there (`board`:
+ * { id, box }): every shape on that page but its own and what is inside them (a person's shape put in its frame moves with it),
+ * and no group (a group's bounds are its shapes', and they count themselves). `boundsOf(id)`: a shape's page bounds, or null.
+ * Bindings among `records` say what an arrow joins.
+ */
+export function draftGround(records, id, boundsOf) {
+  const shapes = new Map();
+  const joins = new Map();
+  for (const r of records) {
+    if (!r) continue;
+    if (r.typeName === 'shape') shapes.set(r.id, r);
+    else if (r.typeName === 'binding' && r.type === 'arrow' && typeof r.fromId === 'string' && typeof r.toId === 'string') {
+      if (!joins.has(r.fromId)) joins.set(r.fromId, []);
+      joins.get(r.fromId).push(r.toId);
+    }
+  }
+  const mine = (r) => { const d = draftOf(r); return !!d && d.id === id; };
+  const pageOf = (r) => {
+    let at = r;
+    for (let i = 0; at && i < 64; i++) {
+      if (typeof at.parentId === 'string' && at.parentId.startsWith('page:')) return at.parentId;
+      at = shapes.get(at.parentId);
+    }
+    return null;
+  };
+  const insideOwn = (r) => {
+    let at = shapes.get(r.parentId);
+    for (let i = 0; at && i < 64; i++) { if (mine(at)) return true; at = shapes.get(at.parentId); }
+    return false;
+  };
+  const box = (sid) => {
+    const b = typeof boundsOf === 'function' ? boundsOf(sid) : null;
+    return b && [b.minX, b.minY, b.maxX, b.maxY].every((v) => typeof v === 'number' && Number.isFinite(v)) ? { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY } : null;
+  };
+  const pages = new Map();
+  for (const r of shapes.values()) {
+    if (!mine(r)) continue;
+    const page = pageOf(r);
+    if (!page) continue;
+    if (!pages.has(page)) pages.set(page, { page, tops: [], own: [], board: [] });
+    const g = pages.get(page);
+    if (!mine(shapes.get(r.parentId))) g.tops.push(r.id);
+    const b = box(r.id);
+    if (b) g.own.push({ id: r.id, box: b, joins: joins.get(r.id) ?? [] });
+  }
+  for (const r of shapes.values()) {
+    if (mine(r) || r.type === 'group' || insideOwn(r)) continue;
+    const g = pages.get(pageOf(r));
+    const b = g ? box(r.id) : null;
+    if (b) g.board.push({ id: r.id, box: b });
+  }
+  return [...pages.values()].map((g) => {
+    // an arrow of it bound to a shape of the board's follows what it joins (`follows`): a move moves the rest clear
+    for (const o of g.own) o.follows = o.joins.some((t) => shapes.has(t) && !mine(shapes.get(t)));
+    const content = g.own.filter((o) => !o.follows);
+    const block = content.length ? {
+      minX: Math.min(...content.map((o) => o.box.minX)), minY: Math.min(...content.map((o) => o.box.minY)),
+      maxX: Math.max(...content.map((o) => o.box.maxX)), maxY: Math.max(...content.map((o) => o.box.maxY)),
+    } : null;
+    return { ...g, block };
+  });
+}
+
+/** What a draft that lands on `n` of the board's shapes says of it, on its card and its label; nothing (null) when it lands on none. */
+export function landsWords(n) {
+  return Number.isInteger(n) && n > 0 ? `This draft lands on ${plural(n, 'shape')} already on the board.` : null;
+}
+
+/** The mark of a draft moved to free space: its own mark, kept, and from where it was moved (`moved`: { x, y, over, at }). */
+export function movedMark(mark, moved) {
+  return { ...mark, moved };
+}
+
+/** Where draft `id` was last moved from (its mark's `moved`: { x, y, over, at }), or null when it was not moved. */
+export function movedOf(records, id) {
+  for (const r of records) {
+    if (!r || r.typeName !== 'shape') continue;
+    const d = draftOf(r);
+    if (d && d.id === id && isMoved(d.moved)) return d.moved;
+  }
+  return null;
+}
+
+/** What a draft moved to free space says, on its card and its label, while it lands on no shape: from where, and what was there. */
+export function movedWords(moved) {
+  return `Moved to free space from x ${Math.round(moved.x)}, y ${Math.round(moved.y)}, where it landed on ${plural(moved.over, 'shape')}. It lands on no shape now.`;
 }
 
 /**
