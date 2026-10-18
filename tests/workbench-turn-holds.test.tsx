@@ -14,7 +14,7 @@
 // - a stale hold is a hold file this test writes for a process that does not run;
 // - the run detail's and the chat session's producers have none; the browser opener and the server starts are FAKE.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -270,6 +270,35 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
         expect(tableReads).toBeGreaterThan(0);
       } finally { w.close(); put2(); }
     } finally { child.kill('SIGKILL'); }
+  }, 30_000);
+
+  it('R8 (H156; R7\'s open item A): the first turn of a project whose chat-turns folder was not there when the watch began is seen at once, not at the next listing (the watch is on .timmy until the folder is made, then on the folder: its end is seen at once too)', async () => {
+    const p = trayProject('holds-first');
+    const dir = join(p.root, CHAT_TURNS_DIR);
+    expect(existsSync(dir), 'no chat-turns folder before the first turn').toBe(false);
+    const seen: Array<{ at: number; ids: string[] }> = [];
+    // the listing every 10 s: what this test sees within its 2 s, a watch saw
+    const w = new HoldWatch({ root: () => p.root, now: () => Date.now(), onChange: (r) => seen.push({ at: Date.now(), ids: r.turns.map((t) => t.id) }), everyMs: 10_000 });
+    const within = async (what: string, ok: () => boolean, from: number): Promise<number> => {
+      for (const end = from + 2000; Date.now() < end; await sleep(5)) if (ok()) return Date.now() - from;
+      throw new Error(`${what} not seen in 2 s (the listing looks every 10 s here): ${JSON.stringify(seen)}`);
+    };
+    try {
+      w.start();
+      expect(seen.map((s) => s.ids)).toEqual([[]]);
+      // the REPL's own takeTurnHold makes the folder and writes the hold (this process's: a hold of this process is its own)
+      const t0 = Date.now();
+      const taken = takeTurnHold(p.root, 'repl');
+      if (!taken.ok) throw new Error(taken.lines.join(' '));
+      holds.push(taken.hold);
+      const heldIn = await within('the first hold', () => seen.some((s) => s.ids.includes(taken.hold.id)), t0);
+      expect(heldIn, `the first hold seen ${heldIn} ms after it was written`).toBeLessThan(1000);
+      // its end, seen by the watch now on the chat-turns folder itself (a watch on .timmy is not told of a change inside it)
+      const t1 = Date.now();
+      taken.hold.release();
+      const endedIn = await within('the hold let go', () => seen.at(-1)!.ids.length === 0 && seen.at(-1)!.at >= t1, t1);
+      expect(endedIn, `the hold's end seen ${endedIn} ms after it was let go`).toBeLessThan(1000);
+    } finally { w.close(); }
   }, 30_000);
 
   it('a hold whose writer has ended is no running turn: the run line stays idle, x says nothing runs, and the hold is left where it is (read only)', async () => {

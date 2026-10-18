@@ -7,15 +7,18 @@
  *
  * How it watches: the folder's names, read every HOLDS_EVERY_MS (a directory listing, no process is asked), and the folder
  * itself through fs.watch where it is there and the platform tells of changes (a hold seen within milliseconds then; the
- * listing still catches what a watch misses, and the folder made after the watch began). When the names change the holds are
+ * listing still catches what a watch misses). Before the project's first turn the folder is not there (the first hold makes
+ * it): the watch is then on the nearest folder above it that is (.timmy, else the project's own) and moves onto the folder
+ * once it is made (R8 H156: before, nothing was watched until then, so a project's first turn waited for the next listing).
+ * When the names change the holds are
  * read at once (quickTurns: a fresh hold whose writer's pid runs is that writer's, without asking the process table, a program
  * run that takes hundreds of ms on a loaded computer); while a hold is there, again when its writer's pid runs no more and
  * every RECHECK_MS, and every PROOF_MS by the one reading every surface uses (runningTurns, which proves each writer by its pid
  * and its start). Read only: a hold whose writer has ended is no running turn, and is never removed here. A key that acts on a
  * turn (x, Enter on Stop the turn) reads them again (readNow) before it answers.
  */
-import { lstatSync, readdirSync, readFileSync, watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { lstatSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { CHAT_HOLD_SCHEMA, CHAT_TURNS_DIR, runningTurns, TURN_ID, type OtherTurn } from '../agent/chat-turn.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import { THIS_PROCESS } from '../ops/process-proof.js';
@@ -173,17 +176,25 @@ export class HoldWatch {
     return next;
   }
 
-  /** fs.watch on the project's chat-turns folder while it is there (a change is looked at in a few ms); never required. */
+  /**
+   * fs.watch on the project's chat-turns folder while it is there (a change is looked at in a few ms); never required.
+   * R8 (H156; R7's open item A): while the folder is not there yet, on the nearest folder above it that is (.timmy, else the
+   * project's own), so the folder's making is looked at in a few ms as well, and the next look moves the watch onto it.
+   * Before, nothing was watched until the listing after the folder was made: the project's first turn was seen only then
+   * (up to HOLDS_EVERY_MS late, more on a loaded computer).
+   */
   private arm(root: string): void {
     if (this.d.watch === false) return;
     const dir = join(root, CHAT_TURNS_DIR);
-    if (this.watcher && this.watched === dir) return;
+    const target = [dir, dirname(dir), root].find((d) => { try { return statSync(d).isDirectory(); } catch { return false; } });
+    if (!target) { this.unwatch(); return; }
+    if (this.watcher && this.watched === target) return;
     this.unwatch();
     try {
-      this.watcher = watch(dir, { persistent: false }, () => this.soon());
+      this.watcher = watch(target, { persistent: false }, () => this.soon());
       this.watcher.on('error', () => this.unwatch());
-      this.watched = dir;
-    } catch { /* not there yet (the first turn makes it), or not watchable here: the listing looks every HOLDS_EVERY_MS */ }
+      this.watched = target;
+    } catch { /* not watchable here: the listing looks every HOLDS_EVERY_MS */ }
   }
 
   private unwatch(): void {

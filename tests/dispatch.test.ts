@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { spawnSync } from 'child_process';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -8,6 +9,7 @@ import {
 } from '../src/utils/dispatch.js';
 import { issueApproval, planHashOf } from '../src/utils/approvals.js';
 import { readChain } from '../src/utils/receipts.js';
+import { dispatchSessionsOnDefault, dispatchTmuxOfItsOwn } from './helpers/dispatch-tmux.js';
 
 const basePlan = (over: Partial<DispatchPlan> = {}): DispatchPlan => ({
   schema_version: 'dispatch/0.1',
@@ -29,6 +31,10 @@ const basePlan = (over: Partial<DispatchPlan> = {}): DispatchPlan => ({
   telemetry: { redact: true, events: true },
   ...over
 });
+
+// R8 (H156; R7's open item H): the dry run's session goes on a tmux server of this file's own (it cancelled its session on the
+// default server before; now nothing of it is ever there), and the afterAll checks it left none on the default server
+const own = dispatchTmuxOfItsOwn();
 
 let dir = '';
 beforeAll(() => {
@@ -123,6 +129,9 @@ describe('Command Post v0.1 dispatch contract', { timeout: 30000 }, () => {
     const d = dispatchPlan(c.id!, dir);
     expect(d.ok).toBe(true);
     expect(d.session).toBe(`timmy-dp-${c.id}`);
+    // R8 (H156): the session is on this file's own tmux server (TIMMY_TMUX_SOCKET), never on the default one
+    expect(spawnSync('tmux', ['-L', own.label, 'has-session', '-t', d.session!]).status, `${d.session} on tmux -L ${own.label}`).toBe(0);
+    expect(dispatchSessionsOnDefault()).not.toContain(d.session);
     const t = tailLane(c.id!, dir);
     expect(t.ok).toBe(true);
     const col = collectRun(c.id!, dir);

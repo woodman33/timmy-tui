@@ -5,6 +5,11 @@ import { join } from 'path';
 import { runFleetMission } from '../src/utils/fleet-dispatch.js';
 import { issueApproval } from '../src/utils/approvals.js';
 import type { UsdScene } from '../src/utils/usd-compiler.js';
+import { dispatchTmuxOfItsOwn } from './helpers/dispatch-tmux.js';
+
+// R8 (H156; R7's open item H): this file's six dry-run lane sessions go on a tmux server of its own, stopped after its tests,
+// and its afterAll checks that it left none on the default server (it left six there after each full suite up to R7)
+dispatchTmuxOfItsOwn();
 
 const scene: UsdScene = {
   schema_version: 'usd/0.1', name: 'fleet-test', meters_per_unit: 0.01, up_axis: 'Z',

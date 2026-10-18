@@ -53,6 +53,22 @@ const rich = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', co
 /** A FAKE draft: three boxes, as a model's canvas_exec code would draw them, in a row at `y`. `wait`: ms its code waits before it draws. */
 const threeBoxes = (label: string, o: { wait?: number; y?: number } = {}) => `${o.wait ? `await new Promise((r) => setTimeout(r, ${o.wait})); ` : ''}const { createShapeId, toRichText } = helpers; const ids = ['a', 'b', 'c'].map(() => createShapeId()); editor.createShapes(ids.map((id, i) => ({ id, type: 'geo', x: 520 + i * 200, y: ${o.y ?? 160}, props: { w: 160, h: 80, richText: toRichText('${label} ' + 'abc'[i]) } }))); return ids;`;
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+// R8 (H156; R7's open item I), as a2e641c did in tests/studio-nodes-browser.test.ts and tests/studio-artifacts-browser.test.ts:
+// one matcher for page.route and page.unroute (Playwright matches a function matcher by identity, so a new arrow function given
+// to unroute removes nothing).
+const ANY_URL = (): boolean => true;
+// The page keeps this route for its whole life, so taking a held request's handler off never takes the page's last route off.
+// Up to R7 each held request's route was the page's only one, removed while the page kept reading: when a page's last route
+// goes, Playwright continues by itself a request still with a handler, and that handler's own continue (or fallback, or
+// fulfill) then fails ("Route is already handled!", an unhandled rejection; not seen in an R7 run here).
+const passOn = (route: Route): Promise<void> => route.fallback();
+// a held request's handler is off the page once the test removes it: `routed` counts every call of it, and a request made after
+// the removal does not reach it (the page's own address: a plain page, read without a token)
+async function gone(page: Page, routed: () => number): Promise<void> {
+  const before = routed();
+  await page.evaluate(() => fetch('/', { cache: 'no-store' }).then((r) => r.status, () => 0));
+  expect(routed(), 'a request made after the unroute reached a removed handler').toBe(before);
+}
 
 describe.skipIf(!browserPath)('Studio project isolation: two projects, pending drafts, delayed responses and save/reopen, in a real browser', () => {
   let pageRoot = '';
@@ -159,6 +175,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
   async function open(): Promise<Studio> {
     const c = await context();
     const page = await c.newPage();
+    await page.route(ANY_URL, passOn);
     const s: Studio = { page, context: c, errors: [], refused: [], console: [] };
     watch(page, s);
     // the REPL's /canvas open: one more page opened, with a one-time grant in its address
@@ -216,8 +233,9 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
     // server refused the held read (409: the canvas shows another project) and the late answer the test waits for never came.
     // until() now waits for the server's answer too: the read is answered while its project is named, as the case says.
     let answeredNow = false;
-    const all = () => true;
+    let routed = 0;
     const handler = async (route: Route): Promise<void> => {
+      routed += 1;
       const req = route.request();
       if (seen || !match(new URL(req.url()), req.method())) { await route.fallback(); return; }
       seen = true;
@@ -233,9 +251,10 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
     };
     const ready = () => seen && (!o.fetchFirst || answeredNow);
     return {
-      install: () => page.route(all, handler),
+      install: () => page.route(ANY_URL, handler),
       release: () => release(),
-      remove: () => page.unroute(all, handler),
+      // R8 (H156): awaited where it is called, and checked: after it, a request reaches the handler no more
+      remove: async () => { await page.unroute(ANY_URL, handler); await gone(page, () => routed); },
       until: async () => {
         for (let i = 0; i < 100 && !ready(); i++) await page.waitForTimeout(100);
         expect(seen).toBe(true);
@@ -356,8 +375,8 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(s.console).toContain(`[timmy-studio] ${dropped}`);
       await page.waitForSelector('#kept:not([hidden])');
       expect(await text(page, '#kept-list')).toContain(dropped);
-      jobsOfTray.remove();
-      blankRead.remove();
+      await jobsOfTray.remove();
+      await blankRead.remove();
       const onBlank = await page.evaluate(() => ({
         readonly: (window as never as Win).timmyCanvas.editor.getInstanceState().isReadonly,
         board: document.body.dataset.board ?? null, cover: document.getElementById('switching')!.hidden,
@@ -428,7 +447,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       await shows(page, blank);
       late.release();
       await page.waitForFunction(() => (window as never as Win).timmyCanvas.identity.kept.some((k) => /^tray's save \(revision \d+\) landed after Studio switched to blank: it is kept on tray's own board, and nothing of it is shown here\.$/.test(k.words)), null, { timeout: 10_000 });
-      late.remove();
+      await late.remove();
       expect(onDisk(tray)).toContain('shape:tray-late');
       expect(files(blank)).toEqual(blank0);
       expect((await board(page)).map((x) => x.id)).toEqual(['shape:blank-1', 'shape:blank-2']);
@@ -473,7 +492,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       expect(early).toMatchObject({ ok: false, notRun: 'switching', changed: false, project: { id: blank.id, name: 'blank' }, error: 'Not run: this call was made for blank, but Studio is switching to blank now, so nothing ran and nothing was drawn on either board. Ask again once Studio shows blank.' });
       blankRead.release();
       await shows(page, blank);
-      blankRead.remove();
+      await blankRead.remove();
       expect(await kept(page)).toContain("A canvas call for blank (job turn-blank-early) reached this page while Studio was still loading blank's board: it did not run, and nothing was drawn on either board. Asked again, it runs on blank's board.");
       expect((await board(page)).map((x) => x.id)).toEqual(['shape:blank-1', 'shape:blank-2']);
       expect(saved(blank).jobs()).toEqual([]);
@@ -502,7 +521,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       trayRead.release();
       const droppedBoard = 'A reading of tray (its board) came back after Studio switched to blank: it was dropped, and nothing of it is shown here.';
       await page.waitForFunction((w) => (window as never as Win).timmyCanvas.identity.kept.some((k) => k.words === w), droppedBoard, { timeout: 10_000 });
-      trayRead.remove();
+      await trayRead.remove();
       expect((await board(page)).map((x) => x.id)).toEqual(onBlank);
       expect((await board(page)).some((x) => /^tray/.test(x.text))).toBe(false);
       expect(await text(page, '#project-name')).toBe('blank');
