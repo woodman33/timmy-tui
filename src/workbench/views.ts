@@ -44,6 +44,8 @@ export interface ViewCtx {
   can: { run: boolean; runWhy?: string; chat: boolean; chatWhy?: string; detail: boolean; detailWhy?: string };
   /** R5 (H134): the terminal's width, where the caller knows it: tabs 0 and 8 draw their columns side by side from 120 */
   columns?: number;
+  /** R8 (H157): the page's Unfinished box leaves some of its words out (src/workbench/screen.ts): Context shows them first */
+  unfinishedRest?: boolean;
 }
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -346,22 +348,51 @@ export function centerView(c: ViewCtx): View {
  * page's own rows follow under it (tab 6's meshes among them).
  */
 export function unfinishedBox(c: Pick<ViewCtx, 'ui' | 'data' | 'g' | 'width'>): Line[] {
+  const words = unfinishedWords(c);
+  if (!words.length) return [];
+  // (no side borders: the page's own columns keep their rules; a rule of structure grey closes it)
+  return [[S(`${unfinishedMark(c.g)} Unfinished`, 'strong')], ...words, [S((c.g.unicode ? '─' : '-').repeat(Math.max(8, c.width)), 'border')]];
+}
+
+/** The box's words, what works now and what does not yet, wrapped to the width (none on a tab that is not unfinished). */
+function unfinishedWords(c: Pick<ViewCtx, 'ui' | 'data' | 'g' | 'width'>): Line[] {
   const u = frameTabs(c.data.frame).find((t) => t.id === c.ui.page)?.unfinished;
   if (!u || !ownWorkspaces(c.ui.page).includes(c.ui.workspace)) return [];
   const w = Math.max(8, c.width);
   const said = (label: string, words: string): Line[] => wrapSegs([S('  '), S(`${label} `, 'secondary'), S(words, 'text')], w, '  ');
-  // (no side borders: the page's own columns keep their rules; a rule of structure grey closes it)
-  return [[S(`${unfinishedMark(c.g)} Unfinished`, 'strong')], ...said('Works now:', u.works), ...said('Not yet:', u.missing), [S((c.g.unicode ? '─' : '-').repeat(w), 'border')]];
+  return [...said('Works now:', u.works), ...said('Not yet:', u.missing)];
 }
 
 /** The workspaces that are a tab's own matter: those no other tab gathers, and never Files (the project tree, which every tab
  *  reaches): an unfinished tab's words are about these (6: 3D Create and Motion; 7: the Control Room; 8: Fleet; 0: Logs). */
 const ownWorkspaces = (page: TabId): readonly WorkspaceId[] => tabOf(page).workbench.filter((w) => w !== 'files' && !TABS.some((o) => o.id !== page && o.workbench.includes(w)));
 
+/**
+ * R8 (H157; the R7 package's item G): the box above the page, as much of it as leaves the first item's first row in the
+ * window as the page opens (the first item can sit far down a full page: tab 6's first tool under its meshes): whole where
+ * it fits; else without its closing rule; else its title, naming where the rest is ([i] Context, which shows it whole), and
+ * as many of its rows as leave that room; else its title alone, which stays on the window's first row (`pin`) while the
+ * page scrolls under it. The box is first on the page at every size, and says the tab is unfinished in words.
+ */
 function withUnfinished(c: ViewCtx, v: View): View {
   const box = unfinishedBox(c);
   if (!box.length) return v;
-  return { ...v, lines: [...box, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + box.length })), unfinished: box.length };
+  // an item out of view (a column's own window keeps it out, line -1) stays out of view
+  const below = (n: number): View['items'] => v.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line + n : x.line }));
+  const first = v.items[0]?.line;
+  const room = c.height;
+  if (first === undefined || first < 0 || box.length + first < room) return { ...v, lines: [...box, ...v.lines], items: below(box.length), unfinished: box.length };
+  if (box.length - 1 + first < room) return { ...v, lines: [...box.slice(0, -1), ...v.lines], items: below(box.length - 1), unfinished: box.length - 1 };
+  const w = Math.max(8, c.width);
+  const title = fit([S(`${unfinishedMark(c.g)} Unfinished`, 'strong'), S(` ${c.g.sep} `, 'secondary'), key('i'), S(' Context shows what works and what does not yet', 'secondary')], w, c.g.ellipsis);
+  const k = room - 2 - first;
+  if (k >= 1) {
+    const kept = box.slice(1, 1 + k);
+    // the last row kept ends with the ellipsis: the box's words go on in Context
+    kept[kept.length - 1] = fit([...kept[kept.length - 1], S(` ${c.g.ellipsis}`, 'secondary')], w, c.g.ellipsis);
+    return { ...v, lines: [title, ...kept, ...v.lines], items: below(1 + k), unfinished: 1 + k, unfinishedRest: true };
+  }
+  return { ...v, lines: [title, ...v.lines], items: below(1), unfinished: 1, pin: 1, unfinishedRest: true };
 }
 
 function pageView(c: ViewCtx): View {
@@ -1388,8 +1419,10 @@ export function rightView(c: ViewCtx): View {
   });
   // a narrow drawer keeps all three tabs whole: the marker loses its column
   const tabs = lineCells(tabRow(false)) <= c.width ? tabRow(false) : tabRow(true);
+  // R8 (H157; item G): what the page's shortened Unfinished box leaves out, whole, first under the tabs (whichever is open)
+  const rest: Line[] = c.unfinishedRest ? [[S(`${unfinishedMark(c.g)} `, 'strong'), ...heading('Unfinished · this tab')], ...unfinishedWords(c), blank] : [];
   // the tabs' row first; the tab's own rows below it
-  return { lines: [tabs, blank, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + 2 })) };
+  return { lines: [tabs, blank, ...rest, ...v.lines], items: v.items.map((x) => ({ ...x, line: x.line + 2 + rest.length })) };
 }
 
 // ── the bottom: task controls and Activity ─────────────────────────────────────

@@ -183,7 +183,8 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
         const t = c.data.frame!.tabs.find((x) => x.key === key)!;
         const v = center(c, cols, rows);
         expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain('◌ Unfinished');
-        expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain(squash(`Works now: ${t.unfinished!.works}`).slice(0, 60));
+        // R8 (H157; item G): its words begin in view, or (no room left by the first item) its title names where they are
+        if (!v.text.includes(squash(`Works now: ${t.unfinished!.works}`).slice(0, 60))) expect(v.text, `tab ${key} at ${cols}x${rows}, as it opens`).toContain('◌ Unfinished · [i] Context shows what works and what does not yet');
       }
     }
     // with the keyboard in the body (tab 6 at 120x40, as the rehearsal had it; tab 7 at 100x30): the page still opens at its
@@ -192,7 +193,11 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     c.key('6', {});
     for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) c.key('', { tab: true });
     expect(c.ui.focus).toBe('center');
-    expect(c.frame(120, 40).regions.center!.scroll, 'tab 6 at 120x40 with the keyboard in its body').toBe(0);
+    // R8 (H157; item G): its box's title on the window's first row, and its first item in view (the page scrolls to it
+    // under the title where the box would leave it no room: tests below)
+    const six = c.frame(120, 40);
+    expect(screenText(six.screen)[six.regions.center!.rect.y + 1], 'tab 6 at 120x40 with the keyboard in its body').toContain('◌ Unfinished');
+    expect(six.regions.center!.items[0].line, 'tab 6 at 120x40 with the keyboard in its body: its first item in view').toBeLessThan(six.regions.center!.scroll + six.regions.center!.height);
     expect(center(c, 120, 40).text).toContain('◌ Unfinished');
     c.key('1', {});
     c.key('7', {});
@@ -205,6 +210,78 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     expect(cur, 'the cursor moved down the list').toBeGreaterThan(0);
     expect(moved.items[cur].line, 'the moved cursor\'s row in view').toBeGreaterThanOrEqual(moved.scroll);
     expect(moved.items[cur].line, 'the moved cursor\'s row in view').toBeLessThan(moved.scroll + moved.height);
+    } finally { await jobs.stopAll(); }
+  }, 60_000);
+
+  // R8 (H157; the R7 package's open item G): with the cursor on the first item, a full unfinished page opened at its top and
+  // its first item began below the window (tab 6 with the demo's mesh and its tools: the first tool at row 29 of a 28-row
+  // window at 160x45, row 35 of 23 at 120x40, row 29 of 14 at 100x30), so the selection the Inspector described was out of
+  // sight. Now the first item's first row is in view as the page opens, and the box stays first: shortened only as much as
+  // the first item needs (its closing rule, then its last rows, its title then naming Context, [i], where the rest is), and
+  // where even its title leaves no room, the title stays on the window's first row while the page scrolls under it. Context
+  // shows the box's words whole while the page does not. Where both fit (tab 7 at 160x45), the box is whole.
+  it('a full unfinished page opens with its first item in view and its box first; the words the box leaves out are in Context ([i]); tab 6 and tab 7 at 100x30, 120x40 and 160x45', async () => {
+    const c = workbench('first-in-view', FAKE_TOOLS);
+    const root = join(projectsHome(), 'first-in-view');
+    mkdirSync(join(root, 'refs'), { recursive: true });
+    copyFileSync(join(process.cwd(), 'examples', 'visual-tools', 'demo-tray.stl'), join(root, 'refs', 'demo-tray.stl'));
+    const jobs = new JobManager({ dir: jobsDir });
+    try {
+    for (const n of ['A', 'B']) {
+      const j = jobs.start({ kind: 'task', label: `FAKE job (test): 60 lines ${n}`, project: 'first-in-view', root, command: 'sh', args: ['-c', 'i=0; while [ $i -lt 60 ]; do i=$((i+1)); echo "FAKE line $i"; done'] });
+      await jobs.done(j.id);
+    }
+    c.start();
+    await until('the frame', () => c.data.frame);
+    await until('the mesh and the tools listed', () => { c.key('1', {}); c.key('6', {}); const t = center(c, 160, 45).text; return /MESHES IN THIS PROJECT \(1\)/.test(t) && c.data.caps.state === 'ready'; }, 15_000);
+    await until('the ended runs', () => { c.key('1', {}); c.key('7', {}); return /NEWEST ENDED RUNS \(2\)/.test(center(c, 160, 45).text); }, 15_000);
+    const seen: string[] = [];
+    for (const [cols, rows] of [[100, 30], [120, 40], [160, 45]] as const) {
+      for (const key of ['6', '7']) {
+        const at = `tab ${key} at ${cols}x${rows}, as it opens`;
+        c.key('1', {});
+        c.key(key, {});
+        await sleep(100);
+        const t = c.data.frame!.tabs.find((x) => x.key === key)!;
+        const fr = c.frame(cols, rows);
+        const reg = fr.regions.center!;
+        expect(c.ui.cursor[reg.list] ?? 0, at).toBe(0);
+        expect(reg.items.length, at).toBeGreaterThan(0);
+        // the first item's first row in the window
+        expect(reg.items[0].line, `${at}: the first item's row (the window shows ${reg.scroll} to ${reg.scroll + reg.height - 1})`).toBeGreaterThanOrEqual(reg.scroll);
+        expect(reg.items[0].line, `${at}: the first item's row (the window shows ${reg.scroll} to ${reg.scroll + reg.height - 1})`).toBeLessThan(reg.scroll + reg.height);
+        // the box first: its title on the window's first row
+        const text = screenText(fr.screen);
+        expect(text[reg.rect.y + 1], at).toContain('◌ Unfinished');
+        const v = center(c, cols, rows).text;
+        const works = squash(`Works now: ${t.unfinished!.works}`);
+        const missing = squash(`Not yet: ${t.unfinished!.missing}`);
+        if (v.includes(works) && v.includes(missing)) { seen.push(`${at}: whole`); continue; }
+        seen.push(`${at}: shortened`);
+        // shortened: its title says where the rest is, and Context shows it whole
+        expect(text[reg.rect.y + 1], at).toMatch(/\[i\] Context shows/);
+        const drawer = fr.layout.rightAs !== 'column';
+        if (drawer) c.key('i', {});
+        const f = c.frame(cols, rows);
+        const r = f.regions.right!;
+        const ctxRows = screenText(f.screen).slice(r.rect.y, r.rect.y + r.rect.h).map((l) => [...l].slice(r.rect.x + 1, r.rect.x + r.rect.w - 1).join('').replace(/[│┃]/g, ' '));
+        const ctxText = squash(ctxRows.join(' '));
+        // first in Context, under its tabs: the words whole where Context's rows hold them, else their start and Context's
+        // range (the rest of Context below, as for any long reading there)
+        expect(ctxText, `${at}: Context`).toMatch(/Tools.*Inspector.*Files ◌ UNFINISHED · THIS TAB Works now:/);
+        if (r.total <= r.height) {
+          expect(ctxText, `${at}: Context`).toContain(works);
+          expect(ctxText, `${at}: Context`).toContain(missing);
+        } else {
+          expect(ctxText, `${at}: Context`).toContain(works.slice(0, 40));
+          expect(ctxRows[0], `${at}: Context's range`).toMatch(/1–\d+ of \d+/);
+        }
+        if (drawer) c.key('', { escape: true });
+      }
+    }
+    // tab 6 needs the room its box would take at every size here; tab 7's box is whole where both fit
+    expect(seen).toContain('tab 7 at 160x45, as it opens: whole');
+    expect(seen).toContain('tab 6 at 100x30, as it opens: shortened');
     } finally { await jobs.stopAll(); }
   }, 60_000);
 
