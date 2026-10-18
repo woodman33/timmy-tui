@@ -55,7 +55,7 @@ import { TURNS_SHOWN, type JobRow } from './state.js';
 import {
   card, clipRows, fieldRows, flow, heading, onBar, para, rowsOf, S, selectedIn, sideBySide, sideBySideAt, RULE_CELLS, widths, type TabCtx,
 } from './tab-columns.js';
-import { clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clip, clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -489,7 +489,9 @@ function jobParts(j: JobRow, c: ControlCtx, d: ControlData | undefined, w: numbe
     : 'why' in t ? para(t.why, inner)
       : !t.lines.length ? [[S(quiet ? 'it printed nothing' : 'nothing printed yet', 'secondary')]]
         // R6 (H141): a rule the job printed is said as its output (src/workbench/output.ts ruleWords), never drawn across the pane
-        : t.lines.slice(-tailRows).map((l): Line => { const rule = ruleWords(l); return [S(cut(rule ?? l, inner, g.ellipsis), rule || quiet ? 'secondary' : 'text')]; });
+        // R8 lead (H157's note at its merge): a printed line is cut where the row ends (clip), as printed; a rule's words are
+        // Timmy's, so they end after a whole word (cut)
+        : t.lines.slice(-tailRows).map((l): Line => { const rule = ruleWords(l); return [rule ? S(cut(rule, inner, g.ellipsis), 'secondary') : S(clip(l, inner, g.ellipsis), quiet ? 'secondary' : 'text', { raw: true })]; });
   // how its lines come: read again at each tick while it runs (said, as the reading is a look, not a stream)
   const foot: Line[] = quiet ? exitAndReceipt(j, d, g, inner) : t?.every ? [[S(`log read every ${seconds(t.every)}`, 'secondary')]] : [];
   const note = [S(j.live ? j.elapsed : `ended ${ago(j.endedAt ?? j.startedAt, c.now)}`, 'secondary')];

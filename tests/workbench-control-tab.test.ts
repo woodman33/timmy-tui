@@ -423,6 +423,21 @@ describe('tab 7, Control Room: the view', () => {
     expect(outputEvents([{ job: 'j0e1371', n: 3, text: 'tick 1', at: ISO(NOW) }]).map((e) => e.words)).toEqual(['j0e1371 │ tick 1']);
   });
 
+  it('R8 lead (H157\'s note at its merge): a line the job printed that is wider than its pane is cut where the pane\'s row ends, as printed (never moved back to a word: it is output, not Timmy\'s words)', () => {
+    // FAKE log lines of the running job: two short words, then a run of x wider than any pane
+    const long = `tick 1 ${'x'.repeat(240)}`;
+    const cd = controlData({ tails: { ...TAILS, j0e1371: { lines: ['pty_run: upmd runs as process 11940', long] } } });
+    for (const [c, r] of SIZES) {
+      const ctx = ctxAt(c, r, data({ jobs: RUNNING }), 0);
+      const v = controlRoomView(ctx, cd);
+      for (const l of v.lines) expect(lineCells(l), `${c}x${r}: ${plain(l)}`).toBeLessThanOrEqual(ctx.width);
+      const pane = itemText(v, 0);
+      // the row is filled with what was printed up to its end, then the ellipsis (a word-end cut would leave "tick 1…")
+      expect(pane, `${c}x${r}`).toMatch(/tick 1 x{12,}…/);
+      expect(pane, `${c}x${r}`).not.toMatch(/tick 1…/);
+    }
+  });
+
   it('a box per running job and turn: its id, ▶ running and its label, recovery\'s words, who started it with its operation, its log\'s last lines; the selected pane\'s frame amber and heavy; ● never marks a run', () => {
     const turn: LiveTurnRow = { surface: 'repl', pid: 4243, taken: ISO(NOW - 8000), mine: false, proof: 'alive' };
     const d = data({ jobs: RUNNING });
