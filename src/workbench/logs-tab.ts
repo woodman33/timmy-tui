@@ -468,7 +468,7 @@ function eventRows(e: LogEvent, w: number, o: { selected: boolean; linked: boole
     const tagW = Math.min(16, Math.max(8, Math.floor(w * 0.16)));
     const left: Line = [mark, S(`${clock(e.at)} `, 'secondary', sel), S(`${seq.padEnd(o.seqW)}${o.seqW ? ' ' : ''}`, 'secondary', sel), S(`${cut(e.tag, tagW, g.ellipsis).padEnd(tagW)} `, 'strong', sel), S(e.summary, 'text', sel)];
     out.push(all(spread(left, status, w, g.ellipsis)));
-    if (o.selected) out.push(fit([S('    raw ', 'secondary'), S(`${e.raw.where} `, 'secondary'), S(e.raw.text, 'secondary')], w, g.ellipsis));
+    if (o.selected) out.push(fit([S('    raw ', 'secondary'), S(`${e.raw.where} `, 'secondary'), S(e.raw.text, 'secondary', { raw: true })], w, g.ellipsis));
     return out;
   }
   const head: Line = [mark, S(`${clock(e.at)} `, 'secondary', sel), ...(seq ? [S(`${seq} `, 'secondary', sel)] : []), S(e.tag, 'strong', sel)];
@@ -476,7 +476,7 @@ function eventRows(e: LogEvent, w: number, o: { selected: boolean; linked: boole
   if (w >= 40) out.push(all(spread(head, status, w, g.ellipsis)), all(fit(words, w, g.ellipsis)));
   else out.push(all(fit(head, w, g.ellipsis)), all(spread(words, status, w, g.ellipsis)));
   // a narrow column shows the raw line's words first; where it was read is in the Inspector
-  if (o.selected) out.push(fit([S('    raw ', 'secondary'), S(e.raw.text, 'secondary')], w, g.ellipsis));
+  if (o.selected) out.push(fit([S('    raw ', 'secondary'), S(e.raw.text, 'secondary', { raw: true })], w, g.ellipsis));
   return out;
 }
 
@@ -670,7 +670,8 @@ function rawRows(d: LogsData, e: LogEvent | undefined, w: number, room: number, 
   const shown = t.lines.slice(-Math.max(1, room - named(t.lines.length).sub.length));
   const { head, sub } = named(shown.length);
   if (!shown.length) return { head, rows: [...sub, [S(`${job.row.id} printed nothing${job.row.live ? ' yet' : ''}.`, 'secondary')]] };
-  return { head, rows: [...sub, ...shown.map((l) => [S(l || ' ', 'text')])] };
+  // R8 (H157): what the run printed, cut where the row ends (a raw segment: src/workbench/text.ts clip), never at a word
+  return { head, rows: [...sub, ...shown.map((l) => [S(l || ' ', 'text', { raw: true })])] };
 }
 
 /** The sequence column's heading: the operation and its state, or that the row names none. */

@@ -119,10 +119,20 @@ export function frameOf(a: FrameAsk): Frame {
     regions.nav = { rect: layout.nav, list: 'nav', items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
   }
 
+  // R8 (H157; item G): whether the page's Unfinished box leaves some of its words out (Context then shows them first)
+  let unfinishedRest = false;
+
   // the body's left column: Home's cards, Chat's conversation, or the tab's workspace
   if (layout.center) {
     const c = ctx(layout.center);
-    const v = centerView(c);
+    const view = centerView(c);
+    unfinishedRest = view.unfinishedRest === true;
+    // R8 (H157; item G): the rows pinned on the window's first rows (an Unfinished box cut to its title) stay while the rest
+    // scrolls; the rest is the list the cursor keys and the wheel move (its rows counted from below the pinned ones)
+    const pin = Math.min(view.pin ?? 0, view.lines.length, Math.max(0, c.height - 1));
+    const pinned = view.lines.slice(0, pin);
+    const v: View = pin ? { ...view, lines: view.lines.slice(pin), items: view.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line - pin : x.line })) } : view;
+    const bodyH = Math.max(1, c.height - pin);
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
     const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
@@ -134,15 +144,18 @@ export function frameOf(a: FrameAsk): Frame {
     // (the operator: "visibly unfinished"), while the cursor is on the first item and the wheel has not scrolled the page,
     // whichever zone has the keyboard. The first item can then begin below the window (the title's range says how far the
     // page goes); a moved cursor is kept in view as before, and every other page scrolls as before.
-    const opening = !follow && (v.unfinished ?? 0) > 0 && i === 0 && !ui.wheel[list];
+    // R8 (H157; item G): the box is cut so the first item's first row shows from the top (src/workbench/views.ts
+    // withUnfinished); a pinned box title scrolls nothing away, so that page scrolls to its first item as any list does
+    const opening = !follow && (view.unfinished ?? 0) > 0 && !pin && i === 0 && !ui.wheel[list];
     const scroll = follow
-      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: c.height, total: v.lines.length })
+      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: bodyH, total: v.lines.length })
       : opening
         ? 0
-        : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: c.height, total: v.lines.length, first: i === 0 });
+        : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: bodyH, total: v.lines.length, first: i === 0 });
     const title = ui.overlay ? overlayTitle(ui) : `${bodyTitle(ui, data)}${ui.focusMode ? ` ${g.sep} focus mode (z leaves it)` : ''}`;
-    placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'center', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.center, g) });
-    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: c.height, total: v.lines.length };
+    const note = rangeNote(scroll, bodyH, v.lines.length);
+    placed.push({ rect: layout.center, rows: panel({ title, lines: [...pinned, ...v.lines.slice(scroll, scroll + bodyH)], focused: ui.focus === 'center', ...(note ? { note } : {}) }, layout.center, g) });
+    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: pin, height: bodyH, total: v.lines.length };
   }
 
   // the body's right column: Context (Tools, Inspector, Files), or Home's preview and Chat's event log
@@ -156,7 +169,7 @@ export function frameOf(a: FrameAsk): Frame {
     placed.push({ rect: layout.right, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'right', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.right, g) });
     regions.right = { rect: layout.right, list, items: [], scroll, fixed: 0, height: c.height, total: v.lines.length };
   } else if (layout.right) {
-    const c = ctx(layout.right);
+    const c = { ...ctx(layout.right), unfinishedRest };
     const v = rightView(c);
     const list = `right:${ui.tab}`;
     const fixed = 2;

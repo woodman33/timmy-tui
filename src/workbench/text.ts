@@ -2,7 +2,7 @@
  * R4 (H110): the terminal Workbench's lines. A screen is a list of rows; a row is a list of segments, each a piece of text
  * with a role (src/workbench/theme.ts maps roles to Timmy Homebrew's colours, and every role's meaning is also in its words).
  * Every row is fitted to its width here, before Ink draws it: a row is never wider than its zone, and text that does not fit
- * ends in an ellipsis, cut at a word where one is near, so nothing is cut mid-word without one.
+ * ends in an ellipsis after its last whole word that fits, so no word is cut through (R8 H157: cut()).
  */
 import { truncate, visibleWidth, wrap } from '../term/width.js';
 
@@ -44,6 +44,9 @@ export interface Seg {
   selected?: boolean;
   /** drawn inverted (a text cursor) */
   inverse?: boolean;
+  /** R8 (H157): raw content (what a job printed, a record as it was read): cut where the row ends (clip), never moved back to
+   *  a word, since it is what was printed and not Timmy's words */
+  raw?: boolean;
 }
 
 export type Line = Seg[];
@@ -55,36 +58,77 @@ export const lineCells = (line: Line): number => line.reduce((n, s) => n + visib
 export const plain = (line: Line): string => line.map((s) => s.text).join('');
 
 /**
- * `text` cut to at most `room` cells: whole when it fits; else up to a space near the end and the ellipsis, or (no space
- * near) the ellipsis after as much as fits. An empty string when there is no room at all.
+ * `text` cut to at most `room` cells: whole when it fits; else its words up to the last whole one that fits, then the
+ * ellipsis: never through a word. R8 (H157; the R7 package's item E): before, it ended at a space only in the room's last
+ * third and cut through the word otherwise ("[4 Connect a Cloudro...]", "[2 Check con…]", "composit…"). A first word wider
+ * than the whole room (an id, a hash, a path, a model's name in a narrow cell) shows its start and the ellipsis, as DESIGN.md
+ * §2.4 draws a hash. An empty string when there is no room at all.
  */
 export function cut(text: string, room: number, ellipsis = '…'): string {
+  return cutAt(text, room, ellipsis).text;
+}
+
+/** cut(), and whether it broke through a word (`through`: the first word alone is wider than the room). */
+function cutAt(text: string, room: number, ellipsis: string): { text: string; through: boolean } {
+  if (room <= 0) return { text: '', through: false };
+  if (visibleWidth(text) <= room) return { text, through: false };
+  const e = visibleWidth(ellipsis);
+  // no room for a letter and the ellipsis: the ellipsis alone (never a letter without it)
+  if (room <= e) return { text: room === e ? ellipsis : '', through: false };
+  const hard = truncate(text, room, ellipsis);
+  const body = hard.slice(0, hard.length - ellipsis.length);
+  // the words that fit: all of the body when the text goes on with a space, else up to its last space
+  const end = /^\s/.test(text.slice(body.length)) ? body.length : body.search(/\s\S*$/);
+  if (end >= 0) return { text: `${body.slice(0, end).replace(/[\s,;:·-]+$/, '')}${ellipsis}`, through: false };
+  return { text: hard, through: true };
+}
+
+/**
+ * R8 (H157): raw content (a job's printed line, a record as it was read, a file's line) cut where the row ends: as much as
+ * fits, then the ellipsis. Never moved back to a word: it is what was printed, not Timmy's words (cut() is for those).
+ */
+export function clip(text: string, room: number, ellipsis = '…'): string {
   if (room <= 0) return '';
   if (visibleWidth(text) <= room) return text;
   const e = visibleWidth(ellipsis);
-  // no room for a letter and the ellipsis: the ellipsis alone (never a letter without it)
   if (room <= e) return room === e ? ellipsis : '';
-  const hard = truncate(text, room, ellipsis);
-  const body = hard.slice(0, hard.length - ellipsis.length);
-  const space = body.lastIndexOf(' ');
-  // a word boundary in the last third of the room: cut there, so the last word shown is whole
-  if (space > 0 && visibleWidth(body.slice(0, space)) >= Math.floor(room * 0.66)) return `${body.slice(0, space).replace(/[\s,;:·-]+$/, '')}${ellipsis}`;
-  return hard;
+  return truncate(text, room, ellipsis);
 }
 
-/** The line fitted to exactly `width` cells: segments kept whole while they fit, the first that does not cut (ellipsis), then padding. */
-export function fit(line: Line, width: number, ellipsis = '…'): Line {
+/**
+ * The line cut to at most `width` cells, not padded: segments kept whole while they fit, the first that does not cut (cut():
+ * after a whole word, and the ellipsis; clip() for a raw one). R8 (H157): a segment after others whose first word alone does
+ * not fit (a wrapped row holds one word a segment) ends the row with the ellipsis just after the words before it, so no word
+ * is cut through there either ("or set OP…" is "or set…").
+ */
+export function trimTo(line: Line, width: number, ellipsis = '…'): Line {
   const out: Line = [];
   let used = 0;
   for (const s of line) {
     if (used >= width) break;
     const w = visibleWidth(s.text);
     if (used + w <= width) { out.push(s); used += w; continue; }
-    const room = width - used;
-    const text = cut(s.text, room, ellipsis);
-    if (text) { out.push({ ...s, text }); used += visibleWidth(text); }
+    const c = s.raw ? { text: clip(s.text, width - used, ellipsis), through: false } : cutAt(s.text, width - used, ellipsis);
+    if (c.through && out.length) {
+      // the spaces before it go too: the ellipsis follows the last whole word
+      while (out.length > 1 && !out[out.length - 1].text.trim()) used -= visibleWidth(out.pop()!.text);
+      const last = out[out.length - 1];
+      const kept = last.text.trim() ? last.text.replace(/\s+$/, '') : last.text;
+      used -= visibleWidth(last.text) - visibleWidth(kept);
+      out[out.length - 1] = { ...last, text: kept };
+      if (used + visibleWidth(ellipsis) <= width) out.push({ ...s, text: ellipsis });
+      break;
+    }
+    if (c.text) out.push({ ...s, text: c.text });
     break;
   }
+  return out;
+}
+
+/** The line fitted to exactly `width` cells: trimTo(), then padding. */
+export function fit(line: Line, width: number, ellipsis = '…'): Line {
+  const out = trimTo(line, width, ellipsis);
+  const used = lineCells(out);
   if (used < width) {
     const last = out[out.length - 1];
     // a selected row keeps its ground to the edge
@@ -121,6 +165,9 @@ export function pick(pieces: Line[], width: number, gap: Seg = { text: '  ' }): 
 /**
  * R5 (H131; the QA round's defect 16): pieces with a rank (0 first), each kept whole or left out, the most important first:
  * what fits in `width` cells, drawn in the order given (a less important piece is left out before a more important one).
+ * R8 (H157; the R7 package's item E): in one fixed order: once a piece does not fit, every less important one is left out
+ * too, so a row loses its pieces from the least important as it narrows and never draws a shorter, less important piece in
+ * the place of a more important one (at 100 columns the key row drew [a] log and left out [s] Studio · Show).
  */
 export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: number, gap: Seg = { text: '  ' }): Line {
   const order = pieces.map((p, i) => ({ ...p, i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
@@ -128,7 +175,9 @@ export function pickRanked(pieces: Array<{ line: Line; rank: number }>, width: n
   let used = 0;
   for (const p of order) {
     const w = lineCells(p.line) + (kept.size ? cells(gap.text) : 0);
-    if (used + w <= width) { kept.add(p.i); used += w; }
+    if (used + w > width) break;
+    kept.add(p.i);
+    used += w;
   }
   const out: Line = [];
   pieces.forEach((p, i) => { if (kept.has(i)) { if (out.length) out.push(gap); out.push(...p.line); } });

@@ -213,8 +213,10 @@ export type Item =
  *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in
  *  another column is not on it); `near` (R5, H137): where each arrow moves from it, when its view lays items out as a grid
  *  (an arrow it does not name moves as in any list); `unfinished` (R7 lead): how many of its first rows are the Unfinished box
- *  (src/workbench/views.ts unfinishedBox), so the page opens at its top (src/workbench/screen.ts). */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number }
+ *  (src/workbench/views.ts unfinishedBox), so the page opens at its top (src/workbench/screen.ts). R8 (H157): `pin`, how many
+ *  of its first rows stay on the window's first rows while the rest scrolls (an Unfinished box cut to its title, where even
+ *  that leaves the first item no room); `unfinishedRest`, the box leaves some of its words out, and Context shows them. */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number; pin?: number; unfinishedRest?: boolean }
 
 export type Overlay =
   | null

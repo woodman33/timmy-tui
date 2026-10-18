@@ -29,7 +29,7 @@ import { boxOf, type Glyphs } from './frame.js';
 import type { Data, PipelineStage, TurnRow, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
 import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
-import { clock, count, cut, lineCells, pickRanked, took, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, pickRanked, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 import type { ViewCtx } from './views.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -422,19 +422,9 @@ function cardRows(segs: Seg[], room: number, max: number, g: Glyphs): Line[] {
   return [...rows.slice(0, max - 1), [...rows[max - 1], S(' '), ...rows.slice(max).flat().map((x) => ({ ...x, text: x.text.replace(/^\s+/, '') }))]].map((r, i, all) => (i === all.length - 1 ? fitRow(r, room, g) : r));
 }
 
-/** A row cut to `room` cells at its end (an ellipsis where it was cut). */
-function fitRow(line: Line, room: number, g: Glyphs): Line {
-  const out: Line = [];
-  let used = 0;
-  for (const x of line) {
-    const w = lineCells([x]);
-    if (used + w <= room) { out.push(x); used += w; continue; }
-    const t = cut(x.text, room - used, g.ellipsis);
-    if (t) out.push({ ...x, text: t });
-    break;
-  }
-  return out;
-}
+/** A row cut to `room` cells at its end (an ellipsis where it was cut). R8 (H157): trimTo's (src/workbench/text.ts), so no
+ *  word is cut through (a wrapped row holds one word a segment: "or set OP…" was cut through OPENROUTER_API_KEY). */
+const fitRow = (line: Line, room: number, g: Glyphs): Line => trimTo(line, room, g.ellipsis);
 
 /** What this Workbench itself knows of the companion's and Studio's servers (it starts them): said beside the frame's words,
  *  never instead of them, and never as an observation that makes the card live. */
@@ -486,20 +476,8 @@ export function connectionCard(conn: WorkspaceConnection, selected: boolean, foc
   const title = ` ${cut(conn.label, titleRoom - 2, g.ellipsis)} `;
   const fill = Math.max(0, inner - 1 - lineCells([S(title)]) - lineCells([S(markT)]) - 1);
   const top: Line = [S(`${b.tl}${b.h}`, edge), S(title, selected && focused ? 'focus' : 'strong'), S(b.h.repeat(fill), edge), S(markT, mark.role), S(`${b.h}${b.tr}`, edge)];
-  const body = (segs: Seg[]): Line => {
-    const room = inner - 2;
-    const out: Seg[] = [];
-    let used = 0;
-    for (const s of segs) {
-      if (used >= room) break;
-      const w = lineCells([s]);
-      if (used + w <= room) { out.push(s); used += w; continue; }
-      const t = cut(s.text, room - used, g.ellipsis);
-      if (t) { out.push({ ...s, text: t }); used += lineCells([S(t)]); }
-      break;
-    }
-    return [S(b.v, edge), S(' '), ...out, S(' '.repeat(Math.max(0, room - used))), S(' '), S(b.v, edge)];
-  };
+  // R8 (H157): fit()'s cut, so no word is cut through ("no charge (..." was cut through "(local)")
+  const body = (segs: Seg[]): Line => [S(b.v, edge), S(' '), ...fit(segs, inner - 2, g.ellipsis), S(' '), S(b.v, edge)];
   const step = conn.setup && conn.state !== 'live' ? conn.setup : null;
   const extra = serverWords(c, conn.id);
   // R5 (H131; the QA of e7f853e, defect 20): the OpenRouter card says free-only first, on or off, as the frame's detail has it
@@ -830,7 +808,8 @@ export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: numb
 export function hintLine(width: number, o: { tabs?: boolean } = {}): Line {
   const h = (k: string, w: string, rank: number): { line: Line; rank: number } => ({ line: [key(k), S(` ${w}`, 'secondary')], rank });
   // R5 (H131; the QA round's defect 16): [?] keys is the last hint drawn and the last left out; on a narrow row the less
-  // needed hints go first
+  // needed hints go first. R8 (H157; the R7 package's item E): in this one order of rank, each whole (pickRanked), so the
+  // tabs, Enter, Stop, Tab and [?] keys stay at every width from 80 columns and the others go from [,] settings upwards
   return pickRanked([
     ...(o.tabs === false ? [] : [h('1–0', 'tabs', 1)]),
     h('Enter', 'acts', 2), h('Tab', 'zones', 4), h('x', 'Stop', 3), h('c', 'Companion · Show', 5), h('s', 'Studio · Show', 6), h('a', 'log', 7),

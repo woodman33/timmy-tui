@@ -47,7 +47,7 @@ import type { Data, Item, Lazy, View } from './model.js';
 import { lineText } from './output.js';
 import type { BlockRow, WorkflowDoc, WorkflowsView } from './state.js';
 import { card, clipRows, onBar, RULE_CELLS, S, sideBySide, sideBySideAt, widths, windowMarked } from './tab-columns.js';
-import { cells, clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
+import { cells, clip, clock, count, cut, fit, lineCells, took, wrapText, type Line, type Role, type Seg } from './text.js';
 import { actionsOf, runOfBlock, selectedAction, type ViewCtx } from './views.js';
 import { JOB_CANCELLED, stepStateWords } from '../contracts/stop-words.js'; // R6 (H140)
 
@@ -656,7 +656,8 @@ function changesRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, r
     const pick = full.length <= left ? full : core.length <= left ? core : core.slice(0, Math.max(1, left - 1));
     pick.forEach((l, k) => {
       if (l.op === '@') rows.push([S(cut(k ? l.text : `${l.text} ${named}`, w, g.ellipsis), 'secondary')]);
-      else rows.push([S(l.op === '+' ? '+ ' : l.op === '-' ? '− ' : '  ', l.op === ' ' ? 'secondary' : 'strong'), S(cut(l.text || ' ', Math.max(1, w - 2), g.ellipsis), l.op === ' ' ? 'secondary' : 'text')]);
+      // R8 (H157): a file's own line, cut where the row ends (src/workbench/text.ts clip), never moved back to a word
+      else rows.push([S(l.op === '+' ? '+ ' : l.op === '-' ? '− ' : '  ', l.op === ' ' ? 'secondary' : 'strong'), S(clip(l.text || ' ', Math.max(1, w - 2), g.ellipsis), l.op === ' ' ? 'secondary' : 'text')]);
     });
     const missing = (pick === full ? full : core).length - pick.length;
     if (missing > 0) rows.push([S(cut(`${g.ellipsis} ${count(missing, 'more changed line')} (the companion draws the whole diff)`, w, g.ellipsis), 'secondary')]);
@@ -695,7 +696,8 @@ function outputRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, ro
     const earlier = `${g.ellipsis} ${count(all.length - shown.length, 'earlier line')}`;
     rows.push([S(cells(`${earlier} (/jobs ${run.job})`) <= w ? `${earlier} (/jobs ${run.job})` : earlier, 'secondary')]);
   }
-  for (const l of shown) rows.push([S(cut(l, w, g.ellipsis), 'text')]);
+  // R8 (H157): what the run printed, cut where the row ends (src/workbench/text.ts clip), never moved back to a word
+  for (const l of shown) rows.push([S(clip(l, w, g.ellipsis), 'text')]);
   return rows;
 }
 
