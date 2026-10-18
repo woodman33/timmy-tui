@@ -3,7 +3,8 @@
  *
  * A panel is what a workspace tab shows of its own records on the page: Studio's board artifacts (tab 4,
  * src/companion/panels/studio.ts), VoxVision's observations and recordings (tab 5, src/companion/panels/vox.ts) and Tools & MCP's
- * servers, schemas, calls and results (tab 9, src/companion/panels/tools.ts).
+ * servers, schemas, calls and results (tab 9, src/companion/panels/tools.ts); R8 (H155): the Control Room's panes (tab 7,
+ * src/companion/panels/control.ts, from src/ops/panes.ts, the Workbench's tab 7's own source).
  * Each panel's module mounts its own routes under /api/panel/<tab>/…, each behind the token check, each answering for the
  * project its page shows (?project=<id>, else the one followed). The page side is src/companion/client/panels.js (the
  * registry companion.js draws through) and src/companion/client/panel-<tab>.js (each panel's own drawing).
@@ -12,11 +13,13 @@
  * named as not installed. Nothing here starts an engine on its own.
  */
 import type express from 'express';
+import type { WorkspaceFrame } from '../contracts/workspace.js';
 import type { ActiveProject } from '../project/index.js';
 import { mountVoxPanel } from './panels/vox.js';
 import { mountToolsPanel } from './panels/tools.js';
 import { mountStudioPanel } from './panels/studio.js';
 import { mountCreatePanel } from './panels/create.js';
+import { mountControlPanel } from './panels/control.js';
 
 export interface PanelContext {
   /** The token check every content route of the companion uses (a request without the token is refused, 401). */
@@ -27,6 +30,9 @@ export interface PanelContext {
   projectUnknown: string;
   /** The environment the panels read with: a test's (its TIMMY_HOME), else this process's. */
   env: Record<string, string | undefined>;
+  /** R8 (H155): the workspace frame of a project, as the page's GET /api/workspace makes it (src/companion/workspace.ts: one
+   *  made in the last moment answers again); absent: a panel that would say the frame's words says it has none. */
+  frame?: (project: ActiveProject) => Promise<WorkspaceFrame>;
 }
 
 /** Mounts every panel's routes (server.ts calls it once, after the workspace routes and before the page's own). */
@@ -36,4 +42,6 @@ export function mountPanels(app: express.Express, ctx: PanelContext): void {
   mountStudioPanel(app, ctx);
   // R7 (H153): tab 6, the project's meshes and recordings (src/companion/panels/create.ts)
   mountCreatePanel(app, ctx);
+  // R8 (H155): tab 7, the Control Room's panes (src/companion/panels/control.ts)
+  mountControlPanel(app, ctx);
 }

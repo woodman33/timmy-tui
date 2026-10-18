@@ -827,7 +827,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
-  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env });
+  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p) });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
