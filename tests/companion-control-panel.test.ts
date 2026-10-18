@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import type { WorkspaceFrame } from '../src/contracts/workspace.js';
+import { TABS, type WorkspaceFrame } from '../src/contracts/workspace.js';
 import { JobManager } from '../src/jobs/index.js';
 import { PANES_MAX, TAIL_MAX } from '../src/ops/panes.js';
 import { projectId } from '../src/project/index.js';
@@ -84,6 +84,16 @@ describe('the Control Room\'s panes on the companion (R8 H155)', () => {
     expect(r.headers.get('cache-control')).toBe('no-store');
     return await r.json() as Panes;
   };
+
+  it('tab 7 stays marked unfinished, its words saying the companion shows the panes, read-only; not yet: harnesses, a broadcast, live browser panes (the contract\'s words, as the frame carries them)', async () => {
+    const t = TABS.find((x) => x.id === 'control')!;
+    expect(t.unfinished).toBeDefined();
+    expect(t.unfinished!.works).toBe('this project\'s jobs, chat turns and runs, each run\'s pane (the Workbench draws up to four as a grid, and the companion shows them, read-only) and what waits on you');
+    expect(t.unfinished!.missing).toBe('adding or removing harnesses, a broadcast to every pane, and live browser panes');
+    const d = project('FAKE-control-words');
+    const frame = await (await get(`/api/workspace?project=${d.id}`)).json() as WorkspaceFrame;
+    expect(frame.tabs.find((x) => x.id === 'control')!.unfinished).toEqual(t.unfinished);
+  });
 
   it('refuses without the token (401) and for a project the companion does not know (404)', async () => {
     const no = await get('/api/panel/control/panes', null);
