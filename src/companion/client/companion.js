@@ -1580,7 +1580,12 @@ function studioItem(f) {
 // image left Home): the newest images the project's records hold, whatever ran after: the newest run that holds an image (the
 // companion looks back through the project's runs: GET /api/newest-run-image, asked again when the frame's newest run changes)
 // and the newest VoxVision record that has an image it can show; each names its run or record and opens it.
-const homeImages = { project: '', run: { key: null, item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
+// R8 lead (R7's open item D; the CI of PR #102 at 1dd6ec9, as at R7's b40fad3: Home's run image still said no newer run 20 s
+// after one had ended): it was asked again only when the frame's newest run was another run, and never while an ask was out.
+// So an answer read while the newest run still ran, or one that came back after the frame had moved on, stayed until another
+// run began. Now `want` is what the frame shows (its newest run and that run's newest entry: its end asks again) and `key` what
+// the image held was asked for; an ask that comes back to a frame that has moved on is followed by one more, for the newest.
+const homeImages = { project: '', run: { key: null, want: null, item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
 const HOME_VOX_EVERY_MS = 10_000;
 /** the most VoxVision records with images read for one look (newest first), when the newer ones' images cannot be shown */
 const HOME_VOX_TRIES = 4;
@@ -1588,9 +1593,12 @@ const HOME_VOX_TRIES = 4;
 function homeImagesReset(project) {
   if (homeImages.project === project) return;
   homeImages.project = project;
-  homeImages.run = { key: null, item: null, asking: false };
+  homeImages.run = { key: null, want: null, item: null, asking: false };
   homeImages.vox = { key: '', item: null, asking: false, at: 0 };
 }
+
+/** What the frame's newest run is, for Home's run image: the run, and its newest entry (the run's own later entries ask again). */
+const homeRunKey = (run) => (run && run.operation ? [run.operation, run.tag || '', run.source || '', run.at || ''].join(' ') : '');
 
 async function homeJson(url) {
   const r = await companion.fetch(url);
@@ -1669,6 +1677,20 @@ function homeImagesItem(own) {
       : h('p', { class: 'preview-words' }, !own ? 'Not shown: the frame is another project’s.' : asking ? 'Reading the newest run and VoxVision record…' : 'No image yet: a run that writes one, or a VoxVision record (/detect <image>), shows here.'));
 }
 
+/**
+ * R8 lead (item D): asks for the newest run image when the frame shows another newest run, or another entry of it, than the
+ * image held was asked for; one ask at a time, and when it comes back to a frame that has moved on, one more for the newest.
+ */
+function homeRunAsk(project, redraw) {
+  const r = homeImages.run;
+  if (r.asking || r.want === r.key) return;
+  const key = r.want;
+  r.asking = true;
+  const settle = (item) => { if (homeImages.project === project) Object.assign(homeImages.run, { key, item, asking: false }); };
+  homeRunImage(project).then(settle, (e) => settle({ none: `not read: ${e && e.message ? e.message : String(e)}` }))
+    .finally(() => { redraw(); if (homeImages.project === project) homeRunAsk(project, redraw); });
+}
+
 /** Reads what changed (a newer run, a newer record) and draws the item again when it is read. */
 function homeImagesRefresh(f, own) {
   const project = shownProjectId();
@@ -1679,15 +1701,10 @@ function homeImagesRefresh(f, own) {
     const old = document.querySelector('#home-preview [data-preview="images"]');
     if (old) old.replaceWith(homeImagesItem(true));
   };
-  // asked again when the frame's newest run is another one (a new run may hold a newer image; one without leaves it)
-  const run = newestRunOf(f);
-  const key = run && run.operation ? run.operation : '';
-  if (key !== homeImages.run.key && !homeImages.run.asking) {
-    homeImages.run.asking = true;
-    homeRunImage(project).then((it) => { if (homeImages.project === project) homeImages.run = { key, item: it, asking: false }; },
-      (e) => { if (homeImages.project === project) homeImages.run = { key, item: { none: `not read: ${e && e.message ? e.message : String(e)}` }, asking: false }; })
-      .finally(redraw);
-  }
+  // asked again when the frame's newest run is another one (a new run may hold a newer image; one without leaves it), or that
+  // run has a newer entry (an answer read while it ran may be another once it has ended)
+  homeImages.run.want = homeRunKey(newestRunOf(f));
+  homeRunAsk(project, redraw);
   if (!homeImages.vox.asking && Date.now() - homeImages.vox.at >= HOME_VOX_EVERY_MS) {
     homeImages.vox.asking = true;
     homeImages.vox.at = Date.now();
