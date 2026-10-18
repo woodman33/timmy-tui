@@ -8,7 +8,7 @@
  * only on a network the operator trusts.
  */
 import qrcodeTerminal from 'qrcode-terminal';
-import { writeLog } from '../utils/logger.js';
+import { screenQuiet, writeLog } from '../utils/logger.js';
 
 /** What qr.ts needs of a running companion (src/companion/server.ts CompanionServer). */
 export interface CompanionAddresses {
@@ -34,8 +34,8 @@ export const LAN_WORDS = [
 
 export function showCompanionQR(server: CompanionAddresses): void {
   const lan = server.lanUrls[0];
-  if (process.env.TIMMY_TUI_ACTIVE === 'true') {
-    // The monitor owns the screen; this log never holds the token.
+  if (screenQuiet()) {
+    // The monitor (or the Workbench, R5) owns the screen; this log never holds the token.
     // R4 (H87): where it listens, as it was started: 127.0.0.1 only, or with --lan every network address of this computer
     const where = server.host === '0.0.0.0' ? 'listening on every network address of this computer (--lan)' : '127.0.0.1 only';
     writeLog('companion.log', 'info', `[Browser companion] On this computer at ${withoutToken(server.url)} (${where}). Its address carries a token, which is never written to a log: press q on the monitor's HOME to see the address with its token.`);

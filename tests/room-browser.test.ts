@@ -91,10 +91,11 @@ describe.skipIf(!browserPath)('the Control Room in a real browser (headless Chro
     await page.waitForFunction(() => !document.getElementById('out')!.hidden);
     expect((await page.textContent('#out'))!.split('\n')[0]).toBe(`board /stop ${job}`);
     await page.waitForFunction((id) => !document.querySelector(`button[data-act="room-stop"][data-job="${id}"]`)
-      && [...document.querySelectorAll('article.room-run .room-state')].some((s) => s.textContent === 'stopped'), job, { timeout: 8000 });
+      && [...document.querySelectorAll('article.room-run .room-state')].some((s) => s.textContent === 'cancelled'), job, { timeout: 8000 }); // R6 (H140): a job's word
     expect(ws.jobs.get(job)?.state).toBe('cancelled');
     expect(notes).toContain(`  board  /stop ${job}`);
     expect(await page.locator('#room-running + p.empty').textContent()).toBe('Nothing runs in this project now.');
+    if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: join(process.env.TIMMY_CAPTURE_DIR, 'board-room-job-cancelled.png'), fullPage: false }); // R6 (H140): a job's stop words, for the lead
     // Nothing from the project's folder on the page, nothing kept in the browser, no error.
     expect(await page.evaluate(() => document.body.innerText)).not.toContain(root);
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie])).toEqual([0, 0, '']);

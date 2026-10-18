@@ -27,7 +27,9 @@ export interface Theme {
   close(role: Role): string;
 }
 
-const FLOOR = { text: 4.5, nonText: 3, neutralText: 7 } as const;
+// B10 (2026-10-15): the operator's secondary text, #8E8E93, measures 6.4:1 on the canvas; the neutral floor is 6:1
+// (above WCAG AA's 4.5:1) so that exact grey is used rather than the next brighter neutral.
+const FLOOR = { text: 4.5, nonText: 3, neutralText: 6 } as const;
 
 interface Style {
   bold: boolean;
@@ -37,13 +39,15 @@ interface Style {
 // Each colored role: its weight, its slot, and the contrast floor its slot must clear.
 const ROLES: Record<Exclude<Role, 'primary' | 'secondary'>, { bold: boolean; slot: number | null; floor: number }> = {
   strong: { bold: true, slot: null, floor: 0 },
-  // B9 (round R1): Homebrew green for prompts, selection and primary actions. It never stands for an
-  // outcome on its own: verified keeps its word and its bold.
-  accent: { bold: false, slot: 2, floor: FLOOR.text },
+  // B10 (the operator, 2026-10-15): amber (slot 3) is focus, prompts, the selection and the primary next
+  // step; green (slot 2) is only an observed live connection, a passed check or a verified sealed
+  // receipt, always with its word and bold. A failure is amber with ✕ and its word (the palette has no
+  // red); made by a model is silver (slot 7) with its word.
+  accent: { bold: false, slot: 3, floor: FLOOR.text },
   verified: { bold: true, slot: 2, floor: FLOOR.text },
   estimate: { bold: false, slot: 3, floor: FLOOR.text },
-  failure: { bold: true, slot: 1, floor: FLOOR.text },
-  ai: { bold: false, slot: 5, floor: FLOOR.text },
+  failure: { bold: true, slot: 3, floor: FLOOR.text },
+  ai: { bold: false, slot: 7, floor: FLOOR.text },
   rule: { bold: false, slot: 8, floor: FLOOR.nonText },
   diffAdd: { bold: false, slot: 2, floor: FLOOR.text },
   diffRemove: { bold: false, slot: 1, floor: FLOOR.text },

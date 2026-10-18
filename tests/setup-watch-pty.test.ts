@@ -16,6 +16,14 @@ import { askedCompanionPort, companionPortArgs, companionPortNote } from '../src
 const LOADER = pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href;
 const CLI = resolve('src/cli.ts');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * How long a cold start may take to draw (R5 H130): tsx loads the CLI from source, and for the monitor, spawns it, and it loads
+ * React, Ink and the whole shell. Alone that drew HOME in about 7 s here, the screen blank for most of it (before the boot frame,
+ * and again once that is erased while the shell loads); in a full run on 2 CPUs with two other agents testing, three of these
+ * tests saw a blank screen for the whole 45 s they waited, and with the monitor's own processes stopped about 95 % of the time it
+ * took 21 to 41 s. The waits that cover a cold start take this; the others keep 45 s. A wait ends at once if the command has ended.
+ */
+const COLD_START_MS = 150_000;
 
 function sandbox() {
   const dir = mkdtempSync(join(tmpdir(), 'sw-'));
@@ -33,9 +41,18 @@ function pty(dir: string, name: string, env: NodeJS.ProcessEnv, command: string)
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', name, ...args], { env, encoding: 'utf8', timeout: 10_000 });
   tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '40', '-c', dir, 'bash', '--norc', '-c', command);
   const screen = (): string => tmux('capture-pane', '-p', '-t', 't');
+  // waits until the screen matches `re`, for `ms` by the clock; the pane's command ends with `echo EXIT=$?`, so a screen that
+  // says EXIT= and does not match has nothing more coming, and fails at once
   const waitFor = async (re: RegExp, ms = 45_000): Promise<RegExpMatchArray> => {
-    for (let i = 0; i < ms / 100; i++) { const m = screen().match(re); if (m) return m; await sleep(100); }
-    throw new Error(`timed out waiting for ${re}:\n${screen()}`);
+    const end = Date.now() + ms;
+    for (;;) {
+      const now = screen();
+      const m = now.match(re);
+      if (m) return m;
+      if (/EXIT=\d+/.test(now)) throw new Error(`the command ended before ${re} was drawn:\n${now}`);
+      if (Date.now() > end) throw new Error(`timed out after ${ms} ms waiting for ${re}:\n${now}`);
+      await sleep(100);
+    }
   };
   const type = (text: string) => { tmux('send-keys', '-t', 't', '-l', text); tmux('send-keys', '-t', 't', 'Enter'); };
   const keys = (...k: string[]) => tmux('send-keys', '-t', 't', ...k);
@@ -87,7 +104,7 @@ describe('timmy watch on a home without setup', () => {
     const port = await freePort();
     const p = pty(dir, 'watch', { ...env, TIMMY_COMPANION_PORT: String(port) }, `${process.execPath} --import ${LOADER} ${CLI} watch; echo EXIT=$?; sleep 60`);
     try {
-      await p.waitFor(/TIMMY · first run — guided setup \(timmy watch\)/);
+      await p.waitFor(/TIMMY · first run — guided setup \(timmy watch\)/, COLD_START_MS);
       await p.waitFor(/> \[operator\]/);
       p.type('Sample');
       for (const q of [/> \[new key\]/, /Ollama host[\s\S]*> \[http:\/\/127\.0\.0\.1:11434\]/, /Chat model[\s\S]*> \[l\]/]) {
@@ -100,7 +117,7 @@ describe('timmy watch on a home without setup', () => {
       p.type('');
       // the monitor opens on HOME: no FIRST RUN, and one line of what the setup chose (waited for whole: a capture taken as a
       // frame is written can hold part of the one before)
-      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy watch: chat local model \(no key\) · logs this computer only · project demo/);
+      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy watch: chat local model \(no key\) · logs this computer only · project demo/, COLD_START_MS);
       expect(p.screen()).not.toContain('FIRST RUN');
       // the companion took the port TIMMY_COMPANION_PORT asked for
       const listening = await new Promise<boolean>((done) => { const c = createServer(); c.once('error', () => done(true)); c.listen(port, '127.0.0.1', () => c.close(() => done(false))); });
@@ -114,7 +131,7 @@ describe('timmy watch on a home without setup', () => {
       p.kill();
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 360_000);
 
   // r24: on a computer whose monitor finished its own FIRST RUN before (its settings say so), a home timmy init set up opened
   // HOME with nothing said about the setup
@@ -126,7 +143,7 @@ describe('timmy watch on a home without setup', () => {
     const port = await freePort();
     const p = pty(dir, 'watchdone', { ...env, TIMMY_COMPANION_PORT: String(port) }, `${process.execPath} --import ${LOADER} ${CLI} watch; echo EXIT=$?; sleep 60`);
     try {
-      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy init: chat local model \(no key\) · logs this computer only · project demo/);
+      await p.waitFor(/YOUR JOURNEY[\s\S]*Set up by timmy init: chat local model \(no key\) · logs this computer only · project demo/, COLD_START_MS);
       expect(p.screen()).not.toMatch(/FIRST RUN|guided setup/);
       p.keys('C-c');
       await p.waitFor(/EXIT=\d+/, 15_000);
@@ -134,7 +151,7 @@ describe('timmy watch on a home without setup', () => {
       p.kill();
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 300_000);
 
   it('the companion\'s port taken: the monitor says which port it took instead', async () => {
     const { dir, env } = sandbox();
@@ -145,7 +162,7 @@ describe('timmy watch on a home without setup', () => {
     await new Promise((r) => holder.once('listening', r));
     const p = pty(dir, 'watchport', { ...env, TIMMY_COMPANION_PORT: String(port) }, `${process.execPath} --import ${LOADER} ${CLI} watch; echo EXIT=$?; sleep 60`);
     try {
-      await p.waitFor(/YOUR JOURNEY/);
+      await p.waitFor(/YOUR JOURNEY/, COLD_START_MS);
       // the STATUS card says it short; q on HOME shows the pairing card, which says it in full above the address
       const [, took] = await p.waitFor(new RegExp(`companion on port (\\d+) \\(${port} was taken\\)`));
       p.keys('q');
@@ -157,5 +174,5 @@ describe('timmy watch on a home without setup', () => {
       await new Promise((r) => holder.close(r));
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 300_000);
 });

@@ -216,8 +216,15 @@ export function armPlan(id: string, approval: string, dir?: string): { ok: boole
   return { ok: true, plan_hash: s.plan_hash };
 }
 
-// bounded: a saturated tmux server must stall a dispatch, not hang it
-const tmux = (args: string[]) => spawnSync('tmux', args, { encoding: 'utf8', timeout: 5000 });
+// bounded: a saturated tmux server must stall a dispatch, not hang it.
+// R8 (H156; R7's open item H): TIMMY_TMUX_SOCKET=<label> runs every tmux call of a dispatch (start, read, hold, cancel) on the
+// server of that label (`tmux -L <label>`); unset or blank, the default server, as before. The tests that dispatch set it
+// (tests/helpers/dispatch-tmux.ts): a dry run's pane keeps its shell open after its `sleep 30`, and on the default server
+// those sessions stayed after every full suite.
+const tmux = (args: string[]) => {
+  const label = process.env.TIMMY_TMUX_SOCKET?.trim();
+  return spawnSync('tmux', label ? ['-L', label, ...args] : args, { encoding: 'utf8', timeout: 5000 });
+};
 
 // Real sandbox or nothing: docker disposable, or host-ephemeral temp copy.
 // Never the live checkout; never a changed directory as a claimed jail.

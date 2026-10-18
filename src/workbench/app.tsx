@@ -6,17 +6,19 @@ import React, { useEffect, useReducer } from 'react';
 import { Box, Text, useInput, usePaste, useWindowSize } from 'ink';
 import { parseMouse } from '../tui/mouse.js';
 import type { Controller } from './controller.js';
-import { styleOf } from './theme.js';
+import { styleOf, type WorkbenchPalette } from './theme.js';
 
 export interface WorkbenchAppProps {
   controller: Controller;
   /** the terminal shows colour */
   colour: boolean;
+  /** R7 (H150): how the colours reach this terminal (src/workbench/theme.ts workbenchPalette); B10's hex when not given */
+  palette?: WorkbenchPalette;
   /** a test's size (ink-testing-library's terminal has none of its own) */
   size?: { columns: number; rows: number };
 }
 
-export function WorkbenchApp({ controller, colour, size }: WorkbenchAppProps): React.ReactElement {
+export function WorkbenchApp({ controller, colour, palette, size }: WorkbenchAppProps): React.ReactElement {
   const win = useWindowSize();
   const columns = size?.columns ?? win.columns ?? 80;
   const rows = size?.rows ?? win.rows ?? 24;
@@ -35,7 +37,7 @@ export function WorkbenchApp({ controller, colour, size }: WorkbenchAppProps): R
     <Box flexDirection="column">
       {f.screen.map((line, i) => (
         <Text key={i} wrap="truncate">
-          {line.map((s, j) => <Text key={j} {...styleOf(s, colour)}>{s.text}</Text>)}
+          {line.map((s, j) => <Text key={j} {...styleOf(s, colour, palette)}>{s.text}</Text>)}
         </Text>
       ))}
     </Box>

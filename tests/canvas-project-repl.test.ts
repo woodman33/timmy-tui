@@ -91,9 +91,12 @@ describe("the REPL names its project to Timmy Canvas, and says what the canvas s
     expect(await stranger.check()).toEqual({ state: 'running', project: null, pageConnected: false, board: false, hidden: true });
     expect(stranger.boardLine()).toEqual({ tone: 'unknown', words: 'Timmy Canvas runs and shows a project, but it told this REPL not which: this REPL holds no token for it (a canvas of another Timmy home?).', command: '/canvas' });
     expect(stranger.credentials()).toBeNull();
-    const own = client(projectAt('kappa'));
+    const kappa = projectAt('kappa');
+    const own = client(kappa);
     expect(await own.check()).toMatchObject({ state: 'running', project: { name: 'theta', id: projectId(p.root) } });
-    expect(own.credentials()).toEqual({ token: server.projectToken, holder: null });
+    // R6 (H139): with the project this REPL draws on (its own, kappa: the canvas runs nothing for it while it shows theta), and how
+    // many times it has opened the canvas page
+    expect(own.credentials()).toEqual({ token: server.projectToken, holder: null, project: projectId(kappa.root), opened: 0 });
   });
 
   it('never sends a folder to a canvas off this machine (TIMMY_STUDIO_URL elsewhere), nor even asks it', async () => {

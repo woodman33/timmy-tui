@@ -40,6 +40,7 @@
  * Every string is escaped. Colour never stands alone: each state is a word, each glyph its own shape; green is for
  * interaction (the selection, the primary action), never for an outcome.
  */
+import { stepStateWords } from '../contracts/stop-words.js';
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
@@ -879,7 +880,7 @@ export function jobBlockLines(j: JobRecord, order: readonly string[], o: { glyph
     // R4 (H107; r25 D3): upmd's word with its exit, in the words every view uses (the exit is not said twice)
     const counted = b.word === 'no change' && b.code !== undefined && b.code !== 0;
     const word = b.word === 'completed' || b.word === 'failed' ? '' : b.word === 'not seen' ? `not seen: ${NOT_SEEN_WHY}`
-      : counted ? `no change (${upmdCounted(b.code)})` : b.word;
+      : counted ? `no change (${upmdCounted(b.code)})` : stepStateWords(b.word); // R7 lead (N5): a block a cancel cut off is cancelled
     // R4 (H74): its own receipt, once sealed
     const said = [word, blockDetail(counted ? { ...b, code: undefined } : b, { seen: 'long' }), b.receipt ? `receipt ${b.receipt}` : ''].filter(Boolean).join(' · ');
     const role: Segment['role'] = b.word === 'failed' ? 'failure' : b.word === 'interrupted' || b.word === 'stopped' || b.word === 'not seen' ? 'estimate' : 'secondary';

@@ -8,6 +8,7 @@ import { WebSocket } from 'ws';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../src/agent/canvas-tools.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import { projectId } from '../src/project/index.js';
 import { bearer, nameProject, pageProtocols, pageSession } from './helpers/canvas-auth.js';
 import { guardRealHome, ownHome } from './fixtures/home-guard.js';
 
@@ -34,11 +35,14 @@ const token = (): string => (server as StudioServer).projectToken;
 const auth = () => ({ token: token(), holder: null });
 const roots: string[] = [];
 afterEach(() => { for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true }); });
+/** R6 (H139): the project named, as the server stamps each call's answer with it (the board the call ran on is its) */
+let toolsProject = { id: '', name: 'tools' };
 /** A FAKE canvas page's session: the project named (as /canvas open names it) and a grant traded, as the page trades it. */
 async function joinAs(): Promise<string[]> {
   const root = mkdtempSync(join(tmpdir(), 'studio-tools-project-'));
   roots.push(root);
   await nameProject(port(), token(), { root, name: 'tools' });
+  toolsProject = { id: projectId(root), name: 'tools' };
   return pageProtocols(await pageSession(port(), token()));
 }
 async function page(answer: (code: string) => unknown): Promise<string[]> {
@@ -62,7 +66,7 @@ describe('the canvas tools', () => {
     const seen = await page(() => 2);
     const r = await run(createCanvasTools({ baseUrl: base(), auth }), 'canvas_exec', { code: 'return editor.getCurrentPageShapes().length', jobId: 'job-7' });
     expect(seen).toEqual(['return editor.getCurrentPageShapes().length']);
-    expect(r).toEqual({ ok: true, result: 2, jobId: 'job-7', revision: 4 });
+    expect(r).toEqual({ ok: true, result: 2, jobId: 'job-7', revision: 4, project: toolsProject });
   });
   it('canvas_read sends fixed read-only code and returns the page summary', async () => {
     server = await startStudioServer(0, { env: own.env });
@@ -143,9 +147,10 @@ describe('the canvas job of a REPL turn', () => {
     await run(tools, 'canvas_read', {});
     await run(tools, 'canvas_exec', { code: 'return 1', jobId: 'named-by-the-model' });
     expect(jobs).toEqual(['turn-1', 'turn-1', 'named-by-the-model']);
+    // R6 (H139): each with the project whose board it ran on
     expect(job.close()).toEqual([
-      { job: 'turn-1', revision: 9, sourceRevision: SOURCE, ok: true },
-      { job: 'named-by-the-model', revision: 9, sourceRevision: SOURCE, ok: true },
+      { job: 'turn-1', revision: 9, sourceRevision: SOURCE, ok: true, project: toolsProject.id },
+      { job: 'named-by-the-model', revision: 9, sourceRevision: SOURCE, ok: true, project: toolsProject.id },
     ]);
     expect(job.close()).toEqual([]); // a turn with no canvas call names no job
     await run(tools, 'canvas_read', {});

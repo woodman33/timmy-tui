@@ -1,0 +1,24 @@
+{
+  "model": "clef-omni",
+  "answers": {
+    "route": {
+      "type": "choice",
+      "choice": "needs_review",
+      "probabilities": {
+        "codex": 0.1,
+        "pi": 0.1,
+        "openhands": 0.1,
+        "needs_review": 0.7
+      },
+      "confidence": 0.7
+    },
+    "human_review": {
+      "type": "noul",
+      "noul": 0.12
+    }
+  },
+  "usage": {
+    "input_tokens": 812,
+    "output_tokens": 0
+  }
+}

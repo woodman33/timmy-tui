@@ -15,7 +15,9 @@ export interface ProbeStreams {
   stdout: Pick<NodeJS.WriteStream, 'write'> & { isTTY?: boolean };
 }
 
-const SLOTS = [7, 8, 1, 2, 3, 5, 9, 10, 11, 13];
+// B10: the roles use slots 7 and 8 (secondary, made by a model, rules), 1 (diff removals), 2 (green) and 3 (amber),
+// and each colored slot's bright twin (9, 10, 11, 15).
+const SLOTS = [7, 8, 1, 2, 3, 9, 10, 11, 15];
 export const COLOR_QUERY = `\x1b]11;?\x07${SLOTS.map((n) => `\x1b]4;${n};?\x07`).join('')}\x1b[c`;
 const REPLY = /\x1b\](11|4;(\d{1,3}));rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\x07|\x1b\\)/gi;
 const DA1 = /\x1b\[\?[\d;]*c/;

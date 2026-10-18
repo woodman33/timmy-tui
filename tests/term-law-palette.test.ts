@@ -23,20 +23,21 @@ describe('law colors to the palette', () => {
   it('secondary text (grey-3) is measured: white on Night, gray on Day, the terminal\'s text color when unknown (B3)', () => {
     expect([night(fg('grey-3')), day(fg('grey-3')), mapper(UNKNOWN)(fg('grey-3'))]).toEqual(['\x1b[37m', '\x1b[90m', '\x1b[39m']);
   });
-  it('rules take slot 8 and the four meanings take their own slots', () => {
+  it('rules take slot 8 and the four meanings take their B10 slots: seal green, refuse and predict amber, generated silver', () => {
     expect(['grey-2', 'seal', 'seal-dim', 'refuse', 'predict', 'generated'].map((n) => night(fg(n))))
-      .toEqual(['\x1b[90m', '\x1b[32m', '\x1b[32m', '\x1b[31m', '\x1b[33m', '\x1b[35m']);
+      .toEqual(['\x1b[90m', '\x1b[32m', '\x1b[32m', '\x1b[33m', '\x1b[33m', '\x1b[37m']);
   });
   it('a slot that misses its floor on the measured ground is dropped; the glyph and word keep the meaning', () => {
     const basic = mapper(measuredFromPalette(TERMINAL_BASIC));
-    expect([basic(fg('seal')), basic(fg('refuse'))]).toEqual(['\x1b[39m', '\x1b[31m']);
+    // Basic is white: its green (3.3:1) and yellow (3.0:1) miss, and so do their bright twins.
+    expect([basic(fg('seal')), basic(fg('refuse'))]).toEqual(['\x1b[39m', '\x1b[39m']);
   });
   // Fourth order, step 2: before it is dropped, a meaning's slot gives way to its bright twin when that one
   // clears; and with nothing measured no meaning takes a color (README, "Terminal colors").
-  it('on macOS Terminal "Clear Dark" as measured, refuse takes bright red: red is 3.09:1 there, bright red 4.61:1', () => {
+  it('on macOS Terminal "Clear Dark" as measured, the meanings take their B10 slots (refuse amber 7.3:1, generated silver); its rule grey misses and is dropped', () => {
     const clearDark = mapper(measuredFromPalette(TERMINAL_CLEAR_DARK));
     expect(['seal', 'refuse', 'predict', 'generated', 'grey-2'].map((n) => clearDark(fg(n))))
-      .toEqual(['\x1b[32m', '\x1b[91m', '\x1b[33m', '\x1b[35m', '\x1b[39m']);
+      .toEqual(['\x1b[32m', '\x1b[33m', '\x1b[33m', '\x1b[37m', '\x1b[39m']);
   });
   it('with nothing measured, the four meanings and the rules take the terminal\'s own text color', () => {
     expect(['seal', 'refuse', 'predict', 'generated', 'grey-2'].map((n) => mapper(UNKNOWN)(fg(n)))).toEqual(Array(5).fill('\x1b[39m'));
