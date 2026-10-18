@@ -82,7 +82,8 @@ export interface PlyReadback extends MeshMeasure {
   notice: typeof DOCTRINE_15;
 }
 
-export type PlyReadResult = { ok: true; readback: PlyReadback } | MeshReadFailure;
+/** A reading: the measurement, and the file's own words (its header's first comment), declared and not checked. */
+export type PlyReadResult = { ok: true; readback: PlyReadback; comment?: string } | MeshReadFailure;
 
 // ── the header ────────────────────────────────────────────────────────────────
 
@@ -408,6 +409,7 @@ export function plyReadbackOf(buf: Buffer, file: string, sha256: string): PlyRea
       },
       provenance: 'generated', evidence: 'checked', notice: DOCTRINE_15,
     },
+    ...(parsed.comment ? { comment: parsed.comment } : {}),
   };
 }
 

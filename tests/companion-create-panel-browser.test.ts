@@ -8,8 +8,12 @@
  * unknown; another project's mesh refused from the page; the panel under the tab's Unfinished place; text of 11 px or more,
  * the B10 palette, and the panel at 800 × 600.
  *
- * FAKE, labelled: the projects (written by the test) and a large flat mesh (scans/strip.stl, a strip of triangles written by
- * the test). Real: the server, its token, Timmy's STL reader, the demo mesh as its script generated it
+ * R8 (H154): OBJ and PLY meshes beside STL, each listed with its kind, drawn in the same view from the triangles its own reader
+ * reads (the same cube as OBJ and as PLY draws the same pixels), measured by its own reader with its faces and what it ignored;
+ * a point cloud (a PLY with no faces) says why it is not drawn.
+ *
+ * FAKE, labelled: the projects (written by the test), a large flat mesh (scans/strip.stl, a strip of triangles written by
+ * the test), and a cube as OBJ and PLY and a point cloud (tray/…, tests/helpers/mesh-fakes.ts). Real: the server, its token, Timmy's STL reader, the demo mesh as its script generated it
  * (examples/visual-tools/demo-tray.stl), the Rerun header reader over the repository's own recording
  * (studio/ctx-c3w8/…/context.rrd, read, never changed), the page's code. Captures are written only where H153_CAPS names a
  * folder. Skipped, saying so, where no Chromium or Chrome is found.
@@ -24,6 +28,7 @@ import { DOCTRINE_15, num, readStlFile, topologyWords, volumeWords } from '../sr
 import { projectId } from '../src/project/index.js';
 import { VIEW_MAX_TRIANGLES, VIEW_WORDS } from '../src/vox/meshes.js';
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
+import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl } from './helpers/vox-fakes.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -32,6 +37,7 @@ if (!browserPath) console.warn('companion-create-panel-browser: no Chromium or C
 
 const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
 const CAPS = process.env.H153_CAPS ?? '';
+const CAPS154 = process.env.H154_CAPS ?? '';
 /** FAKE: a wavy sheet of `cells` × `cells` squares, two triangles each, written by the test (more triangles than the cap). */
 const CELLS = 142;
 const STRIP = CELLS * CELLS * 2;
@@ -69,6 +75,9 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     mkdirSync(join(root, 'refs'), { recursive: true });
     copyFileSync(resolve(DEMO_MESH), join(root, 'refs', 'demo-tray.stl'));
     put(root, 'scans/strip.stl', stripStl(CELLS));
+    put(root, 'tray/cube.obj', Buffer.from(cubeObj(10)));
+    put(root, 'tray/cube.ply', cubePly(10));
+    put(root, 'tray/cloud.ply', pointCloudPly(3));
     mkdirSync(join(root, 'rec'), { recursive: true });
     copyFileSync(RRD, join(root, 'rec', 'context.rrd'));
     put(other, 'refs/theirs.stl', cubeStl(5));
@@ -77,6 +86,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     companion = await startCompanionServer(0, { workspace: { env: { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: join(box, 'settings') }, shareMs: 0 } });
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
     if (CAPS) mkdirSync(CAPS, { recursive: true });
+    if (CAPS154) mkdirSync(CAPS154, { recursive: true });
   }, 120_000);
   afterAll(async () => {
     await browser?.close();
@@ -120,8 +130,9 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     const { page, errors, bad } = await open();
     try {
       // the list: the project's meshes, the demo tray first chosen (the first measured, by path)
-      expect(await page.$$eval('.create-mesh', (bs) => bs.map((b) => [(b as HTMLElement).dataset.createMesh, b.getAttribute('aria-current')]))).toEqual([['refs/demo-tray.stl', 'true'], ['scans/strip.stl', 'false']]);
-      expect(await text(page, '[data-create="meshes-title"]')).toBe('Meshes in this project (2)');
+      expect(await page.$$eval('.create-mesh', (bs) => bs.map((b) => [(b as HTMLElement).dataset.createMesh, b.getAttribute('aria-current')]))).toEqual([
+        ['refs/demo-tray.stl', 'true'], ['scans/strip.stl', 'false'], ['tray/cloud.ply', 'false'], ['tray/cube.obj', 'false'], ['tray/cube.ply', 'false']]);
+      expect(await text(page, '[data-create="meshes-title"]')).toBe('Meshes in this project (5)');
       await page.waitForFunction(() => Number((document.querySelector('[data-create="canvas"]') as HTMLElement | null)?.dataset.drawn ?? 0) > 0, null, { timeout: 15_000 });
       await settled(page);
       const first = await pixels(page);
@@ -238,7 +249,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
         const r = await fetch(`/api/panel/create/mesh?path=${encodeURIComponent('refs/theirs.stl')}&project=${id}`, { headers: { Authorization: `Bearer ${t}` } });
         return [r.status, (await r.json()).error];
       }, { t: token, id: projectId(root) });
-      expect(refused).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL files and tessellations), so it is not served.']);
+      expect(refused).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL, OBJ and PLY files and its tessellations), so it is not served.']);
       expect(await page.$$eval('.create-mesh', (bs) => bs.map((x) => (x as HTMLElement).dataset.createMesh))).not.toContain('refs/theirs.stl');
 
       // every text of the tab at 11 px or more; the palette: no blue, purple or cyan, no green (nothing live or sealed here)
@@ -296,6 +307,64 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: needs setup");
       await page.$eval('[data-create-box="recordings"]', (e) => e.scrollIntoView());
       await shot(page, 'h153-07-tab6-recordings');
+      expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('OBJ and PLY: each listed with its kind, drawn in the same view, measured by its own reader with its faces and what it ignored; a point cloud says why it is not drawn (R8 H154)', async () => {
+    const { page, errors, bad } = await open();
+    try {
+      const sub = (p: string): Promise<string> => text(page, `.create-mesh[data-create-mesh="${p}"] .create-mesh-sub`);
+      expect(await sub('tray/cube.obj')).toBe(`OBJ · 12 triangles · ${Buffer.byteLength(cubeObj(10))} B`);
+      expect(await sub('tray/cube.ply')).toBe(`PLY · 12 triangles · ${cubePly(10).length} B`);
+      expect(await sub('tray/cloud.ply')).toBe(`PLY · not measured · ${pointCloudPly(3).length} B`);
+      expect(await sub('refs/demo-tray.stl')).toBe('STL · 28 triangles · 1.4 KB');
+      const hashes: number[] = [];
+      for (const [p, file, words] of [
+        ['tray/cube.obj', 'h154-01-tab6-cube-obj', {
+          format: 'Wavefront OBJ (text)', faces: '6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all',
+          ignored: 'ignored: 1 comment, 1 o lines', declared: 'FAKE: a cube written by a test', units: "the file's own: OBJ records no unit",
+          precision: "each coordinate read as a 32-bit float (Math.fround), as Timmy's STL reader reads an ASCII STL, so one mesh written as STL and as OBJ measures the same",
+          reader: "Timmy's own OBJ reader (timmy-obj-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units",
+        }],
+        ['tray/cube.ply', 'h154-02-tab6-cube-ply', {
+          format: 'PLY (binary little-endian)', faces: '6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all',
+          ignored: 'ignored: 1 comment line', declared: 'FAKE: a cube written by a test', units: "the file's own: PLY records no unit",
+          precision: 'x, y and z stored as 32-bit floats, read as they are', stored: 'x, y and z as float; corners as list uchar int vertex_indices',
+          reader: "Timmy's own PLY reader (timmy-ply-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units",
+        }],
+      ] as const) {
+        await page.click(`.create-mesh[data-create-mesh="${p}"]`);
+        await page.waitForFunction((want) => document.querySelector('[data-create="view-title"]')?.textContent === `The view you can turn · ${want}` && document.querySelector('[data-create="count"]')?.textContent === 'all 12 triangles', p, { timeout: 15_000 });
+        await settled(page);
+        await settled(page);
+        const px = await pixels(page);
+        expect(px.triangles, p).toBeGreaterThan(0);
+        expect(px.drawn, p).toBeGreaterThan(1000);
+        expect(px.neutral, p).toBe(true);
+        hashes.push(px.hash);
+        expect(await viewName(page)).toBe('isometric · seen from +x, −y and +z at equal angles');
+        const shown = Object.fromEntries(await page.$$eval('[data-measure]', (ds) => ds.map((d) => [(d as HTMLElement).dataset.measure, (d.textContent ?? '').replace(/\s+/g, ' ').trim()])));
+        const { format, reader, ...rows } = words;
+        expect(shown, p).toMatchObject({
+          triangles: '12', corners: '8', 'box-size': '10 × 10 × 10', area: '600', volume: '1000 (enclosed; normals outward)',
+          topology: 'edge-manifold: every edge shared by exactly two triangles, consistently oriented', ...rows,
+        });
+        expect(shown.format, p).toMatch(new RegExp(`^${format.replace(/[()]/g, '\\$&')} · \\d+ B · sha256 [0-9a-f]{12}…$`));
+        expect(await text(page, '[data-create="reader"]'), p).toBe(reader);
+        expect(await text(page, '[data-create="doctrine"]')).toBe(DOCTRINE_15);
+        if (CAPS154) await page.screenshot({ path: join(CAPS154, `${file}.png`) });
+      }
+      // the same cube read from the OBJ and from the PLY: the same triangles, so the same pixels
+      expect(hashes[0]).toBe(hashes[1]);
+      // a point cloud: listed, not measured, not drawn, with why
+      await page.click('.create-mesh[data-create-mesh="tray/cloud.ply"]');
+      await page.waitForFunction(() => /^Not drawn: tray\/cloud\.ply/.test(document.querySelector('[data-create="note"]')?.textContent ?? ''), null, { timeout: 15_000 });
+      expect(await text(page, '[data-create="note"]')).toBe('Not drawn: tray/cloud.ply was not measured (not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)).');
+      expect(await text(page, '[data-measure="why"]')).toBe('not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)');
+      expect(await page.$eval('[data-create="canvas"]', (c) => (c as HTMLElement).hidden)).toBe(true);
+      if (CAPS154) await page.screenshot({ path: join(CAPS154, 'h154-03-tab6-point-cloud.png') });
       expect(bad).toEqual([]);
       expect(errors).toEqual([]);
     } finally { await page.close(); }

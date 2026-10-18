@@ -76,7 +76,8 @@ export interface ObjReadback extends MeshMeasure {
   notice: typeof DOCTRINE_15;
 }
 
-export type ObjReadResult = { ok: true; readback: ObjReadback } | MeshReadFailure;
+/** A reading: the measurement, and the file's own words (its first comment, its first object's name), declared and not checked. */
+export type ObjReadResult = { ok: true; readback: ObjReadback; comment?: string; object?: string } | MeshReadFailure;
 
 // ── parsing ───────────────────────────────────────────────────────────────────
 
@@ -261,6 +262,7 @@ export function objReadbackOf(buf: Buffer, file: string, sha256: string): ObjRea
       },
       provenance: 'generated', evidence: 'checked', notice: DOCTRINE_15,
     },
+    ...(parsed.comment ? { comment: parsed.comment } : {}), ...(parsed.object ? { object: parsed.object } : {}),
   };
 }
 

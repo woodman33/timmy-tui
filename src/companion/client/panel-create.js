@@ -3,16 +3,17 @@
 // src/vox/meshes.ts from the shown project's own files.
 //
 // Three working columns:
-//   left    the project's meshes (its STL files, and a STEP's tessellations a VoxVision record names), each with its triangle
-//           count or why it was not measured; under them the Rerun recordings Timmy can read (their header facts, and what
+//   left    the project's meshes (its STL, OBJ and PLY files, and a STEP's tessellations a VoxVision record names), each with
+//           its kind, its triangle count or why it was not measured; under them the Rerun recordings Timmy can read (their header facts, and what
 //           stays unknown with why) and Rerun's viewer as this computer has it (found is not run: nothing here starts it)
 //   centre  the view you can turn: Timmy's own drawing of the selected file's triangles on a plain canvas (orthographic, flat
 //           shading by each face's normal under one fixed light, painter's order; no WebGL, no library, no model). Drag or
 //           the arrow keys turn it, the wheel or + and − zoom, F, T, S and I show the front, top, side and an isometric view,
 //           R resets. The mesh is content: neutral greys, never amber or green. Above the cap it draws an even pick of the
 //           triangles and says "showing N of M"; the measurements are always of the whole file.
-//   right   what Timmy's own STL reader measured from the whole file: triangles, corners, box, area, volume, topology, the
-//           file's own words, where it came from, and DOCTRINE §15's sentence
+//   right   what Timmy's own reader of its kind (STL, OBJ or PLY: src/native/*-readback.ts) measured from the whole file:
+//           triangles, corners, box, area, volume, topology, an OBJ's or PLY's faces and what its reader ignored, the file's
+//           own words, where it came from, and DOCTRINE §15's sentence
 //
 // The view draws the bytes the list measured: it asks for them by their sha256, and a file changed since is read again.
 // Every number drawn is the list's; nothing here invents a value.
@@ -36,6 +37,9 @@
     iso: { yaw: 45, pitch: 35.26, name: 'isometric', words: 'seen from +x, −y and +z at equal angles' },
   };
   const FIRST = 'iso';
+  // R8 (H154): each kind of mesh file in its word
+  const KIND = { stl: 'STL', obj: 'OBJ', ply: 'PLY' };
+  const readerName = (m) => (m && m.reader && m.reader.name) || "Timmy's own reader";
   const KEY_VIEW = { f: 'front', t: 'top', s: 'side', i: 'iso' };
   // neutral greys for the mesh (content), darkest to lightest
   const GREYS = Array.from({ length: SHADES }, (_, s) => { const v = Math.round(46 + (s / (SHADES - 1)) * 186); return `rgb(${v}, ${v}, ${v})`; });
@@ -151,15 +155,15 @@
     const el = q('meshes');
     put(q('meshes-title'), `Meshes in this project (${L.meshes.length + L.more})`);
     if (!L.meshes.length) {
-      put(el, h('p', { class: 'empty', 'data-create-empty': 'meshes' }, 'No mesh in this project yet: an .stl file in it is listed here and drawn. In Timmy\'s terminal, ',
-        h('button', { type: 'button', class: 'cmd', 'data-copy': '/add <file.stl>' }, '/add <file.stl>'), ' copies one in (a local change). A STEP is listed once ',
+      put(el, h('p', { class: 'empty', 'data-create-empty': 'meshes' }, 'No mesh in this project yet: an .stl, .obj or .ply file in it is listed here and drawn. In Timmy\'s terminal, ',
+        h('button', { type: 'button', class: 'cmd', 'data-copy': '/add <file>' }, '/add <file>'), ' copies one in (a local change). A STEP is listed once ',
         h('button', { type: 'button', class: 'cmd', 'data-copy': '/vox view <record>' }, '/vox view <record>'), ' has made its tessellation (that needs OCP).'));
     } else {
       put(el, h('ol', { class: 'create-list' }, L.meshes.map((m) => h('li', null,
         h('button', { type: 'button', class: 'create-mesh', 'data-create-mesh': m.path, 'aria-current': m.path === S.sel ? 'true' : 'false' },
           h('span', { class: 'create-mesh-path' }, m.path),
           h('span', { class: 'create-mesh-sub' }, [
-            m.kind === 'tessellation' ? `tessellation of ${m.tessellation.from}` : 'STL',
+            m.kind === 'tessellation' ? `tessellation of ${m.tessellation.from}` : (KIND[m.kind] || String(m.kind).toUpperCase()),
             m.readback ? `${m.readback.triangles} triangle${m.readback.triangles === 1 ? '' : 's'}` : m.pending ? 'being measured…' : 'not measured',
             bytesWords(m.bytes),
           ].join(' · ')))))),
@@ -206,6 +210,7 @@
     const row = (k, label, value) => [h('dt', null, label), h('dd', { 'data-measure': k }, value)];
     const r = m.readback;
     put(q('measure-title'), `Measured from the file · ${m.path}`);
+    const reader = (m.reader && m.reader.words) || L.reader;
     const origin = row('origin', `where it came from (provenance ${m.origin.provenance})`, m.origin.words);
     const said = m.declared ? row('declared', `the file says (${m.declared.what}; its own words, not checked)`, m.declared.words) : [];
     if (!r) {
@@ -215,7 +220,7 @@
     }
     const b = r.bbox;
     put(el,
-      h('p', { class: 'create-note', 'data-create': 'reader' }, L.reader),
+      h('p', { class: 'create-note', 'data-create': 'reader' }, reader),
       h('dl', { class: 'create-measure' },
         row('triangles', 'triangles', String(r.triangles)),
         row('corners', 'corners (joined only where bit-identical)', String(r.corners)),
@@ -225,7 +230,11 @@
         row('area', 'surface area', num(r.area)),
         row('volume', 'volume', m.volume),
         row('topology', 'topology', m.topology),
-        row('format', 'file', `${r.format === 'binary' ? 'binary' : 'ASCII'} STL · ${bytesWords(r.bytes)} · sha256 ${r.sha256.slice(0, 12)}…`),
+        m.faces ? row('faces', 'faces', m.faces) : [],
+        row('format', 'file', `${m.format || `${r.format === 'binary' ? 'binary' : 'ASCII'} STL`} · ${bytesWords(r.bytes)} · sha256 ${r.sha256.slice(0, 12)}…`),
+        r.ply ? row('stored', 'stored as', `${r.ply.coordinates}; corners as ${r.ply.indices}`) : [],
+        r.precision ? row('precision', 'coordinates', r.precision) : [],
+        m.ignored ? row('ignored', 'not measured', m.ignored) : [],
         row('units', 'units', r.units),
         origin, said,
         m.tessellation ? row('tessellation', 'tessellated', `from ${m.tessellation.from} by ${m.tessellation.made_by}, within ${m.tessellation.tolerance}; ${m.tessellation.sealed === true ? 'a vox receipt sealed these bytes' : m.tessellation.sealed === false ? 'no vox receipt of this project seals these bytes' : 'no receipt was checked here'}`) : []),
@@ -240,7 +249,7 @@
     put(q('label'), S.list ? S.list.view : '');
     put(q('count'), '');
     if (!row) { stageNote('No mesh in this project to draw.'); paint(); return; }
-    if (!row.readback && row.pending) { stageNote(`${row.path} is being measured by Timmy's own STL reader: it is drawn once the list holds its measurements.`); paint(); return; }
+    if (!row.readback && row.pending) { stageNote(`${row.path} is being measured by ${readerName(row)}: it is drawn once the list holds its measurements.`); paint(); return; }
     if (!row.readback) { stageNote(`Not drawn: ${row.path} was not measured (${row.why || 'unknown'}).`); paint(); return; }
     stageNote(`Reading ${row.path}…`);
     const ctx = S.ctx;
