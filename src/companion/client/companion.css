@@ -1346,3 +1346,49 @@ body.slate-absent p { max-width: 72ch; }
   .sb-item { grid-template-columns: 64px minmax(0, 1fr); }
   .sb-thumb, .sb-thumb-failed { width: 64px; height: 44px; }
 }
+
+/* ==========================================================================================================================
+ * R8 (H155): tab 7, the Control Room's panes (src/companion/client/panel-control.js over src/companion/panels/control.ts):
+ * three working columns at desktop size (what runs and waits, with the tab's actions; the panes; where work happens), the
+ * panes a 2×2 grid that fills its box. A pane is structure (a #444 border on the well) with its words; its log is monospace,
+ * one row per line, the newest kept where the pane is short (the oldest go out of sight at its top). Amber only for focus
+ * and a failure's ✕ and its words (B10); green only for a receipt the server verified in this reading (.is-verified). Every
+ * text is 11 px or more. On a narrow screen the columns stack and the panes are one column; the page scrolls, never sideways.
+ * ========================================================================================================================== */
+.cols-control { grid-template-columns: minmax(0, 24fr) minmax(0, 52fr) minmax(0, 24fr); }
+.control-host { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.control-host > .empty { margin-top: 8px; }
+.control-panes-box { flex: 1 1 auto; }
+.control-panes-body { gap: 6px; }
+.control-grid { list-style: none; flex: 1 1 auto; min-height: 0; display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.control-grid > .empty { grid-column: 1 / -1; }
+.control-pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--timmy-line-strong); border-radius: 4px; background: var(--timmy-surface); padding: 5px 8px 6px; font-size: 12px; line-height: 1.45; }
+.control-pane.is-quiet { border-color: var(--timmy-line); }
+.control-pane[data-open-run] { cursor: pointer; }
+.control-pane[data-open-run]:hover { border-color: var(--timmy-text-secondary); }
+.control-pane:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+.control-pane-head { display: flex; gap: 8px; align-items: baseline; min-width: 0; flex: 0 0 auto; }
+.control-pane-state { flex: 0 0 auto; color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+.control-pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--timmy-text); }
+.control-pane-who, .control-pane-foot, .control-pane-stop, .control-pane-open { flex: 0 0 auto; font-size: 11px; color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+.control-pane-who.is-one, .control-pane-open.is-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.control-pane-stop { color: var(--timmy-text); }
+.control-pane-open.is-link { color: var(--timmy-link); text-decoration: underline; text-underline-offset: 2px; }
+.control-log { flex: 1 1 0; min-height: 1.6em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 3px; padding: 2px 6px; font-size: 12px; }
+.control-line { display: block; flex: 0 0 auto; white-space: pre; overflow: hidden; text-overflow: ellipsis; color: var(--timmy-text); }
+.control-log-why { color: var(--timmy-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.control-receipt.is-verified { color: var(--timmy-live); }
+.control-host .tone-failed { color: var(--timmy-failure); }
+.control-panes-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; }
+.control-more { font-size: 12px; color: var(--timmy-text); overflow-wrap: anywhere; }
+.control-note { font-size: 11px; color: var(--timmy-text-secondary); line-height: 1.45; overflow-wrap: anywhere; }
+@media (max-width: 1180px) {
+  .cols-control { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .cols-control > .control-host { grid-column: 1 / -1; grid-row: 1; }
+}
+@media (max-width: 860px) {
+  .cols-control { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; flex: none; }
+  .cols-control > .control-host { grid-column: auto; grid-row: auto; }
+  .control-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; flex: none; }
+  .control-pane { min-height: 9em; }
+}

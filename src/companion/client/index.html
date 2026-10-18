@@ -253,9 +253,11 @@
       </div>
     </section>
 
-    <!-- 7 · Control Room (references 07, 14): what runs, what waits on you, and where work happens -->
+    <!-- 7 · Control Room (references 07, 14): what runs, what waits on you, and where work happens. R8 (H155): in the middle,
+         the runs' panes, drawn read-only by panel-control.js into the host below (its route: src/companion/panels/control.ts,
+         from src/ops/panes.ts, the Workbench's tab 7's own source): a 2×2 grid, what runs first, then the newest ended. -->
     <section id="ws-control" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-control" data-ws-page="control" hidden>
-      <div class="cols cols-two">
+      <div class="cols cols-control">
         <div class="col-stack">
           <section class="box box-fit" aria-labelledby="control-now-title">
             <h2 id="control-now-title" class="box-title">What runs · what waits on you</h2>
@@ -266,6 +268,7 @@
             <div class="box-body"><div class="acts-full" data-acts-for="control"></div></div>
           </section>
         </div>
+        <div class="control-host" data-panel-host="control"><p class="empty">Reading this project's panes…</p></div>
         <!-- Where work happens; this page checks none of it -->
         <div id="tab-workspace" class="tab-panel active" role="region" aria-label="Where work happens" data-ws="control">
           <section id="workspace-card" class="box" aria-labelledby="workspace-title">
@@ -417,6 +420,8 @@
   <script src="/panel-vox.js"></script>
   <script src="/panel-tools.js"></script>
   <script src="/panel-create.js"></script>
+  <!-- R8 (H155): tab 7's panes, read-only -->
+  <script src="/panel-control.js"></script>
   <!-- R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts) -->
   <script src="/panel-run.js"></script>
   <script src="/companion.js"></script>
