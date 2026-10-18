@@ -317,6 +317,38 @@ describe.skipIf(!browserPath)('a draft that lands on shapes already on the board
     }
   }, 120_000);
 
+  it("the R7 rehearsal's case: a second FAKE draft at the first one's coordinates; while both wait each says it lands on the other's 2 shapes; once the first is accepted the second still says so, and Move takes it clear of them", async () => {
+    await name(tray);
+    const { page, context, errors } = await open();
+    try {
+      await shows(page, 'tray');
+      const at = [{ x: 5000, y: 5000, w: 160, h: 80, text: 'FAKE first' }, { x: 5240, y: 5000, w: 160, h: 80, text: 'FAKE first too' }];
+      const first = await agent(tray)('canvas_exec', { code: boxes(at), jobId: 'turn-first' });
+      expect(first).toMatchObject({ ok: true, draft: { shapes: 2 } });
+      await page.waitForSelector(`#draft-list li.draft[data-draft="${first.draft!.id}"]`);
+      expect((await said(page, first.draft!.id)).card).toBeNull();
+      // the same coordinates again, as the rehearsal's second draft had them
+      const second = await agent(tray)('canvas_exec', { code: boxes(at.map((b) => ({ ...b, text: b.text.replace('first', 'second') }))), jobId: 'turn-second' });
+      expect(second).toMatchObject({ ok: true, draft: { shapes: 2 } });
+      const lands = 'This draft lands on 2 shapes already on the board.';
+      await page.waitForFunction((d) => document.querySelector(`#draft-list li.draft[data-draft="${d}"] .draft-over-words`)?.textContent === 'This draft lands on 2 shapes already on the board.', second.draft!.id, { timeout: 10_000 });
+      expect((await said(page, first.draft!.id)).card).toBe(lands);
+      // the first accepted: its shapes are the board's own now, and the second still lands on them
+      await page.click(`#draft-list li.draft[data-draft="${first.draft!.id}"] .draft-accept`);
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job turn-first\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      expect(await said(page, second.draft!.id)).toEqual({ card: lands, buttons: ['Move it to free space', 'Show', 'Accept', 'Discard'], move: 'on', label: 'DRAFT · proposed by Timmy', board: lands });
+      await page.click(`#draft-list li.draft[data-draft="${second.draft!.id}"] button.draft-move`);
+      await page.waitForFunction((d) => document.querySelector(`#draft-list li.draft[data-draft="${d}"] .draft-over-words`)?.textContent === 'Moved to free space from x 5000, y 5000, where it landed on 2 shapes. It lands on no shape now.', second.draft!.id, { timeout: 10_000 });
+      const theirs = await boundsOf(page, first.result as string[]);
+      const mine = await boundsOf(page, second.result as string[]);
+      expect(mine.flatMap((a) => theirs.filter((b) => strict(a, b)))).toEqual([]);
+      await savedState(page);
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
   it('while Studio switches projects the button is off and says why, and nothing moves on either board; the switch given up, the draft is where the model put it, still saying what it lands on, and the button moves it', async () => {
     await name(tray);
     const { page, context, errors } = await open();
