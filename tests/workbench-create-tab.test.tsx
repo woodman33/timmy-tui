@@ -101,7 +101,8 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     expect(said).toContain(`Measured by Timmy's own STL reader (timmy-stl-readback/1), OBJ reader (timmy-obj-readback/1) and PLY reader (timmy-ply-readback/1), each from the whole file: a deterministic computation on its bytes, in the file's own units. ${DOCTRINE_15}`);
     // the recordings: the header's facts, what stays unknown and why; Rerun's viewer as it is here
     expect(said).toContain('RECORDINGS TIMMY CAN READ (1)');
-    expect(said).toMatch(/rec\/context\.rrd written by Rerun \d+\.\d+\.\d+ · \d+ data chunks · entities, frames and time range: unknown to Timmy \(inside the recording's data chunks \(compressed Arrow\), which Timmy does not decode; Rerun's viewer shows it\)/);
+    // R9 lead (at the merge of H159): the row carries the Rerun CLI's reading, unknown here until a companion lists tab 6
+    expect(said).toMatch(/rec\/context\.rrd written by Rerun \d+\.\d+\.\d+ · \d+ data chunks · entities unknown: Context says why · timelines unknown: Context says why/);
     expect(said).toMatch(/Rerun's viewer: (needs setup|found \(installed here, not run\))/);
     // nothing green (no live connection, passed check or seal is shown), and the measurements are text, not commands
     expect(lines.flat().filter((s) => s.role === 'live')).toEqual([]);

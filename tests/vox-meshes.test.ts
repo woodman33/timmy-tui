@@ -367,8 +367,8 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
       // a list on a draw path (no reading asked): the header facts, and "not read yet"; nothing runs
       const drawn = listMeshes({ root, env: fakeEnv });
       expect(drawn.recordings.map((r) => [r.path, r.facts?.format, r.cli.state, r.cli.words])).toEqual([
-        ['rec/cut.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background, once tab 6 is served'],
-        ['rec/probe.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background, once tab 6 is served'],
+        ['rec/cut.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background once the companion shows tab 6 (c on tab 6 opens it)'],
+        ['rec/probe.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background once the companion shows tab 6 (c on tab 6 opens it)'],
       ]);
       expect(drawn.recordingsPending).toBe(0);
       // a list that asks for the readings (the companion's): being read, in the background

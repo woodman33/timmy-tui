@@ -617,7 +617,9 @@ const asked = new Set<string>();
 let pumping: Promise<void> | null = null;
 
 const BEING_READ = 'being read by the Rerun CLI, in the background';
-const NOT_YET = 'not read yet: rerun-cli reads it in the background, once tab 6 is served';
+// R9 lead (at the merge of H159 and H160): the Workbench says it too, where nothing reads a recording until the companion
+// that runs in its process lists tab 6, so the words say how that happens
+const NOT_YET = 'not read yet: rerun-cli reads it in the background once the companion shows tab 6 (c on tab 6 opens it)';
 
 function programSig(command: string): string {
   try { const st = statSync(command); return `${st.dev}:${st.ino}:${st.size}:${st.mtimeMs}:${st.ctimeMs}`; } catch { return ''; }

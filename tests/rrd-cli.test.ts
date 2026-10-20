@@ -272,8 +272,8 @@ describe('kept by the file\'s sha256 and the CLI\'s version, read in the backgro
 
     // asked on a draw path: nothing runs, and it says it is not read yet
     const before = rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env });
-    expect(before).toMatchObject({ state: 'not read', words: 'not read yet: rerun-cli reads it in the background, once tab 6 is served' });
-    expect(before.entities).toEqual({ state: 'unknown', reason: 'not-run', why: 'not read yet: rerun-cli reads it in the background, once tab 6 is served' });
+    expect(before).toMatchObject({ state: 'not read', words: 'not read yet: rerun-cli reads it in the background once the companion shows tab 6 (c on tab 6 opens it)' });
+    expect(before.entities).toEqual({ state: 'unknown', reason: 'not-run', why: 'not read yet: rerun-cli reads it in the background once the companion shows tab 6 (c on tab 6 opens it)' });
     expect(callsOf(log)).toEqual([]);
 
     startRrdReading(job('rec/probe.rrd', PROBE));

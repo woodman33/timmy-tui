@@ -164,7 +164,9 @@ describe('the Workbench\'s tab 6: its meshes and recordings as items (R9 H160, R
     const words = (k: number): string => squash(v.lines.slice(v.items[k].line, v.items[k].line + (v.items[k].rows ?? 1)).map(plain).join(' '));
     expect(words(2)).toContain('refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold: every edge shared by exactly two triangles, consistently oriented · volume 21392 (enclosed; normals outward)');
     expect(words(0)).toMatch(/^▸ refs\/demo-tray\.obj OBJ · 28 triangles/);
-    expect(words(3)).toMatch(/^rec\/context\.rrd written by Rerun \d+\.\d+\.\d+ · \d+ data chunks · entities, frames and time range: unknown to Timmy \(inside the recording's data chunks/);
+    // R9 lead (at the merge of H159): the row carries H159's Rerun CLI reading now; nothing has read it in this process (no
+    // companion lists tab 6 here), so its entities and timelines are unknown, and Context says why
+    expect(words(3)).toMatch(/^rec\/context\.rrd written by Rerun \d+\.\d+\.\d+ · \d+ data chunks · entities unknown: Context says why · timelines unknown: Context says why/);
   }, 30_000);
 
   it('the page opens with the first mesh item in view, whole, the cursor on it, at 60x16, 80x24, 100x30, 120x40 and 160x45; the tab still says Unfinished', async () => {
@@ -285,8 +287,11 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
     const read = squash(createDetail(rec, 56, g).map(plain).join(' '));
     expect(read).toMatch(/Header written by Rerun \d+\.\d+\.\d+ · compression /);
     expect(read).toMatch(/Messages \d+ store info · \d+ data chunks/);
-    expect(read).toContain(squash('Entities unknown to Timmy: inside the recording\'s data chunks (compressed Arrow), which Timmy does not decode; Rerun\'s viewer shows it'));
-    expect(read).toContain('Time range unknown to Timmy:');
+    // R9 lead (at the merge of H159): what the Rerun CLI read, or why nothing yet: not installed here (as on CI), or installed and
+    // not read yet (no companion in this process has listed tab 6)
+    expect(read).toMatch(/Rerun CLI (not read by the Rerun CLI: rerun is not on the PATH|not read yet: rerun-cli reads it in the background once the companion shows tab 6 \(c on tab 6 opens it\))/);
+    expect(read).toMatch(/Entities unknown: (rerun is not on the PATH|not read by the Rerun CLI|not read yet)/);
+    expect(read).toMatch(/Timelines unknown: (rerun is not on the PATH|not read by the Rerun CLI|not read yet)/);
     expect(read).toMatch(rec.viewer.state === 'needs setup' ? /Viewer Rerun's viewer: needs setup/ : /Viewer Rerun's viewer: found \(installed here, not run\) Rerun's viewer is found here \([^)]*\): found is not run, and this tab runs nothing/);
   }, 60_000);
 
