@@ -181,7 +181,11 @@ export interface DecisionRecord {
   predictionRef?: string;
   requestKey: string;
   instructions: string;
-  provider: { id: string; transport: TransportKind | 'none'; endpoint?: EndpointKind; model?: string; paid: boolean; local: boolean };
+  /** `model`: the model the answer names, as received (absent without an answer). R9 (H162): `pricing` as declared. */
+  provider: {
+    id: string; transport: TransportKind | 'none'; endpoint?: EndpointKind; model?: string; paid: boolean; local: boolean;
+    pricing?: { kind: Pricing['kind']; usd_per_million_input?: number; billing?: Pricing['billing']; words: string; why?: string };
+  };
   options: {
     permitted: Array<{ id: string; label: string; description: string }>;
     excluded: Array<{ id: string; label: string; reason: string }>;

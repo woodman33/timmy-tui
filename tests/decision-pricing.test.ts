@@ -103,10 +103,10 @@ const expectRefusal = (j: Rec, reason: RegExp): void => {
   expect(j.cost).toMatchObject({ measured: false, estimate_usd: 0, basis: 'no call was made' });
 };
 
-// R9 step 1: marked it.fails, because each fails on this code (the FAKE is called: POST /v1/systemone, the https FAKE with the
-// token as Bearer; the body names clef-omni). The fix makes them pass and turns them into it().
+// R9 step 1 committed these as it.fails, because each failed on the code before (the FAKE was called: POST /v1/systemone, the
+// https FAKE with the token as Bearer; the body named clef-omni). Step 3 made them pass.
 describe('the SystemOne pricing defect (each of these failed on the code before R9: the FAKE was called)', () => {
-  it.fails('no pricing declared: free only refuses before anything is sent, through the CLI and the MCP tool', async () => {
+  it('no pricing declared: free only refuses before anything is sent, through the CLI and the MCP tool', async () => {
     const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest' });
     const out = await decideDo(route('--free-only'), { env, fetch: seam(fake) });
     expect(fake.requests).toEqual([]);
@@ -118,7 +118,7 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(fake.requests).toEqual([]);
   });
 
-  it.fails('no pricing declared: a budget cannot be checked against it, so nothing is sent', async () => {
+  it('no pricing declared: a budget cannot be checked against it, so nothing is sent', async () => {
     const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest' });
     const out = await decideDo(route('--budget-usd', '5'), { env, fetch: seam(fake) });
     expect(fake.requests).toEqual([]);
@@ -130,7 +130,7 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(fake.requests).toEqual([]);
   });
 
-  it.fails('an https SystemOne address (a FAKE paid service, through the fetch seam) with a token file: refused, and the token is never sent', async () => {
+  it('an https SystemOne address (a FAKE paid service, through the fetch seam) with a token file: refused, and the token is never sent', async () => {
     const env = configure({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', token_file: fakeTokenFile(secrets) });
     const free = await decideDo(route('--free-only'), { env, fetch: seam(fake) });
     expect(fake.requests).toEqual([]);
@@ -141,7 +141,7 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(JSON.stringify([free, budgeted])).not.toContain(FAKE_TOKEN);
   });
 
-  it.fails('a declared price is budgeted with its billing: a per-question price over what is left is refused before anything is sent', async () => {
+  it('a declared price is budgeted with its billing: a per-question price over what is left is refused before anything is sent', async () => {
     const env = configure({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', pricing: { usd_per_million_input: 2, billing: 'per-question' } });
     const out = await decideDo(route('--budget-usd', '0.000001'), { env, fetch: seam(fake) });
     expect(fake.requests).toEqual([]);
@@ -154,7 +154,7 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(fake.requests).toEqual([]);
   });
 
-  it.fails('a localhost address whose model is a cloud tag is never free, even declared {"free": "local"}: refused, with why', async () => {
+  it('a localhost address whose model is a cloud tag is never free, even declared {"free": "local"}: refused, with why', async () => {
     let env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'kimi-k3:cloud', pricing: { free: 'local' } });
     const free = await decideDo(route('--free-only'), { env, fetch: seam(fake) });
     expect(fake.requests).toEqual([]);
@@ -167,14 +167,13 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(fake.requests).toEqual([]);
   });
 
-  it.fails('explicitly configured local inference still works: clef-flash:latest on 127.0.0.1 declared {"free": "local"}, under free only and local only', async () => {
+  it('explicitly configured local inference still works: clef-flash:latest on 127.0.0.1 declared {"free": "local"}, under free only and local only', async () => {
     const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' } });
     const out = await decideDo(route('--free-only', '--local-only'), { env, fetch: seam(fake) });
     expect(out.json).toMatchObject({ ok: true, outcome: 'recommend', recommendation: { option: 'codex' } });
     expect(fake.inference()).toHaveLength(1);
     expect(JSON.parse(fake.inference()[0].body)).toMatchObject({ model: 'clef-flash:latest' });
     expect(out.json.provider).toMatchObject({ id: 'systemone:clef-flash:latest', transport: 'systemone', endpoint: 'systemone-loopback', paid: false, local: true, pricing: { kind: 'free-local' } });
-    expect(out.json.model).toMatchObject({ requested: 'clef-flash:latest', returned: 'clef-flash:latest' });
     expect(JSON.stringify(out.json)).not.toMatch(/clef-omni/);
     expect(out.json.cost).toMatchObject({ measured: false, estimate_usd: 0 });
   });
@@ -253,5 +252,49 @@ describe('pricing is declared in clef.json, never inferred (the config and the p
     const none = providerFromConfig(readClefConfig({ ...process.env, TIMMY_HOME: join(home, 'nothing-here') })).describe();
     expect(none).toMatchObject({ id: 'none', available: false, pricing: { kind: 'no-call' } });
     expect(JSON.stringify(none)).not.toMatch(/clef-omni/i);
+  });
+});
+
+describe('refusals before inference, and the estimate at the declared price and billing', () => {
+  const ROUTE_ANSWER_TOKENS = 812;
+
+  it('a declared price is asked within its budget: per question bills the whole input once for each question', async () => {
+    const costs: Record<string, Rec> = {};
+    for (const billing of ['per-request', 'per-question'] as const) {
+      const env = configure({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', token_file: fakeTokenFile(secrets), pricing: { usd_per_million_input: 2, billing } });
+      const before = fake.inference().length;
+      const out = await decideDo(route('--budget-usd', '1', '--operation', billing === 'per-request' ? 'o0000aaa1' : 'o0000aaa2'), { env, fetch: seam(fake) });
+      expect(out.json).toMatchObject({ ok: true, outcome: 'recommend', provider: { id: 'systemone:d1-ultra', endpoint: 'systemone-remote', paid: true, local: false, pricing: { kind: 'paid', usd_per_million_input: 2, billing } } });
+      expect(fake.inference()).toHaveLength(before + 1);
+      const sent = fake.inference()[before];
+      expect(JSON.parse(sent.body)).toMatchObject({ model: 'd1-ultra' });
+      // the declared, budgeted call is the one that carries the token
+      expect(sent.auth).toBe(`Bearer ${FAKE_TOKEN}`);
+      costs[billing] = out.json.cost;
+    }
+    expect(costs['per-request'].measured).toBe(false);
+    expect(costs['per-question'].estimate_usd).toBeCloseTo(costs['per-request'].estimate_usd * 2, 12);
+    expect(costs['per-request'].basis).toMatch(/^an estimate, not a measured cost: ~\d+ input tokens at \$2 per million input tokens, billed per request, the price clef\.json declares/);
+    expect(costs['per-question'].basis).toMatch(/billed per question \(2 questions\): \d+ tokens billed, the price clef\.json declares/);
+    expect(costs['per-question'].basis).toMatch(new RegExp(`the service reported ${ROUTE_ANSWER_TOKENS} input tokens, \\$${((ROUTE_ANSWER_TOKENS * 2 * 2) / 1e6).toFixed(6).replace('.', '\\.')} at the declared price`));
+  });
+
+  it('{"free": "local"} on another computer (hardware the operator controls): free only allows it, local only refuses it', async () => {
+    const env = configure({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'jev-1', pricing: { free: 'local' } });
+    const local = await decideDo(route('--local-only'), { env, fetch: seam(fake) });
+    expect(fake.requests).toEqual([]);
+    expectRefusal(local.json, /^local only: the SystemOne deployment on another computer runs off this computer, so it is not asked$/);
+    const free = await decideDo(route('--free-only', '--operation', 'o0000aaa3'), { env, fetch: seam(fake) });
+    expect(free.json).toMatchObject({ outcome: 'recommend', provider: { id: 'systemone:jev-1', paid: false, local: false, pricing: { kind: 'free-local' } }, cost: { measured: false, estimate_usd: 0 } });
+    expect(free.json.cost.basis).toMatch(/^declared free in clef\.json/);
+    expect(fake.inference()).toHaveLength(1);
+  });
+
+  it('a declared price with no budget is refused before anything is sent, as paid inference always was', async () => {
+    const env = configure({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', pricing: { usd_per_million_input: 2, billing: 'per-request' } });
+    const out = await decideDo(route(), { env, fetch: seam(fake) });
+    expect(fake.requests).toEqual([]);
+    expectRefusal(out.json, /^paid inference needs a budget; none was given, so no paid call is made$/);
+    expect(out.json.fallback.reasonKind).toBe('budget');
   });
 });

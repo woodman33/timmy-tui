@@ -3,10 +3,15 @@
  *
  *   the allowed-choice set   the caller's options that are available and not forbidden by policy, plus needs_review ("A
  *                            person should decide"), always; the rest are listed with their reasons and never shown
- *   egress                   local only refuses a transport that runs off this computer; free only refuses one that costs
- *                            money; there is no silent switch to paid inference
- *   budget                   paid inference needs a budget; an estimate (the request's JSON characters / 4, plus the media's
- *                            documented tokens, at $0.15 per million input tokens) above what is left is refused
+ *   egress                   local only refuses a model that runs off this computer (another computer, or a cloud model tag
+ *                            at a loopback address); free only refuses a declared price; there is no silent switch to paid
+ *                            inference
+ *   pricing (R9, H162)       unknown pricing (none declared, or declared free for a cloud model tag) is refused: under free
+ *                            only, whenever a budget applies, and when neither does (a call that may cost money needs a
+ *                            budget); it never becomes zero
+ *   budget                   a declared price needs a budget; an estimate (the request's JSON characters / 4, plus the
+ *                            media's documented tokens, at the declared price and billing, src/decision/pricing.ts) above
+ *                            what is left is refused
  *   media                    sent only when "Allow cloud analysis" is on, the item is marked not private and checkMedia()
  *                            accepts it; the record keeps each item's sha256 and size, never its bytes
  *   staleness                a request bound to a revision the project has moved on from is not asked
@@ -20,8 +25,9 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { checkMedia, CLEF_LIMITS, CLEF_OMNI_HOSTED_USD_PER_MILLION_INPUT, type ClefMedia, type ClefRequest, type MediaCandidate } from './clef-contract.js';
+import { checkMedia, CLEF_LIMITS, type ClefMedia, type ClefRequest, type MediaCandidate } from './clef-contract.js';
 import { NEEDS_REVIEW } from './judge.js';
+import { priceWords, type ModelLimits } from './pricing.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import {
   ADMISSION_CHECKS, type Admission, type AdmissionCheckName, type AdmissionChecks, type DecisionOption, type MediaRecord, type MediaRef,
@@ -91,11 +97,37 @@ const transportWords = (d: ProviderDescription): string =>
     : d.transport === 'systemone' ? `the SystemOne deployment${d.local ? ' on this computer' : ' on another computer'}`
       : d.transport === 'fixture' ? 'the fixture transport' : 'no transport';
 
+/** Where the model is asked, in words: never its address. */
+export const whereWords = (d: ProviderDescription): string =>
+  d.transport === 'workers-ai' ? 'Workers AI (Cloudflare\'s hosted service)'
+    : d.transport === 'systemone' ? `the SystemOne endpoint ${d.endpoint === 'systemone-loopback' ? 'on this computer' : 'on another computer'}`
+      : d.transport === 'fixture' ? 'the fixture transport' : 'no transport';
+
 /** Why the policy refuses this transport, or undefined when it may be asked. */
 export function egressRefusal(d: ProviderDescription, p: Partial<EgressPolicy> = {}): string | undefined {
-  if (p.localOnly && !d.local) return `local only: ${transportWords(d)} runs off this computer, so it is not asked`;
-  if (p.freeOnly && d.paid) return `free only: ${transportWords(d)} costs money ($${CLEF_OMNI_HOSTED_USD_PER_MILLION_INPUT} per million input tokens); it is never used in place of a free route`;
+  if (p.localOnly && !d.local) {
+    // a loopback address is this computer, but a cloud model tag sends what it is given to a cloud from there
+    if (d.cloudModel && d.endpoint === 'systemone-loopback') return `local only: ${d.model} is a cloud model tag: ${whereWords(d)} sends it to a cloud, so it is not asked`;
+    return `local only: ${transportWords(d)} runs off this computer, so it is not asked`;
+  }
+  const pr = d.pricing;
+  if (p.freeOnly && pr?.kind === 'paid' && pr.usd_per_million_input !== undefined && pr.billing) {
+    return `free only: ${d.model} on ${whereWords(d)} is declared paid (${priceWords(pr.usd_per_million_input, pr.billing)}); it is never used in place of a free route`;
+  }
   return undefined;
+}
+
+/**
+ * R9 (H162): why unknown pricing refuses this call, or undefined when the pricing is declared (or no call is made). Unknown is
+ * never taken as free or as zero: free only refuses it, a budget cannot be checked against it, and with neither, a call that
+ * may cost money still needs a budget. A description without a pricing is unknown.
+ */
+export function pricingRefusal(d: ProviderDescription, ctx: { freeOnly?: boolean; budget: boolean }): string | undefined {
+  if (d.pricing && d.pricing.kind !== 'unknown') return undefined;
+  const of = `the pricing of ${d.model} on ${whereWords(d)} is unknown (${d.pricing?.why ?? 'the provider describes no pricing'})`;
+  if (ctx.freeOnly) return `free only: ${of}, so it cannot be shown to be free; unknown pricing is never taken as free, and no call is made`;
+  if (ctx.budget) return `unknown pricing cannot be checked against the budget, so no call is made: ${of}`;
+  return `${of}: a call that may cost money needs a budget, and unknown pricing cannot be checked against one, so no call is made`;
 }
 
 /** Documented token counts: an image is 64 to 1024 input tokens (the top is used); a video at most 256 per second. */
@@ -104,10 +136,11 @@ const VIDEO_TOKENS_PER_SECOND = 256;
 
 /**
  * Input tokens a request may be billed, estimated before the call: the JSON body's characters / 4, plus each media item's
- * documented tokens (audio has no published rate, so it counts as the whole context window), never more than the
- * 64,000-token context the model reads.
+ * documented tokens (audio has no published rate, so it counts as the whole context window), never more than the context
+ * the model reads: Clef-Omni's 64,000 tokens by default; R9 (H162) `limits` gives the model's own (none stated: no cap).
  */
-export function estimateInputTokens(request: ClefRequest, media: MediaCandidate[] = []): { tokens: number; words: string } {
+export function estimateInputTokens(request: ClefRequest, media: MediaCandidate[] = [], limits?: Pick<ModelLimits, 'contextTokens'>): { tokens: number; words: string } {
+  const cap = limits ? limits.contextTokens : CLEF_LIMITS.contextTokens;
   const { images: _i, audio: _a, videos: _v, ...text } = request;
   const textTokens = Math.ceil(JSON.stringify(text).length / 4);
   let mediaTokens = 0;
@@ -117,19 +150,19 @@ export function estimateInputTokens(request: ClefRequest, media: MediaCandidate[
   const videoSeconds = media.filter((m) => m.kind === 'video').reduce((s, m) => s + (m.seconds ?? 0), 0);
   if (videoSeconds) { mediaTokens += Math.ceil(videoSeconds * VIDEO_TOKENS_PER_SECOND); parts.push(`${Math.ceil(videoSeconds * VIDEO_TOKENS_PER_SECOND)} for ${videoSeconds} s of video (${VIDEO_TOKENS_PER_SECOND} a second at most)`); }
   if (media.some((m) => m.kind === 'audio')) { mediaTokens += CLEF_LIMITS.contextTokens; parts.push('the whole context window for audio (no per-second rate is published)'); }
-  const tokens = Math.min(CLEF_LIMITS.contextTokens, textTokens + mediaTokens);
-  return { tokens, words: `${parts.join(', ')}${textTokens + mediaTokens > CLEF_LIMITS.contextTokens ? `, capped at the ${CLEF_LIMITS.contextTokens}-token context` : ''}` };
+  const tokens = cap === undefined ? textTokens + mediaTokens : Math.min(cap, textTokens + mediaTokens);
+  return { tokens, words: `${parts.join(', ')}${cap !== undefined && textTokens + mediaTokens > cap ? `, capped at the ${cap}-token context` : ''}` };
 }
-
-/** The hosted price of `tokens` input tokens (output tokens are not charged). */
-export const estimateUsd = (tokens: number): number => (tokens * CLEF_OMNI_HOSTED_USD_PER_MILLION_INPUT) / 1_000_000;
 
 const usd = (n: number): string => `$${n.toFixed(6)}`;
 
-/** Why paid inference is refused for this estimate, or undefined when it fits what is left. */
-export function budgetRefusal(estimate: number, remainingUsd: number | undefined): string | undefined {
+/**
+ * Why paid inference is refused for this estimate, or undefined when it fits what is left. R9 (H162): the estimate is at the
+ * declared price and billing (src/decision/pricing.ts estimateCost), and `basis` says how it was made.
+ */
+export function budgetRefusal(estimate: number, remainingUsd: number | undefined, basis?: string): string | undefined {
   if (remainingUsd === undefined || !Number.isFinite(remainingUsd)) return 'paid inference needs a budget; none was given, so no paid call is made';
-  if (estimate > remainingUsd) return `the estimate ${usd(estimate)} is more than the ${usd(Math.max(0, remainingUsd))} left of the budget`;
+  if (estimate > remainingUsd) return `the estimate ${usd(estimate)}${basis ? ` (${basis})` : ''} is more than the ${usd(Math.max(0, remainingUsd))} left of the budget`;
   return undefined;
 }
 

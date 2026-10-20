@@ -5,9 +5,10 @@
  * The order of things, for each input:
  *   1. the recorded decision for its request key, if there is one (or the one in flight here, or another process's): no call
  *   2. the allowed-choice set (src/decision/policy.ts) and the deterministic proposal (src/decision/deterministic.ts)
- *   3. no call, the deterministic path used and its reason recorded, when: the inputs are unresolved, "Use Clef routing" is
- *      off, the revision is stale, fewer than 2 options are permitted, the provider is unavailable, egress is denied, or
- *      paid inference has no budget for it
+ *   3. no call, the deterministic path used and its reason recorded, when: the inputs are unresolved, decision-model routing
+ *      ("Use Clef routing", as the setting is stored) is off, the revision is stale, fewer than 2 options are permitted, the
+ *      provider is unavailable, egress is denied, the pricing is unknown (R9, H162: never taken as free or zero), or a
+ *      declared price has no budget for it (the estimate at the declared price and billing); none of these sends a byte
  *   4. the call: an answer that fails a check is malformed; a timeout or an unavailable service is recorded as such; each
  *      is a fallback to the deterministic path
  *   5. the judge (src/decision/judge.ts): a recommendation, or an abstention (a person decides; the deterministic option is
@@ -27,14 +28,15 @@ import { resolve } from 'node:path';
 import { OPERATION_ID } from '../ops/context.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { redactString } from '../utils/redact.js';
-import { checkRequest, CLEF_LIMITS, CLEF_OMNI_MODEL, type ClefQuestion, type ClefRequest, type ClefResponse } from './clef-contract.js';
+import { checkRequest, CLEF_LIMITS, type ClefQuestion, type ClefRequest, type ClefResponse } from './clef-contract.js';
 import { readClefConfig } from './config.js';
 import { deterministicProposal, type DeterministicProposal } from './deterministic.js';
 import { judge, NEEDS_REVIEW } from './judge.js';
 import {
-  admission, allowedChoices, budgetRefusal, egressRefusal, estimateInputTokens, estimateUsd, NEEDS_REVIEW_LABEL, planMedia, staleRefusal,
+  admission, allowedChoices, budgetRefusal, egressRefusal, estimateInputTokens, NEEDS_REVIEW_LABEL, planMedia, pricingRefusal, staleRefusal,
   type AllowedChoices, type EgressPolicy, type MediaPlan,
 } from './policy.js';
+import { estimateCost, FIXTURE_PRICING, type Pricing } from './pricing.js';
 import { ClefOmniProvider, providerFromConfig } from './provider.js';
 import { readSettings, type DecisionSettings } from './settings.js';
 import { claim, DecisionRefused, findRecorded, waitForRecorded, writeDecision } from './store.js';
@@ -186,6 +188,9 @@ function beforeAnyCall(p: Prepared, settings: DecisionSettings, desc: ProviderDe
   if (!desc.available) return { kind: 'unavailable', reason: desc.reason ?? 'the decision provider is unavailable' };
   const egress = egressRefusal(desc, ctx.policy);
   if (egress) return { kind: 'egress-denied', reason: egress };
+  // R9 (H162): unknown pricing is refused here, before any byte is sent, whatever the policy and the budget
+  const pricing = pricingRefusal(desc, { freeOnly: ctx.policy?.freeOnly, budget: ctx.budget !== undefined });
+  if (pricing) return { kind: 'pricing', reason: pricing };
   return undefined;
 }
 
@@ -198,13 +203,14 @@ const HUMAN_REVIEW_QUESTION = (n: number): ClefQuestion => ({
   },
 });
 
-function buildRequest(items: Prepared[]): ClefRequest {
+/** One request for the inputs that share it, naming the model clef.json names (R9, H162: never "clef-omni" by default). */
+function buildRequest(items: Prepared[], model: string): ClefRequest {
   const questions: Record<string, ClefQuestion> = {};
   for (const p of items) questions[p.question] = { type: 'choice', instructions: p.input.instructions.trim(), criteria: p.choices.criteria };
   questions[HUMAN_REVIEW] = HUMAN_REVIEW_QUESTION(items.length);
   const send = items[0].media.send;
   return {
-    model: CLEF_OMNI_MODEL,
+    model,
     state: items[0].input.state ?? null,
     questions,
     ...(send.images.length ? { images: send.images } : {}),
@@ -280,6 +286,8 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
     provider: {
       id: desc.id, transport: desc.transport, ...(desc.endpoint ? { endpoint: desc.endpoint } : {}),
       ...(response?.model ? { model: response.model } : {}), paid: desc.paid, local: desc.local,
+      // R9 (H162): the pricing as declared, kept with the decision (a record before R9 has none)
+      ...(desc.pricing ? { pricing: pricingRecord(desc.pricing) } : {}),
     },
     options: {
       permitted: p.choices.permitted.map((x) => ({ id: x.id, label: x.label, description: x.description })),
@@ -310,6 +318,12 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
   };
   return record;
 }
+
+/** The pricing as a record keeps it. */
+const pricingRecord = (p: Pricing): NonNullable<DecisionRecord['provider']['pricing']> => ({
+  kind: p.kind, ...(p.usd_per_million_input !== undefined ? { usd_per_million_input: p.usd_per_million_input } : {}), ...(p.billing ? { billing: p.billing } : {}), words: p.words,
+  ...(p.why ? { why: p.why } : {}),
+});
 
 /** The in-flight decisions of this process, by project and request key: a second delivery waits for the first. */
 const inFlight = new Map<string, Promise<DecideResult>>();
@@ -386,19 +400,24 @@ export async function decideBatch(inputs: DecisionInput[], ctx: DecideContext = 
       const all = (o: Outcome): void => { for (const m of group) finish(m, o); };
       const stale = staleRefusal(items[0].input.project.revision.trim(), currentOf(ctx));
       if (stale) { all({ outcome: 'fallback', fallback: { kind: 'stale-revision', reason: stale }, called: false, cost: NO_CALL_COST }); continue; }
-      const request = buildRequest(items);
-      const problems = checkRequest(request);
+      const request = buildRequest(items, desc.requestModel);
+      const problems = checkRequest(request, { model: desc.requestModel });
       if (problems.length) { all({ outcome: 'fallback', fallback: { kind: 'unresolved-inputs', reason: `the request does not match the published schema: ${problems.join('; ')}` }, called: false, cost: NO_CALL_COST }); continue; }
       const est = estimateInputTokens(request, items[0].media.sent);
-      const usdEach = desc.paid ? estimateUsd(est.tokens) / items.length : 0;
-      if (desc.paid) {
-        const refused = budgetRefusal(estimateUsd(est.tokens), remaining);
+      const questions = Object.keys(request.questions).length;
+      // R9 (H162): the estimate at the declared price and billing; unknown pricing was refused before this, and is again here
+      const unknown = pricingRefusal(desc, { freeOnly: ctx.policy?.freeOnly, budget: ctx.budget !== undefined });
+      if (unknown) { all({ outcome: 'fallback', fallback: { kind: 'pricing', reason: unknown }, called: false, cost: NO_CALL_COST }); continue; }
+      const price = estimateCost(est.tokens, questions, desc.pricing);
+      const usdEach = price.usd / items.length;
+      if (desc.pricing.kind === 'paid') {
+        const refused = budgetRefusal(price.usd, remaining, price.words);
         if (refused) { all({ outcome: 'fallback', fallback: { kind: 'budget', reason: refused }, called: false, cost: NO_CALL_COST }); continue; }
-        remaining = (remaining ?? 0) - estimateUsd(est.tokens);
+        remaining = (remaining ?? 0) - price.usd;
       }
       const batch = items.length > 1 ? { size: items.length, request_sha256: sha256(canonicalJson(request)) } : undefined;
       const result = await askProvider(provider, request, { timeoutMs: settings.timeoutMs, signal: ctx.signal, fixture: ctx.fixture });
-      const cost = costOf(desc, est, usdEach, items.length, result);
+      const cost = costOf(desc, est, questions, usdEach, items.length, result);
       if (!result.ok) {
         all({ outcome: 'fallback', fallback: { kind: result.kind, reason: result.reason }, failure: result, called: true, cost, batch });
         continue;
@@ -427,18 +446,25 @@ async function askProvider(provider: DecisionProvider, request: ClefRequest, o: 
   }
 }
 
-function costOf(desc: ProviderDescription, est: { tokens: number; words: string }, usdEach: number, n: number, result: ProviderAnswer | ProviderFailure): DecisionRecord['cost'] {
-  if (!desc.paid) {
-    return { measured: false, estimate_usd: 0, basis: desc.transport === 'fixture' ? 'the fixture transport: no service was called' : 'self-hosted SystemOne: no per-token price; the machine\'s own cost is not counted' };
+/** The record's cost: an estimate at the declared price and billing (R9, H162), never a measured amount; free only as declared. */
+function costOf(desc: ProviderDescription, est: { tokens: number; words: string }, questions: number, usdEach: number, n: number, result: ProviderAnswer | ProviderFailure): DecisionRecord['cost'] {
+  const pricing: Pricing = desc.pricing ?? FIXTURE_PRICING;
+  if (pricing.kind !== 'paid') {
+    return {
+      measured: false, estimate_usd: 0,
+      basis: desc.transport === 'fixture' ? 'the fixture transport: no service was called'
+        : 'declared free in clef.json ({"free": "local"}: hardware you control, no per-call charge); the machine\'s own cost is not counted',
+    };
   }
+  const price = estimateCost(est.tokens, questions, pricing);
   const shared = n > 1 ? `; one of ${n} questions in one request, so a ${n}th of it` : '';
   const reported = result.ok && result.usageReported && result.response.usage
-    ? `; the service reported ${result.response.usage.input_tokens} input tokens, $${estimateUsd(result.response.usage.input_tokens).toFixed(6)} at that price (still not a billed amount)`
+    ? `; the service reported ${result.response.usage.input_tokens} input tokens, $${estimateCost(result.response.usage.input_tokens, questions, pricing).usd.toFixed(6)} at the declared price (still not a billed amount)`
     : !result.ok ? '; the call failed, and whether it was billed is not known' : '; no usage was reported';
   return {
     measured: false,
     estimate_usd: usdEach,
-    basis: `an estimate, not a measured cost: ~${est.tokens} input tokens (${est.words}) at $0.15 per million input tokens, the model page's hosted price (output tokens are not charged)${shared}${reported}`,
+    basis: `an estimate, not a measured cost: ${price.words}, the price clef.json declares (${est.words})${shared}${reported}`,
   };
 }
 

@@ -51,6 +51,8 @@ const loopbackOnly = ((url: string | URL | Request, init?: RequestInit) => {
 }) as typeof fetch;
 
 const ON = { ...DEFAULT_DECISION_SETTINGS, useClef: true };
+/** R9 (H162): pricing is declared, never inferred: the Workers AI configs here declare the model page's published price. */
+const CLEF_PRICE = { usd_per_million_input: 0.15, billing: 'per-request' };
 let root: string;
 let secrets: string;
 beforeEach(() => {
@@ -94,7 +96,7 @@ const expectNoSecretsIn = (dir: string): void => {
 
 describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
   it('POSTs to the model path with the Bearer token and the published body; the answer becomes a recommendation', async () => {
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
     answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(1);
@@ -125,7 +127,7 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
   });
 
   it('HTTP 500 that echoes the token and the account id: a fallback, and neither is kept anywhere', async () => {
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
     answer = (s) => ({ status: 500, body: { success: false, result: null, errors: [{ code: 10000, message: `FAKE: ${s.auth} may not use /accounts/${FAKE_ACCOUNT}` }] } });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(1);
@@ -139,7 +141,7 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
     const file = fakeTokenFile(secrets);
     const { chmodSync } = await import('node:fs');
     chmodSync(file, 0o644);
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: file });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: file, pricing: CLEF_PRICE });
     answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(0);
@@ -180,7 +182,7 @@ describe('the CLI path over HTTP', () => {
   it('timmy decide route --json through the FAKE Workers AI endpoint: one JSON line, no secret in it or in the files', async () => {
     const p = gitProject('timmy-decide-http-cli-');
     try {
-      writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+      writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
       answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
       const args = ['route', '--option', 'codex:Codex', '--option', 'pi', '--option', 'openhands', '--deterministic', 'codex', '--project', p.root, '--budget-usd', '0.01', '--json'];
       const out = await decideDo(args, { env: { ...process.env, TIMMY_CLEF: '1' }, fetch: loopbackOnly, baseUrl: base });
