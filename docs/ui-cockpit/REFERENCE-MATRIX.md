@@ -36,7 +36,7 @@ video, reference artwork and measured data keep their own colors.
 `complete`: the reference's layout, hierarchy and interactions are followed on its tab, with a capture that shows it.
 `partial`: the structure is there and parts of it work, with what still differs named. `absent`: Timmy has nothing of it
 (a route may exist, said as not built). The R9 independent review judged the five references whose screens R9 changed;
-the other thirteen are as the R6 reviews judged them (R9 changed nothing on their screens). Each reference's complete,
+the other thirteen are as the R6 reviews judged them (R9 changed behaviour on some of them, not their layouts). Each reference's complete,
 partial and absent parts, with the captures, are in the R9 review bundle's `REFERENCE-STATUS.md`.
 
 **0 complete, 18 partial, 0 absent.** On the companion, the decision part of 09 and 18 is absent: its tab 8 shows no
@@ -46,13 +46,13 @@ decision (the R9 review's F1).
 |---|---|---|---|
 | 01, 13 | partial | R6 reviews | Home asks again for its newest run image while it is shown (item D; tests only) |
 | 02, 11 | partial | R6 reviews | — (the REPL's first screen could wait on a folder listing, item B: fixed after the freeze) |
-| 03, 12 | partial | R6 reviews; the refusal by the R9 review | Enter on a running block refused every time (H161) |
+| 03, 12 | partial | R6 reviews; the refusal by the R9 review | Enter on a running block refused, the refusal held on the controls row (H161). "Every time" is not shown: twice on CI the run's own progress line, said up to a second after a block starts, overtook the refusal on Activity's strip, a race in H161's test (fixed in the test after the freeze) |
 | 04 | partial | the R9 review | a recording's entities, timelines and time ranges through the Rerun CLI, on tab 6 (H159): a flat line of names and text ranges, no tree, no timeline track |
 | 05, 16 | partial | R6 reviews | — |
 | 06 | partial | the R9 review | tab 6's meshes and recording as items in view at every size (H160); the recording through the Rerun CLI (H159). No state machine, terminal mirror or timeline; the stage is small below 1600×900 |
 | 07, 14 | partial | R6 reviews; dispatch by the R9 review | a dispatch's temporary copy removed after a cancel, its outputs kept (H161) |
 | 08, 17 | partial | R6 reviews | — |
-| 09, 18 | partial; decisions absent on the companion | the R9 review | decision pricing declared, refusals before anything is sent, the model's identity in every record (H162). The R9 review saw each recorded decision's scores as bars in the Workbench (drawn since R5, H134; no decision had been recorded in a review before) |
+| 09, 18 | partial; decisions absent on the companion | the R9 review | decision pricing declared, refusals before anything is sent, the model's identity in every record (H162). The R9 review saw an answered decision's scores as bars in the Workbench (drawn since R5, H134; no decision had been recorded in a review before); a refused one says it stayed deterministic, with no bars |
 | 10 | partial | R6 reviews | each Rerun CLI call logged as an `rrd.cli` event (H159; tests only) |
 | 15 | partial | the R9 review (R6: H147 partly, H148 not met) | as 04 |
 
