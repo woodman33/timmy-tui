@@ -1,11 +1,18 @@
 /**
- * Round R4 (H120): ClefOmniProvider, the one decision provider, behind three transports:
+ * Round R4 (H120): the decision provider, behind three transports:
  *
- *   workers-ai   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/cloudflare/clef-omni with
- *                `Authorization: Bearer <token>`: Cloudflare's hosted model; paid, and off this computer
- *   systemone    POST {systemone_url}/v1/systemone: a self-hosted, Jev/SystemOne-compatible deployment (the model card says
- *                it takes the same body and gives the same answer); free; local when its host is 127.0.0.1, ::1 or localhost
- *   fixture      reads a response file named for the call (tests and the offline slice only); free and local
+ *   workers-ai   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model} with
+ *                `Authorization: Bearer <token>`: Cloudflare's hosted service, off this computer (model default
+ *                @cf/cloudflare/clef-omni)
+ *   systemone    POST {systemone_url}/v1/systemone: a SystemOne-compatible deployment serving the model clef.json names
+ *                (the Clef-Omni model card says it takes the same body and gives the same answer); local only when its host
+ *                is 127.0.0.1, ::1 or localhost and its model tag is not a cloud tag
+ *   fixture      reads a response file named for the call (tests and the offline slice only): no service, no charge
+ *
+ * R9 (H162): the provider names its model (`<transport>:<model>`, systemone:clef-flash:latest; "clef-omni" only when
+ * Clef-Omni is the model), sends that model in the body, and describes the pricing as clef.json declares it
+ * (src/decision/pricing.ts): free only for a declared {"free": "local"}, never because of the transport's name, a
+ * self-hosted label or a loopback address. The service refuses before any byte is sent what the pricing does not allow.
  *
  * The same body goes to each (src/decision/clef-contract.ts), and every answer passes the same checks: unwrapBody (an
  * envelope or a bare body) and checkAnswer (the published schema, against the questions asked). HTTP non-2xx, a network
@@ -13,11 +20,12 @@
  * ProviderFailure {unavailable | timeout | malformed}, in words; nothing is repaired or retried here.
  *
  * The operator's rule it keeps: this provider only scores options. It is never OpenRouter and never a chat or
- * text-generation wrapper. `fetch` is injected (default: globalThis.fetch, looked up at each call). The token is read with
- * readTokenFile at each call and never kept; the token and the account id never leave a call: every word and every kept
- * response body goes through redactSecrets, and a description names the kind of endpoint, never its address. A fixture's
- * bytes are never kept (only their sha256 and size). `baseUrl` is an internal override for tests only (a FAKE endpoint on
- * 127.0.0.1); the default stays https://api.cloudflare.com, and no config file can set it.
+ * text-generation wrapper: the only paths it ever asks are the scoring path above (and, R9, Ollama's read-only model list,
+ * GET /api/tags, for a local digest). `fetch` is injected (default: globalThis.fetch, looked up at each call). The token is
+ * read with readTokenFile at each call and never kept; the token and the account id never leave a call: every word and
+ * every kept response body goes through redactSecrets, and a description names the kind of endpoint, never its address. A
+ * fixture's bytes are never kept (only their sha256 and size). `baseUrl` is an internal override for tests only (a FAKE
+ * endpoint on 127.0.0.1); the default stays https://api.cloudflare.com, and no config file can set it.
  */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -25,6 +33,7 @@ import { readTokenFile } from '../cloud/token.js';
 import { tildePath } from '../utils/home-scrub.js';
 import { checkAnswer, CLEF_OMNI_MODEL, CLEF_OMNI_MODEL_ID, unwrapBody, type ClefRequest } from './clef-contract.js';
 import { checkSystemOneUrl, isLoopbackUrl, redactSecrets, type ClefConfig, type ClefConfigRead } from './config.js';
+import { FIXTURE_PRICING, isClefOmni, isCloudModel, limitsOf, pricingOf, type ModelLimits } from './pricing.js';
 import type {
   DecisionProvider, ProviderAnswer, ProviderCallOptions, ProviderDescription, ProviderFailure, RawRef, TransportKind,
 } from './types.js';
@@ -32,7 +41,7 @@ import type {
 export type { DecisionProvider, ProviderAnswer, ProviderDescription, ProviderFailure } from './types.js';
 
 export const WORKERS_AI_BASE = 'https://api.cloudflare.com';
-export const workersAiPath = (accountId: string): string => `/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${CLEF_OMNI_MODEL_ID}`;
+export const workersAiPath = (accountId: string, model: string = CLEF_OMNI_MODEL_ID): string => `/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${model}`;
 export const SYSTEMONE_PATH = '/v1/systemone';
 
 /** An answer larger than this is refused unread. */
@@ -59,26 +68,55 @@ export function rawOf(text: string, secrets: { token?: string; accountId?: strin
   return { sha256: sha256(redacted), bytes, ...(redacted.length <= KEEP_BODY_CHARS ? { body: redacted } : {}) };
 }
 
+/** The model a transport asks for: the config's (Workers AI's default is Clef-Omni; the fixture's FAKE answers are in Clef-Omni's shape). */
+export function modelOf(transport: TransportKind, config?: ClefConfig): string {
+  if (transport === 'fixture') return CLEF_OMNI_MODEL;
+  if (transport === 'workers-ai') return config?.model ?? CLEF_OMNI_MODEL_ID;
+  return config?.model ?? '';
+}
+
+/** The limits of a provider that cannot be asked: none apply, so the fewest. */
+const NO_MODEL_LIMITS: ModelLimits = Object.freeze({ source: 'default', questions: 2, media: false, words: 'no decision model is set up' }) as ModelLimits;
+
 export class ClefOmniProvider implements DecisionProvider {
   readonly id: string;
 
   constructor(private readonly o: ClefProviderOptions) {
-    this.id = `clef-omni:${o.transport}`;
+    // R9 (H162): the id names the model: workers-ai:@cf/cloudflare/clef-omni, systemone:clef-flash:latest, fixture:clef-omni
+    this.id = `${o.transport}:${modelOf(o.transport, o.config) || 'no-model'}`;
   }
 
   describe(): ProviderDescription {
     const { transport, config } = this.o;
-    if (transport === 'fixture') return { id: this.id, available: true, transport, endpoint: 'fixture-file', model: CLEF_OMNI_MODEL, paid: false, local: true };
+    const model = modelOf(transport, config);
+    if (transport === 'fixture') {
+      return {
+        id: this.id, available: true, transport, endpoint: 'fixture-file', model, requestModel: model, paid: false, local: true, cloudModel: false,
+        pricing: FIXTURE_PRICING, limits: limitsOf(model),
+      };
+    }
     if (transport === 'workers-ai') {
-      const d: ProviderDescription = { id: this.id, available: true, transport, endpoint: 'workers-ai-rest', model: CLEF_OMNI_MODEL_ID, paid: true, local: false };
+      const pricing = pricingOf(model, config?.pricing, { workersAi: true });
+      const d: ProviderDescription = {
+        id: this.id, available: true, transport, endpoint: 'workers-ai-rest', model, requestModel: isClefOmni(model) ? CLEF_OMNI_MODEL : model,
+        paid: pricing.kind !== 'free-local', local: false, cloudModel: false, pricing, limits: limitsOf(model, config?.limits),
+      };
       if (!config?.account_id) return { ...d, available: false, reason: 'Workers AI needs an account id in clef.json' };
       if (!config.token_file) return { ...d, available: false, reason: 'Workers AI needs a token_file in clef.json' };
       return d;
     }
     const url = config?.systemone_url ? checkSystemOneUrl(config.systemone_url) : { why: 'SystemOne needs systemone_url in clef.json' };
-    const local = 'url' in url && isLoopbackUrl(url.url);
-    const d: ProviderDescription = { id: this.id, available: true, transport, endpoint: local ? 'systemone-loopback' : 'systemone-remote', model: CLEF_OMNI_MODEL, paid: false, local };
-    return 'why' in url ? { ...d, available: false, reason: url.why } : d;
+    const loopback = 'url' in url && isLoopbackUrl(url.url);
+    const cloudModel = model !== '' && isCloudModel(model);
+    const pricing = model ? pricingOf(model, config?.pricing) : { kind: 'unknown' as const, why: 'no model is named', words: 'unknown: no model is named' };
+    const d: ProviderDescription = {
+      id: this.id, available: true, transport, endpoint: loopback ? 'systemone-loopback' : 'systemone-remote', model: model || 'no-model', requestModel: model,
+      // a loopback address is this computer; a cloud model tag sends what it is given to a cloud from there too
+      paid: pricing.kind !== 'free-local', local: loopback && !cloudModel, cloudModel, pricing, limits: model ? limitsOf(model, config?.limits) : NO_MODEL_LIMITS,
+    };
+    if ('why' in url) return { ...d, available: false, reason: url.why };
+    if (!model) return { ...d, available: false, reason: 'SystemOne needs model in clef.json: the model the deployment serves, as it names it' };
+    return d;
   }
 
   async decide(request: ClefRequest, o: ProviderCallOptions): Promise<ProviderAnswer | ProviderFailure> {
@@ -132,7 +170,7 @@ export class ClefOmniProvider implements DecisionProvider {
       secrets.token = t.token;
     }
     const url = this.o.transport === 'workers-ai'
-      ? `${(this.o.baseUrl ?? WORKERS_AI_BASE).replace(/\/+$/, '')}${workersAiPath(config.account_id ?? '')}`
+      ? `${(this.o.baseUrl ?? WORKERS_AI_BASE).replace(/\/+$/, '')}${workersAiPath(config.account_id ?? '', desc.model)}`
       : `${config.systemone_url}${SYSTEMONE_PATH}`;
     const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
     if (secrets.token) headers.authorization = `Bearer ${secrets.token}`;
@@ -182,12 +220,15 @@ export class ClefOmniProvider implements DecisionProvider {
 
 /** A provider that is not there: every call is refused with why (no config, transport "none", a config that cannot be used). */
 export class UnavailableProvider implements DecisionProvider {
-  readonly id = 'clef-omni:none';
+  readonly id = 'none';
 
   constructor(private readonly why: string) {}
 
   describe(): ProviderDescription {
-    return { id: this.id, available: false, reason: this.why, transport: 'none', model: CLEF_OMNI_MODEL, paid: false, local: true };
+    return {
+      id: this.id, available: false, reason: this.why, transport: 'none', model: 'none', requestModel: 'none', paid: false, local: true, cloudModel: false,
+      pricing: { kind: 'no-call', words: 'no decision model is set up, so nothing is called' }, limits: NO_MODEL_LIMITS,
+    };
   }
 
   async decide(): Promise<ProviderFailure> {
@@ -198,6 +239,6 @@ export class UnavailableProvider implements DecisionProvider {
 /** The provider the operator configured in clef.json, or one that says why there is none. */
 export function providerFromConfig(read: ClefConfigRead, o: { fetch?: typeof fetch; baseUrl?: string } = {}): DecisionProvider {
   if (read.state !== 'configured') return new UnavailableProvider(read.why);
-  if (read.config.transport === 'none') return new UnavailableProvider('Clef is turned off in clef.json');
+  if (read.config.transport === 'none') return new UnavailableProvider('the decision model is turned off in clef.json');
   return new ClefOmniProvider({ transport: read.config.transport, config: read.config, fetch: o.fetch, baseUrl: o.baseUrl });
 }

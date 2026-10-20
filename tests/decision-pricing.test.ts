@@ -16,7 +16,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { decideDo } from '../src/decision/cli.js';
+import { readClefConfig } from '../src/decision/config.js';
 import { callDecisionTool } from '../src/decision/mcp.js';
+import { ClefOmniProvider, providerFromConfig } from '../src/decision/provider.js';
 import { FAKE_TOKEN, fakeTokenFile, gitProject, readFixture } from './fixtures/clef-omni/fake.js';
 
 interface FakeRequest { method: string; path: string; auth?: string; body: string }
@@ -175,5 +177,81 @@ describe('the SystemOne pricing defect (each of these failed on the code before 
     expect(out.json.model).toMatchObject({ requested: 'clef-flash:latest', returned: 'clef-flash:latest' });
     expect(JSON.stringify(out.json)).not.toMatch(/clef-omni/);
     expect(out.json.cost).toMatchObject({ measured: false, estimate_usd: 0 });
+  });
+});
+
+describe('pricing is declared in clef.json, never inferred (the config and the provider\'s description)', () => {
+  const read = (clef: Record<string, unknown>) => readClefConfig(configure(clef));
+  const described = (clef: Record<string, unknown>) => providerFromConfig(readClefConfig(configure(clef))).describe();
+
+  it('systemone names its model; pricing is one of the two declared shapes, and nothing else is read as pricing', () => {
+    expect(read({ transport: 'systemone', systemone_url: fake.base })).toMatchObject({ state: 'invalid', why: expect.stringMatching(/systemone needs model: the model the deployment serves, as it names it \(for example clef-flash:latest\); Timmy never assumes one/) });
+    const ok = read({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' }, limits: { questions: 8 } });
+    expect(ok).toMatchObject({ state: 'configured', config: { model: 'clef-flash:latest', pricing: { free: 'local' }, limits: { questions: 8 } } });
+    expect(read({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', pricing: { usd_per_million_input: 2, billing: 'per-question' } }))
+      .toMatchObject({ state: 'configured', config: { pricing: { usd_per_million_input: 2, billing: 'per-question' } } });
+    const refused: Array<[unknown, RegExp]> = [
+      [{ free: 'yes' }, /pricing\.free must be "local"/],
+      [{ free: true }, /pricing\.free must be "local"/],
+      [{ usd_per_million_input: 0, billing: 'per-request' }, /a price of 0 is not a price: an endpoint that charges nothing is declared \{"free": "local"\}/],
+      [{ usd_per_million_input: -1, billing: 'per-request' }, /above 0/],
+      [{ usd_per_million_input: 1 }, /pricing must be \{"free": "local"\} or \{"usd_per_million_input"/],
+      [{ usd_per_million_input: 1, billing: 'per-token' }, /pricing\.billing must be "per-request" or "per-question"/],
+      [{ free: 'local', usd_per_million_input: 1, billing: 'per-request' }, /and nothing else/],
+      ['free', /pricing must be/],
+      [{ self_hosted: true }, /pricing must be/],
+    ];
+    for (const [pricing, why] of refused) expect(read({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing }), JSON.stringify(pricing)).toMatchObject({ state: 'invalid', why: expect.stringMatching(why) });
+    expect(read({ transport: 'systemone', systemone_url: fake.base, model: 'clef flash' })).toMatchObject({ state: 'invalid', why: expect.stringMatching(/model must be the model's name/) });
+    expect(read({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', limits: { questions: 1 } })).toMatchObject({ state: 'invalid', why: expect.stringMatching(/limits\.questions must be a whole number from 2 to 64/) });
+    expect(read({ transport: 'workers-ai', account_id: 'FAKEaccount0000tests', token_file: fakeTokenFile(secrets), pricing: { free: 'local' } }))
+      .toMatchObject({ state: 'invalid', why: expect.stringMatching(/workers-ai runs on Cloudflare's hardware, not yours: \{"free": "local"\} cannot be declared for it/) });
+    expect(read({ transport: 'workers-ai', account_id: 'FAKEaccount0000tests', token_file: fakeTokenFile(secrets), model: 'clef-omni' }))
+      .toMatchObject({ state: 'invalid', why: expect.stringMatching(/a Workers AI model id \(@cf\/<namespace>\/<name>\)/) });
+  });
+
+  it('nothing is free by its transport, its address or a label: only {"free": "local"} is, and never for a cloud model tag', () => {
+    const undeclared = [
+      { transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest' },
+      { transport: 'systemone', systemone_url: 'http://localhost:11434', model: 'clef-flash:latest' },
+      { transport: 'systemone', systemone_url: PAID_FAKE, model: 'jev-1' },
+      { transport: 'workers-ai', account_id: 'FAKEaccount0000tests', token_file: fakeTokenFile(secrets) },
+    ];
+    for (const c of undeclared) {
+      const d = described(c);
+      expect(d.pricing, JSON.stringify(c)).toMatchObject({ kind: 'unknown', words: 'unknown: clef.json declares none' });
+      expect(d.paid, JSON.stringify(c)).toBe(true);
+    }
+    const local = described({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' } });
+    expect(local).toMatchObject({ id: 'systemone:clef-flash:latest', model: 'clef-flash:latest', requestModel: 'clef-flash:latest', endpoint: 'systemone-loopback', paid: false, local: true, cloudModel: false, pricing: { kind: 'free-local' } });
+    // hardware the operator controls, on another computer: free as declared, and still not local (local only refuses it)
+    expect(described({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', pricing: { free: 'local' } })).toMatchObject({ endpoint: 'systemone-remote', paid: false, local: false, pricing: { kind: 'free-local' } });
+    for (const model of ['kimi-k3:cloud', 'nemotron-3-nano:30b-cloud', 'gpt-oss:120b-cloud']) {
+      const d = described({ transport: 'systemone', systemone_url: fake.base, model, pricing: { free: 'local' } });
+      expect(d, model).toMatchObject({ endpoint: 'systemone-loopback', paid: true, local: false, cloudModel: true, pricing: { kind: 'unknown' } });
+      expect(d.pricing.why, model).toMatch(new RegExp(`^${model}.*is a cloud model tag .*it is never free, even though clef\\.json declares \\{"free": "local"\\}`));
+    }
+    const paid = described({ transport: 'systemone', systemone_url: PAID_FAKE, model: 'd1-ultra', pricing: { usd_per_million_input: 2, billing: 'per-question' } });
+    expect(paid).toMatchObject({ paid: true, local: false, pricing: { kind: 'paid', usd_per_million_input: 2, billing: 'per-question', words: '$2 per million input tokens, billed per question (declared in clef.json)' } });
+  });
+
+  it('the provider id names the model; clef-omni appears only when Clef-Omni is the model; its published limits are Clef-Omni\'s alone', () => {
+    const wa = described({ transport: 'workers-ai', account_id: 'FAKEaccount0000tests', token_file: fakeTokenFile(secrets), pricing: { usd_per_million_input: 0.15, billing: 'per-request' } });
+    expect(wa).toMatchObject({ id: 'workers-ai:@cf/cloudflare/clef-omni', model: '@cf/cloudflare/clef-omni', requestModel: 'clef-omni', paid: true, local: false, pricing: { kind: 'paid', billing: 'per-request' }, limits: { source: 'published', questions: 64, media: true } });
+    // an undeclared Workers AI Clef-Omni says what its page publishes, and stays unknown
+    expect(described({ transport: 'workers-ai', account_id: 'FAKEaccount0000tests', token_file: fakeTokenFile(secrets) }).pricing.why).toMatch(/the model page publishes \$0\.15 per million input tokens for @cf\/cloudflare\/clef-omni, billed per request: declare it if that is your price/);
+    for (const model of ['clef-flash:latest', 'jev-1', 'd1-ultra']) {
+      const d = described({ transport: 'systemone', systemone_url: fake.base, model, pricing: { free: 'local' } });
+      expect(d.id).toBe(`systemone:${model}`);
+      expect(JSON.stringify(d), model).not.toMatch(/clef-omni|Clef-Omni's published/i);
+      expect(d.limits, model).toMatchObject({ source: 'default', questions: 2, media: false });
+      expect(d.limits.words, model).toMatch(/limits are not published here and clef\.json states none: a conservative default applies/);
+    }
+    expect(described({ transport: 'systemone', systemone_url: fake.base, model: 'clef-omni', pricing: { free: 'local' } })).toMatchObject({ id: 'systemone:clef-omni', limits: { source: 'published', questions: 64 } });
+    expect(described({ transport: 'systemone', systemone_url: fake.base, model: 'd1-ultra', limits: { questions: 8, context_tokens: 32000 } }).limits).toMatchObject({ source: 'config', questions: 8, contextTokens: 32000, media: false });
+    expect(new ClefOmniProvider({ transport: 'fixture' }).describe()).toMatchObject({ id: 'fixture:clef-omni', paid: false, local: true, pricing: { kind: 'no-call' } });
+    const none = providerFromConfig(readClefConfig({ ...process.env, TIMMY_HOME: join(home, 'nothing-here') })).describe();
+    expect(none).toMatchObject({ id: 'none', available: false, pricing: { kind: 'no-call' } });
+    expect(JSON.stringify(none)).not.toMatch(/clef-omni/i);
   });
 });

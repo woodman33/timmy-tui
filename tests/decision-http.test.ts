@@ -150,15 +150,16 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
 });
 
 describe('SystemOne (self-hosted, Jev/SystemOne-compatible) on 127.0.0.1', () => {
-  it('POSTs the same body to /v1/systemone; free and local, so local-only and free-only both allow it', async () => {
-    writeConfig({ transport: 'systemone', systemone_url: base });
+  // R9 (H162): free and local because clef.json declares {"free": "local"} for a named model, not because of the address
+  it('POSTs the same body to /v1/systemone; declared free and local, so local-only and free-only both allow it', async () => {
+    writeConfig({ transport: 'systemone', systemone_url: base, model: 'clef-flash:latest', pricing: { free: 'local' } });
     answer = () => ({ status: 200, body: readFixture('response-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, policy: { localOnly: true, freeOnly: true } });
-    expect(seen).toHaveLength(1);
-    expect(seen[0].method).toBe('POST');
-    expect(seen[0].url).toBe('/v1/systemone');
-    expect(seen[0].auth).toBeUndefined();
-    expect((seen[0].body.questions as Record<string, unknown>).route).toBeDefined();
+    const posts = seen.filter((s) => s.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe('/v1/systemone');
+    expect(posts[0].auth).toBeUndefined();
+    expect((posts[0].body.questions as Record<string, unknown>).route).toBeDefined();
     expect(rec.outcome).toBe('recommend');
     expect(rec.provider).toMatchObject({ transport: 'systemone', endpoint: 'systemone-loopback', paid: false, local: true });
     expect(rec.cost).toMatchObject({ measured: false, estimate_usd: 0 });
@@ -166,10 +167,10 @@ describe('SystemOne (self-hosted, Jev/SystemOne-compatible) on 127.0.0.1', () =>
   });
 
   it('with a token file it sends the Bearer token, and still keeps it out of the record', async () => {
-    writeConfig({ transport: 'systemone', systemone_url: base, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'systemone', systemone_url: base, model: 'clef-flash:latest', pricing: { free: 'local' }, token_file: fakeTokenFile(secrets) });
     answer = () => ({ status: 200, body: readFixture('response-route-tie.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly });
-    expect(seen[0].auth).toBe(`Bearer ${FAKE_TOKEN}`);
+    expect(seen.filter((s) => s.method === 'POST')[0].auth).toBe(`Bearer ${FAKE_TOKEN}`);
     expect(rec.outcome).toBe('abstain');
     expectNoSecretsIn(join(root, '.timmy'));
   });

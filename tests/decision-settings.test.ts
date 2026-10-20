@@ -165,17 +165,23 @@ describe('Clef config and its secrets', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('a SystemOne config: http only to this computer, https anywhere; free; local only on loopback', () => {
-    writeConfig({ transport: 'systemone', systemone_url: 'http://systemone.example.com' });
+  // R9 (H162): this said "free" for every SystemOne address (the pricing defect); free is now only what clef.json declares
+  it('a SystemOne config: http only to this computer, https anywhere; names its model; free only as declared; local only on loopback', () => {
+    writeConfig({ transport: 'systemone', systemone_url: 'http://systemone.example.com', model: 'clef-flash:latest' });
     expect(readClefConfig(env())).toMatchObject({ state: 'invalid' });
-    writeConfig({ transport: 'systemone', systemone_url: 'https://user:pw@systemone.example.com' });
+    writeConfig({ transport: 'systemone', systemone_url: 'https://user:pw@systemone.example.com', model: 'clef-flash:latest' });
     expect(readClefConfig(env())).toMatchObject({ state: 'invalid' });
     writeConfig({ transport: 'systemone', systemone_url: 'http://127.0.0.1:8181' });
+    expect(readClefConfig(env())).toMatchObject({ state: 'invalid', why: expect.stringMatching(/systemone needs model/) });
+    writeConfig({ transport: 'systemone', systemone_url: 'http://127.0.0.1:8181', model: 'clef-flash:latest' });
+    const undeclared = providerFromConfig(readClefConfig(env())).describe();
+    expect(undeclared).toMatchObject({ available: true, transport: 'systemone', endpoint: 'systemone-loopback', paid: true, local: true, model: 'clef-flash:latest', pricing: { kind: 'unknown' } });
+    writeConfig({ transport: 'systemone', systemone_url: 'http://127.0.0.1:8181', model: 'clef-flash:latest', pricing: { free: 'local' } });
     const local = providerFromConfig(readClefConfig(env())).describe();
-    expect(local).toMatchObject({ available: true, transport: 'systemone', endpoint: 'systemone-loopback', paid: false, local: true, model: 'clef-omni' });
-    writeConfig({ transport: 'systemone', systemone_url: 'https://systemone.example.com/base/' });
+    expect(local).toMatchObject({ available: true, transport: 'systemone', endpoint: 'systemone-loopback', paid: false, local: true, model: 'clef-flash:latest', pricing: { kind: 'free-local' } });
+    writeConfig({ transport: 'systemone', systemone_url: 'https://systemone.example.com/base/', model: 'd1-ultra' });
     const remote = providerFromConfig(readClefConfig(env())).describe();
-    expect(remote).toMatchObject({ available: true, endpoint: 'systemone-remote', paid: false, local: false });
+    expect(remote).toMatchObject({ available: true, endpoint: 'systemone-remote', paid: true, local: false, pricing: { kind: 'unknown' } });
     expect(JSON.stringify(remote)).not.toContain('systemone.example.com');
   });
 

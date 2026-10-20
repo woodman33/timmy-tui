@@ -12,6 +12,7 @@
 import type { ClefRequest, ClefResponse } from './clef-contract.js';
 import type { Judgement, Thresholds } from './judge.js';
 import type { EvidenceKind } from '../evidence/admission.js';
+import type { ModelLimits, Pricing } from './pricing.js';
 
 export const DECISION_SCHEMA = 'timmy.decision/1';
 export const DECISION_NOTE = 'a model recommendation, not evidence';
@@ -74,16 +75,26 @@ export type TransportKind = 'workers-ai' | 'systemone' | 'fixture';
 export type EndpointKind = 'workers-ai-rest' | 'systemone-loopback' | 'systemone-remote' | 'fixture-file';
 
 export interface ProviderDescription {
+  /** The transport and the model, as `<transport>:<model>` (systemone:clef-flash:latest); clef-omni only for Clef-Omni. */
   id: string;
   available: boolean;
   reason?: string;
   transport: TransportKind | 'none';
   endpoint?: EndpointKind;
+  /** R9 (H162): the model asked for, as clef.json names it (Workers AI's default: @cf/cloudflare/clef-omni). */
   model: string;
-  /** Costs money per call. */
+  /** What the request body's `model` says: "clef-omni" for Workers AI's Clef-Omni (its published body), else `model`. */
+  requestModel: string;
+  /** May cost money per call: declared paid, or pricing unknown. False only for a declared {"free": "local"}, or no call at all. */
   paid: boolean;
-  /** Runs on this computer (loopback or a file). */
+  /** The model runs on this computer: a loopback address (or a file), and a model tag that is not a cloud tag. */
   local: boolean;
+  /** The model's tag is a cloud tag: what it is given leaves this computer, from a loopback address too. */
+  cloudModel: boolean;
+  /** As declared in clef.json (src/decision/pricing.ts): free: local, paid, unknown, or no call. */
+  pricing: Pricing;
+  /** The model's limits: Clef-Omni's published ones, those clef.json states, or a conservative default. */
+  limits: ModelLimits;
 }
 
 export interface ProviderCallOptions {
@@ -125,7 +136,9 @@ export interface DecisionProvider {
 
 /** Why the deterministic path was used instead of asking, or instead of the answer. */
 export type FallbackReason =
-  | 'clef-off' | 'unavailable' | 'timeout' | 'malformed' | 'egress-denied' | 'budget' | 'stale-revision' | 'unresolved-inputs' | 'too-few-options';
+  | 'clef-off' | 'unavailable' | 'timeout' | 'malformed' | 'egress-denied' | 'budget' | 'stale-revision' | 'unresolved-inputs' | 'too-few-options'
+  /** R9 (H162): the pricing is unknown (none declared, or declared free for a cloud model tag): never taken as free or zero. */
+  | 'pricing';
 
 export const ADMISSION_CHECKS = ['projectScope', 'privacy', 'budget', 'concurrency', 'isolation', 'approvals'] as const;
 export type AdmissionCheckName = (typeof ADMISSION_CHECKS)[number];
