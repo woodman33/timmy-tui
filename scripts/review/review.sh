@@ -162,6 +162,12 @@ HELP
         [ -f "$MESHES/demo-tray.$kind" ] && cp "$MESHES/demo-tray.$kind" "$TRAY/refs/demo-tray.$kind" && got="$got refs/demo-tray.$kind"
       done
       say "Generated demo meshes in tray:$got (tab 6 lists and draws them)"
+      # R9 lead: the same tray as a generated Rerun recording (scripts/demo-recording.py), so tab 6 lists a recording and
+      # reads its entities and time range through the installed Rerun CLI, or says why it cannot
+      if [ -f "$MESHES/demo-tray.rrd" ]; then
+        cp "$MESHES/demo-tray.rrd" "$TRAY/refs/demo-tray.rrd"
+        say "Generated demo recording in tray: refs/demo-tray.rrd (tab 6 reads it through the Rerun CLI where one is installed)"
+      fi
     else
       say "The package's demo mesh is not in this install ($MESHES/demo-tray.stl): tab 6 has no mesh to draw"
     fi
