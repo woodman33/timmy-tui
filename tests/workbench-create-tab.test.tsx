@@ -165,7 +165,10 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       // R9 (H160): the mesh is an item, the cursor's first (its mark before its path), under the keys that act on it
       expect(said).toContain("MESHES IN THIS PROJECT (1) [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold");
       // R8 (H154): the frame's Unfinished words on tab 6 name the three kinds that work now (src/contracts/workspace.ts)
-      expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, a view of each you can turn in the companion");
+      // (R9 lead: and since H159 and H160, each an item you can select, and a recording's reading through the Rerun CLI)
+      expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, each an item you can select, a view of each you can turn in the companion");
+      expect(said).toContain("through the installed Rerun CLI, its entities, timelines and time ranges (or why not)");
+      expect(said).toContain("Not yet: a native tool's render, a motion timeline, scene editing and render previews, and a recording's frames drawn or replayed");
       // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can
       // begin below the pane (PgDn shows it): the meshes come before the tools, or the tools are not in view yet
       const tools = said.indexOf('TOOLS (');
