@@ -12,6 +12,7 @@
 import type { ClefRequest, ClefResponse } from './clef-contract.js';
 import type { Judgement, Thresholds } from './judge.js';
 import type { EvidenceKind } from '../evidence/admission.js';
+import type { ModelLimits, Pricing } from './pricing.js';
 
 export const DECISION_SCHEMA = 'timmy.decision/1';
 export const DECISION_NOTE = 'a model recommendation, not evidence';
@@ -74,16 +75,26 @@ export type TransportKind = 'workers-ai' | 'systemone' | 'fixture';
 export type EndpointKind = 'workers-ai-rest' | 'systemone-loopback' | 'systemone-remote' | 'fixture-file';
 
 export interface ProviderDescription {
+  /** The transport and the model, as `<transport>:<model>` (systemone:clef-flash:latest); clef-omni only for Clef-Omni. */
   id: string;
   available: boolean;
   reason?: string;
   transport: TransportKind | 'none';
   endpoint?: EndpointKind;
+  /** R9 (H162): the model asked for, as clef.json names it (Workers AI's default: @cf/cloudflare/clef-omni). */
   model: string;
-  /** Costs money per call. */
+  /** What the request body's `model` says: "clef-omni" for Workers AI's Clef-Omni (its published body), else `model`. */
+  requestModel: string;
+  /** May cost money per call: declared paid, or pricing unknown. False only for a declared {"free": "local"}, or no call at all. */
   paid: boolean;
-  /** Runs on this computer (loopback or a file). */
+  /** The model runs on this computer: a loopback address (or a file), and a model tag that is not a cloud tag. */
   local: boolean;
+  /** The model's tag is a cloud tag: what it is given leaves this computer, from a loopback address too. */
+  cloudModel: boolean;
+  /** As declared in clef.json (src/decision/pricing.ts): free: local, paid, unknown, or no call. */
+  pricing: Pricing;
+  /** The model's limits: Clef-Omni's published ones, those clef.json states, or a conservative default. */
+  limits: ModelLimits;
 }
 
 export interface ProviderCallOptions {
@@ -100,12 +111,25 @@ export interface RawRef {
   body?: string;
 }
 
+/** R9 (H162): what the provider observed of the model's identity, its words redacted; nothing here is ever guessed. */
+export interface ObservedIdentity {
+  /** The local digest as Ollama's GET /api/tags lists it for the model, or "not available". */
+  digest: string;
+  /** Where the digest came from, or why it is not available. */
+  digest_source: string;
+  /** The model the answer names, as received. */
+  returned?: string;
+  /** The answer's fields that name a version, as received. */
+  version?: Record<string, string>;
+}
+
 export interface ProviderAnswer {
   ok: true;
   response: ClefResponse;
   usageReported: boolean;
   latencyMs: number;
   raw: RawRef;
+  identity?: ObservedIdentity;
 }
 
 export interface ProviderFailure {
@@ -115,6 +139,7 @@ export interface ProviderFailure {
   reason: string;
   latencyMs: number;
   raw?: RawRef;
+  identity?: ObservedIdentity;
 }
 
 export interface DecisionProvider {
@@ -125,7 +150,9 @@ export interface DecisionProvider {
 
 /** Why the deterministic path was used instead of asking, or instead of the answer. */
 export type FallbackReason =
-  | 'clef-off' | 'unavailable' | 'timeout' | 'malformed' | 'egress-denied' | 'budget' | 'stale-revision' | 'unresolved-inputs' | 'too-few-options';
+  | 'clef-off' | 'unavailable' | 'timeout' | 'malformed' | 'egress-denied' | 'budget' | 'stale-revision' | 'unresolved-inputs' | 'too-few-options'
+  /** R9 (H162): the pricing is unknown (none declared, or declared free for a cloud model tag): never taken as free or zero. */
+  | 'pricing';
 
 export const ADMISSION_CHECKS = ['projectScope', 'privacy', 'budget', 'concurrency', 'isolation', 'approvals'] as const;
 export type AdmissionCheckName = (typeof ADMISSION_CHECKS)[number];
@@ -143,6 +170,26 @@ export interface Admission {
   reasons: string[];
   checked: Record<AdmissionCheckName, 'ok' | 'refused' | 'not supplied'>;
   at: string;
+}
+
+/** R9 (H162): which model was asked and which answered, as observed; "not available" where nothing says, never invented. */
+export interface ModelIdentity {
+  /** The model asked for, as clef.json names it (the fixture transport's FAKE answers: clef-omni). */
+  requested: string;
+  /** What the request body's `model` said. */
+  request_model: string;
+  /** The model the answer names, as received (absent without an answer). */
+  returned?: string;
+  /** The answer's fields naming a version, as received. */
+  version?: Record<string, string>;
+  /** The local digest as Ollama's list gives it, or "not available". */
+  digest: string;
+  /** Where the digest came from, or why it is not available. */
+  digest_source: string;
+  /** "asked for X; the answer names Y", when the answer names another model. */
+  differs?: string;
+  /** The limits the request was built under: Clef-Omni's published ones, those clef.json states, or a conservative default. */
+  limits: { source: ModelLimits['source']; questions: number; words: string };
 }
 
 export interface MediaRecord {
@@ -168,7 +215,11 @@ export interface DecisionRecord {
   predictionRef?: string;
   requestKey: string;
   instructions: string;
-  provider: { id: string; transport: TransportKind | 'none'; endpoint?: EndpointKind; model?: string; paid: boolean; local: boolean };
+  /** `model`: the model the answer names, as received (absent without an answer). R9 (H162): `pricing` as declared. */
+  provider: {
+    id: string; transport: TransportKind | 'none'; endpoint?: EndpointKind; model?: string; paid: boolean; local: boolean;
+    pricing?: { kind: Pricing['kind']; usd_per_million_input?: number; billing?: Pricing['billing']; words: string; why?: string };
+  };
   options: {
     permitted: Array<{ id: string; label: string; description: string }>;
     excluded: Array<{ id: string; label: string; reason: string }>;
@@ -190,6 +241,8 @@ export interface DecisionRecord {
   /** The deterministic path: used for a fallback; for a recommendation or an abstention, the proposal shown beside it. */
   fallback: { used: boolean; reasonKind?: FallbackReason; reason?: string; option?: string; rule: string };
   admission: Admission;
+  /** R9 (H162): the model's identity, exact (absent in a record made before R9). */
+  model?: ModelIdentity;
   /** When several questions went in one request. */
   batch?: { size: number; request_sha256: string };
   evidence_kind: typeof DECISION_EVIDENCE_KIND;

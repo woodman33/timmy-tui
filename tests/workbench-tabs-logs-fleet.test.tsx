@@ -130,7 +130,7 @@ describe('tabs 0 and 8 in the terminal Workbench (R5 H134)', () => {
     const fleet = text(f, 'center');
     expect(fleet).toMatch(/FLEET · plans, newest first/);
     expect(fleet).toMatch(/No fleet plan in this project\./);
-    expect(fleet).toMatch(/CLEF-OMNI · decision recommender/);
+    expect(fleet).toMatch(/DECISION MODEL · none set up/);
     expect(fleet).toMatch(/uncalibrated thresholds/);
     expect(fleet).toMatch(/CLOUDFLARE · optional/);
     // God's Eye View stays reachable: 8 again (and /overview, the tab that gathers it)

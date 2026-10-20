@@ -71,6 +71,6 @@ describe('decisionLines', () => {
     expect(lines.filter((l) => l.role === 'recommendation')).toEqual([]);
     const fb = lines.filter((l) => l.role === 'fallback').map((l) => l.text).join('\n');
     expect(fb).toMatch(/Fallback used: Pi \(pi\) by the existing route/);
-    expect(fb).toMatch(/Use Clef routing is off/);
+    expect(fb).toMatch(/Decision-model routing is off/);
   });
 });

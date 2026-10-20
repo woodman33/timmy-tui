@@ -48,7 +48,8 @@ export interface ClefMedia {
 }
 
 export interface ClefRequest {
-  model: typeof CLEF_OMNI_MODEL;
+  /** The model the endpoint is asked for, as clef.json names it ("clef-omni" in Workers AI's published Clef-Omni body). */
+  model: string;
   state: unknown;
   questions: Record<string, ClefQuestion>;
   images?: ClefMedia[];
@@ -80,14 +81,20 @@ export interface MediaCandidate {
 
 const finite01 = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
 
-/** Problems with a request before it is sent, in words. An empty list means the request matches the published schema. */
-export function checkRequest(req: ClefRequest): string[] {
+/**
+ * Problems with a request before it is sent, in words. An empty list means the request matches the published schema. R9
+ * (H162): `model` is the model the request must name (default "clef-omni") and `maxQuestions` the model's limit (default
+ * Clef-Omni's published 64).
+ */
+export function checkRequest(req: ClefRequest, o: { model?: string; maxQuestions?: number } = {}): string[] {
   const problems: string[] = [];
-  if (!/^\s*clef-omni\s*$/.test(String(req.model))) problems.push(`model must be "clef-omni", not "${String(req.model)}"`);
+  const model = o.model ?? CLEF_OMNI_MODEL;
+  const max = o.maxQuestions ?? CLEF_LIMITS.questions.max;
+  if (String(req.model).trim() !== model || !model) problems.push(`model must be "${model}", not "${String(req.model)}"`);
   if (req.state === undefined) problems.push('state is required');
   const ids = Object.keys(req.questions ?? {});
-  if (ids.length < CLEF_LIMITS.questions.min || ids.length > CLEF_LIMITS.questions.max) {
-    problems.push(`questions must number ${CLEF_LIMITS.questions.min} to ${CLEF_LIMITS.questions.max}, not ${ids.length}`);
+  if (ids.length < CLEF_LIMITS.questions.min || ids.length > max) {
+    problems.push(`questions must number ${CLEF_LIMITS.questions.min} to ${max}, not ${ids.length}`);
   }
   for (const id of ids) {
     const q = req.questions[id];

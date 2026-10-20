@@ -15,7 +15,7 @@ const bool = { type: 'boolean' };
 export const DECISION_TOOLS = [
   {
     name: 'timmy_decide_route',
-    description: 'Recommend which available harness or runtime should take a task, from the options given, with Cloudflare Clef-Omni when "Use Clef routing" is on. It only scores the options: it never writes code, grants a permission, starts compute, dispatches or seals anything. The answer is a recommendation, never evidence; with "Require review before dispatch" on (the default) a person approves it first. An abstention goes to a person; any failure (Clef off or unavailable, a timeout, a malformed answer, local-only or free-only policy, no budget for paid inference, a stale revision, fewer than 2 available options) falls back to the deterministic option, its reason recorded. The decision is kept in the project\'s .timmy/decisions; the same request returns the recorded decision with no second call. Returns the record as `timmy decide route --json` prints it (exit_code 0 recorded, 1 refused, 2 usage).',
+    description: 'Recommend which available harness or runtime should take a task, from the options given, with the decision model Timmy\'s decision/clef.json names (Clef-Omni on Workers AI, or the model a SystemOne-compatible deployment serves) while decision-model routing is on. It only scores the options: it never writes code, grants a permission, starts compute, dispatches or seals anything, and never calls a chat or text-generation endpoint. The answer is a recommendation, never evidence; with "Require review before dispatch" on (the default) a person approves it first. Pricing is declared in clef.json, never inferred: unknown pricing is refused before anything is sent (under free_only, with budget_usd, and with neither), free_only also refuses a declared price, and a declared price needs budget_usd. An abstention goes to a person; any failure or refusal (routing off or the model unavailable, a timeout, a malformed answer, local-only or free-only policy, unknown pricing, no budget for a declared price, a stale revision, fewer than 2 available options) falls back to the deterministic option, its reason recorded. The decision is kept in the project\'s .timmy/decisions; the same request returns the recorded decision with no second call. Returns the record as `timmy decide route --json` prints it: the model asked for and the one that answered (model), the pricing as declared (provider.pricing), and `words`, the lines the CLI prints (exit_code 0 recorded, 1 refused, 2 usage).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -31,8 +31,8 @@ export const DECISION_TOOLS = [
         operation: { type: 'string', description: 'the Timmy operation (o and 8 hex digits); default TIMMY_OPERATION, else a new one' },
         project: { type: 'string', description: 'the project folder or name (default: the server\'s folder)' },
         revision: { type: 'string', description: 'the revision the request is bound to (default: git HEAD now)' },
-        local_only: bool,
-        free_only: bool,
+        local_only: { type: 'boolean', description: 'nothing off this computer (a cloud model tag counts as off it)' },
+        free_only: { type: 'boolean', description: 'nothing that may cost money: a declared price, or unknown pricing' },
         budget_usd: { type: 'number', description: 'what is left to spend on paid inference (paid inference needs one)' },
         request_key: str,
         fixture: { type: 'string', description: 'offline slice and tests only: answer from a response file' },

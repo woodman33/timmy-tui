@@ -5,9 +5,10 @@
  * The order of things, for each input:
  *   1. the recorded decision for its request key, if there is one (or the one in flight here, or another process's): no call
  *   2. the allowed-choice set (src/decision/policy.ts) and the deterministic proposal (src/decision/deterministic.ts)
- *   3. no call, the deterministic path used and its reason recorded, when: the inputs are unresolved, "Use Clef routing" is
- *      off, the revision is stale, fewer than 2 options are permitted, the provider is unavailable, egress is denied, or
- *      paid inference has no budget for it
+ *   3. no call, the deterministic path used and its reason recorded, when: the inputs are unresolved, decision-model routing
+ *      ("Use Clef routing", as the setting is stored) is off, the revision is stale, fewer than 2 options are permitted, the
+ *      provider is unavailable, egress is denied, the pricing is unknown (R9, H162: never taken as free or zero), or a
+ *      declared price has no budget for it (the estimate at the declared price and billing); none of these sends a byte
  *   4. the call: an answer that fails a check is malformed; a timeout or an unavailable service is recorded as such; each
  *      is a fallback to the deterministic path
  *   5. the judge (src/decision/judge.ts): a recommendation, or an abstention (a person decides; the deterministic option is
@@ -27,15 +28,16 @@ import { resolve } from 'node:path';
 import { OPERATION_ID } from '../ops/context.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { redactString } from '../utils/redact.js';
-import { checkRequest, CLEF_LIMITS, CLEF_OMNI_MODEL, type ClefQuestion, type ClefRequest, type ClefResponse } from './clef-contract.js';
+import { checkRequest, CLEF_LIMITS, type ClefQuestion, type ClefRequest, type ClefResponse } from './clef-contract.js';
 import { readClefConfig } from './config.js';
 import { deterministicProposal, type DeterministicProposal } from './deterministic.js';
 import { judge, NEEDS_REVIEW } from './judge.js';
 import {
-  admission, allowedChoices, budgetRefusal, egressRefusal, estimateInputTokens, estimateUsd, NEEDS_REVIEW_LABEL, planMedia, staleRefusal,
+  admission, allowedChoices, budgetRefusal, egressRefusal, estimateInputTokens, NEEDS_REVIEW_LABEL, planMedia, pricingRefusal, staleRefusal,
   type AllowedChoices, type EgressPolicy, type MediaPlan,
 } from './policy.js';
-import { ClefOmniProvider, providerFromConfig } from './provider.js';
+import { estimateCost, FIXTURE_PRICING, limitsOf, type ModelLimits, type Pricing } from './pricing.js';
+import { ClefOmniProvider, providerFromConfig, sameModel } from './provider.js';
 import { readSettings, type DecisionSettings } from './settings.js';
 import { claim, DecisionRefused, findRecorded, waitForRecorded, writeDecision } from './store.js';
 import {
@@ -124,7 +126,10 @@ interface Prepared {
   problems: string[];
 }
 
-function prepare(input: DecisionInput, index: number, settings: DecisionSettings, ctx: DecideContext): Prepared {
+/** R9 (H162): the model's limits as the provider describes them (a description without them: the model's own by name). */
+const limitsFor = (desc: ProviderDescription): ModelLimits => desc.limits ?? limitsOf(desc.model ?? '');
+
+function prepare(input: DecisionInput, index: number, settings: DecisionSettings, ctx: DecideContext, desc: ProviderDescription): Prepared {
   const problems: string[] = [];
   // the record goes in the project's own folder: one not named is refused, never taken to be the current folder
   if (typeof input.project?.root !== 'string' || !input.project.root.trim()) throw new DecisionRefused('not recorded', 'no project folder was given');
@@ -154,7 +159,9 @@ function prepare(input: DecisionInput, index: number, settings: DecisionSettings
     stateJson = '"<not JSON>"';
     problems.push('the state cannot be written as JSON');
   }
-  const media = planMedia(input.media, root, settings.allowCloudAnalysis);
+  // R9 (H162): media goes only to a model whose media limits are published (Clef-Omni's); any other gets none, said so
+  const media = planMedia(input.media, root, settings.allowCloudAnalysis,
+    desc.available && !limitsFor(desc).media ? `${desc.model}'s media limits are not published here: no media item is sent` : undefined);
   const sentMedia = media.records.filter((m) => m.sent).map((m) => m.sha256 ?? '');
   const canonical = canonicalJson({
     kind: input.kind, revision, operation: input.operationId, instructions: typeof input.instructions === 'string' ? input.instructions.trim() : '',
@@ -178,7 +185,7 @@ const currentOf = (ctx: DecideContext): string | undefined => (typeof ctx.curren
 /** The reason no model is asked for this input, or undefined. Budget is weighed per request, once it is built. */
 function beforeAnyCall(p: Prepared, settings: DecisionSettings, desc: ProviderDescription, ctx: DecideContext): { kind: FallbackReason; reason: string } | undefined {
   if (p.problems.length) return { kind: 'unresolved-inputs', reason: p.problems.join('; ') };
-  if (!settings.useClef) return { kind: 'clef-off', reason: 'Use Clef routing is off: the deterministic path was used and no model was asked' };
+  if (!settings.useClef) return { kind: 'clef-off', reason: 'Decision-model routing is off: the deterministic path was used and no model was asked' };
   const stale = staleRefusal(p.input.project.revision.trim(), currentOf(ctx));
   if (stale) return { kind: 'stale-revision', reason: stale };
   const n = p.choices.permitted.length;
@@ -186,6 +193,9 @@ function beforeAnyCall(p: Prepared, settings: DecisionSettings, desc: ProviderDe
   if (!desc.available) return { kind: 'unavailable', reason: desc.reason ?? 'the decision provider is unavailable' };
   const egress = egressRefusal(desc, ctx.policy);
   if (egress) return { kind: 'egress-denied', reason: egress };
+  // R9 (H162): unknown pricing is refused here, before any byte is sent, whatever the policy and the budget
+  const pricing = pricingRefusal(desc, { freeOnly: ctx.policy?.freeOnly, budget: ctx.budget !== undefined });
+  if (pricing) return { kind: 'pricing', reason: pricing };
   return undefined;
 }
 
@@ -198,13 +208,14 @@ const HUMAN_REVIEW_QUESTION = (n: number): ClefQuestion => ({
   },
 });
 
-function buildRequest(items: Prepared[]): ClefRequest {
+/** One request for the inputs that share it, naming the model clef.json names (R9, H162: never "clef-omni" by default). */
+function buildRequest(items: Prepared[], model: string): ClefRequest {
   const questions: Record<string, ClefQuestion> = {};
   for (const p of items) questions[p.question] = { type: 'choice', instructions: p.input.instructions.trim(), criteria: p.choices.criteria };
   questions[HUMAN_REVIEW] = HUMAN_REVIEW_QUESTION(items.length);
   const send = items[0].media.send;
   return {
-    model: CLEF_OMNI_MODEL,
+    model,
     state: items[0].input.state ?? null,
     questions,
     ...(send.images.length ? { images: send.images } : {}),
@@ -213,13 +224,16 @@ function buildRequest(items: Prepared[]): ClefRequest {
   };
 }
 
-/** Groups the inputs that may share a request, at most MAX_CHOICES_PER_REQUEST each and no question id twice in one. */
-function chunk(items: Prepared[]): Prepared[][] {
+/**
+ * Groups the inputs that may share a request, at most `max` choices each (MAX_CHOICES_PER_REQUEST for Clef-Omni; R9: the
+ * model's limit less human_review for another) and no question id twice in one.
+ */
+function chunk(items: Prepared[], max: number = MAX_CHOICES_PER_REQUEST): Prepared[][] {
   const groups = new Map<string, Prepared[][]>();
   for (const p of items) {
     const chunks = groups.get(p.batchKey) ?? [];
     groups.set(p.batchKey, chunks);
-    let home = chunks.find((c) => c.length < MAX_CHOICES_PER_REQUEST && !c.some((x) => x.question === p.question));
+    let home = chunks.find((c) => c.length < max && !c.some((x) => x.question === p.question));
     if (!home) { home = []; chunks.push(home); }
     home.push(p);
   }
@@ -262,6 +276,9 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
   const proposal = outcome === 'recommend' && recommendation
     ? { of: 'recommendation' as const, option: recommendation.option }
     : outcome === 'fallback' && p.proposal.option ? { of: 'fallback' as const, option: p.proposal.option } : { of: 'nothing' as const };
+  // R9 (H162): the model the answer names, as the provider received it (redacted); without one, none is claimed
+  const observed = o.answer?.identity ?? o.failure?.identity;
+  const returned = observed?.returned ?? (typeof response?.model === 'string' && response.model ? response.model : undefined);
   const usage = o.answer?.usageReported && response?.usage
     ? { input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens, ...(o.batch ? { sharedBy: o.batch.size } : {}) }
     : undefined;
@@ -279,7 +296,9 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
     instructions: typeof p.input.instructions === 'string' ? p.input.instructions.trim().slice(0, 4000) : '',
     provider: {
       id: desc.id, transport: desc.transport, ...(desc.endpoint ? { endpoint: desc.endpoint } : {}),
-      ...(response?.model ? { model: response.model } : {}), paid: desc.paid, local: desc.local,
+      ...(returned ? { model: returned } : {}), paid: desc.paid, local: desc.local,
+      // R9 (H162): the pricing as declared, kept with the decision (a record before R9 has none)
+      ...(desc.pricing ? { pricing: pricingRecord(desc.pricing) } : {}),
     },
     options: {
       permitted: p.choices.permitted.map((x) => ({ id: x.id, label: x.label, description: x.description })),
@@ -304,12 +323,41 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
       rule: p.proposal.rule,
     },
     admission: admission(proposal, ctx.checks, { requireReview: settings.requireReview, now }),
+    model: identityOf(desc, o, returned),
     ...(o.batch ? { batch: o.batch } : {}),
     evidence_kind: DECISION_EVIDENCE_KIND,
     note: DECISION_NOTE,
   };
   return record;
 }
+
+/**
+ * R9 (H162): the model's identity as the record keeps it: the model asked for and what the body named; the model and the
+ * version fields the answer names, as received; the local digest, or "not available" with why; a sentence when the answer
+ * names another model; and the limits the request was built under.
+ */
+function identityOf(desc: ProviderDescription, o: Outcome, returned: string | undefined): NonNullable<DecisionRecord['model']> {
+  const observed = o.answer?.identity ?? o.failure?.identity;
+  const limits = limitsFor(desc);
+  const requestModel = desc.requestModel ?? desc.model;
+  const differs = returned !== undefined && !sameModel(returned, desc.model) && !sameModel(returned, requestModel)
+    ? `asked for ${desc.model}; the answer names ${returned}` : undefined;
+  return {
+    requested: desc.model, request_model: requestModel,
+    ...(returned !== undefined ? { returned } : {}),
+    ...(observed?.version ? { version: observed.version } : {}),
+    digest: observed?.digest ?? 'not available',
+    digest_source: observed?.digest_source ?? (o.called ? 'the provider said nothing of a digest' : 'no call was made, so no model list was read'),
+    ...(differs ? { differs } : {}),
+    limits: { source: limits.source, questions: limits.questions, words: limits.words },
+  };
+}
+
+/** The pricing as a record keeps it. */
+const pricingRecord = (p: Pricing): NonNullable<DecisionRecord['provider']['pricing']> => ({
+  kind: p.kind, ...(p.usd_per_million_input !== undefined ? { usd_per_million_input: p.usd_per_million_input } : {}), ...(p.billing ? { billing: p.billing } : {}), words: p.words,
+  ...(p.why ? { why: p.why } : {}),
+});
 
 /** The in-flight decisions of this process, by project and request key: a second delivery waits for the first. */
 const inFlight = new Map<string, Promise<DecideResult>>();
@@ -343,7 +391,7 @@ export async function decideBatch(inputs: DecisionInput[], ctx: DecideContext = 
 
   try {
     for (let i = 0; i < inputs.length; i++) {
-      const p = prepare(inputs[i], i, settings, ctx);
+      const p = prepare(inputs[i], i, settings, ctx, desc);
       if (!isDirectory(p.root)) throw new DecisionRefused('not recorded', 'the project folder does not exist');
       const key = `${p.root}\u0000${p.requestKey}`;
       const recorded = findRecorded(p.root, p.requestKey);
@@ -381,24 +429,30 @@ export async function decideBatch(inputs: DecisionInput[], ctx: DecideContext = 
     }
     let remaining = ctx.budget?.remainingUsd;
     const byPrepared = new Map(toAsk.map((m) => [m.p, m]));
-    for (const items of chunk(toAsk.map((m) => m.p))) {
+    const limits = limitsFor(desc);
+    for (const items of chunk(toAsk.map((m) => m.p), Math.max(1, limits.questions - 1))) {
       const group = items.map((p) => byPrepared.get(p)!);
       const all = (o: Outcome): void => { for (const m of group) finish(m, o); };
       const stale = staleRefusal(items[0].input.project.revision.trim(), currentOf(ctx));
       if (stale) { all({ outcome: 'fallback', fallback: { kind: 'stale-revision', reason: stale }, called: false, cost: NO_CALL_COST }); continue; }
-      const request = buildRequest(items);
-      const problems = checkRequest(request);
+      const request = buildRequest(items, desc.requestModel);
+      const problems = checkRequest(request, { model: desc.requestModel, maxQuestions: limits.questions });
       if (problems.length) { all({ outcome: 'fallback', fallback: { kind: 'unresolved-inputs', reason: `the request does not match the published schema: ${problems.join('; ')}` }, called: false, cost: NO_CALL_COST }); continue; }
-      const est = estimateInputTokens(request, items[0].media.sent);
-      const usdEach = desc.paid ? estimateUsd(est.tokens) / items.length : 0;
-      if (desc.paid) {
-        const refused = budgetRefusal(estimateUsd(est.tokens), remaining);
+      const est = estimateInputTokens(request, items[0].media.sent, limits);
+      const questions = Object.keys(request.questions).length;
+      // R9 (H162): the estimate at the declared price and billing; unknown pricing was refused before this, and is again here
+      const unknown = pricingRefusal(desc, { freeOnly: ctx.policy?.freeOnly, budget: ctx.budget !== undefined });
+      if (unknown) { all({ outcome: 'fallback', fallback: { kind: 'pricing', reason: unknown }, called: false, cost: NO_CALL_COST }); continue; }
+      const price = estimateCost(est.tokens, questions, desc.pricing);
+      const usdEach = price.usd / items.length;
+      if (desc.pricing.kind === 'paid') {
+        const refused = budgetRefusal(price.usd, remaining, price.words);
         if (refused) { all({ outcome: 'fallback', fallback: { kind: 'budget', reason: refused }, called: false, cost: NO_CALL_COST }); continue; }
-        remaining = (remaining ?? 0) - estimateUsd(est.tokens);
+        remaining = (remaining ?? 0) - price.usd;
       }
       const batch = items.length > 1 ? { size: items.length, request_sha256: sha256(canonicalJson(request)) } : undefined;
       const result = await askProvider(provider, request, { timeoutMs: settings.timeoutMs, signal: ctx.signal, fixture: ctx.fixture });
-      const cost = costOf(desc, est, usdEach, items.length, result);
+      const cost = costOf(desc, est, questions, usdEach, items.length, result);
       if (!result.ok) {
         all({ outcome: 'fallback', fallback: { kind: result.kind, reason: result.reason }, failure: result, called: true, cost, batch });
         continue;
@@ -427,18 +481,25 @@ async function askProvider(provider: DecisionProvider, request: ClefRequest, o: 
   }
 }
 
-function costOf(desc: ProviderDescription, est: { tokens: number; words: string }, usdEach: number, n: number, result: ProviderAnswer | ProviderFailure): DecisionRecord['cost'] {
-  if (!desc.paid) {
-    return { measured: false, estimate_usd: 0, basis: desc.transport === 'fixture' ? 'the fixture transport: no service was called' : 'self-hosted SystemOne: no per-token price; the machine\'s own cost is not counted' };
+/** The record's cost: an estimate at the declared price and billing (R9, H162), never a measured amount; free only as declared. */
+function costOf(desc: ProviderDescription, est: { tokens: number; words: string }, questions: number, usdEach: number, n: number, result: ProviderAnswer | ProviderFailure): DecisionRecord['cost'] {
+  const pricing: Pricing = desc.pricing ?? FIXTURE_PRICING;
+  if (pricing.kind !== 'paid') {
+    return {
+      measured: false, estimate_usd: 0,
+      basis: desc.transport === 'fixture' ? 'the fixture transport: no service was called'
+        : 'declared free in clef.json ({"free": "local"}: hardware you control, no per-call charge); the machine\'s own cost is not counted',
+    };
   }
+  const price = estimateCost(est.tokens, questions, pricing);
   const shared = n > 1 ? `; one of ${n} questions in one request, so a ${n}th of it` : '';
   const reported = result.ok && result.usageReported && result.response.usage
-    ? `; the service reported ${result.response.usage.input_tokens} input tokens, $${estimateUsd(result.response.usage.input_tokens).toFixed(6)} at that price (still not a billed amount)`
+    ? `; the service reported ${result.response.usage.input_tokens} input tokens, $${estimateCost(result.response.usage.input_tokens, questions, pricing).usd.toFixed(6)} at the declared price (still not a billed amount)`
     : !result.ok ? '; the call failed, and whether it was billed is not known' : '; no usage was reported';
   return {
     measured: false,
     estimate_usd: usdEach,
-    basis: `an estimate, not a measured cost: ~${est.tokens} input tokens (${est.words}) at $0.15 per million input tokens, the model page's hosted price (output tokens are not charged)${shared}${reported}`,
+    basis: `an estimate, not a measured cost: ${price.words}, the price clef.json declares (${est.words})${shared}${reported}`,
   };
 }
 

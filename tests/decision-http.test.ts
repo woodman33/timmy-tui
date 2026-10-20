@@ -51,6 +51,8 @@ const loopbackOnly = ((url: string | URL | Request, init?: RequestInit) => {
 }) as typeof fetch;
 
 const ON = { ...DEFAULT_DECISION_SETTINGS, useClef: true };
+/** R9 (H162): pricing is declared, never inferred: the Workers AI configs here declare the model page's published price. */
+const CLEF_PRICE = { usd_per_million_input: 0.15, billing: 'per-request' };
 let root: string;
 let secrets: string;
 beforeEach(() => {
@@ -94,7 +96,7 @@ const expectNoSecretsIn = (dir: string): void => {
 
 describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
   it('POSTs to the model path with the Bearer token and the published body; the answer becomes a recommendation', async () => {
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
     answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(1);
@@ -117,6 +119,10 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
     expect(rec.recommendation?.option).toBe('codex');
     expect(rec.provider).toMatchObject({ transport: 'workers-ai', endpoint: 'workers-ai-rest', paid: true, local: false, model: 'clef-omni' });
     expect(rec.usage).toEqual({ input_tokens: 812, output_tokens: 0 });
+    // R9 (H162): the model asked for, the body's name for it and the answer's, exactly; Workers AI has no local digest
+    expect(rec.model).toMatchObject({ requested: '@cf/cloudflare/clef-omni', request_model: 'clef-omni', returned: 'clef-omni', digest: 'not available', digest_source: expect.stringMatching(/hosted service: there is no local digest/), limits: { source: 'published', questions: 64 } });
+    expect(rec.model).not.toHaveProperty('differs');
+    expect(rec.provider.id).toBe('workers-ai:@cf/cloudflare/clef-omni');
     expect(rec.response?.sha256).toMatch(/^[0-9a-f]{64}$/);
     expectNoSecretsIn(join(root, '.timmy'));
     const words = decisionLines(rec).map((l) => l.text).join('\n');
@@ -125,7 +131,7 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
   });
 
   it('HTTP 500 that echoes the token and the account id: a fallback, and neither is kept anywhere', async () => {
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
     answer = (s) => ({ status: 500, body: { success: false, result: null, errors: [{ code: 10000, message: `FAKE: ${s.auth} may not use /accounts/${FAKE_ACCOUNT}` }] } });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(1);
@@ -139,7 +145,7 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
     const file = fakeTokenFile(secrets);
     const { chmodSync } = await import('node:fs');
     chmodSync(file, 0o644);
-    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: file });
+    writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: file, pricing: CLEF_PRICE });
     answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, baseUrl: base, budget: { remainingUsd: 0.01 } });
     expect(seen).toHaveLength(0);
@@ -150,15 +156,16 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
 });
 
 describe('SystemOne (self-hosted, Jev/SystemOne-compatible) on 127.0.0.1', () => {
-  it('POSTs the same body to /v1/systemone; free and local, so local-only and free-only both allow it', async () => {
-    writeConfig({ transport: 'systemone', systemone_url: base });
+  // R9 (H162): free and local because clef.json declares {"free": "local"} for a named model, not because of the address
+  it('POSTs the same body to /v1/systemone; declared free and local, so local-only and free-only both allow it', async () => {
+    writeConfig({ transport: 'systemone', systemone_url: base, model: 'clef-flash:latest', pricing: { free: 'local' } });
     answer = () => ({ status: 200, body: readFixture('response-route-ok.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly, policy: { localOnly: true, freeOnly: true } });
-    expect(seen).toHaveLength(1);
-    expect(seen[0].method).toBe('POST');
-    expect(seen[0].url).toBe('/v1/systemone');
-    expect(seen[0].auth).toBeUndefined();
-    expect((seen[0].body.questions as Record<string, unknown>).route).toBeDefined();
+    const posts = seen.filter((s) => s.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toBe('/v1/systemone');
+    expect(posts[0].auth).toBeUndefined();
+    expect((posts[0].body.questions as Record<string, unknown>).route).toBeDefined();
     expect(rec.outcome).toBe('recommend');
     expect(rec.provider).toMatchObject({ transport: 'systemone', endpoint: 'systemone-loopback', paid: false, local: true });
     expect(rec.cost).toMatchObject({ measured: false, estimate_usd: 0 });
@@ -166,10 +173,10 @@ describe('SystemOne (self-hosted, Jev/SystemOne-compatible) on 127.0.0.1', () =>
   });
 
   it('with a token file it sends the Bearer token, and still keeps it out of the record', async () => {
-    writeConfig({ transport: 'systemone', systemone_url: base, token_file: fakeTokenFile(secrets) });
+    writeConfig({ transport: 'systemone', systemone_url: base, model: 'clef-flash:latest', pricing: { free: 'local' }, token_file: fakeTokenFile(secrets) });
     answer = () => ({ status: 200, body: readFixture('response-route-tie.json') });
     const rec = await decide(input(), { settings: ON, fetch: loopbackOnly });
-    expect(seen[0].auth).toBe(`Bearer ${FAKE_TOKEN}`);
+    expect(seen.filter((s) => s.method === 'POST')[0].auth).toBe(`Bearer ${FAKE_TOKEN}`);
     expect(rec.outcome).toBe('abstain');
     expectNoSecretsIn(join(root, '.timmy'));
   });
@@ -179,7 +186,7 @@ describe('the CLI path over HTTP', () => {
   it('timmy decide route --json through the FAKE Workers AI endpoint: one JSON line, no secret in it or in the files', async () => {
     const p = gitProject('timmy-decide-http-cli-');
     try {
-      writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets) });
+      writeConfig({ transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(secrets), pricing: CLEF_PRICE });
       answer = () => ({ status: 200, body: readFixture('envelope-route-ok.json') });
       const args = ['route', '--option', 'codex:Codex', '--option', 'pi', '--option', 'openhands', '--deterministic', 'codex', '--project', p.root, '--budget-usd', '0.01', '--json'];
       const out = await decideDo(args, { env: { ...process.env, TIMMY_CLEF: '1' }, fetch: loopbackOnly, baseUrl: base });

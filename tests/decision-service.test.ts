@@ -59,8 +59,9 @@ function counted(inner: DecisionProvider): { calls: ClefRequest[]; provider: Dec
 const fixtureProvider = (): { calls: ClefRequest[]; provider: DecisionProvider } => counted(new ClefOmniProvider({ transport: 'fixture' }));
 
 /** The paid, remote Workers AI transport with a fetch the test supplies (no network). */
+/** R9 (H162): pricing is declared, never inferred: these tests declare the model page's published Clef-Omni price. */
 function workersAi(f: typeof fetch): DecisionProvider {
-  return new ClefOmniProvider({ transport: 'workers-ai', config: { transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(scratch) }, fetch: f });
+  return new ClefOmniProvider({ transport: 'workers-ai', config: { transport: 'workers-ai', account_id: FAKE_ACCOUNT, token_file: fakeTokenFile(scratch), pricing: { usd_per_million_input: 0.15, billing: 'per-request' } }, fetch: f });
 }
 function fetchReturning(status: number, body: unknown): { seen: string[]; fetch: typeof fetch } {
   const seen: string[] = [];
@@ -265,7 +266,7 @@ describe('every failure falls back to the deterministic path, with its reason re
     expect(calls).toHaveLength(0);
     expect(rec.outcome).toBe('fallback');
     expect(rec.fallback).toMatchObject({ used: true, reasonKind: 'clef-off', option: 'codex' });
-    expect(rec.fallback.reason).toMatch(/Use Clef routing/);
+    expect(rec.fallback.reason).toMatch(/^Decision-model routing is off/);
     expect(rec.cost).toMatchObject({ measured: false, estimate_usd: 0 });
   });
 
