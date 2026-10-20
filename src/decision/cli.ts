@@ -12,6 +12,10 @@
  * still be HEAD, or the request is stale). The operation is --operation, else TIMMY_OPERATION, else a new one for this
  * decision (said so). The fixture transport (--fixture) is for tests and the offline slice.
  *
+ * R9 (H162): the lines say the model clef.json names, its pricing as declared and each refusal in its words; the JSON (the
+ * MCP tool's answer too) carries those same lines as `words`. The words are model-neutral: "decision-model routing", never
+ * "Clef" for a model that is not Clef-Omni.
+ *
  * The operator's rule it keeps: printing a decision never dispatches it; a recommendation is printed as one, with what a
  * person must do. Nothing here prints a token or an account id (the records never hold them).
  */
@@ -146,11 +150,19 @@ export function decideHelp(): string {
   return [
     `Usage: ${DECIDE_USAGE}`,
     '',
-    'timmy decide: asks Clef-Omni (Cloudflare\'s decision model, when "Use Clef routing" is on) to score the options Timmy',
-    'offers, and records the decision in the project\'s .timmy/decisions. It only scores: it never writes code, grants a',
-    'permission, starts compute or dispatches anything. Its answer is a recommendation, never evidence; with "Require review',
-    'before dispatch" on (the default) a person approves it first. An abstention goes to a person; any failure falls back to',
-    'the deterministic option, with its reason recorded. The same request is decided once.',
+    'timmy decide: asks the decision model that decision/clef.json names (Clef-Omni on Workers AI, or the model a',
+    'SystemOne-compatible deployment serves) to score the options Timmy offers, while decision-model routing is on (saved as',
+    '"useClef"; TIMMY_CLEF=1 for one process), and records the decision in the project\'s .timmy/decisions. It only scores: it',
+    'never writes code, grants a permission, starts compute or dispatches anything, and it never calls a chat or',
+    'text-generation endpoint. Its answer is a recommendation, never evidence; with "Require review before dispatch" on (the',
+    'default) a person approves it first. An abstention goes to a person; any failure or refusal falls back to the',
+    'deterministic option, with its reason recorded. The same request is decided once.',
+    '',
+    'Pricing is declared in clef.json, never inferred from the transport, a label or a localhost address:',
+    '  {"free": "local"}                                   the model runs on hardware you control, at no per-call charge',
+    '  {"usd_per_million_input": n, "billing": "per-request" | "per-question"}   a price (per question: the input once per question)',
+    'Unknown pricing (none declared, or a cloud model tag such as kimi-k3:cloud declared free) is refused before anything',
+    'is sent: under --free-only, with --budget-usd, and with neither. A declared price needs --budget-usd.',
     '',
     '  <kind>                     route (an available harness or runtime), queue, mode or vox-review',
     '  --option id[:label]        an option to offer (repeat); ids are letters, digits, _, . or -',
@@ -162,11 +174,13 @@ export function decideHelp(): string {
     '  --operation oXXXXXXXX      the operation this belongs to (default: TIMMY_OPERATION, else a new one)',
     '  --project <dir|name>       the project (default: the current folder)',
     '  --revision <rev>           the revision the request is bound to (default: git HEAD now; another is stale)',
-    '  --local-only, --free-only  policy: nothing off this computer; nothing that costs money',
-    '  --budget-usd <n>           what is left to spend on paid inference (paid inference needs one)',
+    '  --local-only, --free-only  policy: nothing off this computer (a cloud model tag is off it); nothing that may cost',
+    '                             money (a declared price, or unknown pricing)',
+    '  --budget-usd <n>           what is left to spend on paid inference (a declared price needs one; unknown pricing is',
+    '                             never checked against one)',
     '  --request-key <key>        the idempotency key (default: the sha256 of the canonical request)',
     '  --fixture <file>           answer from a response file (tests and the offline slice only)',
-    '  --json                     one line: {schema: timmy.decision/1, ...the record}',
+    '  --json                     one line: {schema: timmy.decision/1, ...the record, words: the lines printed without it}',
     '',
     'Exit codes: 0 recorded (any outcome); 1 refused (nothing recorded); 2 usage.',
     '',
@@ -252,7 +266,7 @@ export async function decideDo(argsOrArgv: string[] | DecideArgs, ctx: DecideCli
   const lines = decisionLines(record).map((l) => l.text);
   if (operationFrom === 'new') lines.push(`Operation ${operationId} is new for this decision (no --operation or ${OPERATION_ENV} was given)`);
   lines.push(reused ? `The recorded decision, returned again (asked before; no second call): ${file}` : `Kept: ${file}`);
-  return { code: 0, lines, json: { ...record, ok: true, exit_code: 0, reused, file, operation_from: operationFrom } };
+  return { code: 0, lines, json: { ...record, ok: true, exit_code: 0, reused, file, operation_from: operationFrom, words: lines } };
 }
 
 /** `timmy decide …`: its exit code (the CLI exits with it). */

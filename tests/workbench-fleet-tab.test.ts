@@ -177,8 +177,9 @@ describe('tab 8: Clef-Omni', () => {
     for (const [c, r] of SIZES) {
       const v = fleetView(ctxAt(c, r), d, frame);
       const all = text(v.lines);
-      expect(all).toMatch(/CLEF-OMNI · decision recommender/);
-      expect(all).toMatch(/Use Clef routing: off \(the default\)/);
+      // R9 (H162): model-neutral words; no model is set up in this fixture's home
+      expect(all).toMatch(/DECISION MODEL · none set up/);
+      expect(all).toMatch(/Decision-model routing: off \(the default\)/);
       expect(all).toMatch(/uncalibrated thresholds/);
       expect(rolesOf(v.lines, /^uncalibrated thresholds$/)).toEqual(['attention']);
       // the fullest words that fit: the review rule whole, in a narrow column its short form
@@ -187,14 +188,14 @@ describe('tab 8: Clef-Omni', () => {
     }
     expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/uncalibrated thresholds: 60\.0% top, 15\.0% margin/);
     const stacked = fleetView(ctxAt(100, 30), d, frame).lines;
-    expect(text(stacked)).toMatch(/Use Clef routing: off \(the default\): routes stay deterministic; no model is asked/);
+    expect(text(stacked)).toMatch(/Decision-model routing: off \(the default\): routes stay deterministic; no model is asked/);
     expect(text(stacked)).toMatch(/uncalibrated thresholds: 60\.0% top, 15\.0% margin \(placeholders, not checked against outcomes\)/);
     expect(text(stacked)).toMatch(/Review: every recommendation waits for a person \(the default\)/);
     expect(text(stacked)).toMatch(/Transport: not set up \(no decision\/clef\.json in Timmy's home\)/);
     // TIMMY_CLEF=1 turns it on for one process, and says so (in a narrow column, still which variable)
     const on = readFleet({ home: f.home, root: f.root, env: { ...env, TIMMY_CLEF: '1' } });
-    expect(text(fleetView(ctxAt(100, 30), on, frame).lines)).toMatch(/Use Clef routing: on \(TIMMY_CLEF=1, for this process\): Clef-Omni is asked/);
-    expect(text(fleetView(ctxAt(120, 40), on, frame).lines)).toMatch(/Use Clef routing: on \(TIMMY_CLEF=1/);
+    expect(text(fleetView(ctxAt(100, 30), on, frame).lines)).toMatch(/Decision-model routing: on \(TIMMY_CLEF=1, for this process\): the model scores the options/);
+    expect(text(fleetView(ctxAt(120, 40), on, frame).lines)).toMatch(/Decision-model routing: on \(TIMMY_CLEF=1/);
   });
 
   it('the decisions newest first: what each recommended, that a recommendation is not a run, and its scores as bars (never green)', async () => {
@@ -207,7 +208,7 @@ describe('tab 8: Clef-Omni', () => {
       const v = fleetView(ctxAt(c, r, at), d, frame);
       const all = text(v.lines);
       // what it recommended and that it is not a run, at every size
-      expect(all).toMatch(/Clef recommended Codex[^\n]*not a run/);
+      expect(all).toMatch(/recommended Codex[^\n]*not a run/);
       expect(all).toMatch(/deterministic: pi/);
       // (R7 H150: a recommendation is a prediction, amber as .predict is: role accent, B10)
       expect(rolesOf(v.lines, /^Codex$/)).toEqual(['accent']);
@@ -218,7 +219,7 @@ describe('tab 8: Clef-Omni', () => {
       for (const s of greens(v.lines)) expect(s).not.toMatch(/Codex|recommend|█/);
     }
     const stacked = text(fleetView(ctxAt(100, 30, at), d, frame).lines);
-    expect(stacked).toMatch(/Clef recommended Codex \d+\.\d%, ahead by \d+\.\d%: a recommendation, not a run/);
+    expect(stacked).toMatch(/clef-omni recommended Codex \d+\.\d%, ahead by \d+\.\d%: a recommendation, not a run/);
     expect(stacked).toMatch(/deterministic: pi by the existing route the caller named/);
     expect(stacked).toMatch(/⚠ needs you: a person approves before anything is dispatched/);
     expect(stacked).toMatch(/clef-omni via a fixture file \(no service was called\) · cost not measured/);
@@ -265,7 +266,7 @@ describe('tab 8: Cloudflare and the services', () => {
       expect(rolesOf(v.lines, /^\[(c|s)\]$/)).toEqual(['action']);
     }
     const stacked = text(fleetView(ctxAt(100, 30), d, frame).lines);
-    expect(stacked).toMatch(/Workers AI: not used \(Clef-Omni's transport is not Workers AI\)/);
+    expect(stacked).toMatch(/Workers AI: not used \(the decision model's transport is not Workers AI\)/);
     expect(stacked).toMatch(/not the chat provider: chat goes to OpenRouter or a local Ollama/);
     expect(stacked).toMatch(/● live +Browser companion *\n +answered (just now|\d+ min ago) \(running\)/);
   });
@@ -306,8 +307,8 @@ describe('tab 8: the layout, the items and the Inspector', () => {
           if (c === 120) expect(text(v.lines)).toMatch(/[↑↓] \d+–\d+ of \d+ rows/);
         } else {
           expect(plain(v.lines[row(/^FLEET · plans/)])).not.toMatch(/│/);
-          expect(row(/^CLEF-OMNI ·/)).toBeGreaterThan(row(/^FLEET · plans/));
-          expect(row(/^CLOUDFLARE ·/)).toBeGreaterThan(row(/^CLEF-OMNI ·/));
+          expect(row(/^DECISION MODEL ·/)).toBeGreaterThan(row(/^FLEET · plans/));
+          expect(row(/^CLOUDFLARE ·/)).toBeGreaterThan(row(/^DECISION MODEL ·/));
           expect(row(/^SERVICES ·/)).toBeGreaterThan(row(/^CLOUDFLARE ·/));
         }
       }

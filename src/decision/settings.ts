@@ -4,7 +4,9 @@
  * A save writes a temporary file (0600) in that folder, flushes it and renames it over the old one, the same way
  * src/workbench/settings.ts saves, so a reader sees the old settings or the new ones, never half of either.
  *
- *   Use Clef routing                  off by default; TIMMY_CLEF=1 or 0 overrides it for one process (never saved)
+ *   Use decision-model routing        off by default; TIMMY_CLEF=1 or 0 overrides it for one process (never saved). R9
+ *                                     (H162): its words are model-neutral, since the model is clef.json's, not always
+ *                                     Clef-Omni; the stored names stay (useClef, TIMMY_CLEF) for compatibility
  *   Allow cloud analysis              off by default: no media item is ever sent while it is off
  *   Require review before dispatch    on by default: every recommendation waits for a person
  *   thresholds                        minTop 0.60, minMargin 0.15 (src/decision/judge.ts)
@@ -41,7 +43,7 @@ export const DEFAULT_DECISION_SETTINGS: DecisionSettings = Object.freeze({
 export type SwitchKey = 'useClef' | 'allowCloudAnalysis' | 'requireReview';
 
 export const SETTING_LABELS: ReadonlyArray<{ key: SwitchKey; label: string; about: string }> = [
-  { key: 'useClef', label: 'Use Clef routing', about: 'ask Clef-Omni to score the options Timmy built; off: the existing route is used and no model is asked' },
+  { key: 'useClef', label: 'Use decision-model routing', about: 'ask the decision model clef.json names to score the options Timmy built (saved as useClef; TIMMY_CLEF=1 or 0 for one process); off: the existing route is used and no model is asked' },
   { key: 'allowCloudAnalysis', label: 'Allow cloud analysis', about: 'images, audio or video marked not private may be sent with a question; off: no media item is ever sent' },
   { key: 'requireReview', label: 'Require review before dispatch', about: 'every recommendation becomes a NEEDS YOU proposal; nothing is dispatched until a person approves' },
 ];

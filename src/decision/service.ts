@@ -185,7 +185,7 @@ const currentOf = (ctx: DecideContext): string | undefined => (typeof ctx.curren
 /** The reason no model is asked for this input, or undefined. Budget is weighed per request, once it is built. */
 function beforeAnyCall(p: Prepared, settings: DecisionSettings, desc: ProviderDescription, ctx: DecideContext): { kind: FallbackReason; reason: string } | undefined {
   if (p.problems.length) return { kind: 'unresolved-inputs', reason: p.problems.join('; ') };
-  if (!settings.useClef) return { kind: 'clef-off', reason: 'Use Clef routing is off: the deterministic path was used and no model was asked' };
+  if (!settings.useClef) return { kind: 'clef-off', reason: 'Decision-model routing is off: the deterministic path was used and no model was asked' };
   const stale = staleRefusal(p.input.project.revision.trim(), currentOf(ctx));
   if (stale) return { kind: 'stale-revision', reason: stale };
   const n = p.choices.permitted.length;

@@ -266,7 +266,7 @@ describe('every failure falls back to the deterministic path, with its reason re
     expect(calls).toHaveLength(0);
     expect(rec.outcome).toBe('fallback');
     expect(rec.fallback).toMatchObject({ used: true, reasonKind: 'clef-off', option: 'codex' });
-    expect(rec.fallback.reason).toMatch(/Use Clef routing/);
+    expect(rec.fallback.reason).toMatch(/^Decision-model routing is off/);
     expect(rec.cost).toMatchObject({ measured: false, estimate_usd: 0 });
   });
 

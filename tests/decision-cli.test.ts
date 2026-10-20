@@ -187,9 +187,12 @@ describe('the MCP tool', () => {
       operation: 'o0000d00d', project: project.root, fixture: fixture('response-route-ok.json'),
     });
     expect(mcp).toMatchObject({ schema: 'timmy.decision/1', ok: true, exit_code: 0, reused: true, id: cli.json.id, outcome: 'recommend', requestKey: cli.json.requestKey });
-    const { reused: _a, ...cliRest } = cli.json;
-    const { reused: _b, ...mcpRest } = mcp as Record<string, unknown>;
+    const { reused: _a, words: cliWords, ...cliRest } = cli.json;
+    const { reused: _b, words: mcpWords, ...mcpRest } = mcp as Record<string, unknown>;
     expect(mcpRest).toEqual(cliRest);
+    // R9 (H162): the same words (the lines the CLI prints), but for the last: the second asking returned the recorded one
+    expect((mcpWords as string[]).slice(0, -1)).toEqual((cliWords as string[]).slice(0, -1));
+    expect((mcpWords as string[]).at(-1)).toMatch(/^The recorded decision, returned again \(asked before; no second call\)/);
   });
 
   it('applies the same checks: usage problems are exit 2, Clef off is a recorded fallback', async () => {

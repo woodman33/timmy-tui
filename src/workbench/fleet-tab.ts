@@ -2,14 +2,18 @@
  * R5 (H134): the body of tab 8, Fleet & Clef (src/contracts/workspace.ts TABS: "fleet plans and their counts, Clef
  * recommendations and Cloudflare, labelled as they are"), laid out as the operator's references 09 and 18 lay theirs out:
  *
- *   the strip      the fleet, the Cloudroom Core, Clef-Omni and the Cloudflare edge in one row, each as it is
+ *   the strip      the fleet, the Cloudroom Core, the decision model and the Cloudflare edge in one row, each as it is
  *   FLEET          the project's plans (src/fleet/service.ts listFleetViews: read from their files only), newest first, with
  *                  their counts kept apart (planned, admitted, running, done, failed; done is delivered, never verified); a
  *                  FAKE plan says FAKE (simulation); the Cloudroom Core as this reading found it, recorded or not connected
  *                  (nothing here asks it: no live call is authorized), and under SERVICES as the frame last observed it
- *   CLEF-OMNI      its mode (Use Clef routing, off by default), its thresholds said to be uncalibrated, its transport, and
- *                  the project's recent decisions (src/decision/store.ts): what each recommended, its scores as bars (the
- *                  recommended option amber, never green), and that a recommendation is not a run
+ *   DECISION MODEL its mode (decision-model routing, saved as "Use Clef routing", off by default), its thresholds said to be
+ *                  uncalibrated, its transport, the model clef.json names with its pricing as declared (free: local; a price
+ *                  and its billing; or unknown, amber, with what every call is then refused for) and its limits, and the
+ *                  project's recent decisions (src/decision/store.ts): what each recommended and which model said so, its
+ *                  scores as bars (the recommended option amber, never green), that a recommendation is not a run, and,
+ *                  selected, its pricing, any refusal in its words and a model that answered for another (R9, H162: the
+ *                  words are the model's own, never Clef for another model)
  *   SERVICES       the connections as the workspace frame observed them (src/ops/workspace-frame.ts connectionOf): ● live
  *                  green only for an answer seen in the last 30 minutes
  *   CLOUDFLARE     optional, not the chat provider: set up or not
@@ -21,10 +25,12 @@ import { existsSync } from 'node:fs';
 import type { WorkspaceFrame } from '../contracts/workspace.js';
 import { readClefConfig } from '../decision/config.js';
 import { NEEDS_REVIEW } from '../decision/judge.js';
+import type { ModelLimits, Pricing } from '../decision/pricing.js';
+import { providerFromConfig } from '../decision/provider.js';
 import { readSettings } from '../decision/settings.js';
 import { listDecisions } from '../decision/store.js';
 import type { DecisionRecord } from '../decision/types.js';
-import { decisionLines, type DecisionLine } from '../decision/view.js';
+import { decisionLines, ENDPOINT_WORDS, type DecisionLine } from '../decision/view.js';
 import { cloudroomAvailability, cloudroomConfigPath } from '../fleet/cloudroom/index.js';
 import { knownProviders, listFleetViews, readRouteAdvice, type FleetView, type ProviderEntry, type RouteAdvice } from '../fleet/service.js';
 import type { Glyphs } from './frame.js';
@@ -48,7 +54,7 @@ export const DECISIONS_SHOWN = 6;
 
 /** The command that makes the first plan (the frame's own action for this tab: the FAKE backend, nothing starts). */
 export const PLAN_COMMAND = 'timmy fleet plan --provider fake --workers 3 --prompt "<task>"';
-/** The command that records a decision (deterministic while Use Clef routing is off). */
+/** The command that records a decision (deterministic while decision-model routing is off). */
 export const DECIDE_COMMAND = 'timmy decide route --option <id> --option <id> --deterministic <id>';
 
 // ── the reading ────────────────────────────────────────────────────────────────
@@ -71,6 +77,11 @@ export interface DecisionRow {
   distribution: Array<{ id: string; label: string; p: number }>;
   /** what answered, in words (never an address or an account id) */
   asked: string;
+  /** R9 (H162): the model asked for (absent in a record made before R9), its pricing as declared, and "asked for X; the answer
+   *  names Y" when another model answered */
+  model?: string;
+  pricing?: string;
+  differs?: string;
   /** the record in plain lines (src/decision/view.ts decisionLines): the Inspector's words */
   lines: DecisionLine[];
 }
@@ -85,8 +96,10 @@ export interface ClefState {
   settings: 'saved' | 'none yet' | 'unreadable';
   /** values found out of range in the settings file, each replaced by its default, or why it could not be read */
   problems: string[];
-  /** how Clef-Omni is reached, in words (and in a few, for a narrow column): never the account id or the token */
+  /** how the decision model is reached, in words (and in a few, for a narrow column): never the address, account id or token */
   transport: { state: 'configured' | 'none yet' | 'off' | 'unreadable' | 'invalid'; words: string; short: string; cloudflare: boolean };
+  /** R9 (H162): the model clef.json names, its pricing as declared and its limits; absent when none is configured */
+  model?: { name: string; id: string; pricing: Pick<Pricing, 'kind' | 'words' | 'why'>; limits: string; limitsSource: ModelLimits['source'] };
 }
 
 export interface FleetData {
@@ -114,13 +127,9 @@ export interface FleetReadInput {
   now?: number;
 }
 
-const ENDPOINT: Readonly<Record<string, string>> = {
-  'workers-ai-rest': 'Workers AI (Cloudflare, paid)', 'systemone-loopback': 'SystemOne on this computer', 'systemone-remote': 'SystemOne on another computer', 'fixture-file': 'a fixture file (no service was called)',
-};
-
 function decisionRow(r: DecisionRecord): DecisionRow {
   const label = (id: string): string => (id === NEEDS_REVIEW ? 'a person should decide' : r.options.permitted.find((o) => o.id === id)?.label ?? id);
-  const via = r.provider.endpoint ? ENDPOINT[r.provider.endpoint] ?? r.provider.endpoint : 'no transport';
+  const via = r.provider.endpoint ? ENDPOINT_WORDS[r.provider.endpoint] ?? r.provider.endpoint : 'no transport';
   return {
     id: r.id, kind: r.kind, at: r.createdAt, operation: r.operationId, outcome: r.outcome,
     ...(r.outcome === 'recommend' && r.recommendation ? { recommended: { option: r.recommendation.option, label: r.recommendation.label, top: r.recommendation.top, margin: r.recommendation.margin } } : {}),
@@ -129,24 +138,35 @@ function decisionRow(r: DecisionRecord): DecisionRow {
     needsReview: r.admission.needsReview, admitted: r.admission.admitted,
     distribution: Object.entries(r.distribution ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id, p]) => ({ id, label: label(id), p })),
     asked: r.provider.model ? `${r.provider.model} via ${via}` : r.latencyMs !== undefined ? `asked ${via}: no usable answer` : `no model was asked (${via})`,
+    ...(r.model ? { model: r.model.requested } : {}),
+    ...(r.provider.pricing ? { pricing: r.provider.pricing.words } : {}),
+    ...(r.model?.differs ? { differs: r.model.differs } : {}),
     lines: decisionLines(r),
   };
 }
 
-/** How Clef-Omni is reached, in words: never its address, account id or token. */
-function transportOf(env: Env): ClefState['transport'] {
+/**
+ * How the decision model is reached, which model clef.json names and its pricing as declared, in words: never its address,
+ * account id or token. R9 (H162): from the provider's own description (src/decision/provider.ts), the one place that reads
+ * clef.json's model and pricing, so a loopback address is never called free here either.
+ */
+function transportOf(env: Env): Pick<ClefState, 'transport' | 'model'> {
   const c = readClefConfig(env);
-  if (c.state === 'none yet') return { state: c.state, words: 'not set up (no decision/clef.json in Timmy\'s home)', short: 'not set up', cloudflare: false };
-  if (c.state === 'off') return { state: c.state, words: 'turned off (transport "none")', short: 'turned off', cloudflare: false };
-  if (c.state !== 'configured') return { state: c.state, words: c.why, short: c.state, cloudflare: false };
-  if (c.config.transport === 'workers-ai') return { state: 'configured', words: 'Workers AI: Cloudflare\'s hosted model, paid, off this computer', short: 'Workers AI (paid)', cloudflare: true };
-  const local = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(c.config.systemone_url ?? '');
-  return local
-    ? { state: 'configured', words: 'SystemOne on this computer (self-hosted, free)', short: 'SystemOne, this computer', cloudflare: false }
-    : { state: 'configured', words: 'SystemOne on another computer (self-hosted)', short: 'SystemOne, elsewhere', cloudflare: false };
+  if (c.state === 'none yet') return { transport: { state: c.state, words: 'not set up (no decision/clef.json in Timmy\'s home)', short: 'not set up', cloudflare: false } };
+  if (c.state === 'off') return { transport: { state: c.state, words: 'turned off (transport "none")', short: 'turned off', cloudflare: false } };
+  if (c.state !== 'configured') return { transport: { state: c.state, words: c.why, short: c.state, cloudflare: false } };
+  const d = providerFromConfig(c).describe();
+  const here = d.endpoint === 'systemone-loopback';
+  const words = d.transport === 'workers-ai' ? 'Workers AI: Cloudflare\'s hosted service, off this computer'
+    : here ? `SystemOne on this computer${d.cloudModel ? ', but its model is a cloud tag: what it is given leaves this computer' : ''}` : 'SystemOne on another computer';
+  const short = d.transport === 'workers-ai' ? 'Workers AI' : here ? 'SystemOne, this computer' : 'SystemOne, elsewhere';
+  return {
+    transport: { state: 'configured', words: d.available ? words : `${words}: ${d.reason ?? 'not usable'}`, short, cloudflare: d.transport === 'workers-ai' },
+    model: { name: d.model, id: d.id, pricing: { kind: d.pricing.kind, words: d.pricing.words, ...(d.pricing.why ? { why: d.pricing.why } : {}) }, limits: d.limits.words, limitsSource: d.limits.source },
+  };
 }
 
-/** The tab's reading: the project's plans, the providers and the Cloudroom Core as recorded, Clef-Omni's settings and the
+/** The tab's reading: the project's plans, the providers and the Cloudroom Core as recorded, the decision model's settings and the
  *  project's decisions. Reads files only. */
 export function readFleet(i: FleetReadInput): FleetData {
   const env = i.env ?? process.env;
@@ -164,7 +184,7 @@ export function readFleet(i: FleetReadInput): FleetData {
   const clef: ClefState = {
     useClef: s.settings.useClef, from: s.useClefFrom, requireReview: s.settings.requireReview, allowCloudAnalysis: s.settings.allowCloudAnalysis,
     thresholds: { ...s.settings.thresholds }, settings: s.state, problems: [...s.problems, ...(s.error ? [`the decision settings could not be read (${s.error}): the defaults apply`] : [])],
-    transport: transportOf(env),
+    ...transportOf(env),
   };
   let decisions: DecisionRow[] = [];
   let moreDecisions = 0;
@@ -234,7 +254,7 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
     if (beside(rows[k])) rows[k] = spread(rows[k], status, w, g.ellipsis);
     else rows.push(spread([S(ind)], status, w, g.ellipsis));
   }
-  // the selected plan says more: its isolation, harness and model, Clef's route advice, and what needs you
+  // the selected plan says more: its isolation, harness and model, the decision model's route advice, and what needs you
   if (selected) {
     rows.push(fit([S(ind), S(`${v.isolationWords}${v.perWorker === 'dedicated' ? ', one per worker' : ', shared'} ${g.sep} ${v.harness} ${g.sep} ${v.model}`, 'secondary')], w, g.ellipsis));
     if (p.route) rows.push(fit([S(ind), S(p.route.words, p.route.outcome === 'recommend' ? 'accent' : 'secondary')], w, g.ellipsis));
@@ -243,8 +263,8 @@ function planBlock(p: PlanRow, w: number, selected: boolean, g: Glyphs): Line[] 
   return rows.map((l) => fit(l, w, g.ellipsis));
 }
 
-/** A decision's rows: its id, kind, time and outcome; what Clef recommended (not a run) or the rule that chose; the scores as
- *  bars and what answered when it is selected. */
+/** A decision's rows: its id, kind, time and outcome; what the model recommended (not a run) or the rule that chose; the
+ *  scores as bars and what answered when it is selected, with its pricing and any refusal or model mismatch (R9, H162). */
 function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs): Line[] {
   const sel = selected ? { selected: true } : {};
   const ind = under(w);
@@ -254,12 +274,15 @@ function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs):
   const rows: Line[] = [selected ? onBar(head) : head];
   if (d.recommended) {
     const r = d.recommended;
-    const said: Line = [S(ind), S('Clef recommended ', 'text'), S(r.label, 'accent')];
+    // R9 (H162): the model that recommended, by its own name (a record before R9: "the model"), never Clef for another
+    const said: Line = [S(ind), S(`${d.model ?? 'the model'} recommended `, 'text'), S(r.label, 'accent')];
+    const bare: Line = [S(ind), S('recommended ', 'text'), S(r.label, 'accent')];
     rows.push(first(w, g.ellipsis,
       [...said, S(` ${pct(r.top)}, ahead by ${pct(r.margin)}: a recommendation, not a run`, 'text')],
       [...said, S(` ${pct(r.top)}: not a run`, 'text')],
       [...said, S(': not a run', 'text')],
-      said));
+      [...bare, S(': not a run', 'text')],
+      bare));
   } else if (d.outcome === 'abstain') rows.push(fit([S(ind), S(`no recommendation: ${d.abstained ?? 'a person decides'}`, 'attention')], w, g.ellipsis));
   else {
     const rule: Line = [S(ind), S(`deterministic: ${d.fallback.option ?? 'nothing chosen'} by ${d.fallback.rule}`, 'text')];
@@ -281,11 +304,15 @@ function decisionBlock(d: DecisionRow, w: number, selected: boolean, g: Glyphs):
       rows.push(fit([S(ind), S(`${cut(x.label, lw, g.ellipsis).padEnd(lw)} `, rec ? 'accent' : 'text'), ...bar(x.p, barW, rec ? 'accent' : 'secondary', g), S(` ${pct(x.p).padStart(6)}`, rec ? 'accent' : 'secondary')], w, g.ellipsis));
     }
     rows.push(first(w, g.ellipsis, [S(ind), S(`${d.asked} ${g.sep} cost not measured`, 'secondary')], [S(ind), S(`cost not measured ${g.sep} ${d.asked}`, 'secondary')]));
+    // R9 (H162): the pricing as declared, a refusal in its own words and a model that answered for another, wrapped, never cut
+    if (d.pricing) rows.push(...wrapSegs([S(ind), S(`pricing: ${d.pricing}`, 'secondary')], w, ind));
+    if (d.differs) rows.push(...wrapSegs([S(ind), S(`${g.warn} ${d.differs}`, 'attention')], w, ind));
+    if (!d.recommended && d.fallback.reason) rows.push(...wrapSegs([S(ind), S(`why: ${d.fallback.reason}`, 'secondary')], w, ind));
   }
   return rows.map((l) => fit(l, w, g.ellipsis));
 }
 
-/** The strip: the fleet, the Cloudroom Core, Clef-Omni and the Cloudflare edge, each as it is (green only for a live edge);
+/** The strip: the fleet, the Cloudroom Core, the decision model and the Cloudflare edge, each as it is (green only for a live edge);
  *  its short form where the long one does not fit, each part whole or left out. */
 function strip(d: FleetData, frame: WorkspaceFrame | undefined, g: Glyphs, w: number): Line {
   const fake = d.plans.filter((p) => p.view.simulation).length;
@@ -297,7 +324,7 @@ function strip(d: FleetData, frame: WorkspaceFrame | undefined, g: Glyphs, w: nu
   const long: Line[] = [
     [label('FLEET'), S(n ? `${n} plan${n === 1 ? '' : 's'}${fake ? ` (${fake} FAKE, simulation)` : ''}` : 'no plan', 'text')],
     [label('CLOUDROOM CORE'), core],
-    [label('CLEF-OMNI'), S(d.clef.useClef ? 'on' : 'off (the default)', 'text')],
+    [label('DECISION MODEL'), S(d.clef.useClef ? 'on' : 'off (the default)', 'text')],
     [label('CLOUDFLARE'), S(em.text, em.role)],
   ];
   // the parts are kept apart by a rule (a "·" is the mark of what is not set up)
@@ -306,7 +333,7 @@ function strip(d: FleetData, frame: WorkspaceFrame | undefined, g: Glyphs, w: nu
   if (lineCells(wide) && long.every((p) => wide.includes(p[0]))) return fit(wide, w, g.ellipsis);
   const short: Line[] = [
     [label('FLEET'), S(n ? `${n}${fake ? ` (${fake} FAKE)` : ''}` : 'none', 'text')],
-    [label('CLEF'), S(d.clef.useClef ? 'on' : 'off', 'text')],
+    [label('DECIDE'), S(d.clef.useClef ? 'on' : 'off', 'text')],
     [label('CLOUDFLARE'), S(em.text, em.role)],
     [label('CORE'), core],
   ];
@@ -335,22 +362,32 @@ function fleetHead(d: FleetData, w: number, g: Glyphs): Line[] {
   return out;
 }
 
-/** Clef-Omni's rows above its decisions: its mode, its thresholds (uncalibrated), its review rule and its transport, each in
- *  the fullest words that fit. */
+/** A model's limits in a few words, for a narrow row. */
+const LIMITS_SHORT: Readonly<Record<ModelLimits['source'], string>> = { published: 'Clef-Omni\'s published limits', config: 'limits as clef.json states', default: 'conservative default limits' };
+
+/** The decision model's rows above its decisions: its mode, its thresholds (uncalibrated), its review rule, its transport,
+ *  and (R9, H162) the model clef.json names with its pricing as declared and its limits, each in the fullest words that fit. */
 function clefHead(d: FleetData, w: number, g: Glyphs): Line[] {
   const c = d.clef;
   const t = c.thresholds;
   const env = c.from === 'environment';
   const state = c.useClef ? 'on' : 'off';
   const from = env ? `TIMMY_CLEF=${c.useClef ? 1 : 0}, for this process` : c.from === 'saved' ? 'saved' : 'the default';
-  const tail = c.useClef ? 'Clef-Omni is asked to score the options' : 'routes stay deterministic; no model is asked';
+  const name = c.model?.name;
+  const tail = c.useClef ? `${name ?? 'the model'} scores the options` : 'routes stay deterministic; no model is asked';
+  const brief = c.useClef ? `${name ?? 'the model'} is asked` : 'routes stay deterministic';
   const label = (s: string): Seg => S(`  ${s}: `, 'secondary');
-  const out: Line[] = [[heading('Clef-Omni'), S(` ${g.sep} decision recommender`, 'secondary')]];
+  const routing = 'Decision-model routing';
+  const out: Line[] = [first(w, g.ellipsis,
+    [heading('Decision model'), S(` ${g.sep} ${name ?? 'none set up'} ${g.sep} a recommender`, 'secondary')],
+    [heading('Decision model'), S(` ${g.sep} ${name ?? 'none set up'}`, 'secondary')],
+    [heading('Decision model')])];
   out.push(first(w, g.ellipsis,
-    [label('Use Clef routing'), S(`${state} (${from})`, 'text'), S(`: ${tail}`, 'secondary')],
-    [label('Use Clef routing'), S(`${state} (${from})`, 'text')],
-    [label('Use Clef routing'), S(`${state} (${env ? `TIMMY_CLEF=${c.useClef ? 1 : 0}` : from})`, 'text')],
-    [label('Use Clef routing'), S(state, 'text')]));
+    [label(routing), S(`${state} (${from})`, 'text'), S(`: ${tail}`, 'secondary')],
+    [label(routing), S(`${state} (${from})`, 'text'), S(`: ${brief}`, 'secondary')],
+    [label(routing), S(`${state} (${from})`, 'text')],
+    [label(routing), S(`${state} (${env ? `TIMMY_CLEF=${c.useClef ? 1 : 0}` : from})`, 'text')],
+    [label(routing), S(state, 'text')]));
   const unc: Line = [S('  '), S('uncalibrated thresholds', 'attention')];
   const values = S(`: ${pct(t.minTop)} top, ${pct(t.minMargin)} margin`, 'text');
   out.push(first(w, g.ellipsis, [...unc, values, S(' (placeholders, not checked against outcomes)', 'secondary')], [...unc, values], unc));
@@ -364,6 +401,17 @@ function clefHead(d: FleetData, w: number, g: Glyphs): Line[] {
       [label('Review'), S('off: not held for a person', 'attention')]));
   const role: Role = c.transport.state === 'invalid' || c.transport.state === 'unreadable' ? 'failure' : c.transport.state === 'configured' ? 'text' : 'secondary';
   out.push(first(w, g.ellipsis, [label('Transport'), S(c.transport.words, role)], [label('Transport'), S(c.transport.short, role)]));
+  if (c.model) {
+    const m = c.model;
+    out.push(first(w, g.ellipsis,
+      [label('Model'), S(m.name, 'text'), S(` (${m.id}) ${g.sep} ${LIMITS_SHORT[m.limitsSource]}`, 'secondary')],
+      [label('Model'), S(m.name, 'text'), S(` ${g.sep} ${LIMITS_SHORT[m.limitsSource]}`, 'secondary')],
+      [label('Model'), S(m.name, 'text')]));
+    // the pricing as clef.json declares it, wrapped, never cut; unknown is amber, with what every call is then refused for
+    const unknown = m.pricing.kind === 'unknown';
+    out.push(...wrapSegs([label('Pricing'), S(m.pricing.words, unknown ? 'attention' : 'text')], w, '    '));
+    if (unknown) out.push(...para(`${g.warn} every call is refused before anything is sent: ${m.pricing.why ?? 'the pricing is unknown'}`, w, 'attention', '    '));
+  }
   for (const p of c.problems) out.push(fit([S(`  ${g.warn} ${p}`, 'attention')], w, g.ellipsis));
   return out;
 }
@@ -430,12 +478,13 @@ function cloudflareRows(d: FleetData, frame: WorkspaceFrame | undefined, w: numb
   const chat: Line = [S('  not the chat provider', 'text')];
   out.push(first(w, g.ellipsis, [...chat, S(': chat goes to OpenRouter or a local Ollama', 'secondary')], chat));
   const wa = S('  Workers AI: ', 'secondary');
+  const name = d.clef.model?.name ?? 'the decision model';
   out.push(d.clef.transport.cloudflare
     ? first(w, g.ellipsis,
-      [wa, S('Clef-Omni\'s transport (paid)', 'text'), S(`; asked only while Use Clef routing is on (it is ${d.clef.useClef ? 'on' : 'off'})`, 'secondary')],
-      [wa, S('Clef-Omni\'s transport (paid)', 'text')],
-      [wa, S('paid (Clef-Omni)', 'text')])
-    : first(w, g.ellipsis, [wa, S('not used', 'text'), S(' (Clef-Omni\'s transport is not Workers AI)', 'secondary')], [wa, S('not used', 'text')]));
+      [wa, S(`the decision model's transport (${name})`, 'text'), S(`; asked only while decision-model routing is on (it is ${d.clef.useClef ? 'on' : 'off'})`, 'secondary')],
+      [wa, S(`the decision model's transport (${name})`, 'text')],
+      [wa, S('the decision model\'s transport', 'text')])
+    : first(w, g.ellipsis, [wa, S('not used', 'text'), S(' (the decision model\'s transport is not Workers AI)', 'secondary')], [wa, S('not used', 'text')]));
   return out;
 }
 
@@ -472,7 +521,7 @@ export function fleetView(c: TabCtx, d: FleetData | undefined, frame?: Workspace
     b.push({ lines: [spread([heading('Decisions'), S(` ${g.sep} newest first`, 'secondary')], [S(d.decisions.length ? `${d.decisions.length}${d.moreDecisions ? ` of ${d.decisions.length + d.moreDecisions}` : ''}` : '', 'secondary')], w, g.ellipsis)] });
     if (!d.decisions.length) {
       b.push({ lines: [first(w, g.ellipsis, [S('  No decision recorded in this project.', 'text')], [S('  No decision recorded here yet.', 'text')]), ...commandRows(DECIDE_COMMAND, w),
-        first(w, g.ellipsis, [S('  records one (deterministic while Use Clef routing is off; nothing is dispatched).', 'secondary')], [S('  records one; nothing is dispatched.', 'secondary')])] });
+        first(w, g.ellipsis, [S('  records one (deterministic while decision-model routing is off; nothing is dispatched).', 'secondary')], [S('  records one; nothing is dispatched.', 'secondary')])] });
     }
     d.decisions.forEach((x, k) => b.push({ lines: decisionBlock(x, w, d.plans.length + k === sel, g), at: d.plans.length + k }));
     for (const n of d.notes) b.push({ lines: para(n, w, 'failure') });

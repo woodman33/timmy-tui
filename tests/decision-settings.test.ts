@@ -39,7 +39,7 @@ describe('decision settings', () => {
 
   it('names the three switches in plain words for the surfaces', () => {
     expect(SETTING_LABELS.map((s) => [s.key, s.label])).toEqual([
-      ['useClef', 'Use Clef routing'],
+      ['useClef', 'Use decision-model routing'],
       ['allowCloudAnalysis', 'Allow cloud analysis'],
       ['requireReview', 'Require review before dispatch'],
     ]);
