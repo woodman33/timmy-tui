@@ -225,11 +225,15 @@ export function draftGround(records, id, boundsOf) {
     const b = box(r.id);
     if (b) g.own.push({ id: r.id, box: b, joins: joins.get(r.id) ?? [] });
   }
+  // R9 lead, after the R9 independent review (its F10): a shape of another draft not yet accepted is on the board too (a move
+  // takes this one clear of it), and is marked with that draft's id (`draft`), so the words can say which it is
+  const otherDraft = (r) => { const d = draftOf(r); return d && d.id !== id ? d.id : null; };
   for (const r of shapes.values()) {
     if (mine(r) || r.type === 'group' || insideOwn(r)) continue;
     const g = pages.get(pageOf(r));
     const b = g ? box(r.id) : null;
-    if (b) g.board.push({ id: r.id, box: b });
+    const of = otherDraft(r);
+    if (b) g.board.push({ id: r.id, box: b, ...(of ? { draft: of } : {}) });
   }
   return [...pages.values()].map((g) => {
     // an arrow of it bound to a shape of the board's follows what it joins (`follows`): a move moves the rest clear
@@ -243,9 +247,19 @@ export function draftGround(records, id, boundsOf) {
   });
 }
 
-/** What a draft that lands on `n` of the board's shapes says of it, on its card and its label; nothing (null) when it lands on none. */
-export function landsWords(n) {
-  return Number.isInteger(n) && n > 0 ? `This draft lands on ${plural(n, 'shape')} already on the board.` : null;
+/**
+ * What a draft that lands on `n` shapes says of it, on its card and its label; nothing (null) when it lands on none. `o.ofDrafts`
+ * of them are shapes of other drafts not yet accepted, `o.drafts` of them (R9 lead, after the R9 review's F10: before, those too
+ * were said to be "already on the board").
+ */
+export function landsWords(n, o = {}) {
+  if (!Number.isInteger(n) || n <= 0) return null;
+  const d = Number.isInteger(o.ofDrafts) && o.ofDrafts > 0 ? Math.min(o.ofDrafts, n) : 0;
+  const k = Number.isInteger(o.drafts) && o.drafts > 1 ? o.drafts : 1;
+  const of = `of ${k === 1 ? 'a draft' : `${k} drafts`} not yet accepted`;
+  if (!d) return `This draft lands on ${plural(n, 'shape')} already on the board.`;
+  if (d === n) return `This draft lands on ${plural(n, 'shape')} ${of}.`;
+  return `This draft lands on ${plural(n, 'shape')}: ${n - d} already on the board and ${d} ${of}.`;
 }
 
 /** The mark of a draft moved to free space: its own mark, kept, and from where it was moved (`moved`: { x, y, over, at }). */

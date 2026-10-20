@@ -854,9 +854,11 @@ function pageBox(editor, id) {
 function overOf(editor, id, records) {
   const ground = draftGround(records, id, (s) => pageBox(editor, s));
   const over = ground.reduce((n, g) => n + landsOn(g.own, g.board).length, 0);
+  // R9 lead (the R9 review's F10): how many of them are other drafts' shapes, not yet accepted, said apart from the board's
+  const onDrafts = ground.flatMap((g) => { const hit = new Set(landsOn(g.own, g.board)); return g.board.filter((s) => s.draft && hit.has(s.id)).map((s) => s.draft); });
   const plans = over ? ground.filter((g) => g.block && landsOn(g.own.filter((o) => !o.follows), g.board).length > 0) : [];
   const moved = over ? null : movedOf(records, id);
-  return { ground, over, plans, movable: plans.length > 0, words: over ? landsWords(over) : moved ? movedWords(moved) : null };
+  return { ground, over, plans, movable: plans.length > 0, words: over ? landsWords(over, { ofDrafts: onDrafts.length, drafts: new Set(onDrafts).size }) : moved ? movedWords(moved) : null };
 }
 function showDrafts(editor) {
   if (!editor) return;

@@ -330,9 +330,12 @@ describe.skipIf(!browserPath)('a draft that lands on shapes already on the board
       // the same coordinates again, as the rehearsal's second draft had them
       const second = await agent(tray)('canvas_exec', { code: boxes(at.map((b) => ({ ...b, text: b.text.replace('first', 'second') }))), jobId: 'turn-second' });
       expect(second).toMatchObject({ ok: true, draft: { shapes: 2 } });
+      // R9 lead, after the R9 review's F10: while both wait, each lands on the other's shapes, a draft not yet accepted, and says
+      // so (before: "already on the board", which they were not); once the first is accepted, its shapes are the board's
       const lands = 'This draft lands on 2 shapes already on the board.';
-      await page.waitForFunction((d) => document.querySelector(`#draft-list li.draft[data-draft="${d}"] .draft-over-words`)?.textContent === 'This draft lands on 2 shapes already on the board.', second.draft!.id, { timeout: 10_000 });
-      expect((await said(page, first.draft!.id)).card).toBe(lands);
+      const onDraft = 'This draft lands on 2 shapes of a draft not yet accepted.';
+      await page.waitForFunction((d) => document.querySelector(`#draft-list li.draft[data-draft="${d}"] .draft-over-words`)?.textContent === 'This draft lands on 2 shapes of a draft not yet accepted.', second.draft!.id, { timeout: 10_000 });
+      expect((await said(page, first.draft!.id)).card).toBe(onDraft);
       // the first accepted: its shapes are the board's own now, and the second still lands on them
       await page.click(`#draft-list li.draft[data-draft="${first.draft!.id}"] .draft-accept`);
       await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job turn-first\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });

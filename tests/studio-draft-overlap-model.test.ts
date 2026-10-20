@@ -190,3 +190,32 @@ describe('where Move it to free space takes a draft (R8 H158)', () => {
     expect(nearestSpot({ minX: 0, minY: 0, maxX: NaN, maxY: 1 } as B, row)).toEqual({ dx: 0, dy: 0 });
   });
 });
+
+// R9 lead, after the R9 independent review of 1fa4020 (its F10): when a second draft landed on a first one not yet accepted,
+// both said "This draft lands on 1 shape already on the board", though what each landed on was the other draft. Another
+// draft's shapes still count (Move it to free space moves clear of them too), and the words now say which they are.
+describe('what a draft lands on, said by kind: the board\'s shapes, and other drafts not yet accepted (R9 lead, the R9 review\'s F10)', () => {
+  it('marks another draft\'s shapes in the ground; the words name them apart from the board\'s', () => {
+    const two: Rec[] = [
+      page('page:p1'),
+      shape('shape:d1', 0, 0, 100, 100, { meta: mark(D1) }),
+      shape('shape:d2', 50, 50, 100, 100, { meta: mark(D2) }),
+      shape('shape:accepted', 80, 80, 20, 20),
+    ];
+    const [g1] = draftGround(two, D1, boundsIn(two));
+    // another draft's shape carries that draft's id; the board's own carries none
+    expect(g1.board.map((s) => [s.id, (s as { draft?: string }).draft ?? null]).sort()).toEqual([['shape:accepted', null], ['shape:d2', D2]]);
+    const kinds = (g: typeof g1) => { const hit = new Set(landsOn(g.own, g.board)); const on = g.board.filter((s) => hit.has(s.id)); return [on.length, on.filter((s) => (s as { draft?: string }).draft).length] as const; };
+    expect(kinds(g1)).toEqual([2, 1]);
+    expect(landsWords(2, { ofDrafts: 1, drafts: 1 })).toBe('This draft lands on 2 shapes: 1 already on the board and 1 of a draft not yet accepted.');
+    expect(landsWords(1, { ofDrafts: 1, drafts: 1 })).toBe('This draft lands on 1 shape of a draft not yet accepted.');
+    // two shapes of one draft (the R7 rehearsal's case: the same coordinates twice), and shapes of two drafts
+    expect(landsWords(2, { ofDrafts: 2, drafts: 1 })).toBe('This draft lands on 2 shapes of a draft not yet accepted.');
+    expect(landsWords(3, { ofDrafts: 3, drafts: 2 })).toBe('This draft lands on 3 shapes of 2 drafts not yet accepted.');
+    expect(landsWords(3, { ofDrafts: 2, drafts: 2 })).toBe('This draft lands on 3 shapes: 1 already on the board and 2 of 2 drafts not yet accepted.');
+    // the board's alone: as before
+    expect(landsWords(3)).toBe('This draft lands on 3 shapes already on the board.');
+    expect(landsWords(3, { ofDrafts: 0 })).toBe('This draft lands on 3 shapes already on the board.');
+    expect(landsWords(0)).toBeNull();
+  });
+});
