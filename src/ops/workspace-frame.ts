@@ -331,8 +331,9 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const clefOn = clef?.settings?.useClef === true;
   out.push({
     // R9 lead (H162): the decision model by its role, never as Clef-Omni: clef.json may name another model (clef-flash, Jev,
-    // d1-ultra), and the setting's saved name (useClef) is not what it is called on screen
-    id: 'clef', label: 'Decision model (recommender)', state: clefOn ? 'configured' : 'not set up', observedAt: null, setup: 'timmy decide mode',
+    // d1-ultra), and the setting's saved name (useClef) is not what it is called on screen. Its setup is decide's help, which
+    // says how routing is turned on and pricing declared (`timmy decide mode` is a kind of decision, not its setup)
+    id: 'clef', label: 'Decision model (recommender)', state: clefOn ? 'configured' : 'not set up', observedAt: null, setup: 'timmy decide --help',
     words: clefOn ? 'decision-model routing is on; no live call is authorized, so it is not checked here' : 'decision-model routing is off (the default): routes stay deterministic',
   });
   const cloudroom = existsSync(cloudroomConfigPath(timmyHome(env)));
