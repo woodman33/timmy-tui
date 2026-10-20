@@ -5,7 +5,9 @@
 // Three working columns:
 //   left    the project's meshes (its STL, OBJ and PLY files, and a STEP's tessellations a VoxVision record names), each with
 //           its kind, its triangle count or why it was not measured; under them the Rerun recordings Timmy can read (their header facts, and what
-//           stays unknown with why) and Rerun's viewer as this computer has it (found is not run: nothing here starts it)
+//           stays unknown with why) and Rerun's viewer as this computer has it (found is not run: nothing here starts it).
+//           R9 (H159): each recording also says what the installed Rerun CLI read of it (src/vox/rrd-cli.ts: its entities,
+//           timelines and their ranges, with who read them), "being read" while it reads, or each fact unknown with why
 //   centre  the view you can turn: Timmy's own drawing of the selected file's triangles on a plain canvas (orthographic, flat
 //           shading by each face's normal under one fixed light, painter's order; no WebGL, no library, no model). Drag or
 //           the arrow keys turn it, the wheel or + and − zoom, F, T, S and I show the front, top, side and an isometric view,
@@ -44,9 +46,13 @@
   // neutral greys for the mesh (content), darkest to lightest
   const GREYS = Array.from({ length: SHADES }, (_, s) => { const v = Math.round(46 + (s / (SHADES - 1)) * 186); return `rgb(${v}, ${v}, ${v})`; });
 
+  // R9 (H159; H160's ask): the mesh an address names (…?mesh=<its path as lowercase hex of its UTF-8 bytes>, or in the #hash),
+  // as the Workbench's c gives it: chosen on the first list when the list names it
+  const HINT = (() => { try { const m = /[?#&]mesh=((?:[0-9a-f]{2}){1,1024})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(m[1].match(/../g).map((x) => parseInt(x, 16)))) : ''; } catch (e) { return ''; } })();
+
   const S = {
     project: null, root: null, ctx: null, revision: null, listAt: 0, list: null, listSig: '', asking: null,
-    sel: '', mesh: null, meshAsk: 0, view: null, drag: null, frame: 0, observer: null,
+    sel: '', mesh: null, meshAsk: 0, view: null, drag: null, frame: 0, observer: null, again: 0,
   };
 
   const q = (name) => (S.root ? S.root.querySelector(`[data-create="${name}"]`) : null);
@@ -131,16 +137,17 @@
         return;
       }
       if (S.project !== ctx.project) return; // the page switched project while this was asked
-      const sig = JSON.stringify([body.meshes.map((m) => [m.path, m.bytes, m.readback ? m.readback.sha256 : m.why, m.origin.words]), body.recordings.map((r) => [r.path, r.bytes, r.why || '']), body.viewer.state, body.more, body.recordingsMore]);
+      const sig = JSON.stringify([body.meshes.map((m) => [m.path, m.bytes, m.readback ? m.readback.sha256 : m.why, m.origin.words]), body.recordings.map((r) => [r.path, r.bytes, r.why || '', r.cli ? `${r.cli.state} ${r.cli.words}` : '', r.origin ? r.origin.words : '']), body.viewer.state, body.more, body.recordingsMore]);
       const first = S.list === null;
       S.list = body;
+      // a mesh still being measured, or a recording the Rerun CLI is reading: the list is read again in a moment while this tab
+      // is shown, whether or not this answer changed anything (R9 H159: a recording being read answers the same until it is done)
+      if ((body.pending > 0 || body.recordingsPending > 0) && !S.again) S.again = setTimeout(() => { S.again = 0; if (S.root && document.contains(S.root) && !S.root.closest('[hidden]')) { S.listAt = 0; void refreshList(); } }, 1200);
       if (sig === S.listSig && !first) return;
       S.listSig = sig;
       const paths = body.meshes.map((m) => m.path);
-      if (!S.sel || !paths.includes(S.sel)) S.sel = (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
+      if (!S.sel || !paths.includes(S.sel)) S.sel = first && HINT && paths.includes(HINT) ? HINT : (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
       drawList(); drawRecordings(); drawMeasure();
-      // a mesh still being measured: the list is read again in a moment while this tab is shown
-      if (body.pending > 0) setTimeout(() => { if (S.root && document.contains(S.root) && !S.root.closest('[hidden]')) { S.listAt = 0; void refreshList(); } }, 1200);
       const row = body.meshes.find((m) => m.path === S.sel);
       const want = row && row.readback ? row.readback.sha256 : '';
       if (!S.mesh || S.mesh.path !== S.sel || S.mesh.sha !== want) await loadMesh(row);
@@ -187,17 +194,51 @@
     }
     put(q('recordings'), L.recordings.map((r) => {
       const f = r.facts;
-      if (!f) return h('div', { class: 'create-rec', 'data-create-recording': r.path }, h('p', { class: 'create-rec-path' }, r.path), h('p', { class: 'create-note' }, `${bytesWords(r.bytes)} · not read: ${r.why || 'unknown'}`));
+      if (!f) return h('div', { class: 'create-rec', 'data-create-recording': r.path }, h('p', { class: 'create-rec-path' }, r.path), h('p', { class: 'create-note' }, `${bytesWords(r.bytes)} · not read: ${r.why || 'unknown'}`),
+        r.cli ? h('dl', null, cliRows(h, r.cli)) : null);
       const stores = f.stores.map((s) => [s.kind, s.application ? `application ${s.application}` : '', s.recording ? `recording ${s.recording}` : ''].filter(Boolean).join(' · ')).join('; ');
       return h('div', { class: 'create-rec', 'data-create-recording': r.path },
         h('p', { class: 'create-rec-path' }, r.path),
         h('dl', null,
-          h('dt', null, 'header (read from the file)'), h('dd', { 'data-rec': 'header' }, `written by ${f.writer} · compression ${f.compression} · ${f.serializer} · ${bytesWords(f.bytes)}`),
+          h('dt', null, 'header (read by Timmy from the file)'), h('dd', { 'data-rec': 'header' }, `written by ${f.writer} · compression ${f.compression} · ${f.serializer} · ${bytesWords(f.bytes)}`),
           h('dt', null, 'messages'), h('dd', { 'data-rec': 'messages' }, `${f.messages.storeInfo} store info · ${f.messages.chunks} data chunks · ${f.messages.blueprint} blueprint${f.messages.other ? ` · ${f.messages.other} other` : ''}${f.ended ? ' · ends with its end marker' : ' · no end marker'}${f.footer ? ' and a footer' : ''}`),
           stores ? h('dt', null, 'stores') : null, stores ? h('dd', { 'data-rec': 'stores' }, stores) : null,
           f.stopped ? h('dt', null, 'stopped') : null, f.stopped ? h('dd', null, f.stopped) : null,
-          h('dt', null, 'entities, frames, time range'), h('dd', { 'data-rec': 'unknown' }, `unknown to Timmy: ${f.unknown.entities}`)));
+          r.cli ? cliRows(h, r.cli) : null,
+          r.origin ? [h('dt', null, 'written by'), h('dd', { 'data-rec': 'origin' }, r.origin.words)] : null,
+          h('dt', null, "not decoded by Timmy's own reader"), h('dd', { 'data-rec': 'unknown' }, f.unknown.entities)));
     }), L.recordingsMore ? h('p', { class: 'create-note' }, `and ${L.recordingsMore} more not listed here`) : null, viewer);
+  }
+
+  // R9 (H159): what the installed Rerun CLI read of a recording, row by row: who read it, Rerun's own check, the entities (and
+  // the static ones), each timeline with its kind and range; or each fact unknown with why ("being read" while it reads)
+  function cliRows(h, c) {
+    const out = [];
+    const row = (k, label, value) => out.push(h('dt', null, label), h('dd', { 'data-rec': k }, value));
+    const said = (u) => (u.reason === 'being-read' ? u.why : `unknown: ${u.why}`);
+    row('cli', 'read by the Rerun CLI', c.words);
+    if (c.verify.state === 'passed') row('verify', "Rerun's own check", c.verify.words);
+    else if (c.verify.state === 'failed') row('verify', "Rerun's own check", `✕ failed: ${c.verify.why}`);
+    const e = c.entities;
+    const t = c.timelines;
+    if (e.state !== 'read' && t.state !== 'read' && e.why === t.why) { row('entities', 'entities and timelines', said(e)); return out; }
+    if (e.state === 'read') {
+      row('entities', `entities (${e.count})`, e.paths.join(' · '));
+      if (e.static.state !== 'read') row('static', 'static (logged on no timeline)', said(e.static));
+      else if (e.static.paths.length) row('static', 'static (logged on no timeline)', e.static.paths.join(' · '));
+      if (e.stores.length > 1) row('stores-cli', 'counted together, across', e.stores.map((s) => `${s.kind} ${s.application} (${s.entities})`).join(' · '));
+    } else row('entities', 'entities', said(e));
+    if (t.state !== 'read') { row('timelines', 'timelines', said(t)); return out; }
+    // rrd stats lists the timelines of every store in the file together (a blueprint's beside the recording's), as it does the entities
+    out.push(h('dt', null, `timelines (${t.list.length}${e.state === 'read' && e.stores.length > 1 ? ", across the file's stores" : ''})`));
+    if (!t.list.length) out.push(h('dd', { 'data-rec': 'timelines' }, 'none: every entity is static'));
+    for (const x of t.list) {
+      const same = x.kind.state !== 'read' && x.range.state !== 'read' && x.kind.why === x.range.why;
+      const kind = x.kind.state === 'read' ? x.kind.kind : `kind ${said(x.kind)}`;
+      const range = x.range.state === 'read' ? x.range.words : `range ${said(x.range)}`;
+      out.push(h('dd', { 'data-rec-timeline': x.name }, same ? `${x.name} · ${said(x.kind)}` : `${x.name} · ${kind} · ${range}`));
+    }
+    return out;
   }
 
   // ── the measurements ──

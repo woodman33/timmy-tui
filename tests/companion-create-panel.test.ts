@@ -11,7 +11,7 @@
  * FAKE, labelled: the projects and their meshes (written by the test; the OBJ and PLY cubes by tests/helpers/mesh-fakes.ts). Real: the server, its token check, Timmy's STL reader,
  * the Rerun header reader over the repository's own recording (studio/ctx-c3w8/…/context.rrd, read, never changed).
  */
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -21,6 +21,7 @@ import { readPlyFile } from '../src/native/ply-readback.js';
 import { readStlFile } from '../src/native/stl-readback.js';
 import { projectId } from '../src/project/index.js';
 import { VIEW_MAX_TRIANGLES, type MeshList } from '../src/vox/meshes.js';
+import { forgetRrdReadings, readRrdWithCli, rrdReadingsIdle } from '../src/vox/rrd-cli.js';
 import { cubeObj, cubePly } from './helpers/mesh-fakes.js';
 import { cubeStl, sha } from './helpers/vox-fakes.js';
 
@@ -142,5 +143,61 @@ describe('the 3D & Motion panel\'s routes (R7 H153)', () => {
     expect((await mesh('refs/cube.stl', a.id, '&sha=nonsense')).status).toBe(400);
     // nothing of b's folder reached a's answers
     expect(readFileSync(join(b.root, 'refs', 'theirs.stl')).equals(cubeStl(3))).toBe(true);
+  });
+});
+
+// R9 (H159). FAKE, labelled: `rerun` is tests/fixtures/fake-rerun.mjs (a TEST DOUBLE replaying outputs CAPTURED from the real
+// rerun-cli 0.38.1 on tests/fixtures/rrd-cli/probe.rrd), first on the companion's PATH. Real: the server, its token, the route,
+// src/vox/rrd-cli.ts and its background reading.
+describe('the 3D & Motion panel\'s recordings, read through the Rerun CLI in the background (R9 H159)', () => {
+  const kept = { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let bin = '';
+  let companion: CompanionServer;
+  const PROBE = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
+
+  beforeAll(async () => {
+    forgetRrdReadings();
+    box = mkdtempSync(join(tmpdir(), 'r9-create-rrd-'));
+    bin = join(box, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'rerun'), `#!/bin/sh\nexec "${process.execPath}" "${resolve('tests/fixtures/fake-rerun.mjs')}" "$@"\n`);
+    chmodSync(join(bin, 'rerun'), 0o755);
+    process.env.TIMMY_HOME = join(box, 'home');
+    delete process.env.TIMMY_REPO;
+    mkdirSync(join(box, 'home', 'projects'), { recursive: true });
+    companion = await startCompanionServer(0, { token: TOKEN, workspace: { env: { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: join(box, 'settings'), PATH: `${bin}:/usr/bin:/bin` }, shareMs: 0 } });
+  }, 60_000);
+  afterAll(async () => {
+    await companion?.shutdown();
+    await rrdReadingsIdle();
+    forgetRrdReadings();
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+  const get = (path: string): Promise<Response> => fetch(new URL(path, companion.address), { headers: { Authorization: `Bearer ${TOKEN}` } });
+
+  it('the first list says "being read" and starts the reading; a later list holds the entities and ranges, with who read them', async () => {
+    const root = join(process.env.TIMMY_HOME!, 'projects', 'FAKE-rrd');
+    mkdirSync(join(root, 'rec'), { recursive: true });
+    writeFileSync(join(root, 'rec', 'probe.rrd'), PROBE);
+    const id = projectId(root);
+    const first = await (await get(`/api/panel/create/meshes?project=${id}`)).json() as MeshList;
+    expect(first.recordings.map((r) => [r.path, r.cli.state])).toEqual([['rec/probe.rrd', 'being read']]);
+    expect(first.recordingsPending).toBe(1);
+    expect(first.viewer.state).toBe('found (installed here, not run)');
+    let list = first;
+    for (const end = Date.now() + 20_000; list.recordings[0].cli.state !== 'read' && Date.now() < end;) {
+      await new Promise((r) => setTimeout(r, 100));
+      list = await (await get(`/api/panel/create/meshes?project=${id}`)).json() as MeshList;
+    }
+    const direct = await readRrdWithCli(PROBE, { env: { PATH: `${bin}:/usr/bin:/bin` } });
+    const row = list.recordings[0];
+    expect(row.cli.state).toBe('read');
+    expect([row.cli.words, row.cli.verify, row.cli.entities, row.cli.timelines]).toEqual([direct.words, direct.verify, direct.entities, direct.timelines]);
+    expect(row.facts?.writer).toBe('Rerun 0.38.1');
+    expect(list.recordingsPending).toBe(0);
+    // the answer carries no folder of this computer
+    expect(JSON.stringify(list)).not.toContain(box);
   });
 });

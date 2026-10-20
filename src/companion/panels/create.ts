@@ -1,8 +1,10 @@
 /**
  * R7 (H153): the 3D & Motion panel's routes (tab 6; the 3D part of reference 06), under /api/panel/create/…, each behind the
  * companion's token and answering for the project the page shows (?project=<id>, else the one followed). What each answers is
- * made by src/vox/meshes.ts from that project's own files; nothing here runs a tool, starts a viewer or writes. The page side
- * is src/companion/client/panel-create.js.
+ * made by src/vox/meshes.ts from that project's own files. R9 (H159): the list asks the installed Rerun CLI to read each listed
+ * recording not read yet (src/vox/rrd-cli.ts: in the background, one at a time, bounded, each call in the project's log), and
+ * answers "being read" until it is done; nothing else here runs a tool, starts a viewer or writes. The page side is
+ * src/companion/client/panel-create.js.
  *
  *   route                                          answers
  *   GET /api/panel/create/meshes                   the project's meshes (its STL, OBJ and PLY files, and a STEP's tessellations a
@@ -45,8 +47,9 @@ export function mountCreatePanel(app: express.Express, ctx: PanelContext): void 
     const project = ctx.projectFor(req);
     if (!project) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }
     try {
-      // within a time budget: a large mesh not measured yet is measured on a later read (the page asks again while any is)
-      const list = listMeshes({ root: project.root, env: { ...ctx.env } as NodeJS.ProcessEnv, chain: () => chainOf(project.root) }, { budgetMs: LIST_BUDGET_MS });
+      // within a time budget: a large mesh not measured yet is measured on a later read (the page asks again while any is); a
+      // recording not read yet by the Rerun CLI is read in the background (the page asks again while any is being read)
+      const list = listMeshes({ root: project.root, env: { ...ctx.env } as NodeJS.ProcessEnv, chain: () => chainOf(project.root) }, { budgetMs: LIST_BUDGET_MS, rrd: { start: true } });
       res.json({ ok: true, ...list, project: { id: projectId(project.root), name: project.name } });
     } catch { res.status(500).json({ ok: false, error: FAILED }); }
   });

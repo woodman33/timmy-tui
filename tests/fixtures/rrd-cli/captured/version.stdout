@@ -1,0 +1,2 @@
+rerun-cli 0.38.1 (base lance map_view nasm native_viewer oss_server perf_telemetry re_server release_full release_no_web_viewer web_viewer) [rustc 1.96.0 (ac68faa20 2026-05-25), LLVM 22.1.2] x86_64-unknown-linux-gnu prepare-release-0.38.1 b08c599, built 2026-09-16T15:21:04.99782142Z
+Video features: av1 ffmpeg nasm
