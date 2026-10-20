@@ -313,7 +313,7 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
     for (let k = 0; k < 3; k++) c.key('', { downArrow: true });
     const atRec = c.frame(160, 45);
     expect(regionText(atRec, 'right')).toContain('For rec/context.rrd, in FAKE-items-tools. ▸ [Enter] Its reading, in full [c] Companion · Show: tab 6');
-    expect(regionText(atRec, 'center')).toContain("RECORDINGS TIMMY CAN READ (1) [Enter] its reading in Context: its header's facts, and what stays unknown, with why ▸ rec/context.rrd");
+    expect(regionText(atRec, 'center')).toContain("RECORDINGS TIMMY CAN READ (1) [Enter] its reading in Context: its header's facts and, through the Rerun CLI, its entities and time ranges (or why not) ▸ rec/context.rrd");
     for (let k = 0; k < 3; k++) c.key('', { upArrow: true });
     focusOn(c, 'right');
     // the body: the keys, under the meshes' heading and the recordings'

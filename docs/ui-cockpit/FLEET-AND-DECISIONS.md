@@ -227,8 +227,9 @@ routing"; its stored names stay `useClef` and `TIMMY_CLEF`.
   AI's run path) and Ollama's read-only `GET /api/tags`.
 
 **Not done here.** No real decision service, hosted or local, was called: every test uses FAKE servers on 127.0.0.1.
-Ollama's `remote_host` field, which marks a cloud-backed model in its list, is not read for pricing. The Services row of
-the workspace frame (`src/ops/workspace-frame.ts`) still says "Use Clef routing".
+Ollama's `remote_host` field, which marks a cloud-backed model in its list, is not read for pricing. Since `64b88a6` (R9
+lead) the Services row of the workspace frame (`src/ops/workspace-frame.ts`) says "Decision model (recommender)" and
+"decision-model routing".
 
 ## Decisions on H121's questions
 

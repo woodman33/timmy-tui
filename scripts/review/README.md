@@ -181,9 +181,14 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
    triangles and says "showing N of M". A PLY file with no faces (a point cloud), a big-endian PLY, or an OBJ or PLY it
    cannot read is listed as not measured, with why. The demo puts one generated tray in tray three times
    (`refs/demo-tray.stl`, `.obj` and `.ply`, made by a script from the same triangles and labelled generated): the three
-   measure the same. Recordings (`.rrd`) are listed with their header facts; their entities, frames and time range are not
-   read, and the tab says why. The Workbench's tab 6 lists the same meshes and measurements, and `c` opens the view. Not in
-   this build: a native tool's render, a motion timeline, scene editing.
+   measure the same. Recordings (`.rrd`) are listed with their header facts and, where the Rerun CLI is installed
+   (`rerun`; rerun-cli 0.38.1 is the version read, another is refused, said so), what it read of their entities,
+   timelines and time ranges (`rrd verify`, `rrd stats` and `rrd print`, each bounded to 10 s); without it, each of those
+   is unknown and the tab says why. The demo adds one generated recording (`refs/demo-tray.rrd`). The Workbench's tab 6
+   lists the same meshes and recordings as items: it opens on the first mesh, `j`/`k` move, Enter shows the item whole in
+   Context, and `c` opens the companion's view on the selected mesh. A recording's reading reaches the Workbench once the
+   companion has listed tab 6. Not in this build: a native tool's render, a motion timeline, scene editing, and a
+   recording's frames drawn or replayed.
 7. **Tools & MCP (9).** The companion lists servers and their tools with each tool's input schema; makes a request form
    from the schema and checks the request against it before anything is sent; shows the exact JSON-RPC request and the
    command lines that make the same call (the REPL's `/mcp call`, MCPorter's, the MCP SDK's); and calls through both
@@ -241,7 +246,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
   MCP FAKE fixture server (every tool says FAKE); a model in a rehearsal, when one ran (the notes say FAKE). The demo's
   content in tray is scripted for the review; what it measured and ran is real (OpenCV on the example image, upmd running
   the report block).
-- **Off by default:** Clef routing (uncalibrated thresholds); free-only chat; Cloudflare (optional, not the chat provider).
+- **Off by default:** decision-model routing (saved as `useClef`; its thresholds uncalibrated); free-only chat; Cloudflare
+  (optional, not the chat provider).
 - **Needs a key, a licence, a program or a device:** a real model (your Ollama or your OpenRouter key); a Cloudroom Core;
   OpenCV for VoxVision's Look (python3 with `cv2` and `numpy`); Rerun for `/vox view`; Blender, FreeCAD, After Effects,
   Unreal and the other native tools (each tab says what it needs); tldraw's licence for production use. SAM 3 and Depth

@@ -7,8 +7,9 @@
  *                                 box, topology and volume; an OBJ's or PLY's faces and what its reader ignored; a file's own
  *                                 words (declared, not checked); how much of it the companion's view draws; then who measured
  *                                 and DOCTRINE §15's sentence (R8 H154: OBJ and PLY beside STL)
- *   RECORDINGS TIMMY CAN READ     each .rrd with its header's facts, and its entities, frames and time range said unknown, with
- *                                 why; Rerun's viewer as this computer has it (found is not run)
+ *   RECORDINGS TIMMY CAN READ     each .rrd with its header's facts and (R9, H159) what the installed Rerun CLI read of its
+ *                                 entities, timelines and time ranges, or each said unknown, with why; Rerun's viewer as this
+ *                                 computer has it (found is not run)
  *
  * R9 (H160; R8's open item G′): each mesh and each recording is an item the cursor rests on, listed before the tab's tools
  * (familyView in src/workbench/views.ts places them), so the page opens on the first mesh, in view and whole at every size the
@@ -231,7 +232,8 @@ export function createTabView(c: CreateCtx): CreateTabView {
 
   lines.push([], [heading(`Recordings Timmy can read (${list.recordings.length + list.recordingsMore})`)]);
   if (!recordings.length) lines.push(...para('No Rerun recording (.rrd) in this project.', w, 'secondary', '  '));
-  else lines.push(...keys([key('Enter'), S(' its reading in Context: its header\'s facts, and what stays unknown, with why', 'secondary')]));
+  // R9 lead (after H159's merge): the reading in Context holds what the Rerun CLI read, not only the header
+  else lines.push(...keys([key('Enter'), S(' its reading in Context: its header\'s facts and, through the Rerun CLI, its entities and time ranges (or why not)', 'secondary')]));
   recordings.forEach((it) => place(it, own.indexOf(it)));
   if (list.recordingsMore) lines.push(...para(`and ${list.recordingsMore} more, not listed here`, w, 'secondary', '  '));
   lines.push(...para(`${list.viewer.name}: ${list.viewer.state}${list.viewer.setup ? ` (${list.viewer.setup})` : ''}`, w, 'secondary', '  '));
@@ -252,8 +254,9 @@ const bytesWords = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ?
  * R9 (H160): an item in Context's Inspector, whole. A mesh: what its reader measured from the whole file (triangles, corners,
  * box, area, volume, topology, an OBJ's or PLY's faces and what its reader ignored, its units), the file, where it came from,
  * its own words (declared, not checked), what the companion's view draws, who measured and DOCTRINE §15's sentence. A
- * recording: its header's facts, its messages and stores, its entities, frames and time range unknown, with why, and Rerun's
- * viewer as this computer has it (found is not run: nothing here starts it).
+ * recording: its header's facts, its messages and stores, (R9, H159) what the installed Rerun CLI read of its entities,
+ * timelines and time ranges, or each unknown, with why, and Rerun's viewer as this computer has it (found is not run: nothing
+ * here starts it).
  */
 export function createDetail(item: CreateItem, w: number, g: Glyphs): Line[] {
   const out: Line[] = [];
