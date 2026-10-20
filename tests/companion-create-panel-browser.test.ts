@@ -29,7 +29,7 @@ import { DOCTRINE_15, num, readStlFile, topologyWords, volumeWords } from '../sr
 import { projectId } from '../src/project/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { VIEW_MAX_TRIANGLES, VIEW_WORDS } from '../src/vox/meshes.js';
-import { forgetRrdReadings, rrdReadingsIdle } from '../src/vox/rrd-cli.js';
+import { forgetRrdReadings, readRrdWithCli, rrdReadingsIdle, type RrdReading } from '../src/vox/rrd-cli.js';
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
 import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl } from './helpers/vox-fakes.js';
@@ -475,8 +475,9 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
   });
 
   /** The page on tab 6, its address carrying `query` before the token (as the Workbench's c gives it: src/workbench/servers.ts withQuery). */
-  async function openAt(query: string, viewport = { width: 1376, height: 1600 }): Promise<{ page: Page; errors: string[]; bad: string[] }> {
+  async function openAt(query: string, viewport = { width: 1376, height: 1600 }, before?: (page: Page) => Promise<void>): Promise<{ page: Page; errors: string[]; bad: string[] }> {
     const page = await browser.newPage({ viewport });
+    if (before) await before(page);
     const errors: string[] = [];
     const bad: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -544,6 +545,53 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
       expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: found (installed here, not run)");
       await shot(page, 'h159-02-tab6-read', probe);
       expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('every other state the reader gives is drawn with its why: a version not checked, a timeout, kinds or ranges not read, the edge sample', async () => {
+    // FAKE, labelled: the list's recordings are replaced (page.route) by rows whose readings are the real outputs of
+    // src/vox/rrd-cli.ts readRrdWithCli over the FAKE rerun in its other modes, and over the edge sample; the page draws them
+    const bin = join(box, 'bin');
+    const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}:/usr/bin:/bin`, ...extra });
+    const probeBytes = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
+    const readings: Record<string, RrdReading> = {
+      'rec/a-version.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'version=0.37.1' }) }),
+      'rec/b-slow.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'sleep:stats' }), timeoutMs: 400 }),
+      'rec/c-kinds.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'garbage:print-vv' }) }),
+      'rec/d-ranges.rrd': await readRrdWithCli(probeBytes, { env: env(), dataMax: 1024 }),
+      'rec/e-edge.rrd': await readRrdWithCli(readFileSync(resolve('tests/fixtures/rrd-cli/edge.rrd')), { env: env() }),
+    };
+    // every list answer, the page's first too (asked before the page knows its project, so without ?project=)
+    const { page, errors } = await openAt('tab=create', undefined, (p) => p.route((url) => url.pathname === '/api/panel/create/meshes', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json() as { recordings: Array<{ path: string }>; recordingsPending: number };
+      const row = body.recordings.find((r) => r.path === 'rec/probe.rrd')!;
+      body.recordings = Object.entries(readings).map(([path, cli]) => ({ ...row, path, cli }));
+      body.recordingsPending = 0;
+      await route.fulfill({ response: res, json: body });
+    }));
+    try {
+      const at = (rel: string, sel: string): Promise<string> => text(page, `[data-create-recording="${rel}"] ${sel}`);
+      await page.waitForSelector('[data-create-recording="rec/e-edge.rrd"] [data-rec="cli"]', { timeout: 15_000 });
+      const unchecked = 'rerun-cli 0.37.1 is installed here, and Timmy reads only the output of rerun-cli 0.38.1 (the version its reading was checked against), so it ran nothing more';
+      expect(await at('rec/a-version.rrd', '[data-rec="cli"]')).toBe(`not read by the Rerun CLI: ${unchecked}`);
+      expect(await at('rec/a-version.rrd', '[data-rec="entities"]')).toBe(`unknown: ${unchecked}`);
+      expect(await at('rec/b-slow.rrd', '[data-rec="verify"]')).toBe('rrd verify: 1 file verified without error.');
+      expect(await at('rec/b-slow.rrd', '[data-rec="entities"]')).toBe('unknown: rrd stats gave no answer in 0.4 s, so it was stopped (its process group was killed)');
+      const vv = "unknown: rrd print -vv's output does not parse as rerun-cli 0.38.1's: it printed 0 chunks, and rrd stats counted 4";
+      expect(await at('rec/c-kinds.rrd', '[data-rec="entities"]')).toBe('/__properties · /notes · /world/box · /world/points');
+      expect(await at('rec/c-kinds.rrd', '[data-rec="static"]')).toBe(vv);
+      expect(await at('rec/c-kinds.rrd', '[data-rec-timeline="frame"]')).toBe(`frame · ${vv}`);
+      expect(await at('rec/d-ranges.rrd', '[data-rec-timeline="t"]')).toBe('t · duration · range unknown: not read: rrd print -vvv prints the data itself, and is run here only on a recording of at most 1.0 KB (this one is 11.5 KB)');
+      expect(await at('rec/e-edge.rrd', '[data-rec="entities"]')).toBe('/__properties · /a/b · /space\\ name/é · /text');
+      expect(await page.$$eval('[data-create-recording="rec/e-edge.rrd"] [data-rec-timeline]', (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
+        'frame · sequence · -5 to 9007199254740993',
+        'log_time · timestamp · 2026-10-20T13:10:10.483927785 to 2026-10-20T13:10:10.487049994 (3.122209 ms)',
+        't · duration · -1.25 s to 3725.000000001 s',
+        'wall · timestamp · 1970-01-01T00:00:00 to 2026-10-20T12:53:45.500 (1792500825.5 s)',
+      ]);
+      await shot(page, 'h159-03-tab6-other-states', '[data-create-recording="rec/a-version.rrd"]');
       expect(errors).toEqual([]);
     } finally { await page.close(); }
   });

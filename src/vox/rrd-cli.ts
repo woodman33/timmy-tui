@@ -153,6 +153,19 @@ export function findRerun(env: NodeJS.ProcessEnv): { ok: true; command: string; 
 interface Ran { call: RrdCall; stdout: Buffer; stderr: Buffer }
 
 /**
+ * The process groups of calls still running. A call's group is its own (detached), so it would outlive this process: when this
+ * process exits first (process.exit, or its end), each is killed whole. A process killed outright (SIGKILL) runs no handler, so
+ * a group then lives until its program ends by itself.
+ */
+const live = new Set<number>();
+let exitHooked = false;
+function killLiveOnExit(): void {
+  if (exitHooked) return;
+  exitHooked = true;
+  process.once('exit', () => { for (const pid of live) { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } } });
+}
+
+/**
  * One call: argv only, in its own process group (detached), the input on its standard input; the group is killed after
  * `timeoutMs` or once its output passes `max` (what was read up to the cap is kept, and the call says it was cut).
  */
@@ -173,6 +186,7 @@ function runOnce(program: string, args: string[], o: { input: Buffer | null; sha
       ended = true;
       if (timer) clearTimeout(timer);
       if (grace) clearTimeout(grace);
+      if (child?.pid) live.delete(child.pid);
       const call: RrdCall = {
         command: ['rerun', ...args].join(' '), version: o.version,
         input: o.input ? { sha256: o.sha256, bytes: o.input.length, words: 'the recording\'s bytes on its standard input' } : null,
@@ -194,6 +208,7 @@ function runOnce(program: string, args: string[], o: { input: Buffer | null; sha
     try {
       child = spawn(program, args, { env: o.env, cwd: tmpdir(), stdio: ['pipe', 'pipe', 'pipe'], detached: true, windowsHide: true });
     } catch (e) { finish(null, null, e instanceof Error ? e.message : String(e)); return; }
+    if (child.pid) { live.add(child.pid); killLiveOnExit(); }
     timer = setTimeout(() => { timedOut = true; stop(); }, o.timeoutMs);
     const take = (into: Buffer[]) => (b: Buffer): void => {
       if (cut) return;

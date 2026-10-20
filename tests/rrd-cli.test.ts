@@ -9,9 +9,10 @@
  * bad exit, garbage and an unchecked version. Real: the readers in src/vox/rrd-cli.ts, the captured bytes; and, when `rerun`
  * is installed here, one test that runs the real CLI (skipped otherwise, and its title says why).
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -180,6 +181,27 @@ describe('a recording read through the installed Rerun CLI, bounded (R9 H159)', 
     for (const u of unknownAll(v)) expect(u).toEqual({ state: 'unknown', reason: 'timeout', why: 'not read: rrd verify gave no answer in 0.4 s, so nothing more was run' });
     expect(v.calls.map((c) => c.command)).toEqual(['rerun --version', 'rerun rrd verify']);
   });
+
+  it('a call still running when Timmy\'s process exits is not left behind: its process group is killed with it', async () => {
+    const bin = fakeBin();
+    const dir = box();
+    const pids = join(dir, 'pids');
+    const script = join(dir, 'exits-early.mts');
+    // a process that starts a reading which hangs (the FAKE's verify sleeps, the timeout is 30 s) and exits once it hangs
+    writeFileSync(script, [
+      `import { existsSync, readFileSync } from 'node:fs';`,
+      `import { readRrdWithCli } from ${JSON.stringify(resolve('src/vox/rrd-cli.ts'))};`,
+      `void readRrdWithCli(readFileSync(${JSON.stringify(join(FIX, 'probe.rrd'))}), { env: { PATH: ${JSON.stringify(`${bin}:/usr/bin:/bin`)}, FAKE_RERUN_MODE: 'sleep:verify', FAKE_RERUN_PIDS: ${JSON.stringify(pids)} }, timeoutMs: 30_000 });`,
+      `const t = setInterval(() => { if (existsSync(${JSON.stringify(pids)}) && readFileSync(${JSON.stringify(pids)}, 'utf8').trim()) { clearInterval(t); process.exit(0); } }, 20);`,
+    ].join('\n'));
+    const loader = createRequire(import.meta.url).resolve('tsx');
+    const code = await new Promise<number | null>((done) => { const c = spawn(process.execPath, ['--import', loader, script], { stdio: 'ignore' }); c.once('close', (n) => done(n)); });
+    expect(code).toBe(0);
+    const child = Number(readFileSync(pids, 'utf8').trim());
+    expect(child).toBeGreaterThan(0);
+    await until(() => !alive(child));
+    expect(alive(child)).toBe(false);
+  }, 30_000);
 
   it('an output over the cap: the read stops there and says so; a range not read stays unknown', async () => {
     const bin = fakeBin();
