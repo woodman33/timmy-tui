@@ -94,7 +94,7 @@ export function createItems(data: Pick<Data, 'project' | 'readAt'>): CreateItem[
 }
 
 /** How many words an item's rows say: all of them (0), a short form (1: a mesh's kind, triangles, box and volume), the least
- *  (2: its kind and triangles). The list takes the fullest form whose every item fits the window it may have. */
+ *  (2: its kind and triangles). Each list takes the fullest form whose every item fits the rows it may have. */
 type Form = 0 | 1 | 2;
 
 /** A mesh's words in a form: its head (its path, then its facts) and the rows under it. */
@@ -169,9 +169,11 @@ export function createTabView(c: CreateCtx): CreateTabView {
   // list, not one item's wall of words), and never more than the window less a row for its heading or the box's title
   const room = c.height === undefined ? Infinity : Math.max(1, Math.min(c.height - 2, Math.max(2, Math.floor((c.height - 2) / 2))));
   const wordsOf = (it: CreateItem, f: Form) => (it.kind === 'mesh' ? meshWords(it.mesh, f, sep) : recordingWords(it.rec, f, sep));
-  const form: Form = ([0, 1, 2] as const).find((f) => own.every((it) => itemRows(wordsOf(it, f), w, false, c.g).length <= room)) ?? 2;
+  // one form for each list (the meshes', the recordings'), so a list reads alike and one list's words never cut the other's
+  const formOf = (list: CreateItem[]): Form => ([0, 1, 2] as const).find((f) => list.every((it) => itemRows(wordsOf(it, f), w, false, c.g).length <= room)) ?? 2;
+  const forms = { mesh: formOf(own.filter((x) => x.kind === 'mesh')), recording: formOf(own.filter((x) => x.kind === 'recording')) };
   const place = (it: CreateItem, k: number): void => {
-    const rows = itemRows(wordsOf(it, form), w, c.cursor === k, c.g);
+    const rows = itemRows(wordsOf(it, forms[it.kind]), w, c.cursor === k, c.g);
     items.push({ line: lines.length, item: it, ...(rows.length > 1 ? { rows: rows.length } : {}) });
     lines.push(...rows);
   };

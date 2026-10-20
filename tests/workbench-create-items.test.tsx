@@ -248,6 +248,16 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
     for (let k = 0; k < 40 && !/Triangles 28/.test(ctx); k++) { c.key('', { downArrow: true }); ctx = regionText(c.frame(100, 30), 'right'); }
     expect(ctx).toContain('Triangles 28');
     expect(ctx).toMatch(/MESH · OBJ refs\/demo-tray\.obj|Measured by Timmy's own OBJ reader|Corners/);
+    // Enter on the next mesh shows it from Context's top again, wherever the keys left Context (the PTY test at 60x16 found the
+    // drawer still scrolled down, on the detail's last rows)
+    for (let k = 0; k < 20; k++) c.key('', { downArrow: true });
+    focusOn(c, 'center');
+    c.key('', { downArrow: true });
+    expect(c.selected()?.kind).toBe('mesh');
+    await c.enter();
+    ctx = regionText(c.frame(100, 30), 'right');
+    expect(ctx).toMatch(/^Tools │ ▸ Inspector │ Files ◌ UNFINISHED · THIS TAB Works now:/);
+    c.key('', { upArrow: true });
     // the whole of it, as Context draws it (its lines; the drawer scrolls)
     const items = createItems(c.data);
     const obj = items[0] as Extract<CreateItem, { kind: 'mesh' }>;

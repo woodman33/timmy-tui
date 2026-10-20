@@ -1878,9 +1878,13 @@ export class Controller {
         if (item.key.startsWith('nav:')) { this.selectWorkspace(item.action as WorkspaceId); this.ui.focus = 'center'; this.emit(); }
         return;
       default:
-        // the Inspector shows it (R5, H131: as a drawer where Context is not a column)
+        // the Inspector shows it (R5, H131: as a drawer where Context is not a column); R9 (H160): from its first row, wherever
+        // the keys or the wheel left Context (tab 6's mesh: its measurements under the Unfinished words, read on with ↓)
         this.ui.tab = 'inspector';
         if (!this.contextColumn()) this.ui.rightOpen = true;
+        this.ui.scroll['right:inspector'] = 0;
+        delete this.ui.wheel['right:inspector'];
+        delete this.ui.anchor['right:inspector'];
         this.emit();
     }
   }
