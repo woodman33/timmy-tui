@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { turnEndWords } from '../src/contracts/stop-words.js';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -204,6 +205,35 @@ describe('companion connection and chat mirror', () => {
     expect(none.consoleLogs.innerHTML).toContain('Nothing reaches this page without the companion\'s token (see the note above), so whether chat happened in this session is not known here.');
   });
 
+  // R7 (H152; the R5 visual review's 13: mirror rows did not say who stopped a turn): one set of words per kind, the shared
+  // table's (src/contracts/stop-words.ts): a stopped turn says who asked, on the bus row at once (stopped_by), never "cancelled"
+  it('says who stopped a turn in its row, in the stop-words table\'s own words; never "cancelled" for a chat turn', () => {
+    const c = client();
+    // the page's words for every surface and asker are the table's
+    const surfaces = ['repl', 'workbench', 'monitor', 'companion'];
+    for (const surface of surfaces) {
+      for (const by of ['', ...surfaces, 'unknown']) {
+        expect(c.context.turnEndSaid('stopped', surface, by), `${surface} stopped by ${by || 'itself'}`).toBe(turnEndWords({ state: 'stopped', surface, ...(by ? { stoppedBy: by } : {}) }));
+      }
+      for (const state of ['answered', 'failed'] as const) expect(c.context.turnEndSaid(state, surface, '')).toBe(turnEndWords({ state, surface }));
+    }
+    const since = Date.now();
+    c.receive({ type: 'welcome', state: 'idle', since: new Date(since).toISOString() });
+    // a REPL turn the companion's Stop stopped (its receipt's stopped_by, on the bus beside it), and a Workbench turn stopped there
+    c.receive({ type: 'bus', event: turn(since + 1_000, 'repl · cancelled · 1 step', { stopped_by: 'companion' }) });
+    c.receive({ type: 'bus', event: turn(since + 2_000, 'chat.turn · workbench · cancelled · 0 steps · SYNTHETIC-model', { kind: 'chat' }) });
+    const html = c.consoleLogs.innerHTML.replace(/\s+/g, ' ');
+    expect(html).toContain('⌨ REPL turn · stopped (asked from the companion)');
+    expect(html).toContain('A chat turn in the REPL (<span class="mirror-code">timmy</span>) stopped (asked from the companion; 1 step); Timmy sealed it');
+    expect(html).toContain('▣ Workbench turn · stopped (asked from the Workbench)');
+    expect(html).toContain('stopped (asked from the Workbench; 0 steps); Timmy sealed it');
+    expect(html).not.toMatch(/cancelled|Cancelled/);
+    // a stopped_by that is not a surface is not believed: the row says the surface that sent it
+    c.receive({ type: 'bus', event: turn(since + 3_000, 'repl · cancelled · 2 steps', { stopped_by: '<b>x</b>' }) });
+    expect(c.consoleLogs.innerHTML).toContain('stopped (asked from the REPL; 2 steps);');
+    expect(c.consoleLogs.innerHTML).not.toContain('<b>x</b>');
+  });
+
   it('shows this session\'s REPL turns from the bus by their receipt and steps, never words: only those sealed since the companion started, each once; no other sealed receipt or event is one', () => {
     const c = client();
     const since = Date.now();
@@ -224,8 +254,10 @@ describe('companion connection and chat mirror', () => {
     c.receive({ type: 'bus', event: turn(since + 2_000, 'repl · cancelled · 1 step') });
     c.receive({ type: 'bus.tail', events: [first] });
     expect(rows(c.consoleLogs.innerHTML)).toBe(2);
-    expect(c.consoleLogs.innerHTML).toContain('⌨ REPL turn · cancelled');
-    expect(c.consoleLogs.innerHTML).toContain('cancelled (1 step);');
+    // R5 lead: said stopped, the word the Workbench and the shared frame use for a turn its person stopped; R7 (H152): with
+    // who asked (here no other surface did, so the REPL that sent it)
+    expect(c.consoleLogs.innerHTML).toContain('⌨ REPL turn · stopped (asked from the REPL)');
+    expect(c.consoleLogs.innerHTML).toContain('stopped (asked from the REPL; 1 step);');
     // a subject that is not the REPL's: the row says only that a turn ended, and nothing of it is markup
     c.receive({ type: 'bus', event: turn(since + 3_000, '<img src=x onerror=alert(1)>') });
     expect(rows(c.consoleLogs.innerHTML)).toBe(3);

@@ -65,7 +65,8 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const named = await fetch(`${base}/api/project/active`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` }, body: JSON.stringify({ root: p.root, name: 'demo', jobs: p.jobs, receipts: p.store }) });
     expect(named.status).toBe(200);
@@ -108,7 +109,9 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
           expect(r.status).toBe(200);
         }
         await page.waitForFunction((n) => document.querySelectorAll('#job-list li.job').length >= n, 6, { timeout: 15_000 });
-        // a narrow screen starts with both lists folded: a person opens them
+        // a narrow screen starts with both lists folded: a person opens them. R7 (H151): below 1100 px the panel's lists themselves
+        // start folded behind #side-fold (the board keeps most of the window): opened first
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
         await page.evaluate(() => { for (const id of ['jobs', 'project']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
         // A press that says something ("Placed card: …"), from a row in the middle of the list
         await page.locator('#project-groups li.pcard[data-card="workflow:WF12.md"] .pcard-drawn').scrollIntoViewIfNeeded();
@@ -120,10 +123,14 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         const region = (await box(page, '#side-scroll'))!;
         const said = (await box(page, '#project-said'))!;
         const foot = (await box(page, '#boards'))!;
-        // the panel on screen, above tldraw's toolbar; it never scrolls as a whole
+        // the panel on screen, above tldraw's toolbar; it never scrolls as a whole. R5 (H137): the toolbar as drawn (its inner part;
+        // .tlui-main-toolbar is a full-width container that draws nothing at the left), and tldraw's navigation panel: whichever is
+        // under the panel, the panel ends above it (on a wide window it now reaches down to the navigation panel)
         expect(side.left >= 0 && side.top >= 0 && side.right <= size.width && side.bottom <= size.height, JSON.stringify(side)).toBe(true);
-        const toolbar = await box(page, '.tlui-main-toolbar');
-        if (toolbar && toolbar.w > 0 && toolbar.left < side.right) expect(side.bottom, 'above the toolbar').toBeLessThanOrEqual(toolbar.top);
+        for (const sel of ['.tlui-main-toolbar__inner', '.tlui-navigation-panel']) {
+          const under = await box(page, sel);
+          if (under && under.w > 0 && under.left < side.right && under.right > side.left) expect(side.bottom, `above ${sel}`).toBeLessThanOrEqual(under.top);
+        }
         expect(await page.$eval('#side', (e) => e.scrollHeight <= e.clientHeight + 1)).toBe(true);
         // one region scrolls, and no list scrolls inside it
         expect(await page.$eval('#side-scroll', (e) => e.scrollHeight > e.clientHeight)).toBe(true);
@@ -147,8 +154,10 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         if (row.h <= region.h) expect(row.top).toBeGreaterThanOrEqual(region.top - 0.5);
         for (const sel of [`${lastSel} .pcard-place`, `${lastSel} .pcard-cmd`]) expect(await reachable(page, sel), sel).toBe(true);
         // scrolled part-way: every Place button wholly in the open part of the region (below the list's heading, which stays at
-        // its top while its list scrolls under it) is under nothing
-        await page.$eval('#side-scroll', (e) => { e.scrollTop = Math.floor(e.scrollHeight / 2); });
+        // its top while its list scrolls under it) is under nothing. R5 (H133): part-way is the middle row's Place button brought
+        // to the middle of the region (it had been the list's exact middle: with the workspace strip above the canvas the region
+        // on an 800 x 600 window is shorter than one card row, so a button wholly in view there depended on where that middle fell)
+        await page.$eval('#project-groups', (g) => { const all = [...g.querySelectorAll('li.pcard .pcard-place')]; all[Math.floor(all.length / 2)]?.scrollIntoView({ block: 'center' }); });
         await page.waitForTimeout(100);
         const open = await page.evaluate((r) => ({ top: Math.max(r.top, ...['#jobs > summary', '#project > summary'].map((s) => { const b = document.querySelector(s)!.getBoundingClientRect(); return b.top <= r.top + 1 ? b.bottom : r.top; })), bottom: r.bottom }), region);
         const placeButtons = (covered: boolean): Promise<number> => page.$$eval('#project-groups li.pcard .pcard-place', (els, a) => els.filter((b) => {

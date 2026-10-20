@@ -7,18 +7,32 @@
  * R4 (H83): each call carries the REPL's credential for the canvas: the server's token in an Authorization header (never in
  * the address or the body) and the REPL's holder id in the body, so the canvas runs it only for the REPL that holds the project
  * named to it (src/studio/canvas-auth.ts). Linking a receipt to a canvas job carries the token too.
+ *
+ * R5 (H133): what the agent writes on the board arrives as a draft by default (the operator's order of 2026-10-15: "Timmy can
+ * propose and arrange board content ... users can review, accept or discard drafts"). canvas_exec sends `draft: true` unless the
+ * model passes `draft: false` (the REPL's NEEDS YOU box still asks before every call either way), and canvas_place_project_card
+ * places its note as a draft. A draft carries the canvas revision the model last read (`baseRevision`, from the last answer these
+ * tools saw, or the model's own): the page refuses one made from a revision the canvas has left, and says so. What a draft draws
+ * waits on the page, outlined and labelled, for a person's Accept or Discard (companion/studio-canvas/src/drafts.js); a draft only
+ * adds (it never changes or removes what is on the board), and accepting it runs nothing.
  */
 import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import { studioBaseUrl } from '../studio/config.js';
 
-/** R4 (H83): what a canvas call is sent with: the canvas server's token, and the holder id this REPL named itself with (or none). */
-export interface CanvasAuth { token: string | null; holder: string | null }
+/**
+ * R4 (H83): what a canvas call is sent with: the canvas server's token, and the holder id this REPL named itself with (or none). R6
+ * (H139): and the project this REPL draws on (its id: the canvas runs nothing for it while it shows another), and how many times
+ * this REPL opened the canvas page (src/repl/canvas-project.ts credentials).
+ */
+export interface CanvasAuth { token: string | null; holder: string | null; project?: string | null; opened?: number }
 
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
   baseUrl?: string;
+  /** R5 (H133): whether agent writes are drafts unless the model says otherwise (default true). */
+  drafts?: boolean;
   /** The REPL turn's canvas job: calls with no job ID of their own take its ID, and it keeps what they produced. */
   job?: CanvasTurnJob;
   /** R4 (H83): this REPL's credential for the canvas, asked at each call (src/repl/canvas-project.ts credentials) */
@@ -30,6 +44,8 @@ export interface CanvasJobResult {
   job: string;
   revision: number;
   sourceRevision: string;
+  /** R6 (H139): the project whose board the job ran on (its id), as the canvas server stamped its calls. */
+  project?: string;
   /** Whether the job's last call succeeded (round R1); a failed call kept nothing on the canvas. */
   ok?: boolean;
   /** Whether any of its calls changed the canvas (round R1); a job of lookups only has nothing to inspect. */
@@ -38,6 +54,8 @@ export interface CanvasJobResult {
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 const SOURCE_REVISION = /^[0-9a-f]{64}$/;
+/** R6 (H139): a project's id (16 hex), as the canvas server stamps a call's answer with it ({ id, name }); null otherwise. */
+const projectIdOf = (v: unknown): string | null => (v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string' && /^[0-9a-f]{16}$/.test((v as { id: string }).id) ? (v as { id: string }).id : null);
 
 /**
  * The canvas jobs of one REPL turn (fourth order, step 5): calls with no job ID of their own share the
@@ -65,7 +83,9 @@ export class CanvasTurnJob {
     if (typeof jobId === 'string' && JOB_ID.test(jobId) && typeof revision === 'number' && typeof sourceRevision === 'string' && SOURCE_REVISION.test(sourceRevision)) {
       const before = this.jobs.get(jobId);
       const anyChange = before?.changed === true || changed === true ? true : typeof changed === 'boolean' || before?.changed === false ? false : undefined;
-      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }) });
+      // R6 (H139): the project whose board it ran on, as the canvas server stamped the call
+      const project = projectIdOf(answer.project);
+      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }), ...(project ? { project } : {}) });
     }
   }
 
@@ -171,21 +191,82 @@ export const CANVAS_EXAMPLE = [
 
 export function createCanvasTools(options: CanvasToolOptions = {}) {
   const baseUrl = studioUrl(options.baseUrl);
-  const exec = async (code: string, ownJobId?: string): Promise<Answer> => {
+  const draftsByDefault = options.drafts !== false;
+  /**
+   * R5 (H133): the canvas revision the last answer these tools saw named (what the model last read), or none before any. R6
+   * (H139): one per project (each has its own board: a revision of one board says nothing of another's), with how many times the
+   * REPL had opened the canvas page then (CanvasAuth.opened).
+   */
+  const lastRevision = new Map<string, { revision: number; opened: number }>();
+  const keyOf = (auth: CanvasAuth | null): string => auth?.project ?? '';
+  /**
+   * R6 (H139; the interaction review, defect 8): the revision a draft is made from when the model names none. The board's revision
+   * moves without the model doing anything when the person accepts or discards a draft, so the first draw after an Accept was
+   * refused ("this draft was made from revision 3, but the canvas is at revision 6 now"); and after the page is opened again
+   * (/canvas open) the model's last answer may be of an older page. So the board's saved revision is read again: after a reopen
+   * the draft is made from it; when only decisions on drafts moved it (the newest decision's save is the board's newest save), from
+   * it too; when anything else changed the board, from what the model last saw, which the page refuses as stale (and says so).
+   */
+  const baseFor = async (auth: CanvasAuth | null): Promise<number | null> => {
+    const seen = lastRevision.get(keyOf(auth));
+    if (!seen) return null;
+    const now = await boardNow(auth);
+    if (!now || now.revision === seen.revision) return seen.revision;
+    if ((auth?.opened ?? 0) > seen.opened) return now.revision;
+    if (now.revision > seen.revision) {
+      const decided = await newestDecision(auth);
+      if (decided !== null && decided >= now.revision) return now.revision;
+    }
+    return seen.revision;
+  };
+  const get = async (path: string, auth: CanvasAuth | null): Promise<Record<string, unknown> | null> => {
+    if (!auth?.token) return null;
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${auth.token}` }, signal: AbortSignal.timeout(2000) });
+      if (!res.ok) { await res.body?.cancel(); return null; }
+      return await res.json() as Record<string, unknown>;
+    } catch { return null; }
+  };
+  const ofProject = (path: string, auth: CanvasAuth | null): string => (auth?.project ? `${path}?project=${auth.project}` : path);
+  /** The board's saved revision now (the canvas server's health, with the token), or null. */
+  const boardNow = async (auth: CanvasAuth | null): Promise<{ revision: number } | null> => {
+    const h = await get(ofProject('/api/canvas/health', auth), auth);
+    return h && Number.isInteger(h.revision) ? { revision: h.revision as number } : null;
+  };
+  /** The revision of the save that holds the newest decision on a draft (accepted or discarded), or null. */
+  const newestDecision = async (auth: CanvasAuth | null): Promise<number | null> => {
+    const d = await get(ofProject('/api/canvas/drafts', auth), auth);
+    const list = d && Array.isArray(d.drafts) ? (d.drafts as Array<{ event?: unknown; revision?: unknown }>) : [];
+    const decided = list.filter((r) => (r.event === 'accepted' || r.event === 'discarded') && Number.isInteger(r.revision)).map((r) => r.revision as number);
+    return decided.length ? Math.max(...decided) : null;
+  };
+  const exec = async (code: string, ownJobId?: string, draft?: { baseRevision?: number }): Promise<Answer> => {
     const jobId = ownJobId ?? options.job?.current();
-    const answer = await send(code, jobId);
+    // R4 (H83): the token in a header, the holder id in the body; without a token the canvas says why (401) and runs nothing.
+    const auth = options.auth?.() ?? null;
+    const base = draft ? (draft.baseRevision ?? await baseFor(auth)) : null;
+    const answer = await send(code, auth, jobId, draft ? { baseRevision: base } : null);
+    // R6 (H139): the revision of the board the call ran on (the project this REPL draws on: the canvas server refuses a call for
+    // another), never of a call the page did not run
+    if (typeof answer.revision === 'number' && Number.isInteger(answer.revision) && answer.notRun === undefined) {
+      lastRevision.set(keyOf(auth), { revision: answer.revision, opened: auth?.opened ?? 0 });
+    }
     options.job?.saw(answer);
     return answer;
   };
-  const send = async (code: string, jobId?: string): Promise<Answer> => {
-    // R4 (H83): the token in a header, the holder id in the body; without a token the canvas says why (401) and runs nothing.
-    const auth = options.auth?.() ?? null;
+  const send = async (code: string, auth: CanvasAuth | null, jobId?: string, draft: { baseRevision: number | null } | null = null): Promise<Answer> => {
     let res: Response;
     try {
       res = await fetch(`${baseUrl}/api/canvas/exec`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(auth?.token ? { Authorization: `Bearer ${auth.token}` } : {}) },
-        body: JSON.stringify({ code, ...(jobId ? { jobId } : {}), ...(auth?.holder ? { holder: auth.holder } : {}) }),
+        body: JSON.stringify({
+          code, ...(jobId ? { jobId } : {}), ...(auth?.holder ? { holder: auth.holder } : {}),
+          // R5 (H133): a draft, made from the revision the model last read (none known: the page takes its revision now)
+          ...(draft ? { draft: true, ...(draft.baseRevision !== null ? { baseRevision: draft.baseRevision } : {}) } : {}),
+          // R6 (H139): the project this REPL draws on: a canvas that shows another runs nothing for it, and says so
+          ...(auth?.project ? { project: auth.project } : {}),
+        }),
       });
     } catch {
       return { ok: false, error: NOT_RUNNING };
@@ -207,13 +288,21 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         'Answers carry the result or the error, the job ID and the canvas revision (document changes so far). ' +
         'A call that fails keeps nothing: the canvas goes back to how it was before the call (rolledBack), so retry the whole drawing. ' +
         'Shapes take text only as props.richText (never props.text or props.label); an arrow is joined to shapes by bindings. ' +
+        'What a call draws arrives as a DRAFT by default: it waits on the board, outlined and labelled, until the person accepts or discards it ' +
+        '(the answer\'s draft says its id and how many shapes it holds). A draft only adds shapes (and bindings and assets): a call that changes ' +
+        'or removes what is already on the board keeps nothing and says why. A draft made from an older revision than the canvas has now is ' +
+        'refused before it runs (stale): read the canvas again (canvas_read), then propose again. Pass draft: false only to change the board\'s ' +
+        'own shapes directly, when the person asked for exactly that. ' +
         `A drawing that works in this tldraw: ${CANVAS_EXAMPLE}`,
       inputSchema: z.object({
         code: z.string().min(1).max(30_000).describe('Body of an async function of (editor, helpers)'),
         jobId: z.string().regex(/^[\w.:-]{1,100}$/).optional().describe('The job this call belongs to'),
+        draft: z.boolean().optional().describe('Whether what this call draws waits for the person to accept or discard it (default true)'),
+        baseRevision: z.number().int().min(0).optional().describe('The canvas revision this call was made from (default: the revision the last canvas answer named)'),
       }),
       outputSchema: answer,
-      execute: async ({ code, jobId }: { code: string; jobId?: string }) => exec(code, jobId),
+      execute: async ({ code, jobId, draft, baseRevision }: { code: string; jobId?: string; draft?: boolean; baseRevision?: number }) =>
+        exec(code, jobId, (draft ?? draftsByDefault) ? { ...(baseRevision !== undefined ? { baseRevision } : {}) } : undefined),
     } as any),
     tool({
       name: 'canvas_read',
@@ -236,10 +325,13 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         "Place one card of the active project on Timmy Canvas: a note holding the card's title, its state in words and the typed command that acts on it, " +
         "with the record and receipt behind it kept in the note's meta. The cards are the project's workflow documents, parameter files, /iterate flows, " +
         'VoxVision records and Control Room runs, read from their records by the board\'s own readers once the REPL has named the project to the canvas (/canvas open). ' +
-        'Call it without a card to list the cards (nothing is placed); then with one card\'s id as listed, for example flow:f1a2b3c4d.',
+        'Call it without a card to list the cards (nothing is placed); then with one card\'s id as listed, for example flow:f1a2b3c4d. ' +
+        'R5: a placed card arrives as a draft the person accepts or discards on the board. ' +
+        "R6: the list also names the project's artifacts (artifact:vox:v…, artifact:run:o…, artifact:receipt:…): one placed is a card that shows it (a VoxVision record's image with what was measured over it, a run's outputs and receipts, a receipt verified now) and opens its preview.",
       inputSchema: z.object({ card: z.string().min(1).max(400).optional().describe('A card id as the list gives it; leave it out to list the cards') }),
       outputSchema: answer,
-      execute: async ({ card }: { card?: string }) => exec(PLACE_PROJECT_CARD(card)),
+      // R5 (H133): placing a card is a write, so a draft; listing the cards draws nothing
+      execute: async ({ card }: { card?: string }) => exec(PLACE_PROJECT_CARD(card), undefined, card && draftsByDefault ? {} : undefined),
     } as any),
   ];
 }

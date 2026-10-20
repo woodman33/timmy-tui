@@ -1,6 +1,6 @@
 /**
  * R4 (H110): the Workbench's frame. Each zone is a panel: a border with its title in the top edge, and rows fitted inside. The
- * region that has the keyboard has a heavier border in Homebrew green and a marker before its title, so focus is visible by
+ * region that has the keyboard has a heavier border in amber (DESIGN.md B10) and a marker before its title, so focus is visible by
  * shape and words as well as by colour. Without Unicode the borders are + - | and the marker is >.
  *
  * compose() lays the panels into the screen's rows by the layout (src/workbench/layout.ts): every row is exactly the
@@ -24,17 +24,35 @@ export interface Glyphs {
   fail: string;
   check: string;
   uncheck: string;
+  /** R5 (H131): the one primary next step's mark */
+  next: string;
+  /** R5 (H131): a configured connection (a setting, not an observation) */
+  ring: string;
+  /** R5 (H131): a connection that is not set up */
+  dot: string;
+  /** R5 (H131): an expanded section's marker (Activity & log, expanded) */
+  expanded: string;
+  /** R5 (H131; the QA round's defect 18): what runs now, always with its word (● is live and nothing else) */
+  run: string;
+  /** R5 (H131; the QA round's defect 18): what waits its turn, always with its word (○ is configured and nothing else; ⚠ is
+   *  what waits on a person) */
+  wait: string;
 }
 
+// R5 (H131): a failure's mark is ✕ (DESIGN.md B10: amber, ✕ and its word); `next` marks the one primary next step, `off` an
+// action that is not available now, `ring` a configured connection that was not observed answering
 export const glyphsFor = (unicode: boolean): Glyphs => (unicode
-  ? { unicode, ellipsis: '…', cursor: '▸', focus: '◆', bullet: '●', sep: '·', arrow: '→', warn: '⚠', ok: '✓', fail: '✖', check: '[x]', uncheck: '[ ]' }
-  : { unicode, ellipsis: '...', cursor: '>', focus: '>', bullet: '*', sep: '-', arrow: '->', warn: '!', ok: '+', fail: 'x', check: '[x]', uncheck: '[ ]' });
+  ? { unicode, ellipsis: '…', cursor: '▸', focus: '◆', bullet: '●', sep: '·', arrow: '→', warn: '⚠', ok: '✓', fail: '✕', check: '[x]', uncheck: '[ ]', next: '▶', ring: '○', dot: '·', expanded: '▾', run: '▶', wait: '…' }
+  : { unicode, ellipsis: '...', cursor: '>', focus: '>', bullet: '*', sep: '-', arrow: '->', warn: '!', ok: '+', fail: 'x', check: '[x]', uncheck: '[ ]', next: '>', ring: 'o', dot: '-', expanded: 'v', run: '>', wait: '...' });
 
-interface Box { tl: string; tr: string; bl: string; br: string; h: string; v: string }
+export interface Box { tl: string; tr: string; bl: string; br: string; h: string; v: string }
 const LIGHT: Box = { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' };
 const HEAVY: Box = { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃' };
 const ASCII: Box = { tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|' };
 const ASCII_FOCUS: Box = { tl: '#', tr: '#', bl: '#', br: '#', h: '=', v: '#' };
+
+/** R5 (H131): a box's characters: heavy for what has the keyboard, is active or is selected (its shape says it too). */
+export const boxOf = (g: Pick<Glyphs, 'unicode'>, heavy: boolean): Box => (g.unicode ? (heavy ? HEAVY : LIGHT) : (heavy ? ASCII_FOCUS : ASCII));
 
 export interface PanelSpec {
   title: string;
@@ -45,6 +63,8 @@ export interface PanelSpec {
   note?: string;
   /** a row for the bottom edge (a hint) */
   footer?: string;
+  /** R5 (H131): words drawn at the right of the bottom edge (row 2's run state and Stop current), kept whole first */
+  footRight?: Line;
 }
 
 /** The width a panel's rows are fitted to: its inside less one cell of air on each side. */
@@ -57,8 +77,9 @@ export function panel(p: PanelSpec, r: Rect, g: Glyphs): Line[] {
   const edge: Seg['role'] = p.focused ? 'focus' : 'border';
   const inner = r.w - 2;
   const title = `${p.focused ? `${g.focus} ` : ''}${p.title}`;
-  // the title stays whole before a note does: a note that leaves no room for it is left out
-  const note = p.note && lineCells([{ text: title }]) + lineCells([{ text: ` ${p.note} ` }]) <= inner - 3 ? ` ${p.note} ` : '';
+  // R5 (H131; the QA round's defect 7, "no clipped content without an overflow line"): a note (a range, 1–N of M) is kept
+  // before the title's tail: the title is cut to what the note leaves, down to its first few letters
+  const note = p.note && lineCells([{ text: ` ${p.note} ` }]) + 3 + Math.min(8, lineCells([{ text: title }])) <= inner ? ` ${p.note} ` : '';
   const head: Line = [{ text: `${b.tl}${b.h} `, role: edge }];
   const titleRoom = Math.max(0, inner - 3 - lineCells([{ text: note }]));
   const t = fit([{ text: title, role: p.focused ? 'focus' : 'strong' }], Math.min(titleRoom, lineCells([{ text: title }])), g.ellipsis);
@@ -79,7 +100,12 @@ export function panel(p: PanelSpec, r: Rect, g: Glyphs): Line[] {
     rows.push([{ text: b.v, role: edge }, ...(pad ? [{ text: ' ', ...(sel ? { selected: true } : {}) }] : []), ...fitted, ...(pad ? [{ text: ' ', ...(fitted[fitted.length - 1]?.selected ? { selected: true } : {}) }] : []), { text: b.v, role: edge }]);
   }
   const foot: Line = [{ text: b.bl, role: edge }];
-  if (p.footer && inner > 4) {
+  if (p.footRight?.length && inner > 4) {
+    // R5 (H131): words at the right of the bottom edge, one cell of edge after them
+    const right: Line = [{ text: ' ' }, ...p.footRight, { text: ' ' }];
+    const f = lineCells(right) <= inner - 2 ? right : fit(right, inner - 2, g.ellipsis);
+    foot.push({ text: b.h.repeat(Math.max(0, inner - 1 - lineCells(f))), role: edge }, ...f, { text: b.h, role: edge });
+  } else if (p.footer && inner > 4) {
     const f = fit([{ text: ` ${p.footer} `, role: 'secondary' }], Math.min(inner - 2, lineCells([{ text: ` ${p.footer} ` }])), g.ellipsis);
     foot.push({ text: b.h, role: edge }, ...f, { text: b.h.repeat(Math.max(0, inner - 1 - lineCells(f))), role: edge });
   } else foot.push({ text: b.h.repeat(inner), role: edge });

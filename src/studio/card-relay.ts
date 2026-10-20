@@ -47,6 +47,11 @@
  *   runs comes from the REPL that holds its project, which asked NEEDS YOU about it.
  * - An action no REPL picked up in PICKUP_MS was not run, and the page is told so; one picked up but not answered in
  *   ANSWER_MS may have run, and the page is told that instead.
+ * - R7 (H149; R6 defect N1): a REPL that holds no project the canvas shows now (the canvas followed the active project itself,
+ *   or another REPL named its own) keeps asking, in standby, with the project it works in (`project`, 16 hex): its asking says
+ *   it is alive and where it is. When the canvas, following the active project, comes back to a project that REPL was the last to
+ *   name and still works in, that REPL holds it again (src/studio/project-link.ts restore), and its next draw needs no second
+ *   /canvas open. A REPL that ended asks no more, and is never given anything back.
  *
  * GET /api/project/image serves the one kind of image the board's highlights are (src/repl/board-vox.ts voxFileFor: a shown
  * highlight of a verified or stale VoxVision record, its bytes still the ones it recorded) through the board's own guard
@@ -64,6 +69,7 @@ import { voxFileFor } from '../repl/board-vox.js';
 import { inProject } from './card-detail.js';
 import { cardText, readRunsChain } from './project-cards.js';
 import { HOLDER_ID, readBody, type NamedProject, type ProjectLink } from './project-link.js';
+import { pausedRefusal } from './session-pause.js';
 
 /** The actions a canvas card sends: the live board's run and rebuild actions and its two parameter saves. */
 export const CARD_ACTS = ['run', 'rebuild', 'set-params', 'set-scad-params'] as const;
@@ -87,6 +93,11 @@ export const ANSWER_MS = 120_000;
  * that goes away without an answer (the REPL ended) ends it at once.
  */
 const LISTEN_MS = 15_000;
+/**
+ * R7 (H149): how long a standby ask waits (a REPL that holds no project the canvas shows asks again at once): its asking says it
+ * is alive and which project it works in, so the canvas can give that project back to it (src/studio/project-link.ts restore).
+ */
+export const STANDBY_MS = 5_000;
 
 export const NO_SESSION = 'Refused: this canvas page has no session to act with. A page opened by Timmy\'s /canvas open gets one; a page opened another way, or reloaded, has none. In Timmy: /canvas open.';
 /** R4 (H83): what a reading of a highlight without the server's token or a page session is told. */
@@ -130,7 +141,7 @@ export function actFits(card: string, act: Record<string, unknown>): string | nu
   return `A canvas card sends ${CARD_ACTS.join(', ')}; nothing else.`;
 }
 
-export interface RelayOptions { now?: () => number; pollMs?: number; pickupMs?: number; answerMs?: number; grantMs?: number; sessionMs?: number }
+export interface RelayOptions { now?: () => number; pollMs?: number; pickupMs?: number; answerMs?: number; grantMs?: number; sessionMs?: number; standbyMs?: number }
 
 /** R4 (H81): what a grant, and the session traded for it, was made for: the project named then (its id) and its holder. */
 export interface SessionFor { project: string; holder: string | null }
@@ -163,6 +174,8 @@ export class CardRelay {
   private poller: { holder: string; give: (e: CardEnvelope | null) => void } | null = null;
   private readonly seen = new Map<string, number>();
   private closed = false;
+  /** R7 (H149): the REPLs that hold no project the canvas shows and wait in standby now (each one's wake) */
+  private readonly standing = new Map<string, () => void>();
 
   constructor(private readonly o: RelayOptions = {}) {}
 
@@ -343,7 +356,11 @@ export class CardRelay {
     return true;
   }
 
-  /** Another holder (or none) now: actions queued for an earlier holder are refused, unrun. */
+  /**
+   * Another holder (or none) now: actions queued for an earlier holder are refused, unrun. R7 (H149): the poll of a REPL that holds
+   * it no more ends now (it asks again at once, in standby), and every standby REPL is woken to ask again (the canvas may have come
+   * back to its project: src/studio/project-link.ts restore).
+   */
   heldBy(holder: string | null): void {
     for (const p of [...this.queue]) {
       if (p.holder === holder) continue;
@@ -351,12 +368,39 @@ export class CardRelay {
       clearTimeout(p.timer);
       p.done({ status: 409, text: 'The canvas was named another project (or by another REPL) before the action reached a REPL; nothing was run.' });
     }
+    if (this.poller && this.poller.holder !== holder) this.poller.give(null);
+    for (const wake of [...this.standing.values()]) wake();
+  }
+
+  /**
+   * R7 (H149): a REPL that holds no project the canvas shows asks in standby: it waits STANDBY_MS at most, until woken (heldBy:
+   * the canvas may be back on its project), or until its request goes away (`gone`: its REPL ended). True: woken early.
+   */
+  standby(holder: string, gone: (end: () => void) => void): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.closed) { resolve(false); return; }
+      this.standing.get(holder)?.();
+      let settled = false;
+      const finish = (woken: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (this.standing.get(holder) === wake) this.standing.delete(holder);
+        resolve(woken);
+      };
+      const wake = (): void => finish(true);
+      const timer = setTimeout(() => finish(false), this.o.standbyMs ?? STANDBY_MS);
+      this.standing.set(holder, wake);
+      gone(() => finish(false));
+    });
   }
 
   /** The server stops: the poll ends, actions not handed are refused unrun, handed ones are said to be unanswered. */
   close(): void {
     this.closed = true;
     this.poller?.give(null);
+    for (const wake of [...this.standing.values()]) wake(); // R7 (H149): no standby ask is held either
+    this.standing.clear();
     for (const p of this.queue.splice(0)) { clearTimeout(p.timer); p.done({ status: 503, text: 'Timmy Canvas stopped before a REPL took the action; nothing was run.' }); }
     for (const p of [...this.handed.values()]) { this.handed.delete(p.envelope.id); clearTimeout(p.timer); p.done({ status: 504, text: 'Timmy Canvas stopped before the REPL answered; the action may have run: /jobs in Timmy says.' }); }
   }
@@ -456,10 +500,24 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     if (!fromRepl(req, res)) return;
     const holder = String(req.query.holder ?? '');
     if (!HOLDER_ID.test(holder)) { res.status(400).json({ ok: false, error: 'holder is the 32 hex characters this REPL named itself with.' }); return; }
-    const p = o.link.project;
+    // R7 (H149): the project the REPL works in now (16 hex), so a REPL that holds no project the canvas shows can wait in standby
+    const working = typeof req.query.project === 'string' && /^[0-9a-f]{16}$/.test(req.query.project) ? req.query.project : null;
+    if (req.query.project !== undefined && working === null) { res.status(400).json({ ok: false, error: 'project is the id of the project this REPL works in (16 hex).' }); return; }
+    if (o.relay.stopping) { res.status(503).json({ ok: false, error: 'Timmy Canvas is stopping.' }); return; }
+    let p = o.link.project;
+    if (working !== null && p?.holder !== holder) {
+      // R7 (H149; R6 N1): the canvas back (by its own follow of the active project) on the project this REPL still holds and works
+      // in: that REPL holds it again, as its own naming; any other REPL in standby is let go at once to ask again
+      const back = o.link.restore(holder, working);
+      if (back) { o.relay.heldBy(holder); p = back; }
+      else {
+        const woken = await o.relay.standby(holder, (end) => { res.once('close', end); });
+        if (!res.writableEnded && !res.destroyed) res.json({ ok: true, standby: true, woken, words: 'This REPL holds no project the canvas shows now; it is asked again at once, and given its project back if the canvas follows the active project back to it.' });
+        return;
+      }
+    }
     if (!p) { res.status(404).json({ ok: false, error: 'No project is named to this canvas.' }); return; }
     if (p.holder !== holder) { res.status(409).json({ ok: false, error: 'Another Timmy REPL (or none) holds the project this canvas shows now.' }); return; }
-    if (o.relay.stopping) { res.status(503).json({ ok: false, error: 'Timmy Canvas is stopping.' }); return; }
     const next = await o.relay.poll(holder, (end) => { res.once('close', end); });
     if (res.writableEnded || res.destroyed) {
       // The REPL went away while an action was on its way: it was not delivered, and is said to be unanswered.
@@ -495,6 +553,9 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     const p: NamedProject | null = pinned ? o.link.knownProject(asked!) : o.link.project;
     if (!o.link.authorized(req.headers.authorization)) {
       const s = pinned ? o.relay.reaches(req.headers.authorization, asked!) : o.relay.sessionFor(req.headers.authorization, p);
+      // R5 (H137): a card draws its highlight by itself: to a paused session, a plain 200 that says why, and no image
+      // (src/studio/session-pause.ts); to anyone else, 401
+      if (!s.ok && pausedRefusal(s.why)) { res.status(200).json({ ok: false, error: s.words, session: s.why }); return; }
       if (!s.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').type('text/plain').send(s.why === 'none' ? IMAGE_REFUSED : s.words); return; }
     }
     const rel = inProject(String(req.query.p ?? ''));

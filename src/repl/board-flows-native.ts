@@ -400,8 +400,8 @@ export function nativeFlowCard(f: NativeCardFlow, h: NativeCardHelpers, status: 
 
 export const NATIVE_FLOW_CSS = `
 .flow pre.diff { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; }
-.flow pre.diff .removed { color: ${HOMEBREW.failure}; }
-.flow pre.diff .added { color: ${HOMEBREW.accent}; }
+.flow pre.diff .removed { color: ${HOMEBREW.diffRemove}; }
+.flow pre.diff .added { color: ${HOMEBREW.diffAdd}; }
 .flow dd.bad { color: ${HOMEBREW.failure}; }
 .flow section.readback.native { padding: 2px 0 2px 10px; }
 .flow section.readback.native.unverified { border-left: 3px solid ${HOMEBREW.lineStrong}; }

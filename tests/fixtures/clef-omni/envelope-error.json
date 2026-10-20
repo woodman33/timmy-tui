@@ -1,0 +1,11 @@
+{
+  "success": false,
+  "result": null,
+  "errors": [
+    {
+      "code": 5006,
+      "message": "FAKE: error from the fixture"
+    }
+  ],
+  "messages": []
+}

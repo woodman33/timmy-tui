@@ -9,6 +9,7 @@ import { measuredFromPalette, namedPalette } from '../term/palettes.js';
 import { EXIT } from '../term/session.js';
 import { buildTheme, serialize, type Segment, type Theme } from '../term/theme.js';
 import { readChain, verifyChain, type Receipt, type VerifyResult } from '../utils/receipts.js';
+import { receiptSubjectWords } from '../contracts/stop-words.js';
 
 export interface ReceiptsOptions {
   follow: boolean;
@@ -63,7 +64,8 @@ export async function showReceipts(o: ReceiptsOptions): Promise<number> {
     if (!first) say([{ text: `  ${g.rail}`, role: 'rule' }]);
     const canvas = canvasOf(r);
     const where = canvas.length ? `  canvas ${canvas.map((c) => `${c.job} at revision ${c.revision}`).join(', ')}` : '';
-    say([{ text: `  ${g.bullet} ` }, { text: r.hash.slice(7, 15), role: 'strong' }, { text: `  ${r.kind}  ${r.subject}  ${hhmm(r.ts)}${where}`, role: 'secondary' }]);
+    // R6 (H140): a stopped chat turn's sealed "cancelled" is shown in the one table's words, with who asked (the receipt is unchanged)
+    say([{ text: `  ${g.bullet} ` }, { text: r.hash.slice(7, 15), role: 'strong' }, { text: `  ${r.kind}  ${receiptSubjectWords(r)}  ${hhmm(r.ts)}${where}`, role: 'secondary' }]);
   };
   const format = o.format ?? 'human';
   if (format !== 'human') {

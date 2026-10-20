@@ -64,15 +64,48 @@ function sandbox(docs: Record<string, string>): Box {
   return { base, root, home, bin, env };
 }
 
+/**
+ * R8 lead (the CI of PR #102 at 1dd6ec9: one child here took its test's whole 60 s, where it takes 1 to 5 s, and the time-out
+ * said nothing else): a child not closed within CLOSED_WITHIN_MS fails its test with what it had printed, whether it had
+ * exited (its pipes then held open by another process) and the processes under it or in its folder. It changes no result.
+ */
+const CLOSED_WITHIN_MS = 30_000;
+function processesOf(pid: number | undefined, base: string): string {
+  try {
+    const rows = execFileSync('ps', ['-eo', 'pid=,ppid=,etimes=,stat=,args='], { encoding: 'utf8', timeout: 5_000 }).split('\n')
+      .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/)).filter((m): m is RegExpMatchArray => !!m)
+      .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), line: `${m[1]} ppid ${m[2]} ${m[3]} s ${m[4]} ${m[5].slice(0, 200)}` }));
+    const mine = new Set(pid === undefined ? [] : [pid]);
+    for (let more = true; more;) { more = false; for (const r of rows) if (mine.has(r.ppid) && !mine.has(r.pid)) { mine.add(r.pid); more = true; } }
+    // one left without its parent: its working folder is in this test's sandbox (Linux's /proc says it)
+    for (const r of rows) { try { if (fs.readlinkSync(`/proc/${r.pid}/cwd`).startsWith(base)) mine.add(r.pid); } catch { /* not Linux, or gone */ } }
+    const shown = rows.filter((r) => mine.has(r.pid)).map((r) => r.line);
+    return shown.length ? shown.join('\n') : '(none)';
+  } catch (e) { return `(ps did not answer: ${e instanceof Error ? e.message.split('\n')[0] : String(e)})`; }
+}
+
 /** `timmy <args>` as a real child process in the project (stdin a pipe: no terminal). */
 function timmy(b: Box, args: string[]): { child: ChildProcess; done: Promise<{ code: number | null; stdout: string; stderr: string }>; out: () => string } {
+  const started = Date.now();
   const child = spawn(path.join(b.bin, 'timmy'), args, { cwd: b.root, env: b.env, stdio: ['pipe', 'pipe', 'pipe'] });
   children.push(child);
   let stdout = '';
   let stderr = '';
+  let exited = 'it had not exited';
   child.stdout!.setEncoding('utf8').on('data', (c: string) => { stdout += c; });
   child.stderr!.setEncoding('utf8').on('data', (c: string) => { stderr += c; });
-  const done = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => child.on('close', (code) => resolve({ code, stdout, stderr })));
+  child.on('exit', (code, signal) => { exited = `it had exited (${signal ?? `code ${code}`}) after ${Date.now() - started} ms, so another process held its output open`; });
+  const closed = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => child.on('close', (code) => resolve({ code, stdout, stderr })));
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error([
+      `timmy ${args.join(' ')} was not closed ${CLOSED_WITHIN_MS} ms after it started: ${exited}.`,
+      `Processes of it: \n${processesOf(child.pid, b.base)}`,
+      `Its stdout so far: ${JSON.stringify(stdout.slice(-1500))}`, `Its stderr so far: ${JSON.stringify(stderr.slice(-1500))}`,
+    ].join('\n'))), CLOSED_WITHIN_MS);
+  });
+  const done = Promise.race([closed, late]).finally(() => clearTimeout(timer));
+  done.catch(() => { /* the test that awaits it fails with these words */ });
   return { child, done, out: () => `${stdout}${stderr}` };
 }
 const lastJson = (stdout: string): Record<string, unknown> => JSON.parse(stdout.trim().split('\n').at(-1)!) as Record<string, unknown>;

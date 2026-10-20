@@ -1,0 +1,114 @@
+Overview
+----------
+num_chunks = 4
+num_entity_paths = 4
+num_chunks_without_components = 0 (0.000%)
+num_rows = 5
+num_rows_min = 1
+num_rows_max = 2
+num_rows_avg = 1.250
+num_static = 1
+num_indexes_min = 0
+num_indexes_max = 4
+num_indexes_avg = 3.000
+num_components_min = 1
+num_components_max = 1
+num_components_avg = 1.000
+
+Num chunks per entity
+---------------------
+/__properties: 1
+/a/b: 1
+/space\ name/é: 1
+/text: 1
+
+Num chunks per index
+--------------------
+frame: 3
+log_time: 3
+t: 3
+wall: 3
+
+Num chunks per component
+------------------------
+Points3D:positions: 2
+RecordingInfo:start_time: 1
+TextLog:text: 1
+
+Size (schema + data, compressed)
+--------------------------------
+ipc_size_bytes_total = 5.0 KiB
+ipc_size_bytes_min = 913 B
+ipc_size_bytes_max = 1.4 KiB
+ipc_size_bytes_avg = 1.2 KiB
+ipc_size_bytes_p50 = 1.4 KiB
+ipc_size_bytes_p90 = 1.4 KiB
+ipc_size_bytes_p95 = 1.4 KiB
+ipc_size_bytes_p99 = 1.4 KiB
+ipc_size_bytes_p999 = 1.4 KiB
+
+Size (schema + data, uncompressed)
+----------------------------------
+ipc_size_bytes_total = 11.5 KiB
+ipc_size_bytes_min = 1.7 KiB
+ipc_size_bytes_max = 3.3 KiB
+ipc_size_bytes_avg = 2.9 KiB
+ipc_size_bytes_p50 = 3.3 KiB
+ipc_size_bytes_p90 = 3.3 KiB
+ipc_size_bytes_p95 = 3.3 KiB
+ipc_size_bytes_p99 = 3.3 KiB
+ipc_size_bytes_p999 = 3.3 KiB
+
+Size (schema only, uncompressed)
+--------------------------------
+ipc_size_bytes_total = 6.6 KiB
+ipc_size_bytes_min = 1.1 KiB
+ipc_size_bytes_max = 1.9 KiB
+ipc_size_bytes_avg = 1.6 KiB
+ipc_size_bytes_p50 = 1.9 KiB
+ipc_size_bytes_p90 = 1.9 KiB
+ipc_size_bytes_p95 = 1.9 KiB
+ipc_size_bytes_p99 = 1.9 KiB
+ipc_size_bytes_p999 = 1.9 KiB
+
+Size (data only, uncompressed)
+------------------------------
+ipc_size_bytes_total = 4.9 KiB
+ipc_size_bytes_min = 656 B
+ipc_size_bytes_max = 1.5 KiB
+ipc_size_bytes_avg = 1.2 KiB
+ipc_size_bytes_p50 = 1.5 KiB
+ipc_size_bytes_p90 = 1.5 KiB
+ipc_size_bytes_p95 = 1.5 KiB
+ipc_size_bytes_p99 = 1.5 KiB
+ipc_size_bytes_p999 = 1.5 KiB
+
+Unsorted timelines
+------------------
+(none — every timeline on every chunk is sorted)
+
+Chunk index
+-----------
+num_chunk_indexes = 1 (one per recording)
+
+Chunk index for StoreId(Recording, "timmy-r9-edge", "edge-1")
+  num_chunks_indexed = 4
+  num_static_chunks = 1
+  num_entity_paths = 4
+  num_columns = 42
+  sorbet_schema_num_fields = 9
+  sorbet_schema_sha256 = ae791d26c4f3857f1a20a3911e3446eeb5002c2074122a43e758c08dce1c8c9e
+  chunk_byte_size_total (native) = 5.2 KiB
+  chunk_byte_size_uncompressed_total = 11.5 KiB
+
+Chunk index analysis
+--------------------
+
+Store StoreId(Recording, "timmy-r9-edge", "edge-1")
+chunk index columns: 42
+
+Optimization check based on a 2.0 MiB chunk size target (`--profile object-store`)
+  - theoretical lower bound: 3 chunks
+  - effective:               3 chunks (1.0×)
+  - excess:                  0 chunks
+

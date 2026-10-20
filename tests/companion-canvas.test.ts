@@ -44,6 +44,27 @@ describe('canvasSummary', () => {
     ]);
     expect(JSON.stringify(s)).not.toContain('schemaVersion');
   });
+  it('R6 lead: with a project, its own board (each project has one since H139), never another project\'s', async () => {
+    const { boardOfFolder } = await import('../src/studio/boards.js');
+    const h = home();
+    const env = { TIMMY_HOME: h };
+    const a = join(h, 'projects', 'FAKE-a');
+    const b = join(h, 'projects', 'FAKE-b');
+    const docsA = boardOfFolder(a, env);
+    docsA.save({ snapshot: SNAP, revision: 3, baseRevision: 0 });
+    docsA.recordJob('turn-aaaa', { ok: true, revision: 3, sourceRevision: SOURCE });
+    const docsB = boardOfFolder(b, env);
+    docsB.save({ snapshot: SNAP, revision: 9, baseRevision: 0 });
+    docsB.recordJob('turn-bbbb', { ok: true, revision: 9, sourceRevision: SOURCE });
+    const sa = canvasSummary(env, a);
+    const sb = canvasSummary(env, b);
+    expect(sa).toMatchObject({ revision: 3, jobs: [expect.objectContaining({ id: 'turn-aaaa' })] });
+    expect(sb).toMatchObject({ revision: 9, jobs: [expect.objectContaining({ id: 'turn-bbbb' })] });
+    expect(JSON.stringify(sa)).not.toContain('turn-bbbb');
+    expect(JSON.stringify(sb)).not.toContain('turn-aaaa');
+    // the home-wide canvas of the layout before R6 is neither
+    expect(canvasSummary(env)).toMatchObject({ revision: 0, jobs: [] });
+  });
 });
 
 // The tab's own rendering, as the served page runs it (R4 H92: the page's script is a file of its own).
@@ -77,12 +98,17 @@ describe('the CANVAS tab', () => {
     expect(out).toContain('Open http://127.0.0.1:4337/ on the computer that runs Timmy');
     expect(out).toContain('turn-&lt;b&gt;x&lt;/b&gt;');
   });
+  it('R6 lead: says whose board it is, the project\'s name escaped', () => {
+    const out = render({ ...summary, project: 'tray<i>' }, '127.0.0.1');
+    expect(out).toContain('The board of tray&lt;i&gt; (each project has its own)');
+  });
   it('a canvas file it cannot read is said, not shown as blank', () => {
     expect(render({ ...summary, revision: null, sourceRevision: null, unreadable: true, jobs: [] }, '127.0.0.1')).toContain('The saved canvas could not be read');
   });
   it('the tab is in the deck, with its panel', () => {
-    // R4 (H92): wired by the page's script (data-tab), not an inline handler, which the page's policy would not run
-    expect(html).toMatch(/id="btn-canvas" data-tab="canvas"/);
+    // R4 (H92): wired by the page's script (data-tab), not an inline handler, which the page's policy would not run. R5 (H132):
+    // the panel is the Studio tab's (4), and that tab names it
+    expect(html).toMatch(/id="ws-tab-studio" data-ws-tab="studio" data-tab="canvas"/);
     expect(html).toContain('id="tab-canvas"');
     expect(html).not.toMatch(/\sonclick=/);
   });

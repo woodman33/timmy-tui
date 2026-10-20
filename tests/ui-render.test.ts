@@ -27,12 +27,13 @@ describe('review pictures: the look', () => {
     const { html } = pictureHtml({ ansi: FRAME, palette: TIMMY_HOMEBREW, cols: 40, rows: 4 });
     expect(html).toContain(`background:${HOMEBREW.ground}`);
     expect(html).toContain(`color:${HOMEBREW.text}`);
-    expect(html).toContain(`color:${HOMEBREW.accent}`);
+    // the verified receipt line is green (slot 2: observed, passed, sealed), never amber
+    expect(html).toContain(`color:${HOMEBREW.live}`);
   });
   it('still draws the other palettes, so older pictures can be redrawn', () => {
     const { html } = pictureHtml({ ansi: FRAME, palette: TIMMY_NIGHT, cols: 40, rows: 4 });
     expect(html).toContain(`color:${TIMMY_NIGHT.foreground}`);
-    expect(html).not.toContain(HOMEBREW.accent);
+    expect(html).not.toContain(HOMEBREW.live);
   });
   it('asks for Monaspace Argon first, then the shared fallbacks, at the size the grid is built for', () => {
     const { html } = pictureHtml({ ansi: FRAME, palette: TIMMY_HOMEBREW, cols: 40, rows: 4 });

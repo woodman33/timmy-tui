@@ -229,6 +229,7 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   const ws = new Workspace({
     glyphs,
     env: process.env,
+    surface: 'md', // R7 (H149's record field): the active-project record says `timmy md` chose a project
     onPath: (cmd) => realOnPath(cmd, process.env),
     notify: (line) => { printed.push(plain(line)); out(plain(line)); },
     openWeb: (url, opts) => (opts?.secret ? 'a page for a person (not opened by timmy md)' : `${url} (not opened by timmy md)`),

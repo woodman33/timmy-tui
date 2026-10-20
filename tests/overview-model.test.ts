@@ -201,7 +201,7 @@ describe("God's Eye View from the records the real writers made (FAKE agent, Ope
     const all = plain(overviewLines(o, '--all', { glyphs: g })).join('\n');
     for (const t of ['NEEDS YOU', 'DEVICES', 'HOSTING', 'AGENTS', 'WORKFLOWS', 'APPS', 'SPATIAL', 'HISTORY', 'COSTS', 'PROJECT', 'MAP']) expect(all).toContain(`  ${t}`);
     expect(all).toContain(MAP_LABEL);
-    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]']);
+    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|fleet|project|map] [--all] [--json]']);
     // --json prints the model itself.
     expect(JSON.parse(plain(overviewLines(o, '--json', { glyphs: g })).join('\n'))).toEqual(o);
   });

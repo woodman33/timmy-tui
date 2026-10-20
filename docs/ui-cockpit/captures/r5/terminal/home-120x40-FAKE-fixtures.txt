@@ -1,0 +1,40 @@
+                ┏━━━━━━┓ ╭──────╮ ╭───────────╮ ╭────────╮ ╭───────────╮ ╭────╮ ╭─────────╮ ╭───────╮ ╭───────╮ ╭──────╮
+TIMMY · tray1   ┃1 Home┃ │2 Chat│ │3 Workflows│ │4 Studio│ │5 VoxVision│ │6 3D│ │7 Control│ │8 Fleet│ │9 Tools│ │0 Logs│
+                ┗━━━━━━┛ ╰──────╯ ╰───────────╯ ╰────────╯ ╰───────────╯ ╰────╯ ╰─────────╯ ╰───────╯ ╰───────╯ ╰──────╯
+╭─ Workflow actions ─────────────────────────────────────────────────────────────────────────────────────────── 1 Home ╮
+│  [▶ 1 Choose the local model (from what Ollama lists)]  [2 Check connections…]  [3 New project]  [4 Switch project]  │
+│ this computer · chat: local · no model chosen                                                                        │
+╰─────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Home · connections, as observed  1–23 of 57 ┓╭─ Preview · the companion and Studio, in words ─ 1–23 of 32 ╮
+┃ CONNECTIONS, AS LAST OBSERVED                          ┃│ COMPANION ○ configured  · opens when asked                 │
+┃ live: an answer seen in the last 30 minutes; a setting ┃│   [c] Companion · Show  to see it rendered                 │
+┃ alone is configured                                    ┃│ STUDIO    ○ configured  · opens when asked                 │
+┃ ┏━ OpenRouter (cloud chat) ━━━━━━━━━━━━━━ ✕ refused ━┓ ┃│   [s] Studio · Show  to see it rendered                    │
+┃ ┃ refused when checked 5 min ago (FAKE: HTTP 401)    ┃ ┃│                                                            │
+┃ ┃ → timmy init --chat openrouter                     ┃ ┃│ BOARD (STUDIO'S CARDS, FROM THIS PROJECT'S RECORDS)        │
+┃ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ ┃│   2 workflows · 1 parameter · 1 run                        │
+┃ ╭─ Ollama (local models) ─────────────────── ● live ─╮ ┃│   · Approval: see a NEEDS YOU box  not run yet · 1…        │
+┃ │ answered 3 min ago (FAKE: 2 models)                │ ┃│   · Tray workflow: change, inspect, result  not run yet…   │
+┃ │ asked at http://127.0.0.1:11434, no charge (local) │ ┃│   · Tray recipe parameters (recipes/tray.params.json)  sa… │
+┃ ╰────────────────────────────────────────────────────╯ ┃│   · a task · j90d179  running · FAKE job (test): sleep 300 │
+┃ ╭─ Cloudflare edge (optional) ──────── · not set up ─╮ ┃│                                                            │
+┃ │ nothing answered when checked 5 min ago (FAKE:     │ ┃│ FILES (6)                                                  │
+┃ │   timed out); not set up (optional; it is not the  │ ┃│   1 editable source · 2 workflows · 1 reference · 2 run    │
+┃ │ observed 20:42:32                                  │ ┃│     records                                                │
+┃ ╰────────────────────────────────────────────────────╯ ┃│   in ~/timmy/projects/tray1 · 0 Logs & Receipts lists them │
+┃ ╭─ Clef-Omni (decision recommender) ── · not set up ─╮ ┃│   not counted: 5 logs Timmy writes itself (logs/*.log)     │
+┃ │ Use Clef routing is off (the default): routes stay │ ┃│                                                            │
+┃ │   deterministic                                    │ ┃│ LAST RUN                                                   │
+┃ │ → timmy decide mode                                │ ┃│   ✓ j01b6ca  completed  APPROVAL.md › tidy                 │
+┃ ╰────────────────────────────────────────────────────╯ ┃│     4 s ago, took 0.4 s · operation oc6e9fe3a              │
+┃ ╭─ Cloudroom Core (fleet backend) ──── · not set up ─╮ ┃│                                                            │
+┃ │ no Core connected; the FAKE backend is the         │ ┃│ NOT KNOWN                                                  │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰────────────────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠸ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a…     [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                        │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                       │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                  │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt      │
+│ 1204a00d · /op oc6e9fe3a                                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -12,9 +12,11 @@
  * of its own is left and every job's process group is ended.
  *
  * Two cases were added on r4/connect-2 for the independent review's fixes, where macOS differs from the container they were
- * written in: a stop signals only the supervisor Timmy recorded (ps -ww -o args= read on this system), and a fetch sends one
- * copy and never follows a link swapped in while it is fetched (cp -RP on this system). They mirror tests that pass against
- * the FAKE ssh (tests/connect-ssh.test.ts); like the rest of this file, they have NOT RUN anywhere yet.
+ * written in: a stop signals only the supervisor Timmy recorded (ps -ww -o args= read on this system), and a fetch never
+ * follows a link swapped in while it is read. On R5 (H138) the fetch stopped copying the file at all: it opens the file once
+ * and checks the open descriptor's dev:inode (fstat) against the name read without following a link (lstat), which on macOS
+ * runs BSD `stat -f` — the path the Linux FAKE devices cannot exercise. These mirror tests that pass against the FAKE ssh
+ * (tests/connect-ssh.test.ts); like the rest of this file, they have NOT RUN anywhere yet.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -203,21 +205,46 @@ describe.skipIf(!ENABLED)('Timmy Connect with the real ssh against a real sshd o
     expect(groupRuns(r.job.process!.pgid)).toBe(false);
   }, 120_000);
 
-  it('a fetch sends one copy and never follows a link swapped in while it is fetched', async () => {
+  it('a fetch never follows a link swapped in while it is read (BSD stat identity), and fetches a held-still file whole', async () => {
+    // SAFETY: while the job swaps work/x between a regular file and a link to a file outside its folder, no fetch sends an
+    // outside byte, whatever the timing (the fetch opens x once and checks the open descriptor's dev:inode against the name
+    // read without following a link; on macOS that is BSD `stat -f`). LIVENESS: with x held still as a regular file, a fetch
+    // returns its exact bytes. Mirrors tests/connect-ssh.test.ts's H130/H138 case; its liveness never relies on a racing
+    // fetch landing in a regular-file window.
     const outside = path.join(box, 'outside.txt');
     fs.writeFileSync(outside, 'OUTSIDE-THE-JOB-FOLDER\n');
-    const r = await runJob(p, 'self', { command: ['sh', '-c', `echo inside > in.txt; while :; do ln -s '${outside}' l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x; done`] });
+    const r = await runJob(p, 'self', { command: ['sh', '-c', [
+      'echo inside > in.txt',
+      'while :; do',
+      '  if [ -e hold ]; then cp in.txt f.tmp; mv -f f.tmp x; : > held; while [ -e hold ]; do sleep 0.05; done; rm -f held; fi',
+      `  ln -s '${outside}' l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x`,
+      'done',
+    ].join('\n')] });
     if ('error' in r) throw new Error(r.error);
     expect(r.job.state, r.words).toBe('running');
+    const work = path.join(remoteJobs(), r.job.id, 'work');
     const to = path.join(box, 'race');
     const outcomes: string[] = [];
-    for (let i = 0; i < 20; i++) outcomes.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
-    const stop = await stopJob(p, r.job.id);
-    expect('error' in stop ? stop.error : stop.job.state).toBe('stopped');
+    const okLine = /^fetched work\/x from self: 7 bytes, sha256 .* equal on both computers; saved as /;
+    const refusal = /^not fetched: work\/x (is or passes through a symbolic link on self: refused|changed on self while it was being read .*nothing was sent)$/;
+    await until(() => fs.existsSync(path.join(work, 'x')), 20_000, 'the job to make x');
+    for (let i = 0; i < 30; i++) outcomes.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
+    // SAFETY, over every racing fetch: whatever reached this computer is the inside bytes, and every outcome is an inside
+    // fetch or a refusal that sent nothing
     const received = fs.existsSync(to) ? fs.readdirSync(to).map((n) => fs.readFileSync(path.join(to, n), 'utf8')) : [];
     expect(received.join(''), outcomes.join('\n')).not.toContain('OUTSIDE');
-    expect(received.length, outcomes.join('\n')).toBeGreaterThan(0);
-    for (const text of received) expect(text).toBe('inside\n');
+    for (const text of received) expect(text, outcomes.join('\n')).toBe('inside\n');
+    for (const w of outcomes) if (!okLine.test(w)) expect(w, w).toMatch(refusal);
+    // LIVENESS: hold x still and fetch it whole
+    fs.writeFileSync(path.join(work, 'hold'), '');
+    await until(() => fs.existsSync(path.join(work, 'held')), 20_000, 'the job to hold x still');
+    const held = await fetchFile(p, r.job.id, 'work/x', { to: path.join(box, 'held-x') });
+    expect(held.ok, held.words).toBe(true);
+    expect(held.bytes).toBe(7);
+    expect(fs.readFileSync(path.join(box, 'held-x'), 'utf8')).toBe('inside\n');
+    fs.rmSync(path.join(work, 'hold'));
+    const stop = await stopJob(p, r.job.id);
+    expect('error' in stop ? stop.error : stop.job.state).toBe('stopped');
   }, 180_000);
 
   it('a changed host key is refused by ssh itself and recorded; an unreachable device and a refused key are told apart', async () => {

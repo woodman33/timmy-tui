@@ -4,10 +4,19 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import crypto from 'crypto';
 import {
-  createPlan, armPlan, dispatchPlan, coneToContextManifest, type DispatchPlan
+  createPlan, armPlan, dispatchPlan, coneToContextManifest, getPlan, pauseOrCancelLane, type DispatchPlan
 } from '../src/utils/dispatch.js';
 import { issueApproval } from '../src/utils/approvals.js';
 import type { ContextCone } from '../src/utils/context-cone.js';
+import { dispatchTmuxOfItsOwn } from './helpers/dispatch-tmux.js';
+import { dispatchTempOfItsOwn } from './helpers/dispatch-temp.js';
+
+// R8 (H156; R7's open item H): this file's dry-run dispatch session goes on a tmux server of its own, stopped after its tests,
+// and its afterAll checks that it left none on the default server (it left one there after each full suite up to R7)
+dispatchTmuxOfItsOwn();
+// R9 (H161; R8's open item K): its dispatches' copies are made in a temporary folder of its own, counted after its tests (it
+// left two after each run before R9: the clean dispatch's, and the copy the refused one made before it was refused)
+const temp = dispatchTempOfItsOwn();
 
 const sha = (p: string): string => crypto.createHash('sha256').update(readFileSync(p)).digest('hex');
 
@@ -97,6 +106,9 @@ describe('Context Cone → dispatch capsule (V-01 rung 2)', () => {
     expect(d.ok).toBe(false);
     expect(d.blocked?.state).toBe('blocked');
     expect(d.note).toContain('outside cone selection');
+    // R9 (H161): the copy it had begun to seed is removed at once (no session started)
+    expect(temp.copies()).toEqual([]);
+    expect(getPlan(c.id!, dir)!.copy).toMatchObject({ state: 'removed' });
   });
 
   it('cone-derived capsule dispatches clean (dry-run, seeded from selection only)', () => {
@@ -105,5 +117,10 @@ describe('Context Cone → dispatch capsule (V-01 rung 2)', () => {
     expect(armPlan(c.id!, issueApproval(c.plan_hash!).token, dir).ok).toBe(true);
     const d = dispatchPlan(c.id!, dir);
     expect(d.ok).toBe(true);
+    // R9 (H161): seeded from the selection only, then ended through the product's own path: the cancel removes the copy
+    const copy = getPlan(c.id!, dir)!.copy!;
+    expect(readFileSync(join(copy.path, 'package.json'), 'utf8')).toBe(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+    expect(pauseOrCancelLane(c.id!, 'cancel', dir).copy).toMatchObject({ state: 'removed' });
+    expect(temp.copies()).toEqual([]);
   });
 });

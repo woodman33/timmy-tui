@@ -7,6 +7,7 @@
  */
 import { emitKeypressEvents, type Key } from 'node:readline';
 import { currentOperation } from '../ops/context.js';
+import { SharedWaiting } from '../ops/waiting-record.js';
 import { sanitize } from '../term/sanitize.js';
 import { keySet } from '../utils/keys.js';
 import type { TerminalSession } from '../term/session.js';
@@ -258,7 +259,8 @@ export interface WaitingApproval {
    */
   words?: { title: string; needed: string; why: string; commands: string[]; keys: boolean; kind?: string };
 }
-const waiting = new Map<number, WaitingApproval>();
+// R6 (H140; the one waiting count): each box set or answered is kept for the other Timmy processes too (src/ops/waiting-record.ts)
+const waiting = new SharedWaiting<number, WaitingApproval>();
 let waitSeq = 0;
 /** The calls waiting for the operator in this process now, oldest first (a copy). */
 export function waitingApprovals(): WaitingApproval[] { return [...waiting.values()].map((w) => ({ ...w, ...(w.words ? { words: { ...w.words, commands: [...w.words.commands] } } : {}) })); }

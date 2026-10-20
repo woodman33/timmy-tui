@@ -198,6 +198,34 @@ describe('a turn on the local route (FAKE Ollama)', () => {
     expect(await running).toMatchObject({ status: 'cancelled', sent: true });
   });
 
+  it('R5 lead (the Mac walk at e7f853e: Esc did not stop a real local model\'s answer): a turn stopped while its answer streams, thinking first and then text as qwen3 streams, ends at once: no text after the stop, sealed cancelled', async () => {
+    // FAKE: 20 thinking chunks, then 300 numbers, one chunk each 40 ms (the real model streamed for minutes)
+    const chunks = [
+      ...Array.from({ length: 20 }, (_, i) => ({ model: 'qwen3:8b', message: { role: 'assistant', content: '', thinking: `FAKE thought ${i} ` }, done: false })),
+      ...Array.from({ length: 300 }, (_, i) => ({ model: 'qwen3:8b', message: { role: 'assistant', content: `${i + 1}\n` }, done: false })),
+      { model: 'qwen3:8b', message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' },
+    ];
+    const ollama = await fake({ models: [{ name: 'qwen3:8b' }], chat: [() => ({ chunks, delayMs: 40 })] });
+    setUp({ chat: 'local', model: 'qwen3:8b' }, ollama.url);
+    network(portOf(ollama));
+    const chat = await contract({ project: { name: 'demo', root: project }, surface: 'workbench' });
+    const controller = new AbortController();
+    const s = surface();
+    const running = chat.send('Count from 1 to 300, one number per line.', { ...s.hooks, signal: controller.signal });
+    for (let i = 0; i < 400 && s.texts.length < 5; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(s.texts.length).toBeGreaterThanOrEqual(5);
+    const at = Date.now();
+    controller.abort();
+    const shown = s.texts.length;
+    const r = await running;
+    expect(Date.now() - at).toBeLessThan(2000);
+    expect(r).toMatchObject({ status: 'cancelled', sent: true });
+    // at most the chunk already being handed over arrives after the stop
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.texts.length - shown).toBeLessThanOrEqual(1);
+    expect(chats().at(-1)).toMatchObject({ status: 'cancelled' });
+  });
+
   it('two sessions of one project share the agent: a write asks the session that sends, under its own rules, and its receipt names the file', async () => {
     const write = { name: 'write_project_file', arguments: { path: 'notes.md', content: 'hello\n' } };
     const ollama = await fake({

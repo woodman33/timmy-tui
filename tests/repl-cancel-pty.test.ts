@@ -42,8 +42,8 @@ describe('Ctrl+C in a real PTY', () => {
       keys('Enter');
       await waitFor(/Line 2 of a long answer/);
       keys('C-c');
-      await waitFor(/Cancelled\./);
-      await waitFor(/Enter to send/, screen().indexOf('Cancelled.'));
+      await waitFor(/Stopped by you\./);
+      await waitFor(/Enter to send/, screen().indexOf('Stopped by you.'));
       expect(screen()).not.toContain('Line 9 of a long answer');
       keys('C-c');
       await waitFor(/EXIT=\d+/);

@@ -70,7 +70,7 @@ describe.skipIf(!browserPath)("the live board's header word (headless Chromium, 
     await lone.goto(`http://127.0.0.1:${port}/#room`);
     await lone.waitForFunction((line) => document.getElementById('status')!.textContent === line, NO_TOKEN, { timeout: 8000 });
     expect(await header(lone)).toEqual({ h1: 'Board · waiting for the token', word: 'waiting for the token', cls: 'live not-live', color: rgb(HOMEBREW.attention) });
-    // Kept waiting while it polls: never live, never in the accent.
+    // Kept waiting while it polls: never live, never green (B10: green is an observed live connection only).
     await lone.waitForTimeout(2500);
     expect((await header(lone)).word).toBe('waiting for the token');
     expect(await lone.evaluate(() => (window as unknown as { __words: string[] }).__words)).not.toContain('live');
@@ -78,9 +78,9 @@ describe.skipIf(!browserPath)("the live board's header word (headless Chromium, 
     const opened = await context.newPage();
     await opened.goto(url);
     await opened.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('live · '));
-    expect(await header(opened)).toMatchObject({ word: 'live', cls: 'live', color: rgb(HOMEBREW.accent) });
+    expect(await header(opened)).toMatchObject({ word: 'live', cls: 'live', color: rgb(HOMEBREW.live) });
     await lone.waitForFunction(() => document.getElementById('live')!.textContent === 'live', undefined, { timeout: 8000 });
-    expect(await header(lone)).toMatchObject({ word: 'live', cls: 'live', color: rgb(HOMEBREW.accent) });
+    expect(await header(lone)).toMatchObject({ word: 'live', cls: 'live', color: rgb(HOMEBREW.live) });
     // Its script had run before the page was parsed to its end: the first word seen is the wait, then live.
     const words = await lone.evaluate(() => (window as unknown as { __words: string[] }).__words);
     expect(words[0]).toBe('waiting for the token');
