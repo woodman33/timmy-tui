@@ -268,6 +268,36 @@ describe('Command Post v0.1 dispatch contract', { timeout: 30000 }, () => {
     rmSync(l.copy.path, { recursive: true, force: true });
   });
 
+  it('a session ended elsewhere (killed outside Timmy): tail says so and keeps the copy; the cancel then keeps the outputs and removes it', () => {
+    const l = launched({ expected_artifacts: ['patch.diff'] });
+    writeFileSync(join(l.copy.path, 'patch.diff'), 'made before the end\n'); // FAKE output
+    // the session ends outside Timmy (as a tmux kill-session or a closed terminal would), on this file's own server
+    expect(spawnSync('tmux', ['-L', own.label, 'kill-session', '-t', `=timmy-dp-${l.id}`]).status).toBe(0);
+    const t = tailLane(l.id, dir);
+    expect(t).toMatchObject({ ok: false, note: 'session gone', copy: { state: 'in_use' } });
+    expect(t.copy!.words).toBe(`temporary copy in use (${l.copy.path.slice(temp.folder().length + 1)}): the session has ended; a cancel keeps its outputs and removes the copy`);
+    expect(existsSync(l.copy.path), 'tail removes nothing').toBe(true);
+    const x = pauseOrCancelLane(l.id, 'cancel', dir);
+    expect(x.copy).toMatchObject({ state: 'removed' });
+    expect(readFileSync(join(dir, `.timmy/dispatch/${l.id}/outputs/patch.diff`), 'utf8')).toBe('made before the end\n');
+    expect(existsSync(l.copy.path)).toBe(false);
+  });
+
+  it('hold suspends the pane of its own session and keeps the copy (a held session has not ended)', () => {
+    const l = launched();
+    // (the dry run's pane prints its line, then sleeps: C-z reaches that sleep only once it runs)
+    for (const end = Date.now() + 5000; !(tailLane(l.id, dir).lines ?? []).some((t) => t.startsWith(`TIMMY_DISPATCH_DRYRUN ${l.id}`)) && Date.now() < end;) spawnSync('sleep', ['0.1']);
+    const x = pauseOrCancelLane(l.id, 'hold', dir);
+    expect(x).toMatchObject({ ok: true, copy: { state: 'in_use' } });
+    expect(spawnSync('tmux', ['-L', own.label, 'has-session', '-t', `=timmy-dp-${l.id}`]).status, 'the held session is still there').toBe(0);
+    // its own pane got the C-z: the shell says its job stopped
+    let pane = '';
+    for (const end = Date.now() + 5000; !/Stopped/.test(pane) && Date.now() < end; spawnSync('sleep', ['0.1'])) pane = spawnSync('tmux', ['-L', own.label, 'capture-pane', '-p', '-t', `=timmy-dp-${l.id}:`], { encoding: 'utf8' }).stdout ?? '';
+    expect(pane, 'the held pane').toMatch(/Stopped/);
+    expect(existsSync(l.copy.path)).toBe(true);
+    expect(pauseOrCancelLane(l.id, 'cancel', dir).copy).toMatchObject({ state: 'removed' });
+  });
+
   it('an isolation that fails after its copy is made removes that copy at once (no session started; nothing ran in it)', () => {
     const c = createPlan(basePlan({ context_manifest: [{ path: 'package.json', sha256: '0'.repeat(64) }] }), dir);
     expect(armPlan(c.id!, issueApproval(c.plan_hash!).token, dir).ok).toBe(true);

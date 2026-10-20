@@ -635,14 +635,16 @@ export async function dispatchContainerized(id: string, dir?: string): Promise<{
   return { ok: true, container: true };
 }
 
-export function tailLane(id: string, dir?: string): { ok: boolean; lines?: string[]; note?: string; lifecycle?: Lifecycle } {
+export function tailLane(id: string, dir?: string): { ok: boolean; lines?: string[]; note?: string; lifecycle?: Lifecycle; copy?: CopyAnswer } {
   const s = readStored(id, dir);
   if (!s?.session) return { ok: false, note: 'no session for plan' };
   const cap = tmux(['capture-pane', '-p', '-t', s.session]);
   if (cap.status !== 0) {
     s.lifecycle = s.lifecycle === 'running' ? 'failed' : s.lifecycle;
     writeStored(s, dir);
-    return { ok: false, note: 'session gone', lifecycle: s.lifecycle };
+    // R9 (H161): the end is seen here, and the copy is not released here (a cancel releases it): its words say so
+    const now = s.copy?.state === 'in_use' ? sessionRuns(s.session) : null;
+    return { ok: false, note: 'session gone', lifecycle: s.lifecycle, ...(s.copy ? { copy: copyAnswer(s, now ? { sessionRuns: now.runs, ...(now.why ? { why: now.why } : {}) } : {}) } : {}) };
   }
   return { ok: true, lines: (cap.stdout ?? '').split('\n').slice(-40), lifecycle: s.lifecycle };
 }
@@ -655,7 +657,8 @@ export function pauseOrCancelLane(id: string, action: 'hold' | 'cancel', dir?: s
   const s = readStored(id, dir);
   if (!s) return { ok: false, note: 'unknown plan' };
   if (action === 'hold') {
-    if (s.session) tmux(['send-keys', '-t', `=${s.session}`, 'C-z']);
+    // (exact: `=<name>:` is that session's own pane, never another session whose name begins with it)
+    if (s.session) tmux(['send-keys', '-t', `=${s.session}:`, 'C-z']);
     s.lifecycle = 'archived';
     writeStored(s, dir);
     ev('dispatch.held', s, {}, dir);
