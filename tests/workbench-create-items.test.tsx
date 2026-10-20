@@ -30,7 +30,7 @@ import { glyphSet } from '../src/term/glyphs.js';
 import { visibleWidth } from '../src/term/width.js';
 import { Controller } from '../src/workbench/controller.js';
 import { DOCTRINE_15 } from '../src/native/stl-readback.js';
-import { createActions, createCompanionHint, createDetail, createItems, createTabView, type CreateItem } from '../src/workbench/create-tab.js';
+import { CREATE_SENTENCE, createActions, createCompanionHint, createDetail, createItems, createTabView, type CreateItem } from '../src/workbench/create-tab.js';
 import { glyphsFor, innerWidth, screenText } from '../src/workbench/frame.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
@@ -344,6 +344,34 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
     } finally {
       // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
       for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+describe('tab 6 keeps its words as its meshes become items (R9 H160, step 3)', () => {
+  it('at 60x16, 80x24, 100x30, 120x40 and 160x45: what was measured and by which reader, DOCTRINE §15\'s sentence and "no motion timeline" on the page, the same in Context for the cursor\'s mesh; tab 6 still marked unfinished on its page, its tab and row 2', async () => {
+    const { c } = await trayBench('FAKE-items-words');
+    const readers = "Measured by Timmy's own STL reader (timmy-stl-readback/1), OBJ reader (timmy-obj-readback/1) and PLY reader (timmy-ply-readback/1), each from the whole file: a deterministic computation on its bytes, in the file's own units.";
+    for (const [cols, rows] of SIZES) {
+      const at = `tab 6 at ${cols}x${rows}`;
+      openTab6(c);
+      const fr = c.frame(cols, rows);
+      const reg = fr.regions.center!;
+      // the page's own rows (the window shows some of them; the rest scroll)
+      const v = createTabView({ data: c.data, width: innerWidth(reg.rect.w), height: reg.rect.h - 2, g, cursor: 0 });
+      const page = squash(v.lines.map(plain).join(' '));
+      expect(page, at).toContain(squash(CREATE_SENTENCE));
+      expect(page, at).toContain('No Timmy surface draws a motion timeline yet');
+      expect(page, at).toContain(squash(`${readers} ${DOCTRINE_15}`));
+      // the cursor's mesh in Context: who measured it and the sentence
+      const said = squash(createDetail(reg.items[0].item as CreateItem, 36, g).map(plain).join(' '));
+      expect(said, at).toContain("Measured by Timmy's own OBJ reader (timmy-obj-readback/1), from the whole file");
+      expect(said, at).toContain(DOCTRINE_15);
+      // still unfinished: the page's box first, the tab's mark, and row 2's word beside the tab's name
+      const screen = screenText(fr.screen);
+      expect(rowAt(fr, reg.rect.y + 1), at).toContain('◌ Unfinished');
+      expect(screen.slice(0, fr.layout.tabRows).join('\n'), at).toContain('◌');
+      expect(screen[fr.layout.top.y], at).toContain('6 3D & Motion · unfinished');
     }
   }, 60_000);
 });
