@@ -89,7 +89,8 @@ describe('the Control Room\'s panes on the companion (R8 H155)', () => {
     const t = TABS.find((x) => x.id === 'control')!;
     expect(t.unfinished).toBeDefined();
     expect(t.unfinished!.works).toBe('this project\'s jobs, chat turns and runs, each run\'s pane (the Workbench draws up to four as a grid, and the companion shows them, read-only) and what waits on you');
-    expect(t.unfinished!.missing).toBe('adding or removing harnesses, a broadcast to every pane, and live browser panes');
+    // (R9 lead, after the R9 review: typing into a run's pane is named as missing too)
+    expect(t.unfinished!.missing).toBe('adding or removing harnesses, a broadcast to every pane, typing into a run\'s pane, and live browser panes');
     const d = project('FAKE-control-words');
     const frame = await (await get(`/api/workspace?project=${d.id}`)).json() as WorkspaceFrame;
     expect(frame.tabs.find((x) => x.id === 'control')!.unfinished).toEqual(t.unfinished);

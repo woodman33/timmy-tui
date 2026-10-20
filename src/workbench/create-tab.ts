@@ -189,6 +189,8 @@ export interface CreateCtx {
   g: Glyphs;
   /** the cursor's place in the tab's list (its own items first, src/workbench/views.ts familyView); absent: none selected */
   cursor?: number;
+  /** R9 lead (the R9 review's F4): whether the page has the keyboard (its zone, `center`); absent: it does not */
+  keyboard?: boolean;
 }
 
 export interface CreateTabView { lines: Line[]; items: Array<{ line: number; item: CreateItem; rows?: number }> }
@@ -222,10 +224,15 @@ export function createTabView(c: CreateCtx): CreateTabView {
   // what the keys do to the selected one, under each list's heading, as tab 7 says it of its panes (Context's Tools too)
   const key = (k: string): Seg => S(`[${k}]`, 'action');
   const keys = (l: Line): Line[] => wrapSegs([S('  '), ...l], w, '  ');
+  // R9 lead, after the R9 independent review (its F4): the Workbench starts with the keyboard on the actions bar, where j
+  // moves the actions; the first list's hint says how the keyboard reaches the list, or, once it is there, that j/k choose
+  const reach: Line = c.keyboard
+    ? [key('j'), S('/', 'secondary'), key('k'), S(' choose', 'secondary'), S(sep, 'secondary')]
+    : [key('Tab'), S(' to this list (its frame turns heavy), then ', 'secondary'), key('j'), S('/', 'secondary'), key('k'), S(sep, 'secondary')];
 
   lines.push([heading(`Meshes in this project (${list.meshes.length + list.more})`)]);
   if (!meshes.length) lines.push(...para('No mesh in this project yet: an .stl, .obj or .ply file in it is listed here (/add <file> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).', w, 'secondary', '  '));
-  else lines.push(...keys([key('Enter'), S(' its measurements in Context', 'secondary'), S(sep, 'secondary'), key('c'), S(' it chosen in the companion\'s view you can turn', 'secondary')]));
+  else lines.push(...keys([...reach, key('Enter'), S(' its measurements in Context', 'secondary'), S(sep, 'secondary'), key('c'), S(' it chosen in the companion\'s view you can turn', 'secondary')]));
   meshes.forEach((it) => place(it, own.indexOf(it)));
   if (list.more) lines.push(...para(`and ${list.more} more, not listed here`, w, 'secondary', '  '));
   if (list.meshes.some((m) => m.readback)) lines.push(...para(`Measured by ${list.reader}. ${list.doctrine}`, w, 'secondary', '  '));
@@ -233,7 +240,7 @@ export function createTabView(c: CreateCtx): CreateTabView {
   lines.push([], [heading(`Recordings Timmy can read (${list.recordings.length + list.recordingsMore})`)]);
   if (!recordings.length) lines.push(...para('No Rerun recording (.rrd) in this project.', w, 'secondary', '  '));
   // R9 lead (after H159's merge): the reading in Context holds what the Rerun CLI read, not only the header
-  else lines.push(...keys([key('Enter'), S(' its reading in Context: its header\'s facts and, through the Rerun CLI, its entities and time ranges (or why not)', 'secondary')]));
+  else lines.push(...keys([...(meshes.length ? [] : reach), key('Enter'), S(' its reading in Context: its header\'s facts and, through the Rerun CLI, its entities and time ranges (or why not)', 'secondary')]));
   recordings.forEach((it) => place(it, own.indexOf(it)));
   if (list.recordingsMore) lines.push(...para(`and ${list.recordingsMore} more, not listed here`, w, 'secondary', '  '));
   lines.push(...para(`${list.viewer.name}: ${list.viewer.state}${list.viewer.setup ? ` (${list.viewer.setup})` : ''}`, w, 'secondary', '  '));

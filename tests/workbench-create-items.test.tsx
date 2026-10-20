@@ -318,7 +318,8 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
     focusOn(c, 'right');
     // the body: the keys, under the meshes' heading and the recordings'
     const body = regionText(fr, 'center');
-    expect(body).toContain("MESHES IN THIS PROJECT (3) [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.obj");
+    // (R9 lead, after the R9 review's F4: the keyboard is in Context here, so the hint says how it reaches the list)
+    expect(body).toContain("MESHES IN THIS PROJECT (3) [Tab] to this list (its frame turns heavy), then [j]/[k] · [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.obj");
     // Files, related only ([f]): the mesh's path
     for (let k = 0; k < 3 && c.ui.tab !== 'files'; k++) c.key('', { rightArrow: true });
     expect(c.ui.tab).toBe('files');
@@ -440,5 +441,27 @@ describe('a recording\'s reading through the Rerun CLI, once the rows carry it (
     const bad = squash(createDetail(base({ state: 7 }), 56, g).map(plain).join(' '));
     expect(bad).not.toContain('Rerun CLI');
     expect(bad).toContain('Not read');
+  });
+});
+
+// R9 lead, after the R9 independent review of 1fa4020 (its F4): the Workbench starts with the keyboard on the actions bar, so
+// as tab 6 opens, j moves the actions (Blender → OpenSCAD), not the list, though the first mesh is the list's selected item.
+// The list's hint said only what Enter and c do. It says now how to reach the list while the keyboard is elsewhere, and that
+// j/k choose once it is there.
+describe('tab 6\'s list says how to reach it with the keyboard (R9 lead, the R9 review\'s F4)', () => {
+  it('as the tab opens, the keyboard is on the actions bar: the hint says Tab first; on the list, j/k choose', async () => {
+    const { c } = await trayBench('FAKE-items-keys');
+    openTab6(c);
+    expect(c.ui.focus).toBe('top');
+    const before = regionText(c.frame(160, 45), 'center');
+    expect(before).toContain("MESHES IN THIS PROJECT (3) [Tab] to this list (its frame turns heavy), then [j]/[k] · [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.obj");
+    // j there moves the actions, as the review saw; the list's cursor stays on the first mesh
+    c.key('j', {});
+    expect(regionText(c.frame(160, 45), 'center')).toContain('▸ refs/demo-tray.obj');
+    focusOn(c, 'center');
+    const on = regionText(c.frame(160, 45), 'center');
+    expect(on).toContain("MESHES IN THIS PROJECT (3) [j]/[k] choose · [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.obj");
+    c.key('j', {});
+    expect(regionText(c.frame(160, 45), 'center')).toMatch(/▸ refs\/demo-tray\.ply/);
   });
 });

@@ -62,7 +62,8 @@ export function workspaceLines(f: WorkspaceFrame): string[] {
   const out: string[] = [];
   out.push(`Project  ${f.project.name}  (${f.project.shown})${f.project.chosen ? '' : '  the current folder; nothing chosen'}`);
   out.push(`         switch: ${f.project.switch} · new: ${f.project.create}`);
-  out.push(`Tabs     ${f.tabs.map((t) => `${t.key} ${t.label}${t.waiting ? ` (${t.waiting} waiting)` : ''}`).join(' · ')}`);
+  // R9 lead, after the R9 independent review (its claim 7): an unfinished tab carries ◌ here too, as on every surface
+  out.push(`Tabs     ${f.tabs.map((t) => `${t.key} ${t.label}${t.unfinished ? ' ◌' : ''}${t.waiting ? ` (${t.waiting} waiting)` : ''}`).join(' · ')}`);
   const home = f.actions.home;
   const next = home.find((a) => a.primary);
   out.push(`Next     ${next ? `${next.label}: ${next.command}` : 'nothing is next'}`);
@@ -87,7 +88,9 @@ export function workspaceLines(f: WorkspaceFrame): string[] {
   out.push('Actions by tab');
   for (const t of f.tabs) {
     const acts = f.actions[t.id] ?? [];
-    out.push(`  ${t.key} ${t.label}`);
+    out.push(`  ${t.key} ${t.label}${t.unfinished ? ' ◌ unfinished' : ''}`);
+    // what works on an unfinished tab now and what does not yet, in the words every surface draws (src/contracts/workspace.ts)
+    if (t.unfinished) out.push(`    works now: ${t.unfinished.works}`, `    not yet: ${t.unfinished.missing}`);
     for (const a of acts) {
       const mark = a.primary ? '▸' : ' ';
       out.push(`    ${mark} ${a.n} ${a.label}: ${a.command}${a.enabled ? '' : `  (not now: ${a.why ?? 'unavailable'})`}  [${a.effect}]`);

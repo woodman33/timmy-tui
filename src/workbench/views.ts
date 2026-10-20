@@ -733,7 +733,7 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
   // R7 (H153): the companion's tab 6 draws the project's meshes now: this says so first, then lists them (src/workbench/create-tab.ts)
   // R9 (H160): each mesh and recording an item, the cursor's whole in the window (its rows fit the window's height)
   if (tab6) {
-    const v6 = createTabView({ data, width: c.width, height: c.height, g, cursor: cur });
+    const v6 = createTabView({ data, width: c.width, height: c.height, g, cursor: cur, keyboard: c.ui.focus === 'center' });
     for (const x of v6.items) items.push({ ...x, line: lines.length + x.line });
     lines.push(...v6.lines, blank);
   }

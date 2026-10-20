@@ -9,7 +9,7 @@ acceptance are yours.
 
 | | |
 |---|---|
-| Revision | `__REV__`, branch `r8/review-build` (its draft PR targets `feat/ui-workflow-r1`) |
+| Revision | `__REV__`, branch `__BRANCH__` (its draft PR targets `feat/ui-workflow-r1`) |
 | Package | `__TGZ__`; its sha256 and every other file's are in `SHA256SUMS` |
 | Checks | in `REHEARSAL.md` when this package carries one: the full suite, the type checks, the packed-install check and the privacy scan of this revision, each with its counts, and what a script did with this package |
 | Not in this package | merge, publish, tags, deployment (all on HOLD); any live fleet, paid model call or new account |
@@ -248,6 +248,14 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
   the report block).
 - **Off by default:** decision-model routing (saved as `useClef`; its thresholds uncalibrated); free-only chat; Cloudflare
   (optional, not the chat provider).
+- **Seeing a decision answered:** A decision binds to its project's git revision, and the demo's tray is not a git
+  repository, so in tray every decision falls back before anything is sent, and says why. Decide in a git project with a
+  commit: a project of your own, or tray after `git init` and a commit inside `./review.sh shell`. Declare the decision
+  model in the review's own Timmy home (`decision/clef.json`; `./review.sh where` names the folder, and
+  `timmy decide --help` says its fields, pricing among them), and turn routing on for one process:
+  `TIMMY_CLEF=1 ./review.sh timmy decide …`. Point it only at a FAKE of your own or a model you run yourself. Of your
+  shell's settings, TIMMY_CLEF and TIMMY_RERUN reach Timmy when you set them, as do TIMMY_CHAT_FREE_ONLY, TIMMY_PALETTE
+  and TZ; nothing else does.
 - **Needs a key, a licence, a program or a device:** a real model (your Ollama or your OpenRouter key); a Cloudroom Core;
   OpenCV for VoxVision's Look (python3 with `cv2` and `numpy`); Rerun for `/vox view`; Blender, FreeCAD, After Effects,
   Unreal and the other native tools (each tab says what it needs); tldraw's licence for production use. SAM 3 and Depth

@@ -41,7 +41,10 @@ echo "build-review: packing $rev (npm pack runs the build) ..."
 npm pack --pack-destination "$pkg" --json > "$out/pack-$rev.json"
 tgz=$(cd "$pkg" && ls timmy-tui-*.tgz)
 
-fill() { sed -e "s/__REV__/$rev/g" -e "s/__TGZ__/$tgz/g" "$1" > "$2"; }
+# R9 lead (after the R9 independent review, its F2): the README's branch is the checkout's, never a fixed round's ("|", not
+# "/", as sed's delimiter: a branch name holds slashes)
+branch=$(git branch --show-current 2>/dev/null); branch=${branch:-a detached revision}
+fill() { sed -e "s/__REV__/$rev/g" -e "s/__TGZ__/$tgz/g" -e "s|__BRANCH__|$branch|g" "$1" > "$2"; }
 fill scripts/review/review.sh "$pkg/review.sh"
 fill scripts/review/README.md "$pkg/README.md"
 chmod +x "$pkg/review.sh"

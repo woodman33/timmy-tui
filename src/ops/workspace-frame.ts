@@ -25,6 +25,8 @@ import { took } from '../workbench/text.js';
 import { modelKeyFingerprint, modelKeySource } from '../utils/model-key.js';
 import { edgeUrlOrNull } from '../utils/edge-host.js';
 import { readSettings as readDecisionSettings } from '../decision/settings.js';
+import { readClefConfig } from '../decision/config.js';
+import { providerFromConfig } from '../decision/provider.js';
 import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
 import { pendingDrafts } from '../studio/boards.js';
@@ -301,6 +303,41 @@ function surfaceReading(
  */
 export { ollamaAddress };
 
+/**
+ * The decision model as every surface's services list says it. R9 lead (H162): by its role, never as Clef-Omni: clef.json may
+ * name another model (clef-flash, Jev, d1-ultra), and the setting's saved name (useClef) is not what it is called on screen.
+ * Its setup is decide's help, which says how routing is turned on and pricing declared.
+ *
+ * R9 lead, after the R9 independent review (its F1): a model that clef.json names is "configured", with the model, where it is
+ * reached and its pricing as declared, whether routing is on or off; before, it was "not set up" until routing was turned on,
+ * beside the Workbench's tab 8 naming the model. The model and pricing come from the provider's own description
+ * (src/decision/provider.ts), as tab 8's do, so a loopback address is never called free here either. Nothing is asked.
+ */
+function decisionModelConnection(env: Env): WorkspaceConnection {
+  const set = (() => { try { return readDecisionSettings(env); } catch { return null; } })();
+  const on = set?.settings?.useClef === true;
+  const from = set?.useClefFrom === 'environment' ? `TIMMY_CLEF=${on ? 1 : 0}, for this process` : set?.useClefFrom === 'saved' ? 'saved' : 'the default';
+  const base = { id: 'clef' as const, label: 'Decision model (recommender)', observedAt: null, setup: 'timmy decide --help' };
+  const unusable = (why: string): WorkspaceConnection => ({
+    ...base, state: 'not set up',
+    words: `${why}; ${on ? `decision-model routing is on (${from}), but with no usable model routes stay deterministic` : `decision-model routing is off (${from}): routes stay deterministic`}`,
+  });
+  const read = (() => { try { return readClefConfig(env); } catch (e) { return { state: 'unreadable' as const, why: e instanceof Error ? e.message : String(e), path: '' }; } })();
+  if (read.state === 'none yet') return unusable('no decision model is set up (no decision/clef.json)');
+  if (read.state === 'off') return unusable('turned off in clef.json (transport "none")');
+  if (read.state !== 'configured') return unusable(`clef.json cannot be used: ${read.why}`);
+  if (read.config.transport === 'none') return unusable('turned off in clef.json (transport "none")');
+  const d = providerFromConfig(read).describe();
+  if (!d.available) return unusable(`clef.json cannot be used: ${d.reason ?? 'its model cannot be asked'}`);
+  const where = d.transport === 'workers-ai' ? 'Workers AI (Cloudflare\'s hosted service, off this computer)'
+    : d.endpoint === 'systemone-loopback' ? `SystemOne on this computer${d.cloudModel ? ' (a cloud model tag: what it is given leaves this computer)' : ''}` : 'SystemOne on another computer';
+  const price = d.pricing.kind === 'free-local' ? 'free: local (declared in clef.json)' : d.pricing.words;
+  return {
+    ...base, state: 'configured',
+    words: `${d.model} over ${where}, pricing ${price}; ${on ? 'decision-model routing is on; no live call is authorized, so it is not checked here' : `decision-model routing is off (${from}): routes stay deterministic`}`,
+  };
+}
+
 function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}, mcpCalls: readonly McpCallRead[] = []): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
@@ -327,15 +364,7 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
     configured: edge !== null, setupWords: 'not set up (optional; it is not the chat provider)', setup: null, check: cf.check, now,
     ...(cf.other ? { detail: `not checked at this address yet (the last check asked ${cf.other})` } : {}),
   }));
-  const clef = (() => { try { return readDecisionSettings(env); } catch { return null; } })();
-  const clefOn = clef?.settings?.useClef === true;
-  out.push({
-    // R9 lead (H162): the decision model by its role, never as Clef-Omni: clef.json may name another model (clef-flash, Jev,
-    // d1-ultra), and the setting's saved name (useClef) is not what it is called on screen. Its setup is decide's help, which
-    // says how routing is turned on and pricing declared (`timmy decide mode` is a kind of decision, not its setup)
-    id: 'clef', label: 'Decision model (recommender)', state: clefOn ? 'configured' : 'not set up', observedAt: null, setup: 'timmy decide --help',
-    words: clefOn ? 'decision-model routing is on; no live call is authorized, so it is not checked here' : 'decision-model routing is off (the default): routes stay deterministic',
-  });
+  out.push(decisionModelConnection(env));
   const cloudroom = existsSync(cloudroomConfigPath(timmyHome(env)));
   out.push({
     id: 'cloudroom', label: 'Cloudroom Core (fleet backend)', state: cloudroom ? 'configured' : 'not set up', observedAt: null,

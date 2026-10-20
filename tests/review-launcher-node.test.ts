@@ -29,7 +29,7 @@ function launcher(): { dir: string; box: string } {
   writeFileSync(join(bin, 'timmy'), `#!/usr/bin/env node
 const { existsSync } = require('node:fs');
 const first = (name) => (process.env.PATH || '').split(':').find((d) => existsSync(d + '/' + name)) || null;
-console.log(JSON.stringify({ node: process.version, timmy: first('timmy'), opencode: first('opencode') }));
+console.log(JSON.stringify({ node: process.version, timmy: first('timmy'), opencode: first('opencode'), clef: process.env.TIMMY_CLEF ?? null, rerun: process.env.TIMMY_RERUN ?? null }));
 `);
   chmodSync(join(bin, 'timmy'), 0o755);
   return { dir, box };
@@ -74,5 +74,18 @@ describe('the review launcher runs Timmy on the node install used (R5 lead, the 
     expect(old.status).toBe(3);
     expect(old.stderr).toMatch(/is Node 2[0-3]\.[0-9.]+, older than the package asks \(Node 24 or later\)/);
     expect(old.stdout).toBe('');
+  });
+
+  // R9 lead, after the R9 independent review (its F3): the two settings Timmy's own help names for one process,
+  // TIMMY_CLEF (decision-model routing) and TIMMY_RERUN (the Rerun CLI), reach Timmy through the launcher's env -i;
+  // before, the launcher dropped both, and the reviewer had to set them inside ./review.sh shell
+  it('passes TIMMY_CLEF and TIMMY_RERUN through when the caller sets them, and nothing when it does not', () => {
+    const { dir, box } = launcher();
+    writeFileSync(join(box, 'node.path'), `${process.execPath}\n`);
+    const path = `${join(process.execPath, '..')}:/usr/bin:/bin`;
+    const run = (extra: Record<string, string>) => spawnSync('bash', [join(dir, 'review.sh'), 'timmy', '--version'], { cwd: dir, encoding: 'utf8', env: { PATH: path, HOME: dir, TIMMY_REVIEW_HOME: join(dir, 'sandbox'), ...extra } });
+    const seen = (r: ReturnType<typeof run>) => { expect(r.status, r.stderr).toBe(0); return JSON.parse(r.stdout.trim().split('\n').pop() as string) as { clef: string | null; rerun: string | null }; };
+    expect(seen(run({ TIMMY_CLEF: '1', TIMMY_RERUN: '/opt/FAKE/rerun' }))).toMatchObject({ clef: '1', rerun: '/opt/FAKE/rerun' });
+    expect(seen(run({}))).toMatchObject({ clef: null, rerun: null });
   });
 });

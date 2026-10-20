@@ -50,7 +50,9 @@ need_node() {
 }
 
 # runs "$@" in the review's environment: its own HOME, Timmy home, settings, tmux and temporary folders, its ports, no
-# model key from your shell (a key reaches Timmy only if you give it to `./review.sh timmy init` yourself)
+# model key from your shell (a key reaches Timmy only if you give it to `./review.sh timmy init` yourself). From your shell,
+# only these pass when you set them: TIMMY_CHAT_FREE_ONLY, TIMMY_PALETTE, TIMMY_CLEF (decision-model routing, for this
+# process) and TIMMY_RERUN (the rerun program Timmy reads recordings with), and TZ
 run() {
   mkdir -p "$H" "$WORK" "$BOX/tmp" "$BOX/tmux" "$BOX/mcp-home/.mcporter"
   [ -f "$BOX/mcp-home/.mcporter/mcporter.json" ] || printf '{"mcpServers": {}}\n' > "$BOX/mcp-home/.mcporter/mcporter.json"
@@ -62,6 +64,7 @@ run() {
     TIMMY_STUDIO_PORT="$STUDIO_PORT" TIMMY_LOGS_PORT="$LOGS_PORT" TIMMY_COMPANION_PORT="$COMPANION_PORT" TIMMY_LOGS_OPEN=0 \
     TIMMY_REVIEW="$REV" FAKE_LANES_LOG="$BOX/fake-lanes.log" ${TIMMY_CHAT_FREE_ONLY:+TIMMY_CHAT_FREE_ONLY="$TIMMY_CHAT_FREE_ONLY"} \
     ${TIMMY_PALETTE:+TIMMY_PALETTE="$TIMMY_PALETTE"} \
+    ${TIMMY_CLEF:+TIMMY_CLEF="$TIMMY_CLEF"} ${TIMMY_RERUN:+TIMMY_RERUN="$TIMMY_RERUN"} \
     ${TZ:+TZ="$TZ"} \
     "$@"
 }

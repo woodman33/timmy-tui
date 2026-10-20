@@ -106,8 +106,9 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     expect(said).toMatch(/Rerun's viewer: (needs setup|found \(installed here, not run\))/);
     // nothing green (no live connection, passed check or seal is shown), and the measurements are text, not commands
     expect(lines.flat().filter((s) => s.role === 'live')).toEqual([]);
-    // (R9 H160: the keys under each list's heading, what Enter and c do to the selected mesh or recording)
-    expect(lines.flat().filter((s) => s.role === 'action').map((s) => s.text)).toEqual(['[c]', '[s]', '[Enter]', '[c]', '[Enter]']);
+    // (R9 H160: the keys under each list's heading, what Enter and c do to the selected mesh or recording; R9 lead, after the R9
+    // review's F4: and, under the first, how the keyboard reaches the list from where it is, here not on the list)
+    expect(lines.flat().filter((s) => s.role === 'action').map((s) => s.text)).toEqual(['[c]', '[s]', '[Tab]', '[j]', '[k]', '[Enter]', '[c]', '[Enter]']);
     // every row within the width
     for (const l of lines) expect(visibleWidth(plain(l)), plain(l)).toBeLessThanOrEqual(150);
   });
@@ -163,11 +164,13 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       const said = center();
       expect(said).toContain(`${CREATE_SENTENCE} [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).`);
       // R9 (H160): the mesh is an item, the cursor's first (its mark before its path), under the keys that act on it
-      expect(said).toContain("MESHES IN THIS PROJECT (1) [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold");
+      // (R9 lead, after the R9 review's F4: the keyboard is on the actions bar as the tab opens, so the hint says Tab first)
+      expect(said).toContain("MESHES IN THIS PROJECT (1) [Tab] to this list (its frame turns heavy), then [j]/[k] · [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold");
       // R8 (H154): the frame's Unfinished words on tab 6 name the three kinds that work now (src/contracts/workspace.ts)
       // (R9 lead: and since H159 and H160, each an item you can select, and a recording's reading through the Rerun CLI)
       expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, each an item you can select, a view of each you can turn in the companion");
-      expect(said).toContain("through the installed Rerun CLI, its entities, timelines and time ranges (or why not)");
+      // (R9 lead, after the R9 review's F7: and that the Workbench shows them once the companion has read them)
+      expect(said).toContain("through the installed Rerun CLI, its entities, timelines and time ranges (or why not; the Workbench shows them once the companion has read them)");
       expect(said).toContain("Not yet: a native tool's render, a motion timeline, scene editing and render previews, and a recording's frames drawn or replayed");
       // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can
       // begin below the pane (PgDn shows it): the meshes come before the tools, or the tools are not in view yet
