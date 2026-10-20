@@ -330,8 +330,10 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const clef = (() => { try { return readDecisionSettings(env); } catch { return null; } })();
   const clefOn = clef?.settings?.useClef === true;
   out.push({
-    id: 'clef', label: 'Clef-Omni (decision recommender)', state: clefOn ? 'configured' : 'not set up', observedAt: null, setup: 'timmy decide mode',
-    words: clefOn ? 'Use Clef routing is on; no live call is authorized, so it is not checked here' : 'Use Clef routing is off (the default): routes stay deterministic',
+    // R9 lead (H162): the decision model by its role, never as Clef-Omni: clef.json may name another model (clef-flash, Jev,
+    // d1-ultra), and the setting's saved name (useClef) is not what it is called on screen
+    id: 'clef', label: 'Decision model (recommender)', state: clefOn ? 'configured' : 'not set up', observedAt: null, setup: 'timmy decide mode',
+    words: clefOn ? 'decision-model routing is on; no live call is authorized, so it is not checked here' : 'decision-model routing is off (the default): routes stay deterministic',
   });
   const cloudroom = existsSync(cloudroomConfigPath(timmyHome(env)));
   out.push({
@@ -562,7 +564,7 @@ export function actionsOf(wb: WorkbenchJson, turns: readonly Pick<OtherTurn, 'su
     fleet: [
       act(1, 'Plan a fleet (the FAKE backend first)', 'timmy fleet plan --provider fake --workers 3 --prompt "<task>"', { effect: 'local change' }),
       act(2, 'Fleet status', 'timmy fleet status'),
-      act(3, 'Ask Clef for a route (off by default)', 'timmy decide route --option <id> …'),
+      act(3, 'Ask the decision model (off by default)', 'timmy decide route --option <id> …'),
       act(4, 'Connect a Cloudroom Core', 'timmy fleet connect cloudroom <url> --token-file <file>', { effect: 'local change' }),
     ],
     tools: [

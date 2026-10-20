@@ -58,7 +58,7 @@ export function fleetHelp(): string {
     'plan options: --workers N (required) --concurrency N (default 4) --provider fake --isolation vm --per-worker dedicated',
     '  --harness codex --model NAME --cpu 2 --ram 4 --disk 10 --ttl 30 --infra-budget 0 --inference-budget 0 --prompt TEXT',
     '  --local-only --allow-paid (default: free only) --no-review (default: review before dispatch)',
-    '  With "Use Clef routing" on (timmy decide; off by default), the plan asks once which harness should take its tasks and',
+    '  With decision-model routing on (timmy decide; off by default), the plan asks once which harness should take its tasks and',
     '  shows the answer as a recommendation, never applied (--decide-fixture <file>: a FAKE answer, for tests and the offline slice).',
     'run: stays until every worker has ended; a provider that costs money needs --approve <token> (timmy approve <hash>).',
     'Every verb: --project <dir|name> (default: this folder), --json.',
@@ -194,7 +194,7 @@ export async function fleetDo(p: Parsed, root: string, opts: ServiceOptions & { 
         policy: { localOnly: p.flags.has('local-only'), freeOnly: !p.flags.has('allow-paid'), requireReview: !p.flags.has('no-review') },
       }, opts);
       if (!res.ok) return said(1, res.preview.lines, { refused: true, refusals: res.refusals, preview: res.preview });
-      // R4 (lead): one route question per plan when "Use Clef routing" is on; shown, never applied
+      // R4 (lead): one route question per plan when decision-model routing (saved as useClef) is on; shown, never applied
       const fixture = p.flags.get('decide-fixture');
       let route: RouteAdvice | { error: string } | undefined;
       try { route = await adviseRoute(root, res.plan, { ...opts, decide: typeof fixture === 'string' ? { fixture } : {} }); } catch (e) { route = { error: e instanceof Error ? e.message : String(e) }; }

@@ -244,8 +244,8 @@ describe('tab 8: Cloudflare and the services', () => {
       expect(all).toMatch(/Workers AI: not used/);
       // every connection's mark and word, as the frame has it, and its name whole (its short form where the column is narrow)
       for (const m of ['● live', '· not set up', '○ configured', '? unknown']) expect(all).toContain(m);
-      for (const name of ['Browser companion', 'OpenRouter', 'Cloudroom Core', 'Clef-Omni', 'MCP to CLI: the SDK route']) expect(all).toMatch(new RegExp(`${name}( |$)`, 'm'));
-      if (c !== 120) for (const name of ['OpenRouter (cloud chat)', 'Cloudroom Core (fleet backend)', 'Clef-Omni (decision recommender)']) expect(all).toContain(name);
+      for (const name of ['Browser companion', 'OpenRouter', 'Cloudroom Core', 'Decision model', 'MCP to CLI: the SDK route']) expect(all).toMatch(new RegExp(`${name}( |$)`, 'm'));
+      if (c !== 120) for (const name of ['OpenRouter (cloud chat)', 'Cloudroom Core (fleet backend)', 'Decision model (recommender)']) expect(all).toContain(name);
       // green is the live companion's mark and nothing else
       expect(greens(v.lines)).toEqual(['● live']);
       expect(rolesOf(v.lines, /○ configured/).every((x) => x === 'text')).toBe(true);

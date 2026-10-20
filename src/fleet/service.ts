@@ -472,8 +472,8 @@ const pct = (n: number | undefined): string => (typeof n === 'number' ? `${(n * 
 /**
  * Asks the decision provider which of the backend's harnesses should take this plan's tasks: once per plan (a 100-worker
  * plan is one question, never 100), bound to the plan's operation and revision, with the plan's inference budget as the
- * budget for a paid call. Only when "Use Clef routing" is on (or a caller passes a provider or a fixture): otherwise
- * nothing is asked or recorded. The answer is written beside the plan (route.json) and shown; the plan keeps its harness
+ * budget for a paid call. Only when decision-model routing (saved as useClef) is on (or a caller passes a provider or a
+ * fixture): otherwise nothing is asked or recorded. The answer is written beside the plan (route.json) and shown; the plan keeps its harness
  * whatever the answer is (a person re-plans to follow it, and the new plan is checked again).
  */
 export async function adviseRoute(root: string, plan: FleetPlan, opts: ServiceOptions & { decide?: DecideContext } = {}): Promise<RouteAdvice | undefined> {

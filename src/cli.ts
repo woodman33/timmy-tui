@@ -93,7 +93,7 @@ Commands:
   cloud use|status      Timmy Cloud's backend, read by its operator (timmy cloud help)
   fleet providers|connect|plan|run|status|events|stop|reconcile|collect  A fleet of workers on an execution backend: FAKE (a simulation) or one self-hosted Cloudroom Core, not verified live (timmy fleet help)
   workspace [check]     The frame every surface shares: project, tabs, actions, connections as observed (check: free requests only)
-  decide route|queue|mode|vox-review --option <id> …  A recommendation among the options Timmy built (Clef-Omni when "Use Clef routing" is on; off by default), recorded, never applied (timmy decide --help)
+  decide route|queue|mode|vox-review --option <id> …  A recommendation among the options Timmy built (the decision model clef.json names, while decision-model routing is on; off by default), recorded, never applied (timmy decide --help)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
