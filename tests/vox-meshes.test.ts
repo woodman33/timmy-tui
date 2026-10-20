@@ -392,4 +392,32 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
       expect(listMeshes({ root, env: fakeEnv }, { rrd: { start: true } }).recordings.map((r) => r.cli.state)).toEqual(['read', 'read']);
     } finally { await rrdReadingsIdle(); forgetRrdReadings(); }
   });
+
+  it('a recording names the run that wrote it and its receipt, when Timmy\'s records say so; else says they do not (R9 H159)', () => {
+    const root = project();
+    const fix = resolve('tests/fixtures/rrd-cli');
+    const probe = readFileSync(join(fix, 'probe.rrd'));
+    const edge = readFileSync(join(fix, 'edge.rrd'));
+    put(root, 'rec/probe.rrd', probe);
+    // no receipts read (no chain given): not checked
+    expect(listMeshes({ root, env }).recordings[0].origin).toEqual({ state: 'not checked', words: 'which run wrote it is not checked here: no receipts were read' });
+    // receipts read, none naming it: not recorded
+    expect(listMeshes({ root, env, chain: [] }).recordings[0].origin).toEqual({ state: 'not recorded', words: 'not recorded: no receipt of this project names this file' });
+    // FAKE receipts on the per-test chain: another project's naming the same path, then this project's job that wrote these bytes
+    appendReceipt('runs', { kind: 'run', subject: 'FAKE: another project', policy: 'human-gated', status: 'ok', project: 'FAKE-other', project_id: 'f'.repeat(16), outputs: [{ path: 'rec/probe.rrd', sha256: sha(probe), bytes: probe.length }] } as Parameters<typeof appendReceipt>[1]);
+    const sealed = appendReceipt('runs', {
+      kind: 'run', subject: 'FAKE: python mk-probe.py', policy: 'human-gated', status: 'ok', project: folderProject(root).name, project_id: projectId(root),
+      job: { id: 'jFAKE01', kind: 'shell', label: 'FAKE mk-probe.py', state: 'done' }, outputs: [{ path: 'rec/probe.rrd', sha256: sha(probe), bytes: probe.length }],
+    } as Parameters<typeof appendReceipt>[1]);
+    const short = sealed.hash.replace(/^sha256[:_]/, '').slice(0, 8);
+    const row = listMeshes({ root, env, chain: readChain('runs') }).recordings[0];
+    expect(row.origin).toEqual({ state: 'recorded', receipt: short, run: 'job jFAKE01', kind: 'run', bytes: 'as sealed', words: `written by job jFAKE01 (FAKE mk-probe.py) · receipt ${short} sealed these bytes` });
+    // the file changed since: the run is still named, and that these are not the bytes it sealed
+    put(root, 'rec/probe.rrd', edge);
+    const changed = listMeshes({ root, env, chain: readChain('runs') }).recordings[0];
+    expect(changed.origin).toEqual({
+      state: 'recorded', receipt: short, run: 'job jFAKE01', kind: 'run', bytes: 'changed since',
+      words: `job jFAKE01 (FAKE mk-probe.py) wrote rec/probe.rrd (receipt ${short}), but not these bytes: it sealed sha256 ${sha(probe).slice(0, 12)}, and they are ${sha(edge).slice(0, 12)} now`,
+    });
+  });
 });

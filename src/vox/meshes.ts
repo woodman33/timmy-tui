@@ -29,7 +29,7 @@
  */
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, statSync, type Dirent } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { OBJ_READBACK, objReadbackOf, parseObj, type ObjReadback } from '../native/obj-readback.js';
 import { parsePly, PLY_READBACK, plyReadbackOf, type PlyReadback } from '../native/ply-readback.js';
 import { DOCTRINE_15, num, parseStl, readbackOf, STL_READBACK, topologyWords, volumeWords, type StlReadback } from '../native/stl-readback.js';
@@ -132,7 +132,14 @@ export interface RecordingRow {
   sha256?: string;
   /** R9 (H159): what the installed Rerun CLI read of these bytes (./rrd-cli.ts), or each fact unknown with why */
   cli: RrdReading;
+  /** R9 (H159): the run that wrote it and its receipt, as Timmy's records say; or that they do not, or were not read */
+  origin: RecordingOrigin;
 }
+
+/** R9 (H159): who wrote a recording, as the project's receipts say: the newest receipt of this project that names the file. */
+export type RecordingOrigin =
+  | { state: 'recorded'; receipt: string; run: string | null; kind: string; bytes: 'as sealed' | 'changed since'; words: string }
+  | { state: 'not recorded' | 'not checked'; words: string };
 
 export interface MeshList {
   schema: typeof MESHES_SCHEMA;
@@ -356,6 +363,50 @@ function tessellationsOf(root: string): Map<string, Named> {
   return out;
 }
 
+/** A receipt's run in words: its job, its agent's or native app's run, else the operation it was sealed in; null when it names none. */
+function runOf(r: Receipt): string | null {
+  if (r.job?.id) return `job ${r.job.id}`;
+  if (r.agent?.run) return `${r.agent.name} run ${r.agent.run}`;
+  if (r.native?.run) return `${r.native.app} run ${r.native.run}`;
+  if (r.operation_id) return `operation ${r.operation_id}`;
+  return null;
+}
+const runWords = (r: Receipt, run: string | null): string => (run
+  ? `${run}${r.job?.label ? ` (${r.job.label.slice(0, 80)})` : ''}`
+  : `a ${r.kind} run ("${r.subject.slice(0, 80)}", no run id recorded)`);
+/** Whether a receipt names a file of the project by its path (relative, or absolute inside the project), and the sha256 it sealed. */
+function namesFile(r: Receipt, root: string, rel: string): { sha256?: string } | null {
+  const same = (p: string): boolean => p === rel || (isAbsolute(p) && relative(root, p).split(sep).join('/') === rel);
+  for (const f of [...(r.outputs ?? []), ...(r.files ?? [])]) if (typeof f?.path === 'string' && same(f.path)) return { ...(typeof f.sha256 === 'string' ? { sha256: f.sha256 } : {}) };
+  return null;
+}
+/**
+ * R9 (H159): the run that wrote a recording and its receipt: the newest receipt of this project whose outputs (or intake files)
+ * name these bytes; else the newest that names the file with other bytes (changed since); else not recorded. Not checked when
+ * no receipts were read.
+ */
+function recordingOrigin(chain: readonly Receipt[] | undefined, pid: string, root: string, rel: string, sha: string | undefined): RecordingOrigin {
+  if (!chain) return { state: 'not checked', words: 'which run wrote it is not checked here: no receipts were read' };
+  let other: { r: Receipt; sealed?: string } | undefined;
+  for (let k = chain.length - 1; k >= 0; k -= 1) {
+    const r = chain[k];
+    if (r.project_id !== pid) continue;
+    const named = namesFile(r, root, rel);
+    if (!named) continue;
+    if (sha && named.sha256 === sha) {
+      const run = runOf(r);
+      return { state: 'recorded', receipt: shortOf(r), run, kind: r.kind, bytes: 'as sealed', words: `written by ${runWords(r, run)} · receipt ${shortOf(r)} sealed these bytes` };
+    }
+    other ??= { r, ...(named.sha256 ? { sealed: named.sha256 } : {}) };
+  }
+  if (!other) return { state: 'not recorded', words: 'not recorded: no receipt of this project names this file' };
+  const run = runOf(other.r);
+  return {
+    state: 'recorded', receipt: shortOf(other.r), run, kind: other.r.kind, bytes: 'changed since',
+    words: `${runWords(other.r, run)} wrote ${rel} (receipt ${shortOf(other.r)}), but not these bytes: it sealed ${other.sealed ? `sha256 ${other.sealed.slice(0, 12)}` : 'no sha256'}, and they are ${sha ? sha.slice(0, 12) : 'not read'} now`,
+  };
+}
+
 /** The newest vox receipt of this project that seals the record and these bytes of the mesh, if any. */
 function sealOf(chain: readonly Receipt[], pid: string, n: Named): Receipt | undefined {
   for (let k = chain.length - 1; k >= 0; k -= 1) {
@@ -434,6 +485,7 @@ export function listMeshes(i: MeshListInput, o: MeshListOptions = {}): MeshList 
     return {
       path: f.path, bytes, ...(r.facts ? { facts: r.facts } : {}), ...(r.why ? { why: r.why } : {}), ...(r.sha256 ? { sha256: r.sha256 } : {}),
       cli: cliOf(i, f.path, r, bytes, o.rrd),
+      origin: recordingOrigin(chainNow(), pid, i.root, f.path, r.sha256),
     };
   });
 

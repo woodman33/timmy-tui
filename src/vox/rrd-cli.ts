@@ -16,6 +16,11 @@
  *                 as its analytics sink); with CI=1 they opened none and wrote none, and printed the same. `rrd print` and
  *                 `--version` opened none either way. The operator's own Rerun settings are never changed.
  *
+ * The project's log: each call, as it ends, is one event on the project's bus (logRrdCall: kind "rrd.cli", in the store the
+ * project's receipts go to, as the Logs tab reads it): the command, the CLI's version, the exit, the duration, the bytes read
+ * and whether it was cut, with the recording's path in the project and its sha256. Never its output, and no folder of this
+ * computer.
+ *
  * What it says: each fact as read, with the command that read it; or an explicit unknown with why: the CLI is not installed,
  * its version was not checked here (and which was), a timeout, an output over the cap, Rerun's own check failed, a bad exit,
  * or output that does not parse. Nothing is guessed: a range not read stays unknown, and an output cut short is never read as
@@ -26,6 +31,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { publish } from '../bus/index.js';
+import { projectId } from '../project/index.js';
 import { rerunReady } from './layers.js';
 import { onPathOf } from './preview.js';
 
@@ -585,8 +592,10 @@ export interface RrdJob {
   env: NodeJS.ProcessEnv;
   /** its bytes now (null: not readable now) */
   read: () => Buffer | null;
-  /** each call as it ends: the project's log */
+  /** each call as it ends; the project's log (logRrdCall) when none is given */
   log?: (call: RrdCall, job: RrdJob) => void;
+  /** how long each call may take (RRD_CLI_TIMEOUT_MS when absent) */
+  timeoutMs?: number;
 }
 const queue: RrdJob[] = [];
 const asked = new Set<string>();
@@ -673,7 +682,10 @@ async function readJob(job: RrdJob, command: string): Promise<void> {
   let body: Buffer | null = null;
   try { body = job.read(); } catch { body = null; }
   if (!body || sha256Of(body) !== job.sha256) return;
-  const reading = await readRrdWithCli(body, { env: job.env, sha256: job.sha256, ...(line ? { known: { line } } : {}), onCall: (c) => job.log?.(c, job) });
+  const log = job.log ?? ((c: RrdCall, j: RrdJob) => logRrdCall(j.root, j.rel, j.sha256, c));
+  const reading = await readRrdWithCli(body, {
+    env: job.env, sha256: job.sha256, ...(line ? { known: { line } } : {}), ...(job.timeoutMs ? { timeoutMs: job.timeoutMs } : {}), onCall: (c) => log(c, job),
+  });
   if (reading.cli.line) programs.set(command, { sig, line: reading.cli.line });
   else programs.set(command, { sig, line: null, failed: { reading, at: Date.now() } });
   if (reading.state === 'read' && reading.cli.line) keep(`${job.sha256}\0${reading.cli.line}`, reading);
@@ -688,4 +700,31 @@ export async function rrdReadingsIdle(): Promise<void> {
 export function forgetRrdReadings(): void {
   programs.clear();
   readings.clear();
+}
+
+/** How a call ended, in a word, as the Logs tab shows it: ok, failed, timed out or cut. */
+const statusOf = (c: RrdCall): 'ok' | 'failed' | 'timed out' | 'cut' => (c.timedOut ? 'timed out' : c.cut ? 'cut' : c.error || c.exit !== 0 ? 'failed' : 'ok');
+/** A call in the log's words: "rerun-cli 0.38.1 · rerun rrd stats · rec/probe.rrd · exit 0 · 48 ms · 3.0 KB read · not cut". */
+export function rrdCallWords(c: RrdCall, rel: string): string {
+  const end = c.error ? `not started (${c.error})`
+    : c.exit !== null && !c.timedOut ? `exit ${c.exit}`
+      : `no exit: stopped after ${c.ms} ms (${c.timedOut ? 'no answer in time; its process group was killed' : c.cut ? 'over the cap' : `by ${c.signal ?? 'no signal'}`})`;
+  return [c.version ? `rerun-cli ${c.version}` : null, c.command, rel, end, ...(c.exit !== null && !c.timedOut ? [`${c.ms} ms`] : []), `${bytesWords(c.bytes)} read`, c.cut ? 'cut there (over the cap)' : 'not cut']
+    .filter(Boolean).join(' · ');
+}
+
+/**
+ * One call in the project's log: an "rrd.cli" event on the bus of the store this project's receipts go to (TIMMY_STORE, else
+ * the project's own), as src/workbench/logs-tab.ts reads it. Never throws: a log that cannot be written leaves the reading as
+ * it is.
+ */
+export function logRrdCall(root: string, rel: string, sha256: string, c: RrdCall): void {
+  try {
+    const payload = {
+      words: rrdCallWords(c, rel), command: c.command, version: c.version, path: rel, sha256, exit: c.exit, signal: c.signal, at: c.at, ms: c.ms,
+      bytes: c.bytes, cut: c.cut, timed_out: c.timedOut, ...(c.error ? { error: c.error } : {}), status: statusOf(c), project_id: projectId(root),
+    };
+    if (process.env.TIMMY_STORE) publish('rrd.cli', payload);
+    else publish('rrd.cli', payload, root);
+  } catch { /* the reading stands without its log line */ }
 }

@@ -18,6 +18,7 @@
  * (studio/ctx-c3w8/…/context.rrd, read, never changed), the page's code. Captures are written only where H153_CAPS names a
  * folder. Skipped, saying so, where no Chromium or Chrome is found.
  */
+import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -26,6 +27,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { DOCTRINE_15, num, readStlFile, topologyWords, volumeWords } from '../src/native/stl-readback.js';
 import { projectId } from '../src/project/index.js';
+import { appendReceipt } from '../src/utils/receipts.js';
 import { VIEW_MAX_TRIANGLES, VIEW_WORDS } from '../src/vox/meshes.js';
 import { forgetRrdReadings, rrdReadingsIdle } from '../src/vox/rrd-cli.js';
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
@@ -308,7 +310,8 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       expect(await text(page, `${rec} [data-rec="cli"]`)).toBe('not read by the Rerun CLI: rerun is not on the PATH and TIMMY_RERUN is not set');
       expect(await text(page, `${rec} [data-rec="entities"]`)).toBe('unknown: rerun is not on the PATH and TIMMY_RERUN is not set');
       expect(await page.$$eval(`${rec} dt`, (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
-        'header (read by Timmy from the file)', 'messages', 'stores', 'read by the Rerun CLI', 'entities and timelines', "not decoded by Timmy's own reader"]);
+        'header (read by Timmy from the file)', 'messages', 'stores', 'read by the Rerun CLI', 'entities and timelines', 'written by', "not decoded by Timmy's own reader"]);
+      expect(await text(page, `${rec} [data-rec="origin"]`)).toBe('not recorded: no receipt of this project names this file');
       expect(await page.$eval('[data-create-viewer]', (v) => v.getAttribute('data-create-viewer'))).toBe('needs setup');
       expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: needs setup");
       await page.$eval('[data-create-box="recordings"]', (e) => e.scrollIntoView());
@@ -497,6 +500,14 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
   };
 
   it('a recording says "being read", then its entities and time ranges with who read them; each unknown says why', async () => {
+    // FAKE, labelled: a receipt on the per-test chain saying a job of this project wrote rec/probe.rrd with these bytes
+    const probeBytes = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
+    const sealed = appendReceipt('runs', {
+      kind: 'run', subject: 'FAKE: python mk-probe.py', policy: 'human-gated', status: 'ok', project: 'FAKE-rec', project_id: projectId(join(box, 'home', 'projects', 'FAKE-rec')),
+      job: { id: 'jFAKE01', kind: 'shell', label: 'FAKE mk-probe.py', state: 'done' },
+      outputs: [{ path: 'rec/probe.rrd', sha256: createHash('sha256').update(probeBytes).digest('hex'), bytes: probeBytes.length }],
+    } as Parameters<typeof appendReceipt>[1]);
+    const short = sealed.hash.replace(/^sha256[:_]/, '').slice(0, 8);
     const { page, errors, bad } = await openAt('tab=create');
     try {
       const probe = '[data-create-recording="rec/probe.rrd"]';
@@ -518,6 +529,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
         '# timelines (3)', 'frame · sequence · 0 to 7',
         'log_time · timestamp · 2026-10-20T12:53:49.704175155 to 2026-10-20T12:53:49.706428498 (2.253343 ms)',
         't · duration · 0 s to 1 s',
+        '# written by', `written by job jFAKE01 (FAKE mk-probe.py) · receipt ${short} sealed these bytes`,
         "# not decoded by Timmy's own reader", "inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it",
       ]);
       // a recording cut short: Rerun's own check failed, with its words, and nothing more was read

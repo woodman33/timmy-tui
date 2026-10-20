@@ -15,7 +15,9 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { projectId } from '../src/project/index.js';
 import { RERUN_SETUP } from '../src/vox/layers.js';
+import { readLogs } from '../src/workbench/logs-tab.js';
 import {
   forgetRrdReadings, readRrdWithCli, RRD_CLI_CHECKED, RRD_CLI_OUTPUT_MAX, RRD_CLI_TIMEOUT_MS, RRD_PRINT_DATA_MAX, rrdReadingNow, rrdReadingsIdle, startRrdReading,
   type RrdCall, type RrdReading,
@@ -295,6 +297,60 @@ describe('kept by the file\'s sha256 and the CLI\'s version, read in the backgro
     // no rerun at all: said at once, nothing started
     expect(rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env: { PATH: '' } }).entities).toMatchObject({ state: 'unknown', reason: 'not-installed' });
   });
+});
+
+describe('each call in the project\'s log (R9 H159)', () => {
+  afterEach(async () => { await rrdReadingsIdle(); forgetRrdReadings(); });
+  const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+  const busOf = (): Array<{ kind: string; payload: Record<string, unknown> }> => {
+    const file = join(process.env.TIMMY_STORE!, 'runs.jsonl');
+    return (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean) : []).map((l) => JSON.parse(l)).filter((e) => e.kind === 'rrd.cli');
+  };
+
+  it('logs the command, the CLI\'s version, the exit, the duration, the bytes and whether it was cut; the Logs tab lists each', async () => {
+    forgetRrdReadings();
+    const root = box();
+    startRrdReading({ root, rel: 'rec/probe.rrd', sha256: sha(PROBE), env: envOf(fakeBin()), read: () => PROBE });
+    await rrdReadingsIdle();
+    const bus = busOf();
+    expect(bus.map((e) => [e.payload.command, e.payload.version, e.payload.exit, e.payload.cut, e.payload.timed_out, e.payload.status, e.payload.path, e.payload.sha256, e.payload.project_id])).toEqual([
+      ['rerun --version', null, 0, false, false, 'ok', 'rec/probe.rrd', sha(PROBE), projectId(root)],
+      ...['rerun rrd verify', 'rerun rrd stats', 'rerun rrd print -vv', 'rerun rrd print -vvv'].map((c) => [c, '0.38.1', 0, false, false, 'ok', 'rec/probe.rrd', sha(PROBE), projectId(root)]),
+    ]);
+    expect(bus.map((e) => e.payload.bytes)).toEqual([bytesOf('version.stdout'), bytesOf('verify.stderr'), bytesOf('stats.stdout') + bytesOf('stats.stderr'), bytesOf('print-vv.stdout'), bytesOf('print-vvv.stdout')]);
+    for (const e of bus) expect(e.payload.ms).toBeGreaterThanOrEqual(0);
+    expect(bus[0].payload.words).toMatch(/^rerun --version · rec\/probe\.rrd · exit 0 · \d+ ms · 316 B read · not cut$/);
+    expect(bus[2].payload.words).toMatch(/^rerun-cli 0\.38\.1 · rerun rrd stats · rec\/probe\.rrd · exit 0 · \d+ ms · 3\.0 KB read · not cut$/);
+    // no folder of this computer in the log
+    expect(JSON.stringify(bus)).not.toContain(root);
+    // the Logs tab (tab 0) lists each call, newest first, with its words and how it ended
+    const logs = readLogs({ home: box(), root, env: { TIMMY_STORE: process.env.TIMMY_STORE } });
+    const rows = logs.events.filter((e) => e.tag === 'rrd.cli');
+    expect(rows.map((r) => [r.source, r.status.word])).toEqual(Array(5).fill(['bus', 'ok']));
+    expect(rows.map((r) => r.summary.replace(/ · \d+ ms · /, ' · N ms · '))).toEqual([
+      'rerun-cli 0.38.1 · rerun rrd print -vvv · rec/probe.rrd · exit 0 · N ms · 18.2 KB read · not cut',
+      'rerun-cli 0.38.1 · rerun rrd print -vv · rec/probe.rrd · exit 0 · N ms · 15.7 KB read · not cut',
+      'rerun-cli 0.38.1 · rerun rrd stats · rec/probe.rrd · exit 0 · N ms · 3.0 KB read · not cut',
+      'rerun-cli 0.38.1 · rerun rrd verify · rec/probe.rrd · exit 0 · N ms · 31 B read · not cut',
+      'rerun --version · rec/probe.rrd · exit 0 · N ms · 316 B read · not cut',
+    ]);
+  });
+
+  it('a call cut at the cap and one that timed out say so in the log', async () => {
+    forgetRrdReadings();
+    const root = box();
+    startRrdReading({ root, rel: 'a.rrd', sha256: sha(PROBE), env: envOf(fakeBin(), { FAKE_RERUN_MODE: 'huge:stats' }), read: () => PROBE });
+    await rrdReadingsIdle();
+    const cut = busOf().find((e) => e.payload.command === 'rerun rrd stats')!;
+    expect(cut.payload).toMatchObject({ cut: true, status: 'cut', bytes: RRD_CLI_OUTPUT_MAX });
+    expect(cut.payload.words).toMatch(/ · 4\.0 MB read · cut there \(over the cap\)$/);
+    forgetRrdReadings();
+    startRrdReading({ root, rel: 'b.rrd', sha256: sha(EDGE), env: envOf(fakeBin(), { FAKE_RERUN_MODE: 'sleep:verify' }), read: () => EDGE, timeoutMs: 400 });
+    await rrdReadingsIdle();
+    const slow = busOf().find((e) => e.payload.path === 'b.rrd' && e.payload.command === 'rerun rrd verify')!;
+    expect(slow.payload).toMatchObject({ timed_out: true, status: 'timed out', exit: null, signal: 'SIGKILL' });
+    expect(slow.payload.words).toMatch(/^rerun-cli 0\.38\.1 · rerun rrd verify · b\.rrd · no exit: stopped after \d+ ms \(no answer in time; its process group was killed\) · 0 B read · not cut$/);
+  }, 30_000);
 });
 
 // One test runs the real CLI, when it is installed here and is the version checked; otherwise it is skipped, and says why.
