@@ -119,6 +119,10 @@ describe('Workers AI REST against a FAKE endpoint on 127.0.0.1', () => {
     expect(rec.recommendation?.option).toBe('codex');
     expect(rec.provider).toMatchObject({ transport: 'workers-ai', endpoint: 'workers-ai-rest', paid: true, local: false, model: 'clef-omni' });
     expect(rec.usage).toEqual({ input_tokens: 812, output_tokens: 0 });
+    // R9 (H162): the model asked for, the body's name for it and the answer's, exactly; Workers AI has no local digest
+    expect(rec.model).toMatchObject({ requested: '@cf/cloudflare/clef-omni', request_model: 'clef-omni', returned: 'clef-omni', digest: 'not available', digest_source: expect.stringMatching(/hosted service: there is no local digest/), limits: { source: 'published', questions: 64 } });
+    expect(rec.model).not.toHaveProperty('differs');
+    expect(rec.provider.id).toBe('workers-ai:@cf/cloudflare/clef-omni');
     expect(rec.response?.sha256).toMatch(/^[0-9a-f]{64}$/);
     expectNoSecretsIn(join(root, '.timmy'));
     const words = decisionLines(rec).map((l) => l.text).join('\n');

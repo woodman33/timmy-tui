@@ -36,8 +36,8 @@ import {
   admission, allowedChoices, budgetRefusal, egressRefusal, estimateInputTokens, NEEDS_REVIEW_LABEL, planMedia, pricingRefusal, staleRefusal,
   type AllowedChoices, type EgressPolicy, type MediaPlan,
 } from './policy.js';
-import { estimateCost, FIXTURE_PRICING, type Pricing } from './pricing.js';
-import { ClefOmniProvider, providerFromConfig } from './provider.js';
+import { estimateCost, FIXTURE_PRICING, limitsOf, type ModelLimits, type Pricing } from './pricing.js';
+import { ClefOmniProvider, providerFromConfig, sameModel } from './provider.js';
 import { readSettings, type DecisionSettings } from './settings.js';
 import { claim, DecisionRefused, findRecorded, waitForRecorded, writeDecision } from './store.js';
 import {
@@ -126,7 +126,10 @@ interface Prepared {
   problems: string[];
 }
 
-function prepare(input: DecisionInput, index: number, settings: DecisionSettings, ctx: DecideContext): Prepared {
+/** R9 (H162): the model's limits as the provider describes them (a description without them: the model's own by name). */
+const limitsFor = (desc: ProviderDescription): ModelLimits => desc.limits ?? limitsOf(desc.model ?? '');
+
+function prepare(input: DecisionInput, index: number, settings: DecisionSettings, ctx: DecideContext, desc: ProviderDescription): Prepared {
   const problems: string[] = [];
   // the record goes in the project's own folder: one not named is refused, never taken to be the current folder
   if (typeof input.project?.root !== 'string' || !input.project.root.trim()) throw new DecisionRefused('not recorded', 'no project folder was given');
@@ -156,7 +159,9 @@ function prepare(input: DecisionInput, index: number, settings: DecisionSettings
     stateJson = '"<not JSON>"';
     problems.push('the state cannot be written as JSON');
   }
-  const media = planMedia(input.media, root, settings.allowCloudAnalysis);
+  // R9 (H162): media goes only to a model whose media limits are published (Clef-Omni's); any other gets none, said so
+  const media = planMedia(input.media, root, settings.allowCloudAnalysis,
+    desc.available && !limitsFor(desc).media ? `${desc.model}'s media limits are not published here: no media item is sent` : undefined);
   const sentMedia = media.records.filter((m) => m.sent).map((m) => m.sha256 ?? '');
   const canonical = canonicalJson({
     kind: input.kind, revision, operation: input.operationId, instructions: typeof input.instructions === 'string' ? input.instructions.trim() : '',
@@ -219,13 +224,16 @@ function buildRequest(items: Prepared[], model: string): ClefRequest {
   };
 }
 
-/** Groups the inputs that may share a request, at most MAX_CHOICES_PER_REQUEST each and no question id twice in one. */
-function chunk(items: Prepared[]): Prepared[][] {
+/**
+ * Groups the inputs that may share a request, at most `max` choices each (MAX_CHOICES_PER_REQUEST for Clef-Omni; R9: the
+ * model's limit less human_review for another) and no question id twice in one.
+ */
+function chunk(items: Prepared[], max: number = MAX_CHOICES_PER_REQUEST): Prepared[][] {
   const groups = new Map<string, Prepared[][]>();
   for (const p of items) {
     const chunks = groups.get(p.batchKey) ?? [];
     groups.set(p.batchKey, chunks);
-    let home = chunks.find((c) => c.length < MAX_CHOICES_PER_REQUEST && !c.some((x) => x.question === p.question));
+    let home = chunks.find((c) => c.length < max && !c.some((x) => x.question === p.question));
     if (!home) { home = []; chunks.push(home); }
     home.push(p);
   }
@@ -268,6 +276,9 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
   const proposal = outcome === 'recommend' && recommendation
     ? { of: 'recommendation' as const, option: recommendation.option }
     : outcome === 'fallback' && p.proposal.option ? { of: 'fallback' as const, option: p.proposal.option } : { of: 'nothing' as const };
+  // R9 (H162): the model the answer names, as the provider received it (redacted); without one, none is claimed
+  const observed = o.answer?.identity ?? o.failure?.identity;
+  const returned = observed?.returned ?? (typeof response?.model === 'string' && response.model ? response.model : undefined);
   const usage = o.answer?.usageReported && response?.usage
     ? { input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens, ...(o.batch ? { sharedBy: o.batch.size } : {}) }
     : undefined;
@@ -285,7 +296,7 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
     instructions: typeof p.input.instructions === 'string' ? p.input.instructions.trim().slice(0, 4000) : '',
     provider: {
       id: desc.id, transport: desc.transport, ...(desc.endpoint ? { endpoint: desc.endpoint } : {}),
-      ...(response?.model ? { model: response.model } : {}), paid: desc.paid, local: desc.local,
+      ...(returned ? { model: returned } : {}), paid: desc.paid, local: desc.local,
       // R9 (H162): the pricing as declared, kept with the decision (a record before R9 has none)
       ...(desc.pricing ? { pricing: pricingRecord(desc.pricing) } : {}),
     },
@@ -312,11 +323,34 @@ function makeRecord(p: Prepared, id: string, settings: DecisionSettings, desc: P
       rule: p.proposal.rule,
     },
     admission: admission(proposal, ctx.checks, { requireReview: settings.requireReview, now }),
+    model: identityOf(desc, o, returned),
     ...(o.batch ? { batch: o.batch } : {}),
     evidence_kind: DECISION_EVIDENCE_KIND,
     note: DECISION_NOTE,
   };
   return record;
+}
+
+/**
+ * R9 (H162): the model's identity as the record keeps it: the model asked for and what the body named; the model and the
+ * version fields the answer names, as received; the local digest, or "not available" with why; a sentence when the answer
+ * names another model; and the limits the request was built under.
+ */
+function identityOf(desc: ProviderDescription, o: Outcome, returned: string | undefined): NonNullable<DecisionRecord['model']> {
+  const observed = o.answer?.identity ?? o.failure?.identity;
+  const limits = limitsFor(desc);
+  const requestModel = desc.requestModel ?? desc.model;
+  const differs = returned !== undefined && !sameModel(returned, desc.model) && !sameModel(returned, requestModel)
+    ? `asked for ${desc.model}; the answer names ${returned}` : undefined;
+  return {
+    requested: desc.model, request_model: requestModel,
+    ...(returned !== undefined ? { returned } : {}),
+    ...(observed?.version ? { version: observed.version } : {}),
+    digest: observed?.digest ?? 'not available',
+    digest_source: observed?.digest_source ?? (o.called ? 'the provider said nothing of a digest' : 'no call was made, so no model list was read'),
+    ...(differs ? { differs } : {}),
+    limits: { source: limits.source, questions: limits.questions, words: limits.words },
+  };
 }
 
 /** The pricing as a record keeps it. */
@@ -357,7 +391,7 @@ export async function decideBatch(inputs: DecisionInput[], ctx: DecideContext = 
 
   try {
     for (let i = 0; i < inputs.length; i++) {
-      const p = prepare(inputs[i], i, settings, ctx);
+      const p = prepare(inputs[i], i, settings, ctx, desc);
       if (!isDirectory(p.root)) throw new DecisionRefused('not recorded', 'the project folder does not exist');
       const key = `${p.root}\u0000${p.requestKey}`;
       const recorded = findRecorded(p.root, p.requestKey);
@@ -395,15 +429,16 @@ export async function decideBatch(inputs: DecisionInput[], ctx: DecideContext = 
     }
     let remaining = ctx.budget?.remainingUsd;
     const byPrepared = new Map(toAsk.map((m) => [m.p, m]));
-    for (const items of chunk(toAsk.map((m) => m.p))) {
+    const limits = limitsFor(desc);
+    for (const items of chunk(toAsk.map((m) => m.p), Math.max(1, limits.questions - 1))) {
       const group = items.map((p) => byPrepared.get(p)!);
       const all = (o: Outcome): void => { for (const m of group) finish(m, o); };
       const stale = staleRefusal(items[0].input.project.revision.trim(), currentOf(ctx));
       if (stale) { all({ outcome: 'fallback', fallback: { kind: 'stale-revision', reason: stale }, called: false, cost: NO_CALL_COST }); continue; }
       const request = buildRequest(items, desc.requestModel);
-      const problems = checkRequest(request, { model: desc.requestModel });
+      const problems = checkRequest(request, { model: desc.requestModel, maxQuestions: limits.questions });
       if (problems.length) { all({ outcome: 'fallback', fallback: { kind: 'unresolved-inputs', reason: `the request does not match the published schema: ${problems.join('; ')}` }, called: false, cost: NO_CALL_COST }); continue; }
-      const est = estimateInputTokens(request, items[0].media.sent);
+      const est = estimateInputTokens(request, items[0].media.sent, limits);
       const questions = Object.keys(request.questions).length;
       // R9 (H162): the estimate at the declared price and billing; unknown pricing was refused before this, and is again here
       const unknown = pricingRefusal(desc, { freeOnly: ctx.policy?.freeOnly, budget: ctx.budget !== undefined });

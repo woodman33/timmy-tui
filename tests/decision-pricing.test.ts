@@ -16,10 +16,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { decideDo } from '../src/decision/cli.js';
+import { decide, decideBatch } from '../src/decision/service.js';
+import { DEFAULT_DECISION_SETTINGS } from '../src/decision/settings.js';
+import type { DecisionInput, DecisionRecord } from '../src/decision/types.js';
 import { readClefConfig } from '../src/decision/config.js';
 import { callDecisionTool } from '../src/decision/mcp.js';
 import { ClefOmniProvider, providerFromConfig } from '../src/decision/provider.js';
-import { FAKE_TOKEN, fakeTokenFile, gitProject, readFixture } from './fixtures/clef-omni/fake.js';
+import { FAKE_TOKEN, fakeAnswer, fakeTokenFile, gitProject } from './fixtures/clef-omni/fake.js';
 
 interface FakeRequest { method: string; path: string; auth?: string; body: string }
 interface FakeSystemOne {
@@ -33,6 +36,19 @@ interface FakeSystemOne {
   close: () => Promise<void>;
 }
 
+/** A FAKE answer to every choice question a request asks: its first option 71%, the rest sharing 29%; human_review 10%. */
+function answerFor(body: string, model: string): Record<string, unknown> {
+  let questions: Record<string, { type?: string; criteria?: Record<string, string> }> = {};
+  try { questions = (JSON.parse(body) as { questions?: typeof questions }).questions ?? {}; } catch { /* answered as empty */ }
+  const scored: Record<string, Record<string, number>> = {};
+  for (const [id, q] of Object.entries(questions)) {
+    if (q.type !== 'choice' || !q.criteria) continue;
+    const ids = Object.keys(q.criteria);
+    scored[id] = Object.fromEntries(ids.map((o, i) => [o, i === 0 ? 0.71 : 0.29 / (ids.length - 1)]));
+  }
+  return fakeAnswer(scored, { model, usage: { input_tokens: 812, output_tokens: 0 } });
+}
+
 /** A FAKE SystemOne deployment on 127.0.0.1: POST /v1/systemone answers a FAKE route answer; GET /api/tags lists FAKE models when told to. */
 async function fakeSystemOne(): Promise<FakeSystemOne> {
   const requests: FakeRequest[] = [];
@@ -44,7 +60,7 @@ async function fakeSystemOne(): Promise<FakeSystemOne> {
       const path = (req.url ?? '').split('?')[0];
       requests.push({ method: req.method ?? '', path, ...(req.headers.authorization ? { auth: req.headers.authorization } : {}), body: raw });
       const send = (status: number, body: unknown): void => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-      if (req.method === 'POST' && path === '/v1/systemone') { send(200, { ...readFixture('response-route-ok.json'), model: state.answerModel, ...state.extra }); return; }
+      if (req.method === 'POST' && path === '/v1/systemone') { send(200, { ...answerFor(raw, state.answerModel), ...state.extra }); return; }
       if (req.method === 'GET' && path === '/api/tags' && state.tags !== undefined) { send(200, state.tags); return; }
       send(404, { error: 'FAKE: no such route' });
     });
@@ -92,6 +108,7 @@ const configure = (clef: Record<string, unknown>): Record<string, string | undef
   return { ...process.env, TIMMY_HOME: home, TIMMY_CLEF: '1' };
 };
 const route = (...more: string[]): string[] => ['route', '--option', 'codex:Codex', '--option', 'pi', '--option', 'openhands', '--deterministic', 'pi', '--project', project.root, ...more, '--json'];
+const ON = { ...DEFAULT_DECISION_SETTINGS, useClef: true };
 const MCP_OPTIONS = [{ id: 'codex', label: 'Codex' }, { id: 'pi' }, { id: 'openhands' }];
 
 type Rec = Record<string, any>;
@@ -296,5 +313,116 @@ describe('refusals before inference, and the estimate at the declared price and 
     expect(fake.requests).toEqual([]);
     expectRefusal(out.json, /^paid inference needs a budget; none was given, so no paid call is made$/);
     expect(out.json.fallback.reasonKind).toBe('budget');
+  });
+});
+
+/** A FAKE digest: 64 hex digits that are no model's. */
+const FAKE_DIGEST = 'fa4e'.repeat(16);
+/** A FAKE Ollama list, as GET /api/tags gives one. */
+const tagsListing = (...models: Array<{ name: string; digest?: unknown; remote_host?: string }>) => ({
+  models: models.map((m) => ({ name: m.name, model: m.name, size: 1234, ...(m.digest !== undefined ? { digest: m.digest } : {}), details: { parameter_size: 'FAKE' } })),
+});
+const OPTIONS3 = [
+  { id: 'codex', label: 'Codex', description: 'Codex CLI', available: true },
+  { id: 'pi', label: 'Pi', description: 'Pi', available: true },
+  { id: 'openhands', label: 'OpenHands', description: 'OpenHands', available: true },
+];
+
+describe('the model\'s identity, exact', () => {
+  it('keeps the model asked for, the model and version the answer names, and the local digest from Ollama\'s list (GET /api/tags, no inference)', async () => {
+    fake.set({ tags: tagsListing({ name: 'other:7b', digest: 'b0b0'.repeat(16) }, { name: 'clef-flash:latest', digest: FAKE_DIGEST }), extra: { model_version: '2026-10-01-FAKE', version: 3 } });
+    const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' } });
+    const out = await decideDo(route('--free-only', '--local-only'), { env, fetch: seam(fake) });
+    expect(out.json.model).toEqual({
+      requested: 'clef-flash:latest', request_model: 'clef-flash:latest', returned: 'clef-flash:latest', version: { model_version: '2026-10-01-FAKE', version: '3' },
+      digest: FAKE_DIGEST, digest_source: 'Ollama\'s list on this computer (GET /api/tags; no inference)',
+      limits: { source: 'default', questions: 2, words: expect.stringMatching(/^clef-flash:latest's limits are not published here and clef\.json states none: a conservative default applies/) },
+    });
+    expect(out.json.provider).toMatchObject({ id: 'systemone:clef-flash:latest', model: 'clef-flash:latest' });
+    // exactly the read-only list and the scoring path: never a chat or text-generation endpoint
+    expect(fake.requests.map((r) => `${r.method} ${r.path}`)).toEqual(['GET /api/tags', 'POST /v1/systemone']);
+    expect(fake.requests[0].auth).toBeUndefined();
+    expect(fake.requests[0].body).toBe('');
+    expect(JSON.stringify(out.json)).not.toMatch(/clef-omni/i);
+  });
+
+  it('a model the list does not name, an endpoint that is not Ollama, or one off this computer: the digest is "not available", with why', async () => {
+    const cases: Array<{ clef: Record<string, unknown>; tags?: unknown; why: RegExp }> = [
+      { clef: { systemone_url: fake.base }, tags: tagsListing({ name: 'other:7b', digest: FAKE_DIGEST }), why: /^Ollama's list on this computer \(GET \/api\/tags\) does not name clef-flash:latest$/ },
+      { clef: { systemone_url: fake.base }, tags: tagsListing({ name: 'clef-flash:latest', digest: 'not-a-digest' }), why: /names clef-flash:latest without a sha256 digest$/ },
+      { clef: { systemone_url: fake.base }, tags: { FAKE: 'not a list' }, why: /answered GET \/api\/tags without a list of models, as Ollama gives one$/ },
+      { clef: { systemone_url: fake.base }, tags: undefined, why: /^the endpoint on this computer answered GET \/api\/tags with HTTP 404: it does not list models as Ollama does$/ },
+      { clef: { systemone_url: PAID_FAKE }, tags: tagsListing({ name: 'clef-flash:latest', digest: FAKE_DIGEST }), why: /^the endpoint is not on this computer, so there is no local digest to read$/ },
+    ];
+    for (const [i, c] of cases.entries()) {
+      fake.set({ tags: c.tags });
+      const before = fake.requests.length;
+      const env = configure({ transport: 'systemone', model: 'clef-flash:latest', pricing: { free: 'local' }, ...c.clef });
+      const out = await decideDo(route('--operation', `o0000ab${String(i).padStart(2, '0')}`), { env, fetch: seam(fake) });
+      expect(out.json.outcome, String(i)).toBe('recommend');
+      expect(out.json.model, String(i)).toMatchObject({ requested: 'clef-flash:latest', digest: 'not available', digest_source: expect.stringMatching(c.why) });
+      // the address is never in the record's words
+      expect(JSON.stringify(out.json.model)).not.toContain(fake.base);
+      const paths = fake.requests.slice(before).map((r) => r.path);
+      expect(paths, String(i)).toEqual(c.clef.systemone_url === PAID_FAKE ? ['/v1/systemone'] : ['/api/tags', '/v1/systemone']);
+    }
+    // a refusal reads no list at all: nothing was sent
+    const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest' });
+    const before = fake.requests.length;
+    const refused = await decideDo(route('--free-only', '--operation', 'o0000abff'), { env, fetch: seam(fake) });
+    expect(fake.requests.length).toBe(before);
+    expect(refused.json.model).toMatchObject({ requested: 'clef-flash:latest', digest: 'not available', digest_source: 'no call was made, so no model list was read' });
+  });
+
+  it('an answer that names another model is recorded and said: "asked for X; the answer names Y"', async () => {
+    fake.set({ answerModel: 'clef-omni' });
+    const env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' } });
+    const out = await decideDo(route(), { env, fetch: seam(fake) });
+    expect(out.json.model).toMatchObject({ requested: 'clef-flash:latest', returned: 'clef-omni', differs: 'asked for clef-flash:latest; the answer names clef-omni' });
+    expect(out.json.provider.id).toBe('systemone:clef-flash:latest');
+    // an untagged name and its :latest are the same model; Workers AI's Clef-Omni answering "clef-omni" is what was asked
+    fake.set({ answerModel: 'clef-flash' });
+    const same = await decideDo(route('--operation', 'o0000ac01'), { env, fetch: seam(fake) });
+    expect(same.json.model).not.toHaveProperty('differs');
+  });
+
+  it('Clef-Omni\'s published limits apply to Clef-Omni; another model gets its stated limits, or a conservative default, said as such', async () => {
+    const batch = (n: number, op: string): DecisionInput[] => Array.from({ length: n }, (_, i) => ({
+      kind: 'route', operationId: op, project: { root: project.root, revision: project.head }, questionId: `task-${i}`,
+      instructions: `Which runtime should take FAKE task ${i}?`, options: OPTIONS3, state: { tasks: n }, deterministic: { option: 'pi', rule: 'the existing route' },
+    }));
+    const run = async (clef: Record<string, unknown>, op: string): Promise<{ posts: number; questions: number[]; records: DecisionRecord[] }> => {
+      const before = fake.inference().length;
+      const env = configure({ transport: 'systemone', systemone_url: fake.base, pricing: { free: 'local' }, ...clef });
+      const results = await decideBatch(batch(3, op), { settings: ON, env, fetch: seam(fake), currentRevision: project.head });
+      const sent = fake.inference().slice(before);
+      return { posts: sent.length, questions: sent.map((r) => Object.keys((JSON.parse(r.body) as { questions: object }).questions).length), records: results.map((r) => r.record) };
+    };
+    const flash = await run({ model: 'clef-flash:latest' }, 'o0000ad01');
+    expect(flash).toMatchObject({ posts: 3, questions: [2, 2, 2] });
+    expect(flash.records[0].model?.limits).toMatchObject({ source: 'default', questions: 2 });
+    const stated = await run({ model: 'clef-flash:latest', limits: { questions: 8 } }, 'o0000ad02');
+    expect(stated).toMatchObject({ posts: 1, questions: [4] });
+    expect(stated.records[0].model?.limits.words).toMatch(/^clef-flash:latest's limits as clef\.json states them: 8 questions a request, no context stated; no media \(media limits are published only for Clef-Omni\)$/);
+    const omni = await run({ model: 'clef-omni' }, 'o0000ad03');
+    expect(omni).toMatchObject({ posts: 1, questions: [4] });
+    expect(omni.records[0].model?.limits).toMatchObject({ source: 'published', questions: 64, words: expect.stringMatching(/^Clef-Omni's published limits: 64 questions a request/) });
+    expect(omni.records[0].provider.id).toBe('systemone:clef-omni');
+  });
+
+  it('media goes only to a model whose media limits are published: another model gets none, said so', async () => {
+    const png = join(project.root, 'FAKE-shot.png');
+    writeFileSync(png, Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'));
+    const media = [{ path: png, kind: 'image' as const, contentType: 'image/png', width: 4, height: 4, private: false }];
+    const settings = { ...ON, allowCloudAnalysis: true };
+    const one = (op: string): DecisionInput => ({ kind: 'route', operationId: op, project: { root: project.root, revision: project.head }, instructions: 'Which runtime?', options: OPTIONS3, state: {}, media, deterministic: { option: 'pi', rule: 'the existing route' } });
+    let env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-flash:latest', pricing: { free: 'local' } });
+    const flash = await decide(one('o0000ae01'), { settings, env, fetch: seam(fake), currentRevision: project.head });
+    expect(flash.inputs.media[0]).toMatchObject({ sent: false, reason: 'clef-flash:latest\'s media limits are not published here: no media item is sent' });
+    expect(JSON.parse(fake.inference()[0].body)).not.toHaveProperty('images');
+    env = configure({ transport: 'systemone', systemone_url: fake.base, model: 'clef-omni', pricing: { free: 'local' } });
+    const omni = await decide(one('o0000ae02'), { settings, env, fetch: seam(fake), currentRevision: project.head });
+    expect(omni.inputs.media[0]).toMatchObject({ sent: true });
+    expect((JSON.parse(fake.inference()[1].body) as { images?: unknown[] }).images).toHaveLength(1);
   });
 });

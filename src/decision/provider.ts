@@ -34,8 +34,9 @@ import { tildePath } from '../utils/home-scrub.js';
 import { checkAnswer, CLEF_OMNI_MODEL, CLEF_OMNI_MODEL_ID, unwrapBody, type ClefRequest } from './clef-contract.js';
 import { checkSystemOneUrl, isLoopbackUrl, redactSecrets, type ClefConfig, type ClefConfigRead } from './config.js';
 import { FIXTURE_PRICING, isClefOmni, isCloudModel, limitsOf, pricingOf, type ModelLimits } from './pricing.js';
+import { boundedText } from '../setup/ollama-models.js';
 import type {
-  DecisionProvider, ProviderAnswer, ProviderCallOptions, ProviderDescription, ProviderFailure, RawRef, TransportKind,
+  DecisionProvider, ObservedIdentity, ProviderAnswer, ProviderCallOptions, ProviderDescription, ProviderFailure, RawRef, TransportKind,
 } from './types.js';
 
 export type { DecisionProvider, ProviderAnswer, ProviderDescription, ProviderFailure } from './types.js';
@@ -73,6 +74,32 @@ export function modelOf(transport: TransportKind, config?: ClefConfig): string {
   if (transport === 'fixture') return CLEF_OMNI_MODEL;
   if (transport === 'workers-ai') return config?.model ?? CLEF_OMNI_MODEL_ID;
   return config?.model ?? '';
+}
+
+/** R9 (H162): the most a model list from GET /api/tags is read, and how long it may take (it is never retried). */
+export const MAX_TAGS_BYTES = 2 * 1024 * 1024;
+export const TAGS_TIMEOUT_MS = 2000;
+/** A digest as Ollama lists it: a sha256, bare or prefixed. */
+const DIGEST = /^(?:sha256:)?[0-9a-f]{64}$/i;
+const notAvailable = (why: string): Pick<ObservedIdentity, 'digest' | 'digest_source'> => ({ digest: 'not available', digest_source: why });
+
+/** The same model under Ollama's naming: a name without a tag is its :latest. */
+export const sameModel = (a: string, b: string): boolean => {
+  const x = a.trim();
+  const y = b.trim();
+  return x === y || x === `${y}:latest` || y === `${x}:latest`;
+};
+
+/** The answer's top-level fields that name a version, as received (at most 4, each at most 200 characters, redacted). */
+function versionFields(r: unknown, secrets: { token?: string; accountId?: string }): Record<string, string> | undefined {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+    if (!/version/i.test(k) || k.length > 64 || (typeof v !== 'string' && typeof v !== 'number')) continue;
+    out[redactSecrets(k, secrets)] = redactSecrets(String(v), secrets).slice(0, 200);
+    if (Object.keys(out).length >= 4) break;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** The limits of a provider that cannot be asked: none apply, so the fewest. */
@@ -123,13 +150,47 @@ export class ClefOmniProvider implements DecisionProvider {
     return this.o.transport === 'fixture' ? this.fromFixture(request, o) : this.overHttp(request, o);
   }
 
-  private settle(body: unknown, request: ClefRequest, started: number, raw: RawRef, secrets: { token?: string; accountId?: string }): ProviderAnswer | ProviderFailure {
-    const fail = (kind: ProviderFailure['kind'], reason: string): ProviderFailure => ({ ok: false, kind, reason: redactSecrets(reason, secrets), latencyMs: Date.now() - started, raw });
+  private settle(body: unknown, request: ClefRequest, started: number, raw: RawRef, secrets: { token?: string; accountId?: string }, digest: Pick<ObservedIdentity, 'digest' | 'digest_source'>): ProviderAnswer | ProviderFailure {
     const u = unwrapBody(body);
+    // R9 (H162): the model and the version fields the answer names, as received (redacted), kept with whatever follows
+    const said = u.ok && u.response && typeof u.response === 'object' ? u.response as Record<string, unknown> : undefined;
+    const returned = typeof said?.model === 'string' && said.model.trim() ? redactSecrets(said.model.trim(), secrets).slice(0, 200) : undefined;
+    const version = versionFields(said, secrets);
+    const identity: ObservedIdentity = { ...digest, ...(returned ? { returned } : {}), ...(version ? { version } : {}) };
+    const fail = (kind: ProviderFailure['kind'], reason: string): ProviderFailure => ({ ok: false, kind, reason: redactSecrets(reason, secrets), latencyMs: Date.now() - started, raw, identity });
     if (!u.ok) return fail(/success=false/.test(u.problem) ? 'unavailable' : 'malformed', u.problem);
     const c = checkAnswer(u.response, request.questions);
     if (!c.ok) return fail('malformed', `the answer does not match the published schema: ${c.problems.join('; ')}`);
-    return { ok: true, response: c.response, usageReported: c.usageReported, latencyMs: Date.now() - started, raw };
+    return { ok: true, response: c.response, usageReported: c.usageReported, latencyMs: Date.now() - started, raw, identity };
+  }
+
+  /**
+   * R9 (H162): the model's local digest, read before the call from Ollama's model list (GET /api/tags at the endpoint's own
+   * origin: read-only, no inference, no token sent, bounded in size and time), only for a SystemOne endpoint on this computer.
+   * Anything else, or a list that does not name the model with a sha256, is "not available", with why; never invented.
+   */
+  private async localDigest(desc: ProviderDescription, f: typeof fetch, o: ProviderCallOptions): Promise<Pick<ObservedIdentity, 'digest' | 'digest_source'>> {
+    if (this.o.transport !== 'systemone') return notAvailable('Workers AI is Cloudflare\'s hosted service: there is no local digest');
+    if (desc.endpoint !== 'systemone-loopback') return notAvailable('the endpoint is not on this computer, so there is no local digest to read');
+    let origin: string;
+    try { origin = new URL(this.o.config?.systemone_url ?? '').origin; } catch { return notAvailable('the endpoint\'s address cannot be read'); }
+    const timer = AbortSignal.timeout(Math.min(TAGS_TIMEOUT_MS, o.timeoutMs));
+    const signal = o.signal ? AbortSignal.any([o.signal, timer]) : timer;
+    const said = 'the endpoint on this computer';
+    let res: Response;
+    try { res = await f(`${origin}/api/tags`, { method: 'GET', headers: { accept: 'application/json' }, signal, redirect: 'error' }); } catch {
+      return notAvailable(timer.aborted ? `${said} did not list its models (GET /api/tags) within ${Math.min(TAGS_TIMEOUT_MS, o.timeoutMs)} ms` : `${said} did not answer GET /api/tags`);
+    }
+    if (!res.ok) return notAvailable(`${said} answered GET /api/tags with HTTP ${res.status}: it does not list models as Ollama does`);
+    let models: unknown;
+    try { models = (JSON.parse(await boundedText(res, MAX_TAGS_BYTES)) as { models?: unknown })?.models; } catch {
+      return notAvailable(`${said} answered GET /api/tags with something that is not Ollama's list of models`);
+    }
+    if (!Array.isArray(models)) return notAvailable(`${said} answered GET /api/tags without a list of models, as Ollama gives one`);
+    const entry = models.find((m) => m && typeof m === 'object' && [(m as { name?: unknown }).name, (m as { model?: unknown }).model].some((n) => typeof n === 'string' && sameModel(n, desc.model))) as { digest?: unknown } | undefined;
+    if (!entry) return notAvailable(`Ollama's list on this computer (GET /api/tags) does not name ${desc.model}`);
+    if (typeof entry.digest !== 'string' || !DIGEST.test(entry.digest.trim())) return notAvailable(`Ollama's list on this computer names ${desc.model} without a sha256 digest`);
+    return { digest: entry.digest.trim(), digest_source: 'Ollama\'s list on this computer (GET /api/tags; no inference)' };
   }
 
   private fromFixture(request: ClefRequest, o: ProviderCallOptions): ProviderAnswer | ProviderFailure {
@@ -153,7 +214,7 @@ export class ClefOmniProvider implements DecisionProvider {
     const raw: RawRef = { sha256: sha256(bytes), bytes: bytes.length };
     let body: unknown;
     try { body = JSON.parse(bytes.toString('utf8')); } catch { return fail('malformed', `the fixture ${shown} is not JSON`, raw); }
-    return this.settle(body, request, started, raw, {});
+    return this.settle(body, request, started, raw, {}, notAvailable('a fixture file answered: no model, so no digest'));
   }
 
   private async overHttp(request: ClefRequest, o: ProviderCallOptions): Promise<ProviderAnswer | ProviderFailure> {
@@ -161,14 +222,18 @@ export class ClefOmniProvider implements DecisionProvider {
     const desc = this.describe();
     const config = this.o.config ?? ({} as ClefConfig);
     const secrets: { token?: string; accountId?: string } = { accountId: config.account_id };
+    let observed: Pick<ObservedIdentity, 'digest' | 'digest_source'> | undefined;
     const fail = (kind: ProviderFailure['kind'], reason: string, raw?: RawRef): ProviderFailure =>
-      ({ ok: false, kind, reason: redactSecrets(reason, secrets), latencyMs: Date.now() - started, ...(raw ? { raw } : {}) });
+      ({ ok: false, kind, reason: redactSecrets(reason, secrets), latencyMs: Date.now() - started, ...(raw ? { raw } : {}), ...(observed ? { identity: observed } : {}) });
     if (!desc.available) return fail('unavailable', desc.reason ?? 'the transport is not set up');
     if (config.token_file) {
       const t = readTokenFile(config.token_file);
       if (!t.ok) return fail('unavailable', t.why);
       secrets.token = t.token;
     }
+    // R9 (H162): the local digest, before the call (nothing here is inference; only the scoring path below is)
+    const digest = await this.localDigest(desc, this.o.fetch ?? globalThis.fetch, o);
+    observed = digest;
     const url = this.o.transport === 'workers-ai'
       ? `${(this.o.baseUrl ?? WORKERS_AI_BASE).replace(/\/+$/, '')}${workersAiPath(config.account_id ?? '', desc.model)}`
       : `${config.systemone_url}${SYSTEMONE_PATH}`;
@@ -214,7 +279,7 @@ export class ClefOmniProvider implements DecisionProvider {
       return fail('unavailable', `the service answered HTTP ${res.status}${words}`, raw);
     }
     if (!parsed) return fail('malformed', 'the answer is not JSON', raw);
-    return this.settle(body, request, started, raw, secrets);
+    return this.settle(body, request, started, raw, secrets, digest);
   }
 }
 

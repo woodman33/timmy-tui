@@ -111,12 +111,25 @@ export interface RawRef {
   body?: string;
 }
 
+/** R9 (H162): what the provider observed of the model's identity, its words redacted; nothing here is ever guessed. */
+export interface ObservedIdentity {
+  /** The local digest as Ollama's GET /api/tags lists it for the model, or "not available". */
+  digest: string;
+  /** Where the digest came from, or why it is not available. */
+  digest_source: string;
+  /** The model the answer names, as received. */
+  returned?: string;
+  /** The answer's fields that name a version, as received. */
+  version?: Record<string, string>;
+}
+
 export interface ProviderAnswer {
   ok: true;
   response: ClefResponse;
   usageReported: boolean;
   latencyMs: number;
   raw: RawRef;
+  identity?: ObservedIdentity;
 }
 
 export interface ProviderFailure {
@@ -126,6 +139,7 @@ export interface ProviderFailure {
   reason: string;
   latencyMs: number;
   raw?: RawRef;
+  identity?: ObservedIdentity;
 }
 
 export interface DecisionProvider {
@@ -156,6 +170,26 @@ export interface Admission {
   reasons: string[];
   checked: Record<AdmissionCheckName, 'ok' | 'refused' | 'not supplied'>;
   at: string;
+}
+
+/** R9 (H162): which model was asked and which answered, as observed; "not available" where nothing says, never invented. */
+export interface ModelIdentity {
+  /** The model asked for, as clef.json names it (the fixture transport's FAKE answers: clef-omni). */
+  requested: string;
+  /** What the request body's `model` said. */
+  request_model: string;
+  /** The model the answer names, as received (absent without an answer). */
+  returned?: string;
+  /** The answer's fields naming a version, as received. */
+  version?: Record<string, string>;
+  /** The local digest as Ollama's list gives it, or "not available". */
+  digest: string;
+  /** Where the digest came from, or why it is not available. */
+  digest_source: string;
+  /** "asked for X; the answer names Y", when the answer names another model. */
+  differs?: string;
+  /** The limits the request was built under: Clef-Omni's published ones, those clef.json states, or a conservative default. */
+  limits: { source: ModelLimits['source']; questions: number; words: string };
 }
 
 export interface MediaRecord {
@@ -207,6 +241,8 @@ export interface DecisionRecord {
   /** The deterministic path: used for a fallback; for a recommendation or an abstention, the proposal shown beside it. */
   fallback: { used: boolean; reasonKind?: FallbackReason; reason?: string; option?: string; rule: string };
   admission: Admission;
+  /** R9 (H162): the model's identity, exact (absent in a record made before R9). */
+  model?: ModelIdentity;
   /** When several questions went in one request. */
   batch?: { size: number; request_sha256: string };
   evidence_kind: typeof DECISION_EVIDENCE_KIND;

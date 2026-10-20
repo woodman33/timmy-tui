@@ -217,9 +217,10 @@ function readRegular(file: string, keep: boolean): { bytes?: Buffer; size: numbe
 
 /**
  * Which media items go with the question. In this order: "Allow cloud analysis" off sends nothing; an item not marked
- * `private: false` is never sent; an unreadable item is not sent; then the published limits (checkMedia).
+ * `private: false` is never sent; `notForThisModel` (R9: a model whose media limits are not published) sends nothing, in
+ * its words; an unreadable item is not sent; then the published limits (checkMedia).
  */
-export function planMedia(refs: MediaRef[] | undefined, root: string, allowCloudAnalysis: boolean): MediaPlan {
+export function planMedia(refs: MediaRef[] | undefined, root: string, allowCloudAnalysis: boolean, notForThisModel?: string): MediaPlan {
   const records: MediaRecord[] = [];
   const send: MediaPlan['send'] = { images: [], audio: [], videos: [] };
   const eligible: Array<{ rec: MediaRecord; cand: MediaCandidate; bytes: Buffer }> = [];
@@ -231,6 +232,8 @@ export function planMedia(refs: MediaRef[] | undefined, root: string, allowCloud
     if ('sha256' in read) { rec.bytes = read.size; rec.sha256 = read.sha256; } else if (read.size !== undefined) rec.bytes = read.size;
     if (!allowCloudAnalysis) { rec.reason = 'Allow cloud analysis is off: no media item is sent'; continue; }
     if (m.private !== false) { rec.reason = 'marked private (only items marked not private are ever sent)'; continue; }
+    // R9 (H162): a model whose media limits are not published gets no media item at all
+    if (notForThisModel) { rec.reason = notForThisModel; continue; }
     if (!('sha256' in read) || !read.bytes) { rec.reason = `cannot be read: ${'why' in read ? read.why : 'no bytes'}`; continue; }
     eligible.push({ rec, bytes: read.bytes, cand: { kind: m.kind, contentType: m.contentType, bytes: read.size, width: m.width, height: m.height, seconds: m.seconds } });
   }
