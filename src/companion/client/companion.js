@@ -1585,15 +1585,25 @@ function studioItem(f) {
 // So an answer read while the newest run still ran, or one that came back after the frame had moved on, stayed until another
 // run began. Now `want` is what the frame shows (its newest run and that run's newest entry: its end asks again) and `key` what
 // the image held was asked for; an ask that comes back to a frame that has moved on is followed by one more, for the newest.
-const homeImages = { project: '', run: { key: null, want: null, item: null, asking: false }, vox: { key: '', item: null, asking: false, at: 0 } };
+// R9 lead (R7's item D a third time: the CI of PR #103 at 194ea7c, as R8's at 1dd6ec9): 20 s after a newer run that wrote no
+// image had ended, Home's run image still did not say so, with nothing on the page changing any more. Whatever the answer read
+// then (one read while the run's records were still being written: no newer run counted, or no image found), it stayed until
+// the frame changed again, and an ask that never came back would have held every later one. Now, while Home is shown, the run
+// image is asked again HOME_RUN_EVERY_MS after its last answer whatever the frame does (homeImagesDue, as the VoxVision image
+// is), an ask that has not come back in HOME_RUN_ASK_MS is let go (said so; a late answer to it is not drawn), and an answer
+// that could not be read is asked again on the next look.
+const homeImages = { project: '', redraw: null, run: { key: null, want: null, item: null, asking: false, at: 0, seq: 0 }, vox: { key: '', item: null, asking: false, at: 0 } };
 const HOME_VOX_EVERY_MS = 10_000;
+const HOME_RUN_EVERY_MS = 10_000;
+const HOME_RUN_ASK_MS = 20_000;
 /** the most VoxVision records with images read for one look (newest first), when the newer ones' images cannot be shown */
 const HOME_VOX_TRIES = 4;
 
 function homeImagesReset(project) {
   if (homeImages.project === project) return;
   homeImages.project = project;
-  homeImages.run = { key: null, want: null, item: null, asking: false };
+  homeImages.redraw = null;
+  homeImages.run = { key: null, want: null, item: null, asking: false, at: 0, seq: homeImages.run.seq + 1 };
   homeImages.vox = { key: '', item: null, asking: false, at: 0 };
 }
 
@@ -1680,15 +1690,39 @@ function homeImagesItem(own) {
 /**
  * R8 lead (item D): asks for the newest run image when the frame shows another newest run, or another entry of it, than the
  * image held was asked for; one ask at a time, and when it comes back to a frame that has moved on, one more for the newest.
+ * R9 lead: `again` asks for the frame shown now even when it was asked for (homeImagesDue, while Home is shown); an ask with no
+ * answer in HOME_RUN_ASK_MS is let go, and an answer that could not be read leaves the image to be asked for again.
  */
-function homeRunAsk(project, redraw) {
+function homeRunAsk(project, redraw, again = false) {
   const r = homeImages.run;
-  if (r.asking || r.want === r.key) return;
+  if (r.asking || (!again && r.want === r.key)) return;
   const key = r.want;
+  const seq = ++r.seq;
   r.asking = true;
-  const settle = (item) => { if (homeImages.project === project) Object.assign(homeImages.run, { key, item, asking: false }); };
-  homeRunImage(project).then(settle, (e) => settle({ none: `not read: ${e && e.message ? e.message : String(e)}` }))
-    .finally(() => { redraw(); if (homeImages.project === project) homeRunAsk(project, redraw); });
+  // this ask's answer is drawn only while it is the one out: not after the project changed, nor after it was let go
+  const settle = (item, read) => {
+    const run = homeImages.run;
+    if (homeImages.project !== project || run.seq !== seq || !run.asking) return false;
+    Object.assign(run, { key: read ? key : null, item, asking: false, at: Date.now() });
+    return true;
+  };
+  // an answer read asks once more when the frame moved on meanwhile; one not read waits for the next look (a frame that
+  // changes, or homeImagesDue), so a companion that keeps failing is not asked in a loop
+  const after = (read) => { redraw(); if (read && homeImages.project === project) homeRunAsk(project, redraw); };
+  const timer = setTimeout(() => { if (settle({ none: `not read: the companion gave no answer in ${HOME_RUN_ASK_MS / 1000} s` }, false)) after(false); }, HOME_RUN_ASK_MS);
+  homeRunImage(project).then((item) => ({ item, read: true }), (e) => ({ item: { none: `not read: ${e && e.message ? e.message : String(e)}` }, read: false }))
+    .then(({ item, read }) => { clearTimeout(timer); if (settle(item, read)) after(read); });
+}
+
+/**
+ * R9 lead: while Home is shown (the page calls it every few seconds), the newest run image is asked for again
+ * HOME_RUN_EVERY_MS after its last answer, for the frame shown now, so an answer read while a run's records were being written
+ * does not stay when nothing on the page changes any more.
+ */
+function homeImagesDue() {
+  const r = homeImages.run;
+  if (!homeImages.redraw || r.asking || !r.at || Date.now() - r.at < HOME_RUN_EVERY_MS) return;
+  homeRunAsk(homeImages.project, homeImages.redraw, true);
 }
 
 /** Reads what changed (a newer run, a newer record) and draws the item again when it is read. */
@@ -1701,6 +1735,7 @@ function homeImagesRefresh(f, own) {
     const old = document.querySelector('#home-preview [data-preview="images"]');
     if (old) old.replaceWith(homeImagesItem(true));
   };
+  homeImages.redraw = redraw;
   // asked again when the frame's newest run is another one (a new run may hold a newer image; one without leaves it), or that
   // run has a newer entry (an answer read while it ran may be another once it has ended)
   homeImages.run.want = homeRunKey(newestRunOf(f));
@@ -2064,6 +2099,8 @@ function onProjectShown(p) { if (!workspace.frame || workspace.frame.project.id 
 // A read changes nothing: a save waiting on a conflict stays the person's to reload.
 const WS_POLL_MS = 3000;
 setInterval(() => { if (!document.hidden) readFrame(); }, WS_POLL_MS);
+// R9 lead (item D): Home's newest run image asked again while Home is shown, whatever the frame does (homeImagesDue)
+setInterval(() => { const home = document.getElementById('ws-home'); if (!document.hidden && home && !home.hidden) homeImagesDue(); }, WS_POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) readFrame(); });
 
 (() => {

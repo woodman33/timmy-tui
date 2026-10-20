@@ -11,6 +11,14 @@
  *    more ask, for the newest: before R8 the page kept it until another run began;
  *  - the newest run's later entry (its end) asks again: an answer read while it ran may be another once it has ended;
  *  - a frame that did not change asks nothing, and frames that change while an ask is out make one ask after it, not one each.
+ *
+ * R9 lead (item D a third time: the CI of PR #103 at 194ea7c): the page's clock and timers are the test's too (Date.now,
+ * setTimeout and clearTimeout in the page's context), so these are the test's orders as well:
+ *  - an answer that counted no newer run, read while the newer run's records were still being written, stays no longer than
+ *    HOME_RUN_EVERY_MS while Home is shown, whatever the frame does (homeImagesDue);
+ *  - an ask with no answer in HOME_RUN_ASK_MS is let go: its words say so, the next look asks again, and its late answer is
+ *    not drawn;
+ *  - an answer that could not be read is asked again on the next look, never in a loop.
  */
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -36,6 +44,16 @@ const settle = async (): Promise<void> => { for (let i = 0; i < 6; i++) await ne
 function home() {
   const asked: Asked[] = [];
   let drawn: Node | null = null;
+  // the page's clock and timers, the test's (R9): time moves only when the test says. (The page code from before R9 has no
+  // homeImagesDue and no HOME_RUN_* constants: the harness then looks with nothing and uses the R9 values, so the tests below
+  // fail on that page for what it does, not for a missing name.)
+  const clock = { t: Date.parse('2026-10-20T14:00:00.000Z') };
+  let timers: Array<{ id: number; at: number; fn: () => void }> = [];
+  let nextTimer = 1;
+  const advance = (ms: number) => {
+    clock.t += ms;
+    for (const due of timers.filter((x) => x.at <= clock.t)) { timers = timers.filter((x) => x !== due); due.fn(); }
+  };
   const h = (tag: string, attrs: Record<string, string> | null, ...children: Array<Node | string | null | undefined | false>): Node =>
     ({ tag, attrs: attrs ?? {}, children: children.flat().filter((c): c is Node | string => c !== null && c !== undefined && c !== false) });
   const context: Record<string, unknown> = {
@@ -50,10 +68,15 @@ function home() {
     },
     shownProjectId: () => 'p-home',
     h,
+    Date: { now: () => clock.t },
+    setTimeout: (fn: () => void, ms: number) => { const id = nextTimer++; timers.push({ id, at: clock.t + ms, fn }); return id; },
+    clearTimeout: (id: number) => { timers = timers.filter((x) => x.id !== id); },
     document: { querySelector: (sel: string) => (sel === '#home-preview [data-preview="images"]' ? { replaceWith: (n: Node) => { drawn = n; } } : null) },
   };
-  runInNewContext(`${newestRunOf}\n${script.slice(from, to)}\nthis.refresh = (f) => homeImagesRefresh(f, true); this.state = () => homeImages.run;`, context);
+  runInNewContext(`${newestRunOf}\n${script.slice(from, to)}\nthis.refresh = (f) => homeImagesRefresh(f, true); this.state = () => homeImages.run; this.due = () => { if (typeof homeImagesDue === 'function') homeImagesDue(); }; this.constants = { every: typeof HOME_RUN_EVERY_MS === 'number' ? HOME_RUN_EVERY_MS : 10000, ask: typeof HOME_RUN_ASK_MS === 'number' ? HOME_RUN_ASK_MS : 20000 };`, context);
   const refresh = context.refresh as (f: { log: Entry[] }) => void;
+  const due = context.due as () => void;
+  const constants = context.constants as { every: number; ask: number };
   const state = context.state as () => { key: unknown; want: unknown; item: { newer?: number; op?: string } | null; asking: boolean };
   const runAsks = () => asked.filter((a) => a.url.startsWith('/api/newest-run-image'));
   /** the run's figure as Home draws it last: its data-newer, or null when none is drawn */
@@ -62,7 +85,13 @@ function home() {
     const fig = drawn ? find(drawn) : null;
     return fig ? fig.attrs['data-newer'] : null;
   };
-  return { refresh, state, runAsks, shownNewer };
+  /** the words Home draws in place of the run's figure (its note), or null when it draws the figure */
+  const shownNote = (): string | null => {
+    const find = (n: Node | string): Node | null => (typeof n === 'string' ? null : n.tag === 'p' && n.attrs['data-home-image'] === 'run' ? n : n.children.map(find).find(Boolean) ?? null);
+    const note = drawn ? find(drawn) : null;
+    return note ? note.children.filter((c): c is string => typeof c === 'string').join('') : null;
+  };
+  return { refresh, state, runAsks, shownNewer, shownNote, due, advance, constants };
 }
 
 describe('Home asks again for its newest run image (R8 lead, R7\'s open item D)', () => {
@@ -132,5 +161,80 @@ describe('Home asks again for its newest run image (R8 lead, R7\'s open item D)'
     await settle();
     expect(p.runAsks()).toHaveLength(2);
     expect(p.state().key).toBe(p.state().want);
+  });
+});
+
+describe('Home\'s newest run image while Home is shown (R9 lead, item D a third time)', () => {
+  const OLD_ENDED = entry(OLD, 'job.ended', '2026-10-20T14:00:00.000Z');
+  const NEW_ENDED = frame(entry(NEW, 'job.ended', '2026-10-20T14:00:06.000Z'), entry(NEW, 'job.started', '2026-10-20T14:00:05.000Z'), OLD_ENDED);
+
+  it('an answer that counted no newer run stays no longer than HOME_RUN_EVERY_MS while Home is shown, whatever the frame does', async () => {
+    const p = home();
+    expect(p.constants.every).toBe(10_000);
+    p.refresh(NEW_ENDED);
+    expect(p.runAsks()).toHaveLength(1);
+    // FAKE: read while the newer run's records were still being written: no newer run counted
+    p.runAsks()[0].answer(answer(0));
+    await settle();
+    expect(p.shownNewer()).toBe('0');
+    // nothing on the page changes any more: the same frame, and a look before HOME_RUN_EVERY_MS, ask nothing
+    p.refresh(NEW_ENDED);
+    p.advance(9_000);
+    p.due();
+    await settle();
+    expect(p.runAsks()).toHaveLength(1);
+    // HOME_RUN_EVERY_MS after that answer, the page's look asks again, for the frame shown now (before R9: never)
+    p.advance(1_000);
+    p.due();
+    expect(p.runAsks()).toHaveLength(2);
+    p.runAsks()[1].answer(answer(1));
+    await settle();
+    expect(p.shownNewer()).toBe('1');
+    expect(p.state()).toMatchObject({ asking: false, item: { op: OLD, newer: 1 } });
+  });
+
+  it('an ask with no answer in HOME_RUN_ASK_MS is let go: its words say so, the next look asks again, and its late answer is not drawn', async () => {
+    const p = home();
+    expect(p.constants.ask).toBe(20_000);
+    p.refresh(frame(OLD_ENDED));
+    expect(p.runAsks()).toHaveLength(1);
+    // no answer: while it is out, nothing more is asked
+    p.advance(19_000);
+    await settle();
+    expect(p.state().asking).toBe(true);
+    p.advance(1_000);
+    await settle();
+    expect(p.state().asking).toBe(false);
+    expect(p.shownNote()).toBe('Runs: not read: the companion gave no answer in 20 s.');
+    // the next frame asks again (the image held was not read), and its answer is drawn
+    p.refresh(NEW_ENDED);
+    expect(p.runAsks()).toHaveLength(2);
+    p.runAsks()[1].answer(answer(1));
+    await settle();
+    expect(p.shownNewer()).toBe('1');
+    // the first ask's answer comes back late: it is not drawn
+    p.runAsks()[0].answer(answer(0));
+    await settle();
+    expect(p.shownNewer()).toBe('1');
+    expect(p.runAsks()).toHaveLength(2);
+  });
+
+  it('an answer that could not be read is asked again on the next look, never in a loop', async () => {
+    const p = home();
+    p.refresh(frame(OLD_ENDED));
+    // FAKE: the companion answers that it could not list the runs
+    p.runAsks()[0].answer({ ok: false, error: 'FAKE: the project\'s runs could not be listed' });
+    await settle();
+    expect(p.shownNote()).toBe('Runs: not read: FAKE: the project\'s runs could not be listed.');
+    // not asked again at once (a companion that keeps failing is not asked in a loop) ...
+    await settle();
+    expect(p.runAsks()).toHaveLength(1);
+    // ... but on the next look: here the page's own, HOME_RUN_EVERY_MS after it
+    p.advance(10_000);
+    p.due();
+    expect(p.runAsks()).toHaveLength(2);
+    p.runAsks()[1].answer(answer(0));
+    await settle();
+    expect(p.shownNewer()).toBe('0');
   });
 });
