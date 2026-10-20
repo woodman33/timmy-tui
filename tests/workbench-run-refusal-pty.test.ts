@@ -131,11 +131,19 @@ describe('`timmy workbench` in a terminal: Enter on a running block (tmux; R9 H1
       const ops = operations();
       expect(jobs).toBe(1);
       for (const [i, block] of ['a', 'b', 'c'].entries()) {
-        // (R8's driver pressed at once, as here: within the second after "Stop current" for the first Enter)
+        // R9 lead (M′: this wait failed on CI at 6f406ea and at af4b13f, its screen kept in REMAINING-DEFECTS): the run's
+        // follower reads the records once a second and says a block's start up to a second after it begins
+        // (src/repl/run-progress.ts). An Enter pressed before that line lands is refused all the same, and the refusal stays
+        // held on the controls row, but the follower's line, newer, then takes Activity's strip, which shows only the newest
+        // event. So from the second Enter on, the Enter waits for that line first; the first stays pressed at once, as R8's
+        // driver pressed it (within the second after "Stop current"), and its refusal may be seen on the strip or, held, on
+        // the controls row: before it there is no refusal, so either place shows this one
+        if (i > 0) await t.waitFor(new RegExp(`last: [0-9:]+ ● ${id}\\s+running: ${block}\\b`), 8000);
         await enterOnBlock(t.pane, 'CHAIN.md', 'wait');
         const at = Date.now();
-        // a new refusal: Activity's strip names it as the newest event (before this Enter the strip named the run's notice)
-        const said = await t.waitFor(new RegExp(`last: [0-9:]+ ${refusal.source}`), 5000);
+        // a new refusal: from the second Enter on, Activity's strip names it as the newest event (before this Enter the strip
+        // named the run's notice); the first, wherever Activity shows it
+        const said = await t.waitFor(i > 0 ? new RegExp(`last: [0-9:]+ ${refusal.source}`) : refusal, 5000);
         expect(said).not.toMatch(/Run CHAIN\.md › wait\?/);
         t.capture(`wb-refusal-160x45-enter-${i + 1}`);
         // the run moves on: block `block` ends, and a notice of the run itself (that end, or its follower's line) takes the strip
