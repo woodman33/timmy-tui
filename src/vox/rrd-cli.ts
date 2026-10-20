@@ -24,6 +24,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { rerunReady } from './layers.js';
 import { onPathOf } from './preview.js';
@@ -558,4 +559,127 @@ export async function readRrdWithCli(body: Buffer, o: RrdReadOptions): Promise<R
   });
   const entities: RrdEntities = { state: 'read', count: stats.entities.length, paths: stats.entities, by: 'rrd stats', stores: stats.stores, static: staticOf };
   return done(verify, entities, { state: 'read', by: 'rrd stats', list });
+}
+
+// ── kept, and read in the background ─────────────────────────────────────────────
+
+/**
+ * R9 (H159): a reading is kept by the bytes' sha256 and the program's version line, so an unchanged recording is not read
+ * again; the version line is kept by the program's path and its file's identity (size and times), so it is asked once per
+ * program. Readings are made in the background, one at a time (startRrdReading); rrdReadingNow only looks, never runs
+ * anything, so it may be asked on a synchronous draw path (the Workbench's) and says "being read" until a reading is done.
+ */
+interface ProgramSeen { sig: string; line: string | null; failed?: { reading: RrdReading; at: number } }
+const programs = new Map<string, ProgramSeen>();
+const readings = new Map<string, RrdReading>();
+const KEEP_MAX = 200;
+/** How long a failed version call is said before it is tried again. */
+const VERSION_RETRY_MS = 60_000;
+
+export interface RrdJob {
+  /** the project and the recording's path in it, as the list names it */
+  root: string;
+  rel: string;
+  /** the sha256 its bytes had when they were listed: the job reads only those bytes */
+  sha256: string;
+  env: NodeJS.ProcessEnv;
+  /** its bytes now (null: not readable now) */
+  read: () => Buffer | null;
+  /** each call as it ends: the project's log */
+  log?: (call: RrdCall, job: RrdJob) => void;
+}
+const queue: RrdJob[] = [];
+const asked = new Set<string>();
+let pumping: Promise<void> | null = null;
+
+const BEING_READ = 'being read by the Rerun CLI, in the background';
+const NOT_YET = 'not read yet: rerun-cli reads it in the background, once tab 6 is served';
+
+function programSig(command: string): string {
+  try { const st = statSync(command); return `${st.dev}:${st.ino}:${st.size}:${st.mtimeMs}:${st.ctimeMs}`; } catch { return ''; }
+}
+const keep = (key: string, r: RrdReading): void => { if (readings.size >= KEEP_MAX) readings.delete(readings.keys().next().value as string); readings.set(key, r); };
+const jobKey = (command: string, sha256: string): string => `${command}\0${sha256}`;
+/** A reading that holds one unknown for every fact, for these bytes. */
+function holding(state: RrdReading['state'], u: RrdUnknown, sha256: string, bytes: number, cli: RrdReading['cli'], words: string): RrdReading {
+  return { schema: RRD_CLI_SCHEMA, state, words, sha256, bytes, cli, verify: u, entities: u, timelines: u, calls: [], at: null };
+}
+
+/**
+ * What is known now of these bytes, without running anything: the CLI not installed, its version not checked (once it was
+ * asked), the kept reading, "being read" while a reading is under way, else not read yet.
+ */
+export function rrdReadingNow(i: { sha256: string; bytes: number; env: NodeJS.ProcessEnv }): RrdReading {
+  const found = findRerun(i.env);
+  const none = { version: null, line: null, via: null, checked: RRD_CLI_CHECKED };
+  if (!found.ok) return { ...holding('not read', unknown('not-installed', found.why), i.sha256, i.bytes, none, `not read by the Rerun CLI: ${found.why}`), setup: found.setup };
+  const seen = programs.get(found.command);
+  const current = seen && seen.sig === programSig(found.command) ? seen : undefined;
+  const cli = { version: current?.line ? versionOf(current.line) : null, line: current?.line ?? null, via: found.via, checked: RRD_CLI_CHECKED };
+  if (current?.line) {
+    const version = versionOf(current.line);
+    if (!version || !RRD_CLI_CHECKED.includes(version)) {
+      const why = !version ? `its version line says no version Timmy reads ("${current.line.slice(0, 120)}"), so it ran nothing more`
+        : `rerun-cli ${version} is installed here, and Timmy reads only the output of ${RRD_CLI_CHECKED.map((x) => `rerun-cli ${x}`).join(' or ')} (the version its reading was checked against), so it ran nothing more`;
+      return holding('not read', unknown(version ? 'version-not-checked' : 'does-not-parse', why), i.sha256, i.bytes, cli, `not read by the Rerun CLI: ${why}`);
+    }
+    const kept = readings.get(`${i.sha256}\0${current.line}`);
+    if (kept) return kept;
+  } else if (current?.failed && Date.now() - current.failed.at < VERSION_RETRY_MS) {
+    return { ...current.failed.reading, sha256: i.sha256, bytes: i.bytes };
+  }
+  if (asked.has(jobKey(found.command, i.sha256))) return holding('being read', unknown('being-read', BEING_READ), i.sha256, i.bytes, cli, BEING_READ);
+  return holding('not read', unknown('not-run', NOT_YET), i.sha256, i.bytes, cli, NOT_YET);
+}
+
+/** Asks for a reading of a recording's bytes in the background, unless one is kept or under way. Never waits. */
+export function startRrdReading(job: RrdJob): void {
+  const found = findRerun(job.env);
+  if (!found.ok) return;
+  const now = rrdReadingNow({ sha256: job.sha256, bytes: 0, env: job.env });
+  if (now.state !== 'not read' || now.entities.state !== 'unknown' || now.entities.reason !== 'not-run') return;
+  const key = jobKey(found.command, job.sha256);
+  if (asked.has(key)) return;
+  asked.add(key);
+  queue.push(job);
+  kick();
+}
+
+/** Starts the queue's one reader, unless it runs; a job asked while it was ending is read by the next. */
+function kick(): void {
+  if (pumping) return;
+  pumping = pump().finally(() => { pumping = null; if (queue.length) kick(); });
+}
+
+async function pump(): Promise<void> {
+  for (let job = queue.shift(); job; job = queue.shift()) {
+    const found = findRerun(job.env);
+    try { if (found.ok) await readJob(job, found.command); } catch { /* a reading never throws; anything else leaves it not read */ }
+    if (found.ok) asked.delete(jobKey(found.command, job.sha256));
+  }
+}
+
+async function readJob(job: RrdJob, command: string): Promise<void> {
+  const sig = programSig(command);
+  const seen = programs.get(command);
+  const line = seen && seen.sig === sig ? seen.line : null;
+  // only the bytes that were listed: changed since, they are left for the next list
+  let body: Buffer | null = null;
+  try { body = job.read(); } catch { body = null; }
+  if (!body || sha256Of(body) !== job.sha256) return;
+  const reading = await readRrdWithCli(body, { env: job.env, sha256: job.sha256, ...(line ? { known: { line } } : {}), onCall: (c) => job.log?.(c, job) });
+  if (reading.cli.line) programs.set(command, { sig, line: reading.cli.line });
+  else programs.set(command, { sig, line: null, failed: { reading, at: Date.now() } });
+  if (reading.state === 'read' && reading.cli.line) keep(`${job.sha256}\0${reading.cli.line}`, reading);
+}
+
+/** Resolves once no reading is under way (for tests, and for a job that waits on its readings). */
+export async function rrdReadingsIdle(): Promise<void> {
+  while (pumping) await pumping;
+}
+
+/** Forgets every kept reading and version (tests). */
+export function forgetRrdReadings(): void {
+  programs.clear();
+  readings.clear();
 }

@@ -10,12 +10,16 @@
  * is installed here, one test that runs the real CLI (skipped otherwise, and its title says why).
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RERUN_SETUP } from '../src/vox/layers.js';
-import { readRrdWithCli, RRD_CLI_CHECKED, RRD_CLI_OUTPUT_MAX, RRD_CLI_TIMEOUT_MS, RRD_PRINT_DATA_MAX, type RrdCall, type RrdReading } from '../src/vox/rrd-cli.js';
+import {
+  forgetRrdReadings, readRrdWithCli, RRD_CLI_CHECKED, RRD_CLI_OUTPUT_MAX, RRD_CLI_TIMEOUT_MS, RRD_PRINT_DATA_MAX, rrdReadingNow, rrdReadingsIdle, startRrdReading,
+  type RrdCall, type RrdReading,
+} from '../src/vox/rrd-cli.js';
 
 const FIX = resolve('tests/fixtures/rrd-cli');
 const FAKE = resolve('tests/fixtures/fake-rerun.mjs');
@@ -226,6 +230,70 @@ describe('a recording read through the installed Rerun CLI, bounded (R9 H159)', 
       expect(t.kind.state).toBe('read');
       expect(t.range).toEqual({ state: 'unknown', reason: 'not-run', why: 'not read: rrd print -vvv prints the data itself, and is run here only on a recording of at most 1.0 KB (this one is 11.5 KB)' });
     }
+  });
+});
+
+describe('kept by the file\'s sha256 and the CLI\'s version, read in the background (R9 H159)', () => {
+  afterEach(async () => { await rrdReadingsIdle(); forgetRrdReadings(); });
+  const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+
+  it('says "being read" until the background read is done; an unchanged file is not read again; other bytes or another version are', async () => {
+    forgetRrdReadings();
+    const bin = fakeBin();
+    const log = join(box(), 'calls.jsonl');
+    const env = envOf(bin, { FAKE_RERUN_CALLS: log });
+    const root = box();
+    const logged: string[] = [];
+    const job = (rel: string, body: Buffer) => ({ root, rel, sha256: sha(body), env, read: () => body, log: (c: RrdCall) => logged.push(`${rel} ${c.command}`) });
+
+    // asked on a draw path: nothing runs, and it says it is not read yet
+    const before = rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env });
+    expect(before).toMatchObject({ state: 'not read', words: 'not read yet: rerun-cli reads it in the background, once tab 6 is served' });
+    expect(before.entities).toEqual({ state: 'unknown', reason: 'not-run', why: 'not read yet: rerun-cli reads it in the background, once tab 6 is served' });
+    expect(callsOf(log)).toEqual([]);
+
+    startRrdReading(job('rec/probe.rrd', PROBE));
+    const being = rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env });
+    expect(being).toMatchObject({ state: 'being read', words: 'being read by the Rerun CLI, in the background' });
+    for (const u of [being.verify, being.entities, being.timelines]) expect(u).toEqual({ state: 'unknown', reason: 'being-read', why: 'being read by the Rerun CLI, in the background' });
+    await rrdReadingsIdle();
+    const read = rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env });
+    const direct = await readRrdWithCli(PROBE, { env: envOf(fakeBin()) });
+    expect(read.state).toBe('read');
+    expect([read.entities, read.timelines, read.verify, read.cli]).toEqual([direct.entities, direct.timelines, direct.verify, direct.cli]);
+    expect(callsOf(log).map((c) => c.argv.join(' '))).toEqual(['--version', 'rrd verify', 'rrd stats', 'rrd print -vv', 'rrd print -vvv']);
+    expect(logged).toEqual(['rec/probe.rrd rerun --version', 'rec/probe.rrd rerun rrd verify', 'rec/probe.rrd rerun rrd stats', 'rec/probe.rrd rerun rrd print -vv', 'rec/probe.rrd rerun rrd print -vvv']);
+
+    // unchanged: not read again, under any name
+    startRrdReading(job('rec/probe.rrd', PROBE));
+    startRrdReading(job('copy/same.rrd', PROBE));
+    await rrdReadingsIdle();
+    expect(callsOf(log)).toHaveLength(5);
+    expect(rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env })).toEqual(read);
+
+    // other bytes: read, and the program's version is not asked again
+    startRrdReading(job('rec/edge.rrd', EDGE));
+    await rrdReadingsIdle();
+    expect(callsOf(log).slice(5).map((c) => c.argv.join(' '))).toEqual(['rrd verify', 'rrd stats', 'rrd print -vv', 'rrd print -vvv']);
+    expect(rrdReadingNow({ sha256: sha(EDGE), bytes: EDGE.length, env }).entities).toMatchObject({ state: 'read', count: 4 });
+
+    // bytes changed since they were listed: the job reads nothing (the next list asks for the new bytes)
+    startRrdReading({ ...job('rec/moved.rrd', CUT), sha256: 'f'.repeat(64) });
+    await rrdReadingsIdle();
+    expect(callsOf(log)).toHaveLength(9);
+    expect(rrdReadingNow({ sha256: 'f'.repeat(64), bytes: CUT.length, env }).state).toBe('not read');
+
+    // another program, of a version not checked here: asked once, then said at once, with nothing more run
+    const other = envOf(fakeBin(), { FAKE_RERUN_CALLS: log, FAKE_RERUN_MODE: 'version=0.37.1' });
+    startRrdReading({ ...job('rec/probe.rrd', PROBE), env: other });
+    await rrdReadingsIdle();
+    const unchecked = rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env: other });
+    expect(unchecked.entities).toMatchObject({ state: 'unknown', reason: 'version-not-checked' });
+    expect(rrdReadingNow({ sha256: sha(EDGE), bytes: EDGE.length, env: other }).entities).toMatchObject({ state: 'unknown', reason: 'version-not-checked' });
+    expect(callsOf(log).slice(9).map((c) => c.argv.join(' '))).toEqual(['--version']);
+
+    // no rerun at all: said at once, nothing started
+    expect(rrdReadingNow({ sha256: sha(PROBE), bytes: PROBE.length, env: { PATH: '' } }).entities).toMatchObject({ state: 'unknown', reason: 'not-installed' });
   });
 });
 
