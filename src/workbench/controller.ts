@@ -35,6 +35,7 @@ import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
+import { createCompanionHint } from './create-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
@@ -945,6 +946,9 @@ export class Controller {
     // R4 (H112): the selection is the item moved to (by its key, src/workbench/select.ts); the wheel's view is let go
     const items = this.itemsNow(region);
     const n = items?.length ?? this.itemsOf(region);
+    // R9 (H160): Context's tab with no rows to select (the Inspector: a mesh's measurements under the Unfinished words) scrolls
+    // by the keys, as a box with no rows does above
+    if (!n && region === 'right' && this.last?.regions.right) { this.wheel('right', this.last.regions.right, delta); return; }
     if (!n) return;
     // R5 (H137): a view that lays its items out as a grid names where ↑ and ↓ move from each (View items' `near`)
     const near = Math.abs(delta) === 1 ? items?.[this.ui.cursor[list] ?? 0]?.near : undefined;
@@ -1669,6 +1673,8 @@ export class Controller {
    * VoxVision panel opens).
    */
   private companionWhere(): string {
+    // R9 (H160): from tab 6, on the mesh selected there (mesh=<its path as hex>, which the page's tab 6 chooses)
+    if (this.ui.page === 'create') return createCompanionHint(this.selected());
     const sel = this.ui.page === 'voxvision' ? this.selected() : null;
     return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
   }

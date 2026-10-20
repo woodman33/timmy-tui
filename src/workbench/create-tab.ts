@@ -13,7 +13,11 @@
  * R9 (H160; R8's open item G′): each mesh and each recording is an item the cursor rests on, listed before the tab's tools
  * (familyView in src/workbench/views.ts places them), so the page opens on the first mesh, in view and whole at every size the
  * Workbench draws (60×16 and up). An item's words wrap under it, never cut; where the window is short the list says each item
- * in fewer words (its kind, triangles, box and volume; then its kind and triangles).
+ * in fewer words (its kind, triangles, box and volume; then its kind and triangles), and Context says all of it. Each one's
+ * actions, as the other tabs' items have theirs: Enter shows it whole in Context's Inspector (createDetail: what its reader
+ * measured, or a recording's reading); c (Companion · Show) opens the companion's tab 6 with the selected mesh chosen
+ * (createCompanionHint); Context's Tools names both (createActions); Files, related only, shows its path (createItemFiles); the
+ * body says the keys under each list's heading.
  *
  * A terminal draws no 3D: the view you can turn is the companion's tab 6. Files only: the reading is made once for each reading
  * of the Workbench (data.readAt), and each file is measured again only when it changes.
@@ -23,8 +27,8 @@ import { readChain, type Receipt } from '../utils/receipts.js';
 import { listMeshes, type MeshList, type MeshRow, type RecordingRow } from '../vox/meshes.js';
 import type { Glyphs } from './frame.js';
 import type { Data } from './model.js';
-import { heading, limitRows, onBar, para, S } from './tab-columns.js';
-import { wrapSegs, type Line, type Seg } from './text.js';
+import { fieldRows, heading, limitRows, onBar, para, S } from './tab-columns.js';
+import { wrapSegs, type Line, type Role, type Seg } from './text.js';
 
 /** What the tab says first: where the view you can turn is, and what no Timmy surface draws yet. */
 export const CREATE_SENTENCE = "The companion's tab 6 draws this project's meshes in a view you can turn: Timmy's own drawing of each file's triangles, not a render by Blender or any native tool. No Timmy surface draws a motion timeline yet; each app below draws its own, once set up.";
@@ -60,6 +64,24 @@ export type CreateItem =
 /** The name an item goes by in Context ("For refs/demo-tray.stl, in …"). */
 export const createItemName = (item: CreateItem): string => (item.kind === 'mesh' ? item.mesh.path : item.rec.path);
 
+/** The project files an item names, for Context's Files (related only): the mesh or recording itself, and for a tessellation
+ *  the VoxVision record that names it and the STEP it was made from. */
+export function createItemFiles(item: CreateItem): string[] {
+  if (item.kind === 'recording') return [item.rec.path];
+  const t = item.mesh.tessellation;
+  return [item.mesh.path, ...(t ? [`results/vox/${t.record}.json`, t.from.replace(/^\.\//, '')] : [])];
+}
+
+/**
+ * What Companion · Show (c) passes to the companion's address so that its tab 6 opens with this mesh chosen
+ * (src/companion/client/panel-create.js reads mesh=): the mesh's path as the hex of its UTF-8 bytes, since an address the
+ * Workbench passes holds plain values only (src/workbench/servers.ts PAGE_QUERY). Any other selection: tab 6 alone.
+ */
+export function createCompanionHint(item: { kind: string } | null | undefined): string {
+  const path = item && item.kind === 'mesh' ? (item as Extract<CreateItem, { kind: 'mesh' }>).mesh.path : '';
+  return `tab=create${path ? `&mesh=${Buffer.from(path, 'utf8').toString('hex')}` : ''}`;
+}
+
 /** The tab's items as the cursor counts them (the meshes, then the recordings): none when the reading failed. */
 export function createItems(data: Pick<Data, 'project' | 'readAt'>): CreateItem[] {
   const list = readingOf(data.project.root, data.readAt);
@@ -80,7 +102,7 @@ function meshWords(m: MeshRow, form: Form, sep: string): { head: Line; under: st
   const r = m.readback;
   const kind = KIND_WORDS[m.kind] ?? m.kind;
   if (!r) {
-    const facts = form === 0 ? [kind, m.why ?? 'not measured'].join(sep) : `${kind}${sep}${m.pending ? 'being measured' : 'not measured'}`;
+    const facts = form === 0 ? [kind, m.why ?? 'not measured'].join(sep) : `${kind}${sep}${m.pending ? 'being measured' : 'not measured'}: Context says why`;
     return { head: [S(m.path, 'strong'), S(`  ${facts}`, 'secondary')], under: form === 0 ? [...(m.kind === 'tessellation' ? [m.origin.words] : []), ...(m.declared ? [`the file says (${m.declared.what}; not checked): ${m.declared.words}`] : [])] : [] };
   }
   const tri = `${r.triangles} triangle${r.triangles === 1 ? '' : 's'}`;
@@ -99,7 +121,7 @@ function meshWords(m: MeshRow, form: Form, sep: string): { head: Line; under: st
 /** A recording's words in a form. */
 function recordingWords(r: RecordingRow, form: Form, sep: string): { head: Line; under: string[] } {
   const f = r.facts;
-  if (!f) return { head: [S(r.path, 'strong'), S(`  ${form === 0 ? `not read: ${r.why ?? 'unknown'}` : 'not read'}`, 'secondary')], under: [] };
+  if (!f) return { head: [S(r.path, 'strong'), S(`  ${form === 0 ? `not read: ${r.why ?? 'unknown'}` : 'not read: Context says why'}`, 'secondary')], under: [] };
   const facts = form === 0 ? [`written by ${f.writer}`, `${f.messages.chunks} data chunks`, `entities, frames and time range: unknown to Timmy (${f.unknown.entities})`]
     : form === 1 ? [`written by ${f.writer}`, `${f.messages.chunks} data chunks`, 'entities, frames and time range: unknown to Timmy (it does not decode the data chunks)']
       : [`written by ${f.writer}`, 'entities, frames, time range: unknown'];
@@ -155,15 +177,20 @@ export function createTabView(c: CreateCtx): CreateTabView {
   };
   const meshes = own.filter((x) => x.kind === 'mesh');
   const recordings = own.filter((x) => x.kind === 'recording');
+  // what the keys do to the selected one, under each list's heading, as tab 7 says it of its panes (Context's Tools too)
+  const key = (k: string): Seg => S(`[${k}]`, 'action');
+  const keys = (l: Line): Line[] => wrapSegs([S('  '), ...l], w, '  ');
 
   lines.push([heading(`Meshes in this project (${list.meshes.length + list.more})`)]);
   if (!meshes.length) lines.push(...para('No mesh in this project yet: an .stl, .obj or .ply file in it is listed here (/add <file> copies one in), and a STEP once /vox view <record> has made its tessellation (that needs OCP).', w, 'secondary', '  '));
+  else lines.push(...keys([key('Enter'), S(' its measurements in Context', 'secondary'), S(sep, 'secondary'), key('c'), S(' it chosen in the companion\'s view you can turn', 'secondary')]));
   meshes.forEach((it) => place(it, own.indexOf(it)));
   if (list.more) lines.push(...para(`and ${list.more} more, not listed here`, w, 'secondary', '  '));
   if (list.meshes.some((m) => m.readback)) lines.push(...para(`Measured by ${list.reader}. ${list.doctrine}`, w, 'secondary', '  '));
 
   lines.push([], [heading(`Recordings Timmy can read (${list.recordings.length + list.recordingsMore})`)]);
   if (!recordings.length) lines.push(...para('No Rerun recording (.rrd) in this project.', w, 'secondary', '  '));
+  else lines.push(...keys([key('Enter'), S(' its reading in Context: its header\'s facts, and what stays unknown, with why', 'secondary')]));
   recordings.forEach((it) => place(it, own.indexOf(it)));
   if (list.recordingsMore) lines.push(...para(`and ${list.recordingsMore} more, not listed here`, w, 'secondary', '  '));
   lines.push(...para(`${list.viewer.name}: ${list.viewer.state}${list.viewer.setup ? ` (${list.viewer.setup})` : ''}`, w, 'secondary', '  '));
@@ -174,4 +201,76 @@ export function createTabView(c: CreateCtx): CreateTabView {
  *  you can turn is. */
 export function createTabLines(c: { data: Pick<Data, 'project' | 'readAt'>; width: number; g: Glyphs }): Line[] {
   return createTabView(c).lines;
+}
+
+// ── Context ────────────────────────────────────────────────────────────────────
+
+const bytesWords = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+
+/**
+ * R9 (H160): an item in Context's Inspector, whole. A mesh: what its reader measured from the whole file (triangles, corners,
+ * box, area, volume, topology, an OBJ's or PLY's faces and what its reader ignored, its units), the file, where it came from,
+ * its own words (declared, not checked), what the companion's view draws, who measured and DOCTRINE §15's sentence. A
+ * recording: its header's facts, its messages and stores, its entities, frames and time range unknown, with why, and Rerun's
+ * viewer as this computer has it (found is not run: nothing here starts it).
+ */
+export function createDetail(item: CreateItem, w: number, g: Glyphs): Line[] {
+  const out: Line[] = [];
+  const f = (label: string, value: string, role: Role = 'text'): void => { out.push(...fieldRows(label, value, w, role, 10)); };
+  const key = (k: string): Seg => S(`[${k}]`, 'action');
+  if (item.kind === 'mesh') {
+    const m = item.mesh;
+    const r = m.readback;
+    out.push([heading('Mesh'), S(` ${g.sep} ${KIND_WORDS[m.kind] ?? m.kind}`, 'secondary')], ...para(m.path, w, 'strong'));
+    if (!r) {
+      f(m.pending ? 'Measuring' : 'Not measured', m.why ?? 'unknown', 'secondary');
+      f('Reader', m.reader.words, 'secondary');
+    } else {
+      f('Measured', `by ${m.reader.words}`, 'secondary');
+      f('Triangles', String(r.triangles));
+      f('Corners', `${r.corners} (joined only where bit-identical)`);
+      f('Box', r.bbox ? `${r.bbox.size.map(num).join(' × ')}, from ${r.bbox.min.map(num).join(', ')} to ${r.bbox.max.map(num).join(', ')}` : 'none (no triangles)');
+      f('Area', num(r.area));
+      f('Volume', m.volume ?? 'unknown');
+      f('Topology', m.topology ?? 'unknown');
+      if (m.faces) f('Faces', m.faces);
+      if (m.ignored) f('Ignored', m.ignored.replace(/^ignored:\s*/, ''), 'secondary');
+      f('Units', r.units, 'secondary');
+      f('File', `${m.format ?? KIND_WORDS[m.kind]} ${g.sep} ${bytesWords(r.bytes)} ${g.sep} sha256 ${r.sha256.slice(0, 12)}`, 'secondary');
+    }
+    f('Origin', `${m.origin.provenance}: ${m.origin.words}`, 'secondary');
+    if (m.declared) f('Says', `the file's own words (${m.declared.what}; not checked): ${m.declared.words}`, 'secondary');
+    if (m.tessellation) f('Made from', `${m.tessellation.from} by ${m.tessellation.made_by}, within ${m.tessellation.tolerance}; ${m.tessellation.sealed === true ? 'a vox receipt sealed these bytes' : m.tessellation.sealed === false ? 'no vox receipt of this project seals these bytes' : 'no receipt was checked here'}`, 'secondary');
+    if (m.view) f('View', `the companion's view you can turn: ${m.view.words}`, 'secondary');
+    out.push([], ...para(item.list.view, w, 'secondary'), ...para(item.list.doctrine, w, 'secondary'));
+    out.push([], ...wrapSegs([key('c'), S(' Companion · Show: the companion\'s tab 6 with this mesh chosen, in a view you can turn', 'secondary')], w, '    '));
+    return out;
+  }
+  const r = item.rec;
+  const x = r.facts;
+  out.push([heading('Recording'), S(` ${g.sep} Rerun (.rrd)`, 'secondary')], ...para(r.path, w, 'strong'));
+  if (!x) f('Not read', r.why ?? 'unknown', 'secondary');
+  else {
+    f('Header', `written by ${x.writer} ${g.sep} compression ${x.compression} ${g.sep} ${x.serializer} ${g.sep} ${bytesWords(x.bytes)} (read from the file)`);
+    f('Messages', `${x.messages.storeInfo} store info ${g.sep} ${x.messages.chunks} data chunks ${g.sep} ${x.messages.blueprint} blueprint${x.messages.other ? ` ${g.sep} ${x.messages.other} other` : ''}${x.ended ? ` ${g.sep} ends with its end marker` : ` ${g.sep} no end marker`}${x.footer ? ' and a footer' : ''}`);
+    const stores = x.stores.map((s) => [s.kind, s.application ? `application ${s.application}` : '', s.recording ? `recording ${s.recording}` : ''].filter(Boolean).join(` ${g.sep} `)).join('; ');
+    if (stores) f('Stores', stores);
+    if (x.stopped) f('Stopped', x.stopped, 'secondary');
+    f('Entities', `unknown to Timmy: ${x.unknown.entities}`, 'secondary');
+    f('Frames', `unknown to Timmy: ${x.unknown.frames}`, 'secondary');
+    f('Time range', `unknown to Timmy: ${x.unknown.timeRange}`, 'secondary');
+  }
+  const v = item.viewer;
+  f('Viewer', `${v.name}: ${v.state}`, 'secondary');
+  out.push(...para(v.words, w, 'secondary', '  '));
+  if (v.setup) out.push(...wrapSegs([S('  Set up: ', 'secondary'), S(v.setup, 'action')], w, '    '));
+  return out;
+}
+
+/** R9 (H160): what an item offers, in Context's Tools (src/workbench/views.ts actionsOf; "For <its path>" above them names it):
+ *  Enter shows it whole in the Inspector; c the companion's tab 6, a mesh chosen there. Short enough for Context's drawer (36
+ *  cells), whose rows are cut, not wrapped. */
+export function createActions(item: CreateItem): Array<{ key: string; label: string; enabled: boolean }> {
+  if (item.kind === 'mesh') return [{ key: 'Enter', label: 'Its measurements, in full', enabled: true }, { key: 'c', label: 'Companion · Show, mesh chosen', enabled: true }];
+  return [{ key: 'Enter', label: 'Its reading, in full', enabled: true }, { key: 'c', label: 'Companion · Show: tab 6', enabled: true }];
 }

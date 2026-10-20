@@ -12,21 +12,29 @@
  * browser opener and the server starts are FAKE (nothing is opened or served). Real: Timmy's STL, OBJ and PLY readers, its
  * Rerun header reader, the Workbench's controller, layout and frame.
  *
+ * Step 2 (R9 H160): the items' actions, as the other tabs' items have theirs: Enter shows a mesh's measurements (a recording's
+ * reading) in Context's Inspector; c (Companion · Show) opens the companion's tab 6 with the selected mesh chosen (its path in
+ * the address, as hex); Context's Tools names both; Files (related only) shows its path; the body says the keys under each
+ * list's heading. The companion's start and the browser opener are FAKE there (a FAKE server's address; the opener records).
+ *
  * H160_CAPS, when set, names a folder for the screens as they open (one .txt per size).
  */
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
 import { Workspace } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { visibleWidth } from '../src/term/width.js';
 import { Controller } from '../src/workbench/controller.js';
-import { createTabView, type CreateItem } from '../src/workbench/create-tab.js';
+import { DOCTRINE_15 } from '../src/native/stl-readback.js';
+import { createActions, createCompanionHint, createDetail, createItems, createTabView, type CreateItem } from '../src/workbench/create-tab.js';
 import { glyphsFor, innerWidth, screenText } from '../src/workbench/frame.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
+import { launchPageHtml } from '../src/utils/launch-page.js';
 import { plain } from '../src/workbench/text.js';
 import { DEMO_MESH, DEMO_OBJ, DEMO_PLY } from '../scripts/demo-mesh.mjs';
 
@@ -117,6 +125,28 @@ function itemOnScreen(fr: Frame, i: number): { rows: string[] } | { out: string 
 /** Tab 6 opened afresh (from Home, so a second 6 never turns it to its Motion view). */
 function openTab6(c: Controller): void { c.key('1', {}); c.key('6', {}); }
 
+/** A region's rows between its side borders, joined (whitespace squashed). */
+function regionText(fr: Frame, region: 'center' | 'right'): string {
+  const r = fr.regions[region]!.rect;
+  const text = screenText(fr.screen);
+  const out: string[] = [];
+  for (let y = r.y + 1; y < r.y + r.h - 1; y++) {
+    let x = 0;
+    let row = '';
+    for (const ch of text[y] ?? '') { if (x > r.x && x < r.x + r.w - 1) row += ch; x += visibleWidth(ch); }
+    out.push(row);
+  }
+  return squash(out.join(' '));
+}
+
+/** The keyboard given to a zone (Tab around the zones). */
+function focusOn(c: Controller, zone: 'center' | 'right'): void {
+  for (let k = 0; k < 8 && c.ui.focus !== zone; k++) c.key('', { tab: true });
+  expect(c.ui.focus).toBe(zone);
+}
+
+const hex = (s: string): string => Buffer.from(s, 'utf8').toString('hex');
+
 describe('the Workbench\'s tab 6: its meshes and recordings as items (R9 H160, R8\'s G′)', () => {
   it('each mesh and each recording is an item, listed before the tools, with the words it had as a line (createTabView)', async () => {
     const { c } = await trayBench('FAKE-items-order');
@@ -187,6 +217,133 @@ describe('the Workbench\'s tab 6: its meshes and recordings as items (R9 H160, R
         expect(seen.rows[0].trimStart().startsWith(g.cursor), `${at}: ${seen.rows[0]}`).toBe(true);
         for (const r of seen.rows) expect(r.trimEnd().endsWith(g.ellipsis), `${at}: a row of it is cut: ${r}`).toBe(false);
       }
+    }
+  }, 60_000);
+});
+
+describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H160)', () => {
+  it('Enter on a mesh shows what its reader measured in Context\'s Inspector, whole (createDetail): the reader, DOCTRINE §15\'s sentence and c\'s words; on the recording, its reading with what stays unknown and why, and Rerun\'s viewer as found or not (found is not run)', async () => {
+    const { c } = await trayBench('FAKE-items-enter');
+    // 160x45: Context is a column beside the page (whose box is whole): Enter shows the mesh under Context's tabs
+    openTab6(c);
+    focusOn(c, 'center');
+    c.ui.tab = 'tools';
+    await c.enter();
+    expect(c.ui.tab).toBe('inspector');
+    let fr = c.frame(160, 45);
+    expect(fr.layout.rightAs).toBe('column');
+    let ctx = regionText(fr, 'right');
+    expect(ctx).toMatch(/^Tools │ ▸ Inspector │ Files MESH · OBJ refs\/demo-tray\.obj Measured by Timmy's own OBJ reader \(timmy-obj-readback\/1\), from the whole file/);
+    expect(ctx).toContain('Triangles 28');
+    // 100x30: Context is a drawer, which Enter opens; where the page's Unfinished box is shortened its words come first in
+    // Context (R8's G), and the keys scroll Context to the measurements (↓, as a box with no rows to select scrolls)
+    c.frame(100, 30);
+    focusOn(c, 'center');
+    await c.enter();
+    fr = c.frame(100, 30);
+    expect(fr.layout.rightAs).toBe('drawer');
+    ctx = regionText(fr, 'right');
+    expect(ctx).toMatch(/^Tools │ ▸ Inspector │ Files ◌ UNFINISHED · THIS TAB Works now:/);
+    focusOn(c, 'right');
+    for (let k = 0; k < 40 && !/Triangles 28/.test(ctx); k++) { c.key('', { downArrow: true }); ctx = regionText(c.frame(100, 30), 'right'); }
+    expect(ctx).toContain('Triangles 28');
+    expect(ctx).toMatch(/MESH · OBJ refs\/demo-tray\.obj|Measured by Timmy's own OBJ reader|Corners/);
+    // the whole of it, as Context draws it (its lines; the drawer scrolls)
+    const items = createItems(c.data);
+    const obj = items[0] as Extract<CreateItem, { kind: 'mesh' }>;
+    const said = squash(createDetail(obj, 56, g).map(plain).join(' '));
+    for (const words of [
+      'MESH · OBJ refs/demo-tray.obj', 'Triangles 28', 'Box 80 × 50 × 20, from 0, 0, 0 to 80, 50, 20', 'Volume 21392 (enclosed; normals outward)',
+      'Topology edge-manifold: every edge shared by exactly two triangles, consistently oriented',
+      'Faces 14 faces: 14 with four or more corners', 'Ignored 1 comment, 1 o lines', 'File Wavefront OBJ (text)',
+      'Says the file\'s own words (its first comment; not checked): TIMMY DEMO MESH: generated by scripts/demo-mesh.mjs, not measured or exported',
+      'Origin not recorded: where the file came from is not recorded', 'View the companion\'s view you can turn: all 28 triangles',
+      DOCTRINE_15, '[c] Companion · Show: the companion\'s tab 6 with this mesh chosen, in a view you can turn',
+    ]) expect(said).toContain(squash(words));
+    // nothing green: a measurement is not a live connection, a passed check or a sealed receipt
+    expect(createDetail(obj, 56, g).flat().filter((x) => x.role === 'live')).toEqual([]);
+    // the recording (the fourth item): Enter shows its reading (160x45: under Context's tabs)
+    c.key('', { escape: true });
+    c.frame(160, 45);
+    focusOn(c, 'center');
+    for (let k = 0; k < 3; k++) c.key('', { downArrow: true });
+    expect(c.selected()?.kind).toBe('recording');
+    await c.enter();
+    ctx = regionText(c.frame(160, 45), 'right');
+    expect(ctx).toMatch(/^Tools │ ▸ Inspector │ Files RECORDING · Rerun \(\.rrd\) rec\/context\.rrd Header written by Rerun \d+\.\d+\.\d+/);
+    const rec = items[3] as Extract<CreateItem, { kind: 'recording' }>;
+    const read = squash(createDetail(rec, 56, g).map(plain).join(' '));
+    expect(read).toMatch(/Header written by Rerun \d+\.\d+\.\d+ · compression /);
+    expect(read).toMatch(/Messages \d+ store info · \d+ data chunks/);
+    expect(read).toContain(squash('Entities unknown to Timmy: inside the recording\'s data chunks (compressed Arrow), which Timmy does not decode; Rerun\'s viewer shows it'));
+    expect(read).toContain('Time range unknown to Timmy:');
+    expect(read).toMatch(rec.viewer.state === 'needs setup' ? /Viewer Rerun's viewer: needs setup/ : /Viewer Rerun's viewer: found \(installed here, not run\) Rerun's viewer is found here \([^)]*\): found is not run, and this tab runs nothing/);
+  }, 60_000);
+
+  it('Context\'s Tools names what Enter and c do to the selection, and the body says the keys under each list\'s heading; Files (related only) shows the mesh\'s path', async () => {
+    const { c } = await trayBench('FAKE-items-tools');
+    openTab6(c);
+    focusOn(c, 'right');
+    // ← → move Context's tabs (Tools, Inspector, Files)
+    for (let k = 0; k < 3 && c.ui.tab !== 'tools'; k++) c.key('', { leftArrow: true });
+    expect(c.ui.tab).toBe('tools');
+    let fr = c.frame(160, 45);
+    let ctx = regionText(fr, 'right');
+    expect(ctx).toContain('For refs/demo-tray.obj, in FAKE-items-tools.');
+    expect(ctx).toContain('[Enter] Its measurements, in full [c] Companion · Show, mesh chosen');
+    // whole in Context's drawer too (its rows are cut, not wrapped: each label with its key and the mark fits its 36 cells)
+    for (const it of createItems(c.data)) for (const a of createActions(it)) expect(2 + visibleWidth(`[${a.key}] ${a.label}`), a.label).toBeLessThanOrEqual(36);
+    // the recording's (the fourth item)
+    focusOn(c, 'center');
+    for (let k = 0; k < 3; k++) c.key('', { downArrow: true });
+    const atRec = c.frame(160, 45);
+    expect(regionText(atRec, 'right')).toContain('For rec/context.rrd, in FAKE-items-tools. ▸ [Enter] Its reading, in full [c] Companion · Show: tab 6');
+    expect(regionText(atRec, 'center')).toContain("RECORDINGS TIMMY CAN READ (1) [Enter] its reading in Context: its header's facts, and what stays unknown, with why ▸ rec/context.rrd");
+    for (let k = 0; k < 3; k++) c.key('', { upArrow: true });
+    focusOn(c, 'right');
+    // the body: the keys, under the meshes' heading and the recordings'
+    const body = regionText(fr, 'center');
+    expect(body).toContain("MESHES IN THIS PROJECT (3) [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.obj");
+    // Files, related only ([f]): the mesh's path
+    for (let k = 0; k < 3 && c.ui.tab !== 'files'; k++) c.key('', { rightArrow: true });
+    expect(c.ui.tab).toBe('files');
+    c.key('f', {});
+    expect(c.ui.related).toBe(true);
+    fr = c.frame(160, 45);
+    ctx = regionText(fr, 'right');
+    expect(ctx).toMatch(/Related to refs\/demo-tray\.obj \[f\] all files .*refs\/demo-tray\.obj/);
+    expect(ctx).not.toContain('none: the selection names no project file');
+  }, 60_000);
+
+  it('c on a mesh opens the companion\'s tab 6 with that mesh chosen (its path, as hex, in the address); on the recording or a tool, tab 6 alone (FAKE server and opener)', async () => {
+    const hrefs: string[] = [];
+    const companion = new CompanionControl({
+      opener: { program: 'FAKE opener', open: (href) => { hrefs.push(href); return { ok: true }; } },
+      start: async () => ({ port: 4399, url: 'http://127.0.0.1:4399/#t=FAKE', address: 'http://127.0.0.1:4399/', shutdown: async () => undefined }),
+    });
+    const { c } = await trayBench('FAKE-items-show', { companion });
+    expect(createCompanionHint(createItems(c.data)[2])).toBe(`tab=create&mesh=${hex('refs/demo-tray.stl')}`);
+    expect(createCompanionHint(null)).toBe('tab=create');
+    try {
+      openTab6(c);
+      focusOn(c, 'center');
+      const said = async (): Promise<string> => { await c.showCompanion(); return c.ui.flash?.text ?? ''; };
+      // the first mesh (the cursor's as the tab opens), then the second
+      expect(await said()).toContain(`The Companion opened in your browser (http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.obj')}), through a private page that carries its key`);
+      c.key('', { downArrow: true });
+      expect(await said()).toContain(`?tab=create&mesh=${hex('refs/demo-tray.ply')})`);
+      // the page carries the same address (the key after #)
+      expect(readFileSync(fileURLToPath(hrefs[1]), 'utf8')).toBe(launchPageHtml(`http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.ply')}#t=FAKE`));
+      // the recording, then the first tool: tab 6 alone
+      c.key('', { downArrow: true });
+      c.key('', { downArrow: true });
+      expect(await said()).toContain('(http://127.0.0.1:4399/?tab=create)');
+      c.key('', { downArrow: true });
+      expect(c.selected()?.kind).toBe('cap');
+      expect(await said()).toContain('(http://127.0.0.1:4399/?tab=create)');
+    } finally {
+      // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
+      for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });
     }
   }, 60_000);
 });

@@ -105,7 +105,8 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
     expect(said).toMatch(/Rerun's viewer: (needs setup|found \(installed here, not run\))/);
     // nothing green (no live connection, passed check or seal is shown), and the measurements are text, not commands
     expect(lines.flat().filter((s) => s.role === 'live')).toEqual([]);
-    expect(lines.flat().filter((s) => s.role === 'action').map((s) => s.text)).toEqual(['[c]', '[s]']);
+    // (R9 H160: the keys under each list's heading, what Enter and c do to the selected mesh or recording)
+    expect(lines.flat().filter((s) => s.role === 'action').map((s) => s.text)).toEqual(['[c]', '[s]', '[Enter]', '[c]', '[Enter]']);
     // every row within the width
     for (const l of lines) expect(visibleWidth(plain(l)), plain(l)).toBeLessThanOrEqual(150);
   });
@@ -160,8 +161,8 @@ describe('the Workbench\'s tab 6: the project\'s meshes and recordings (R7 H153)
       expect(c.ui.workspace).toBe(view);
       const said = center();
       expect(said).toContain(`${CREATE_SENTENCE} [c] Companion · Show: tab 6, the meshes in a view you can turn; [s] Studio · Show: the canvas (2D shapes and cards).`);
-      // R9 (H160): the mesh is an item, the cursor's first (its mark before its path)
-      expect(said).toContain('MESHES IN THIS PROJECT (1) ▸ refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold');
+      // R9 (H160): the mesh is an item, the cursor's first (its mark before its path), under the keys that act on it
+      expect(said).toContain("MESHES IN THIS PROJECT (1) [Enter] its measurements in Context · [c] it chosen in the companion's view you can turn ▸ refs/demo-tray.stl STL · 28 triangles · box 80 × 50 × 20 · edge-manifold");
       // R8 (H154): the frame's Unfinished words on tab 6 name the three kinds that work now (src/contracts/workspace.ts)
       expect(said).toContain("Works now: the project's meshes (STL, OBJ and PLY) measured by Timmy's own readers, a view of each you can turn in the companion");
       // R7 lead, at H150's merge: the frame's Unfinished block now comes first on tab 6, so at 160 × 45 the tools list can

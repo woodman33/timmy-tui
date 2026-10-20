@@ -15,7 +15,7 @@ import type { RunDetail } from '../contracts/run-detail.js';
 import { TABS, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
-import { createItemName, createItems, createTabView } from './create-tab.js';
+import { createActions, createDetail, createItemFiles, createItemName, createItems, createTabView } from './create-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, frameTabs, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
@@ -1139,6 +1139,8 @@ export function actionsOf(c: ViewCtx, item: Item | null): Action[] {
   }
   if (ws === 'control' && item?.kind === 'job') out.push({ key: 'x', label: item.job.live ? `Stop ${item.job.id} ${item.job.label}` : `Stop ${item.job.id}`, enabled: item.job.live, ...(item.job.live ? {} : { why: `it already ${item.job.word}` }) });
   if (ws === 'templates' && item?.kind === 'starter') out.push({ key: 'Enter', label: `New project from ${item.name}`, enabled: true });
+  // R9 (H160): tab 6's meshes and recordings: Enter shows one whole in Context; c the companion's tab 6 (a mesh chosen there)
+  if ((ws === 'create3d' || ws === 'motion') && (item?.kind === 'mesh' || item?.kind === 'recording')) out.push(...createActions(item));
   // R5 (H131): a connection card of Home: the companion's and Studio's Show; any other, the step that sets it up, shown to copy
   if (ws === 'connections' && item?.kind === 'conn') {
     const k = item.conn;
@@ -1377,6 +1379,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     case 'mcp-call': lines.push(...mcpCallInspector(item, c.data.toolsTab, w, c.g)); break;
     // R5 (H137): a chat turn being answered (tab 7's pane), in its hold's words
     case 'live-turn': lines.push(...liveTurnDetail(item.live, w, c.g, c.now, c.data.turn)); break;
+    // R9 (H160): tab 6's mesh (what its reader measured, whole) and recording (its reading), src/workbench/create-tab.ts
+    case 'mesh': case 'recording': lines.push(...createDetail(item, w, c.g)); break;
     default: lines.push(heading('Inspector'), [S(itemName(item), 'text')]);
   }
   return { lines, items: [] };
@@ -1394,6 +1398,8 @@ function relatedTo(item: Item | null, files: FileRow[]): FileRow[] {
   // R5 (H134): a VoxVision record and its inputs; an MCP call's record
   if (item.kind === 'vox-record') { names.add(item.row.card.file); for (const i of item.row.card.inputs) names.add(i.path.replace(/^\.\//, '')); }
   if (item.kind === 'mcp-call') names.add(item.call.read.call);
+  // R9 (H160): tab 6's mesh or recording (and a tessellation's record and STEP)
+  if (item.kind === 'mesh' || item.kind === 'recording') for (const f of createItemFiles(item)) names.add(f);
   const text = item.kind === 'block' ? item.block.command ?? '' : '';
   return files.filter((f) => names.has(f.rel) || (text && text.includes(f.rel)));
 }
