@@ -19,14 +19,14 @@
  * its REPL commands, CLI, `timmy act`, rehearsal and acceptance all say FIXTURE); no registry, network or git history is
  * involved for it. The repository run reads this checkout as it is.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { namesLocalPath } from '../scripts/inventory/lib/common.mjs';
+import { runAsync } from './helpers/run-async.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SCRIPT = join(REPO, 'scripts', 'inventory', 'inventory.mjs');
@@ -34,10 +34,17 @@ const made: string[] = [];
 const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); made.push(d); return d; };
 afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
 
-function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', timeout: 120_000, env: { ...process.env } });
+type Ran = { status: number | null; stdout: string; stderr: string };
+/**
+ * The generator as a child process, awaited (R5 lead: it was spawnSync, and these files' four runs at collection held a
+ * test worker's event loop for 70.6 s in the gate on a77d80d, its heartbeat says, and vitest then reports "Timeout calling
+ * onTaskUpdate" though every test passed). Each run is awaited in a hook or a test with its own time limit.
+ */
+async function run(args: string[]): Promise<Ran> {
+  const r = await runAsync(process.execPath, [SCRIPT, ...args], { timeout: 120_000, env: { ...process.env } });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
+const RUNS_MS = 260_000;
 
 const put = (root: string, rel: string, text: string): void => {
   mkdirSync(dirname(join(root, rel)), { recursive: true });
@@ -259,11 +266,21 @@ function checkRows(m: Matrix): void {
   }
 }
 
-/** Every absolute local path this computer could leak, and the home-style patterns, as the generator's own guard knows them. */
+/**
+ * Every absolute local path this computer could leak, and the home-style patterns. This run's own folders (each one this file
+ * made with mkdtemp, real path too) and each `extra` path count anywhere in the text. The temporary folder and the home folder
+ * themselves count as the generator's guard counts them (namesLocalPath; the rule is written out here, not imported, so this
+ * check stays independent of it): a folder of one segment, as /tmp, only as the start of a longer path, so /tmp/<anything>
+ * is a leak and a checklist row's words "a patch file under /tmp" are not (R5 H130: this check took those words, unchanged
+ * since 537e898, for a leak wherever the temporary folder is /tmp); a longer folder anywhere.
+ */
 function leaks(text: string, extra: string[]): string[] {
   const out: string[] = [];
-  const literal = new Set([homedir(), tmpdir(), realpathSync(tmpdir()), ...extra].filter((p) => p.length > 1));
-  for (const p of literal) if (text.includes(p)) out.push(`the local path ${p}`);
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
+  for (const p of new Set([...made, ...made.map(real), ...extra].filter((x) => x.length > 1))) if (text.includes(p)) out.push(`the local path ${p}`);
+  for (const p of new Set([homedir(), tmpdir(), real(tmpdir())].filter((x) => x.length > 1))) {
+    if (/^\/[^/]+$/.test(p) ? text.includes(`${p}/`) : text.includes(p)) out.push(`the local path ${p}`);
+  }
   for (const re of [/\/Users\/[A-Za-z0-9._-]+/, /\/home\/[A-Za-z0-9._-]+/, /[A-Za-z]:\\Users\\/]) { const m = re.exec(text); if (m) out.push(m[0]); }
   return out;
 }
@@ -273,8 +290,12 @@ describe('the inventory generator on a FIXTURE tree', () => {
   makeFixture(root);
   const outA = temp('inv-out-a-');
   const outB = temp('inv-out-b-');
-  const a = run(['--root', root, '--date', '2026-10-01', '--out', outA]);
-  const b = run(['--root', root, '--date', '2026-10-01', '--out', outB]);
+  let a: Ran;
+  let b: Ran;
+  beforeAll(async () => {
+    a = await run(['--root', root, '--date', '2026-10-01', '--out', outA]);
+    b = await run(['--root', root, '--date', '2026-10-01', '--out', outB]);
+  }, RUNS_MS);
 
   it('runs, writes its five files and says what it counted', () => {
     expect(a.stderr).toBe('');
@@ -455,32 +476,36 @@ describe('the inventory generator on a FIXTURE tree', () => {
     }
   });
 
-  it('writes nothing and exits 3 when its output would carry a local path (a negative control)', () => {
+  it('writes nothing and exits 3 when its output would carry a local path (a negative control)', async () => {
     const leaky = temp('inv-leaky-');
     makeFixture(leaky, { leak: true });
     const out = temp('inv-out-leaky-');
-    const r = run(['--root', leaky, '--date', '2026-10-01', '--out', out]);
+    const r = await run(['--root', leaky, '--date', '2026-10-01', '--out', out]);
     expect(r.status).toBe(3);
     expect(r.stderr).toContain('nothing written: the output would carry a local path');
     expect(r.stderr).not.toContain(leaky); // the refusal names what kind of path, never the path
     expect(readdirSync(out)).toEqual([]);
-  });
+  }, 130_000);
 
-  it('refuses a malformed date and an unknown argument before reading anything', () => {
-    const r1 = run(['--root', root, '--date', '11/10/2026', '--out', temp('inv-out-bad-')]);
+  it('refuses a malformed date and an unknown argument before reading anything', async () => {
+    const r1 = await run(['--root', root, '--date', '11/10/2026', '--out', temp('inv-out-bad-')]);
     expect(r1.status).toBe(2);
     expect(r1.stderr).toContain('--date takes YYYY-MM-DD');
-    const r2 = run(['--surprise']);
+    const r2 = await run(['--surprise']);
     expect(r2.status).toBe(2);
     expect(r2.stderr).toContain('unknown argument --surprise');
-  });
+  }, 250_000);
 });
 
 describe('the inventory generator on this repository', () => {
   const outA = temp('inv-repo-a-');
   const outB = temp('inv-repo-b-');
-  const a = run(['--date', '2026-10-11', '--out', outA]);
-  const b = run(['--date', '2026-10-11', '--out', outB]);
+  let a: Ran;
+  let b: Ran;
+  beforeAll(async () => {
+    a = await run(['--date', '2026-10-11', '--out', outA]);
+    b = await run(['--date', '2026-10-11', '--out', outB]);
+  }, RUNS_MS);
 
   it('runs and writes valid CycloneDX JSON and a features file', () => {
     expect(a.stderr).toBe('');
@@ -542,6 +567,20 @@ describe('the inventory generator on this repository', () => {
       expect(leaks(text, [REPO.replace(/\/$/, ''), realpathSync(REPO), outA, ...target]), name).toEqual([]);
       expect(two[name], name).toBe(text);
     }
+  });
+});
+
+describe('this file\'s own check for a leaked local path (a negative control, R5 H130)', () => {
+  it('passes words that name the temporary folder, and fails a real temporary path: this run\'s own folder, a file in it, any path under the temporary folder', () => {
+    const words = (folder: string): string => `Codex wrote a patch file under ${folder}, which its sandbox then allowed; a ${folder} write refused`;
+    expect(leaks(words('/tmp'), [])).toEqual([]);
+    if (/^\/[^/]+$/.test(tmpdir())) expect(leaks(words(tmpdir()), [])).toEqual([]);
+    const mine = temp('inv-leak-control-');
+    expect(leaks(`kept in ${mine}`, [])).toContain(`the local path ${mine}`);
+    expect(leaks(`kept in ${join(mine, 'notes.txt')}`, [])).toContain(`the local path ${mine}`);
+    // a temporary path this run did not make: still a leak (the temporary folder followed by a path)
+    expect(leaks(`kept in ${join(tmpdir(), 'inv-elsewhere-0', 'notes.txt')}`, [])).toContain(`the local path ${tmpdir()}`);
+    expect(leaks(`kept in ${join(realpathSync(tmpdir()), 'inv-elsewhere-0')}`, [])).toContain(`the local path ${realpathSync(tmpdir())}`);
   });
 });
 

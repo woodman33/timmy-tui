@@ -305,26 +305,46 @@ class Blocks:
 
 # ── processes ────────────────────────────────────────────────────────────────
 
+# R5 lead (CI at 2765dc1): a stop said the process table could not be read, so it signalled only the command's own group,
+# and a block in a group of its own was left to the terminal's hangup. A read that fails is tried again, three reads in all,
+# PS_RETRY seconds apart, and why the last one failed is kept, for the stop's words.
+PS_READS = 3
+PS_RETRY = 0.1
+ps_failed = ''
+
+
 def process_table():
-    """[(pid, ppid, pgid, stat)] read once with ps (POSIX keywords, as macOS needs), or None when it cannot be read."""
-    try:
-        done = subprocess.run(['ps', '-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'stat='],
-                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                              env=dict(os.environ, LC_ALL='C'), timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if done.returncode != 0:
-        return None
-    rows = []
-    for line in done.stdout.decode('ascii', 'replace').splitlines():
-        parts = line.split()
-        if len(parts) < 4:
-            continue
+    """[(pid, ppid, pgid, stat)] read with ps (POSIX keywords, as macOS needs), or None when it cannot be read; then
+    ps_failed says why."""
+    global ps_failed
+    for n in range(PS_READS):
+        if n:
+            time.sleep(PS_RETRY)
         try:
-            rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3]))
-        except ValueError:
+            done = subprocess.run(['ps', '-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'stat='],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  env=dict(os.environ, LC_ALL='C'), timeout=5)
+        except (OSError, subprocess.SubprocessError) as e:
+            ps_failed = '%s: %s' % (type(e).__name__, e)
             continue
-    return rows or None
+        if done.returncode != 0:
+            words = done.stderr.decode('utf-8', 'replace').strip().splitlines()
+            ps_failed = 'ps exited %d%s' % (done.returncode, (': %s' % words[-1][:160]) if words else '')
+            continue
+        rows = []
+        for line in done.stdout.decode('ascii', 'replace').splitlines():
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            try:
+                rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3]))
+            except ValueError:
+                continue
+        if rows:
+            ps_failed = ''
+            return rows
+        ps_failed = 'ps listed no process'
+    return None
 
 
 def tree_groups(root, own):
@@ -453,7 +473,7 @@ class Run:
         self.said = '%s: stopping %s (process group %d)%s with %s%s' % (
             why, os.path.basename(self.cmd0), self.child.pid,
             (' and the %d process group%s it started (%s)' % (len(others), '' if len(others) == 1 else 's', ', '.join(str(g) for g in others))) if others else '',
-            signame(sig), '' if listed else '; the process table (ps) could not be read, so only its own group is signalled')
+            signame(sig), '' if listed else '; the process table (ps) could not be read (%s, in %d reads), so only its own group is signalled' % (ps_failed or 'no reason given', PS_READS))
         say(self.said)
         self.signals = [signame(sig)]
         self.groups = sorted(groups)

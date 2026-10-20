@@ -231,6 +231,7 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   const ws = new Workspace({
     glyphs,
     env: process.env,
+    surface: 'act', // R7 (H149's record field): the active-project record says `timmy act` chose a project
     onPath: (cmd) => realOnPath(cmd, process.env),
     notify: (line) => out(plain(line)),
     // Nothing is opened for a person here: a page is named instead.

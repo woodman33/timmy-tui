@@ -1,0 +1,45 @@
+                  ╭──────╮┏━━━━━━━━━━━━━━━┓╭───────────╮╭────────╮╭───────────╮╭─────────────╮╭──────────────╮╭──────────────╮╭─────────────╮╭─────────────────╮
+TIMMY · tray1     │1 Home│┃2 Chat & Intent┃│3 Workflows││4 Studio││5 VoxVision││6 3D & Motion││7 Control Room││8 Fleet & Clef││9 Tools & MCP││0 Logs & Receipts│
+                  ╰──────╯┗━━━━━━━━━━━━━━━┛╰───────────╯╰────────╯╰───────────╯╰─────────────╯╰──────────────╯╰──────────────╯╰─────────────╯╰─────────────────╯
+╭─ Workflow actions ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 2 Chat & Intent ╮
+│  [1 Send a message]  [▶ 2 Choose the local model (from what Ollama lists)]  [3 Stop the turn]  [4 Show it in the companion]                                  │
+│ this computer · chat: local · no model chosen                                                                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+╭─ Pipeline · intent → predict → sandbox → receipt ────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [intent · /run APPROVAL.md tidy] → [predict · sealed before it ran…] → [sandbox · none recorded: upmd ran…] → [✓ receipt · sealed 1204a00d · verified here]  │
+│ newest run APPROVAL.md › tidy · operation oc6e9fe3a · from its records: the operation's request, its predict receipt, its job, its receipt (verified here)   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ◆ tray1 / Chat · conversation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭─ Event log · newest at the top ─────────────────────────────────────────────────╮
+┃ Route    chat: local · no model chosen                                    ┃│ RUNNING NOW (1)                                                                 │
+┃ Ready    not ready: choose the local model (from what Ollama lists)       ┃│   ▶ running j90d179  FAKE job (test): sleep 300 · 8.1 s                         │
+┃          (workflow action 2, row 2)                                       ┃│                                                                                 │
+┃   Cause: the setup recorded none for Ollama at 127.0.0.1:11434.           ┃│ EVENT LOG, NEWEST AT THE TOP                                                    │
+┃                                                                           ┃│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                   │
+┃ THIS PROJECT'S CONVERSATION                                               ┃│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                  │
+┃   No conversation is kept in this project yet (.sessions).                ┃│ 20:47:39 [job] j01b6ca tidy started                                             │
+┃                                                                           ┃│ 20:47:39 [job] j01b6ca started: APPROVAL.md › tidy                              │
+┃ COMPOSER                                                                  ┃│ 20:47:33 [job] j90d179 started: FAKE job (test): sleep 300                      │
+┃ [Enter] Type a message (sent through the chat session, on the route…      ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┃                                                                           ┃│                                                                                 │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰─────────────────────────────────────────────────────────────────────────────────╯
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠼ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4…   [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                                                                │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                                                               │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                                                          │
+│ 20:47:39 [job] j01b6ca started: APPROVAL.md › tidy                                                                                                           │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt 1204a00d · /op oc6e9fe3a                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

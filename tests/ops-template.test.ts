@@ -90,6 +90,20 @@ function box(prefix: string): Box {
   return { base, root, bin, env, calls };
 }
 const callsOf = (b: Box): string[][] => (fs.existsSync(b.calls) ? fs.readFileSync(b.calls, 'utf8').trim().split('\n').filter(Boolean).map((l) => l.split('|')) : []);
+/**
+ * R5 lead (CI at a77d80d: one /run here timed out at 240 s, once, its cause not shown; 15 to 25 s elsewhere): a run's end,
+ * waited for under a deadline that says, when it passes, where the run was: its state, its steps and its log's last lines.
+ */
+async function ended(ws: ReturnType<typeof replOf>['ws'], job: string, ms = 200_000) {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const rec = ws.jobs.get?.(job) as { state?: string; steps?: Array<{ name: string; state: string }> } | undefined;
+      reject(new Error(`job ${job} did not end in ${ms / 1000} s: state ${rec?.state ?? 'unknown'}; steps ${JSON.stringify(rec?.steps?.map((x) => [x.name, x.state]) ?? null)}; its log's last lines:\n${ws.jobs.tail(job, 40).join('\n')}`));
+    }, ms);
+  });
+  try { return await Promise.race([ws.jobs.done(job), late]); } finally { clearTimeout(timer); }
+}
 const runBlock = (b: Box, name: string, operation?: string) => runAsync('sh', ['-c', block(name)], { cwd: b.root, env: { ...b.env, ...(operation ? { TIMMY_OPERATION: operation } : {}) }, timeout: 120_000 });
 
 describe('the tray-workflow starter', () => {
@@ -253,7 +267,7 @@ describe('a /run of the starter through the test-double upmd', () => {
     const started = text(await ws.operate('/run WORKFLOW.md result', 'repl', () => ws.run('WORKFLOW.md result')));
     const job = /Running\s+(j[0-9a-f]{6})/.exec(started)?.[1];
     expect(job, started).toBeDefined();
-    const done = await ws.jobs.done(job!);
+    const done = await ended(ws, job!);
     expect(done.state, ws.jobs.tail(job!, 200).join('\n')).toBe('completed');
     const op = ws.ops.latest!.id;
     expect(op).toMatch(OPERATION_ID);
@@ -290,7 +304,7 @@ describe('a /run of the starter through the test-double upmd', () => {
     const started = text(await ws.operate('/run WORKFLOW.md lesson', 'repl', () => ws.run('WORKFLOW.md lesson')));
     const job = /Running\s+(j[0-9a-f]{6})/.exec(started)?.[1];
     expect(job, started).toBeDefined();
-    const done = await ws.jobs.done(job!);
+    const done = await ended(ws, job!);
     const log = ws.jobs.tail(job!, 400).join('\n');
     expect(done.state, log).toBe('completed');
     const op = ws.ops.latest!.id;
@@ -342,7 +356,7 @@ describe('a /run of the starter through the test-double upmd', () => {
     const started = text(await ws.operate('/run WORKFLOW.md lesson', 'repl', () => ws.run('WORKFLOW.md lesson')));
     const job = /Running\s+(j[0-9a-f]{6})/.exec(started)?.[1];
     expect(job, started).toBeDefined();
-    const done = await ws.jobs.done(job!);
+    const done = await ended(ws, job!);
     const log = ws.jobs.tail(job!, 400).join('\n');
     expect(done.state, log).toBe('completed');
     const h = ws.ops.latest!;

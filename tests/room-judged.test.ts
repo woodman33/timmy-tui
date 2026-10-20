@@ -278,7 +278,7 @@ describe('item 3: the owner\'s list for every kind of run', () => {
     expect(differs).toMatchObject({ tone: 'failed', state: 'ok (judged by its result file); readback differs: FAKE: TimmyCube_0_0 is 2 cm higher' });
     expect(differs.handoff!.map((h) => `${h.name}: ${h.state}${h.job ? ` ${h.job}` : ''}${h.here ? ` (${h.here})` : ''}`)).toEqual(['first pass: ok j0e0173', 'readback: differs j0f0173 (its verdict decides the run)']);
     const stop = all.find((r) => r.id === RUN_STOPPED)!;
-    expect(stop).toMatchObject({ tone: 'stopped', state: 'stopped: stopped; FAKE' });
+    expect(stop).toMatchObject({ tone: 'stopped', state: 'cancelled: stopped; FAKE' }); // R6 (H140): its job's word, then its verdict's
     expect(stop.handoff!.map((h) => `${h.name}: ${h.state}`)).toEqual(['first pass: stopped', 'readback: not run']);
   });
 

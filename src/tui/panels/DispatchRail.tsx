@@ -100,12 +100,13 @@ export function DispatchRail({ width }: { width: number }) {
       }
       case 'c': {
         const x = planId ? pauseOrCancelLane(planId, 'cancel') : null;
-        setMsg(x?.ok ? 'cancelled · receipt sealed' : 'nothing to cancel');
+        // R9 lead (H161's K): the answer says what became of the dispatch's temporary copy, in dispatch.ts's own words
+        setMsg(x?.ok ? `cancelled · receipt sealed${x.copy ? ` · ${x.copy.words}` : ''}` : 'nothing to cancel');
         break;
       }
       case 'j': {
         const c = planId ? collectRun(planId) : null;
-        setMsg(c?.ok ? `collected · over_wall=${c.over_wall} · receipt ${String(c.receipt).slice(0, 12)}…` : 'nothing to collect');
+        setMsg(c?.ok ? `collected · over_wall=${c.over_wall} · receipt ${String(c.receipt).slice(0, 12)}…${c.copy ? ` · ${c.copy.words}` : ''}` : 'nothing to collect');
         break;
       }
     }

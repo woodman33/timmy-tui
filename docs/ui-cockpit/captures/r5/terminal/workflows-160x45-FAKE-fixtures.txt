@@ -1,0 +1,45 @@
+                  ╭──────╮╭───────────────╮┏━━━━━━━━━━━┓╭────────╮╭───────────╮╭─────────────╮╭──────────────╮╭──────────────╮╭─────────────╮╭─────────────────╮
+TIMMY · tray1     │1 Home││2 Chat & Intent│┃3 Workflows┃│4 Studio││5 VoxVision││6 3D & Motion││7 Control Room││8 Fleet & Clef││9 Tools & MCP││0 Logs & Receipts│
+                  ╰──────╯╰───────────────╯┗━━━━━━━━━━━┛╰────────╯╰───────────╯╰─────────────╯╰──────────────╯╰──────────────╯╰─────────────╯╰─────────────────╯
+╭─ Workflow actions ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 3 Workflows ╮
+│  [1 Run APPROVAL.md › tidy]  [2 Review the last run]  [3 Stop current]  [4 Receipts of this project]                                                         │
+│ this computer · chat: local · no model chosen                                                                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────── run: 1 running  [x] Stop current: j90d179 FAKE job (test): sleep 300 ─╯
+┏━ ◆ tray1 / Workflows · plan and run ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ PLAN · upmd found                                      │ SANDBOX · where it runs                                 │ ╭─ tidy.receipt ─────────────── j01b6ca ╮ ┃
+┃ APPROVAL.md · 1 block · Approval: see a NEEDS YOU box  │ this computer, in the project folder (upmd)             │ │ id     1204a00d                       │ ┃
+┃ ▸  1 tidy    ⚠ ✓ completed exit 0 · <0.1 s             │ runner      upmd on a pty (workers/upmd/pty_run.py)     │ │ kind   workflow                       │ ┃
+┃ WORKFLOW.md · 4 blocks                                 │ environment linux 6.18.44-fc-v139 x64                   │ │ sealed 20:47:39                       │ ┃
+┃    1 change  · not run yet                             │ STEPS · j01b6ca ✓ completed                             │ │ ✓ verified                            │ ┃
+┃    2 inspect · not run yet                             │ APPROVAL.md › tidy · 0.4 s                              │ │ its link, body, signature: read now   │ ┃
+┃    3 result  · not run yet                             │ ✓ tidy completed · exit 0 · <0.1 s                      │ ╰───────────────────────────────────────╯ ┃
+┃    4 lesson  · not run yet                             │ OUTPUT · its log's last lines                           │                                           ┃
+┃                                                        │ pty_run: fake-upmd.mjs runs as process 21451, the…      │ CHECKS · predicted vs actual              ┃
+┃ ╭─ tidy.intent ───────────────────────────── block 1 ╮ │  [1/1] Bash                                             │ ✓ block tidy matches                      ┃
+┃ │ document  APPROVAL.md                              │ │   mkdir -p scratch && touch scratch/x && rm scratch/x   │   exits 0 → exit 0                        ┃
+┃ │ command   mkdir -p scratch && touch scratch/x &&   │ │ ==> tidy [block 1]                                      │                                           ┃
+┃ │           rm scratch/x                             │ │   ✔ exited with code 0                                  │ VERDICT                                   ┃
+┃ │ needs     nothing                                  │ │                                                         │ ✓ completed                               ┃
+┃ │ ⚠ needs you before it runs                         │ │ ┏━ RUN APPROVAL.md › tidy ━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │ succeeded: job j01b6ca completed          ┃
+┃ ╰────────────────────────────────────────────────────╯ │ ┃ [Enter] Run it here                                 ┃ │                                           ┃
+┃ ╭─ tidy.predict ──────────────────────────── j01b6ca ╮ │ ┃ the REPL's own /run, one job; it asks first         ┃ │ timmy op oc6e9fe3a                        ┃
+┃ │ frozen before the run · sealed 20:47:39            │ │ ┃ runs  tidy                                          ┃ │ the whole run detail, in a shell          ┃
+┃ │ /run APPROVAL.md tidy: tidy, each block exits 0;   │ │ ┃ ⚠ its NEEDS YOU box asks first                      ┃ │                                           ┃
+┃ │ asked first in a NEEDS YOU box: tidy               │ │ ┃ REPL  /run APPROVAL.md tidy                         ┃ │                                           ┃
+┃ │ receipt   f70035dd                                 │ │ ┃ shell timmy md APPROVAL.md tidy                     ┃ │                                           ┃
+┃ ╰────────────────────────────────────────────────────╯ │ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │                                           ┃
+┃                                                        │ A browser or sandbox preview is drawn only by the       │                                           ┃
+┃                                                        │ companion (c); here, the run in words.                  │                                           ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┃                                                                                                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─ Activity & log ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▸ Activity  ⠦ 1 running · 0 waiting on you · last: 20:47:39 ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4…   [a] expand │
+│ 20:47:39 [job] j01b6ca completed: 1 of 1 step                                                                                                                │
+│ 20:47:39 [job] j01b6ca tidy completed (exit 0)                                                                                                               │
+│ 20:47:39 [job] j01b6ca tidy started                                                                                                                          │
+│ 20:47:39 [job] j01b6ca started: APPROVAL.md › tidy                                                                                                           │
+│ ✓ j01b6ca completed  operation oc6e9fe3a · APPROVAL.md › tidy · 1 of 1 steps · 0.4 s · prediction met · receipt 1204a00d · /op oc6e9fe3a                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

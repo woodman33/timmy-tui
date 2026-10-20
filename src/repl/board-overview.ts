@@ -20,27 +20,32 @@
  * (from Needs you, or the map) goes to its detail, which the browser opens. The map's second band: remote jobs and orders,
  * and the computers and decisions they depend on. Times are absolute here: "how long ago" changes as the clock moves, so it
  * is in the terminal's views and the JSON only (overviewShape leaves `ago` out, as it leaves `as_of`).
+ *
+ * R4 (lead): a Fleets card after Costs, only in a project with a fleet plan (`timmy fleet`): each plan a <details> with its
+ * backend (a simulation says so), workers and isolation in honest words, the counts kept apart, the workers to read first,
+ * its results and record, and its commands to copy. Those commands and what waits on a person are drawn in the attention
+ * colour (the next action), never green: a fleet's outcome is not a pass, and nothing it delivered is verified.
  */
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 import {
   MAP_LABEL, OVERVIEW_SECTIONS,
-  type BoardAnchor, type CostsSection, type DevicesSection, type HostingSection, type Life, type Overview, type OverviewSectionId,
-  type OverviewSource, type SectionBase, type Tone,
+  type BoardAnchor, type CostsSection, type DevicesSection, type FleetSection, type HostingSection, type Life, type Overview, type OverviewPartId,
+  type OverviewSectionId, type OverviewSource, type SectionBase, type Tone,
 } from '../overview/model.js';
 
 /** The board section an anchor names, in words. */
 const ANCHOR_WORDS: Readonly<Record<BoardAnchor, string>> = {
   room: 'Control Room', 'room-decisions': 'Waiting on you', 'room-running': 'Running now', 'room-tools': 'Tools and connections',
   workflows: 'Workflows', jobs: 'Jobs', flows: 'Flows', voxvision: 'VoxVision', review: 'Results and review', results: 'Results', memory: 'Memory', canvas: 'Canvas',
-  'ov-devices': 'Devices', 'ov-hosting': 'Hosting', 'ov-costs': 'Costs',
+  'ov-devices': 'Devices', 'ov-hosting': 'Hosting', 'ov-costs': 'Costs', 'ov-fleet': 'Fleets',
 };
-/** Where each section's "see all" goes on the board (Devices, Hosting and Costs hold their items themselves). */
-const SECTION_ANCHOR: Readonly<Partial<Record<OverviewSectionId, BoardAnchor>>> = {
+/** Where each section's "see all" goes on the board (Devices, Hosting, Costs and Fleets hold their items themselves). */
+const SECTION_ANCHOR: Readonly<Partial<Record<OverviewPartId, BoardAnchor>>> = {
   needs: 'room-decisions', agents: 'room', workflows: 'workflows', apps: 'review', spatial: 'voxvision', history: 'room', project: 'canvas',
 };
-/** R4 (H93): the cards as wide as the grid (their items open in place). */
-const WIDE: ReadonlySet<OverviewSectionId> = new Set(['devices', 'hosting']);
+/** R4 (H93): the cards as wide as the grid (their items open in place). R4 (lead): and Fleets. */
+const WIDE: ReadonlySet<OverviewPartId> = new Set(['devices', 'hosting', 'fleet']);
 const LIFE_WORD: Readonly<Record<Life, string>> = { running: 'running', left: 'left running', stale: 'stale', ended: 'ended', unknown: 'not proven' };
 /** How many items a card lists on the board (the section commands list them all). */
 const SHOWN = 4;
@@ -137,6 +142,28 @@ function costsHtml(s: CostsSection, k: Kit): string {
   const provider = `<p class="ov-line${p.known ? '' : ' ov-warn'}"><span class="ov-label">provider</span> ${esc(p.words)}${p.known && p.read_at ? ` <span class="ov-detail">${esc(`read ${stamp(p.read_at)}${p.old ? ', old' : ''}`)}</span>` : ''}</p>`;
   const customers = p.customers.map((c) => `<li${c.unknown_cost_orders ? ' class="ov-warn"' : ''}><span class="ov-text">${esc(`${c.customer} (${c.subscription})`)}</span> <span class="ov-detail">${esc(`${c.words} · limits: ${c.limits_words}`)}</span></li>`).join('');
   return `${model}${provider}${customers ? `<ul class="ov-items">${customers}${p.more ? `<li class="more">${esc(`and ${p.more} more customers: timmy cloud status lists them`)}</li>` : ''}</ul>` : ''}`;
+}
+
+const FLEET_NOTE = 'Running, stopping, reconciling and collecting are typed commands in Timmy (copy one, type it in a terminal in this project); the board has no button for them. Delivered is the runtime\'s word: nothing a fleet run delivers is verified by the run.';
+
+/** R4 (lead): the project's fleet plans, each opening its detail in place; commands in the attention colour, never green. */
+function fleetHtml(s: FleetSection, k: Kit): string {
+  const plans = s.items.map((f) => {
+    const summary = `<span class="ov-text">${esc(f.plan)}</span> <span class="ov-state${f.tone === 'attention' ? ' ov-warn' : f.tone === 'failed' ? ' ov-fail' : ''}">${esc(f.words.slice(f.plan.length + 1))}</span>${f.simulation ? ' <span class="ov-tag">simulation</span>' : ''}`;
+    const workers = f.worker_lines.length
+      ? `<dt>workers</dt><dd><ul class="ov-workers">${f.worker_lines.map((w) => `<li class="ov-w-${esc(w.phase)}">${esc(w.words)}</li>`).join('')}${f.workers_more ? `<li class="more">${esc(`and ${f.workers_more} more: timmy fleet status ${f.plan} lists them`)}</li>` : ''}</ul></dd>`
+      : '';
+    const body = `<dl class="ov-dl">${row('backend', `${f.backend} (${f.provider})${f.simulation ? ' · a simulation: no compute, no harness, no model' : ''}`)}`
+      + `${row('workers', `${f.workers}, at most ${f.concurrency} at once · ${f.isolation_words}`)}${row('runs', `${f.harness} · ${f.model}`)}`
+      + `${row('counts', f.counts_line)}${row('revision', `${f.revision} (the revision it was planned at)`)}${row('spend', f.spend_words)}${workers}`
+      + `${f.results ? row('results', f.results) : ''}${f.route ? row('route', `${f.route.words.replace(/^route: /, '')} (decision ${f.route.decision})`, 'ov-warn') : ''}${f.needs.map((n) => row('needs', n, 'ov-warn')).join('')}`
+      + `${row('record', `${f.source.record ?? ''} · operation ${f.operation} · planned ${stamp(f.created_at)}, read ${stamp(f.updated_at)}`)}</dl>`
+      + `<div class="cmds ov-next">${f.commands.map((c) => k.cmd(c)).join('')}</div><p class="ov-note">${esc(FLEET_NOTE)}</p>`;
+    return selectable(f.source.detail ?? `ov-fleet-${f.plan}`, `overview:fleet:${f.plan}`, summary, body, 'ov-fleet-plan');
+  }).join('');
+  const more = s.more ? `<p class="more">${esc(`and ${s.more} more plans: timmy fleet status lists them`)}</p>` : '';
+  const notes = s.notes.map((n) => `<p class="ov-note">${esc(n)}</p>`).join('');
+  return `${plans ? `<div class="ov-list">${plans}</div>` : ''}${more}${notes}`;
 }
 
 function itemsOf(o: Overview, id: OverviewSectionId, k: Kit, canvasLine: boolean): string {
@@ -262,10 +289,12 @@ export function overviewSection(o: Overview, k: Kit, base = '', opts: { canvasLi
   const waiting = o.needs.total;
   const canvasLine = opts.canvasLine === true; // the board's line about Timmy Canvas (#canvas), drawn only when the REPL checked it
   // R4 (H93): the details this board draws (each computer, remote job and order the cards list), for the links to them
-  drawnDetails = new Set([...o.devices.items, ...o.devices.jobs, ...o.hosting.items].flatMap((i) => (i.source.detail ? [i.source.detail] : [])));
+  drawnDetails = new Set([...o.devices.items, ...o.devices.jobs, ...o.hosting.items, ...(o.fleet?.items ?? [])].flatMap((i) => (i.source.detail ? [i.source.detail] : [])));
   // R4 (H99, r24 gap 11): the Needs card's list starts with its most urgent item, so its "first" line would say it twice
   const needsOnce = (): SectionBase => { const { urgent: _first, ...rest } = o.needs; return rest; };
-  const cards = OVERVIEW_SECTIONS.map((id) => sectionCard(id === 'needs' && o.needs.items.length && o.needs.urgent?.text === o.needs.items[0].title ? needsOnce() : o[id], itemsOf(o, id, k, canvasLine), k, k.live, canvasLine)).join('');
+  const card = (id: OverviewSectionId): string => sectionCard(id === 'needs' && o.needs.items.length && o.needs.urgent?.text === o.needs.items[0].title ? needsOnce() : o[id], itemsOf(o, id, k, canvasLine), k, k.live, canvasLine);
+  // R4 (lead): the Fleets card after Costs, only when the project has a fleet plan
+  const cards = OVERVIEW_SECTIONS.map((id) => `${id === 'project' && o.fleet ? sectionCard(o.fleet, fleetHtml(o.fleet, k), k, k.live, canvasLine) : ''}${card(id)}`).join('');
   const map = `<figure class="ov-map"><figcaption><strong>${esc(MAP_LABEL)}</strong> ${esc(o.map.words)}</figcaption>${o.map.columns.length ? mapSvg(o) : `<p class="ov-unknown">${esc(o.map.words)}</p>`}</figure>`;
   const when = k.live ? 'read with this board\'s state (the line above says when)' : `as of ${stamp(o.as_of)}`;
   return {
@@ -358,4 +387,12 @@ a.ov-go { color: ${HOMEBREW.link}; }
 .ov-line .ov-label { display: inline-block; min-width: 72px; color: ${HOMEBREW.textSecondary}; }
 .ov-map-svg .ov-band { stroke: ${HOMEBREW.line}; stroke-width: 1; stroke-dasharray: 4 4; }
 .ov-map-svg .ov-k-device rect, .ov-map-svg .ov-k-decision rect { stroke-dasharray: 3 2; }
+.card.ov-fleet .cmd, .card.ov-fleet .ov-next .cmd { color: ${HOMEBREW.attention}; }
+.card.ov-fleet .cmd:hover, .card.ov-fleet .cmd:focus-visible { border-color: ${HOMEBREW.attention}; }
+.card.ov-fleet .ov-sel > summary:focus-visible { outline-color: ${HOMEBREW.attention}; }
+.ov-fail, .ov-state.ov-fail { color: ${HOMEBREW.failure}; }
+.ov-workers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ov-workers li.ov-w-unknown { color: ${HOMEBREW.attention}; }
+.ov-workers li.ov-w-failed, .ov-workers li.ov-w-expired, .ov-workers li.ov-w-interrupted, .ov-workers li.ov-w-refused { color: ${HOMEBREW.failure}; }
+.ov-workers li.more { color: ${HOMEBREW.textSecondary}; }
 `;

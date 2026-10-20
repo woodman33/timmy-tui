@@ -6,6 +6,7 @@
  * its job) claims them, so they are counted once, with it. Nothing is guessed: a record that cannot be read is
  * "unknown", which an operation counts as not succeeded.
  */
+import { JOB_CANCELLED } from '../contracts/stop-words.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
@@ -111,7 +112,8 @@ export function jobOutcome(j: JobRecord | undefined): RunOutcome {
     return { state: 'no change', words: `stopped at ${named}, which made no change (${upmdCounted(still.at.code)}${last ? ', and its record shows no block run after it' : ''})${why}`, current: false };
   }
   if (j.state === 'completed') return { state: 'succeeded', words: 'completed' };
-  if (j.state === 'cancelled') return { state: 'stopped', words: 'stopped' };
+  // R7 lead (H148's N5): the job's own word (src/contracts/stop-words.ts: a job a cancel ended is cancelled)
+  if (j.state === 'cancelled') return { state: 'stopped', words: JOB_CANCELLED };
   if (j.state === 'failed') return { state: 'failed', words: `failed${j.error ? `: ${j.error.slice(0, 160)}` : ''}` };
   return { state: 'running', words: j.state };
 }
@@ -150,7 +152,7 @@ export function runOutcome(run: OperationRun, root: string, jobs: { get(id: stri
       const readback = (last as { readback?: { verdict?: unknown } } | undefined)?.readback?.verdict;
       if (last) return { state: last.outcome === 'ok' ? (readback === 'differs' ? 'differs' : 'succeeded') : 'failed', words: `${last.outcome} (judged by its result file)${readback === 'differs' ? '; Timmy\'s own reading of its export differs' : ''}`, claims };
       const j = job ? jobs.get(job) : undefined;
-      if (j?.state === 'cancelled') return { state: 'stopped', words: 'stopped before it was judged', claims };
+      if (j?.state === 'cancelled') return { state: 'stopped', words: `${JOB_CANCELLED} before it was judged`, claims };
       return { state: 'unknown', words: 'not judged', claims };
     }
     case 'mcp': {
@@ -159,6 +161,29 @@ export function runOutcome(run: OperationRun, root: string, jobs: { get(id: stri
       const outcome = str(v?.outcome);
       if (!outcome) return { state: 'unknown', words: r.ok ? 'its record names no outcome' : `no record: ${r.error}` };
       return { state: outcome === 'answered' && v?.isError !== true ? 'succeeded' : outcome === 'stopped' ? 'stopped' : 'failed', words: outcome };
+    }
+    case 'fleet': {
+      // R4 lead: a fleet plan's run, by its own state file (src/fleet/ledger.ts). Delivered is not verified.
+      const r = readProjectRecord(root, `.timmy/fleet/${run.id}/state.json`);
+      const v = r.ok ? obj(r.value) : undefined;
+      if (!v) return { state: 'unknown', words: r.ok ? 'its state is not a record' : `no record: ${r.error}` };
+      const workers = (Array.isArray(v.workers) ? v.workers : []).map((w) => obj(w)).filter((w): w is Obj => !!w);
+      const n = (...ps: string[]) => workers.filter((w) => ps.includes(String(w.phase))).length;
+      const total = workers.length;
+      const parts = [`${n('delivered')} of ${total} delivered (not verified)`];
+      if (n('failed', 'expired')) parts.push(`${n('failed', 'expired')} failed`);
+      if (n('unknown')) parts.push(`${n('unknown')} unknown`);
+      if (n('cancelled', 'interrupted')) parts.push(`${n('cancelled', 'interrupted')} cancelled`);
+      if (n('refused')) parts.push(`${n('refused')} refused`);
+      const words = parts.join(', ');
+      const status = str(v.status);
+      if (status === 'planned') return { state: 'unknown', words: 'planned; not run' };
+      if (status === 'running') return { state: 'running', words };
+      if (total && n('refused') === total) return { state: 'refused', words };
+      if (status === 'stopped') return { state: 'stopped', words };
+      if (n('unknown')) return { state: 'unknown', words };
+      if (total && n('delivered') === total) return { state: 'succeeded', words };
+      return { state: 'failed', words };
     }
     default: return { state: 'unknown', words: 'a run Timmy does not know' };
   }

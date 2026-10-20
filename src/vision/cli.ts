@@ -40,6 +40,13 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
   if (sub === 'doctor' || sub === 'stream') {
     const localPython = resolve('.timmy/venv-vision/bin/python');
     const script = sub === 'stream' ? 'scripts/vision-stream.py' : 'scripts/vision-doctor.py';
+    // R6 (lead, H146's finding): the script is named in package.json's files but is in neither the checkout nor the package;
+    // say that, instead of letting python3 fail on a missing file.
+    if (!existsSync(visionAsset(script))) {
+      console.error(`timmy vision ${sub} cannot run in this build: its script (${script}) is not included. `
+        + '`timmy vision status` says what this build has; VoxVision\'s /observe, /detect and /measure do not need it.');
+      process.exitCode = 2; return;
+    }
     const r = spawnSync(process.env.TIMMY_VISION_PYTHON || (existsSync(localPython) ? localPython : 'python3'), [visionAsset(script), ...args.slice(1)], { stdio: 'inherit' });
     process.exitCode = r.status ?? 1; return;
   }

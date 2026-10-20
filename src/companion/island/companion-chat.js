@@ -28,6 +28,8 @@
  * setup's choice; src/companion/chat-route.ts): with the local model, its answer streams from this computer's Ollama with no
  * tools, and the chip beside Send says so ("local <model> · Ollama · no tools here"); with OpenRouter and a key, as before;
  * with neither, Send stays off and the words above it say why and where chat happens. ✨ Try it asks no model either way.
+ * R5 (H132): under the free-only policy, a model not known to be free leaves Send off in the policy's words; one that is free
+ * is said to be (route.freeOnly).
  * What the local turn says beside its answer (a cloud-backed model, a cut answer) is shown under it, and its cost as the
  * route reports it (none on this computer's Ollama, otherwise unknown): never an invented number.
  */
@@ -276,7 +278,7 @@ function App() {
     if (!text || streaming) return;
     const page = window.timmyCompanion;
     if (!page || !page.ready()) {
-      setError('This page has no token from Timmy, so it asks nothing: open the companion from `timmy watch` (q on HOME).');
+      setError('This page has no token from Timmy, so it asks nothing: open the companion from Timmy, with the Workbench\'s c (`timmy workbench`) or q on HOME in `timmy watch`.');
       return;
     }
     // R4 (H104, second part): only on a route the companion named; with none, its words, and nothing is sent
@@ -365,11 +367,11 @@ function App() {
     : route.kind === 'local'
       ? ['Send a message to stream ', route.model, '’s answer from Ollama through Streamdown (no tools here; nothing goes to OpenRouter),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
       : route.kind === 'openrouter'
-        ? ['Send a message to stream ', MODEL, ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
+        ? ['Send a message to stream ', MODEL, route.freeOnly ? ' through Streamdown (through OpenRouter, with this computer’s key; free-only is on, and this model is free),' : ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
         : ['Send is off here (why: under the messages).', h('br', { key: 'b' }), '✨ Try it streams this page’s own sample (no model is asked).'];
   const placeholder = !route ? 'Asking the companion which route the chat takes…'
     : route.kind === 'local' ? 'Message ' + route.model + ' … (Ollama, no tools here)'
-      : route.kind === 'openrouter' ? 'Message ' + MODEL + ' … (streams back as SSE; spends credits)'
+      : route.kind === 'openrouter' ? 'Message ' + MODEL + (route.freeOnly ? ' … (streams back as SSE; free-only: free)' : ' … (streams back as SSE; spends credits)')
         : 'Send is off: see why above';
 
   return h('div', { className: 'sd-app' },

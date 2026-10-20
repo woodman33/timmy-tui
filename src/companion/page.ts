@@ -22,9 +22,21 @@
  * R4 (H97): the files of H92's page that H95's replaced and no page asked for any more (its chat and markdown scripts,
  * src/companion/client/chat.js and markdown.js, and the routes /timmy-theme.css, /fonts/<name> and /vendor/marked.esm.js)
  * are no longer shipped or served. Timmy Canvas keeps its own /timmy-theme.css and /fonts/<name> (src/studio/server.ts).
+ *
+ * R5 (H132, the operator's palette, DESIGN.md §10 B10): the page is drawn in Timmy's shared look again, so /timmy-theme.css
+ * (src/theme/tokens.ts themeCss: the --timmy-* variables and Monaspace Argon's faces) and the four Monaspace Argon files
+ * those faces name (by exact name, from the @fontsource/monaspace-argon package, OFL-1.1, unmodified) are served here, as
+ * Timmy Canvas serves its own. The files are at /web/fonts/<name>, beside the page's other font files (the page's files are
+ * its own and /web/'s; a page without its token asks for nothing else), answered before the built web code's own files.
+ * The page's sheet (companion.css) uses only those variables. Outfit, Inter and Fira Code (b69ab12's look) are no longer
+ * named by the page. /chat.js, /markdown.js, /vendor/marked.esm.js and /fonts/<name> stay gone.
  */
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import type { NextFunction, Request, Response } from 'express';
 import type express from 'express';
+import { FONT_FILES, themeCss } from '../theme/tokens.js';
 import { failRequest } from '../utils/server-failure.js';
 import { sendWebFile } from './web-assets.js';
 
@@ -112,12 +124,15 @@ const escHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&am
  * colour on the frame's ground, Inter), as the page around it. R4 (H104, r25's D11): status 200: the words are the page
  * (the npm package never ships Slate 3D's bundle, so this is what an installed companion's SLATE 3D tab shows), and a 404
  * made the browser log "Failed to load resource … 404" in the companion page's console each time the tab was opened.
+ * R5 (H132): in Timmy's shared look (the theme's text on the canvas, in Monaspace Argon).
  */
 export function sendSlateAbsent(res: Response, words: string): void {
   if (res.headersSent) { res.destroy(); return; }
   safetyHeaders(res, SLATE_ABSENT_POLICY, 'SAMEORIGIN');
   res.status(200).set('Cache-Control', 'no-store').type('text/html; charset=utf-8').send([
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Slate 3D</title>',
+    // R5 (H132): Timmy's shared look first (the page's sheet uses its variables only)
+    `<link rel="stylesheet" href="${THEME_PATH}">`,
     '<link rel="stylesheet" href="/companion.css"></head>',
     `<body class="slate-absent"><p>${escHtml(words)}</p></body></html>`,
     '',
@@ -132,3 +147,41 @@ export function mountWebAssets(app: express.Application, webDir?: string): void 
 }
 
 export const FONT_ABSENT = 'No such font here: the page uses this computer\'s own monospace font instead.';
+
+/** R5 (H132): the path of the theme's style sheet (the variables and the font faces), as the page links it. */
+export const THEME_PATH = '/timmy-theme.css';
+/** R5 (H132): where the theme's font faces find their files (themeCss's fontPath), beside the page's other web files. */
+export const THEME_FONT_PATH = '/web/fonts/';
+
+/** R5 (H132): Monaspace Argon's files, from its package (a runtime dependency); null when it is not installed. */
+export function themeFontDir(): string | null {
+  try {
+    return join(dirname(createRequire(import.meta.url).resolve('@fontsource/monaspace-argon/package.json')), 'files');
+  } catch {
+    return null;
+  }
+}
+
+/** The only font files the page's theme names, by exact name (src/theme/tokens.ts FONT_FILES). */
+const THEME_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
+
+/**
+ * R5 (H132): Timmy's shared look for the page: the theme's sheet (no project content, so no token) and Monaspace Argon's
+ * files by exact name. Mounted before the built web code (mountWebAssets): any other name under /web/fonts/, or a Monaspace
+ * file the package does not have here, goes on to it, which answers its own files or a 404 in words (no path of this
+ * computer); the page then falls back to this computer's own monospace font (the theme's stack).
+ */
+export function mountTheme(app: express.Application): void {
+  const css = themeCss(THEME_FONT_PATH);
+  app.get(THEME_PATH, (_req, res) => {
+    res.set('Cache-Control', 'no-store').type('text/css; charset=utf-8').send(css);
+  });
+  app.get(`${THEME_FONT_PATH}:file`, (req, res, next) => {
+    const file = String(req.params.file);
+    const dir = THEME_FONTS.has(file) ? themeFontDir() : null;
+    if (!dir || !existsSync(join(dir, file))) { next(); return; }
+    res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(join(dir, file), (err?: Error) => {
+      if (err) failRequest(res, 404, FONT_ABSENT, 'text');
+    });
+  });
+}
