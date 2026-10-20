@@ -11,6 +11,7 @@ import type { Decision as WaitDecision, DecisionsView } from '../room/decisions.
 import type { ProjectCard, ProjectOperation } from '../studio/project-cards.js';
 import type { BoardTemplate } from '../studio/templates.js';
 import type { ControlData, LiveTurnRow } from './control-tab.js';
+import type { CreateItem } from './create-tab.js';
 import type { FleetData, FleetItem } from './fleet-tab.js';
 import type { LogsData, LogsItem } from './logs-tab.js';
 import type { WorkspaceId } from './nav.js';
@@ -207,7 +208,9 @@ export type Item =
   | LogsItem
   | FleetItem
   /** R5 (H137): a chat turn being answered, as its hold names it (tab 7's pane) */
-  | { kind: 'live-turn'; key: string; live: LiveTurnRow };
+  | { kind: 'live-turn'; key: string; live: LiveTurnRow }
+  /** R9 (H160): tab 6's meshes and recordings (src/workbench/create-tab.ts) */
+  | CreateItem;
 
 /** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one; `x`
  *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in
@@ -215,8 +218,9 @@ export type Item =
  *  (an arrow it does not name moves as in any list); `unfinished` (R7 lead): how many of its first rows are the Unfinished box
  *  (src/workbench/views.ts unfinishedBox), so the page opens at its top (src/workbench/screen.ts). R8 (H157): `pin`, how many
  *  of its first rows stay on the window's first rows while the rest scrolls (an Unfinished box cut to its title, where even
- *  that leaves the first item no room); `unfinishedRest`, the box leaves some of its words out, and Context shows them. */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number; pin?: number; unfinishedRest?: boolean }
+ *  that leaves the first item no room); `unfinishedRest`, the box leaves some of its words out, and Context shows them. R9
+ *  (H160): `firstWhole`, the box leaves room for the first item's every row, not only its first (tab 6's first mesh). */
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number; pin?: number; unfinishedRest?: boolean; firstWhole?: boolean }
 
 export type Overlay =
   | null

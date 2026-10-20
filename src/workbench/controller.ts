@@ -35,6 +35,7 @@ import { scrubHomes, tildePath } from '../utils/home-scrub.js';
 import { receiptsPath, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { isLiveRun } from '../workflows/upmd-live.js';
 import { readControl } from './control-tab.js';
+import { createCompanionHint } from './create-tab.js';
 import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
@@ -981,6 +982,9 @@ export class Controller {
     // R4 (H112): the selection is the item moved to (by its key, src/workbench/select.ts); the wheel's view is let go
     const items = this.itemsNow(region);
     const n = items?.length ?? this.itemsOf(region);
+    // R9 (H160): Context's tab with no rows to select (the Inspector: a mesh's measurements under the Unfinished words) scrolls
+    // by the keys, as a box with no rows does above
+    if (!n && region === 'right' && this.last?.regions.right) { this.wheel('right', this.last.regions.right, delta); return; }
     if (!n) return;
     // R5 (H137): a view that lays its items out as a grid names where ↑ and ↓ move from each (View items' `near`)
     const near = Math.abs(delta) === 1 ? items?.[this.ui.cursor[list] ?? 0]?.near : undefined;
@@ -1706,6 +1710,8 @@ export class Controller {
    * VoxVision panel opens).
    */
   private companionWhere(): string {
+    // R9 (H160): from tab 6, on the mesh selected there (mesh=<its path as hex>, which the page's tab 6 chooses)
+    if (this.ui.page === 'create') return createCompanionHint(this.selected());
     const sel = this.ui.page === 'voxvision' ? this.selected() : null;
     return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
   }
@@ -1909,9 +1915,13 @@ export class Controller {
         if (item.key.startsWith('nav:')) { this.selectWorkspace(item.action as WorkspaceId); this.ui.focus = 'center'; this.emit(); }
         return;
       default:
-        // the Inspector shows it (R5, H131: as a drawer where Context is not a column)
+        // the Inspector shows it (R5, H131: as a drawer where Context is not a column); R9 (H160): from its first row, wherever
+        // the keys or the wheel left Context (tab 6's mesh: its measurements under the Unfinished words, read on with ↓)
         this.ui.tab = 'inspector';
         if (!this.contextColumn()) this.ui.rightOpen = true;
+        this.ui.scroll['right:inspector'] = 0;
+        delete this.ui.wheel['right:inspector'];
+        delete this.ui.anchor['right:inspector'];
         this.emit();
     }
   }
