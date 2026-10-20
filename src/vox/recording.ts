@@ -5,8 +5,10 @@
  * application id and recording id (from the store-info messages, plain protobuf), and whether it ends with a footer.
  *
  * What it does not read: the chunks themselves are compressed Arrow data, which Timmy does not decode, so a recording's
- * entities, frames and time range are not known to Timmy: they are said to be unknown, with why, never guessed. Rerun's own
- * viewer shows them (`/vox view <record id>`, src/vox/layers.ts), where it is installed.
+ * entities, frames and time range are not known to this reader: they are said to be unknown, with why, never guessed. Rerun's
+ * own viewer shows them (`/vox view <record id>`, src/vox/layers.ts), where it is installed. R9 (H159): src/vox/rrd-cli.ts reads
+ * them through the installed Rerun CLI (rrd verify, stats and print, bounded, its version checked), and tab 6 shows that
+ * reading beside these facts; this reader's own words stay as they are.
  *
  * The layout read (Rerun 0.2x to 0.38's .rrd: its header, then messages of a little-endian u64 kind and a u64 length, kind 0
  * ending the stream; an optional footer ending in "RRF2FOOT"): a file that does not follow it is said to be unreadable, with

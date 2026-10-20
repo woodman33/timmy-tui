@@ -384,11 +384,15 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     // FAKE: the page's first list answer is the server's own with the demo tray marked as not measured yet (as a reading
-    // whose time budget ran out leaves a large mesh); every later answer is the server's, untouched
+    // whose time budget ran out leaves a large mesh); every later answer is the server's, untouched, and held until the test
+    // has read the pending state (R9 H159, the lead's race: it cannot be drawn over before it is read). Every list request is
+    // matched, the first too, which the page may ask before it knows its project (so without ?project=)
     let asked = 0;
-    await page.route('**/api/panel/create/meshes?**', async (route) => {
+    let release!: () => void;
+    const seen = new Promise<void>((r) => { release = r; });
+    await page.route((url) => url.pathname === '/api/panel/create/meshes', async (route) => {
       asked += 1;
-      if (asked > 1) { await route.continue(); return; }
+      if (asked > 1) { await seen; await route.continue(); return; }
       const res = await route.fetch();
       const body = await res.json() as { meshes: Array<Record<string, unknown>>; pending: number };
       body.meshes = body.meshes.map((m) => (m.path === 'refs/demo-tray.stl' ? { path: m.path, kind: 'stl', bytes: m.bytes, origin: { provenance: 'not recorded', words: 'not read yet' }, pending: true, why: "being measured: Timmy's own STL reader reads it next (the list is read again in a moment)" } : m));
@@ -402,11 +406,12 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       const sub = '.create-mesh[data-create-mesh="refs/demo-tray.stl"] .create-mesh-sub';
       await page.waitForSelector(sub, { timeout: 15_000 });
       expect(await text(page, sub)).toBe('STL · being measured… · 1.4 KB');
+      release();
       await page.waitForFunction((sel) => /28 triangles/.test(document.querySelector(sel)?.textContent ?? ''), sub, { timeout: 15_000 });
       expect(await text(page, sub)).toBe('STL · 28 triangles · 1.4 KB');
       expect(asked).toBeGreaterThanOrEqual(2);
       expect(errors).toEqual([]);
-    } finally { await page.close(); }
+    } finally { release(); await page.close(); }
   });
 
   it('at 800 × 600 the panel fits: nothing scrolls sideways, the view is drawn, every text 11 px or more', async () => {
@@ -561,6 +566,8 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
       'rec/c-kinds.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'garbage:print-vv' }) }),
       'rec/d-ranges.rrd': await readRrdWithCli(probeBytes, { env: env(), dataMax: 1024 }),
       'rec/e-edge.rrd': await readRrdWithCli(readFileSync(resolve('tests/fixtures/rrd-cli/edge.rrd')), { env: env() }),
+      // the repository's own recording, a recording store and a blueprint store: the FAKE holds its verify and stats only
+      'rec/f-stores.rrd': await readRrdWithCli(readFileSync(RRD), { env: env() }),
     };
     // every list answer, the page's first too (asked before the page knows its project, so without ?project=)
     const { page, errors } = await openAt('tab=create', undefined, (p) => p.route((url) => url.pathname === '/api/panel/create/meshes', async (route) => {
@@ -585,12 +592,21 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
       expect(await at('rec/c-kinds.rrd', '[data-rec-timeline="frame"]')).toBe(`frame · ${vv}`);
       expect(await at('rec/d-ranges.rrd', '[data-rec-timeline="t"]')).toBe('t · duration · range unknown: not read: rrd print -vvv prints the data itself, and is run here only on a recording of at most 1.0 KB (this one is 11.5 KB)');
       expect(await at('rec/e-edge.rrd', '[data-rec="entities"]')).toBe('/__properties · /a/b · /space\\ name/é · /text');
+      // one store in it: its timelines are its recording's (with a blueprint store too, the label says they are counted across stores)
+      expect(await page.$$eval('[data-create-recording="rec/e-edge.rrd"] dt', (ds) => ds.map((d) => (d.textContent ?? '').trim()).filter((t) => t.startsWith('timelines')))).toEqual(['timelines (4)']);
       expect(await page.$$eval('[data-create-recording="rec/e-edge.rrd"] [data-rec-timeline]', (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
         'frame · sequence · -5 to 9007199254740993',
         'log_time · timestamp · 2026-10-20T13:10:10.483927785 to 2026-10-20T13:10:10.487049994 (3.122209 ms)',
         't · duration · -1.25 s to 3725.000000001 s',
         'wall · timestamp · 1970-01-01T00:00:00 to 2026-10-20T12:53:45.500 (1792500825.5 s)',
       ]);
+      // two stores in one file: rrd stats counts their entities and timelines together, and the page says so
+      const stores = '[data-create-recording="rec/f-stores.rrd"]';
+      expect(await at('rec/f-stores.rrd', '[data-rec="cli"]')).toBe('read by rerun-cli 0.38.1: rrd stats');
+      expect(await at('rec/f-stores.rrd', '[data-rec="stores-cli"]')).toBe('recording timmy-context-evidence (7) · blueprint timmy-context-evidence (6)');
+      expect(await page.$$eval(`${stores} dt`, (ds) => ds.map((d) => (d.textContent ?? '').trim()).filter((t) => /^(entities|timelines|counted)/.test(t)))).toEqual(['entities (13)', 'counted together, across', "timelines (3, across the file's stores)"]);
+      const noCapture = 'unknown: rrd print -vv ended with exit 3: FAKE rerun (tests/fixtures/fake-rerun.mjs): no capture of `rerun rrd print -vv` for these bytes (sha256 8304232f8a69)';
+      expect(await at('rec/f-stores.rrd', '[data-rec-timeline="blueprint"]')).toBe(`blueprint · ${noCapture}`);
       await shot(page, 'h159-03-tab6-other-states', '[data-create-recording="rec/a-version.rrd"]');
       expect(errors).toEqual([]);
     } finally { await page.close(); }

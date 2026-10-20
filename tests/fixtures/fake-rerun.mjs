@@ -5,7 +5,8 @@
 // By default it REPLAYS outputs CAPTURED from the real rerun-cli 0.38.1 (tests/fixtures/rrd-cli/CAPTURED.json names each
 // capture with its version and its command), byte for byte, with the captured exit: `rerun --version`, and
 // `rerun rrd verify|stats|print -vv|print -vvv` with a recording on its standard input. It answers only for the bytes it has
-// captures of (their sha256: probe.rrd, probe-cut.rrd and edge.rrd); any other input or command: exit 3, and it says so.
+// captures of (their sha256: probe.rrd, probe-cut.rrd, edge.rrd, and verify and stats of the repository's own context.rrd);
+// any other input or command: exit 3, and it says so.
 //
 // FAKE_RERUN_MODE, one of these, each optionally for one command only (":verify", ":stats", ":print-vv", ":print-vvv"):
 //   replay        the default, as above

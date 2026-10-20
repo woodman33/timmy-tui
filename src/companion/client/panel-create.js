@@ -48,7 +48,7 @@
 
   // R9 (H159; H160's ask): the mesh an address names (…?mesh=<its path as lowercase hex of its UTF-8 bytes>, or in the #hash),
   // as the Workbench's c gives it: chosen on the first list when the list names it
-  const HINT = (() => { try { const m = /[?#&]mesh=((?:[0-9a-f]{2})+)(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(m[1].match(/../g).map((x) => parseInt(x, 16)))) : ''; } catch (e) { return ''; } })();
+  const HINT = (() => { try { const m = /[?#&]mesh=((?:[0-9a-f]{2}){1,1024})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(m[1].match(/../g).map((x) => parseInt(x, 16)))) : ''; } catch (e) { return ''; } })();
 
   const S = {
     project: null, root: null, ctx: null, revision: null, listAt: 0, list: null, listSig: '', asking: null,
@@ -229,7 +229,8 @@
       if (e.stores.length > 1) row('stores-cli', 'counted together, across', e.stores.map((s) => `${s.kind} ${s.application} (${s.entities})`).join(' · '));
     } else row('entities', 'entities', said(e));
     if (t.state !== 'read') { row('timelines', 'timelines', said(t)); return out; }
-    out.push(h('dt', null, `timelines (${t.list.length})`));
+    // rrd stats lists the timelines of every store in the file together (a blueprint's beside the recording's), as it does the entities
+    out.push(h('dt', null, `timelines (${t.list.length}${e.state === 'read' && e.stores.length > 1 ? ", across the file's stores" : ''})`));
     if (!t.list.length) out.push(h('dd', { 'data-rec': 'timelines' }, 'none: every entity is static'));
     for (const x of t.list) {
       const same = x.kind.state !== 'read' && x.range.state !== 'read' && x.kind.why === x.range.why;
