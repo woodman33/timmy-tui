@@ -30,7 +30,7 @@ import { glyphSet } from '../src/term/glyphs.js';
 import { visibleWidth } from '../src/term/width.js';
 import { Controller } from '../src/workbench/controller.js';
 import { DOCTRINE_15 } from '../src/native/stl-readback.js';
-import { CREATE_SENTENCE, createActions, createCompanionHint, createDetail, createItems, createTabView, type CreateItem } from '../src/workbench/create-tab.js';
+import { CREATE_SENTENCE, createActions, createCompanionHint, createDetail, createItems, createItemWords, createTabView, type CreateItem } from '../src/workbench/create-tab.js';
 import { glyphsFor, innerWidth, screenText } from '../src/workbench/frame.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
@@ -384,4 +384,56 @@ describe('tab 6 keeps its words as its meshes become items (R9 H160, step 3)', (
       expect(screen[fr.layout.top.y], at).toContain('6 3D & Motion · unfinished');
     }
   }, 60_000);
+});
+
+describe('a recording\'s reading through the Rerun CLI, once the rows carry it (R9 H160, to H159\'s posted shape)', () => {
+  // FAKE: readings in the shape H159 posted for RecordingRow.cli (src/vox/rrd-cli.ts RrdReading), written by this test; no
+  // Rerun CLI ran. A row without `cli` (this branch's rows) keeps the header reader's unknown, with why (the test above).
+  const base = (cli: unknown): Extract<CreateItem, { kind: 'recording' }> => ({
+    kind: 'recording', key: 'rrd:rec/FAKE.rrd', rec: { path: 'rec/FAKE.rrd', bytes: 14_950, cli } as never,
+    viewer: { name: "Rerun's viewer", state: 'needs setup', words: "Rerun's viewer needs setup here: FAKE (test): rerun is not on the PATH", setup: 'FAKE (test): install rerun' },
+  });
+  const unknown = (why: string) => ({ state: 'unknown', reason: 'not-read', why });
+
+  it('each fact said when its state is read, else its why: the CLI and what it ran, the verify, the entities, the static ones, each timeline with its range', () => {
+    const read = base({
+      state: 'read', words: 'FAKE (test): read by rerun-cli 0.38.1: rrd stats and rrd print', cli: { version: '0.38.1', line: 'rerun-cli 0.38.1 (FAKE)', via: 'FAKE (test)' },
+      verify: { state: 'passed', words: 'FAKE (test): rrd verify passed' },
+      entities: { state: 'read', count: 4, paths: ['/tray/box', '/tray/corners', '/tray/floor', '/notes'], stores: ['FAKE store'], static: { state: 'read', paths: ['/__properties'] } },
+      timelines: { state: 'read', list: [
+        { name: 'frame', chunks: 8, kind: { state: 'read', kind: 'sequence', type: 'i64' }, range: { state: 'read', min: 0, max: 7, words: '0 to 7' } },
+        { name: 'log_time', chunks: 8, kind: { state: 'read', kind: 'timestamp', type: 'ns' }, range: unknown('FAKE (test): its range was not printed') },
+      ] },
+      calls: [],
+    });
+    const said = squash(createDetail(read, 56, g).map(plain).join(' '));
+    expect(said).toContain('Rerun CLI FAKE (test): read by rerun-cli 0.38.1: rrd stats and rrd print');
+    expect(said).toContain('Verify FAKE (test): rrd verify passed');
+    expect(said).toContain('Entities 4: /tray/box, /tray/corners, /tray/floor, /notes');
+    expect(said).toContain('Static /__properties');
+    expect(said).toContain('Timelines frame (sequence): 0 to 7; log_time (timestamp): its range unknown: FAKE (test): its range was not printed');
+    // read through the CLI, the header reader's "unknown to Timmy" is not said beside it
+    expect(said).not.toContain('Entities unknown to Timmy');
+    expect(said).toContain("Viewer Rerun's viewer: needs setup");
+    // the page's words for it say the same (with its header's facts beside them): never "unknown" next to Context's read entities
+    const facts = { format: 'rrd', bytes: 14_950, writer: 'Rerun 0.38.1', compression: 'LZ4', serializer: 'Protobuf', messages: { storeInfo: 1, chunks: 9, blueprint: 0, other: 0 }, stores: [], ended: true, footer: true, unknown: { entities: 'FAKE', frames: 'FAKE', timeRange: 'FAKE' } };
+    const row = { ...read, rec: { ...read.rec, facts } } as Extract<CreateItem, { kind: 'recording' }>;
+    expect(createItemWords(row, 0, g)).toBe('rec/FAKE.rrd  written by Rerun 0.38.1 · 9 data chunks · 4 entities · timelines frame (sequence): 0 to 7; log_time (timestamp): its range unknown: FAKE (test): its range was not printed');
+    expect(createItemWords(row, 1, g)).toBe('rec/FAKE.rrd  written by Rerun 0.38.1 · 9 data chunks · 4 entities · 2 timelines');
+    expect(createItemWords(row, 2, g)).toBe('rec/FAKE.rrd  written by Rerun 0.38.1 · 4 entities');
+  });
+
+  it('a reading not made (or being made) says so, and each fact its why; a malformed one is not read at all (the header reader\'s unknown, with why)', () => {
+    const not = base({ state: 'not read', words: 'FAKE (test): not read: rerun-cli is not installed here', cli: { version: '', line: '', via: '' }, verify: unknown('FAKE (test): not run'), entities: unknown('FAKE (test): not read'), timelines: unknown('FAKE (test): not read'), calls: [] });
+    const said = squash(createDetail(not, 56, g).map(plain).join(' '));
+    expect(said).toContain('Rerun CLI FAKE (test): not read: rerun-cli is not installed here');
+    const facts = { format: 'rrd', bytes: 1, writer: 'Rerun 0.38.1', compression: 'LZ4', serializer: 'Protobuf', messages: { storeInfo: 1, chunks: 9, blueprint: 0, other: 0 }, stores: [], ended: true, footer: true, unknown: { entities: 'FAKE', frames: 'FAKE', timeRange: 'FAKE' } };
+    expect(createItemWords({ ...not, rec: { ...not.rec, facts } } as never, 1, g)).toBe('rec/FAKE.rrd  written by Rerun 0.38.1 · 9 data chunks · entities unknown: Context says why · timelines unknown: Context says why');
+    expect(said).toContain('Verify unknown: FAKE (test): not run');
+    expect(said).toContain('Entities unknown: FAKE (test): not read');
+    expect(said).toContain('Timelines unknown: FAKE (test): not read');
+    const bad = squash(createDetail(base({ state: 7 }), 56, g).map(plain).join(' '));
+    expect(bad).not.toContain('Rerun CLI');
+    expect(bad).toContain('Not read');
+  });
 });

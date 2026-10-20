@@ -118,14 +118,53 @@ function meshWords(m: MeshRow, form: Form, sep: string): { head: Line; under: st
   return { head: [S(m.path, 'strong'), S(`  ${facts.join(sep)}`, 'text')], under };
 }
 
+/**
+ * R9 (H160): a recording's reading through the installed Rerun CLI, as H159 posted its shape for RecordingRow.cli
+ * (src/vox/rrd-cli.ts RrdReading: { state, words, cli, verify, entities, timelines, calls }, each fact { state: 'read', … } or
+ * { state: 'unknown', reason, why }), read structurally: a row without it, or with one of another shape, has none, and the
+ * header reader's words (unknown, with why) stand.
+ */
+interface CliFact { state: string; why?: string }
+interface CliReading {
+  state: string; words: string;
+  verify: CliFact & { words?: string };
+  entities: CliFact & { count?: number; paths?: string[]; static?: CliFact & { paths?: string[] } };
+  timelines: CliFact & { list?: Array<{ name: string; kind?: CliFact & { kind?: string }; range?: CliFact & { words?: string } }> };
+}
+const isFact = (v: unknown): v is CliFact => !!v && typeof v === 'object' && typeof (v as CliFact).state === 'string';
+function cliOf(r: RecordingRow): CliReading | null {
+  const c = (r as { cli?: unknown }).cli as Partial<CliReading> | null | undefined;
+  if (!c || typeof c !== 'object' || typeof c.state !== 'string' || typeof c.words !== 'string' || !isFact(c.verify) || !isFact(c.entities) || !isFact(c.timelines)) return null;
+  return c as CliReading;
+}
+const unknownWhy = (x: CliFact): string => `unknown: ${x.why ?? 'not said'}`;
+/** A timeline as the reading names it: its name, its kind, and its range or why not. */
+const timelineWords = (x: NonNullable<CliReading['timelines']['list']>[number]): string =>
+  `${x.name}${x.kind?.state === 'read' && x.kind.kind ? ` (${x.kind.kind})` : ''}: ${x.range?.state === 'read' ? x.range.words ?? '' : `its range unknown: ${x.range?.why ?? 'not said'}`}`;
+
 /** A recording's words in a form. */
 function recordingWords(r: RecordingRow, form: Form, sep: string): { head: Line; under: string[] } {
   const f = r.facts;
   if (!f) return { head: [S(r.path, 'strong'), S(`  ${form === 0 ? `not read: ${r.why ?? 'unknown'}` : 'not read: Context says why'}`, 'secondary')], under: [] };
+  // read through the Rerun CLI: its entities and timelines (each, or that it is unknown: Context says why)
+  const cli = cliOf(r);
+  if (cli) {
+    const e = cli.entities.state === 'read' ? `${cli.entities.count ?? (cli.entities.paths ?? []).length} entities` : 'entities unknown: Context says why';
+    const t = cli.timelines.state === 'read' ? (form === 0 ? `timelines ${(cli.timelines.list ?? []).map(timelineWords).join('; ') || 'none'}` : `${(cli.timelines.list ?? []).length} timelines`) : 'timelines unknown: Context says why';
+    const facts = form === 2 ? [`written by ${f.writer}`, e] : [`written by ${f.writer}`, `${f.messages.chunks} data chunks`, e, t];
+    return { head: [S(r.path, 'strong'), S(`  ${facts.join(sep)}`, 'text')], under: [] };
+  }
   const facts = form === 0 ? [`written by ${f.writer}`, `${f.messages.chunks} data chunks`, `entities, frames and time range: unknown to Timmy (${f.unknown.entities})`]
     : form === 1 ? [`written by ${f.writer}`, `${f.messages.chunks} data chunks`, 'entities, frames and time range: unknown to Timmy (it does not decode the data chunks)']
       : [`written by ${f.writer}`, 'entities, frames, time range: unknown'];
   return { head: [S(r.path, 'strong'), S(`  ${facts.join(sep)}`, 'text')], under: [] };
+}
+
+/** An item's words in a form (0 all, 1 short, 2 the least), as the page says them: its path, its facts, the rows under it. */
+export function createItemWords(it: CreateItem, form: 0 | 1 | 2, g: Glyphs): string {
+  const sep = ` ${g.sep} `;
+  const w = it.kind === 'mesh' ? meshWords(it.mesh, form, sep) : recordingWords(it.rec, form, sep);
+  return [w.head.map((x) => x.text).join(''), ...w.under].join(' ');
 }
 
 /** An item's rows `w` cells wide: the cursor's mark (or its room) first, its words wrapped under it, never cut. */
@@ -258,6 +297,20 @@ export function createDetail(item: CreateItem, w: number, g: Glyphs): Line[] {
     const stores = x.stores.map((s) => [s.kind, s.application ? `application ${s.application}` : '', s.recording ? `recording ${s.recording}` : ''].filter(Boolean).join(` ${g.sep} `)).join('; ');
     if (stores) f('Stores', stores);
     if (x.stopped) f('Stopped', x.stopped, 'secondary');
+  }
+  // R9 (H160): read through the installed Rerun CLI where the row carries that reading (H159's RecordingRow.cli): each fact as
+  // read, else its why; else the header reader's: unknown to Timmy, with why
+  const cli = cliOf(r);
+  if (cli) {
+    f('Rerun CLI', cli.words, cli.state === 'read' ? 'text' : 'secondary');
+    const v = cli.verify;
+    f('Verify', v.state === 'passed' ? v.words ?? 'passed' : v.state === 'failed' ? `failed: ${v.why ?? 'not said'}` : unknownWhy(v), v.state === 'failed' ? 'failure' : v.state === 'passed' ? 'text' : 'secondary');
+    const e = cli.entities;
+    f('Entities', e.state === 'read' ? `${e.count ?? (e.paths ?? []).length}: ${(e.paths ?? []).join(', ')}` : unknownWhy(e), e.state === 'read' ? 'text' : 'secondary');
+    if (e.state === 'read' && isFact(e.static)) f('Static', e.static.state === 'read' ? (e.static.paths ?? []).join(', ') || 'none' : unknownWhy(e.static), 'secondary');
+    const t = cli.timelines;
+    f('Timelines', t.state === 'read' ? (t.list ?? []).map(timelineWords).join('; ') || 'none' : unknownWhy(t), t.state === 'read' ? 'text' : 'secondary');
+  } else if (x) {
     f('Entities', `unknown to Timmy: ${x.unknown.entities}`, 'secondary');
     f('Frames', `unknown to Timmy: ${x.unknown.frames}`, 'secondary');
     f('Time range', `unknown to Timmy: ${x.unknown.timeRange}`, 'secondary');
