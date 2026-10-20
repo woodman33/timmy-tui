@@ -9,6 +9,10 @@
  * FAKE), a Rerun recording that is not one, and a `rerun` program that is a shell script. Real: Timmy's STL reader, its
  * Rerun header reader over the repository's own recording (studio/ctx-c3w8/…/context.rrd, read, never changed), the
  * receipts on the per-test chain.
+ *
+ * R9 (H159): beside the header facts, the Rerun CLI's reading (src/vox/rrd-cli.ts). FAKE, labelled: `rerun` is
+ * tests/fixtures/fake-rerun.mjs (a TEST DOUBLE replaying outputs CAPTURED from the real rerun-cli 0.38.1 on
+ * tests/fixtures/rrd-cli/), first on the PATH.
  */
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,6 +25,7 @@ import { folderProject, projectId } from '../src/project/index.js';
 import { appendReceipt, readChain } from '../src/utils/receipts.js';
 import { RERUN_SETUP } from '../src/vox/layers.js';
 import { listMeshes, MESH_READ_MAX, MESHES_SCHEMA, meshView, READER_WORDS, VIEW_MAX_TRIANGLES, VIEW_WORDS, viewPick } from '../src/vox/meshes.js';
+import { forgetRrdReadings, readRrdWithCli, rrdReadingsIdle } from '../src/vox/rrd-cli.js';
 import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl, sha } from './helpers/vox-fakes.js';
 
@@ -326,6 +331,15 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     for (const k of ['entities', 'frames', 'timeRange'] as const) expect(real.facts?.unknown[k]).toBe("inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it");
     expect(fake.facts).toBeUndefined();
     expect(fake.why).toBe("its first bytes are not a Rerun recording's (RRF2)");
+    // R9 (H159): the Rerun CLI's reading beside the header's facts: here no rerun at all, and a file that is not a recording is
+    // never given to it
+    expect(real.sha256).toBe(sha(readFileSync(RRD)));
+    expect(real.cli).toMatchObject({ state: 'not read', words: 'not read by the Rerun CLI: rerun is not on the PATH and TIMMY_RERUN is not set', sha256: real.sha256 });
+    expect(real.cli.entities).toEqual({ state: 'unknown', reason: 'not-installed', why: 'rerun is not on the PATH and TIMMY_RERUN is not set' });
+    const notGiven = "not given to the Rerun CLI: Timmy's own header reader says its first bytes are not a Rerun recording's (RRF2)";
+    expect(fake.cli).toMatchObject({ state: 'not read', words: notGiven, calls: [] });
+    for (const u of [fake.cli.verify, fake.cli.entities, fake.cli.timelines]) expect(u).toEqual({ state: 'unknown', reason: 'not-a-recording', why: notGiven });
+    expect(list.recordingsPending).toBe(0);
     expect(list.viewer).toEqual({ name: "Rerun's viewer", state: 'needs setup', words: "Rerun's viewer needs setup here: rerun is not on the PATH and TIMMY_RERUN is not set", setup: RERUN_SETUP });
 
     // FAKE: a `rerun` that is a shell script; found is not run, and nothing here runs it
@@ -335,5 +349,47 @@ describe('the project\'s meshes and recordings, measured by Timmy\'s own readers
     chmodSync(rerun, 0o755);
     const found = listMeshes({ root, env: { PATH: bin } }).viewer;
     expect(found).toEqual({ name: "Rerun's viewer", state: 'found (installed here, not run)', words: "Rerun's viewer is found here (rerun on the PATH): found is not run, and this tab runs nothing; `rerun --bind 127.0.0.1 <file>` in a terminal opens a recording in Rerun's own window, listening on this computer only" });
+  });
+
+  // R9 (H159). FAKE, labelled: `rerun` is tests/fixtures/fake-rerun.mjs (a TEST DOUBLE replaying outputs CAPTURED from the
+  // real rerun-cli 0.38.1 on tests/fixtures/rrd-cli/probe.rrd and probe-cut.rrd), first on the PATH
+  it('recordings: the Rerun CLI\'s reading beside the header facts; not read yet on a draw path, being read once asked, then kept (R9 H159)', async () => {
+    forgetRrdReadings();
+    const root = project();
+    const fix = resolve('tests/fixtures/rrd-cli');
+    put(root, 'rec/probe.rrd', readFileSync(join(fix, 'probe.rrd')));
+    put(root, 'rec/cut.rrd', readFileSync(join(fix, 'probe-cut.rrd')));
+    const bin = box();
+    writeFileSync(join(bin, 'rerun'), `#!/bin/sh\nexec "${process.execPath}" "${resolve('tests/fixtures/fake-rerun.mjs')}" "$@"\n`);
+    chmodSync(join(bin, 'rerun'), 0o755);
+    const fakeEnv = { PATH: `${bin}:/usr/bin:/bin` } as NodeJS.ProcessEnv;
+    try {
+      // a list on a draw path (no reading asked): the header facts, and "not read yet"; nothing runs
+      const drawn = listMeshes({ root, env: fakeEnv });
+      expect(drawn.recordings.map((r) => [r.path, r.facts?.format, r.cli.state, r.cli.words])).toEqual([
+        ['rec/cut.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background, once tab 6 is served'],
+        ['rec/probe.rrd', 'rrd', 'not read', 'not read yet: rerun-cli reads it in the background, once tab 6 is served'],
+      ]);
+      expect(drawn.recordingsPending).toBe(0);
+      // a list that asks for the readings (the companion's): being read, in the background
+      const asking = listMeshes({ root, env: fakeEnv }, { rrd: { start: true } });
+      expect(asking.recordings.map((r) => [r.path, r.cli.state, r.cli.entities])).toEqual([
+        ['rec/cut.rrd', 'being read', { state: 'unknown', reason: 'being-read', why: 'being read by the Rerun CLI, in the background' }],
+        ['rec/probe.rrd', 'being read', { state: 'unknown', reason: 'being-read', why: 'being read by the Rerun CLI, in the background' }],
+      ]);
+      expect(asking.recordingsPending).toBe(2);
+      await rrdReadingsIdle();
+      // done: every later list, asking or not, holds the reading kept for those bytes
+      const after = listMeshes({ root, env: fakeEnv });
+      const [cut, probe] = after.recordings;
+      const direct = await readRrdWithCli(readFileSync(join(fix, 'probe.rrd')), { env: fakeEnv });
+      expect(probe.sha256).toBe(direct.sha256);
+      expect(probe.facts?.writer).toBe('Rerun 0.38.1');
+      expect([probe.cli.state, probe.cli.words, probe.cli.entities, probe.cli.timelines]).toEqual(['read', 'read by rerun-cli 0.38.1: rrd stats and rrd print', direct.entities, direct.timelines]);
+      expect(cut.cli.verify).toMatchObject({ state: 'failed' });
+      expect(cut.cli.entities).toMatchObject({ state: 'unknown', reason: 'verify-failed' });
+      expect(after.recordingsPending).toBe(0);
+      expect(listMeshes({ root, env: fakeEnv }, { rrd: { start: true } }).recordings.map((r) => r.cli.state)).toEqual(['read', 'read']);
+    } finally { await rrdReadingsIdle(); forgetRrdReadings(); }
   });
 });

@@ -100,8 +100,8 @@ export interface RrdReading {
   state: 'read' | 'being read' | 'not read';
   /** who read what, in words: "read by rerun-cli 0.38.1: rrd stats and rrd print"; or why not */
   words: string;
-  /** the bytes read: their sha256 and length */
-  sha256: string;
+  /** the bytes read: their sha256 (null: they were not read) and length */
+  sha256: string | null;
   bytes: number;
   cli: { version: string | null; line: string | null; via: string | null; checked: readonly string[] };
   /** the step that installs the CLI, when it is not installed */
@@ -601,7 +601,7 @@ function programSig(command: string): string {
 const keep = (key: string, r: RrdReading): void => { if (readings.size >= KEEP_MAX) readings.delete(readings.keys().next().value as string); readings.set(key, r); };
 const jobKey = (command: string, sha256: string): string => `${command}\0${sha256}`;
 /** A reading that holds one unknown for every fact, for these bytes. */
-function holding(state: RrdReading['state'], u: RrdUnknown, sha256: string, bytes: number, cli: RrdReading['cli'], words: string): RrdReading {
+function holding(state: RrdReading['state'], u: RrdUnknown, sha256: string | null, bytes: number, cli: RrdReading['cli'], words: string): RrdReading {
   return { schema: RRD_CLI_SCHEMA, state, words, sha256, bytes, cli, verify: u, entities: u, timelines: u, calls: [], at: null };
 }
 
@@ -630,6 +630,12 @@ export function rrdReadingNow(i: { sha256: string; bytes: number; env: NodeJS.Pr
   }
   if (asked.has(jobKey(found.command, i.sha256))) return holding('being read', unknown('being-read', BEING_READ), i.sha256, i.bytes, cli, BEING_READ);
   return holding('not read', unknown('not-run', NOT_YET), i.sha256, i.bytes, cli, NOT_YET);
+}
+
+/** A reading that says why these bytes were not given to the CLI at all (Timmy's own header reader found no recording in them, or they were not read). */
+export function rrdNotGiven(reason: 'not-a-recording' | 'not-run', why: string, sha256: string | null, bytes: number): RrdReading {
+  const words = `not given to the Rerun CLI: ${why}`;
+  return holding('not read', unknown(reason, words), sha256, bytes, { version: null, line: null, via: null, checked: RRD_CLI_CHECKED }, words);
 }
 
 /** Asks for a reading of a recording's bytes in the background, unless one is kept or under way. Never waits. */

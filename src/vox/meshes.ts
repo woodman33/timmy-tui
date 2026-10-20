@@ -15,9 +15,13 @@
  *   tessellation  an STL a VoxVision record's view names as a STEP's tessellation (src/vox/tessellate.ts writes them into
  *                 results/vox/<id>/), when its bytes are the ones the record names: a mesh of the STEP's surfaces within the
  *                 record's tolerance, never the STEP itself. Nothing is tessellated here (that worker needs OCP).
- *   recording     each .rrd file: its header facts (./recording.ts readRecording). Its chunks are not decoded, so its
- *                 entities, frames and time range stay unknown, with why; Rerun's own viewer is named found or needing
- *                 setup, and never started from here.
+ *   recording     each .rrd file: its header facts (./recording.ts readRecording), which Timmy reads itself; its chunks
+ *                 are not decoded here. R9 (H159): beside them, what the installed Rerun CLI read of the same bytes
+ *                 (./rrd-cli.ts: its entities, timelines and each timeline's range, with who read them, or each unknown with
+ *                 why), kept by the bytes' sha256 and the CLI's version. Looking is all a list does (so the Workbench may draw
+ *                 one): a reading is started in the background only when the list is asked to (`rrd.start`, the
+ *                 companion's), and says "being read" until it is done. Rerun's own viewer is named found or needing setup,
+ *                 and never started from here.
  *
  * meshView gives one listed mesh's own triangles (the file's float32 corners, nine per triangle) for Timmy's drawing on the
  * companion: every triangle up to the cap, above it an even, deterministic pick through the file's order (viewPick), with its
@@ -35,6 +39,7 @@ import { rerunBindArgs, rerunReady, RERUN_SETUP } from './layers.js';
 import { onPathOf } from './preview.js';
 import { plainRel, readPlainInside } from './read-plain.js';
 import { readRecording, type RecordingFacts } from './recording.js';
+import { rrdNotGiven, rrdReadingNow, startRrdReading, type RrdJob, type RrdReading } from './rrd-cli.js';
 import { VOX_DIR, VOX_ID } from './record.js';
 
 export const MESHES_SCHEMA = 'timmy.meshes/1';
@@ -117,7 +122,17 @@ export interface MeshRow {
   tessellation?: { record: string; from: string; made_by: string; tolerance: string; sealed: boolean | null };
 }
 
-export interface RecordingRow { path: string; bytes: number; facts?: RecordingFacts; why?: string }
+export interface RecordingRow {
+  path: string;
+  bytes: number;
+  /** what Timmy's own header reader read of it (./recording.ts) */
+  facts?: RecordingFacts;
+  why?: string;
+  /** R9 (H159): the sha256 of the bytes read (absent when they were not read) */
+  sha256?: string;
+  /** R9 (H159): what the installed Rerun CLI read of these bytes (./rrd-cli.ts), or each fact unknown with why */
+  cli: RrdReading;
+}
 
 export interface MeshList {
   schema: typeof MESHES_SCHEMA;
@@ -127,6 +142,8 @@ export interface MeshList {
   pending: number;
   recordings: RecordingRow[];
   recordingsMore: number;
+  /** R9 (H159): how many listed recordings the Rerun CLI is reading now (a page asks again while any is) */
+  recordingsPending: number;
   /** Rerun's own viewer as this computer has it: found (never run here) or needing setup */
   viewer: { name: string; state: 'found (installed here, not run)' | 'needs setup'; words: string; setup?: string };
   /** how much of the project was walked */
@@ -231,7 +248,8 @@ function measuredBefore(root: string, rel: string): Measured | undefined {
   const sig = known ? sigOf(root, rel) : null;
   return known && sig && known.sig === sig ? known.m : undefined;
 }
-const recorded = new Map<string, { sig: string; r: { facts?: RecordingFacts; why?: string } }>();
+interface Recorded { facts?: RecordingFacts; why?: string; sha256?: string; read: boolean }
+const recorded = new Map<string, { sig: string; r: Recorded }>();
 const keep = <V>(map: Map<string, V>, key: string, value: V): void => { if (map.size > 500) map.clear(); map.set(key, value); };
 
 const notRead = (why: string, words: string): string => (why === 'too-large' ? `it is larger than ${MESH_READ_MAX / 1024 / 1024} MB, more than is read here` : words);
@@ -269,17 +287,35 @@ function measure(root: string, rel: string, kind: MeshFileKind): Measured {
   return m;
 }
 
-function recordingOf(root: string, rel: string): { facts?: RecordingFacts; why?: string } {
+function recordingOf(root: string, rel: string): Recorded {
   const key = `${root}\0${rel}`;
   const sig = sigOf(root, rel);
   const known = recorded.get(key);
   if (sig && known && known.sig === sig) return known.r;
   const read = readPlainInside(root, rel, MESH_READ_MAX);
-  let r: { facts?: RecordingFacts; why?: string };
-  if (!read.ok) r = { why: notRead(read.why, read.words) };
-  else { const f = readRecording(read.body); r = 'error' in f ? { why: f.error } : { facts: f }; }
+  let r: Recorded;
+  if (!read.ok) r = { why: notRead(read.why, read.words), read: false };
+  else {
+    const f = readRecording(read.body);
+    const sha = sha256(read.body);
+    r = 'error' in f ? { why: f.error, sha256: sha, read: true } : { facts: f, sha256: sha, read: true };
+  }
   if (sig) keep(recorded, key, { sig, r });
   return r;
+}
+
+/** R9 (H159): what the Rerun CLI has read of a listed recording, asking for a reading in the background when `start`. */
+function cliOf(i: MeshListInput, rel: string, r: Recorded, bytes: number, rrd: MeshListOptions['rrd']): RrdReading {
+  if (!r.read || !r.sha256) return rrdNotGiven('not-run', r.why ?? 'its bytes were not read here', r.sha256 ?? null, bytes);
+  if (!r.facts) return rrdNotGiven('not-a-recording', `Timmy's own header reader says ${r.why ?? 'it is not a Rerun recording'}`, r.sha256, bytes);
+  const now = rrdReadingNow({ sha256: r.sha256, bytes, env: i.env });
+  if (!rrd?.start || now.state !== 'not read' || now.entities.state !== 'unknown' || now.entities.reason !== 'not-run') return now;
+  startRrdReading({
+    root: i.root, rel, sha256: r.sha256, env: i.env,
+    read: () => { const x = readPlainInside(i.root, rel, MESH_READ_MAX); return x.ok ? x.body : null; },
+    ...(rrd.log ? { log: rrd.log } : {}),
+  });
+  return rrdReadingNow({ sha256: r.sha256, bytes, env: i.env });
 }
 
 type Obj = Record<string, unknown>;
@@ -332,8 +368,17 @@ function sealOf(chain: readonly Receipt[], pid: string, n: Named): Receipt | und
 /** A receipt's short id as /receipts prints it (the store writes sha256_<hex>). */
 const shortOf = (r: Receipt): string => (r.hash ?? '').replace(/^sha256[:_]/, '').slice(0, 8);
 
-/** The project's meshes (measured) and recordings (their header facts), and Rerun's viewer as this computer has it. */
-export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number; budgetMs?: number } = {}): MeshList {
+export interface MeshListOptions {
+  max?: number;
+  cap?: number;
+  budgetMs?: number;
+  /** R9 (H159): `start` asks the Rerun CLI to read each listed recording not read yet, in the background (the companion's
+   *  list); `log` takes each of its calls (the project's log). Without it the list only looks, so a draw path may ask it. */
+  rrd?: { start?: boolean; log?: RrdJob['log'] };
+}
+
+/** The project's meshes (measured) and recordings (their header facts, and the Rerun CLI's reading), and Rerun's viewer. */
+export function listMeshes(i: MeshListInput, o: MeshListOptions = {}): MeshList {
   const max = o.max ?? MESH_LIST_MAX;
   const cap = o.cap ?? VIEW_MAX_TRIANGLES;
   // a reading with a time budget (a server's, a terminal's frame) measures what it can in that time, at least one new file,
@@ -385,7 +430,11 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number; bu
 
   const recordings = found.rrd.slice(0, RECORDING_LIST_MAX).map((f): RecordingRow => {
     const r = recordingOf(i.root, f.path);
-    return { path: f.path, bytes: r.facts?.bytes ?? f.bytes, ...(r.facts ? { facts: r.facts } : {}), ...(r.why ? { why: r.why } : {}) };
+    const bytes = r.facts?.bytes ?? f.bytes;
+    return {
+      path: f.path, bytes, ...(r.facts ? { facts: r.facts } : {}), ...(r.why ? { why: r.why } : {}), ...(r.sha256 ? { sha256: r.sha256 } : {}),
+      cli: cliOf(i, f.path, r, bytes, o.rrd),
+    };
   });
 
   const rr = rerunReady({ env: i.env, onPath: onPathOf(i.env), root: i.root });
@@ -395,6 +444,7 @@ export function listMeshes(i: MeshListInput, o: { max?: number; cap?: number; bu
 
   return {
     schema: MESHES_SCHEMA, meshes, more: Math.max(0, found.meshes.length - max), pending, recordings, recordingsMore: Math.max(0, found.rrd.length - RECORDING_LIST_MAX),
+    recordingsPending: recordings.filter((r) => r.cli.state === 'being read').length,
     viewer, walk: { files: found.walked, truncated: found.truncated }, cap, view: VIEW_WORDS, reader: readersWords(readers), doctrine: DOCTRINE_15,
   };
 }

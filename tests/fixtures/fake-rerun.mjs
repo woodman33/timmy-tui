@@ -16,6 +16,7 @@
 //   garbage       the command writes lines that are not rerun's output and exits 0
 // FAKE_RERUN_CALLS, when set: a file each call appends one JSON line to (its arguments, its mode, the sha256 of its input and
 // its CI variable), so a test sees what ran and how.
+// FAKE_RERUN_DELAY_MS, when set: each rrd command waits that long before it answers (so a page can be seen while it reads).
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -66,6 +67,8 @@ if (argv.length === 1 && argv[0] === '--version') {
   const body = await input();
   const sha = createHash('sha256').update(body).digest('hex');
   record(sha);
+  const delay = Number(process.env.FAKE_RERUN_DELAY_MS || 0);
+  if (delay > 0) await new Promise((r) => setTimeout(r, delay));
   if (applies('huge')) finish(Buffer.alloc(6 * 1024 * 1024, 'FAKE huge output\n'), Buffer.alloc(0), 0);
   else if (applies('bad-exit')) finish(Buffer.alloc(0), Buffer.from('FAKE rerun: failed on purpose\n'), 2);
   else if (applies('garbage')) finish(Buffer.from('FAKE: these lines are not rerun\'s output\n┆ ┆ ┆\nChunk(nothing) with many rows\n'), Buffer.alloc(0), 0);

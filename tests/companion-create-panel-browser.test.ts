@@ -18,7 +18,7 @@
  * (studio/ctx-c3w8/…/context.rrd, read, never changed), the page's code. Captures are written only where H153_CAPS names a
  * folder. Skipped, saying so, where no Chromium or Chrome is found.
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -27,6 +27,7 @@ import { startCompanionServer, type CompanionServer } from '../src/companion/ser
 import { DOCTRINE_15, num, readStlFile, topologyWords, volumeWords } from '../src/native/stl-readback.js';
 import { projectId } from '../src/project/index.js';
 import { VIEW_MAX_TRIANGLES, VIEW_WORDS } from '../src/vox/meshes.js';
+import { forgetRrdReadings, rrdReadingsIdle } from '../src/vox/rrd-cli.js';
 import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
 import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
 import { cubeStl } from './helpers/vox-fakes.js';
@@ -302,7 +303,12 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       const rec = '[data-create-recording="rec/context.rrd"]';
       expect(await text(page, `${rec} [data-rec="header"]`)).toMatch(/^written by Rerun \d+\.\d+\.\d+ · compression (?:off|LZ4) · (?:Protobuf|MsgPack) · \d+(?:\.\d)? (?:B|KB|MB)$/);
       expect(await text(page, `${rec} [data-rec="messages"]`)).toMatch(/^\d+ store info · \d+ data chunks · \d+ blueprint/);
-      expect(await text(page, `${rec} [data-rec="unknown"]`)).toBe("unknown to Timmy: inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it");
+      expect(await text(page, `${rec} [data-rec="unknown"]`)).toBe("inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it");
+      // R9 (H159): the Rerun CLI's reading beside the header: here no rerun at all, so each fact is unknown, with why
+      expect(await text(page, `${rec} [data-rec="cli"]`)).toBe('not read by the Rerun CLI: rerun is not on the PATH and TIMMY_RERUN is not set');
+      expect(await text(page, `${rec} [data-rec="entities"]`)).toBe('unknown: rerun is not on the PATH and TIMMY_RERUN is not set');
+      expect(await page.$$eval(`${rec} dt`, (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
+        'header (read by Timmy from the file)', 'messages', 'stores', 'read by the Rerun CLI', 'entities and timelines', "not decoded by Timmy's own reader"]);
       expect(await page.$eval('[data-create-viewer]', (v) => v.getAttribute('data-create-viewer'))).toBe('needs setup');
       expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: needs setup");
       await page.$eval('[data-create-box="recordings"]', (e) => e.scrollIntoView());
@@ -420,5 +426,127 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in 
       await shot(page, 'h153-08-tab6-800x600');
       expect(errors).toEqual([]);
     } finally { await page.close(); }
+  });
+});
+
+// R9 (H159): a recording read through the Rerun CLI in the background, as the page shows it, and a mesh the page's address
+// names. FAKE, labelled: `rerun` is tests/fixtures/fake-rerun.mjs (a TEST DOUBLE replaying outputs CAPTURED from the real
+// rerun-cli 0.38.1 on tests/fixtures/rrd-cli/probe.rrd and probe-cut.rrd), first on the companion's PATH, each rrd command
+// held 400 ms (FAKE_RERUN_DELAY_MS) so the page is seen while it reads; the project, its two cubes and a file named .rrd that
+// is not a recording are written by the test. Real: the server, its token, the page, src/vox/rrd-cli.ts. Captures are written
+// only where H159_CAPS names a folder.
+const CAPS159 = process.env.H159_CAPS ?? '';
+describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through the Rerun CLI, and a mesh the address names (R9 H159)', () => {
+  const kept = { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let browser: Browser;
+  let companion: CompanionServer;
+
+  beforeAll(async () => {
+    forgetRrdReadings();
+    box = mkdtempSync(join(tmpdir(), 'r9-create-rrd-browser-'));
+    const root = join(box, 'home', 'projects', 'FAKE-rec');
+    const put = (rel: string, body: Buffer | string): void => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), body); };
+    put('rec/probe.rrd', readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd')));
+    put('rec/cut.rrd', readFileSync(resolve('tests/fixtures/rrd-cli/probe-cut.rrd')));
+    put('rec/not-one.rrd', 'FAKE: a file named .rrd that is not a recording\n');
+    put('refs/a.stl', cubeStl(2));
+    put('refs/b.stl', cubeStl(4));
+    const bin = join(box, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'rerun'), `#!/bin/sh\nexec "${process.execPath}" "${resolve('tests/fixtures/fake-rerun.mjs')}" "$@"\n`);
+    chmodSync(join(bin, 'rerun'), 0o755);
+    process.env.TIMMY_HOME = join(box, 'home');
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { workspace: { env: { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: join(box, 'settings'), PATH: `${bin}:/usr/bin:/bin`, FAKE_RERUN_DELAY_MS: '400' }, shareMs: 0 } });
+    browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+    if (CAPS159) mkdirSync(CAPS159, { recursive: true });
+  }, 120_000);
+  afterAll(async () => {
+    await browser?.close();
+    await companion?.shutdown();
+    await rrdReadingsIdle();
+    forgetRrdReadings();
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+
+  /** The page on tab 6, its address carrying `query` before the token (as the Workbench's c gives it: src/workbench/servers.ts withQuery). */
+  async function openAt(query: string, viewport = { width: 1376, height: 1600 }): Promise<{ page: Page; errors: string[]; bad: string[] }> {
+    const page = await browser.newPage({ viewport });
+    const errors: string[] = [];
+    const bad: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+    const at = companion.url.indexOf('#');
+    const [base, hash] = at < 0 ? [companion.url, ''] : [companion.url.slice(0, at), companion.url.slice(at)];
+    await page.goto(`${base}${base.includes('?') ? '&' : '?'}${query}${hash}`);
+    await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+    await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
+    return { page, errors, bad };
+  }
+  const text = (page: Page, sel: string): Promise<string> => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+  /** A capture of the recordings box with `row` in view (the box scrolls inside), and the box's whole text, row by row. */
+  const shot = async (page: Page, name: string, row: string): Promise<void> => {
+    if (!CAPS159) return;
+    await page.$eval(row, (e) => e.scrollIntoView({ block: 'start' }));
+    await (await page.$('[data-create-box="recordings"]'))!.screenshot({ path: join(CAPS159, `${name}.png`) });
+    const lines = await page.$$eval('[data-create-box="recordings"] .box-title, [data-create-box="recordings"] .create-rec-path, [data-create-box="recordings"] .create-note, [data-create-box="recordings"] dt, [data-create-box="recordings"] dd, [data-create-box="recordings"] .create-viewer-state',
+      (es) => es.map((e) => `${e.tagName === 'DT' ? '  ' : e.tagName === 'DD' ? '      ' : ''}${(e.textContent ?? '').replace(/\s+/g, ' ').trim()}`));
+    writeFileSync(join(CAPS159, `${name}.txt`), `${lines.join('\n')}\n`);
+  };
+
+  it('a recording says "being read", then its entities and time ranges with who read them; each unknown says why', async () => {
+    const { page, errors, bad } = await openAt('tab=create');
+    try {
+      const probe = '[data-create-recording="rec/probe.rrd"]';
+      await page.waitForSelector(`${probe} [data-rec="cli"]`, { timeout: 15_000 });
+      expect(await text(page, `${probe} [data-rec="cli"]`)).toBe('being read by the Rerun CLI, in the background');
+      expect(await text(page, `${probe} [data-rec="entities"]`)).toBe('being read by the Rerun CLI, in the background');
+      await shot(page, 'h159-01-tab6-being-read', probe);
+      // the page asks again while a recording is being read, and draws the reading once it is done
+      await page.waitForFunction((sel) => /^read by rerun-cli/.test(document.querySelector(sel)?.textContent ?? ''), `${probe} [data-rec="cli"]`, { timeout: 30_000 });
+      const rows = await page.$$eval(`${probe} dt, ${probe} dd`, (es) => es.map((e) => `${e.tagName === 'DT' ? '# ' : ''}${(e.textContent ?? '').replace(/\s+/g, ' ').trim()}`));
+      expect(rows).toEqual([
+        '# header (read by Timmy from the file)', 'written by Rerun 0.38.1 · compression LZ4 · Protobuf · 11.5 KB',
+        '# messages', '2 store info · 4 data chunks · 0 blueprint · ends with its end marker and a footer',
+        '# stores', 'recording · application timmy-r9-probe · recording probe-1',
+        '# read by the Rerun CLI', 'read by rerun-cli 0.38.1: rrd stats and rrd print',
+        "# Rerun's own check", 'rrd verify: 1 file verified without error.',
+        '# entities (4)', '/__properties · /notes · /world/box · /world/points',
+        '# static (logged on no timeline)', '/__properties · /notes',
+        '# timelines (3)', 'frame · sequence · 0 to 7',
+        'log_time · timestamp · 2026-10-20T12:53:49.704175155 to 2026-10-20T12:53:49.706428498 (2.253343 ms)',
+        't · duration · 0 s to 1 s',
+        "# not decoded by Timmy's own reader", "inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it",
+      ]);
+      // a recording cut short: Rerun's own check failed, with its words, and nothing more was read
+      const cut = '[data-create-recording="rec/cut.rrd"]';
+      expect(await text(page, `${cut} [data-rec="cli"]`)).toBe('rerun-cli 0.38.1 could not verify it (rrd verify failed), so nothing more was read');
+      expect(await text(page, `${cut} [data-rec="verify"]`)).toBe('✕ failed: rrd verify ended with exit 1: stdin: Missing RRD footer / no RRD manifests · Error: Verification failed with 1 errors (the recording was given on its standard input)');
+      expect(await text(page, `${cut} [data-rec="entities"]`)).toBe("unknown: not read: Rerun's own check of the file failed (rrd verify), so its stats and print were not run");
+      // a file named .rrd that is not a recording: never given to the CLI
+      const notOne = '[data-create-recording="rec/not-one.rrd"]';
+      expect(await text(page, `${notOne} .create-note`)).toMatch(/^\d+ B · not read: its first bytes are not a Rerun recording's \(RRF2\)$/);
+      expect(await text(page, `${notOne} [data-rec="cli"]`)).toBe("not given to the Rerun CLI: Timmy's own header reader says its first bytes are not a Rerun recording's (RRF2)");
+      expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: found (installed here, not run)");
+      await shot(page, 'h159-02-tab6-read', probe);
+      expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('the address names a mesh (mesh=<its path as lowercase hex of its UTF-8 bytes>): it is selected on the first list; else the first measured one', async () => {
+    const hex = (p: string): string => Buffer.from(p, 'utf8').toString('hex');
+    const selected = (page: Page): Promise<string[]> => page.$$eval('.create-mesh[aria-current="true"]', (bs) => bs.map((b) => (b as HTMLElement).dataset.createMesh ?? ''));
+    for (const [query, want] of [[`tab=create&mesh=${hex('refs/b.stl')}`, 'refs/b.stl'], ['tab=create', 'refs/a.stl'], [`tab=create&mesh=${hex('refs/none.stl')}`, 'refs/a.stl'], ['tab=create&mesh=zz', 'refs/a.stl']] as const) {
+      const { page, errors } = await openAt(query);
+      try {
+        await page.waitForFunction((w) => document.querySelector('[data-create="view-title"]')?.textContent === `The view you can turn · ${w}`, want, { timeout: 15_000 });
+        expect(await selected(page), query).toEqual([want]);
+        expect(await text(page, '[data-create="measure-title"]'), query).toBe(`Measured from the file · ${want}`);
+        expect(errors).toEqual([]);
+      } finally { await page.close(); }
+    }
   });
 });
