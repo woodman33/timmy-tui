@@ -303,6 +303,7 @@ describe('tab 8 says the configured model, its pricing as declared and each refu
     const s = section(fleetView(ctxAt(100, 30, 0), d).lines).replace(/\n\s+/g, ' ');
     expect(s).toMatch(/deterministic: pi by the existing route the caller named/);
     expect(s).toMatch(/why: unknown pricing cannot be checked against the budget, so no call is made: the pricing of clef-flash:latest on the SystemOne endpoint on this computer is unknown/);
+    expect(s).toMatch(/clef-flash:latest not asked \(SystemOne on this computer\) · cost not measured/);
     expect(s).toMatch(/pricing: unknown: clef\.json declares none/);
   });
 

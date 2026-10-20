@@ -137,7 +137,10 @@ function decisionRow(r: DecisionRecord): DecisionRow {
     fallback: { used: r.fallback.used, ...(r.fallback.option ? { option: r.fallback.option } : {}), rule: r.fallback.rule, ...(r.fallback.reason ? { reason: r.fallback.reason } : {}) },
     needsReview: r.admission.needsReview, admitted: r.admission.admitted,
     distribution: Object.entries(r.distribution ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id, p]) => ({ id, label: label(id), p })),
-    asked: r.provider.model ? `${r.provider.model} via ${via}` : r.latencyMs !== undefined ? `asked ${via}: no usable answer` : `no model was asked (${via})`,
+    // R9 (H162): the model asked for, by name, when the record has it
+    asked: r.provider.model ? `${r.provider.model} via ${via}`
+      : r.latencyMs !== undefined ? `asked ${r.model?.requested ?? 'the model'} via ${via}: no usable answer`
+        : r.model && r.provider.transport !== 'none' ? `${r.model.requested} not asked (${via})` : `no model was asked (${via})`,
     ...(r.model ? { model: r.model.requested } : {}),
     ...(r.provider.pricing ? { pricing: r.provider.pricing.words } : {}),
     ...(r.model?.differs ? { differs: r.model.differs } : {}),
