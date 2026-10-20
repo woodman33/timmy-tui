@@ -114,6 +114,9 @@ const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
 /** R4 lead: the keys that start or stop something, taken only when pressed alone (never from keys that arrived together). */
 const TAKEN_ALONE = new Set(['x', 'c', 's', 'C', 'S']);
 
+/** R9 (H161; R8's M): how long the answer to a key keeps the controls row, as long as bottomView draws a notice there (6 s). */
+const ANSWER_HOLD_MS = 6000;
+
 export class Controller {
   ui: Ui;
   data: Data;
@@ -137,6 +140,14 @@ export class Controller {
   private turnAbort: AbortController | null = null;
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
+  /**
+   * R9 (H161; R8's open item M): the keys the person has pressed (each one counted as takeKey takes it), and the answer to one
+   * held on the controls row (say's `answer`): while no other key has been pressed and it is fresh (ANSWER_HOLD_MS, as long as
+   * the row shows a notice: src/workbench/views.ts bottomView), a notice of something else (a run's progress line, a job's
+   * end, through the Workspace's notify) goes to Activity's events and its strip without taking the answer's place.
+   */
+  private keySeq = 0;
+  private held: { key: number; at: number } | null = null;
   private readonly output = new OutputWatch();
   /** R5 (H131): the chat's fixes (src/workbench/setup-paths.ts) */
   private readonly setup: SetupDeps;
@@ -214,9 +225,13 @@ export class Controller {
 
   /** What the person sees now: say it in Activity and on the controls row. A notice that names a job (or is given an
    *  operation) belongs to that job's operation, so Activity's filter for that operation keeps it. */
-  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string; whileTurn?: string } = {}): void {
+  say(text: string, role: Role = 'text', meta: { operation?: string; job?: string; whileTurn?: string; answer?: boolean } = {}): void {
     const at = new Date(this.now()).toISOString();
-    this.ui.flash = { text, role, at: this.now(), ...(meta.whileTurn ? { whileTurn: meta.whileTurn } : {}) };
+    // R9 (H161; R8's M): an answer to the key just pressed keeps the controls row against notices of other things (held, above)
+    const keep = !meta.answer && this.held !== null && this.held.key === this.keySeq && this.now() - this.held.at < ANSWER_HOLD_MS;
+    if (!keep) this.ui.flash = { text, role, at: this.now(), ...(meta.whileTurn ? { whileTurn: meta.whileTurn } : {}) };
+    if (meta.answer) this.held = { key: this.keySeq, at: this.now() };
+    else if (!keep) this.held = null;
     const named = meta.job ?? /\b(j[0-9a-f]{6,})\b/.exec(text)?.[1];
     const job = named ? this.records.find((j) => j.id === named) : undefined;
     const operation = meta.operation ?? job?.operation;
@@ -239,15 +254,34 @@ export class Controller {
     return chain;
   }
 
-  /** The jobs and Activity (every tick). */
-  readJobs(): void {
-    try { this.records = this.d.workspace.jobs.list(); } catch { this.records = []; }
+  /** The jobs and Activity (every tick). R9 (H161): whether the job store could be read (false: nothing of it was). */
+  readJobs(): boolean {
+    let read = true;
+    try { this.records = this.d.workspace.jobs.list(); } catch { this.records = []; read = false; }
     const root = this.data.project.root;
     this.data.jobs = readJobs(this.records, root, { mine: this.mine, chain: this.chain() });
     // R4 (H112): a run this Workbench started keeps its own project when the view switches: still named, with where
     this.data.away = this.records.filter((j) => this.mine.has(j.id) && !sameFolder(j.root, root)).slice(0, 12).map((j) => jobRow(j, { mine: this.mine }));
     this.readOutput();
     this.data.activity = this.activity();
+    return read;
+  }
+
+  /**
+   * R9 (H161; R8's open item M): the run of a workflow block that goes on now, for one press of Run (the block's Enter, and its
+   * confirm's Enter): read from the job store again (the press must not start a second run on the last tick's reading alone),
+   * and from the reading before it. The fresh reading decides when it has the run going on, or has that job's record ended (it
+   * saw the end: Run asks again). When it has no run of it going on and no record of the job the reading before had running
+   * (that record could not be read at that moment, or the job store could not be read at all), the job is not known to have
+   * ended, so the earlier reading's run stands: the press is refused in the same words and starts nothing.
+   */
+  private runningNow(doc: string, block: string): ReturnType<typeof runOfBlock> {
+    const before = runOfBlock({ ui: this.ui, data: this.data }, doc, block);
+    this.ui.starting = [...this.starting];
+    const read = this.readJobs();
+    const now = runOfBlock({ ui: this.ui, data: this.data }, doc, block);
+    if (now || !before?.job) return now;
+    return read && this.data.jobs.some((j) => j.id === before.job!.id) ? undefined : before;
   }
 
   /** R4 (H112): what each running job printed since the last look (its log; src/workbench/output.ts), kept as first seen; a
@@ -777,6 +811,8 @@ export class Controller {
   private takeKey(input: string, k: Partial<Key>): string {
     // R6 (H141): once the Workbench is ending, a key acts on nothing (it is read, so it is not left for the shell either)
     if (this.disposed) return 'nothing: the Workbench is ending';
+    // R9 (H161): a key pressed: an answer held on the controls row gives way to whatever is said from now on
+    this.keySeq++;
     const o = this.ui.overlay;
     // a NEEDS YOU box takes every key until it is answered; Ctrl+C denies it (a second Ctrl+C then quits)
     if (o?.kind === 'needs-you') return `the NEEDS YOU box: ${this.needsYouKey(o, input, k)}`;
@@ -1470,6 +1506,7 @@ export class Controller {
    * is never taken as keys: an x in it never stops a job).
    */
   paste(text: string): void {
+    this.keySeq++; // R9 (H161): the person acted: a held answer gives way
     const o = this.ui.overlay;
     // (the key log, R6 H141: a paste is one line of it too, its length only)
     this.d.keyLog?.({ paste: text.length, overlay: o?.kind ?? null, field: this.ui.input.field, took: o?.kind === 'needs-you' ? 'the NEEDS YOU box: denied' : this.ui.input.field ? `the field ${this.ui.input.field}` : 'nothing: said so' });
@@ -1508,10 +1545,10 @@ export class Controller {
     const request = `/run ${args}`;
     // R4 (H112): one press, one operation, one job. A run of it being started here, or one that runs now in any session (the
     // job store read again, not the last tick's reading), starts nothing: no operation is begun and nothing is sealed.
-    this.ui.starting = [...this.starting];
-    this.readJobs();
-    const going = runOfBlock({ ui: this.ui, data: this.data }, o.doc, o.block);
-    if (going) { this.say(`Not started: ${going.words}.`, 'secondary', going.job?.operation ? { operation: going.job.operation } : {}); return; }
+    // R9 (H161; R8's M): runningNow keeps the earlier reading's run when the fresh one cannot see that job; the refusal is the
+    // answer to this key, so a notice of something else does not take its place on the controls row (say's answer)
+    const going = this.runningNow(o.doc, o.block);
+    if (going) { this.say(`Not started: ${going.words}.`, 'secondary', { answer: true, ...(going.job?.operation ? { operation: going.job.operation } : {}) }); return; }
     this.starting.add(label);
     this.ui.starting = [...this.starting];
     const h = ws.ops.begin({ request, via: 'workbench', root: ws.root, project: ws.project.name });
@@ -1855,15 +1892,15 @@ export class Controller {
         return;
       }
       case 'block': {
-        // R4 (H112): a run of this block under way (here, or in any session, read now from the job store) starts nothing
-        this.ui.starting = [...this.starting];
-        this.readJobs();
-        const going = runOfBlock({ ui: this.ui, data: this.data }, item.doc.rel, item.block.name);
-        if (going) { this.say(`Not started: ${going.words}.`, 'secondary', going.job?.operation ? { operation: going.job.operation } : {}); return; }
+        // R4 (H112): a run of this block under way (here, or in any session, read now from the job store) starts nothing.
+        // R9 (H161; R8's M): read by runningNow (the fresh reading, and the one before it when the fresh one cannot see that
+        // job), and said as this key's answer, which a notice of the run itself (its progress, a block's end) does not replace
+        const going = this.runningNow(item.doc.rel, item.block.name);
+        if (going) { this.say(`Not started: ${going.words}.`, 'secondary', { answer: true, ...(going.job?.operation ? { operation: going.job.operation } : {}) }); return; }
         const acts = actionsOf(this.ctx(), item);
         const run = acts.find((a) => a.key === 'Enter');
         if (run?.enabled) this.open({ kind: 'confirm-run', doc: item.doc.rel, block: item.block.name, order: item.block.order, risky: item.block.risky });
-        else if (run) this.say(`${run.label}: ${run.why ?? 'not available'}`, 'secondary');
+        else if (run) this.say(`${run.label}: ${run.why ?? 'not available'}`, 'secondary', { answer: true });
         return;
       }
       case 'starter': this.openNew(item.name); return;
@@ -1892,6 +1929,7 @@ export class Controller {
   mouse(m: MouseReport): void {
     const f = this.last;
     if (!f || !this.ui.mouse || this.disposed) return;
+    this.keySeq++; // R9 (H161): the person acted: a held answer gives way
     const x = m.x - 1;
     const y = m.y - 1;
     const hit = (Object.entries(f.regions) as Array<[Region, NonNullable<Frame['regions'][Region]>]>).find(([, d]) => x >= d.rect.x && x < d.rect.x + d.rect.w && y >= d.rect.y && y < d.rect.y + d.rect.h);
