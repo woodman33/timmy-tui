@@ -15,7 +15,7 @@ import type { RunDetail } from '../contracts/run-detail.js';
 import { TABS, tabOf, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import { LIVE_FOR_WORDS, SURFACE_LIVE_WORDS, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.js';
-import { createTabLines } from './create-tab.js';
+import { createItemName, createItems, createTabView } from './create-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, frameTabs, homeView, hintLine, newestLog, pageOf, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
@@ -379,7 +379,8 @@ function withUnfinished(c: ViewCtx, v: View): View {
   if (!box.length) return v;
   // an item out of view (a column's own window keeps it out, line -1) stays out of view
   const below = (n: number): View['items'] => v.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line + n : x.line }));
-  const first = v.items[0]?.line;
+  // R9 (H160): a view that keeps its first item whole as the page opens (tab 6's first mesh) leaves room for its every row
+  const first = v.items[0] && v.items[0].line >= 0 && v.firstWhole ? v.items[0].line + Math.max(1, v.items[0].rows ?? 1) - 1 : v.items[0]?.line;
   const room = c.height;
   if (first === undefined || first < 0 || box.length + first < room) return { ...v, lines: [...box, ...v.lines], items: below(box.length), unfinished: box.length };
   if (box.length - 1 + first < room) return { ...v, lines: [...box.slice(0, -1), ...v.lines], items: below(box.length - 1), unfinished: box.length - 1 };
@@ -721,14 +722,21 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
     rows = families.flatMap((f) => { const m = FAMILY_ROWS[f]; return m ? caps.filter((r) => m(r.id, r.kind)) : []; });
   }
   const records = ws === 'voxvision' ? data.vox : tab6 ? families.flatMap((f) => data.native[f] ?? []) : data.native[ws] ?? [];
-  const total = rows.length + records.length;
+  // R9 (H160; R8's G′): tab 6's meshes and recordings are its first items, before its tools (src/workbench/create-tab.ts)
+  const own = tab6 ? createItems(data).length : 0;
+  const total = own + rows.length + records.length;
   const cur = cursorOf(c.ui, `center:${ws}`, total);
-  let i = 0;
+  let i = own;
   // R5 (H131; the QA round's defect 3): tab 6 says, first, what a terminal cannot draw; the QA of e7f853e, defect 2: and what
   // c and s show for it in truth (no Timmy surface draws 3D or a timeline yet; each app draws its own). R6 lead (H146's
   // finding): images are drawn now (the companion's Home, tab 5 and run detail), so this says interactive 3D and motion only
   // R7 (H153): the companion's tab 6 draws the project's meshes now: this says so first, then lists them (src/workbench/create-tab.ts)
-  if (tab6) lines.push(...createTabLines(c), blank);
+  // R9 (H160): each mesh and recording an item, the cursor's whole in the window (its rows fit the window's height)
+  if (tab6) {
+    const v6 = createTabView({ data, width: c.width, height: c.height, g, cursor: cur });
+    for (const x of v6.items) items.push({ ...x, line: lines.length + x.line });
+    lines.push(...v6.lines, blank);
+  }
   lines.push(heading(`Tools (${wait ? 'checking' : rows.length})`));
   if (wait) lines.push(...wait);
   else if (!rows.length) {
@@ -763,7 +771,8 @@ function familyView(c: ViewCtx, ws: WorkspaceId): View {
     lines.push(blank);
     lines.push(...para('A preview here is never a measurement: measured values are shown with their method and source in the REPL (/inspect, /measure) and on the board.', c.width));
   }
-  return { lines, items };
+  // R9 (H160): tab 6 opens with its first mesh whole in the window (src/workbench/views.ts withUnfinished)
+  return { lines, items, ...(tab6 && own ? { firstWhole: true } : {}) };
 }
 
 function templatesView(c: ViewCtx): View {
@@ -1184,6 +1193,8 @@ function itemName(item: Item | null): string {
     case 'vox-record': return voxItemName(item);
     case 'mcp-call': return toolsItemName(item);
     case 'live-turn': return controlItemName(item);
+    // R9 (H160): tab 6's meshes and recordings, by their paths
+    case 'mesh': case 'recording': return createItemName(item);
     default: return 'an action';
   }
 }
