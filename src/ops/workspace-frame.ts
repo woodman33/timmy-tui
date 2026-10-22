@@ -37,7 +37,7 @@ import type { ChatSurface } from '../contracts/chat-session.js';
 import { turnEndWords } from '../contracts/stop-words.js';
 import { ollamaAddress, ollamaStartStep } from '../capabilities/ollama-route.js';
 import { onPath as onPathNow } from '../utils/on-path.js';
-import { THIS_PROCESS, withProcessTable, writerState } from './process-proof.js';
+import { readProcessTable, THIS_PROCESS, withProcessTable, writerState, type ProcessTable } from './process-proof.js';
 import { readMcpCalls, type McpCallRead } from '../connectors/mcp-records.js';
 import type { Receipt } from '../utils/receipts.js';
 
@@ -635,12 +635,34 @@ const ollamaCli = (d: StateDeps, env: Env): boolean => {
   try { return d.onPath ? d.onPath('ollama') !== null : onPathNow('ollama', env); } catch { return false; }
 };
 
-/** The frame. Reads the records only; the same inputs give the same revision. */
-export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platform?: NodeJS.Platform; alive?: ProcessAlive } = {}): Promise<WorkspaceFrame> {
+type FrameDeps = StateDeps & { now?: number; platform?: NodeJS.Platform; alive?: ProcessAlive };
+
+/**
+ * The frame. Reads the records only; the same inputs give the same revision.
+ *
+ * R10 (H163; the turn-holds latency, the lead's item (e)): no proof the frame makes runs a program on the event loop. With a
+ * process table given (d.processTable: the Workbench passes the one it last read), it is built once against it, each pid
+ * looked up noted in d.processLooked. Without one, it is built first against no table at all: a frame that looks no pid up
+ * (no chat hold, no surface's listening note, no record an ended session left) needs none and runs no program; one that does
+ * is built again against the table, read by a child process the event loop does not wait on (src/ops/process-proof.ts
+ * readProcessTable). Before, a frame build ran ps -A and ps -p on the event loop: on a loaded computer 0.1 to 0.5 s in which
+ * the Workbench drew nothing.
+ */
+export async function buildWorkspaceFrame(d: FrameDeps = {}): Promise<WorkspaceFrame> {
+  if (d.processTable) return frameWith(d, d.processTable);
+  const looked = new Set<number>();
+  const first = await frameWith({ ...d, processLooked: looked }, { rows: new Map(), at: Date.now() });
+  if (!looked.size) return first;
+  return frameWith({ ...d, processLooked: undefined }, await readProcessTable());
+}
+
+/** The frame built against `table` (every proof looked up in it, none running a program). */
+async function frameWith(d: FrameDeps, table: ProcessTable): Promise<WorkspaceFrame> {
   const env = d.env ?? process.env;
   const cwd = d.cwd ?? process.cwd();
   const now = d.now ?? Date.now();
-  const wb = await workbenchJson(d);
+  const looked = d.processLooked;
+  const wb = await workbenchJson({ ...d, processTable: table });
   const unknown: WorkspaceFrame['unknown'] = [];
   // R6 (H140): one reading of the process table for the frame's notes (src/ops/process-proof.ts withProcessTable)
   const read: Partial<Record<'companion' | 'studio', SurfaceNow>> = {};
@@ -648,7 +670,7 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   let chainRead: Receipt[] | null = null;
   const chainOnce = (): Receipt[] => (chainRead ??= d.chain ? d.chain() : chainOf(wb.project.root, env));
   const mcpCalls = (() => { try { return readMcpCalls(wb.project.root, chainOnce(), 12).list; } catch { return []; } })();
-  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls));
+  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls), table, looked);
   const settings = readWorkbenchSettings(env).settings;
   // R6 (H140): a surface runs when it answered within the bound (live), or while the process that noted it listening runs (it
   // listens; nothing has asked it yet); not running when a check or its own note says so, or its process is gone; else unknown
@@ -665,11 +687,11 @@ export async function buildWorkspaceFrame(d: StateDeps & { now?: number; platfor
   // hold whose process has ended is no running turn). R5 lead (the QA round, defect 9; the operator's 22:32 order, item 1):
   // a hold whose own receipt is sealed has ended (the hold is let go a moment after): matched by the turn's identity, its
   // hold's id sealed on its receipt as turn_id, never by surface and time, so a next turn taken at once is still running
-  const turns = (() => { try { return runningTurns(wb.project.root, undefined, { readOnly: true }); } catch { return []; } })()
+  const turns = (() => { try { return withProcessTable(() => runningTurns(wb.project.root, undefined, { readOnly: true }), table, looked); } catch { return []; } })()
     .filter((t) => !recentTurns.some((r) => r.turn === t.id));
   const turn = turns[0];
   // R7 lead: the drafts waiting on the project's board, as the waiting count reads them (src/ops/waiting.ts)
-  const draftsNow = (() => { try { return pendingDrafts(wb.project.root, env)?.count ?? 0; } catch { return 0; } })();
+  const draftsNow = (() => { try { return withProcessTable(() => pendingDrafts(wb.project.root, env)?.count ?? 0, table, looked); } catch { return 0; } })();
   // R5 lead (the QA round, defect 6): no clock time in the words; each surface shows `since` in its own one format
   const turnWordsNow = turn ? `a chat turn is being answered in ${surfaceWords(turn.surface)}` : '';
   const log: WorkspaceLogEntry[] = wb.events.slice(0, LOG_MAX).map((e) => ({

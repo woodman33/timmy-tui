@@ -40,6 +40,7 @@ import { VOX_DIR, VOX_ID } from '../vox/record.js';
 import { blockCount } from '../workflows/block-count.js';
 import { findUpmd, findWorkflowDocs } from '../workflows/upmd.js';
 import { readOperationRecord } from '../ops/operations.js';
+import { withProcessTable, type ProcessTable } from '../ops/process-proof.js';
 import { waitingNow } from '../ops/waiting.js';
 import type { PipelineStage, PipelineView, TurnRow } from './model.js';
 import { FAMILY_APPS, GROUP_LABEL, NAV, type WorkspaceId } from './nav.js';
@@ -643,6 +644,14 @@ export interface StateDeps {
    */
   files?: () => FilesView;
   workflows?: () => WorkflowsView;
+  /**
+   * R10 (H163; the turn-holds latency, item (e)): the process table as the caller read it without blocking (the workspace
+   * frame reads one first, src/ops/process-proof.ts readProcessTable): the jobs', the decisions' and the workflows' proofs are
+   * looked up in it and run no program; absent: read here as before
+   */
+  processTable?: ProcessTable;
+  /** R10 (H163): where the pids looked up in processTable are noted (the caller reads the table again when one was) */
+  processLooked?: Set<number>;
 }
 
 /** The shell's state model: what `timmy workbench --json` prints and what the app starts from. Reads only. */
@@ -659,10 +668,12 @@ export async function workbenchJson(d: StateDeps = {}): Promise<WorkbenchJson> {
   }
   let chain: Receipt[] = [];
   try { chain = d.chain ? d.chain() : chainOf(project.root, env); } catch { chain = []; }
-  const rows = readJobs(records, project.root, { mine: new Set(), chain });
-  const decisions = readDecisions(project.root, records, chain, undefined, env);
+  // R10 (H163; item (e)): with a table given, these proofs are looked up in it and run no program
+  const given = <T>(fn: () => T): T => (d.processTable ? withProcessTable(fn, d.processTable, d.processLooked) : fn());
+  const rows = given(() => readJobs(records, project.root, { mine: new Set(), chain }));
+  const decisions = given(() => readDecisions(project.root, records, chain, undefined, env));
   const files = d.files ? d.files() : readFiles(project.root);
-  const wf = d.workflows ? d.workflows() : readWorkflows(project.root, { jobs: records.filter((j) => sameFolder(j.root, project.root)), chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env, ...(d.onPath ? { onPath: d.onPath } : {}) });
+  const wf = d.workflows ? d.workflows() : given(() => readWorkflows(project.root, { jobs: records.filter((j) => sameFolder(j.root, project.root)), chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env, ...(d.onPath ? { onPath: d.onPath } : {}) }));
   const act = activityOf(rows, decisions.total);
   const stop = stopTarget(rows);
   const groups = [...new Set(NAV.map((n) => n.group))];
