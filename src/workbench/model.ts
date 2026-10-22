@@ -27,6 +27,8 @@ import type { Line, Role } from './text.js';
 import type { HoldsReading } from './turn-holds.js';
 import type { TurnNow } from './hub.js';
 import type { WorkItem } from './home-journey.js';
+import type { JourneyRoute, RecentWork } from '../journey/index.js';
+import type { BuildInfo } from '../build-info.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
 export const REGIONS: readonly Region[] = ['nav', 'center', 'right', 'bottom', 'top'];
@@ -155,6 +157,12 @@ export interface Data {
   /** R5 (H136): tab 3's reading of the selected block's newest run (src/workbench/workflows-tab.ts readWorkflowsTab), made
    *  each frame only while the tab is shown */
   workflowsTab?: WorkflowsTabData;
+  /** R10 (H167): the project's recent work (H164's src/journey recentWork), read with the records (readAll), never per frame */
+  recent?: RecentWork;
+  /** R10 (H167): the route the next chat turn takes (H164's src/journey routeNow), read with the records */
+  journeyRoute?: JourneyRoute;
+  /** R10 (H167): the build (H163's src/build-info.ts buildInfo), read once: About · diagnostics */
+  build?: BuildInfo;
 }
 
 /** R5 (H131): one stage of the newest run's pipeline, as its records say it. */

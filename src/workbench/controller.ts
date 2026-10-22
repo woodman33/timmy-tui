@@ -45,6 +45,8 @@ import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
 import type { WorkItem } from './home-journey.js';
+import { recentWork as recentWorkOf, routeNow } from '../journey/index.js';
+import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
 import { OutputWatch } from './output.js';
@@ -302,6 +304,15 @@ export class Controller {
     }
   }
 
+  /** R10 (H167): the route the next turn takes and the project's recent work (H164's src/journey), and the build once (H163's
+   *  buildInfo, which asks git where Timmy runs from source). A reading that fails leaves the one before. */
+  private readJourney(chain?: readonly Receipt[]): void {
+    const p = this.data.project;
+    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+    try { this.data.recent = recentWorkOf({ project: { name: p.name, root: p.root }, env: this.d.env, ...(chain ? { chain } : {}) }, 24); } catch { /* as it was */ }
+    if (!this.data.build) { try { this.data.build = buildInfo({ env: this.d.env }); } catch { /* unknown */ } }
+  }
+
   /** Everything but the on-demand parts (every few seconds, and on [r]). */
   readAll(): void {
     const root = this.data.project.root;
@@ -319,6 +330,9 @@ export class Controller {
     // own route read again with it, so the top line, Chat and Settings follow a /setup made elsewhere
     this.data.route = readRoute(this.d.env);
     if (this.chat?.state === 'open' && this.chat.root === root) { try { this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ } }
+    // R10 (H167): the journey's facts from their one source (H164's src/journey): the route the next turn takes and the
+    // project's recent work (its receipts verified here), read here with the records, never per frame
+    this.readJourney(chain);
     this.data.chat = readChatTail(root);
     this.data.vox = readVoxRecords(root);
     this.data.native = { create3d: readNativeRows(root, 'create3d'), motion: readNativeRows(root, 'motion') };
@@ -546,6 +560,8 @@ export class Controller {
       // R6 (H141; REMAINING-DEFECTS #31): and Studio's cards, which Home's preview and Studio draw: read once when first shown,
       // they said a workflow was "not run yet" above LAST RUN's "completed" for the same run
       this.refreshCards();
+      // R10 (H167): and the project's recent work (Home's list): a run that started, moved or ended is said there at once
+      this.readJourney(this.chain());
     }
     if (sig !== this.signature || ticking || (this.ui.flash && this.now() - this.ui.flash.at < 7000)) { this.signature = sig; this.emit(); }
   }
@@ -1392,6 +1408,7 @@ export class Controller {
       return;
     }
     this.data.route = readRoute(this.d.env);
+    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
     this.refreshFrame();
     const lines: Line[] = [
       [S('Saved '), S(id, 'strong'), S(` as the chat's OpenRouter model, in Timmy's settings (${tildePath(saved.path)}).`)],
@@ -1437,6 +1454,7 @@ export class Controller {
     }
     this.data.route = readRoute(this.d.env);
     try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
+    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
     this.refreshFrame();
     const lines: Line[] = [
       [S('The chat is set to the local model '), S(model, 'strong'), S(', as the setup\'s answer (written as timmy init --chat local --model writes it).')],

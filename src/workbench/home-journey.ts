@@ -16,13 +16,14 @@
  * and a value no record holds is unknown. Pure: the same data and state always draw the same rows.
  */
 import { tabOf, type TabId, type WorkspaceConnection } from '../contracts/workspace.js';
-import { sameFolder } from '../project/index.js';
+import { tildePath } from '../utils/home-scrub.js';
 import { boxOf, type Glyphs } from './frame.js';
 import { chatTurnNow, connectionMark, frameTabs, unfinishedMark } from './hub.js';
 export { plainWords } from './hub.js';
-import type { Data, Item, TurnRow, Ui, View } from './model.js';
+import type { Data, Item, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
-import type { FileRow, JobRow, RecordRow } from './state.js';
+import type { JourneyRoute, WorkItem as JourneyWorkItem } from '../journey/index.js';
+import type { BuildInfo } from '../build-info.js';
 import { clock, count, cut, fit, lineCells, took, wrapSegs, type Line, type Role, type Seg } from './text.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -55,7 +56,11 @@ export interface RouteLine {
   words: string;
 }
 
-export function routeLine(data: Pick<Data, 'route' | 'chatRoute'>): RouteLine {
+export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute'>): RouteLine {
+  // the one source (H164's routeNow), unless the open chat session reports another route than it read (a test's FIXTURE
+  // session): the session's is the turn's then
+  const j = data.journeyRoute;
+  if (j && (!data.chatRoute || data.chatRoute.words === j.words)) return fromRouteNow(j);
   const r = data.chatRoute ?? data.route;
   const words = r.words.replace(/^chat:\s*/, '');
   // a FAKE model or a test's FIXTURE route says so in its words: it is named FAKE on screen
@@ -82,6 +87,22 @@ export function routeLine(data: Pick<Data, 'route' | 'chatRoute'>): RouteLine {
     return { ...base, model, where: 'OpenRouter (cloud)', price, ...(r.ready ? {} : { why: free ? 'free-only refuses this model' : 'not ready' }) };
   }
   return { ...base, model: null, where: 'no route', price: 'unknown', why: /no model key/.test(words) ? 'no model key and no local model' : 'not set up' };
+}
+
+/** H164's route (src/journey routeNow) in the header's words: the model, where it runs, its price as declared (else what is
+ *  known of it), FAKE when it is, and why it is not ready. */
+export function fromRouteNow(j: JourneyRoute): RouteLine {
+  const where = j.provider === 'none' || !j.where ? (j.provider === 'ollama' ? 'Ollama' : 'no route')
+    : j.provider === 'ollama' ? (j.where === 'this computer' ? 'this computer (Ollama)' : j.where === 'cloud' ? 'Ollama, cloud-backed (leaves this computer)' : 'Ollama on another computer')
+      : j.provider === 'openrouter' ? 'OpenRouter (cloud)' : j.where;
+  // a price is said as declared; a local model's is not declared (its receipt says "no charge" once Ollama reports local
+  // weights), and another's unknown
+  const price = j.price.state === 'declared' ? (j.price.free ? 'free (declared)' : j.price.words)
+    : j.provider === 'ollama' && j.where === 'this computer' ? 'no price declared (local)' : j.provider === 'fake' ? 'no price (FAKE)' : 'price unknown';
+  return {
+    model: j.model, where, price, fake: j.fake, ready: j.ready, words: j.words,
+    ...(j.ready ? {} : { why: j.why ?? 'not set up' }),
+  };
 }
 
 /** The route as one line of segments: "qwen3:8b · this computer (Ollama) · no charge", FAKE first when it is. */
@@ -181,7 +202,7 @@ export function headerRows(data: Data, page: TabId, width: number, g: Glyphs): {
 
 // ── recent work ────────────────────────────────────────────────────────────────
 
-/** Where a work item opens: a tab of this Workbench (the list it selects there), and the companion's page for it. */
+/** Where a work item opens in this Workbench, and in the companion (H164's openTarget: its address's query). */
 export interface OpenTarget {
   /** the tab Enter opens */
   page: TabId;
@@ -191,29 +212,34 @@ export interface OpenTarget {
   select?: { list: string; key: string };
   /** what Enter does, in words */
   words: string;
-  /** the companion's address parameters for it (c): tab=…&run=… */
+  /** the companion's address parameters for it (c): tab=…&run=… (H164's openTarget query); '' when it opens in Studio */
   companion: string;
-  /** what the companion draws of it, in words */
+  /** what the companion (or Studio) draws of it, in words */
   companionWords: string;
   /** Enter shows it in the companion (an image or a mesh: a terminal cannot draw it), not in a tab here */
   show?: boolean;
+  /** it opens in Studio (s), not the companion */
+  studio?: boolean;
 }
 
-/** One item of recent work (H164's recentWork replaces the reading once merged: kind, id, title, time, state, where it opens). */
+/** One item of Home's list: an item of the project's recent work (H164's src/journey recentWork), or what waits on you (the
+ *  one waiting count's items, src/ops/waiting.ts), as Home draws it. */
 export interface WorkItem {
-  kind: 'run' | 'turn' | 'observation' | 'result' | 'waiting';
-  /** stable: what it is (a job, a receipt, a record, a file, a waiting item) */
+  kind: 'run' | 'turn' | 'observation' | 'result' | 'reference' | 'mesh' | 'recording' | 'receipt' | 'draft' | 'card' | 'waiting';
+  /** stable: what it is (an operation, a receipt, a record, a file, a draft, a waiting item) */
   id: string;
   title: string;
-  /** its record's word: completed, failed, answered, ok, waits on you */
+  /** its record's word: completed, failed, answered, saved, draft, waits on you */
   state: string;
   tone: 'ok' | 'failed' | 'running' | 'waiting' | 'quiet';
   /** when (ms since the epoch); NaN: not recorded */
   at: number;
   /** a few facts, in words (no id, hash, path or command) */
   facts: string[];
-  /** its receipt: sealed (a record names it) and whether this Workbench verified it now */
-  receipt?: { sealed: boolean; verified?: boolean };
+  /** its receipt: sealed (a record names it) and whether it verifies here now (H164 verifies each one listed) */
+  receipt?: { sealed: boolean; verified?: boolean; why?: string };
+  /** a FAKE stand-in or FAKE content: said FAKE on the row */
+  fake?: boolean;
   /** the operation it belongs to (the inspector names it) */
   operation?: string;
   /** what the inspector says of it: its ids, hashes and paths */
@@ -221,144 +247,103 @@ export interface WorkItem {
   opens: OpenTarget;
 }
 
-const KIND_WORD: Readonly<Record<WorkItem['kind'], string>> = { run: 'run', turn: 'chat', observation: 'VoxVision', result: 'result', waiting: 'needs you' };
-
-const SURFACE_WORDS: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
+const KIND_WORD: Readonly<Record<WorkItem['kind'], string>> = {
+  run: 'run', turn: 'chat', observation: 'VoxVision', result: 'result', reference: 'reference', mesh: 'mesh', recording: 'recording',
+  receipt: 'receipt', draft: 'draft', card: 'card', waiting: 'needs you',
+};
 
 /** A file's name without its folders (an artifact's name; its path is the inspector's). */
 const base = (rel: string): string => rel.split('/').pop() ?? rel;
 
-const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i;
-const MESH = /\.(stl|obj|ply)$/i;
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
-const hex = (s: string): string => Buffer.from(s, 'utf8').toString('hex');
+const TONE: Readonly<Record<string, WorkItem['tone']>> = {
+  answered: 'ok', completed: 'ok', saved: 'ok', sealed: 'ok', 'no change': 'ok',
+  failed: 'failed', refused: 'failed', differs: 'failed', untrusted: 'failed', interrupted: 'failed',
+  running: 'running', 'waiting on you': 'waiting', draft: 'waiting', 'needs setup': 'waiting',
+};
 
-function runItem(j: JobRow, data: Data): WorkItem {
-  const tone: WorkItem['tone'] = j.live ? 'running' : j.mark === 'failed' ? 'failed' : j.mark === 'ok' ? 'ok' : 'quiet';
-  const block = /^(.+?) › (.+)$/.exec(j.label);
-  const doc = block ? data.workflows.docs.find((d) => d.rel === block[1]) : undefined;
-  const b = doc && block ? doc.blocks.find((x) => x.name === block[2]) : undefined;
-  const steps = j.steps?.length ? `${j.steps.filter((s) => s.state === 'completed').length} of ${j.steps.length} step${j.steps.length === 1 ? '' : 's'}` : '';
-  const verified = data.pipeline?.kind === 'job' && data.pipeline.operation && data.pipeline.operation === j.operation ? data.pipeline.receipt.verified : undefined;
-  const away = !sameFolder(j.root, data.project.root);
+const WHERE_WORDS: Readonly<Record<string, string>> = { 'this computer': 'this computer', 'another computer': 'another computer', cloud: 'the cloud' };
+
+/** H164's recent work item as Home's: its words, its receipt as verified here, where Enter opens it in this Workbench and
+ *  where c opens it (the companion's address H164's openTarget gives). */
+export function fromJourney(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'workflows'>): WorkItem {
+  const kind = it.kind as WorkItem['kind'];
+  const facts: string[] = [];
+  if (it.kind === 'turn' && it.route) facts.push(...[it.route.answeredBy ?? it.route.requested ?? '', WHERE_WORDS[it.route.where] ?? ''].filter(Boolean));
+  if (it.kind === 'run' && it.results?.length) facts.push(`${count(it.results.length, 'file')} written`);
+  if (it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result') facts.push(IMAGE.test(it.id) ? 'image' : it.kind);
+  const companion = it.open.surface === 'companion' ? it.open.query : '';
+  const studio = it.open.surface === 'studio';
+  const opens = targetOf(it, data, companion, studio);
+  const detail: Array<[string, string]> = [
+    ['Kind', it.kind], ['Id', it.id], ['Operation', it.operation ?? 'none'],
+    ['Receipt', it.receipt ? `${it.receipt.id} ${it.receipt.verified ? '(verified here now)' : `(does not verify: ${it.receipt.why ?? 'unknown'})`}` : 'none sealed'],
+    ['When', it.when ?? 'not recorded'],
+    ...(it.results?.length ? [['Results', it.results.join(', ')] as [string, string]] : []),
+    ...(it.route ? [['Route', `${it.route.provider} · asked ${it.route.requested ?? 'no model'} · answered by ${it.route.answeredBy ?? 'not recorded'} · ${it.route.where}${it.route.fallback ? ' · the last-resort fallback' : ''}`] as [string, string]] : []),
+    ['Opens', studio ? 'Studio, on the project\'s board' : `the companion at ${it.open.path}`],
+  ];
   return {
-    kind: 'run', id: j.id, title: doc?.title && block ? `${doc.title} › ${block[2]}` : j.label, state: j.live ? 'running' : j.word, tone,
-    at: Date.parse(j.endedAt ?? j.startedAt),
-    facts: [steps, j.live ? `running for ${j.elapsed}` : `took ${j.elapsed}`, away ? `in ${j.project}` : ''].filter(Boolean),
-    ...(j.receipt ? { receipt: { sealed: true, ...(verified !== undefined ? { verified } : {}) } } : {}),
-    ...(j.operation ? { operation: j.operation } : {}),
-    detail: [['Job', j.id], ['What', j.label], ['Operation', j.operation ?? 'none'], ['Receipt', j.receipt ?? 'none sealed'], ['Started', j.startedAt], ['Outcome', j.outcome.words], ...(j.why ? [['Why', j.why] as [string, string]] : [])],
-    opens: {
-      page: 'workflows', ...(doc && b ? { select: { list: 'center:workflows', key: `block:${doc.rel}:${b.key}` } } : {}),
-      words: 'opens its progress, result and receipt in 3 Workflows',
-      companion: `tab=workflows${j.operation ? `&run=${j.operation}` : ''}`, companionWords: 'its source, changes, outputs and receipts, drawn',
-    },
+    // a file by its name; an observation's or a run's words with each path said by its file's name (the paths are the details')
+    kind, id: it.id, title: it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result' ? base(it.title) : it.kind === 'observation' || it.kind === 'run' ? it.title.replace(/(?:[\w.-]+\/)+([\w.-]+)/g, '$1') : it.title,
+    state: it.state, tone: TONE[it.state] ?? 'quiet', at: it.when ? Date.parse(it.when) : Number.NaN, facts,
+    ...(it.receipt ? { receipt: { sealed: true, verified: it.receipt.verified, ...(it.receipt.why ? { why: it.receipt.why } : {}) } } : {}),
+    ...(it.fake ? { fake: true } : {}), ...(it.operation ? { operation: it.operation } : {}),
+    detail, opens,
   };
 }
 
-function turnItem(t: TurnRow, data: Data): WorkItem {
-  const tone: WorkItem['tone'] = t.state === 'failed' ? 'failed' : t.state === 'answered' ? 'ok' : 'quiet';
-  const where = SURFACE_WORDS[t.surface] ?? t.surface;
-  // verified only where this Workbench verified it: the newest operation's receipt, which the Chat tab's pipeline row checks
-  const verified = data.pipeline?.kind === 'chat' && !data.pipeline.live && data.pipeline.operation && data.pipeline.operation === t.operation ? data.pipeline.receipt.verified : undefined;
-  return {
-    kind: 'turn', id: t.receipt, title: `Chat turn in ${where}`, state: t.state, tone, at: Date.parse(t.at),
-    facts: [t.model ?? 'model not recorded', t.local === true ? 'this computer' : t.local === false ? 'another computer' : '', t.ms !== undefined ? took(t.ms) : ''].filter(Boolean),
-    receipt: { sealed: true, ...(verified !== undefined ? { verified } : {}) },
-    ...(t.operation ? { operation: t.operation } : {}),
-    detail: [['Receipt', t.receipt], ['Turn', t.turn ?? 'not recorded'], ['Operation', t.operation ?? 'none'], ['Surface', t.surface], ['Model', t.model ?? 'not recorded'], ['Sealed', t.at]],
-    opens: { page: 'chat', words: 'opens the conversation in 2 Chat', companion: 'tab=chat', companionWords: 'this project\'s turns, each as its receipt' },
+/** Where Enter opens an item in this Workbench (the companion's place is H164's): a run on 3 Workflows with its block selected,
+ *  an observation on 5, a chat turn on 2, a mesh or a recording on 6, a receipt on 0, a draft or a card on 4 (Studio's own
+ *  board); an image, which a terminal cannot draw, in the companion; a result a run wrote, where that run opens. */
+function targetOf(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'workflows'>, companion: string, studio: boolean): OpenTarget {
+  const words = it.open.words;
+  const runOf = (op: string | null | undefined): OpenTarget => {
+    const job = op ? data.jobs.find((j) => j.operation === op) : undefined;
+    const m = job ? /^(.+?) › (.+)$/.exec(job.label) : null;
+    const doc = m ? data.workflows.docs.find((d) => d.rel === m[1]) : undefined;
+    const b = doc && m ? doc.blocks.find((x) => x.name === m[2]) : undefined;
+    return { page: 'workflows', ...(doc && b ? { select: { list: 'center:workflows', key: `block:${doc.rel}:${b.key}` } } : {}), words: 'opens its progress, result and receipt in 3 Workflows', companion, companionWords: 'its source, changes, outputs and receipts, drawn' };
   };
+  switch (it.kind) {
+    case 'run': return runOf(it.id);
+    case 'observation': return { page: 'voxvision', select: { list: 'center:voxvision', key: `vox:${it.id}` }, words: 'opens it in 5 VoxVision', companion, companionWords: 'the image with what was measured over it, drawn' };
+    case 'turn': return { page: 'chat', words: 'opens the conversation in 2 Chat', companion, companionWords: 'this project\'s turns, at this one' };
+    case 'mesh': return { page: 'create', select: { list: 'center:create3d', key: `mesh:${it.id}` }, words: 'opens it in 6 3D & Motion', companion, companionWords: 'the mesh in a view you can turn' };
+    case 'recording': return { page: 'create', select: { list: 'center:create3d', key: `rrd:${it.id}` }, words: 'opens it in 6 3D & Motion', companion, companionWords: 'the recording\'s entities and time ranges' };
+    case 'receipt': return { page: 'logs', words: 'opens 0 Logs & Receipts', companion, companionWords: 'the receipt, verified on its page' };
+    case 'draft': case 'card': return { page: 'studio', words: 'opens 4 Studio, where Accept or Discard is', companion: '', companionWords: 'the board in Studio (s)', studio: true };
+    default: {
+      // a reference or a result: where the run that wrote it opens, else an image in the companion, else Files
+      if (it.open.select?.name === 'run') return { ...runOf(it.open.select.value), companionWords: 'the run that wrote it, drawn' };
+      if (it.open.preview === 'image') return { page: 'logs', ws: 'files', select: { list: 'center:files', key: `file:${it.id}` }, words: `shows it in the companion: ${words}`, companion, companionWords: 'the image, drawn', show: true };
+      return { page: 'logs', ws: 'files', select: { list: 'center:files', key: `file:${it.id}` }, words: 'opens it in Files (0 Logs & Receipts)', companion, companionWords: words };
+    }
+  }
 }
 
-function observationItem(r: RecordRow): WorkItem {
-  const ok = /^(ok|done|succeeded)$/i.test(r.state);
-  return {
-    kind: 'observation', id: r.id, title: r.what.replace(/(\S+\/)+(\S+)/g, '$2'), state: r.state, tone: ok ? 'ok' : /fail|error/i.test(r.state) ? 'failed' : 'quiet',
-    at: Date.parse(r.at), facts: ['measured over the image'],
-    ...(r.operation ? { operation: r.operation } : {}),
-    detail: [['Record', r.id], ['File', r.record], ['What', r.what], ['Operation', r.operation ?? 'none'], ['Made', r.at]],
-    opens: {
-      page: 'voxvision', select: { list: 'center:voxvision', key: `vox:${r.id}` }, words: 'opens it in 5 VoxVision',
-      companion: `tab=voxvision&vox=${r.id}`, companionWords: 'the image with what was measured over it, drawn',
-    },
-  };
-}
-
-function resultItem(f: FileRow): WorkItem {
-  const image = IMAGE.test(f.rel);
-  const mesh = MESH.test(f.rel);
-  const what = image ? 'image' : mesh ? 'mesh' : DOCUMENT.test(f.rel) ? 'document' : f.kind === 'reference' ? 'reference' : 'result';
-  // a terminal draws no image and no mesh: those open where they are drawn (the companion); a text result opens in Files
-  const opens: OpenTarget = mesh
-    ? { page: 'create', select: { list: 'center:create3d', key: `mesh:${f.rel}` }, words: 'shows it in the companion: the mesh in a view you can turn', companion: `tab=create&mesh=${hex(f.rel)}`, companionWords: 'the mesh in a view you can turn', show: true }
-    : image
-      ? { page: 'logs', ws: 'files', select: { list: 'center:files', key: `file:${f.rel}` }, words: 'shows it in the companion: the image, drawn', companion: 'tab=home', companionWords: 'the newest images, drawn', show: true }
-      : { page: 'logs', ws: 'files', select: { list: 'center:files', key: `file:${f.rel}` }, words: 'opens it in Files (0 Logs & Receipts)', companion: 'tab=logs', companionWords: 'this project\'s records' };
-  return {
-    kind: 'result', id: f.rel, title: base(f.rel), state: what, tone: 'quiet', at: f.mtimeMs, facts: [what, humanBytes(f.bytes)],
-    detail: [['Path', f.rel], ['Kind', f.kind], ['Size', `${f.bytes} bytes`], ['Changed', new Date(f.mtimeMs).toISOString()]],
-    opens,
-  };
-}
-
-const humanBytes = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
-
+/** What waits on you (the one waiting count's items, src/ops/waiting.ts) as Home's first items; a Studio draft is H164's own
+ *  item, so it is not listed twice. */
 function waitingItem(d: Data['decisions']['items'][number], at: number): WorkItem {
-  const draft = d.key.startsWith('draft:');
   return {
     kind: 'waiting', id: d.key, title: d.title, state: 'waits on you', tone: 'waiting', at, facts: [d.needed],
     ...(d.operation ? { operation: d.operation } : {}),
     detail: [['Kind', d.kind], ['Why', d.why], ...(d.record ? [['Record', d.record] as [string, string]] : []), ...(d.commands.length ? [['Commands', d.commands.join(' ; ')] as [string, string]] : [])],
-    opens: draft
-      ? { page: 'studio', words: 'opens 4 Studio, where Accept or Discard is', companion: 'tab=studio', companionWords: 'the board and its draft' }
-      : { page: 'control', words: 'opens 7 Control Room, where you answer it', companion: 'tab=control', companionWords: 'what waits, read-only' },
+    opens: { page: 'control', words: 'opens 7 Control Room, where you answer it', companion: 'tab=control', companionWords: 'what waits, read-only' },
   };
 }
 
 /**
- * The project's recent work, the newest first: what waits on you first (it is the next step), then its runs, chat turns,
- * VoxVision observations and the results and references it holds, at most `limit`. Timmy's own logs and a run's own records
- * are not work (they are the inspector's and tab 0's).
+ * Home's recent work: what waits on you first (the next step), then the project's recent work as H164's recentWork read it
+ * (src/journey/recent.ts: turns, runs, observations, files, drafts and receipts, newest first, each receipt verified here),
+ * at most `limit`. Read once per reading of the records (src/workbench/controller.ts readAll), never per frame.
  */
 export function recentWork(data: Data, limit = 30, now = Date.now()): WorkItem[] {
-  const waiting = data.decisions.items.map((d) => waitingItem(d, now));
-  const vox = data.vox.map(observationItem);
-  // a run that made an observation is said by the observation (its record, its image and what was measured over it)
-  const observed = new Set(data.vox.map((r) => r.operation).filter(Boolean));
-  const runs = data.jobs.filter((j) => !(j.operation && observed.has(j.operation))).map((j) => runItem(j, data));
-  const turns = (data.turns ?? []).map((t) => turnItem(t, data));
-  // the artifacts: images, meshes and documents a run wrote or the project holds (an observation's own files are its record's;
-  // data files, recordings and Timmy's records are tab 0's), the newest few
-  const files = data.files.groups.filter((gr) => gr.kind === 'results' || gr.kind === 'reference').flatMap((gr) => gr.files)
-    .filter((f) => !/(^|\/)vox\//.test(f.rel) && (IMAGE.test(f.rel) || MESH.test(f.rel) || (gr(f) === 'results' && DOCUMENT.test(f.rel))))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  // one mesh in several formats (demo-tray.stl, .obj, .ply) is one item, opened on its first format, STL first
-  const meshes = new Map<string, FileRow[]>();
-  for (const f of files.filter((x) => MESH.test(x.rel))) {
-    const stem = f.rel.replace(MESH, '');
-    meshes.set(stem, [...(meshes.get(stem) ?? []), f]);
-  }
-  const order = ['.stl', '.obj', '.ply'];
-  const artifacts = files.filter((f) => !MESH.test(f.rel) || meshes.get(f.rel.replace(MESH, ''))?.[0] === f).slice(0, ARTIFACTS).map((f) => {
-    const same = MESH.test(f.rel) ? [...(meshes.get(f.rel.replace(MESH, '')) ?? [f])].sort((a, b) => order.indexOf(ext(a.rel)) - order.indexOf(ext(b.rel))) : [f];
-    const item = resultItem(same[0]);
-    return same.length > 1 ? { ...item, title: `${base(same[0].rel)} ${same.slice(1).map((x) => `${CHOICE} ${ext(x.rel).slice(1)}`).join(' ')}`, facts: [`a mesh in ${same.length} formats`, ...item.facts.slice(1)] } : item;
-  });
-  const at = (w: WorkItem): number => (Number.isFinite(w.at) ? w.at : 0);
-  // the newest first; at the same moment, what ran before what it wrote
-  const rest = [...runs, ...turns, ...vox, ...artifacts].sort((a, b) => at(b) - at(a) || RANK[a.kind] - RANK[b.kind]);
-  return [...waiting, ...rest].slice(0, limit);
+  const waiting = data.decisions.items.filter((d) => !d.key.startsWith('draft:')).map((d) => waitingItem(d, now));
+  const recent = (data.recent?.items ?? []).map((it) => fromJourney(it, data));
+  return [...waiting, ...recent].slice(0, limit);
 }
-
-const ext = (rel: string): string => (/\.[^./]+$/.exec(rel)?.[0] ?? '').toLowerCase();
-const CHOICE = '·';
-
-/** How many artifacts recent work lists (the newest). */
-const ARTIFACTS = 6;
-const DOCUMENT = /\.(md|html?|pdf|txt|csv)$/i;
-const gr = (f: FileRow): FileRow['kind'] => f.kind;
-const RANK: Readonly<Record<WorkItem['kind'], number>> = { waiting: 0, run: 1, turn: 2, observation: 3, result: 4 };
 
 /** A work item as the Workbench's selectable item. */
 export const workItem = (w: WorkItem): Item => ({ kind: 'work', key: `work:${w.kind}:${w.id}`, work: w });
@@ -515,12 +500,24 @@ function connectionRow(conn: WorkspaceConnection, c: Pick<JourneyCtx, 'g' | 'ui'
 
 /** The build's identity, as About says it (H163's src/build-info.ts replaces this once merged): the review's revision when the
  *  launcher sets it, else unknown. */
-export function buildWords(env: Record<string, string | undefined> = process.env): Array<[string, string]> {
-  const rev = env.TIMMY_REVIEW?.trim();
+export function buildWords(env: Record<string, string | undefined> = process.env, b?: BuildInfo): Array<[string, string]> {
+  // H163's buildInfo: the version, the revision and where it was read, packed or from source
+  if (b) {
+    return [
+      ['Version', b.version],
+      ['Revision', b.revision ? `${b.revision.short}${b.dirty ? ' (with uncommitted changes)' : ''}` : 'revision unknown'],
+      ['From', `${b.source === 'packed' ? 'a packed build' : 'source'} · ${b.revisionFrom}`],
+      ...(b.reviewPackage ? [['Review', `${b.reviewPackage}${b.mismatch ? ` · ${b.mismatch}` : ''}`] as [string, string]] : []),
+      ['Node', b.node.version],
+      ['Timmy home', tildePath(b.timmyHome)],
+      ['Ports', `companion ${b.ports.companion}, Studio ${b.ports.studio}, log ${b.ports.logs}`],
+    ];
+  }
+  // (the build is read with the records, once: until then it is not known here)
   return [
-    ['Revision', rev ? rev : 'revision unknown'],
+    ['Revision', 'not read yet'],
     ['Node', process.versions.node],
-    ['Timmy home', env.TIMMY_HOME ? env.TIMMY_HOME.replace(/^\/(?:home|Users)\/[^/]+/, '~') : 'the default (~/timmy)'],
+    ['Timmy home', env.TIMMY_HOME ? tildePath(env.TIMMY_HOME, env as NodeJS.ProcessEnv) : 'the default (~/timmy)'],
     ['Ports', [env.TIMMY_COMPANION_PORT ? `companion ${env.TIMMY_COMPANION_PORT}` : '', env.TIMMY_STUDIO_PORT ? `Studio ${env.TIMMY_STUDIO_PORT}` : '', env.TIMMY_LOGS_PORT ? `log ${env.TIMMY_LOGS_PORT}` : ''].filter(Boolean).join(', ') || 'the defaults'],
   ];
 }
@@ -537,8 +534,17 @@ export function workDetail(w: WorkItem, width: number, g: Glyphs): Line[] {
 export function diagnosticsLines(c: Pick<JourneyCtx, 'data' | 'g' | 'width'>, env: Record<string, string | undefined> = process.env): Line[] {
   const { data, g, width } = c;
   const out: Line[] = [heading('About · diagnostics')];
-  for (const [k, v] of buildWords(env)) out.push(...wrapSegs([S(`${k.padEnd(10)} `, 'secondary'), S(v, 'text')], width, ' '.repeat(11)));
+  for (const [k, v] of buildWords(env, data.build)) out.push(...wrapSegs([S(`${k.padEnd(10)} `, 'secondary'), S(v, 'text')], width, ' '.repeat(11)));
   out.push(...wrapSegs([S(`${'Route'.padEnd(10)} `, 'secondary'), S(routeLine(data).words, 'text')], width, ' '.repeat(11)));
+  const j = data.journeyRoute;
+  if (j) {
+    if (j.price.words) out.push(...wrapSegs([S(`${'Price'.padEnd(10)} `, 'secondary'), S(j.price.words, 'text')], width, ' '.repeat(11)));
+    if (j.fakeWhy) out.push(...wrapSegs([S(`${'FAKE'.padEnd(10)} `, 'secondary'), S(j.fakeWhy, 'text')], width, ' '.repeat(11)));
+    if (j.details.host) out.push(...wrapSegs([S(`${'Ollama at'.padEnd(10)} `, 'secondary'), S(j.details.host, 'text')], width, ' '.repeat(11)));
+    if (j.step) out.push(...wrapSegs([S(`${'Step'.padEnd(10)} `, 'secondary'), S(j.step.words, 'text')], width, ' '.repeat(11)));
+    if (j.cause) out.push(...wrapSegs([S(`${'Cause'.padEnd(10)} `, 'secondary'), S(j.cause, 'text')], width, ' '.repeat(11)));
+  }
+  for (const n of data.recent?.notes ?? []) out.push(...wrapSegs([S(`${'Recent'.padEnd(10)} `, 'secondary'), S(n, 'secondary')], width, ' '.repeat(11)));
   out.push(blank, heading('Connections, as observed'));
   for (const conn of data.frame?.connections ?? []) {
     const m = connectionMark(conn.state, g);
