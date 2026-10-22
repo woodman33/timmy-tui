@@ -273,7 +273,7 @@ describe.skipIf(!browserPath)('a draft that lands on shapes already on the board
       // moved again, then accepted: kept where it was moved, unmarked, saying who proposed it and that it was moved; recorded
       await press();
       await page.click(`#draft-list li.draft[data-draft="${id}"] .draft-accept`);
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job turn-overlap\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       await savedState(page);
       expect(await where(page, own)).toEqual(movedTo);
       for (const s of own) {
@@ -338,7 +338,7 @@ describe.skipIf(!browserPath)('a draft that lands on shapes already on the board
       expect((await said(page, first.draft!.id)).card).toBe(onDraft);
       // the first accepted: its shapes are the board's own now, and the second still lands on them
       await page.click(`#draft-list li.draft[data-draft="${first.draft!.id}"] .draft-accept`);
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job turn-first\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       expect(await said(page, second.draft!.id)).toEqual({ card: lands, buttons: ['Move it to free space', 'Show', 'Accept', 'Discard'], move: 'on', label: 'DRAFT · proposed by Timmy', board: lands });
       await page.click(`#draft-list li.draft[data-draft="${second.draft!.id}"] button.draft-move`);
       await page.waitForFunction((d) => document.querySelector(`#draft-list li.draft[data-draft="${d}"] .draft-over-words`)?.textContent === 'Moved to free space from x 5000, y 5000, where it landed on 2 shapes. It lands on no shape now.', second.draft!.id, { timeout: 10_000 });
@@ -396,7 +396,7 @@ describe.skipIf(!browserPath)('a draft that lands on shapes already on the board
       expect(files(blank)).toEqual(blank0);
       // still a draft once moved: Discard removes it, as before, and the person's shape it had landed on stays
       await page.click(`#draft-list li.draft[data-draft="${id}"] .draft-discard`);
-      await page.waitForFunction(() => /^Discarded Timmy's draft \(1 shape, job turn-switch\): removed from the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Discarded Timmy's draft \(1 shape\): removed from the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       expect(await page.evaluate((i) => [i, 'shape:under'].map((s) => Boolean((window as never as Win).timmyCanvas.editor.getShape(s))), own[0])).toEqual([false, true]);
       expect(files(blank)).toEqual(blank0);
       expect(errors).toEqual([]);

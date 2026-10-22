@@ -8,7 +8,7 @@
 // others say where they open, and none is a link); the Studio tab's actions, each with its command to copy, the one primary
 // amber; and one line of activity: what runs, what waits on you, Stop current and the newest log line. No key of tldraw's is
 // taken here: Escape closes the activity's entries only while the focus is in the strip. Every text is set as text. Imports
-// only ./when.js (the one time format, which imports nothing).
+// only ./when.js (the one time format, which imports nothing) and (R10 H167) ./face.js (the face's words, which imports nothing).
 //
 // R5 (H137): the actions wrap onto more rows and are never cut or scrolled sideways: each keeps its number, label, command and
 // Copy on screen (an action wider than the window wraps its label and shortens the command it shows, with an ellipsis; Copy
@@ -23,6 +23,8 @@
 // says so at the line's end: why, and when it was last read.
 
 import { clockOf } from './when.js';
+// R10 (H167): the line's newest in words, as the companion's activity stream says it (no id of a job, a receipt or an operation)
+import { eventFace } from './face.js';
 
 // R7 (H151; the operator's order of 2026-10-16, 22:08 PT: "Make Studio's primary action reflect the actual next step when a draft
 // is waiting"): while the board holds a draft, the frame's one Studio primary is its Accept or Discard (src/ops/workspace-frame.ts
@@ -158,13 +160,17 @@ function el(tag, cls, text, attrs) {
   return e;
 }
 const sep = () => el('span', 'fr-sep', ' · ', { 'aria-hidden': 'true' });
+/** R10 (H167): what a step's Copy says (it copies the step's command for Timmy's terminal). */
+export const COPY_LABEL = 'Copy command';
 /**
  * A command to type, and its Copy button (the strip's one click handler copies it). R5 (H137): kept together, the command
  * shortened with an ellipsis where the row is narrower than it; its title is the whole command, and Copy's name says it whole.
+ * R10 (H167; the round's rule: raw commands in a secondary inspector): the command itself is shown only while the strip's
+ * Commands is open (#frame[data-commands="shown"]); Copy stays, its name and its tip saying the command whole.
  */
 const commandOf = (command) => {
   const does = el('span', 'fr-do');
-  does.append(el('code', 'fr-cmd', command, { title: command }), el('button', 'fr-copy', 'Copy', { type: 'button', 'data-copy': command, title: `Copy ${command}`, 'aria-label': `Copy ${command}` }));
+  does.append(el('code', 'fr-cmd', command, { title: command }), el('button', 'fr-copy', COPY_LABEL, { type: 'button', 'data-copy': command, 'data-label': COPY_LABEL, title: `Copy ${command}`, 'aria-label': `Copy ${command}` }));
   return does;
 };
 
@@ -263,7 +269,8 @@ export function drawFrame(root, view) {
   parts.push(sep());
   if (act.newest) {
     const failed = act.newest.tone === 'failure';
-    parts.push(whole(`fr-log is-${act.newest.tone}`, `newest: ${act.newest.at} ${failed ? '✕ ' : ''}${act.newest.words}`.replace(/\s+/g, ' ').trim()));
+    // R10 (H167): in words (eventFace: no id of a job, a receipt or an operation); the open activity lists each entry whole
+    parts.push(whole(`fr-log is-${act.newest.tone}`, `newest: ${act.newest.at} ${failed ? '✕ ' : ''}${eventFace(act.newest.words)}`.replace(/\s+/g, ' ').trim()));
   } else {
     parts.push(whole('fr-log is-neutral', `newest: none yet${act.noLog ? ` (${act.noLog})` : ''}`));
   }
@@ -424,14 +431,29 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
     // R7 (H151): the unfinished tabs' description opens and closes under the tabs
     const unf = target ? target.closest('#frame-unf-toggle') : null;
     if (unf && root.contains(unf)) { setUnfinished(unf.getAttribute('aria-expanded') !== 'true'); return; }
+    // R10 (H167): the steps' commands, shown or not (the strip's inspector of them)
+    const cmds = target ? target.closest('#frame-cmds-toggle') : null;
+    if (cmds && root.contains(cmds)) { setCommands(cmds.getAttribute('aria-expanded') !== 'true'); return; }
     const b = target ? target.closest('button[data-copy]') : null;
     if (!b || !root.contains(b)) return;
     const command = b.dataset.copy;
     void copy(command).then((ok) => {
       b.textContent = ok ? 'Copied' : 'Not copied';
-      setTimeout(() => { if (b.isConnected) b.textContent = 'Copy'; }, 1500);
+      setTimeout(() => { if (b.isConnected) b.textContent = b.dataset.label || 'Copy'; }, 1500);
     });
   });
+  /**
+   * R10 (H167): the steps' commands for Timmy's terminal (each step's code.fr-cmd, and Stop current's), shown or not by the
+   * strip's Commands (#frame-cmds-toggle): hidden at first, so the strip says each step in words; Copy copies either way.
+   */
+  const setCommands = (open) => {
+    const t = root.querySelector('#frame-cmds-toggle');
+    root.dataset.commands = open ? 'shown' : 'hidden';
+    if (!t) return;
+    t.setAttribute('aria-expanded', String(open));
+    t.textContent = `${open ? '▾' : '▸'} Commands`;
+    t.title = open ? "Hides the steps' commands (Copy still copies each)" : "Shows each step's command for Timmy's terminal beside its Copy";
+  };
   /** R7 (H151): the unfinished tabs' description (#frame-unf), opened or closed by its button (#frame-unf-toggle) */
   const setUnfinished = (open) => {
     const t = root.querySelector('#frame-unf-toggle');
@@ -460,6 +482,7 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
     if (e.key !== 'Escape') return;
     // R7 (H151): Escape in the strip closes what is open there: the activity's entries first, else the unfinished tabs' words
     const unf = root.querySelector('#frame-unf-toggle');
+    const cmds = root.querySelector('#frame-cmds-toggle');
     if (isOpen()) {
       e.preventDefault();
       e.stopPropagation();
@@ -470,10 +493,16 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
       e.stopPropagation();
       setUnfinished(false);
       unf.focus();
+    } else if (cmds && cmds.getAttribute('aria-expanded') === 'true') {
+      e.preventDefault();
+      e.stopPropagation();
+      setCommands(false);
+      cmds.focus();
     }
   });
   setOpen(false);
   setUnfinished(false);
+  setCommands(false);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void tick(); });
   void tick();
   /** R6 (H139): Studio began a switch: the header says so at once, and reads no frame until it ends. */
@@ -500,5 +529,5 @@ export function createFrameStrip({ root, read, copy = copyText, everyMs = FRAME_
   /** R7 (H151): read the frame now (after the reading on its way, if one is), not at the next turn of the timer. */
   const soon = () => { void tick(); };
   const stop = () => { stopped = true; clearTimeout(timer); };
-  return { tick, soon, redraw, hold, release, stop, open: setOpen, openUnfinished: setUnfinished, get revision() { return root.dataset.revision ?? ''; } };
+  return { tick, soon, redraw, hold, release, stop, open: setOpen, openUnfinished: setUnfinished, showCommands: setCommands, get revision() { return root.dataset.revision ?? ''; } };
 }

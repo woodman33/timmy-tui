@@ -213,7 +213,7 @@ describe.skipIf(!browserPath)("Studio's one next step while a draft waits, and c
       await page.waitForFunction(() => (window as unknown as { seen: { zero?: number } }).seen.zero !== undefined, null, { timeout: 5_000 });
       const ms = await page.evaluate(() => { const w = window as unknown as { seen: { zero: number }; t0: number }; return Math.round(w.seen.zero - w.t0); });
       expect(ms, `0 waiting ${ms} ms after Accept`).toBeLessThanOrEqual(500);
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job draft-step-fake\)/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 10_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes\)/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 10_000 });
       // the frame read again names the next step (Studio's own, with no draft): the one amber primary again, with its command
       await page.waitForFunction(() => {
         const p = document.querySelector('#frame-acts li.is-primary');

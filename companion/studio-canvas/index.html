@@ -32,8 +32,11 @@
   #frame { position: fixed; top: 0; left: 0; right: 0; z-index: 298; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "top" "acts" "activity" "unf" "log"; gap: 2px 14px; padding: 3px 10px;
     background: var(--timmy-surface, #070707); border-bottom: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #F2EFE9);
-    font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/18px var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+    font: var(--timmy-weight-body, 400) 13px/18px var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #frame[hidden] { display: none; }
+  /* R10 (H167; the round's rule: raw commands in a secondary inspector): each step says itself in words with its Copy; its
+     command shows while the strip's Commands is open (frame.js setCommands), and Copy's tip and name say it whole */
+  #frame:not([data-commands="shown"]) .fr-cmd { display: none; }
   #frame-top { grid-area: top; }
   #frame .fr-row { display: flex; align-items: center; gap: 4px 8px; margin: 0; padding: 0; min-height: 20px; white-space: nowrap; overflow-x: auto; overflow-y: hidden;
     scrollbar-width: thin; scrollbar-color: var(--timmy-line-strong, #444444) transparent; }
@@ -45,7 +48,8 @@
   #frame-brand strong { font-weight: var(--timmy-weight-heading, 700); letter-spacing: .08em; }
   #frame-tabs, #frame-acts, #frame-log, #frame-unf { list-style: none; }
   #frame-tabs { display: inline; margin: 0; padding: 0; }
-  #frame .fr-tab { display: inline-block; margin: 1px 4px 1px 0; line-height: 16px; vertical-align: top; padding: 0 6px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; white-space: nowrap; }
+  /* (R10 H167: a little closer, so the ten tabs keep one row at 1280 px with the strip's 13 px text) */
+  #frame .fr-tab { display: inline-block; margin: 1px 2px 1px 0; line-height: 16px; vertical-align: top; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; color: var(--timmy-text-secondary, #8E8E93); cursor: default; white-space: nowrap; }
   #frame .fr-tab.is-active { border-color: var(--timmy-accent, #FFB000); color: var(--timmy-text, #F2EFE9); font-weight: var(--timmy-weight-strong, 600); }
   #frame .fr-key { color: var(--timmy-text-secondary, #8E8E93); font-weight: var(--timmy-weight-body, 400); }
   /* R7 lead (DESIGN.md §10 B10 "Amber is exact": things waiting for you are amber, as the Workbench and the companion draw them):
@@ -98,6 +102,8 @@
   #frame #frame-activity > span { flex: none; }
   #frame #frame-activity > .fr-turn, #frame #frame-activity > .fr-stop, #frame #frame-activity > .fr-log, #frame #frame-activity > .fr-note { flex: 0 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
   #frame #frame-activity > .fr-note:empty { min-width: 0; }
+  /* R10 (H167): the newest entry gives up its room first, so Stop current's words stay whole beside the strip's toggles */
+  #frame #frame-activity > .fr-stop { flex-shrink: 0.1; }
   #frame #frame-activity > .fr-sep { flex: none; }
   #frame .fr-toggle { flex: none; font: inherit; line-height: 16px; padding: 0 6px; color: var(--timmy-text, #F2EFE9); background: none;
     border: 1px solid var(--timmy-line-strong, #444444); border-radius: 4px; cursor: pointer; white-space: nowrap; }
@@ -171,7 +177,8 @@
   .timmy-draft-words { width: max-content; max-width: 56ch; padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere;
     background: var(--timmy-ground, #000000); border: 1px solid var(--timmy-line-strong, #444444); color: var(--timmy-text, #F2EFE9);
     font: var(--timmy-weight-body, 400) 11px/1.4 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
-  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #F2EFE9); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  /* R10 (H167): Timmy's own text 13 px (the companion's too); tldraw's chrome keeps its own sizes */
+  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #F2EFE9); font: var(--timmy-weight-body, 400) 13px/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
   /* R5 (H133): just under tldraw's UI layer (.tlui-layout, a stacking context at z-index 300, which holds its menus, dialogs and
@@ -533,6 +540,29 @@
   #side .nlink-kind { font-weight: var(--timmy-weight-strong, 600); }
   #side .nlink-ends { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
   #side .nlink-words, #side .nlink-by, #side .nlink-none { flex: 1 1 100%; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  /* ── R10 (H167, Step C; reference 06's shelf beside its stage; the round's rule: ids, paths and raw commands in a secondary
+     inspector or details control) ────────────────────────────────────────────────────────────────────────────────────────── */
+  /* the panel a little wider on a wide window (its text is 13 px now): the board keeps the most of it */
+  @media (min-width: 1200px) { #side { width: 320px; } }
+  /* the canvas's own facts (tldraw's version, its license, the board's folder) under the save line, behind Details */
+  #side-about { flex: none; margin: 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary, #8E8E93); }
+  #side-about p { margin: 2px 0 0; }
+  #side-about code { font: inherit; color: var(--timmy-text, #F2EFE9); }
+  /* a row's Details (a job's, a draft's, an artifact's, a project card's): a quiet control at the row's end, as the companion's
+     (▸ Details, in the secondary text colour); opened, its words take a line of their own under the row's words. Never sticky,
+     as the lists' own headings are */
+  #side :is(#side-about, .job-more, .draft-more, .aitem-more, .pcard-more) > summary { position: static; z-index: auto; background: none; width: fit-content;
+    font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #8E8E93); }
+  #side :is(.job-more, .draft-more, .aitem-more, .pcard-more)[open] { flex: 1 1 100%; }
+  #side :is(.job-ids, .draft-ids, .aitem-said, .pcard-behind, .pcard-op, .pcard-said, .pcard-cmd-k) { display: block; margin-top: 2px; color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  #side .pcard-more .pcard-cmd { display: block; margin-top: 2px; }
+  #side .pcard-file { color: var(--timmy-text-secondary, #8E8E93); overflow-wrap: anywhere; }
+  /* a narrow window (a phone): the blank board's guide sits under the panel, across the board, its saving sentence left out (the
+     panel's Details say where Timmy saves the board); between the panel and tldraw's style panel there is no room for it there */
+  @media (max-width: 700px) {
+    #guide { left: 16px; right: 16px; top: calc((var(--side-bottom, 50vh) + 100vh - 96px) / 2); transform: translateY(-50%); max-width: none; }
+    #guide .guide-save { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -543,7 +573,7 @@
   <!-- R7 (H151): the strip's own description of the unfinished tabs, in the frame's words (src/contracts/workspace.ts TabDef.unfinished) -->
   <ol id="frame-unf" hidden aria-label="The unfinished tabs: what works on each now, and what does not yet"></ol>
   <ol id="frame-acts" aria-label="Studio's workflow actions; the next step first"></ol>
-  <div id="frame-activity-row"><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button><button type="button" id="frame-unf-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-unf" hidden>▸ ◌ unfinished</button><p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p></div>
+  <div id="frame-activity-row"><button type="button" id="frame-activity-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-log">▸ Activity</button><button type="button" id="frame-unf-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-unf" hidden>▸ ◌ unfinished</button><button type="button" id="frame-cmds-toggle" class="fr-toggle" aria-expanded="false" aria-controls="frame-acts">▸ Commands</button><p class="fr-row" id="frame-activity" role="status" aria-live="polite">reading what runs and waits…</p></div>
   <ol id="frame-log" hidden aria-label="The frame's newest entries, the newest first"></ol>
 </header>
 <div id="root"></div>
@@ -553,6 +583,9 @@
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
     <p id="save" role="status" aria-live="polite" data-state="saved" data-needs-you="false"><span id="save-glyph" aria-hidden="true">■</span><span id="save-words">Saved.</span><button id="save-retry" type="button" hidden title="Saves this page's canvas now">Retry</button></p>
+    <!-- R10 (H167; the round's rule: diagnostics in a details control): the canvas's own facts (tldraw's version, its license's
+         verdict) and the folder Timmy saves this board in, which the status line and the blank board's guide name in words -->
+    <details id="side-about"><summary title="tldraw's version, its license, and the folder Timmy saves this board in">Details</summary><p id="side-about-canvas">tldraw, its license: read once the canvas starts</p><p id="side-about-dir">Saved in <code id="guide-dir">its canvas folder</code></p></details>
     <section id="conflict" hidden aria-labelledby="conflict-title" role="alert">
       <p id="conflict-title"><strong>A newer version is on disk.</strong> This page will not save over it.</p>
       <div class="conflict-acts"><button id="conflict-reload" class="primary" type="button" title="Loads the newer canvas from disk. This page's unsaved changes are kept as a copy first.">Reload the newer version</button><button id="conflict-keep" type="button" title="Keeps this page's version as a copy beside the canvas file. The canvas on disk is unchanged.">Keep a copy</button></div>
@@ -625,7 +658,7 @@
   </div>
 </aside>
 <div id="refused" role="alert" hidden><strong>This page loads no canvas.</strong><p id="refused-words"></p><p>In Timmy: <code>/canvas open</code> opens the canvas with its project's cards.</p></div>
-<div id="guide" hidden><strong>This board is blank.</strong>Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas". Timmy saves it in <code id="guide-dir">its canvas folder</code>, so it reopens where you left it. A template from New board starts blank too.</div>
+<div id="guide" hidden><strong>This board is blank.</strong><span class="guide-how">Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas".</span> <span class="guide-save">Timmy saves it for this project, in its home (the panel's Details say where), so it reopens where you left it. A template from New board starts blank too.</span></div>
 <script type="module" src="dist/canvas.js" onerror="var s=document.getElementById('status');s.dataset.kind='error';s.textContent='The canvas code did not load (dist/canvas.js). In the Timmy checkout run: npm run build:canvas, then reload.'"></script>
 </body>
 </html>

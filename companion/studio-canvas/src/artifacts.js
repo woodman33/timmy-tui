@@ -21,8 +21,10 @@
 // "Kept apart" log says so.
 //
 // Every text is set as text (React escapes it); nothing is markup. Imports only ./when.js (the one time format, which imports
-// nothing), so Node's tests run the pure part too.
+// nothing) and (R10 H167) ./face.js (the face's words, which imports nothing), so Node's tests run the pure part too.
 import { clockOf, dateTimeOf } from './when.js';
+// R10 (H167): what the face says of a record (no id, hash or place: those are in its Details or its tip)
+import { faceTitle, faceWords } from './face.js';
 
 /** The artifact card's tldraw shape type (src/studio/canvas-auth.ts DRAWN_CARD_TYPES names it: another project's is withheld). */
 export const ARTIFACT_SHAPE = 'timmy-artifact';
@@ -132,10 +134,12 @@ export const overlayLine = (s) => `${s.label || s.id}${s.provenance ? ` · ${s.p
 
 /** A receipt's state as a card draws it: green only when `verified` (read now). */
 export function receiptMark(receipt) {
-  if (!receipt || typeof receipt !== 'object') return { tone: 'none', text: 'no receipt read' };
-  if (receipt.verified === true) return { tone: 'verified', text: `✓ sealed and verified${receipt.short ? ` · receipt ${receipt.short}` : ''}` };
-  if (/does not verify/.test(String(receipt.words ?? ''))) return { tone: 'failed', text: `✕ ${one(receipt.words)}` };
-  return { tone: 'none', text: one(receipt.words) || 'not sealed' };
+  // R10 (H167; the round's rule: ids behind a details control): the mark in words; the receipt's id (`id`) is its Details' or tip's
+  if (!receipt || typeof receipt !== 'object') return { tone: 'none', text: 'no receipt read', id: '' };
+  const id = typeof receipt.short === 'string' ? receipt.short : '';
+  if (receipt.verified === true) return { tone: 'verified', text: '✓ sealed and verified', id };
+  if (/does not verify/.test(String(receipt.words ?? ''))) return { tone: 'failed', text: `✕ ${faceWords(one(receipt.words))}`, id };
+  return { tone: 'none', text: faceWords(one(receipt.words)) || 'not sealed', id };
 }
 
 /** A run detail's files the card lists as the run's outputs (what it made or changed), and its other files. */
@@ -252,10 +256,11 @@ export function createArtifacts(deps) {
     return h(HTMLContainer, { className: `ta ta-${p.kind}`, 'data-timmy-artifact': shape.id, 'data-artifact': p.card, 'data-project': p.projectId, style: { width: p.w, height: p.h, pointerEvents: 'all' } },
       h('div', { ref, className: 'ta-inner', role: 'group', 'aria-label': `${KIND_WORDS[p.kind] || 'artifact'} card: ${p.title}` },
         h('div', { className: 'ta-head' },
-          h('strong', { className: 'ta-title' }, p.title || p.card),
+          // (R10 H167: in words; the record's whole title, with its ids and places, is the title's tip)
+          h('strong', { className: 'ta-title', title: p.title || p.card }, faceTitle(p.title) || KIND_WORDS[p.kind] || 'artifact'),
           span('ta-badge', KIND_WORDS[p.kind] || 'artifact'),
           (row ? row.fake : kept && kept.fake) ? span('ta-fake', 'FAKE', { title: 'Made by a test double, or said FAKE by its record: not a real observation' }) : null),
-        h('p', { className: 'ta-project' }, `${p.project || 'its project'} · ${p.card}`),
+        h('p', { className: 'ta-project', title: `${p.project || 'its project'} · ${p.card}` }, p.project || 'its project'),
         mode.follows ? null : h('p', { className: 'ta-mode' }, mode.words),
         mode.follows && gone ? h('p', { className: 'ta-mode ta-warn' }, `Its record is not in ${p.project} now: shown as last read.`) : null,
         mode.follows ? children : (kept ? para('ta-state ta-last', `As last read: ${kept.state}`) : null),
@@ -307,7 +312,7 @@ export function createArtifacts(deps) {
 
   const receiptLine = (receipt) => {
     const m = receiptMark(receipt);
-    return h('p', { className: `ta-receipt ta-r-${m.tone}` }, m.text);
+    return h('p', { className: `ta-receipt ta-r-${m.tone}`, title: m.id ? `receipt ${m.id}` : undefined }, m.text);
   };
 
   function VoxBody({ shape, row, reading }) {
@@ -434,13 +439,13 @@ export function createArtifacts(deps) {
       li.dataset.artifact = row.id;
       li.dataset.project = answer.project.id;
       const head = el('div', undefined, { className: 'aitem-head' });
-      head.append(el('span', KIND_WORDS[row.kind] || row.kind, { className: 'aitem-kind' }), ' ', el('span', row.title, { className: 'aitem-title' }));
+      // R10 (H167): the item in words (no operation id, receipt id or folder); its record's own words, whole, under its Details
+      head.append(el('span', KIND_WORDS[row.kind] || row.kind, { className: 'aitem-kind' }), ' ', el('span', faceTitle(row.title) || KIND_WORDS[row.kind] || row.kind, { className: 'aitem-title' }));
       if (row.fake) head.append(' ', el('span', 'FAKE', { className: 'aitem-fake' }));
-      li.append(head, el('div', row.state, { className: 'aitem-state' }));
-      if (row.receipt && (row.kind !== 'run')) {
-        const m = receiptMark(row.receipt);
-        li.append(el('div', m.text, { className: `aitem-receipt ta-r-${m.tone}` }));
-      }
+      li.append(head, el('div', faceWords(row.state), { className: 'aitem-state' }));
+      const m = row.receipt ? receiptMark(row.receipt) : null;
+      if (m && (row.kind !== 'run')) li.append(el('div', m.text, { className: `aitem-receipt ta-r-${m.tone}` }));
+      const said = [faceTitle(row.title) !== String(row.title ?? '') ? row.title : '', faceWords(row.state) !== String(row.state ?? '') ? row.state : '', m && m.id ? `receipt ${m.id}` : ''].filter(Boolean);
       const acts = el('div', undefined, { className: 'aitem-acts' });
       const put = el('button', 'Place on the board', { type: 'button', className: 'aitem-place', title: 'Places this artifact on this project\'s board as a card that shows it and opens its preview' });
       put.addEventListener('click', () => {
@@ -448,6 +453,11 @@ export function createArtifacts(deps) {
         place(row.id).then((r) => deps.say(`Placed on ${r.project}'s board: ${cut(r.title, 90)}`), (e) => deps.say(e instanceof Error ? e.message : String(e), true)).finally(() => { put.disabled = false; });
       });
       acts.append(put);
+      if (said.length) {
+        const more = el('details', undefined, { className: 'aitem-more' });
+        more.append(el('summary', 'Details'), ' ', ...said.map((w) => el('div', w, { className: 'aitem-said' })));
+        acts.append(more);
+      }
       li.append(acts);
       return li;
     }) : [el('li', `No artifacts yet in ${answer.project.name}: VoxVision records, runs and receipts show here.`, { className: 'aitem-empty' })]));

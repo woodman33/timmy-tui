@@ -108,10 +108,12 @@ describe.skipIf(!browserPath)('Studio in small and ordinary windows, and its unf
       text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(), key: li.querySelector('.fr-key')?.textContent ?? '',
       whole: inside(li.getBoundingClientRect()) && unclipped(li), oneLine: li.getBoundingClientRect().height <= lineHeight(li) + 4,
     }));
-    // every action whole: its number, its label, and its command and Copy (or the draft's Go to the draft)
+    // every action whole: its number, its label, and its Copy (or the draft's Go to the draft). R10 (H167; the round's rule: raw
+    // commands in a secondary inspector): its command is shown only while the strip's Commands is open, never on its face
     const acts = [...document.querySelectorAll('#frame-acts li')].map((li) => ({
       text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
-      whole: [...li.querySelectorAll('.fr-n, .fr-label, code.fr-cmd, button.fr-copy, button.fr-go')].every((x) => inside(x.getBoundingClientRect()) && unclipped(x)),
+      whole: [...li.querySelectorAll('.fr-n, .fr-label, button.fr-copy, button.fr-go')].every((x) => inside(x.getBoundingClientRect()) && unclipped(x))
+        && [...li.querySelectorAll('code.fr-cmd')].every((x) => !shown(x)),
     }));
     // the activity line inside the window; its counts whole; what it shortens says itself whole in its title
     const line = document.getElementById('frame-activity')!;
