@@ -269,8 +269,9 @@ if (command === 'vision') {
 }
 
 if (command === 'version' || args.includes('--version') || args.includes('-v')) {
-  const metadata = getPackageMetadata();
-  console.log(`${metadata.name} v${metadata.version}`);
+  // R10 (H163): the version and the git revision this build was made from, as the bin says it (src/build-info.ts)
+  const { buildInfo, versionLine } = await import('./build-info.js');
+  console.log(versionLine(buildInfo()));
   process.exit(0);
 }
 

@@ -94,8 +94,10 @@ const command = args.length === 0 ? 'repl' : cleanArgs[0];
 
 if (command === 'version' || args.includes('--version') || args.includes('-v')) {
   decide({ native: 'version', argv: args });
-  const metadata = getPackageMetadata();
-  console.log(`${metadata.name} v${metadata.version}`);
+  // R10 (H163): the version and the git revision this build was made from, or "revision unknown" (src/build-info.ts; loaded
+  // for this line only, so the forwarding path below keeps the bin's two modules)
+  const { buildInfo, versionLine } = await import('./src/build-info.js');
+  console.log(versionLine(buildInfo()));
   process.exit(0);
 }
 
