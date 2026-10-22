@@ -209,10 +209,15 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     for (let i = 0; i < 12; i += 1) put(`refs/extra-${String(i).padStart(2, '0')}.txt`, `${i}`, T(-30 + i));
     const r = recentWork(ctx(), 20, { caps: { ...RECENT_CAPS, fileEntries: 6 } });
     expect(r.notes).toContain('Not all files were looked at: the reader stops after 6 folder entries, so an older file may be left out.');
+    // more VoxVision records than the cap: none is read (tab 5's list reads every record's time), and the note says so
+    const many = recentWork(ctx(), 20, { caps: { ...RECENT_CAPS, voxRecords: 0 } });
+    expect(many.items.some((i) => i.kind === 'observation')).toBe(false);
+    expect(many.notes).toContain('The project has 1 VoxVision record, more than the 0 read here: the observations are not listed (tab 5 lists them).');
     // the defaults are small, fixed numbers (never "the whole project")
     expect(RECENT_CAPS.fileEntries).toBeLessThanOrEqual(1000);
     expect(RECENT_CAPS.operations).toBeLessThanOrEqual(2000);
     expect(RECENT_CAPS.fileDepth).toBeLessThanOrEqual(4);
+    expect(RECENT_CAPS.voxRecords).toBeLessThanOrEqual(2000);
   });
 
   it('a surface that has read the project\'s files already passes them: no folder of the project is listed again', () => {
