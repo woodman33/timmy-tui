@@ -27,8 +27,8 @@
 import type { TabId } from '../contracts/workspace.js';
 
 export type OpenKind = 'turn' | 'run' | 'mesh' | 'recording' | 'observation' | 'reference' | 'result' | 'receipt' | 'draft' | 'card';
-/** What an address chooses on its tab. */
-export type SelectName = 'mesh' | 'recording' | 'vox' | 'run' | 'receipt' | 'file' | 'draft' | 'card';
+/** What an address chooses on its tab (`turn`: a chat turn being answered, by its hold's id; it has no receipt yet). */
+export type SelectName = 'mesh' | 'recording' | 'vox' | 'run' | 'receipt' | 'turn' | 'file' | 'draft' | 'card';
 
 /** Anything openTarget can place: a kind and its id (a path in the project, an operation, a receipt's 8 hex, a draft's id). */
 export interface Openable {
@@ -58,6 +58,8 @@ export const OPERATION_ID = /^o[0-9a-f]{8}$/;
 export const VOX_ID = /^v[0-9a-f]{8}$/;
 export const RECEIPT_ID = /^[0-9a-f]{8}$/;
 export const DRAFT_ID = /^draft-[0-9a-f]{8,32}$/;
+/** A chat turn's own id, its hold's name (src/agent/chat-turn.ts TURN_ID): t<pid>-<8 hex>. */
+export const TURN_ID = /^t[0-9]+-[0-9a-f]{8}$/;
 /** The longest path an address carries (the page reads at most 1024 bytes of hex). */
 export const PATH_BYTES_MAX = 1024;
 
@@ -108,6 +110,8 @@ export function openTarget(item: Openable): OpenTarget {
     case 'run':
       return OPERATION_ID.test(id) ? companion('workflows', { name: 'run', value: id }, 'none', 'the companion\'s run detail: progress, result and receipt') : tabAlone('workflows', `${id} is not an operation id, so no run is chosen`);
     case 'turn':
+      // a sealed turn by its receipt; a turn being answered (no receipt yet) by its own id, as the workspace frame names it
+      if (TURN_ID.test(id)) return companion('chat', { name: 'turn', value: id }, 'none', 'the companion\'s Chat & Intent tab, at the turn being answered');
       return RECEIPT_ID.test(id) ? companion('chat', { name: 'receipt', value: id }, 'none', 'the companion\'s Chat & Intent tab, at this turn') : tabAlone('chat', `${id} is not a receipt's id, so no turn is chosen`);
     case 'receipt':
       return RECEIPT_ID.test(id) ? companion('logs', { name: 'receipt', value: id }, 'none', 'the companion\'s Logs & Receipts tab, this receipt chosen') : tabAlone('logs', `${id} is not a receipt's id, so none is chosen`);
@@ -148,8 +152,8 @@ export interface AskedAddress {
 }
 
 const TAB = /^[a-z]{2,16}$/;
-const SELECTORS: readonly SelectName[] = ['mesh', 'recording', 'file', 'vox', 'run', 'receipt'];
-const KIND_NAME: Readonly<Record<SelectName, string>> = { mesh: 'a mesh', recording: 'a recording', file: 'a file', vox: 'a VoxVision record', run: 'a run', receipt: 'a receipt', draft: 'a draft', card: 'a card' };
+const SELECTORS: readonly SelectName[] = ['mesh', 'recording', 'file', 'vox', 'run', 'receipt', 'turn'];
+const KIND_NAME: Readonly<Record<SelectName, string>> = { mesh: 'a mesh', recording: 'a recording', file: 'a file', vox: 'a VoxVision record', run: 'a run', receipt: 'a receipt', turn: 'a chat turn', draft: 'a draft', card: 'a card' };
 
 /**
  * What an address asks for: its tab and the one thing it chooses (mesh=, recording=, file=, vox=, run=, receipt=), read from
@@ -178,8 +182,8 @@ export function askedOf(address: string): AskedAddress {
       if (!projectPath(path)) { problems.push(`The address names a path outside this project (${path.length > 120 ? `${path.slice(0, 119)}…` : path}), so nothing of it is shown`); continue; }
       select = { name, value: path };
     } else {
-      const ok = name === 'vox' ? VOX_ID.test(raw) : name === 'run' ? OPERATION_ID.test(raw) : RECEIPT_ID.test(raw);
-      if (!ok) { problems.push(`The address asks for ${KIND_NAME[name]} as "${shown}", which is not ${name === 'vox' ? 'a record\'s id' : name === 'run' ? 'an operation id' : 'a receipt\'s id'}, so it names nothing`); continue; }
+      const ok = name === 'vox' ? VOX_ID.test(raw) : name === 'run' ? OPERATION_ID.test(raw) : name === 'turn' ? TURN_ID.test(raw) : RECEIPT_ID.test(raw);
+      if (!ok) { problems.push(`The address asks for ${KIND_NAME[name]} as "${shown}", which is not ${name === 'vox' ? 'a record\'s id' : name === 'run' ? 'an operation id' : name === 'turn' ? 'a chat turn\'s id' : 'a receipt\'s id'}, so it names nothing`); continue; }
       select = { name, value: raw };
     }
   }

@@ -10,7 +10,8 @@
  *   run           the project's operation records (.timmy/operations: the names listed once, each file's time read, the
  *                 newest records read); its own receipt as the Chat tab's pipeline row picks it (its workflow receipt, else
  *                 its newest that is not the prediction); the outputs its receipts sealed are its results (receiptOutputs,
- *                 the run inspection's rule)
+ *                 the run inspection's rule). One item per thing done: a VoxVision action's operation is listed as its
+ *                 observation (they share the vox receipt), an intake's (/add) as the file it brought in, with its receipt
  *   mesh,         the project's files in the folders where references and results live (refs/, assets/, inputs/, media/,
  *   recording,    uploads/, docs/, out/, outputs/, results/, renders/, exports/, models/, scenes/, and the top's own mesh,
  *   reference,    recording and image files), at most RECENT_CAPS.fileEntries entries and RECENT_CAPS.fileDepth folders deep;
@@ -26,6 +27,7 @@
  */
 import { lstatSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { basename, join } from 'node:path';
+import { runningTurns, surfaceWords } from '../agent/chat-turn.js';
 import { chatTurnOf } from '../repl/seal.js';
 import { readOperationRecord, type OperationRecord } from '../ops/operations.js';
 import { privatePath, projectId } from '../project/index.js';
@@ -66,6 +68,8 @@ export interface WorkItem {
   route?: RouteTaken;
   /** a run: the files its receipts name, in the project (at most RESULTS_MAX) */
   results?: string[];
+  /** a run waiting on you: what its NEEDS YOU box asks */
+  waiting?: string;
 }
 
 export interface RecentWork {
@@ -81,6 +85,14 @@ export interface WorkCtx {
   env?: Env;
   /** the runs chain as the surface read it (the Workbench's); else read from the project's store (TIMMY_STORE, else its own) */
   chain?: readonly Receipt[];
+  /** what a NEEDS YOU box waiting for an operation asks, in words (the caller's own boxes, its decisions view), or undefined:
+   *  a running run it names is "waiting on you" */
+  waiting?: (operation: string) => string | undefined;
+  /** the chat turns being answered now (their holds, read only) are listed as running; false leaves them out (default true) */
+  live?: boolean;
+  /** the project's files as the surface has read them already (the Workbench's FilesView rows: path and time): used instead
+   *  of listing the artifact folders again (the same rule picks references, results, meshes and recordings from them) */
+  files?: ReadonlyArray<{ rel: string; mtimeMs: number }>;
 }
 
 export interface RecentCaps {
@@ -118,13 +130,20 @@ function chainOf(root: string, env: Env): Receipt[] {
   try { return env.TIMMY_STORE ? readChain('runs') : readChain('runs', root); } catch { return []; }
 }
 
-/** A run's request in plain words: "/run REPORT.md report" is "Workflow run: report in REPORT.md"; "/iterate x" "Iterate: x". */
+/** A command's words with each path in it named by its file's name ("/somewhere/refs/a.png" is "a.png"; an address stays). */
+const fileNames = (words: string): string => words.split(' ').map((w) => (/[\\/]/.test(w) && !/^[a-z][a-z0-9+.-]*:\/\//i.test(w) ? (w.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || w) : w)).join(' ');
+
+/**
+ * A run's request in plain words, each path named by its file's name: "/run REPORT.md report" is "Workflow run: report in
+ * REPORT.md"; "/iterate x" "Iterate: x"; "/add /somewhere/preview.png" "Add: preview.png". A request typed as words (a chat
+ * message) is kept as typed.
+ */
 export function runTitle(request: string): string {
   const r = request.replace(/\s+/g, ' ').trim();
   const run = /^\/run (\S+) (\S+)/.exec(r);
-  if (run) return cut(`Workflow run: ${run[2]} in ${run[1]}`);
+  if (run) return cut(`Workflow run: ${run[2]} in ${fileNames(run[1])}`);
   const cmd = /^\/([a-z][a-z-]*)(?: (.*))?$/.exec(r);
-  if (cmd) return cut(`${cmd[1][0].toUpperCase()}${cmd[1].slice(1).replace(/-/g, ' ')}${cmd[2] ? `: ${cmd[2]}` : ''}`);
+  if (cmd) return cut(`${cmd[1][0].toUpperCase()}${cmd[1].slice(1).replace(/-/g, ' ')}${cmd[2] ? `: ${fileNames(cmd[2])}` : ''}`);
   return cut(r || 'a request with no words recorded');
 }
 
@@ -206,6 +225,16 @@ function newestOperations(root: string, want: number, caps: RecentCaps, notes: s
     if (r.ok) out.push(r.record); else notes.push(`${r.rel} could not be read as an operation record: ${r.error}.`);
   }
   return out;
+}
+
+/** Where a file of the project lives, by the rule the folder reader follows: a reference or result folder, the top's own mesh,
+ *  recording or image, or none (a document, a source file, Timmy's records, a VoxVision record's folder, a private file). */
+function placeOf(rel: string): 'reference' | 'result' | 'top' | null {
+  const parts = rel.split('/');
+  if (parts.some((p) => p.startsWith('.')) || privatePath(rel) || rel === VOX_DIR || rel.startsWith(`${VOX_DIR}/`)) return null;
+  if (parts.length === 1) { const x = extOf(rel); return MESH_EXT.has(x) || x === 'rrd' || IMAGE_EXT.has(x) ? 'top' : null; }
+  if (parts.slice(1, -1).some((p) => SKIP_DIRS.has(p))) return null;
+  return REFERENCE_TOP.has(parts[0]) ? 'reference' : OUTPUT_TOP.has(parts[0]) ? 'result' : null;
 }
 
 /** The project's artifact files (references, results, meshes, recordings), the newest first, within the caps. */
@@ -313,6 +342,14 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   }
   if (i >= 0) notes.push(`Only the newest ${caps.chainScan} receipts were read: older turns and receipts are not listed.`);
 
+  // the turns being answered now: their holds (src/agent/chat-turn.ts runningTurns, read only: a writer's end is proven, nothing
+  // is removed), each by its own id; no receipt yet
+  if (ctx.live !== false) {
+    for (const t of runningTurns(root, undefined, { readOnly: true }).slice(0, want)) {
+      cands.push({ at: Date.parse(t.taken), item: { kind: 'turn', id: t.id, title: `A chat turn being answered in ${surfaceWords(t.surface)}`, when: t.taken, state: 'running', receipt: null, open: openTarget({ kind: 'turn', id: t.id }), fake: false, operation: null } });
+    }
+  }
+
   // the turns: their words from their operation's request (a receipt holds hashes only)
   const turnOps = new Set<string>();
   for (const r of turns) {
@@ -333,34 +370,51 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   }
 
   // ── the runs: the newest operation records; their own receipt and results from the chain ──
+  // One item per thing done: a VoxVision action's operation is its observation (the same receipt), and an intake's (/add) is
+  // the file it brought in, with its receipt; neither is listed again as a run.
   const claimed = new Set<string>();
+  const voxOps = new Map<string, string>();
+  const intakes = new Map<string, { op: string; hash: string }>();
   for (const rec of newestOperations(root, want + turnOps.size, caps, notes)) {
     if (turnOps.has(rec.id)) continue;
     const mine = byOp.get(rec.id) ?? [];
     // its own receipt: its workflow's, else its newest that is not the prediction (the pipeline row's rule)
     const own = mine.find((r) => r.kind === 'workflow') ?? mine.find((r) => r.kind !== 'predict');
+    if (own?.kind === 'vox') { voxOps.set(shortOf(own), rec.id); continue; }
+    if (own?.kind === 'intake') {
+      for (const f of own.files ?? []) { const p = typeof f?.path === 'string' ? f.path.replace(/^\.\//, '') : ''; if (projectFile(p) && !intakes.has(p)) intakes.set(p, { op: rec.id, hash: own.hash }); }
+      continue;
+    }
     // (mine is newest first: the outputs in the order they were sealed)
     const results = receiptOutputs([...mine].reverse()).slice(0, RESULTS_MAX);
     for (const f of results) claimed.add(f);
     const when = rec.ended ?? rec.started;
+    // a running run a NEEDS YOU box blocks waits on you (the caller's boxes say which)
+    const box = rec.state === 'running' ? ctx.waiting?.(rec.id) : undefined;
     cands.push({
       at: Date.parse(when), ...(own ? { hash: own.hash } : {}),
       item: {
-        kind: 'run', id: rec.id, title: runTitle(rec.request), when, state: runState(rec), receipt: null,
-        open: openTarget({ kind: 'run', id: rec.id }), fake: FAKE_WORD.test(rec.request), operation: rec.id, ...(results.length ? { results } : {}),
+        kind: 'run', id: rec.id, title: runTitle(rec.request), when, state: box ? 'waiting on you' : runState(rec), receipt: null,
+        open: openTarget({ kind: 'run', id: rec.id }), fake: FAKE_WORD.test(rec.request), operation: rec.id, ...(results.length ? { results } : {}), ...(box ? { waiting: box } : {}),
       },
     });
   }
 
-  // ── the files: references, results, meshes and recordings, in the folders where they live ──
+  // ── the files: references, results, meshes and recordings, in the folders where they live (from the surface's own list of
+  // the project's files when it has one: no folder is listed again) ──
+  const found = ctx.files
+    ? ctx.files.flatMap((f) => { const top = placeOf(f.rel); return top ? [{ rel: f.rel, mtimeMs: f.mtimeMs, top }] : []; }).sort((a, b) => b.mtimeMs - a.mtimeMs || a.rel.localeCompare(b.rel))
+    : artifactFiles(root, caps, notes);
   let files = 0;
-  for (const f of artifactFiles(root, caps, notes)) {
+  for (const f of found) {
     if (files >= want) break;
     if (claimed.has(f.rel)) continue;
     const x = extOf(f.rel);
     const kind: OpenKind = MESH_EXT.has(x) ? 'mesh' : x === 'rrd' ? 'recording' : f.top === 'result' ? 'result' : 'reference';
     files += 1;
-    cands.push({ at: f.mtimeMs, item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: null } });
+    // a file an intake (/add) brought in carries that intake's receipt
+    const took = intakes.get(f.rel);
+    cands.push({ at: f.mtimeMs, ...(took ? { hash: took.hash } : {}), item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: took?.op ?? null } });
   }
 
   // ── the VoxVision observations (tab 5's own list and receipt state) ──
@@ -376,7 +430,7 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
           kind: 'observation', id: v.id, title: cut(`${v.action}${input ? ` ${basename(input)}` : ''}`), when: Number.isFinite(at) ? v.madeAt! : null,
           state: VOX_STATE[v.status] ?? 'unknown',
           receipt: v.receipt.short ? { id: v.receipt.short, verified: v.receipt.verified, ...(v.receipt.verified ? {} : { why: v.receipt.words }) } : null,
-          open: openTarget({ kind: 'observation', id: v.id }), fake: v.fake, operation: null,
+          open: openTarget({ kind: 'observation', id: v.id }), fake: v.fake, operation: (v.receipt.short ? voxOps.get(v.receipt.short) : undefined) ?? null,
         },
       });
     }
