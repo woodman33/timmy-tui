@@ -353,11 +353,16 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
       expect(companion.state().last).toContain(`?tab=create&mesh=${hex('refs/demo-tray.ply')})`);
       // the page carries the same address (the key after #)
       expect(readFileSync(fileURLToPath(hrefs[1]), 'utf8')).toBe(launchPageHtml(`http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.ply')}#t=FAKE`));
-      // the recording, then the first tool: tab 6 alone
+      // the recording: chosen there too (R10 H167; H168's F5: every hand-off from H164's openTarget, recording=<its path as hex>),
+      // then the first tool: tab 6 alone
       c.key('', { downArrow: true });
       c.key('', { downArrow: true });
-      expect(await said()).toMatch(/^Opened in the companion: its 3D & Motion tab\./);
-      expect(companion.state().last).toContain('(http://127.0.0.1:4399/?tab=create)');
+      const rec = c.selected();
+      expect(rec?.kind).toBe('recording');
+      const recPath = (rec as Extract<CreateItem, { kind: 'recording' }>).rec.path;
+      expect(createCompanionHint(rec)).toBe(`tab=create&recording=${hex(recPath)}`);
+      expect(await said()).toMatch(new RegExp(`^Opened in the companion: ${recPath.split('/').pop()!.replace(/[.]/g, '\\.')} in 3D & Motion\\.`));
+      expect(companion.state().last).toContain(`(http://127.0.0.1:4399/?tab=create&recording=${hex(recPath)})`);
       c.key('', { downArrow: true });
       expect(c.selected()?.kind).toBe('cap');
       expect(await said()).toMatch(/^Opened in the companion: its 3D & Motion tab\./);

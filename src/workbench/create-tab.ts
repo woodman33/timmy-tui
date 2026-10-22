@@ -23,6 +23,7 @@
  * A terminal draws no 3D: the view you can turn is the companion's tab 6. Files only: the reading is made once for each reading
  * of the Workbench (data.readAt), and each file is measured again only when it changes.
  */
+import { openTarget } from '../journey/index.js';
 import { num } from '../native/stl-readback.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
 import { listMeshes, type MeshList, type MeshRow, type RecordingRow } from '../vox/meshes.js';
@@ -79,8 +80,11 @@ export function createItemFiles(item: CreateItem): string[] {
  * Workbench passes holds plain values only (src/workbench/servers.ts PAGE_QUERY). Any other selection: tab 6 alone.
  */
 export function createCompanionHint(item: { kind: string } | null | undefined): string {
-  const path = item && item.kind === 'mesh' ? (item as Extract<CreateItem, { kind: 'mesh' }>).mesh.path : '';
-  return `tab=create${path ? `&mesh=${Buffer.from(path, 'utf8').toString('hex')}` : ''}`;
+  // R10 (H167; H168's F5 and H164's note): the hand-off from H164's openTarget, a recording too (recording=<its path as hex>,
+  // which the page's tab 6 chooses, or says why not); anything else tab 6 alone
+  if (item?.kind === 'mesh') return openTarget({ kind: 'mesh', id: (item as Extract<CreateItem, { kind: 'mesh' }>).mesh.path }).query;
+  if (item?.kind === 'recording') return openTarget({ kind: 'recording', id: (item as Extract<CreateItem, { kind: 'recording' }>).rec.path }).query;
+  return 'tab=create';
 }
 
 /** The tab's items as the cursor counts them (the meshes, then the recordings): none when the reading failed. */

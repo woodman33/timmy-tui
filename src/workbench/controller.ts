@@ -1851,8 +1851,10 @@ export class Controller {
       const op = this.data.workflowsTab?.run?.operation;
       if (op) return openTarget({ kind: 'run', id: op }).query;
     }
+    // (R10 H167; H168's F5: from tab 5 on the record selected there, as H164's openTarget names an observation)
     const sel = this.ui.page === 'voxvision' ? this.selected() : null;
-    return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
+    if (sel?.kind === 'vox-record') return openTarget({ kind: 'observation', id: sel.row.card.id }).query;
+    return `tab=${this.ui.page}`;
   }
 
   async showStudio(why = ''): Promise<void> {
