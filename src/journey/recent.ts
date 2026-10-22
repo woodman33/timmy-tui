@@ -9,7 +9,8 @@
  *                 words are its operation's request (the receipt holds hashes only), its route what its receipt sealed
  *   run           the project's operation records (.timmy/operations: the names listed once, each file's time read, the
  *                 newest records read); its own receipt as the Chat tab's pipeline row picks it (its workflow receipt, else
- *                 its newest that is not the prediction); the files its receipts name are its results
+ *                 its newest that is not the prediction); the outputs its receipts sealed are its results (receiptOutputs,
+ *                 the run inspection's rule)
  *   mesh,         the project's files in the folders where references and results live (refs/, assets/, inputs/, media/,
  *   recording,    uploads/, docs/, out/, outputs/, results/, renders/, exports/, models/, scenes/, and the top's own mesh,
  *   reference,    recording and image files), at most RECENT_CAPS.fileEntries entries and RECENT_CAPS.fileDepth folders deep;
@@ -170,13 +171,20 @@ export function verifyMany(chain: readonly Receipt[], hashes: readonly string[])
   return out;
 }
 
-/** A file a receipt names in the project: `artifacts`, `files[].path`, `outputs[].path` (relative, inside it). */
-function namedFiles(r: Receipt): string[] {
-  const rec = r as unknown as Record<string, unknown>;
-  const rel = (p: unknown): p is string => typeof p === 'string' && p.length > 0 && !p.startsWith('/') && !p.startsWith('~') && !p.split(/[\\/]/).includes('..');
+/** A path a record may name as a file of the project: relative, inside it, not Timmy's own records (.timmy). */
+const projectFile = (p: unknown): p is string => typeof p === 'string' && p.length > 0 && !p.startsWith('/') && !p.startsWith('~')
+  && !p.split(/[\\/]/).includes('..') && !p.split(/[\\/]/).includes('.timmy');
+
+/**
+ * The files a run made, as its receipts name them: the outputs its workflow, task, recipe or preview receipts sealed (the run
+ * inspection's own rule: src/ops/run-detail.ts outputsInspected), in the order sealed, each once.
+ */
+export function receiptOutputs(receipts: readonly Receipt[]): string[] {
   const out: string[] = [];
-  if (Array.isArray(rec.artifacts)) for (const a of rec.artifacts) if (rel(a)) out.push(a);
-  for (const k of ['files', 'outputs']) if (Array.isArray(rec[k])) for (const f of rec[k] as unknown[]) { const p = (f as { path?: unknown } | null)?.path; if (rel(p)) out.push(p.replace(/^\.\//, '')); }
+  for (const r of receipts) {
+    if (r.kind !== 'workflow' && r.kind !== 'task' && r.kind !== 'recipe' && r.kind !== 'preview') continue;
+    for (const o of r.outputs ?? []) { const p = typeof o?.path === 'string' ? o.path.replace(/^\.\//, '') : o?.path; if (projectFile(p) && !out.includes(p)) out.push(p); }
+  }
   return out;
 }
 
@@ -331,7 +339,8 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     const mine = byOp.get(rec.id) ?? [];
     // its own receipt: its workflow's, else its newest that is not the prediction (the pipeline row's rule)
     const own = mine.find((r) => r.kind === 'workflow') ?? mine.find((r) => r.kind !== 'predict');
-    const results = [...new Set(mine.flatMap(namedFiles))].slice(0, RESULTS_MAX);
+    // (mine is newest first: the outputs in the order they were sealed)
+    const results = receiptOutputs([...mine].reverse()).slice(0, RESULTS_MAX);
     for (const f of results) claimed.add(f);
     const when = rec.ended ?? rec.started;
     cands.push({
