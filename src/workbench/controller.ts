@@ -209,13 +209,15 @@ export class Controller {
       if (this.disposed) return;
       this.readAll();
       this.refreshFrame();
+      // the screen drawn again with the reading: the app subscribed as its first frame was drawn (React runs the effects of
+      // Ink's first render before render() returns, so before this immediate)
       this.emit();
-      // on the next turn (the app subscribes as its first frame commits, after this immediate): the screen drawn again, then
-      // the dispatch copies whose sessions ended outside Timmy released (src/utils/dispatch.ts; R9's F11), bounded: at most
-      // 20 copies, 2 s for each question to tmux; said in Activity only when one was released
+      // on the next turn: the dispatch copies whose sessions ended outside Timmy released (src/utils/dispatch.ts; R9's F11),
+      // bounded: at most 20 copies, 2 s for each question to tmux; said in Activity only when one was released. R10 (H163; the
+      // turn-holds latency): no second redraw here; it drew the same screen again, a whole render (0.1 to 0.3 s on a loaded
+      // computer) in the Workbench's first second, where another surface's first chat turn could wait behind it
       setTimeout(() => {
         if (this.disposed) return;
-        this.emit();
         try {
           const done = releaseEndedCopies(this.data.project.root, { max: 20, timeoutMs: 2000 }).filter((x) => x.state !== 'in_use');
           if (done.length) this.say(`Released ${done.length === 1 ? 'a dispatch copy whose session' : `${done.length} dispatch copies whose sessions`} had ended outside Timmy (its outputs kept): ${done.map((x) => x.id).join(', ')}`, 'secondary');

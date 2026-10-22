@@ -104,6 +104,13 @@ export class HoldWatch {
   private reading: HoldsReading | null = null;
   /** when the holds were last proven by the process table too (runningTurns), this process's clock */
   private provenAt = 0;
+  /**
+   * R10 (H163; the turn-holds latency): when the holds' names (or the project) last changed, this process's clock. A hold first
+   * seen is its writer's by quickTurns' rule (fresh, its pid runs) and is proven by the process table once PROOF_MS has passed
+   * since, never on the next look: that proof is a program run (ps, 20 to 125 ms on a loaded computer), and it ran between a
+   * hold's discovery and the frame that names it.
+   */
+  private namesAt = 0;
   private timer: NodeJS.Timeout | null = null;
   private pending: NodeJS.Timeout | null = null;
   private watcher: FSWatcher | null = null;
@@ -140,7 +147,7 @@ export class HoldWatch {
   /**
    * The names listed; the holds read again when they changed or the project did (at once: quickTurns), and, while a hold is
    * there, when its writer's pid runs no more (a writer that ended without letting its hold go), every RECHECK_MS, and with
-   * the process table's proof every PROOF_MS.
+   * the process table's proof every PROOF_MS (R10 H163: the first one PROOF_MS after the holds' names last changed).
    */
   private look(): void {
     if (this.closed) return;
@@ -151,7 +158,7 @@ export class HoldWatch {
     const now = this.d.now();
     if (!r || r.root !== root || names !== this.names) { this.read(root, names, false); return; }
     if (names === '') return;
-    if (now - this.provenAt >= (this.d.proofMs ?? PROOF_MS)) { this.read(root, names, true); return; }
+    if (now - Math.max(this.provenAt, this.namesAt) >= (this.d.proofMs ?? PROOF_MS)) { this.read(root, names, true); return; }
     const ended = r.turns.some((t) => !t.mine && !pidRuns(t.pid));
     if (ended || now - r.at >= (this.d.recheckMs ?? RECHECK_MS)) this.read(root, names, false);
   }
@@ -160,6 +167,7 @@ export class HoldWatch {
   private read(root: string, names: string, full: boolean): HoldsReading {
     let turns: OtherTurn[];
     const now = this.d.now();
+    if (names !== this.names || this.reading?.root !== root) this.namesAt = now;
     try {
       if (this.d.read) turns = this.d.read(root);
       else {
