@@ -81,6 +81,42 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
   const pressed = (page: Page, sel: string): Promise<string | null> => page.getAttribute(`${card} ${sel}`, 'aria-pressed');
   const nodeWords = (page: Page, key: string): Promise<string> => page.textContent(`${card} [data-wf-node="${key}"] .wf-state`).then((t) => t ?? '');
 
+  /**
+   * R10 (H163; R9's one failure of the "being edited" case, in a local full suite under load and never on CI: its '■ stopped'
+   * wait after ws.stop timed out, the test's own process never stalled over 1.1 s, and the board answers "stopped" within
+   * about 0.1 s of a stop here): the same wait, and when it times out, what each side said meanwhile, so that a failure names
+   * its cause: the node's words on the page now, every /state answer the page read since the case began (when, its status,
+   * and node `key`'s word, detail and the job's state in it), the board's own state for it now, and the job's record.
+   */
+  function stateLog(page: Page, key: string): Array<{ at: number; status: number; node: string; job: string }> {
+    const log: Array<{ at: number; status: number; node: string; job: string }> = [];
+    page.on('response', (r) => {
+      if (new URL(r.url()).pathname !== '/state') return;
+      void r.json().then((s: { wfStates?: Array<{ doc: string; key: string; word: string; detail: string }>; jobs?: Array<{ label: string; state: string }> }) => {
+        const n = s.wfStates?.find((x) => x.doc === 'BUILD.md' && x.key === key);
+        log.push({ at: Date.now(), status: r.status(), node: n ? `${n.word}${n.detail ? ` · ${n.detail}` : ''}` : '(none)', job: s.jobs?.find((j) => j.label === 'BUILD.md › wait')?.state ?? '(none)' });
+      }, () => { log.push({ at: Date.now(), status: r.status(), node: '(unread)', job: '(unread)' }); });
+    });
+    return log;
+  }
+  async function nodeSays(page: Page, ws: Workspace, key: string, want: string, log: ReturnType<typeof stateLog>, since: number): Promise<void> {
+    try {
+      await page.waitForFunction(([k, w]) => (document.querySelector(`[data-wfx="BUILD.md"] [data-wf-node="${k}"] .wf-state`)?.textContent ?? '') === w, [key, want] as const, { timeout: 10_000 });
+    } catch (e) {
+      const shownNow = await nodeWords(page, key).catch((x: unknown) => `(unread: ${String(x).split('\n')[0]})`);
+      const at = new URL(ws.liveBoard!.url);
+      const token = /t=([0-9a-f]{64})/.exec(at.hash)?.[1] ?? '';
+      const now = await fetch(`${at.protocol}//${at.host}/state`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json(), (x: unknown) => ({ error: String(x) })) as { wfStates?: Array<{ doc: string; key: string; word: string; detail: string }>; error?: string };
+      const n = now.wfStates?.find((x) => x.doc === 'BUILD.md' && x.key === key);
+      const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait');
+      throw new Error([
+        `${String(e).split('\n')[0]}: node ${key} says "${shownNow}" on the page; wanted "${want}"`,
+        `the page's /state answers since the case began (ms from it): ${log.map((x) => `${x.at - since} ${x.status} node "${x.node}" job ${x.job}`).join('; ') || 'none'}`,
+        `the board's own state now: node ${n ? `"${n.word}${n.detail ? ` · ${n.detail}` : ''}"` : `(none${now.error ? `: ${now.error}` : ''})`}; the job's record: ${job ? `${job.id} ${job.state}${job.endedAt ? ` ended ${job.endedAt}` : ''}` : '(none)'}`,
+      ].join('\n'));
+    }
+  }
+
   it('selects the same block from the graph, from the prose and with the keyboard; edits an OpenSCAD parameter; runs a block and shows each state in words', async () => {
     const { ws, root, notes, sealed } = make();
     const { page, problems, close } = await open(ws);
@@ -149,13 +185,15 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
 
   it('while something else on the board is being edited (no redraw), the blocks\' states still change in place, in words', async () => {
     const { ws } = make();
+    const since = Date.now();
     const { page, problems, close } = await open(ws);
+    const log = stateLog(page, '4');
     // the tray recipe's card in the Parameters section, edited and not saved: the live board does not draw over it
     await page.fill('#parameters ~ .grid [data-params="tray"] [data-param="width"]', '150');
     expect(await page.getAttribute('#parameters ~ .grid [data-params="tray"]', 'data-editing')).toBe('');
     await page.click(`${card} [data-wf-select="4"]`);
     await page.click(`${card} [data-wf-insp="4"] button[data-act="run"]`);
-    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '● running', undefined, { timeout: 10_000 });
+    await nodeSays(page, ws, '4', '● running', log, since);
     expect(await page.textContent(`${card} [data-wf-select="4"] .wf-chip-state`)).toBe('running');
     expect(await page.textContent(`${card} [data-wf-insp="4"] .wf-insp-head .wf-word strong`)).toBe('running');
     expect(await page.getAttribute(`${card} [data-wf-node="4"] .wf-box`, 'class')).toContain('wfs-running');
@@ -163,7 +201,7 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
     const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait')!;
     expect((await ws.stop(job.id)).map((l) => l.map((x) => x.text).join('')).join('\n')).toContain('stopped');
-    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
+    await nodeSays(page, ws, '4', '■ stopped', log, since);
     expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
     expect(problems).toEqual([]);
     await close();
