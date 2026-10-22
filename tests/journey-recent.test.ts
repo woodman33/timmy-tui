@@ -176,10 +176,72 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     const held = takeTurnHold(root, 'repl');
     if (!held.ok) throw new Error(held.lines.join('\n'));
     try {
-      const first = recentWork(ctx(), 20).items[0];
-      expect(first).toMatchObject({ kind: 'turn', id: held.hold.id, state: 'running', title: 'A chat turn being answered in the REPL', receipt: null, open: { tab: 'chat', select: { name: 'turn', value: held.hold.id }, query: `tab=chat&turn=${held.hold.id}` } });
+      const items = recentWork(ctx(), 20).items;
+      // R10 (H164; H168 pass 2a N4): the conversation's one row while it runs, with its count (the sealed turn and this one)
+      expect(items[0]).toMatchObject({ kind: 'turn', id: held.hold.id, state: 'running', title: 'A chat turn being answered in the REPL · 2 turns in this conversation', turns: 2, receipt: null, open: { tab: 'chat', select: { name: 'turn', value: held.hold.id }, query: `tab=chat&turn=${held.hold.id}` } });
+      expect(items.filter((i) => i.kind === 'turn')).toHaveLength(1);
     } finally { held.hold.release(); }
     expect(recentWork(ctx(), 20).items.some((i) => i.state === 'running' && i.kind === 'turn')).toBe(false);
+  });
+
+  it('N4 (H168 pass 2a): the conversation is ONE row, its newest turn, with the turn count in its words; the artifacts stay near the top', () => {
+    // five more turns of the project's one conversation, each newer than every file and run (a session of chat after the work)
+    for (let k = 1; k <= 5; k += 1) {
+      const id = `o7777aa0${k}`;
+      op(id, { request: `question ${k}: how thick are the walls?`, state: 'answered', started: T(12 + k), ended: T(12 + k) });
+      seal(`turn${k}`, {
+        kind: 'chat', subject: 'chat.turn · repl · 1 step · qwen3:8b', policy: 'human-gated', status: 'ok', operation_id: id, project_id: pid, via: 'ollama', model_requested: 'qwen3:8b', model_resolved: 'qwen3:8b',
+        sources: [{ kind: 'ollama', host: '127.0.0.1:11434', endpoint: 'local', tools: 'on', cost_basis: 'local endpoint' }], ts: T(12 + k),
+      });
+    }
+    const r = recentWork(ctx(), 12);
+    expect(r.items.map((i) => `${i.kind}:${i.id}`)).toEqual([
+      `turn:${short(sealed.turn5)}`, 'run:o2222bbbb', 'draft:draft-0a1b2c3d', 'observation:v1a2b3c4d', 'recording:refs/demo-tray.rrd', 'mesh:refs/demo-tray.stl',
+      'reference:refs/preview.png', 'run:o1111aaaa', `receipt:${short(sealed.check)}`,
+    ]);
+    expect(r.items[0]).toMatchObject({
+      kind: 'turn', id: short(sealed.turn5), title: 'question 5: how thick are the walls? · 6 turns in this conversation', turns: 6, when: T(17), state: 'answered', operation: 'o7777aa05',
+      receipt: { id: short(sealed.turn5), verified: true }, open: { tab: 'chat', query: `tab=chat&receipt=${short(sealed.turn5)}` },
+    });
+    // no older turn comes back as a run (each turn's operation record is the conversation's), and the newest image is the
+    // 7th row whatever the turns (it was the 12th with these six, one row later for each turn sent)
+    expect(r.items.some((i) => i.kind === 'run' && /question|how deep/.test(i.title))).toBe(false);
+    expect(recentWork(ctx(), 7).items.at(-1)).toMatchObject({ kind: 'reference', id: 'refs/preview.png' });
+    // a long question is cut so its count is still said
+    op('o7777aa06', { request: `a question of many words ${'and more words '.repeat(10)}`, state: 'answered', started: T(18), ended: T(18) });
+    seal('turn6', { kind: 'chat', subject: 'chat.turn · repl · 1 step · qwen3:8b', policy: 'human-gated', status: 'ok', operation_id: 'o7777aa06', project_id: pid, via: 'ollama', model_requested: 'qwen3:8b', model_resolved: 'qwen3:8b', ts: T(18) });
+    const t = recentWork(ctx(), 12).items[0];
+    expect(t.title).toMatch(/^a question of many words and more words .*… · 7 turns in this conversation$/);
+    expect(t.title.length).toBeLessThanOrEqual(80);
+  });
+
+  it('N3 (H168 pass 2a): one mesh in several formats is ONE row (its STL first, the others in its words); a recording, and a mesh of the same name in another folder, keep their own', () => {
+    put('refs/demo-tray.obj', 'o demo\n', T(4.5));
+    put('refs/demo-tray.ply', 'ply\nend_header\n', T(4.8));
+    put('refs/cup.obj', 'o cup\n', T(7));
+    put('refs/cup.ply', 'ply\nend_header\n', T(7.5));
+    put('models/vase.stl', 'solid vase\nendsolid vase\n', T(4.1));
+    const items = recentWork(ctx(), 20).items;
+    const meshes = items.filter((i) => i.kind === 'mesh');
+    expect(meshes.map((m) => [m.id, m.title, m.also ?? []])).toEqual([
+      ['refs/cup.obj', 'cup.obj · also PLY', ['refs/cup.ply']],
+      ['refs/demo-tray.stl', 'demo-tray.stl · also OBJ, PLY', ['refs/demo-tray.obj', 'refs/demo-tray.ply']],
+      ['models/vase.stl', 'vase.stl', []],
+    ]);
+    // the row's time is its newest file's; it opens the first (its STL) where a mesh opens
+    expect(meshes[1]).toMatchObject({ when: T(4.8), state: 'saved', open: { tab: 'create', query: `tab=create&mesh=${hexOfPath('refs/demo-tray.stl')}` } });
+    // the recording of the same name keeps its own row
+    expect(by(items, 'recording')).toMatchObject({ id: 'refs/demo-tray.rrd', title: 'demo-tray.rrd' });
+    // a mesh of the same name in another folder is apart, and both rows say their folder (the words differ by the formats, so
+    // a surface that says a folder only for rows of equal words would not)
+    put('models/demo-tray.stl', 'solid other\nendsolid other\n', T(4.2));
+    const again = recentWork(ctx(), 20).items.filter((i) => i.kind === 'mesh');
+    expect(again.map((m) => [m.id, m.title])).toEqual([
+      ['refs/cup.obj', 'cup.obj · also PLY'],
+      ['refs/demo-tray.stl', 'demo-tray.stl · also OBJ, PLY (in refs)'],
+      ['models/demo-tray.stl', 'demo-tray.stl (in models)'],
+      ['models/vase.stl', 'vase.stl'],
+    ]);
   });
 
   it('a running run a NEEDS YOU box blocks is waiting on you (the caller says which: its own boxes, the decisions view)', () => {
