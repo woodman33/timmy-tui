@@ -83,6 +83,9 @@ input[type="checkbox"]:disabled { cursor: not-allowed; }
 h1, .brand { font-size: var(--timmy-size-h2); font-weight: var(--timmy-weight-heading); letter-spacing: 0.02em; color: var(--timmy-text); white-space: nowrap; }
 .brand-mark { color: var(--timmy-text-secondary); }
 .brand-sub { color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
+/* R10 (H167): at 1280 px the header keeps one row too: the brand's sub-word and the socket's subject left out (its state stays,
+   with its dot), so the tabs and the page keep the room */
+@media (max-width: 1320px) { .brand-sub, .status-what { display: none; } }
 
 #status {
   font-family: var(--timmy-font-mono);
@@ -1351,8 +1354,9 @@ body.slate-absent p { max-width: 72ch; }
 /* R10 (H167): Home's recent work (left, over the connections) and the selected item drawn large (right, over the newest
    images): references 01 and 13. Text 13 px and more; the selection amber (the palette's selection), a verified receipt green
    only through .is-verified; the stage's one button a brighter neutral (the strip's primary is the page's one amber step). */
-.home-left > .home-work-box { flex: 3 1 0; min-height: 8em; }
-.home-left > .home-conn-box { flex: 2 1 0; min-height: 6em; }
+/* (R10 H167: the recent work is the left column's most: about six items in sight at 1376 × 768) */
+.home-left > .home-work-box { flex: 4 1 0; min-height: 8em; }
+.home-left > .home-conn-box { flex: 1.5 1 0; min-height: 6em; }
 /* the preview: the largest share of the page (the brief; references 01, 02, 05, 09); the newest images under it, smaller */
 .home-right > .home-stage-box { flex: 4 1 0; min-height: 12em; }
 .home-right > .home-more-box { flex: 1 1 0; min-height: 7em; }
@@ -1389,6 +1393,21 @@ body.slate-absent p { max-width: 72ch; }
 /* R10 (H167): a text file of the project, as it is now: its first lines, in a box that scrolls on its own */
 .stage-text { margin: 0; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 6px 8px; }
 .stage-text:focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
+/* R10 (H167): the item drawn on the left, filling the box's height and never more (each part's height is its parent's, so the
+   image is drawn at the size the box has), its facts beside it, scrolling on their own; one column below 1101 px, where the
+   box scrolls as before */
+.stage-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(15em, 2fr); gap: 10px 16px; align-items: start; }
+.stage-media, .stage-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+@media (min-width: 1101px) {
+  #home-stage { flex: 1 1 0; }
+  #home-stage > .stage-split { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .stage-media > .stage-figure { flex: 1 1 0; min-height: 0; }
+  .stage-media .stage-img-btn { flex: 1 1 0; min-height: 0; display: flex; align-items: flex-start; }
+  .stage-media .stage-img { max-height: 100%; max-width: 100%; object-fit: contain; }
+  .stage-media > .stage-text { flex: 1 1 0; min-height: 0; max-height: none; }
+  .stage-side { overflow: auto; }
+}
+@media (max-width: 1100px) { .stage-split { grid-template-columns: minmax(0, 1fr); } }
 .stage-notice { color: var(--timmy-text); border-left: 2px solid var(--timmy-line-strong); padding: 2px 8px; overflow-wrap: anywhere; }
 .stage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn-action.stage-open { font-size: 13px; padding: 6px 12px; border-color: var(--timmy-text-secondary); text-decoration: none; }
@@ -1401,6 +1420,17 @@ body.slate-absent p { max-width: 72ch; }
   .work-row { grid-template-columns: 1.4em minmax(0, 1fr); }
   .work-kind, .work-when { grid-column: 2; }
   .stage-fact { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  /* the page scrolls here: each of Home's boxes takes the height its content needs (a box sized from nothing would let its
+     list run over the box under it), in the journey's order: the recent work, then its preview, then the rest; the list
+     scrolls in its own box past about five items */
+  .cols-home > .col-stack { display: contents; }
+  .home-left > .box, .home-right > .box { flex: 0 0 auto; }
+  .home-work-box { order: 1; }
+  .home-stage-box { order: 2; }
+  .home-more-box { order: 3; }
+  .home-conn-box { order: 4; }
+  .home-left > .box-fit { order: 5; max-height: none; }
+  .home-work-box > .box-body { max-height: 20em; overflow: auto; }
 }
 
 /* ==========================================================================================================================

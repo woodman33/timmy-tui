@@ -14,7 +14,9 @@ const code = script.slice(script.indexOf('// ── The chat mirror'), script.in
 const TOKEN = 'c0'.repeat(32);
 
 function client(protocol = 'http:', token = TOKEN) {
-  const statusEl = { textContent: '' };
+  // R10 (H167): the header's socket words are a span ("COMPANION SOCKET · ", folded on a narrow window) and the state: the
+  // status element takes children, and the page's h() makes them (its text the words the header shows)
+  const statusEl = { textContent: '', replaceChildren(...kids: Array<string | { textContent: string }>) { this.textContent = kids.map((k) => (typeof k === 'string' ? k : k.textContent)).join(''); } };
   const dot = { style: {} as Record<string, string>, dataset: {} as Record<string, string> };
   const consoleLogs = { innerHTML: '', scrollTop: 0, scrollHeight: 0 };
   const savedList = { innerHTML: '' };
@@ -38,6 +40,7 @@ function client(protocol = 'http:', token = TOKEN) {
     updateMirrorStatus: vi.fn(),
     exitSavedChatViewer: vi.fn(), setTimeout: vi.fn(), console: { error: vi.fn() },
     pHash: { textContent: '' }, pRunId: { textContent: '' }, pPath: { textContent: '' },
+    h: (_tag: string, _props: unknown, ...kids: unknown[]) => ({ textContent: kids.flat().join('') }),
   };
   runInNewContext(code + '\nconnect();', context);
   const socket = sockets[0];

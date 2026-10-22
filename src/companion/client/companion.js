@@ -658,7 +658,8 @@ function connect() {
   wsConnection = ws;
 
   ws.onopen = () => {
-    statusEl.textContent = 'COMPANION SOCKET · CONNECTED';
+    // R10 (H167): its subject in a part of its own, which a narrower window leaves out (the state stays): the header keeps one row
+    statusEl.replaceChildren(h('span', { class: 'status-what' }, 'COMPANION SOCKET · '), 'CONNECTED');
     setDot('connected');
     appendToLocalLogs('INFO', 'Companion WebSocket connected.');
 
@@ -769,7 +770,7 @@ function connect() {
   };
 
   ws.onclose = () => {
-    statusEl.textContent = 'COMPANION SOCKET · RECONNECTING';
+    statusEl.replaceChildren(h('span', { class: 'status-what' }, 'COMPANION SOCKET · '), 'RECONNECTING');
     setDot('lost');
     appendToLocalLogs('ERROR', 'WebSocket connection lost. Retrying in 2s...');
     if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
@@ -2033,7 +2034,12 @@ function drawStage(it, title) {
   const open = stageOpen(it);
   if (open) kids.push(h('div', { class: 'stage-actions' }, open));
   kids.push(stageDetails(it));
-  stage.replaceChildren(...kids);
+  // R10 (H167; the lead's B3 note): the item drawn (an image or a text) fills the box's height on the left, never more, and its
+  // facts stand beside it, so its progress, result and receipt are in sight with it; a notice stays above both
+  const drawn = kids.filter((k) => k instanceof Element && (k.classList.contains('stage-figure') || k.classList.contains('stage-text')));
+  const notice = kids.filter((k) => k instanceof Element && k.classList.contains('stage-notice'));
+  const rest = kids.filter((k) => !drawn.includes(k) && !notice.includes(k));
+  stage.replaceChildren(...notice, ...(drawn.length ? [h('div', { class: 'stage-split' }, h('div', { class: 'stage-media' }, ...drawn), h('div', { class: 'stage-side' }, ...rest))] : rest));
 }
 
 function stageReceipt(r, expected) {
