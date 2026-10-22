@@ -144,7 +144,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     await t.waitFor(/tray1 \/ Workflows · plan and run/, 'Workflows');
     await t.keys('Home');
     // (R10 H167: row 2 says what Enter does in words; H168's F4: the block's commands are the Inspector's, [i], checked below)
-    await t.waitFor(/1 Run APPROVAL\.md › tidy · Enter opens its Run confirm/, 'row 2\'s first action selected');
+    // (R10 H167: the row under the boxes says what the selected box does, without its label again)
+    await t.waitFor(/1 Run APPROVAL\.md › tidy[\s\S]*\n[^\n]*Enter opens its Run confirm/, 'row 2\'s first action selected');
     await t.keys('Enter');
     await t.waitFor(/Run APPROVAL\.md › tidy\?/, 'the Run confirm');
     await t.keys('Enter');
