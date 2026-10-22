@@ -244,6 +244,53 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await close();
   }, 60_000);
 
+  // R10 (H163; the review of R9's one failure of the case above): the page asks GET /state every 2 s and after each action, and
+  // nothing keeps the answers in order, so an answer the server made before a newer one, but read after it, put the older state
+  // back on the page until the next answer. Here the answers are delivered out of order on purpose: the page holds the newer.
+  it('an older /state answer that arrives after a newer one does not replace it: the block stays stopped, not running again (R10 H163)', async () => {
+    const { ws } = make();
+    const { page, problems, close } = await open(ws);
+    // FAKE delivery order (the test's): when armed, the next /state is asked of the board at once (so its answer is the
+    // state as it is then) and handed to the page only when the test says
+    const held: Array<{ body: string; give: () => Promise<void> }> = [];
+    let arm = false;
+    await page.route('**/state', async (route) => {
+      if (!arm) { await route.continue(); return; }
+      arm = false;
+      const answer = await route.fetch();
+      const body = await answer.text();
+      held.push({ body, give: () => route.fulfill({ response: answer, body }) });
+    });
+    await page.click(`${card} [data-wf-select="4"]`);
+    await page.click(`${card} [data-wf-insp="4"] button[data-act="run"]`);
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '● running', undefined, { timeout: 10_000 });
+    // the older answer: made while the block runs, held
+    arm = true;
+    for (const end = Date.now() + 10_000; Date.now() < end && !held.length;) await new Promise((r) => setTimeout(r, 50));
+    expect(held).toHaveLength(1);
+    const older = JSON.parse(held[0].body) as { wfStates: Array<{ doc: string; key: string; word: string }> };
+    expect(older.wfStates.find((x) => x.doc === 'BUILD.md' && x.key === '4')?.word).toBe('running');
+    // the block stopped, and a newer answer read: the page says so
+    const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait')!;
+    expect((await ws.stop(job.id)).map((l) => l.map((x) => x.text).join('')).join('\n')).toContain('stopped');
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
+    // then the older answer arrives: every word node 4 shows from then on is recorded (in place or drawn again), for half a
+    // second, well before the page's next own ask (2 s after its last): the older state is never put over the newer one
+    await page.evaluate(() => {
+      const w = window as unknown as { h163Seen: string[] };
+      const now = (): string => document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '(no node)';
+      w.h163Seen = [now()];
+      new MutationObserver(() => { const t = now(); if (w.h163Seen[w.h163Seen.length - 1] !== t) w.h163Seen.push(t); })
+        .observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true });
+    });
+    await held[0].give();
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as { h163Seen: string[] }).h163Seen), 'node 4\'s words from when the older answer was handed to the page').toEqual(['■ stopped']);
+    expect(await page.textContent(`${card} [data-wf-select="4"] .wf-chip-state`)).toBe('stopped');
+    expect(problems).toEqual([]);
+    await close();
+  }, 60_000);
+
   // R4 (H88; the Mac run r23): a document that gives two blocks one name is refused by /run, timmy md and timmy act, but the
   // card said "Two blocks are named build: upmd runs the first." and offered an enabled Run this block, and /workflows listed
   // "Next /run DUP.md build" twice. Every view now says what /run does (it runs none of them), with no Run to press.
