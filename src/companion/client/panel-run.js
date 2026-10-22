@@ -85,21 +85,49 @@ function rvMoreRows(rows) {
 /** An id or a hash as Timmy prints one: an operation (o + 8 hex), a job (j + 6 hex), a receipt or a sha256 (7 to 64 hex,
  *  one of them a letter, so a count is not taken for one). */
 const RV_ID = /\b(?:o[0-9a-f]{8}|j[0-9a-f]{6}|(?:sha256_)?(?=[0-9]*[a-f])[0-9a-f]{7,64})\b/;
+/**
+ * R10 (H167; the lead's F3 finding in the companion check of 11c027d): the ids the run on screen gives the page: its
+ * operation's, its run detail's receipts and prediction receipt, and each receipt the inspection lists with the one it links
+ * to. RV_ID asks for a letter (so that a count is never taken for an id), and a receipt's id of eight digits (about 2% of them)
+ * has none: the face drops the ids the page holds whatever their digits, by the same rules as the ones RV_ID finds. Set as
+ * each run is drawn (rvDraw), longest first.
+ */
+let rvIds = [];
+let rvIdsAt = null;
+function rvKnowIds(d, ins) {
+  const ids = new Set();
+  const add = (v) => { const id = String(v ?? '').trim(); if (/^[0-9a-z]{6,64}$/i.test(id) && /[0-9]/.test(id)) ids.add(id); };
+  if (d) {
+    add(d.operation);
+    for (const r of Array.isArray(d.receipts) ? d.receipts : []) add(r && r.id);
+    if (d.prediction) add(d.prediction.receipt);
+  }
+  const list = ins && ins.receipts && Array.isArray(ins.receipts.list) ? ins.receipts.list : [];
+  for (const r of list) { add(r && r.id); add(r && r.prev); }
+  rvIds = [...ids].sort((a, b) => b.length - a.length);
+  rvIdsAt = rvIds.length ? new RegExp(`\\b(?:${rvIds.join('|')})\\b`) : null;
+}
+/** Whether words name an id: one RV_ID finds, or one the run on screen gives the page. */
+const rvHasId = (m) => RV_ID.test(m) || (rvIdsAt !== null && rvIdsAt.test(m));
 /** A record's words for the face: a part in brackets that names an id or a hash, a last part after a colon that does, a
- *  sha256, and a place (a path) that does, taken out; a receipt, a job and an operation named by kind, not by id. The whole
- *  words are in the Details beside them, so nothing the face says is new. */
+ *  sha256, and a place (a path) that does, taken out; a receipt, a job and an operation named by kind, not by id; an id the
+ *  run gives the page, wherever else the words name it, taken out (its "'s" said as "its"). The whole words are in the
+ *  Details beside them, so nothing the face says is new. */
 function rvFace(w) {
-  return String(w || '')
-    .replace(/\s*\([^()]*\)/g, (m) => (RV_ID.test(m) ? '' : m))
-    .replace(/:\s[^:;]*$/, (m) => (RV_ID.test(m) ? '' : m))
+  let s = String(w || '')
+    .replace(/\s*\([^()]*\)/g, (m) => (rvHasId(m) ? '' : m))
+    .replace(/:\s[^:;]*$/, (m) => (rvHasId(m) ? '' : m))
     .replace(/\b(prediction |block |edit |flow |run )?receipt [0-9a-f]{8}\b/g, (m, k) => `its ${k || ''}receipt`)
     .replace(/\bjob j[0-9a-f]{6}\b/g, 'the job')
     .replace(/\bflow f[0-9a-f]{8}\b/g, 'the flow')
     .replace(/\boperation o[0-9a-f]{8}\b/g, 'the operation')
     .replace(/\bsha256[: ](?:sha256_)?[0-9a-f]{7,}…?,?/g, '')
     .replace(/\bgit [0-9a-f]{7,40}\b/g, 'a git revision')
-    .replace(/(?:\s(?:at|from|in|by))?\s*[^\s()]*\/[^\s()]*/g, (m) => (RV_ID.test(m) ? '' : m))
-    .replace(/ {2,}/g, ' ').replace(/\s+([,;:.])(?=\s|$)/g, '$1').replace(/[,;:]\s*$/, '').trim();
+    .replace(/(?:\s(?:at|from|in|by))?\s*[^\s()]*\/[^\s()]*/g, (m) => (rvHasId(m) ? '' : m));
+  for (const id of rvIds) {
+    s = s.replace(new RegExp(`\\b${id}'s\\b`, 'g'), 'its').replace(new RegExp(`(?:\\s(?:at|from|in|by|of))?\\s*\\b${id}\\b`, 'g'), '');
+  }
+  return s.replace(/ {2,}/g, ' ').replace(/\s+([,;:.])(?=\s|$)/g, '$1').replace(/[,;:]\s*$/, '').trim();
 }
 /** Details rows for words whose face left something out (an id, a hash, a place), and for places always. */
 const rvSaid = (label, words) => (words && rvFace(words) !== String(words) ? [label, String(words)] : null);
@@ -526,6 +554,8 @@ function rvDraw(box, body, op) {
   rvShown.detail = body.detail;
   rvShown.inspection = body.inspection || null;
   rvShown.why = body.inspectionWhy || null;
+  // R10 (H167): the ids this run gives the page, which its face drops whatever their digits (rvKnowIds)
+  rvKnowIds(body.detail, rvShown.inspection);
   box.replaceChildren(rvView(body.detail, rvShown.inspection, rvShown.why));
   if (same) [...box.querySelectorAll('[data-rv-scroll]')].forEach((el, i) => { if (tops[i]) el.scrollTop = tops[i]; });
   requestAnimationFrame(() => { rvMark(box); if (typeof markOverflow === 'function') markOverflow(); });
