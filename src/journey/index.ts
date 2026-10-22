@@ -12,6 +12,9 @@
  *                            with its state, its receipt (verified here) and where it opens (./recent.ts)
  *   runSummary(ctx, runId)   a run's progress (steps done of total, state), result (exits, outputs, verdict) and receipt
  *                            (verified here), with its project, from the one run detail (./run.ts)
+ *
+ * The browser companion serves them read only, behind its token (./routes.ts, mounted by src/companion/server.ts):
+ * GET /api/journey/route, /api/journey/recent, /api/journey/run/<operation id> and /api/journey/open.
  */
 export { FAKE_NAME, routeNow, routeTaken } from './route.js';
 export type { JourneyRoute, RouteAgent, RouteCtx, RoutePrice, RouteProvider, RouteStep, RouteTaken, RouteWhere } from './route.js';

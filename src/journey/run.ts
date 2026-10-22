@@ -66,6 +66,8 @@ export interface RunCtx {
   chain?: readonly Receipt[];
   /** the job records the surface holds (the Workbench's, the REPL's); else the run detail reads Timmy's jobs folder */
   jobs?: readonly JobRecord[];
+  /** Timmy's jobs folder, when `jobs` is not given (default: <TIMMY_HOME>/jobs of this process's environment) */
+  jobsDir?: string;
   /** a NEEDS YOU box waiting for this operation in the caller's own process, in words */
   waiting?: (operation: string) => string | undefined;
 }
@@ -78,7 +80,7 @@ export function runSummary(ctx: RunCtx, runId: string): RunSummaryAnswer {
   const root = ctx.project.root;
   const chain = ctx.chain ?? (() => { try { return env.TIMMY_STORE ? readChain('runs') : readChain('runs', root); } catch { return []; } })();
   const made = readRunDetail(String(runId ?? '').trim(), {
-    project: root, chain, env: env as NodeJS.ProcessEnv, ...(ctx.jobs ? { jobs: ctx.jobs } : {}), ...(ctx.waiting ? { waiting: ctx.waiting } : {}),
+    project: root, chain, env: env as NodeJS.ProcessEnv, ...(ctx.jobs ? { jobs: ctx.jobs } : ctx.jobsDir ? { jobsDir: ctx.jobsDir } : {}), ...(ctx.waiting ? { waiting: ctx.waiting } : {}),
   });
   if (!made.ok) return { ok: false, refusal: made.refusal, why: made.why };
   const d = made.detail;
