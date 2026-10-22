@@ -27,6 +27,7 @@
  */
 import { lstatSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { basename, join } from 'node:path';
+import { runningTurns, surfaceWords } from '../agent/chat-turn.js';
 import { chatTurnOf } from '../repl/seal.js';
 import { readOperationRecord, type OperationRecord } from '../ops/operations.js';
 import { privatePath, projectId } from '../project/index.js';
@@ -67,6 +68,8 @@ export interface WorkItem {
   route?: RouteTaken;
   /** a run: the files its receipts name, in the project (at most RESULTS_MAX) */
   results?: string[];
+  /** a run waiting on you: what its NEEDS YOU box asks */
+  waiting?: string;
 }
 
 export interface RecentWork {
@@ -82,6 +85,11 @@ export interface WorkCtx {
   env?: Env;
   /** the runs chain as the surface read it (the Workbench's); else read from the project's store (TIMMY_STORE, else its own) */
   chain?: readonly Receipt[];
+  /** what a NEEDS YOU box waiting for an operation asks, in words (the caller's own boxes, its decisions view), or undefined:
+   *  a running run it names is "waiting on you" */
+  waiting?: (operation: string) => string | undefined;
+  /** the chat turns being answered now (their holds, read only) are listed as running; false leaves them out (default true) */
+  live?: boolean;
 }
 
 export interface RecentCaps {
@@ -321,6 +329,14 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   }
   if (i >= 0) notes.push(`Only the newest ${caps.chainScan} receipts were read: older turns and receipts are not listed.`);
 
+  // the turns being answered now: their holds (src/agent/chat-turn.ts runningTurns, read only: a writer's end is proven, nothing
+  // is removed), each by its own id; no receipt yet
+  if (ctx.live !== false) {
+    for (const t of runningTurns(root, undefined, { readOnly: true }).slice(0, want)) {
+      cands.push({ at: Date.parse(t.taken), item: { kind: 'turn', id: t.id, title: `A chat turn being answered in ${surfaceWords(t.surface)}`, when: t.taken, state: 'running', receipt: null, open: openTarget({ kind: 'turn', id: t.id }), fake: false, operation: null } });
+    }
+  }
+
   // the turns: their words from their operation's request (a receipt holds hashes only)
   const turnOps = new Set<string>();
   for (const r of turns) {
@@ -360,11 +376,13 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     const results = receiptOutputs([...mine].reverse()).slice(0, RESULTS_MAX);
     for (const f of results) claimed.add(f);
     const when = rec.ended ?? rec.started;
+    // a running run a NEEDS YOU box blocks waits on you (the caller's boxes say which)
+    const box = rec.state === 'running' ? ctx.waiting?.(rec.id) : undefined;
     cands.push({
       at: Date.parse(when), ...(own ? { hash: own.hash } : {}),
       item: {
-        kind: 'run', id: rec.id, title: runTitle(rec.request), when, state: runState(rec), receipt: null,
-        open: openTarget({ kind: 'run', id: rec.id }), fake: FAKE_WORD.test(rec.request), operation: rec.id, ...(results.length ? { results } : {}),
+        kind: 'run', id: rec.id, title: runTitle(rec.request), when, state: box ? 'waiting on you' : runState(rec), receipt: null,
+        open: openTarget({ kind: 'run', id: rec.id }), fake: FAKE_WORD.test(rec.request), operation: rec.id, ...(results.length ? { results } : {}), ...(box ? { waiting: box } : {}),
       },
     });
   }

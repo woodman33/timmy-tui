@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { hexOfPath, recentWork, RECENT_CAPS, runTitle, type WorkItem } from '../src/journey/index.js';
 import { projectId } from '../src/project/index.js';
 import { boardDir } from '../src/studio/boards.js';
@@ -169,6 +170,22 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     // the prediction and the workflow receipt are the run's; the vox receipt the observation's: not listed again
     expect(items.filter((i) => i.kind === 'receipt')).toHaveLength(1);
     expect(JSON.stringify(items)).not.toContain(short(sealed.foreign));
+  });
+
+  it('a chat turn being answered now (its hold, read only) is listed first, running, opening Chat at that turn', () => {
+    const held = takeTurnHold(root, 'repl');
+    if (!held.ok) throw new Error(held.lines.join('\n'));
+    try {
+      const first = recentWork(ctx(), 20).items[0];
+      expect(first).toMatchObject({ kind: 'turn', id: held.hold.id, state: 'running', title: 'A chat turn being answered in the REPL', receipt: null, open: { tab: 'chat', select: { name: 'turn', value: held.hold.id }, query: `tab=chat&turn=${held.hold.id}` } });
+    } finally { held.hold.release(); }
+    expect(recentWork(ctx(), 20).items.some((i) => i.state === 'running' && i.kind === 'turn')).toBe(false);
+  });
+
+  it('a running run a NEEDS YOU box blocks is waiting on you (the caller says which: its own boxes, the decisions view)', () => {
+    const r = recentWork({ ...ctx(), waiting: (op) => (op === 'o2222bbbb' ? 'write_project_file asks to write notes.md' : undefined) }, 20);
+    expect(by(r.items, 'run', 'o2222bbbb')).toMatchObject({ state: 'waiting on you', waiting: 'write_project_file asks to write notes.md' });
+    expect(by(r.items, 'run', 'o1111aaaa')).toMatchObject({ state: 'completed' });
   });
 
   it('limit: the newest `limit` items only', () => {

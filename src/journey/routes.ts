@@ -73,7 +73,13 @@ export function mountJourneyRoutes(app: express.Express, c: JourneyRouteContext)
     const limit = Number.isFinite(n) ? Math.min(RECENT_MAX, Math.max(1, Math.floor(n))) : 12;
     try {
       const { recentWork } = await import('./recent.js');
-      answer(res, 200, { ok: true, ...recentWork({ project: { name: project.name, root: project.root }, env: c.env }, limit) });
+      // what waits on a person, as every surface counts it (src/ops/waiting.ts waitingNow: this process's NEEDS YOU boxes and
+      // other processes'): a running run a box blocks is "waiting on you"
+      const { waitingNow } = await import('../ops/waiting.js');
+      const chain = chainOf(project.root, c.env);
+      const boxes = new Map<string, string>();
+      try { for (const d of waitingNow({ root: project.root, jobs: [], chain, env: c.env }).items) if (d.blocks && d.operation && !boxes.has(d.operation)) boxes.set(d.operation, d.title); } catch { /* none read: none said */ }
+      answer(res, 200, { ok: true, ...recentWork({ project: { name: project.name, root: project.root }, env: c.env, chain, waiting: (op) => boxes.get(op) }, limit) });
     } catch { answer(res, 500, { ok: false, error: FAILED }); }
   });
 
