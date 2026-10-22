@@ -814,10 +814,15 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         await idle(page);
         await drawn(page);
         const block = page.locator('#sd-messages [data-streamdown="mermaid-block"]').last();
+        // R10 (H167; the lead's reading of a failure with four browser files at once on 2 CPUs: 5 of the 6 labels read, the last
+        // not drawn yet): the diagram is drawn again as the answer's last part arrives, so an earlier drawing can be the one on
+        // screen just after the stream ends. The sample's whole diagram is the one with its last label: measured once it is drawn
+        const LABELS = ['User Prompt', 'POST /chat SSE', 'Streamdown Parser', 'receipt Card', 'approval Gate', 'Mermaid Diagram'];
+        await expect.poll(async () => (await shownLabels(page, 'chat'))?.labels.map((l) => l.text) ?? null, { timeout: 20_000, interval: 100 }).toEqual(LABELS);
         // the drawing given its size (data-fit, by the chat's script); what is measured below decides, whether or not it is
         await page.waitForFunction(() => Boolean(document.querySelector('#streamdown-root [aria-label="Mermaid chart"] > svg[data-fit]')), null, { timeout: 5_000 }).catch(() => undefined);
         const shown = (await shownLabels(page, 'chat'))!;
-        expect(shown.labels.map((l) => l.text)).toEqual(['User Prompt', 'POST /chat SSE', 'Streamdown Parser', 'receipt Card', 'approval Gate', 'Mermaid Diagram']);
+        expect(shown.labels.map((l) => l.text)).toEqual(LABELS);
         for (const l of shown.labels) {
           expect(l.px, `${l.text} at ${viewport.width}`).toBeGreaterThanOrEqual(12);
           expect(l.boxPx, `${l.text}'s text box at ${viewport.width}`).toBeGreaterThanOrEqual(12);

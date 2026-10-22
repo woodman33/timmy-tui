@@ -28,7 +28,7 @@ import type { Data, Item, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
 import type { JourneyRoute, WorkItem as JourneyWorkItem } from '../journey/index.js';
 import type { BuildInfo } from '../build-info.js';
-import { clock, count, cut, fit, lineCells, took, wrapSegs, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, took, trimTo, wrapSegs, type Line, type Role, type Seg } from './text.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
 const blank: Line = [];
@@ -475,12 +475,21 @@ export function homeWorkView(c: JourneyCtx): View {
   });
   // the connections, a row each (its mark and word; its words, its step and its address are the selected item's and the
   // details'): Enter on one does its step, as the cards did (R5 H131)
-  lines.push(blank, [S('CONNECTIONS', 'secondary', { bold: true }), S(`  ${c.g.sep} as last observed; live: an answer seen in the last 30 minutes`, 'secondary')]);
+  // R10 (H167; H168's F13 at pass 2a: "the connections' state column still starts at three columns … (no summary)"): under
+  // the heading, how many are in each state (what live means beside it where the row has room, else in ? and the details);
+  // every row's state starts in one column (the longest name's, at most 28 cells)
+  lines.push(blank, [S('CONNECTIONS', 'secondary', { bold: true }), S(`  ${c.g.sep} as last observed`, 'secondary')]);
   if (!c.data.frame) lines.push([S(c.data.frameError ? `  not read: ${c.data.frameError}` : '  reading…', c.data.frameError ? 'failure' : 'secondary')]);
+  else if (conns.length) {
+    const sum: Line = [S(`  ${connectionCounts(conns).join(` ${c.g.sep} `)}`, 'secondary')];
+    const legend: Line = [...sum, S(`  ${c.g.sep} live: an answer seen in the last 30 minutes`, 'secondary')];
+    lines.push(...(lineCells(legend) <= c.width ? [legend] : wrapSegs(sum, Math.max(10, c.width), '  ')));
+  }
+  const nameW = Math.min(28, Math.max(13, ...conns.map((conn) => connName(conn).length + 2)));
   conns.forEach((conn, k) => {
     const i = work.length + k;
     items.push({ line: lines.length, item: { kind: 'conn', key: `conn:${conn.id}`, conn } });
-    const row = connectionRow(conn, c, i === cur, focused);
+    const row = connectionRow(conn, c, i === cur, focused, nameW);
     lines.push(i === cur ? row.map((x) => ({ ...x, selected: true })) : row);
   });
   return { lines, items };
@@ -708,7 +717,7 @@ const num = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(
  * how it ended; a turn's question and the first lines of its answer (this project's conversation). What no record says is not
  * said. Rows of words, with no address, path or id.
  */
-export function representation(w: WorkItem, c: JourneyCtx): Line[] {
+export function representation(w: WorkItem, c: JourneyCtx, room = 0): Line[] {
   const { data, g, width } = c;
   const sep = ` ${g.sep} `;
   const out: Line[] = [];
@@ -729,20 +738,34 @@ export function representation(w: WorkItem, c: JourneyCtx): Line[] {
     } else row('Mesh', m?.kind === 'mesh' ? (m.mesh.pending ? 'being measured' : 'not measured: 6 3D & Motion says why') : 'not read yet');
   } else if (w.kind === 'run') {
     const job = data.jobs.find((j) => j.operation === w.id);
+    // (R10 H167; H168's F10 at pass 2a: the column's empty rows): what the column has room for is given to the run's steps, a
+    // row each by its name and how it ended, then to the files it wrote, all named
+    let left = Math.max(0, room);
     if (job) {
       const steps = job.steps ?? [];
       const done = steps.filter((st) => st.state === 'completed').length;
       row('Progress', `${job.word}${steps.length ? `${sep}${done} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}${job.elapsed ? `${sep}${job.elapsed}` : ''}`);
+      for (const st of steps.slice(0, left)) {
+        const word = st.outcome === 'no change' ? 'no change' : st.state;
+        out.push(trimTo([S(' '.repeat(10)), S(st.name, 'text'), S(sep, 'secondary'), S(word, st.state === 'failed' ? 'failure' : 'secondary')], width, g.ellipsis));
+        left -= 1;
+      }
     }
     const files = (w.results ?? []).map(base);
-    if (files.length) row('Wrote', `${files.slice(0, 3).join(', ')}${files.length > 3 ? `, ${files.length - 3} more` : ''}`);
+    if (files.length) {
+      const rowsOf = (v: string): number => wrapSegs([S(`${'Wrote'.padEnd(9)} `, 'secondary'), S(v, 'text')], width, ' '.repeat(10)).length;
+      const short = `${files.slice(0, 3).join(', ')}${files.length > 3 ? `, ${files.length - 3} more` : ''}`;
+      const whole = files.join(', ');
+      row('Wrote', files.length > 3 && left > 0 && rowsOf(whole) - rowsOf(short) <= left ? whole : short);
+    }
   } else if (w.kind === 'turn') {
     const msgs = data.chat?.messages ?? [];
     const norm = (t: string): string => t.replace(/\s+/g, ' ').trim();
     const at = msgs.findIndex((m) => m.role === 'user' && norm(m.text) === norm(w.title));
     const answer = at >= 0 ? msgs.slice(at + 1).find((m) => m.role === 'assistant') : undefined;
     out.push(...wrapSegs([S('You    ', 'secondary'), S(w.title, 'strong')], width, ' '.repeat(7)).slice(0, 2));
-    if (answer) out.push(...wrapSegs([S('Timmy  ', 'ai'), S(answer.text.replace(/\s+/g, ' ').trim(), 'text')], width, ' '.repeat(7)).slice(0, 3));
+    // (R10 H167; H168's F10 at pass 2a: the column's empty rows): its answer's first lines, as many as the column has room for
+    if (answer) out.push(...wrapSegs([S('Timmy  ', 'ai'), S(answer.text.replace(/\s+/g, ' ').trim(), 'text')], width, ' '.repeat(7)).slice(0, 3 + Math.max(0, room)));
     else out.push([S('       its answer is not in the conversation kept here', 'secondary')]);
   } else if (w.kind === 'observation') {
     const v = (data.vox ?? []).find((x) => x.id === w.id);
@@ -805,7 +828,7 @@ const connName = (conn: WorkspaceConnection): string => (conn.id === 'openrouter
 
 /** Home's right column: the selected item (what it is, how it ended, its receipt, where it opens; a connection's words and its
  *  step), then the project. Ids, hashes, addresses and commands are the details' ([i]). */
-export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) => string | null): View {
+export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) => string | null, room = 0): View {
   const { data, g, width } = c;
   const lines: Line[] = [];
   const it = selectedHome(c);
@@ -817,7 +840,7 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
     lines.push(...wrapSegs([S(w.title, 'strong')], width, '  '));
     lines.push(...wrapSegs([S(`${ago(w.at, c.now)}${w.facts.length ? `${sep}${w.facts.join(sep)}` : ''}`, 'secondary')], width, '  '));
     // R10 (H168's F10): the item itself, as a terminal can draw it (references 01 and 13 give this half to its preview)
-    const shown = representation(w, c);
+    const shown = representation(w, c, room);
     if (shown.length) lines.push(blank, ...shown);
     if (w.receipt) {
       lines.push(blank);
@@ -856,16 +879,32 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
   lines.push(...wrapSegs([S(data.files.reading || data.workflows.reading ? `files and workflow documents being read${sep}${count(data.jobs.length, 'job')}` : `${count(files, 'file')}${sep}${count(docs, 'workflow document')}${sep}${count(data.jobs.length, 'job')}`, 'text')], width, '  '));
   // R5 (H131; the QA round's defect 24): Timmy's own logs (logs/*.log, written where it runs) are not the project's files
   if (data.files.timmyLogs) lines.push(...wrapSegs([S(`not counted: ${count(data.files.timmyLogs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], width, '  '));
+  // R10 (H167; H168's F10 at pass 2a: "empty rows of the Selected column with a turn selected: 7 of 22 at 122×37"): what the
+  // column has room for under the project is given to the item itself (a turn's answer, its next lines; a run's steps and the
+  // files it wrote), drawn once more with it
+  const free = c.height - lines.length;
+  if (!room && free > 0 && it?.kind === 'work' && (it.work.kind === 'turn' || it.work.kind === 'run')) return homeSideView(c, step, free);
   return { lines, items: [] };
 }
 
 /** A connection as one row: the selection's marker, its name, its state's mark and word (green only for an observed answer)
  *  and when it was observed; no address. */
-function connectionRow(conn: WorkspaceConnection, c: Pick<JourneyCtx, 'g' | 'ui'>, selected = false, focused = false): Line {
+function connectionRow(conn: WorkspaceConnection, c: Pick<JourneyCtx, 'g' | 'ui'>, selected = false, focused = false, nameW = 13): Line {
   const m = connectionMark(conn.state, c.g);
   const s = conn.id === 'companion' ? c.ui.companion : conn.id === 'studio' ? c.ui.studio : null;
   const extra = rowWord(conn, s);
-  return [S(selected ? `${c.g.cursor} ` : '  ', selected && focused ? 'accent' : 'secondary'), S(`${connName(conn).padEnd(Math.max(13, connName(conn).length + 2))}`, selected ? 'strong' : 'text'), S(m.text, m.role), S(extra ? `  ${c.g.sep} ${extra}` : '', 'secondary')];
+  // (R10 H167: a name longer than the column is shortened with an ellipsis, whole in the selected item's words and the details)
+  const name = connName(conn);
+  const shown = name.length + 2 > nameW ? `${name.slice(0, Math.max(1, nameW - 3))}${c.g.ellipsis}` : name;
+  return [S(selected ? `${c.g.cursor} ` : '  ', selected && focused ? 'accent' : 'secondary'), S(`${shown.padEnd(nameW)}`, selected ? 'strong' : 'text'), S(m.text, m.role), S(extra ? `  ${c.g.sep} ${extra}` : '', 'secondary')];
+}
+
+/** R10 (H167; H168's F13): how many connections are in each state ("1 live", "7 not set up"), in the marks' order (none of a
+ *  state: not said). */
+export function connectionCounts(conns: WorkspaceConnection[]): string[] {
+  const order: ReadonlyArray<WorkspaceConnection['state']> = ['live', 'configured', 'unreachable', 'refused', 'not set up', 'unknown'];
+  const state = (x: WorkspaceConnection): WorkspaceConnection['state'] => (order.includes(x.state) ? x.state : 'unknown');
+  return order.map((st) => [st, conns.filter((x) => state(x) === st).length] as const).filter(([, n]) => n > 0).map(([st, n]) => `${n} ${st}`);
 }
 
 // ── the inspector: details and the build ───────────────────────────────────────

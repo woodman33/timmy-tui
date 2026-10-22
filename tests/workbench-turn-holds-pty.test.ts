@@ -176,7 +176,8 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     expect(offered.at, `the Chat tab offered Stop the turn ${offered.at} ms after the hold was written`).toBeLessThan(700);
     await sendKeys(wb, ['Right', 'Right']);
     // (R10 H167: row 2 says where it is done first, then the command there)
-    await seen(/3 Stop the turn · done in the REPL, not here: Enter does not stop it; x asks you first · Ctrl\+C in the REPL that sent it/, Date.now());
+    // (R10 H167: the row under the boxes says what the selected box does, without its label again)
+    await seen(/done in the REPL, not here: Enter does not stop it; x asks you first · Ctrl\+C in the REPL that sent it/, Date.now());
     await sendKeys(wb, ['Enter']);
     await seen(/3 Stop the turn is done in the REPL \(Ctrl\+C in the REPL that sent it\): Enter here does not stop it/, Date.now());
     await sleep(600);

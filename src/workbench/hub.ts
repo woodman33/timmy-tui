@@ -381,8 +381,9 @@ const EFFECT_WORDS: Readonly<Record<string, string>> = { read: 'reads only', net
 export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
   if (!a) return [S('No action is selected.', 'secondary')];
   const route = routeOf(a);
-  const head: Seg[] = [S(`${a.n} ${a.label}`, a.enabled ? 'strong' : 'secondary'), S(` ${g.sep} `, 'secondary')];
-  if (!a.enabled) return [...head, S(`not now: ${a.why ?? 'not available'}`, 'secondary')];
+  // R10 (H167; H168's F13 at pass 2a: "the actions strip still repeats the primary's label on its second row"): the row under
+  // the boxes says what the selected box does, without its number and label again (the box, marked, is right above it)
+  if (!a.enabled) return [S(`not now: ${a.why ?? 'not available'}`, 'secondary')];
   // the command first (the same on every surface), then what Enter does with it here, then what it touches. R5 (H131; the QA
   // round's defect 15): where the row is short, what it touches goes first, then Enter's words are said shorter, whole
   const sep = S(` ${g.sep} `, 'secondary');
@@ -391,23 +392,20 @@ export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POS
   const away = awayOf(a);
   if (away) {
     const words = route.kind === 'abort' ? `done in ${away}, not here: Enter does not stop it; x asks you first` : `done in ${away}, not here: Enter does not do it`;
-    const forms: Line[] = [[...head, S(words, 'text'), sep, S(a.command, 'secondary')], [...head, S(words, 'text')], [...head, S(`done in ${away}, not here`, 'text')]];
+    const forms: Line[] = [[S(words, 'text'), sep, S(a.command, 'secondary')], [S(words, 'text')], [S(`done in ${away}, not here`, 'text')]];
     return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
   }
   if (a.note) {
-    const forms: Line[] = [[...head, S(a.note, 'text')]];
-    return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
+    return [S(a.note, 'text')];
   }
   // R10 (H167; the operator's review: "raw commands up front"): what Enter does, in words; the command itself is the
   // inspector's ([i]) and the box Enter opens for a command to copy
   const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : SHORT_WORDS[route.kind] ?? route.words;
   const effect = EFFECT_WORDS[a.effect] ?? a.effect;
   const forms: Line[] = [
-    ...(route.kind === 'composer' ? [] : [[...head, S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
-    [...head, S(route.words, 'text')],
-    [...head, S(short, 'text')],
+    ...(route.kind === 'composer' ? [] : [[S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
+    [S(route.words, 'text')],
     [S(short, 'text')],
-    head.slice(0, 1),
   ];
   return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
 }
