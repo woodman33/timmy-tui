@@ -92,6 +92,9 @@ case "$cmd" in
     cat <<HELP
 Timmy review package, revision $REV
 
+  ./timmy-review             the one command: its first run installs and seeds the demo, every run opens the Workbench
+                             (it finds a Node 24 or later by itself; ./timmy-review --help). A plain timmy is your own.
+
   ./review.sh install        install the packed Timmy into $BOX/prefix (Node 24 or later; npm fetches its dependencies)
   ./review.sh demo           a new Timmy home with three projects: "first-light" (timmy init's own), "blank", then "tray"
                              (from the tray-workflow starter), the active project at the end, with scripted review content:

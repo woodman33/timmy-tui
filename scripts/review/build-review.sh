@@ -7,6 +7,8 @@
 #
 # Makes <out-dir>/timmy-review-<rev>/ holding:
 #   timmy-tui-<version>.tgz   the packed Timmy of this revision
+#   timmy-review              the one launch command (R10, H163; scripts/review/timmy-review): first run installs and seeds,
+#                             every run opens the Workbench; a name no one takes for the installed `timmy`
 #   review.sh                 the launcher (scripts/review/review.sh): a sandbox beside itself, env -i, its own ports
 #   fake-lanes/               FAKE stand-ins for the lane programs, so a review never starts a real lane
 #   bin/upmd, its licence     only when UPMD_BIN (and UPMD_LICENSE) name them: upmd for Linux x86_64 (workflows)
@@ -44,10 +46,12 @@ tgz=$(cd "$pkg" && ls timmy-tui-*.tgz)
 # R9 lead (after the R9 independent review, its F2): the README's branch is the checkout's, never a fixed round's ("|", not
 # "/", as sed's delimiter: a branch name holds slashes)
 branch=$(git branch --show-current 2>/dev/null); branch=${branch:-a detached revision}
-fill() { sed -e "s/__REV__/$rev/g" -e "s/__TGZ__/$tgz/g" -e "s|__BRANCH__|$branch|g" "$1" > "$2"; }
+revfull=$(git rev-parse HEAD)
+fill() { sed -e "s/__REVFULL__/$revfull/g" -e "s/__REV__/$rev/g" -e "s/__TGZ__/$tgz/g" -e "s|__BRANCH__|$branch|g" "$1" > "$2"; }
 fill scripts/review/review.sh "$pkg/review.sh"
+fill scripts/review/timmy-review "$pkg/timmy-review"
 fill scripts/review/README.md "$pkg/README.md"
-chmod +x "$pkg/review.sh"
+chmod +x "$pkg/review.sh" "$pkg/timmy-review"
 mkdir -p "$pkg/fake-lanes"
 cp scripts/review/fake-lanes/* "$pkg/fake-lanes/"
 chmod +x "$pkg"/fake-lanes/*
@@ -68,4 +72,4 @@ tar -C "$out" -czf "$out/timmy-review-$rev.tar.gz" "timmy-review-$rev"
 
 echo "build-review: revision $rev"
 echo "build-review: $(cat "$out/timmy-review-$rev.tar.gz.sha256")"
-grep -E "  (timmy-tui-.*\.tgz|review\.sh|README\.md)$" "$pkg/SHA256SUMS"
+grep -E "  (timmy-tui-.*\.tgz|timmy-review|review\.sh|README\.md)$" "$pkg/SHA256SUMS"

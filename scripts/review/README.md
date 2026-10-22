@@ -1,6 +1,26 @@
 # Timmy review package · __REV__
 
-The packed Timmy of one exact revision, a launcher that runs it in a sandbox beside itself, and (when this package carries
+**One command:** `./timmy-review`, in this folder once it is unpacked. It opens this candidate's Workbench on the active
+project. Its first run checks the files against `SHA256SUMS`, installs the packed Timmy into `./sandbox` and seeds the demo
+projects; later runs skip both and say so. `timmy` alone is your installed timmy, not this candidate: `./timmy-review`
+never runs or changes it, and its first line says so, with where that timmy is when one is on your PATH.
+
+```bash
+shasum -a 256 -c timmy-review-__REV__.tar.gz.sha256      # Linux: sha256sum -c
+tar -xzf timmy-review-__REV__.tar.gz
+cd timmy-review-__REV__
+./timmy-review              # the first run installs and seeds (a minute or two; npm fetches the dependencies)
+```
+
+- **Which revision:** `./timmy-review --version` prints the candidate's version and revision and opens nothing;
+  `./timmy-review about` adds what the installed build says of itself (its `timmy --version`, which names its revision)
+  and where your own timmy is.
+- **Node:** it finds a Node 24 or later by itself and says which one it uses: `TIMMY_NODE` when you set it, else the first
+  Node 24 or later on your PATH (an older one first on PATH is passed over, and named), else `/opt/homebrew/bin/node` or
+  `/usr/local/bin/node`, else the newest under `~/.nvm/versions/node`. With none, it says so in one line and stops.
+- **Quit:** the Workbench's Ctrl+C (Stop, below); `./timmy-review` opens it again, on the same sandbox.
+
+The packed Timmy of one exact revision, the launchers that run it in a sandbox beside them, and (when this package carries
 them) the notes and captures of a scripted rehearsal. Nothing is installed globally, nothing is published, and no model key
 is read from your shell. This package is for your own review: implementation status is reported here; visual and usability
 acceptance are yours.
@@ -16,14 +36,14 @@ acceptance are yours.
 
 ## Launch (Linux or macOS; Node 24 or later and npm; python3 for workflow runs, with OpenCV for VoxVision; tmux for `watch`)
 
+`./timmy-review` (above) does the first three of these steps itself, then opens the Workbench. They stay available one by
+one, as before:
+
 ```bash
-shasum -a 256 -c timmy-review-__REV__.tar.gz.sha256      # Linux: sha256sum -c
-tar -xzf timmy-review-__REV__.tar.gz
-cd timmy-review-__REV__
 ./review.sh install      # npm installs the packed Timmy and its dependencies into ./sandbox/prefix (--ignore-scripts)
 ./review.sh demo         # a new Timmy home with three projects: first-light (from the setup), blank, then tray (active)
 ./review.sh check        # the shared workspace in words, after one free request to each service
-./review.sh workbench    # the terminal Workbench: the main space
+./review.sh workbench    # the terminal Workbench: the main space (what ./timmy-review opens)
 ```
 
 Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh watch` (the monitor), `./review.sh timmy <args>`
@@ -58,8 +78,8 @@ Then, in other terminal windows: `./review.sh repl` (the REPL), `./review.sh wat
 
 ## A short walkthrough (about 15 minutes; a terminal of at least 160×45)
 
-1. **Install and set chat.** After the launch steps above: `./review.sh ollama 127.0.0.1:11434 <a model your Ollama lists>`
-   (local, no charge), then `./review.sh workbench`.
+1. **Install and set chat.** `./timmy-review` once (it installs, seeds the demo and opens the Workbench; Ctrl+C quits it),
+   then `./review.sh ollama 127.0.0.1:11434 <a model your Ollama lists>` (local, no charge), then `./timmy-review` again.
 2. **The ten tabs.** Press 1 to 9 and 0; `?` lists the keys (↑ ↓, PgUp PgDn and Home End scroll it). Each tab has an
    actions bar. Its amber step is the one next step: always on 1 Home, 2 Chat & Intent, 4 Studio and 5 VoxVision; on 3
    Workflows (run the selected block, answer what waits, or Stop current while a job runs) and 7 Control Room (decide what
