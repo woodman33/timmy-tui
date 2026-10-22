@@ -718,13 +718,16 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
     rows.push(...para(`Enter acts on ${zone} now. Tab to this list: then Enter runs ${d.rel} › ${b.name}`, iw, 'attention', '', 4, g.ellipsis));
   } else if (run?.enabled) {
     rows.push([key('Enter'), S(' Run it here', 'text')], ...para('the REPL\'s own /run, one job; it asks first', iw, 'secondary', '', 2, g.ellipsis));
-  } else rows.push(...para(`Not from here now: ${run?.why ?? 'not available'}`, iw, 'secondary', '', 4, g.ellipsis));
+  } else {
+    // R10 (H167; H168's F4): a run going on, by what it is (its job's and operation's ids are the Inspector's, [i])
+    const going = runOfBlock(c, d.rel, b.name);
+    rows.push(...para(`Not from here now: ${going ? going.plain : run?.why ?? 'not available'}`, iw, 'secondary', '', 4, g.ellipsis));
+  }
   rows.push(...fieldRows('runs', b.order.join(` ${g.arrow} `), iw, 'text', { pad: 5, max: 2, ellipsis: g.ellipsis }));
   if (b.risky.length) rows.push(...para(`${g.warn} its NEEDS YOU box asks first`, iw, 'attention', '', 2, g.ellipsis));
   const going = runOfBlock(c, d.rel, b.name);
-  if (going && here) rows.push(...para(`x stops ${going.job?.id ?? 'it'}`, iw, 'secondary', '', 1, g.ellipsis));
-  rows.push(...fieldRows('REPL', `/run ${d.rel} ${b.name}`, iw, 'action', { pad: 5, max: 2, ellipsis: g.ellipsis }));
-  rows.push(...fieldRows('shell', `timmy md ${d.rel} ${b.name}`, iw, 'action', { pad: 5, max: 2, ellipsis: g.ellipsis }));
+  if (going && here) rows.push(...para('x stops it', iw, 'secondary', '', 1, g.ellipsis));
+  // (R10 H167; H168's F4: the commands that run it in the REPL and in a shell are the Inspector's, [i])
   // the block it runs, named whole on the box's edge where it fits, else its name there and its document first inside
   const full = `RUN ${d.rel} › ${b.name}`;
   const fits = cells(full) <= w - 7;
@@ -744,12 +747,21 @@ const previewWords = (op: string | null | undefined): string => `The companion (
  * commands that show it all in the REPL. Empty when the block has no run read.
  */
 export function runDetailRows(c: TabViewCtx, w: number): Line[] {
+  const { g } = c;
+  const rows: Line[] = [];
+  const f = (k: string, v: string): void => { rows.push(...fieldRows(k, v, w, 'text', { pad: 11, max: 3, ellipsis: g.ellipsis })); };
+  // R10 (H167; H168's F4): the selected block's own commands, which the RUN box no longer shows: the REPL's and a shell's
+  const sel = selectedBlock(c);
+  if (sel) {
+    rows.push(heading('The selected block · commands'));
+    f('REPL', `/run ${sel.doc.rel} ${sel.block.name}`);
+    f('shell', `timmy md ${sel.doc.rel} ${sel.block.name}`);
+  }
   const t = c.data.workflowsTab;
   const run = t?.run;
-  if (!run) return [];
-  const { g } = c;
-  const rows: Line[] = [heading('Its newest run · details')];
-  const f = (k: string, v: string): void => { rows.push(...fieldRows(k, v, w, 'text', { pad: 11, max: 3, ellipsis: g.ellipsis })); };
+  if (!run) return rows;
+  if (rows.length) rows.push([]);
+  rows.push(heading('Its newest run · details'));
   f('job', run.job);
   f('operation', run.operation ?? 'none named');
   if (run.receipt) { f('receipt', `${run.receipt.id} (${run.receipt.kind})`); f('hash', run.receipt.hash); }
@@ -765,8 +777,40 @@ export function runDetailRows(c: TabViewCtx, w: number): Line[] {
   const runner = detail?.worker.harness?.value ?? (run.pty ? 'upmd on a pty' : 'upmd');
   f('runner', runner);
   if (detail?.worker.environment) f('environment', detail.worker.environment.value);
-  if (run.operation) f('commands', `/op ${run.operation} · /review ${run.operation} · /jobs ${run.job}`);
+  if (run.operation) f('commands', `/op ${run.operation} · /review ${run.operation} · /jobs ${run.job} · timmy op ${run.operation} (a shell)`);
   return rows;
+}
+
+/**
+ * R10 (H167; H168's F4, reference 12's top row): the selected block's newest run in one row, as Home says a run: the block, its
+ * state, its steps done of all, its time, the files it wrote and its receipt (✓ sealed and verified only where verifyReceiptIn
+ * passed in this reading). Shorter words before cutting: its time, then its steps, give way first. Nothing before a run is read.
+ */
+export function runSummaryRow(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, run: RunNow | null | undefined, w: number): Line | null {
+  const { g } = c;
+  if (!run) return null;
+  const m = stateMark(run.word, g);
+  const done = run.steps.filter((x) => x.word === 'completed').length;
+  const since = Date.parse(run.startedAt);
+  const ended = run.endedAt ? Date.parse(run.endedAt) : c.now;
+  const long = Number.isFinite(since) && Number.isFinite(ended) ? took(Math.max(0, ended - since)) : '';
+  const ins = inspectionFor(c, run);
+  const files = ins && 'value' in ins ? ins.value.changes.list.length + ins.value.changes.more : null;
+  const receipt: Seg = run.receipt
+    ? (run.receipt.verified.ok ? S(`${g.ok} sealed and verified`, 'live') : S(`${g.fail} sealed, not verified`, 'failure'))
+    : S(run.named ? `${g.fail} its receipt is not on the chain read here` : run.live ? 'its receipt is sealed as it ends' : 'no receipt sealed', run.named ? 'failure' : 'secondary');
+  const parts: Array<{ seg: Seg; drop: number }> = [
+    { seg: S(`${d.rel} › ${b.name}`, 'strong'), drop: 9 },
+    { seg: S(`${m.glyph} ${run.word}`, m.role), drop: 9 },
+    ...(run.steps.length ? [{ seg: S(`${done} of ${count(run.steps.length, 'step')}`, 'text'), drop: 2 }] : []),
+    ...(long ? [{ seg: S(long, 'secondary'), drop: 1 }] : []),
+    ...(files !== null ? [{ seg: S(files ? `${count(files, 'file')} written` : 'no file written', 'text'), drop: 3 }] : []),
+    { seg: receipt, drop: 9 },
+  ];
+  const line = (ps: typeof parts): Line => ps.flatMap((p, k) => (k ? [S(` ${g.sep} `, 'secondary'), p.seg] : [p.seg]));
+  let kept = parts;
+  for (const level of [1, 2, 3]) { if (lineCells(line(kept)) <= w) break; kept = kept.filter((p) => p.drop > level); }
+  return fit(line(kept), w, g.ellipsis);
 }
 
 /** The newest run's receipt card: green and verified only when verifyReceiptIn passed in this reading. */
@@ -814,7 +858,8 @@ function reviewRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
       else rows.push(named, [S('  '), S(mark.word, mark.role)]);
       rows.push(...para(`${ch.predicted ?? 'no prediction'} ${g.arrow} ${ch.actual}`, w, 'secondary', '  ', 2, g.ellipsis));
     }
-    if (detail.checks.length > 8) rows.push([S(`and ${detail.checks.length - 8} more: timmy op`, 'secondary')]);
+    // (R10 H167; H168's F4: the rest where the whole run is drawn, in words; the command that prints them is the Inspector's)
+    if (detail.checks.length > 8) rows.push([S(`and ${detail.checks.length - 8} more: the companion (c) lists them all`, 'secondary')]);
   }
   rows.push([], heading('Verdict'));
   if (run === undefined) rows.push([S('reading…', 'secondary')]);
@@ -832,7 +877,7 @@ function reviewRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
     const m = stateMark(run.word, g);
     rows.push([S(`${m.glyph} `, m.role), S(run.word, m.role === 'secondary' ? 'text' : m.role, { bold: true })], [S('(its job record\'s word)', 'secondary')]);
   }
-  if (run?.operation) rows.push([], [S(`timmy op ${run.operation}`, 'action')], ...para('the whole run detail, in a shell', w, 'secondary', '', 2, g.ellipsis));
+  // (R10 H167; H168's F4: the whole run detail's command and the operation's id are the Inspector's, [i])
   return rows;
 }
 
@@ -883,7 +928,9 @@ export function workflowsTabView(c0: ViewCtx): View {
     const items: View['items'] = [];
     for (const r of plan.rows) { if (r.item) items.push({ line: lines.length, item: r.item }); lines.push(r.line); }
     if (selDoc && selBlock) {
-      lines.push([], ...runBox(c, selDoc, selBlock, W), [], ...intentCard(selDoc, selBlock, W, g), ...predictCard(c, selBlock, run, W));
+      // R10 (H167; H168's F4): the newest run in one row, as Home says it, above what Enter does
+      const summary = runSummaryRow(c, selDoc, selBlock, run, W);
+      lines.push([], ...(summary ? [summary] : []), ...runBox(c, selDoc, selBlock, W), [], ...intentCard(selDoc, selBlock, W, g), ...predictCard(c, selBlock, run, W));
       lines.push([], ...sandboxRows(c, run, W), ...stepsRows(c, run, W), ...sourceRows(c, run, W), ...changesRows(c, run, W, 12), ...outputRows(c, run, W, 8), ...para(previewWords(run?.operation), W, 'secondary', '', 4, g.ellipsis));
       lines.push([], ...receiptCard(c, selBlock, run, W), ...reviewRows(c, run, W));
     }
@@ -891,17 +938,21 @@ export function workflowsTabView(c0: ViewCtx): View {
   }
 
   // ── side by side ──
+  // R10 (H167; H168's F4; reference 12's top row): the selected block's newest run in one row across the three columns (its
+  // state, steps, time, the files it wrote, its receipt); the columns take the rows under it
+  const summary = selDoc && selBlock ? runSummaryRow(c, selDoc, selBlock, run, W) : null;
+  const HB = summary ? Math.max(1, H - 1) : H;
   // the left column: the head, the list (windowed to keep the selected row in view), the .intent and .predict cards, and
   // (R6, H144) the run's source under them where it fits beside the whole list (else in the centre column)
   const head = planHead(c, lw);
   const cards0 = selDoc && selBlock ? [...intentCard(selDoc, selBlock, lw, g), ...predictCard(c, selBlock, run, lw)] : [];
   const sourceLeft = cards0.length ? sourceRows(c, run, lw) : [];
-  const leftHere = sourceLeft.length > 0 && head.length + plan.rows.length + 1 + cards0.length + 1 + sourceLeft.length <= H;
+  const leftHere = sourceLeft.length > 0 && head.length + plan.rows.length + 1 + cards0.length + 1 + sourceLeft.length <= HB;
   const cards = leftHere ? [...cards0, [], ...sourceLeft] : cards0;
   // the list keeps at least a third of the column (all of it when shorter); the cards take what is left, clipped when they
   // do not fit (the column then says which of its rows show)
-  const floor = Math.min(plan.rows.length, Math.max(5, Math.floor((H - head.length) / 3)));
-  const listRoom = Math.max(floor, H - head.length - (cards.length ? cards.length + 1 : 0));
+  const floor = Math.min(plan.rows.length, Math.max(5, Math.floor((HB - head.length) / 3)));
+  const listRoom = Math.max(floor, HB - head.length - (cards.length ? cards.length + 1 : 0));
   const win = windowMarked(plan.rows.map(() => 1), plan.selRow, listRoom, g, lw);
   const left: Line[] = [...head];
   if (win.above) left.push(win.above);
@@ -911,7 +962,7 @@ export function workflowsTabView(c0: ViewCtx): View {
   if (cards.length) left.push([], ...cards);
   // every item is the list's, in its order (the cursor moves through each); one outside the window is on no row drawn
   const items: View['items'] = [];
-  plan.rows.forEach((r, i) => { if (r.item) items.push({ line: i < win.start ? -1 : i >= win.end ? H + 1 : first + i - win.start, item: r.item }); });
+  plan.rows.forEach((r, i) => { if (r.item) items.push({ line: i < win.start ? -1 : i >= win.end ? HB + 1 : first + i - win.start, item: r.item }); });
 
   // the centre column: where it runs, the steps, the log's last lines, the RUN box, the preview line
   const centre: Line[] = [];
@@ -922,25 +973,30 @@ export function workflowsTabView(c0: ViewCtx): View {
     const steps = stepsRows(c, run, cw);
     const source = leftHere ? [] : sourceRows(c, run, cw);
     // R6 (H144): its changes take what the rest leaves but the log's three rows once the run has ended (three fifths of it while
-    // it runs; at least four rows), the log's last lines the remainder (a blank row before the box)
-    const free = H - sandbox.length - steps.length - source.length - 1 - box.length - note.length;
+    // it runs; at least four rows), the log's last lines the remainder (a blank row before the box). R10 (H167; H168's F4: the
+    // RUN box was cut at the column's foot): where the column is short, the log's lines give way first, then the changes' rows,
+    // so the box and the line under it stay whole
+    const free = HB - sandbox.length - steps.length - source.length - 1 - box.length - note.length;
     // (the log's heading, its "earlier lines" row and one line: three rows)
-    const changes = changesRows(c, run, cw, Math.max(4, run && !run.live ? free - 3 : Math.floor((free - 3) * 0.6)));
+    const changes = changesRows(c, run, cw, Math.max(Math.min(4, Math.max(2, free - 3)), run && !run.live ? free - 3 : Math.floor((free - 3) * 0.6)));
     const tailRoom = Math.max(1, free - changes.length - 1);
-    centre.push(...sandbox, ...steps, ...source, ...changes, ...outputRows(c, run, cw, tailRoom), []);
+    const output = free - changes.length >= 3 ? outputRows(c, run, cw, tailRoom) : [];
+    centre.push(...sandbox, ...steps, ...source, ...changes, ...output, []);
     // a click on [Enter] selects the row under it first: the box's [Enter] is kept off every row a block of the list is on
-    const lastItemRow = Math.max(-1, ...items.filter((x) => x.line >= 0 && x.line < H).map((x) => x.line));
+    const lastItemRow = Math.max(-1, ...items.filter((x) => x.line >= 0 && x.line < HB).map((x) => x.line));
     const enterAt = box.findIndex((l) => l.some((s) => s.text === '[Enter]'));
-    if (enterAt >= 0) while (centre.length + enterAt <= lastItemRow && centre.length + box.length + note.length < H) centre.push([]);
+    if (enterAt >= 0) while (centre.length + enterAt <= lastItemRow && centre.length + box.length + note.length < HB) centre.push([]);
     centre.push(...box, ...note);
   } else centre.push(...sandboxRows(c, null, cw));
 
-  // the right column: the receipt card, the checks, the verdict, timmy op <id>
+  // the right column: the receipt card, the checks, the verdict
   const right: Line[] = selBlock ? [...receiptCard(c, selBlock, run, rw), [], ...reviewRows(c, run, rw)] : [];
 
   // each column clipped to the body (one too long says which of its rows show), side by side between rules
-  const cols = [{ w: lw, lines: clipRows(left, lw, H, g) }, { w: cw, lines: clipRows(centre, cw, H, g) }, { w: rw, lines: clipRows(right, rw, H, g) }];
-  return { lines: sideBySide(cols, Math.min(H, Math.max(...cols.map((x) => x.lines.length))), g), items };
+  const cols = [{ w: lw, lines: clipRows(left, lw, HB, g) }, { w: cw, lines: clipRows(centre, cw, HB, g) }, { w: rw, lines: clipRows(right, rw, HB, g) }];
+  const body = sideBySide(cols, Math.min(HB, Math.max(...cols.map((x) => x.lines.length))), g);
+  if (!summary) return { lines: body, items };
+  return { lines: [summary, ...body], items: items.map((x) => ({ ...x, line: x.line >= 0 ? x.line + 1 : x.line })) };
 }
 
 /** The block the list's cursor is on (the Follow selected artifact setting aside), for the controller's reading. */

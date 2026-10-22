@@ -232,7 +232,7 @@ export type Item =
  *  of its first rows stay on the window's first rows while the rest scrolls (an Unfinished box cut to its title, where even
  *  that leaves the first item no room); `unfinishedRest`, the box leaves some of its words out, and Context shows them. R9
  *  (H160): `firstWhole`, the box leaves room for the first item's every row, not only its first (tab 6's first mesh). */
-export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number; pin?: number; unfinishedRest?: boolean; firstWhole?: boolean }
+export interface View { lines: Line[]; items: Array<{ line: number; item: Item; rows?: number; x?: { from: number; to: number }; near?: { up?: number; down?: number; left?: number; right?: number } }>; note?: string; unfinished?: number; pin?: number; unfinishedRest?: boolean; firstWhole?: boolean; footRows?: number }
 
 export type Overlay =
   | null

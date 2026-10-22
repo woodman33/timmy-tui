@@ -763,8 +763,9 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   // (what is left goes first to the receipt, then the intent, what ran it, and the prediction). R5 (H131; the QA of e7f853e,
   // defect 11): the receipt's words are kept whole first ("sealed fb72a565 · verified here" was cut to "verified…"), and the
   // other three share the rest (the request is the one cut first: the line under says the run it is)
-  // R10 (H167): each stage's words without its receipt's hash or its request's command (the inspector keeps them)
-  const words = stages.map((x) => plainWords(x.s.words, c.data));
+  // R10 (H167): each stage's words without its receipt's hash or its request's command (the inspector keeps them); H168's F9:
+  // a few state words each, as the references' chips say them, so no chip is cut (the request is the row under)
+  const words = stages.map((x) => stageWords(x.st.id, x.s, p ?? null));
   const room = width - fixed;
   const receiptRoom = Math.max(1, Math.min(lineCells([S(words[3])]), room - 3 * 12));
   const three = fillShares(words.slice(0, 3), room - receiptRoom, g, [2, 1, 0]);
@@ -775,13 +776,30 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
     const edge: Role = x.role === 'accent' || x.role === 'live' || x.role === 'failure' ? x.role : 'border';
     row.push(S('[', edge), S(`${x.mark}${x.st.name}`, x.role, { bold: x.role !== 'secondary' }), S(` ${g.sep} `, 'secondary'), S(texts[i], x.role === 'secondary' ? 'secondary' : 'text'), S(']', edge));
   });
-  const from = p?.kind === 'chat'
-    ? (p.live ? 'being answered now: its request as sent from here; its receipt is sealed once it is answered' : 'from its records: its request, a prediction if one was sealed, the turn, its receipt (verified here)')
-    : 'from its records: the operation\'s request, its predict receipt, its job, its receipt (verified here)';
+  // R10 (H167; H168's F9): the row under says which operation, and for a chat turn what it asked, in words; its records whole
+  // are the details' ([i])
+  const asked = p?.intent.state === 'done' ? plainWords(p.intent.words, c.data) : '';
+  const head: Seg[] = p?.kind === 'chat'
+    ? [S('newest turn ', 'secondary'), S((p.label ?? 'chat turn').replace(/^chat turn /, ''), 'strong'), ...(p.live ? [S(` ${g.sep} being answered now`, 'secondary')] : [])]
+    : [S('newest run ', 'secondary'), S(p?.label ?? '', 'strong')];
   const source: Line = p?.operation
-    ? [S(p.kind === 'chat' ? 'newest operation ' : 'newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} ${from}`, 'secondary')]
+    ? [...head, ...(p.kind === 'chat' && asked ? [S(` ${g.sep} asked: `, 'secondary'), S(asked, 'text')] : []), S(`  ${g.sep} `, 'secondary'), key('i'), S(' its records', 'secondary')]
     : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows, or a message sent here, fills it as its records are written.', 'secondary')];
   return [row, source];
+}
+
+/** R10 (H167; H168's F9): a stage's chip in a few state words (its record's words whole are the details', [i]). */
+function stageWords(id: (typeof STAGES)[number]['id'], s: PipelineStage, p: Data['pipeline'] | null): string {
+  if (s.state === 'not run yet') return 'not run yet';
+  if (s.state === 'unknown') return 'not readable';
+  if (id === 'intent') return 'recorded';
+  if (id === 'predict') return s.state === 'done' ? 'sealed before it ran' : 'none sealed';
+  if (id === 'sandbox') {
+    // none is recorded for any run yet (src/workbench/state.ts readPipeline): what ran it, then how it is
+    const ran = p?.kind === 'chat' ? (/ in (the [\w ]+?) ·/.exec(s.words)?.[1] ?? 'a chat turn') : (/none recorded: (.+?) ran it/.exec(s.words)?.[1] ?? 'a job');
+    return `none · ${ran}${s.state === 'running' ? ', running' : s.state === 'failed' ? ', failed' : ''}`;
+  }
+  return s.state === 'done' ? (s.verified ? 'sealed · verified here' : 'sealed') : s.state === 'failed' ? 'does not verify' : s.state === 'running' ? 'not sealed yet' : 'none sealed';
 }
 
 /** A log entry's role and mark: its tone, said in its words too (a failure amber with ✕; live green only when the frame says). */

@@ -16,8 +16,11 @@
  * and a value no record holds is unknown. Pure: the same data and state always draw the same rows.
  */
 import { tabOf, type TabId, type WorkspaceConnection } from '../contracts/workspace.js';
+import { closeSync, openSync, readSync } from 'node:fs';
+import { join } from 'node:path';
 import { tildePath } from '../utils/home-scrub.js';
 import { connectionsPath } from '../ops/workspace-frame.js';
+import { createItems } from './create-tab.js';
 import { boxOf, type Glyphs } from './frame.js';
 import { chatTurnNow, connectionMark, frameTabs, unfinishedMark } from './hub.js';
 export { plainWords } from './hub.js';
@@ -107,14 +110,33 @@ export function fromRouteNow(j: JourneyRoute): RouteLine {
 }
 
 /** The route as one line of segments: "qwen3:8b · this computer (Ollama) · no charge", FAKE first when it is. */
-export function routeSegs(rt: RouteLine, g: Glyphs, o: { label?: boolean } = {}): Seg[] {
+export function routeSegs(rt: RouteLine, g: Glyphs, o: { label?: boolean; short?: boolean } = {}): Seg[] {
   const sep = S(` ${g.sep} `, 'secondary');
-  const lead: Seg[] = o.label === false ? [] : [S('next turn: ', 'secondary')];
-  if (!rt.model) return [...lead, S(rt.why ?? 'not set up', 'attention'), ...(rt.where !== 'no route' ? [sep, S(rt.where, 'secondary')] : [])];
+  const lead: Seg[] = o.label === false ? [] : [S(o.short ? 'next: ' : 'next turn: ', 'secondary')];
+  // R10 (H168's F8): the short form a narrow row takes before anything is cut ("next: FAKE fake-qwen3:8b · here · no price")
+  const where = o.short ? shortWhere(rt.where) : rt.where;
+  const price = o.short ? shortPrice(rt.price) : rt.price;
+  if (!rt.model) return [...lead, S(rt.why ?? 'not set up', 'attention'), ...(rt.where !== 'no route' && where ? [sep, S(where, 'secondary')] : [])];
   return [
-    ...lead, ...(rt.fake ? [S('FAKE ', 'attention', { bold: true })] : []), S(rt.model, 'strong'), sep, S(rt.where, 'text'), sep, S(rt.price, 'secondary'),
+    ...lead, ...(rt.fake ? [S('FAKE ', 'attention', { bold: true })] : []), S(rt.model, 'strong'), ...(where ? [sep, S(where, 'text')] : []), sep, S(price, 'secondary'),
     ...(rt.ready ? [] : [sep, S(`not ready: ${rt.why ?? 'not set up'}`, 'attention')]),
   ];
+}
+
+/** Where a route runs, in a word (the short form). */
+function shortWhere(where: string): string {
+  if (/^this computer/.test(where)) return 'here';
+  if (/cloud/.test(where)) return 'cloud';
+  if (/another computer/.test(where)) return 'elsewhere';
+  if (/local route/.test(where)) return 'local';
+  return where === 'no route' ? '' : where;
+}
+
+/** A route's price, in a word or two (the short form): never a price no record declares. */
+function shortPrice(price: string): string {
+  if (/^free/.test(price)) return 'free';
+  if (/^no price/.test(price)) return 'no price';
+  return price;
 }
 
 // ── what runs and what waits on you ────────────────────────────────────────────
@@ -146,9 +168,14 @@ export function headerRows(data: Data, page: TabId, width: number, g: Glyphs): {
   // the status row: what is kept whole first is what runs and waits; the route is cut at a word where the row is short
   const rw = runsAndWaits(data, g);
   const brand: Line = [S('TIMMY', 'strong', { bold: true }), sep, S(data.project.name, 'strong')];
-  const right = rw.line;
+  // R10 (H168's F8): the fullest words that fit whole, the route's short form and then the short state before anything is cut
+  const rt = routeLine(data);
+  const shortRight: Line = [S(rw.running ? `${g.run} ${rw.running} running` : 'idle', rw.running ? 'text' : 'secondary'), ...(rw.waiting ? [sep, S(`${g.warn} ${rw.waiting} waiting`, 'attention', { bold: true })] : [])];
+  const says: Array<[Seg[], Line]> = [[routeSegs(rt, g), rw.line], [routeSegs(rt, g, { short: true }), rw.line], [routeSegs(rt, g, { short: true }), shortRight]];
+  const chosen = says.find(([r, w]) => lineCells(brand) + 3 + lineCells(r) + 1 + lineCells(w) <= width) ?? says[says.length - 1];
+  const right = chosen[1];
   const room = Math.max(0, width - lineCells(brand) - lineCells(right) - 4);
-  const route = fit(routeSegs(routeLine(data), g), room, g.ellipsis);
+  const route = fit(chosen[0], room, g.ellipsis);
   const status: Line = [...brand, S('   '), ...route, S(' '), ...right];
   const pad = Math.max(0, width - lineCells(status));
   const statusRow = fit([...brand, S('   '), ...route, S(' '.repeat(pad + 1)), ...right], width, g.ellipsis);
@@ -248,6 +275,8 @@ export interface WorkItem {
   /** what the inspector says of it: its ids, hashes and paths */
   detail: Array<[string, string]>;
   opens: OpenTarget;
+  /** a run's results, as its receipts name them (project paths) */
+  results?: string[];
 }
 
 const KIND_WORD: Readonly<Record<WorkItem['kind'], string>> = {
@@ -282,7 +311,7 @@ export function fromJourney(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'work
   const detail: Array<[string, string]> = [
     ['Kind', it.kind], ['Id', it.id], ['Operation', it.operation ?? 'none'],
     ['Receipt', it.receipt ? `${it.receipt.id} ${it.receipt.verified ? '(verified here now)' : `(does not verify: ${it.receipt.why ?? 'unknown'})`}` : 'none sealed'],
-    ['When', it.when ?? 'not recorded'],
+    ['When', it.when ? `${clock(it.when)} · ${new Date(it.when).toDateString()}` : 'not recorded'],
     ...(it.results?.length ? [['Results', it.results.join(', ')] as [string, string]] : []),
     ...(it.route ? [['Route', `${it.route.provider} · asked ${it.route.requested ?? 'no model'} · answered by ${it.route.answeredBy ?? 'not recorded'} · ${it.route.where}${it.route.fallback ? ' · the last-resort fallback' : ''}`] as [string, string]] : []),
     ['Opens', studio ? 'Studio, on the project\'s board' : `the companion at ${it.open.path}`],
@@ -293,6 +322,7 @@ export function fromJourney(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'work
     state: it.state, tone: TONE[it.state] ?? 'quiet', at: it.when ? Date.parse(it.when) : Number.NaN, facts,
     ...(it.receipt ? { receipt: { sealed: true, verified: it.receipt.verified, ...(it.receipt.why ? { why: it.receipt.why } : {}) } } : {}),
     ...(it.fake ? { fake: true } : {}), ...(it.operation ? { operation: it.operation } : {}),
+    ...(it.results?.length ? { results: it.results } : {}),
     detail, opens,
   };
 }
@@ -345,8 +375,15 @@ function waitingItem(d: Data['decisions']['items'][number], at: number): WorkIte
 export function recentWork(data: Data, limit = 30, now = Date.now()): WorkItem[] {
   const waiting = data.decisions.items.filter((d) => !d.key.startsWith('draft:')).map((d) => waitingItem(d, now));
   const recent = (data.recent?.items ?? []).map((it) => fromJourney(it, data));
-  return [...waiting, ...recent].slice(0, limit);
+  // R10 (H168's F7): two files of one name (refs/preview.png, out/preview.png) say their folder, so the rows differ
+  const names = new Map<string, number>();
+  for (const w of recent) if (FILE_KINDS.has(w.kind)) names.set(w.title, (names.get(w.title) ?? 0) + 1);
+  const told = recent.map((w) => (FILE_KINDS.has(w.kind) && (names.get(w.title) ?? 0) > 1 && w.id.includes('/') ? { ...w, title: `${w.title} (in ${w.id.split('/').slice(0, -1).join('/')})` } : w));
+  return [...waiting, ...told].slice(0, limit);
 }
+
+/** The kinds of work that are a file of the project. */
+const FILE_KINDS: ReadonlySet<WorkItem['kind']> = new Set(['result', 'reference', 'mesh', 'recording']);
 
 /** A work item as the Workbench's selectable item. */
 export const workItem = (w: WorkItem): Item => ({ kind: 'work', key: `work:${w.kind}:${w.id}`, work: w });
@@ -389,12 +426,14 @@ function workRow(w: WorkItem, selected: boolean, focused: boolean, width: number
 export function homeWorkView(c: JourneyCtx): View {
   const items: View['items'] = [];
   const work = recentWork(c.data, HOME_WORK, c.now);
-  const conns = c.data.frame?.connections ?? [];
+  const conns = homeConnections(c);
   const lines: Line[] = [];
   const all = homeItems(c);
   const cur = all.length ? Math.max(0, Math.min(all.length - 1, c.ui.cursor['center:connections'] ?? 0)) : -1;
   const focused = c.ui.focus === 'center';
-  if (!work.length) {
+  // (R10 H167, with H163's first frame: before the project's files are first read there is no recent work to say yet)
+  if (!work.length && !c.data.recent && c.data.files.reading) lines.push([S('  Reading the project\'s recent work…', 'secondary')]);
+  else if (!work.length) {
     lines.push([S('  Nothing here yet', 'strong')]);
     lines.push(...wrapSegs([S('  No workflow run, chat turn or result is recorded in this project yet. '), S('Enter', 'action'), S(' on the next step above types your first message; '), S('3', 'action'), S(' Workflows runs a block; '), S('n', 'action'), S(' starts a project from a starter.')], Math.max(10, c.width), '  '));
   }
@@ -420,7 +459,40 @@ const HOME_WORK = 12;
 
 /** Home's list: recent work, then the connections, in the order drawn. */
 export function homeItems(c: Pick<JourneyCtx, 'data' | 'now'>): Item[] {
-  return [...recentWork(c.data, HOME_WORK, c.now).map(workItem), ...(c.data.frame?.connections ?? []).map((conn): Item => ({ kind: 'conn', key: `conn:${conn.id}`, conn }))];
+  return [...recentWork(c.data, HOME_WORK, c.now).map(workItem), ...homeConnections(c).map((conn): Item => ({ kind: 'conn', key: `conn:${conn.id}`, conn }))];
+}
+
+/** How long an answer counts as live (the frame's own bound, src/ops/workspace-frame.ts LIVE_FOR_MS). */
+const LIVE_MS = 30 * 60_000;
+
+/**
+ * R10 (H168's F6): the connections as Home says them: the frame's, with the chat's own answers counted as what they are, an
+ * observation of the route's connection: a turn answered through Ollama (its sealed receipt names the route it took) within
+ * the live bound makes Ollama live, through OpenRouter OpenRouter, said so ("answered a chat turn 06:02"). Nothing else is
+ * changed: a connection no record observed stays as the frame says it.
+ */
+export function homeConnections(c: Pick<JourneyCtx, 'data' | 'now'>): WorkspaceConnection[] {
+  const turns = (c.data.recent?.items ?? []).filter((it) => it.kind === 'turn' && it.state === 'answered' && it.route && it.when);
+  return (c.data.frame?.connections ?? []).map((conn) => {
+    if (conn.state === 'live' || (conn.id !== 'ollama' && conn.id !== 'openrouter')) return conn;
+    const t = turns.find((it) => it.route!.provider === conn.id);
+    const at = t?.when ? Date.parse(t.when) : Number.NaN;
+    if (!t || !Number.isFinite(at) || c.now - at > LIVE_MS || (conn.observedAt && Date.parse(conn.observedAt) > at)) return conn;
+    return { ...conn, state: 'live' as const, words: `answered a chat turn ${clock(t.when!)} (its receipt is sealed); live: an answer seen in the last 30 minutes`, observedAt: t.when! };
+  });
+}
+
+/** R10 (H168's F6): what a connection's row says beside its mark, from what observed it last (never "not checked yet" for
+ *  one a check or a turn did observe). */
+function rowWord(conn: WorkspaceConnection, s: Ui['companion'] | null): string {
+  if (s?.serving) return 'served here';
+  if (s?.other) return 'served by another Timmy';
+  const at = conn.observedAt ? clock(conn.observedAt).slice(0, 5) : null;
+  if (!at) return conn.state === 'configured' ? 'not checked yet' : '';
+  if (/^not running/.test(conn.words)) return `not running · checked ${at}`;
+  if (/^answered a chat turn/.test(conn.words)) return `answered a chat turn ${at}`;
+  if (/^answered/.test(conn.words) && conn.state !== 'live') return `answered ${at} · not live now`;
+  return `checked ${at}`;
 }
 
 /**
@@ -485,6 +557,90 @@ export function inWords(words: string): string {
     .replace(/(?:~|<Timmy home>)\/[\w.@/-]+/g, 'its folder')
     .replace(/ {2,}/g, ' ')
     .trim();
+}
+
+// ── the selected item, drawn as a terminal can (R10 H167; H168's F10) ───────────
+
+const IMAGE_SIZES = new Map<string, { key: string; size: { w: number; h: number } | null }>();
+
+/** An image's pixel size from its own header (PNG, GIF, JPEG), read once for each reading of the records; null: not read. */
+export function imageSize(file: string, key: string): { w: number; h: number } | null {
+  const kept = IMAGE_SIZES.get(file);
+  if (kept?.key === key) return kept.size;
+  let size: { w: number; h: number } | null = null;
+  try {
+    const fd = openSync(file, 'r');
+    const b = Buffer.alloc(65536);
+    let n = 0;
+    try { n = readSync(fd, b, 0, b.length, 0); } finally { closeSync(fd); }
+    const buf = b.subarray(0, n);
+    if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47) size = { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    else if (buf.length >= 10 && buf.toString('ascii', 0, 3) === 'GIF') size = { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+    else if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      // a JPEG: its markers walked to the frame's (SOF), which holds the height, then the width
+      for (let i = 2; i + 9 < buf.length;) {
+        if (buf[i] !== 0xff) { i += 1; continue; }
+        const m = buf[i + 1];
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) { size = { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) }; break; }
+        i += 2 + buf.readUInt16BE(i + 2);
+      }
+    }
+  } catch { size = null; }
+  IMAGE_SIZES.set(file, { key, size });
+  if (IMAGE_SIZES.size > 64) IMAGE_SIZES.delete(IMAGE_SIZES.keys().next().value!);
+  return size;
+}
+
+const MESH_WORD: Readonly<Record<string, string>> = { stl: 'STL', obj: 'OBJ', ply: 'PLY', tessellation: 'tessellation (STL)' };
+const num = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, ''));
+
+/**
+ * R10 (H168's F10): the selected item as a terminal draws it: an image's pixel size and what VoxVision measured on it; a
+ * mesh's format, triangles and box (tab 6's own reader, src/workbench/create-tab.ts); a run's steps, the files it wrote and
+ * how it ended; a turn's question and the first lines of its answer (this project's conversation). What no record says is not
+ * said. Rows of words, with no address, path or id.
+ */
+export function representation(w: WorkItem, c: JourneyCtx): Line[] {
+  const { data, g, width } = c;
+  const sep = ` ${g.sep} `;
+  const out: Line[] = [];
+  const row = (k: string, v: string, role: Role = 'text'): void => { out.push(...wrapSegs([S(`${k.padEnd(9)} `, 'secondary'), S(v, role)], width, ' '.repeat(10))); };
+  if ((w.kind === 'reference' || w.kind === 'result') && IMAGE.test(w.id)) {
+    const size = imageSize(join(data.project.root, w.id), `${data.readAt}`);
+    row('Image', size ? `${size.w} × ${size.h} px` : 'its size could not be read');
+    const name = base(w.id);
+    const seen = (data.vox ?? []).filter((v) => v.what.includes(name)).slice(0, 2);
+    for (const v of seen) row('Measured', `VoxVision ${v.what.split(' ')[0]}${sep}${v.state}${sep}${clock(v.at).slice(0, 5)}`);
+    if (!seen.length) row('Measured', 'nothing yet: 5 VoxVision measures an image');
+  } else if (w.kind === 'mesh') {
+    const m = createItems(data).find((x) => x.kind === 'mesh' && x.mesh.path === w.id);
+    const r = m?.kind === 'mesh' ? m.mesh.readback : undefined;
+    if (m?.kind === 'mesh' && r) {
+      row('Mesh', `${MESH_WORD[m.mesh.kind] ?? m.mesh.kind}${sep}${r.triangles} triangle${r.triangles === 1 ? '' : 's'}`);
+      row('Box', r.bbox ? r.bbox.size.map(num).join(' × ') : 'none (no triangles)');
+    } else row('Mesh', m?.kind === 'mesh' ? (m.mesh.pending ? 'being measured' : 'not measured: 6 3D & Motion says why') : 'not read yet');
+  } else if (w.kind === 'run') {
+    const job = data.jobs.find((j) => j.operation === w.id);
+    if (job) {
+      const steps = job.steps ?? [];
+      const done = steps.filter((st) => st.state === 'completed').length;
+      row('Progress', `${job.word}${steps.length ? `${sep}${done} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}${job.elapsed ? `${sep}${job.elapsed}` : ''}`);
+    }
+    const files = (w.results ?? []).map(base);
+    if (files.length) row('Wrote', `${files.slice(0, 3).join(', ')}${files.length > 3 ? `, ${files.length - 3} more` : ''}`);
+  } else if (w.kind === 'turn') {
+    const msgs = data.chat?.messages ?? [];
+    const norm = (t: string): string => t.replace(/\s+/g, ' ').trim();
+    const at = msgs.findIndex((m) => m.role === 'user' && norm(m.text) === norm(w.title));
+    const answer = at >= 0 ? msgs.slice(at + 1).find((m) => m.role === 'assistant') : undefined;
+    out.push(...wrapSegs([S('You    ', 'secondary'), S(w.title, 'strong')], width, ' '.repeat(7)).slice(0, 2));
+    if (answer) out.push(...wrapSegs([S('Timmy  ', 'ai'), S(answer.text.replace(/\s+/g, ' ').trim(), 'text')], width, ' '.repeat(7)).slice(0, 3));
+    else out.push([S('       its answer is not in the conversation kept here', 'secondary')]);
+  } else if (w.kind === 'observation') {
+    const v = (data.vox ?? []).find((x) => x.id === w.id);
+    if (v) row('Measured', `${v.what}${sep}${v.state}`);
+  }
+  return out;
 }
 
 /** A connection's words with its address said by what it is (the details say it whole). */
@@ -552,6 +708,9 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
     lines.push([S(KIND_WORD[w.kind].toUpperCase(), 'secondary', { bold: true }), S(sep, 'secondary'), S(`${m.glyph} ${w.state}`, m.role === 'secondary' ? 'text' : m.role, { bold: true })]);
     lines.push(...wrapSegs([S(w.title, 'strong')], width, '  '));
     lines.push(...wrapSegs([S(`${ago(w.at, c.now)}${w.facts.length ? `${sep}${w.facts.join(sep)}` : ''}`, 'secondary')], width, '  '));
+    // R10 (H168's F10): the item itself, as a terminal can draw it (references 01 and 13 give this half to its preview)
+    const shown = representation(w, c);
+    if (shown.length) lines.push(blank, ...shown);
     if (w.receipt) {
       lines.push(blank);
       lines.push(w.receipt.verified === true
@@ -561,7 +720,9 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
           : [S('Receipt  ', 'secondary'), S('sealed', 'text'), S(' · not verified on this screen', 'secondary')]);
     }
     lines.push(blank);
-    lines.push(...wrapSegs([key('Enter'), S(` ${w.opens.words}`, 'text')], width, '        '));
+    // (R10 H167; H168: Enter acts on the zone with the keyboard: with the list's, it opens this; else Tab gives it the list)
+    const listHas = c.ui.focus === 'center';
+    lines.push(...wrapSegs([...(listHas ? [] : [S('Tab, then ', 'secondary')]), key('Enter'), S(` ${w.opens.words}`, 'text')], width, '        '));
     if (!w.opens.show) lines.push(...wrapSegs([key('c'), S(`     the companion: ${w.opens.companionWords}`, 'text')], width, '        '));
     lines.push(...wrapSegs([key('i'), S(`     details: ${w.receipt ? 'ids, its receipt, files' : 'its file, size, time'}`, 'secondary')], width, '        '));
   } else if (it?.kind === 'conn') {
@@ -595,7 +756,7 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
 function connectionRow(conn: WorkspaceConnection, c: Pick<JourneyCtx, 'g' | 'ui'>, selected = false, focused = false): Line {
   const m = connectionMark(conn.state, c.g);
   const s = conn.id === 'companion' ? c.ui.companion : conn.id === 'studio' ? c.ui.studio : null;
-  const extra = s?.serving ? 'served here' : s?.other ? 'served by another Timmy' : conn.state === 'configured' ? 'not checked yet' : conn.observedAt ? `checked ${clock(conn.observedAt).slice(0, 5)}` : '';
+  const extra = rowWord(conn, s);
   return [S(selected ? `${c.g.cursor} ` : '  ', selected && focused ? 'accent' : 'secondary'), S(`${connName(conn).padEnd(Math.max(13, connName(conn).length + 2))}`, selected ? 'strong' : 'text'), S(m.text, m.role), S(extra ? `  ${c.g.sep} ${extra}` : '', 'secondary')];
 }
 

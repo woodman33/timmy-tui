@@ -35,7 +35,7 @@ import { readJobs, readWorkflows, type WorkflowsView } from '../src/workbench/st
 import { plain, type Line } from '../src/workbench/text.js';
 import type { ViewCtx } from '../src/workbench/views.js';
 import {
-  blockKey, columnWidths, readWorkflowsTab, refreshBlockStates, selectedBlock, stateMark, workflowsTabView, type WorkflowsTabData,
+  blockKey, columnWidths, readWorkflowsTab, refreshBlockStates, runDetailRows, selectedBlock, stateMark, workflowsTabView, type WorkflowsTabData,
 } from '../src/workbench/workflows-tab.js';
 import { opsKit, replOf, sandbox as opsSandbox } from './helpers/ops-sandbox.js';
 import { reportProject, runOf, typed } from './helpers/run-inspect-fixture.js';
@@ -234,7 +234,9 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // every row exactly the body's width, three columns between two rules, and within the body's height
     expect(text.every((t) => visibleWidth(t) === AT_160.width)).toBe(true);
     expect(text.length).toBeLessThanOrEqual(AT_160.height);
-    expect(text.filter((t) => t.split(' │ ').length === 3).length).toBe(text.length);
+    // (R10 H167; H168's F4: the first row says the run in one row across the columns, as Home says a run)
+    expect(text[0]).toMatch(/^PAIR\.md › second · ✓ completed · 2 of 2 steps · \S+ (?:ms|s|min) · (?:no file written|\d+ files? written) · ✓ sealed and verified\s*$/);
+    expect(text.slice(1).filter((t) => t.split(' │ ').length === 3).length).toBe(text.length - 1);
     const [left, centre, right] = [column(text, 0, AT_160.width), column(text, 1, AT_160.width), column(text, 2, AT_160.width)];
     const L = left.join('\n');
     const C = centre.join('\n');
@@ -274,7 +276,12 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(C).toContain('RUN PAIR.md › second');
     expect(C).toContain('[Enter] Run it here');
     expect(flat(centre)).toContain('[Enter] Run it here the REPL\'s own /run, one job; it asks first');
-    expect(C).toMatch(/REPL\s+\/run PAIR\.md second/);
+    // (R10 H167; H168's F4: the commands that run it, in the REPL and a shell, are the Inspector's, [i])
+    expect(C).not.toMatch(/\/run PAIR\.md second|timmy md/);
+    const details = runDetailRows({ ui, data, g, width: 60, height: 40, now: Date.now(), can: { run: true, chat: false, detail: true }, columns: 160 } as ViewCtx & { columns: number }, 60).map(plain).join('\n');
+    expect(details).toMatch(/REPL\s+\/run PAIR\.md second/);
+    expect(details).toMatch(/shell\s+timmy md PAIR\.md second/);
+    expect(details).toContain(`timmy op ${op}`);
     // R6 (H144): its source as it ran (the copy upmd read, the same bytes now) and what it changed (nothing Timmy records:
     // its blocks only echo), the producer's inspection; where the companion draws the run's diffs, images and outputs
     // (the source under the cards where it fits beside the whole list, else in the centre column)
@@ -297,7 +304,8 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(R).toMatch(/exits 0 → exit 0/);
     expect(R).toContain('VERDICT');
     expect(R).toMatch(/✓ completed/);
-    expect(R).toContain(`timmy op ${op}`);
+    // (R10 H167; H168's F4: timmy op and the operation's id are the Inspector's)
+    expect(R).not.toContain(op);
     // green only for what was verified or passed in this reading: the receipt card and the checks that matched
     const green = greens(v.lines);
     expect(green.length).toBeGreaterThan(0);
@@ -405,7 +413,9 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).toMatch(/second\s+… waiting/);
     expect(flat(column(text, 2, AT_160.width))).toContain('not sealed yet: it runs');
     // the RUN box says a run of it goes on: Enter starts nothing until it ends, and x stops it
-    expect(flat(column(text, 1, AT_160.width))).toMatch(new RegExp(`Not from here now: it is running now as ${job.id}[\\s\\S]*x stops ${job.id}`));
+    // (R10 H167; H168's F4: the run by what it is; its job's id is the Inspector's, [i])
+    expect(flat(column(text, 1, AT_160.width))).toMatch(/Not from here now: it is running now, started by [\s\S]*x stops it/);
+    expect(C).not.toContain(job.id);
     expect(R).not.toMatch(/✓ (?:sealed and )?verified/);
     expect(text.join('\n')).not.toMatch(/[●○]/);
     // the marks, each with its word
@@ -450,7 +460,9 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     const at120 = body(data, ui, AT_120);
     expect(at120.text.every((t) => visibleWidth(t) === AT_120.width)).toBe(true);
     expect(at120.text.length).toBeLessThanOrEqual(AT_120.height);
-    expect(at120.text.every((t) => t.split(' │ ').length === 3)).toBe(true);
+    // (R10 H167; H168's F4: the run's summary row first, across the columns)
+    expect(at120.text[0]).toMatch(/^PAIR\.md › second · ✓ completed/);
+    expect(at120.text.slice(1).every((t) => t.split(' │ ').length === 3)).toBe(true);
     expect(at120.text.join('\n')).not.toMatch(/[●○]/);
     // 100x30: stacked, one column as wide as the body; the list first, the RUN box right under it
     const at100 = body(data, ui, AT_100);
@@ -464,7 +476,8 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // a short body (160 columns, 14 rows): each column clipped says which of its rows show
     const short = body(data, ui, { width: 156, height: 14, columns: 160 });
     expect(short.text.length).toBe(14);
-    expect(short.text.join('\n')).toMatch(/↓ 1–13 of \d+ rows/);
+    // (the run's summary row takes the first row: the columns have 13, so 12 and the note)
+    expect(short.text.join('\n')).toMatch(/↓ 1–12 of \d+ rows/);
     expect(short.text[short.v.items[ui.cursor['center:workflows']].line]).toMatch(/▸\s+2 second/);
   }, 60_000);
 

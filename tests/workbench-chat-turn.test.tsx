@@ -227,7 +227,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(center).not.toContain('Esc leaves the composer');
     // the pipeline row: the newest operation is this turn
     // (R10 H167: the operation's id is the details', [i])
-    expect(screen(c)).toMatch(/newest operation chat turn in the Workbench · being answered now/);
+    // (R10 H167; H168's F9: the row under the chips says the turn and what it asked)
+    expect(screen(c)).toMatch(/newest turn in the Workbench · being answered now · asked: hello there/);
 
     // while it is answered the key-hint row says only the composer's keys (R10 H167; H168's F1)
     expect(screen(c)).toMatch(/\[Enter\] sends once it is answered {2}\[Esc\] stops the turn and leaves the composer/);
@@ -414,7 +415,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(region(c, 'right')).not.toContain('FIXTURE prompt');
     // the pipeline row: the newest operation is that turn, its receipt verified here
     // (R10 H167: the stages in plain words; the operation's and the receipt's ids are the details', [i])
-    expect(screen(c)).toMatch(/newest operation chat turn in the REPL · from its records/);
+    expect(screen(c)).toMatch(/newest turn in the REPL · asked: /);
     expect(screen(c)).toContain('sealed · verified here');
     c.key('i', {});
     expect(region(c, 'right')).toContain(h.id);
@@ -433,7 +434,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     const mine = c.data.turns?.[0];
     expect(mine).toMatchObject({ surface: 'workbench', state: 'answered', operation: c.data.turn?.operation });
     expect(center).toContain('answered · nothing was sent to any model · no charge (FIXTURE: no model) · receipt sealed');
-    expect(center).toMatch(/Enter sends to .* · Esc leaves/);
+    // (R10 H167; H168's F13: the composer's foot says where it goes; Esc is the hint row's)
+    expect(center).toMatch(/Enter sends to /);
     expect(screen(c)).toMatch(/(\d+)–(\d+) of \2 [╮┓]/);
     // said once: kept in the conversation, it is not said again under "Your last message here" (a terminal tall enough to show
     // the whole conversation)
@@ -444,7 +446,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(whole.match(/FIXTURE line 40 of a long answer\./g)).toHaveLength(1);
     // the pipeline row shows the turn just answered (this Workbench's), not the earlier one; the event log lists it first
     // (R10 H167: its operation's id is the details')
-    expect(screen(c)).toContain('newest operation chat turn in the Workbench · from its records');
+    expect(screen(c)).toMatch(/newest turn in the Workbench · asked: a long one, please/);
     expect(c.data.pipeline?.operation).toBe(c.data.turn!.operation);
     expect(screen(c)).toContain('sealed · verified here');
     expect(region(c, 'right')).toMatch(/EVENT LOG, NEWEST AT THE TOP \S+ \[chat\] turn answered in the Workbench · fixture\/chat-model · receipt sealed/);
