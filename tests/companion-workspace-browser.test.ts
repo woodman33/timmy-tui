@@ -586,11 +586,14 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
         expect(tall, t.id).toEqual([]);
       }
       await openTab(page, 'home');
-      const cols = await page.$$eval('#ws-home .cols-home > *', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right) }; }));
-      expect(cols.length).toBeGreaterThanOrEqual(2);
+      // (R10 H167: Home's boxes stack in one column, in the journey's order: the recent work, then its preview, then the rest)
+      const cols = await page.$$eval('#ws-home .cols-home .box', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { cls: e.className, left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right) }; }).sort((a, b) => a.top - b.top));
+      expect(cols.length).toBeGreaterThanOrEqual(4);
       expect(new Set(cols.map((c) => c.left)).size).toBe(1);
       for (let i = 1; i < cols.length; i += 1) expect(cols[i].top).toBeGreaterThan(cols[i - 1].top);
       for (const c of cols) expect(c.right).toBeLessThanOrEqual(390);
+      expect(cols[0].cls).toContain('home-work-box');
+      expect(cols[1].cls).toContain('home-stage-box');
     } finally { await context.close(); }
   });
 });
