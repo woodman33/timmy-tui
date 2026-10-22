@@ -226,7 +226,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(center).toContain('Esc stops the turn being answered · Enter sends once it is answered');
     expect(center).not.toContain('Esc leaves the composer');
     // the pipeline row: the newest operation is this turn
-    expect(screen(c)).toMatch(/newest operation chat turn in the Workbench · operation o[0-9a-f]{8} · being answered now/);
+    // (R10 H167: the operation's id is the details', [i])
+    expect(screen(c)).toMatch(/newest operation chat turn in the Workbench · being answered now/);
 
     // Esc: the turn stops; the composer stays open, and the notice says so
     c.key('', ESC);
@@ -239,7 +240,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(region(c, 'top')).toContain('run: idle');
     expect(region(c, 'top')).toContain('Stop current: idle');
     expect(region(c, 'right')).toContain('RUNNING NOW (0)');
-    expect(region(c, 'center')).toContain('Enter sends · Esc leaves the composer');
+    // (R10 H167: the composer's foot says where the message goes)
+    expect(region(c, 'center')).toMatch(/Enter sends to .* · Esc leaves/);
     // R5 (H131; the QA of e7f853e, defect 8): the conversation keeps the agent's own record of the stop (isTimmyRecord): it is
     // never shown as the model's words under its label; the partial answer once, marked partial, then the stop in Timmy's own
     // words, once, with its receipt and when (this Workbench's clock); the session's "Cancelled…" line does not say it again
@@ -248,14 +250,15 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     const said = region(c, 'center');
     expect(said).toContain('You hello there');
     expect(said).toContain('Timmy (partial) FIXTURE: the first words');
-    expect(said).toMatch(new RegExp(`■ stopped by you · nothing was sent to any model · receipt ${stopped!.receipt} · \\d\\d:\\d\\d:\\d\\d`));
+    // (R10 H167: the receipt said as sealed; its id is the details')
+    expect(said).toMatch(/■ stopped by you · nothing was sent to any model · receipt sealed · \d\d:\d\d:\d\d/);
     expect(said.match(/FIXTURE: the first words/g)).toHaveLength(1);
     expect(said.match(/stopped by you/g)).toHaveLength(1);
     expect(said).not.toContain('[Cancelled by the user');
     expect(said).not.toContain('Cancelled: nothing was sent');
     expect(said).not.toContain('YOUR LAST MESSAGE HERE');
     // the event log lists it as the frame says it
-    expect(region(c, 'right')).toContain(`[chat] turn stopped (asked from the Workbench) in the Workbench · fixture/chat-model · receipt ${stopped!.receipt}`);
+    expect(region(c, 'right')).toContain('[chat] turn stopped (asked from the Workbench) in the Workbench · fixture/chat-model · receipt sealed');
     // Esc again: it leaves the composer, and says so
     c.key('', ESC);
     expect(c.ui.input.field).toBe(null);
@@ -287,7 +290,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     const said = region(c, 'center');
     // this Workbench's own stop, once, at its own record, with its receipt
     expect(said.match(/You the Workbench message/g)).toHaveLength(1);
-    expect(said).toMatch(new RegExp(`■ stopped by you · nothing was sent to any model · receipt ${own!.receipt} · \\d\\d:\\d\\d:\\d\\d`));
+    expect(said).toMatch(/■ stopped by you · nothing was sent to any model · receipt sealed · \d\d:\d\d:\d\d/);
     expect(said.match(/stopped by you/g)).toHaveLength(1);
     // the REPL's: its partial answer once, marked partial, then "stopped", never "stopped by you"
     expect(said.match(/Timmy \(partial\) FIXTURE: the REPL's first words/g)).toHaveLength(1);
@@ -295,8 +298,10 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(said).not.toContain('YOUR LAST MESSAGE HERE');
     expect(said).not.toContain('[Cancelled by the user');
     // the event log beside it says who asked, from the REPL turn's receipt
-    await until('the REPL turn in the event log', () => region(c, 'right').includes(`receipt ${repl.id}`), 10_000, () => screen(c));
-    expect(region(c, 'right')).toMatch(new RegExp(`turn stopped \\(asked from the companion\\) in the REPL · [^·]*· receipt ${repl.id}`));
+    await until('the REPL turn in the event log', () => region(c, 'right').includes('turn stopped (asked from the companion) in the REPL'), 10_000, () => screen(c));
+    expect(region(c, 'right')).toMatch(/turn stopped \(asked from the companion\) in the REPL · [^·]*· receipt sealed/);
+    // its receipt's id is the details' (R10 H167)
+    expect(repl.id).toMatch(/^[0-9a-f]{8}/);
   }, 30_000);
   it('x stops this Workbench\'s own turn; a turn being answered in the REPL is asked to stop by its identity by x, after it asks first (QA of e7f853e, item 16; R7 H150: Enter on Stop the turn says it is done in the REPL and asks nothing): the REPL ends it as its Ctrl+C would and its receipt says who asked, which the event log shows; a turn that has ended by then is not stopped, and the Workbench says so', async () => {
     sandbox();
@@ -356,7 +361,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     await ended(first.id);
     expect(asked).toEqual(['workbench']);
     // its end as its receipt says it, in the frame's words (src/ops/workspace-frame.ts turnOf), and nothing runs
-    await until('the stop in the event log', () => /\[chat\] turn stopped \(asked from the Workbench\) in the REPL · fixture\/chat-model · receipt [0-9a-f]{8}/.test(region(c, 'right')), 10_000, () => screen(c));
+    await until('the stop in the event log', () => /\[chat\] turn stopped \(asked from the Workbench\) in the REPL · fixture\/chat-model · receipt sealed/.test(region(c, 'right')), 10_000, () => screen(c));
     expect(c.data.turns?.find((t) => t.turn === first.id)).toMatchObject({ surface: 'repl', state: 'stopped', stoppedBy: 'workbench' });
     expect(region(c, 'top')).toContain('run: idle');
 
@@ -402,11 +407,16 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     c.start();
     c.selectPage('chat');
     // the event log: the sealed turn, with its receipt (hashes only: no word of its message)
-    await until('the sealed turn in the event log', () => region(c, 'right').includes(`[chat] turn answered in the REPL · fixture/chat-model · receipt ${sealed.id}`), 10_000, () => screen(c));
+    await until('the sealed turn in the event log', () => region(c, 'right').includes('[chat] turn answered in the REPL · fixture/chat-model · receipt sealed'), 10_000, () => screen(c));
     expect(region(c, 'right')).not.toContain('FIXTURE prompt');
     // the pipeline row: the newest operation is that turn, its receipt verified here
-    expect(screen(c)).toMatch(new RegExp(`newest operation chat turn in the REPL · operation ${h.id}`));
-    expect(screen(c)).toContain(`sealed ${sealed.id} · verified here`);
+    // (R10 H167: the stages in plain words; the operation's and the receipt's ids are the details', [i])
+    expect(screen(c)).toMatch(/newest operation chat turn in the REPL · from its records/);
+    expect(screen(c)).toContain('sealed · verified here');
+    c.key('i', {});
+    expect(region(c, 'right')).toContain(h.id);
+    expect(region(c, 'right')).toContain(`sealed ${sealed.id} · verified here`);
+    c.key('', { escape: true });
 
     await composer(c);
     c.key('a long one, please', {});
@@ -419,8 +429,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(center).toContain('FIXTURE line 40 of a long answer.');
     const mine = c.data.turns?.[0];
     expect(mine).toMatchObject({ surface: 'workbench', state: 'answered', operation: c.data.turn?.operation });
-    expect(center).toContain(`answered · nothing was sent to any model · no charge (FIXTURE: no model) · receipt ${mine!.receipt}`);
-    expect(center).toContain('Enter sends · Esc leaves the composer');
+    expect(center).toContain('answered · nothing was sent to any model · no charge (FIXTURE: no model) · receipt sealed');
+    expect(center).toMatch(/Enter sends to .* · Esc leaves/);
     expect(screen(c)).toMatch(/(\d+)–(\d+) of \2 [╮┓]/);
     // said once: kept in the conversation, it is not said again under "Your last message here" (a terminal tall enough to show
     // the whole conversation)
@@ -430,9 +440,17 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(whole.match(/a long one, please/g)).toHaveLength(1);
     expect(whole.match(/FIXTURE line 40 of a long answer\./g)).toHaveLength(1);
     // the pipeline row shows the turn just answered (this Workbench's), not the earlier one; the event log lists it first
-    expect(screen(c)).toContain(`newest operation chat turn in the Workbench · operation ${c.data.turn!.operation}`);
-    expect(screen(c)).toContain(`sealed ${mine!.receipt} · verified here`);
-    expect(region(c, 'right')).toMatch(new RegExp(`EVENT LOG, NEWEST AT THE TOP \\S+ \\[chat\\] turn answered in the Workbench · fixture/chat-model · receipt ${mine!.receipt}`));
+    // (R10 H167: its operation's id is the details')
+    expect(screen(c)).toContain('newest operation chat turn in the Workbench · from its records');
+    expect(c.data.pipeline?.operation).toBe(c.data.turn!.operation);
+    expect(screen(c)).toContain('sealed · verified here');
+    expect(region(c, 'right')).toMatch(/EVENT LOG, NEWEST AT THE TOP \S+ \[chat\] turn answered in the Workbench · fixture\/chat-model · receipt sealed/);
+    // the receipt's id is in the details ([i]: Chat's newest operation, its stages as their records say them; R10 H167), once
+    // the composer is left (i typed there is the message's)
+    if (c.ui.input.field === 'composer') c.key('', { escape: true });
+    c.key('i', {});
+    expect(region(c, 'right')).toContain(`sealed ${mine!.receipt} · verified here`);
+    c.key('', { escape: true });
   }, 30_000);
 
   it('a chat that is not set up gives one remedy (defect 22): the route\'s cause, and the frame\'s fix (its Chat action, timmy init)', async () => {
@@ -446,7 +464,7 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(c.data.route.ready).toBe(false);
     // R5 (H131; the finish line, item 3): the Ready line names the frame's one fix, the primary Chat action (timmy init
     // --chat openrouter, which Enter shows with what it asks); `timmy setup` makes a governed workspace's folders, asks nothing
-    expect(center).toContain('Ready not ready: set up chat: an OpenRouter key (asked hidden) or a local model (workflow action 2, row 2)');
+    expect(center).toContain('Ready not ready: set up chat: an OpenRouter key (asked hidden) or a local model (the next step above, Enter)');
     expect(center).not.toContain('timmy setup');
     expect(center).not.toMatch(/Try: |\/setup|\/model|timmy init --chat/);
     expect(region(c, 'top')).not.toMatch(/\/setup|\/model/);

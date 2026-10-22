@@ -77,9 +77,10 @@ async function until<T>(what: string, get: () => T | undefined | false | null, m
 }
 
 /** Every hint the row can draw, in the order it draws them. */
-const DRAWN = ['[1–0] tabs', '[Enter] acts', '[Tab] zones', '[x] Stop', '[c] Companion · Show', '[s] Studio · Show', '[a] log', '[/] find', '[,] settings', '[i] Context', '[?] keys'];
+// (R10 H167: on Home and Chat, where this row is read, [i] is the details, kept before the Show keys)
+const DRAWN = ['[1–0] tabs', '[Enter] acts', '[Tab] zones', '[x] Stop', '[c] Companion · Show', '[s] Studio · Show', '[a] log', '[/] find', '[,] settings', '[i] details', '[?] keys'];
 /** The same hints, the most important first: the order they are kept in, and the reverse of the order they are left out in. */
-const IMPORTANCE = ['[?] keys', '[1–0] tabs', '[Enter] acts', '[x] Stop', '[Tab] zones', '[c] Companion · Show', '[s] Studio · Show', '[a] log', '[/] find', '[i] Context', '[,] settings'];
+const IMPORTANCE = ['[?] keys', '[1–0] tabs', '[Enter] acts', '[x] Stop', '[Tab] zones', '[i] details', '[c] Companion · Show', '[s] Studio · Show', '[a] log', '[/] find', '[,] settings'];
 /** The hints every width keeps. */
 const ALWAYS = ['[1–0] tabs', '[Enter] acts', '[Tab] zones', '[x] Stop', '[?] keys'];
 
@@ -123,8 +124,9 @@ describe('the key row (R8 H157: the R7 package\'s open item E; R5\'s visual revi
     }
     // the sizes the reviews named: 100x30 keeps Companion and leaves out Studio, the log and the rest whole; 120x40 and
     // 160x45 as before
-    expect(keyRow(c, 100, 30).text).toBe('[1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [?] keys');
-    expect(keyRow(c, 120, 40).text).toBe('[1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show  [a] log  [?] keys');
+    // (R10 H167: on Home, [i] details is kept before the Show keys)
+    expect(keyRow(c, 100, 30).text).toBe('[1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [i] details  [?] keys');
+    expect(keyRow(c, 120, 40).text).toBe('[1–0] tabs  [Enter] acts  [Tab] zones  [x] Stop  [c] Companion · Show  [s] Studio · Show  [i] details  [?] keys');
     expect(keyRow(c, 160, 45).text).toBe(DRAWN.join('  '));
   }, 60_000);
 });

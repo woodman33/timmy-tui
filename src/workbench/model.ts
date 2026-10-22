@@ -26,6 +26,7 @@ import type { FreeCatalog, OllamaList, SetupPlan } from './setup-paths.js';
 import type { Line, Role } from './text.js';
 import type { HoldsReading } from './turn-holds.js';
 import type { TurnNow } from './hub.js';
+import type { WorkItem } from './home-journey.js';
 
 export type Region = 'nav' | 'top' | 'center' | 'right' | 'bottom';
 export const REGIONS: readonly Region[] = ['nav', 'center', 'right', 'bottom', 'top'];
@@ -210,7 +211,10 @@ export type Item =
   /** R5 (H137): a chat turn being answered, as its hold names it (tab 7's pane) */
   | { kind: 'live-turn'; key: string; live: LiveTurnRow }
   /** R9 (H160): tab 6's meshes and recordings (src/workbench/create-tab.ts) */
-  | CreateItem;
+  | CreateItem
+  /** R10 (H167): an item of Home's recent work (src/workbench/home-journey.ts): a run, a chat turn, an observation, a result
+   *  or what waits on you, opened where it belongs */
+  | { kind: 'work'; key: string; work: WorkItem };
 
 /** A view's rows and where its selectable items are among them; `rows`: how many rows an item takes (a card), else one; `x`
  *  (R5, H137): the cells of the zone's rows it is drawn in, when its view draws columns side by side (a click on that row in

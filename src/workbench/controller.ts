@@ -44,6 +44,7 @@ import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
+import type { WorkItem } from './home-journey.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
 import { OutputWatch } from './output.js';
@@ -608,6 +609,14 @@ export class Controller {
 
   // ── the frame ─────────────────────────────────────────────────────────────────
 
+  /** R10 (H167): the chat session is on its way (being looked for, or opening for this project), not refused. */
+  private chatOpening(): boolean {
+    if (!this.chatOf) return true;
+    if (!this.chatOf.ok) return false;
+    const chat = this.chat?.root === this.data.project.root ? this.chat : null;
+    return !chat || chat.state === 'opening';
+  }
+
   can(): ViewCtx['can'] {
     const chat = this.chat?.root === this.data.project.root ? this.chat : null;
     const chatWhy = !this.chatOf ? 'the chat session is being looked for'
@@ -1082,6 +1091,9 @@ export class Controller {
     // drawer (over Home's preview and Chat's log too)
     if (this.contextColumn()) { this.ui.tab = 'inspector'; this.ui.focus = 'right'; this.emit(); return; }
     this.ui.rightOpen = !this.ui.rightOpen;
+    // R10 (H167): on Home and Chat, i opens the details (the Inspector: the selected item's ids, receipt and files, then About ·
+    // diagnostics), from its first row
+    if (this.ui.rightOpen && isHub(this.ui.page)) { this.ui.tab = 'inspector'; this.ui.scroll['right:inspector'] = 0; delete this.ui.wheel['right:inspector']; delete this.ui.anchor['right:inspector']; }
     if (this.ui.rightOpen) { this.ui.navOpen = false; this.ui.focus = 'right'; } else this.ui.focus = 'center';
     this.emit();
   }
@@ -1217,6 +1229,9 @@ export class Controller {
     }
     if (field === 'composer') {
       const why = this.can().chatWhy;
+      // R10 (H167): while the session is still opening (Home's next step opens the composer at once), what was typed stays in
+      // the composer, and Enter sends it once the session is open: nothing is lost and nothing is sent before then
+      if (why && text.trim() && this.chatOpening()) { this.say(`Not sent yet: ${why}. What you typed stays here; Enter sends it once it is open.`, 'secondary'); this.emit(); return; }
       if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
       if (this.data.turn?.state === 'sending') { this.say('One turn at a time: the chat turn is still being answered. Esc stops it, or wait for its answer.', 'secondary'); return; }
       // R7 (H150; H148's N3): one turn at a time per project, by the one answer RUNNING NOW and the run line read (the holds
@@ -1277,7 +1292,8 @@ export class Controller {
       // R7 (H150; H148's N5 "Stopped: Cancelled after the request went out"; the lead's e686809): a stopped turn's line is
       // the session's own, which says "Stopped" itself, printed as it is (a session that still says "Cancelled…" is said
       // "Stopped…"); a refusal or a failure keeps its word before it
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)}` : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+      // R10 (H167): the receipt said as sealed; its id is the inspector's ([i] on the turn in Home's recent work)
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt sealed` : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
         r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
@@ -1698,9 +1714,9 @@ export class Controller {
 
   // ── the servers ───────────────────────────────────────────────────────────────
 
-  async showCompanion(why = ''): Promise<void> {
+  async showCompanion(why = '', where?: string): Promise<void> {
     this.say(`Companion · Show${why ? ` ${why}` : ''}: starting it on 127.0.0.1 if this Workbench has none…`, 'secondary');
-    const w = await this.d.companion.show(this.companionWhere());
+    const w = await this.d.companion.show(where ?? this.companionWhere());
     this.say(w, /did not start|failed/.test(w) ? 'failure' : 'text');
   }
 
@@ -1709,7 +1725,36 @@ export class Controller {
    * ten tabs, by the same ids), and from tab 5 on the VoxVision record selected there (H143's vox=<id>, which the page's
    * VoxVision panel opens).
    */
+  /**
+   * R10 (H167): Enter on an item of Home's recent work opens it where it belongs: a run on 3 Workflows (its progress, result and
+   * receipt), an observation on 5 VoxVision, a chat turn on 2 Chat, what waits on you where it is answered (7, or 4 Studio for a
+   * draft), a text result in Files; an image or a mesh, which a terminal cannot draw, in the companion (as c). The item is
+   * selected there, so the place opened shows it.
+   */
+  private async openWork(w: WorkItem): Promise<void> {
+    if (w.opens.show) { await this.showCompanion(`for ${w.title}`, w.opens.companion); return; }
+    const t = w.opens;
+    if (t.select) {
+      this.ui.sel[t.select.list] = t.select.key;
+      (this.ui.chosen ??= {})[t.select.list] = true;
+      delete this.ui.wheel[t.select.list];
+      delete this.ui.anchor[t.select.list];
+    }
+    if (t.ws) { (this.ui.pageWs ??= {})[t.page] = t.ws; }
+    this.selectPage(t.page);
+    if (t.ws && this.ui.workspace !== t.ws) this.selectWorkspace(t.ws);
+    this.ui.focus = 'center';
+    this.reselect();
+    this.say(`${w.title}: ${t.words.replace(/^opens/, 'opened')}.`, 'secondary');
+    this.emit();
+  }
+
   private companionWhere(): string {
+    // R10 (H167): from Home, on the item of recent work selected there (a run's detail, an observation, a mesh)
+    if (this.ui.page === 'home' && this.ui.workspace === 'connections') {
+      const sel = this.selected();
+      if (sel?.kind === 'work') return sel.work.opens.companion;
+    }
     // R9 (H160): from tab 6, on the mesh selected there (mesh=<its path as hex>, which the page's tab 6 chooses)
     if (this.ui.page === 'create') return createCompanionHint(this.selected());
     const sel = this.ui.page === 'voxvision' ? this.selected() : null;
@@ -1815,7 +1860,9 @@ export class Controller {
       case 'composer':
         this.selectWorkspace('chat');
         this.ui.focus = 'center';
-        if (this.can().chat) this.ui.input = { field: 'composer', text: '' };
+        // R10 (H167): the composer opens at once, also while the chat session is still opening (its first open, from Home):
+        // keys typed then are the message's, never the Workbench's (a capital S was "Stop serving Studio" before)
+        if (this.can().chat || this.chatOpening()) this.ui.input = { field: 'composer', text: '' };
         else this.say(`Not now: ${this.can().chatWhy ?? 'sending is not available here'}`, 'secondary');
         this.emit();
         return;
@@ -1877,6 +1924,7 @@ export class Controller {
   private async activate(item: Item | null): Promise<void> {
     if (!item) return;
     switch (item.kind) {
+      case 'work': await this.openWork(item.work); return;
       case 'conn': {
         // R5 (H131): a connection card: the companion's and Studio's Show; any other, its step, shown to copy
         const k = item.conn;

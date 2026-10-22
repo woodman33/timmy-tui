@@ -156,14 +156,16 @@ describe('amber is exact (R7 H150; DESIGN.md §10 B10)', () => {
       expect(hints.length, `tab ${t.key}: key hints drawn`).toBeGreaterThan(0);
       for (const h of hints) expect(styleOf(h, true, 'truecolor').color, `tab ${t.key}: ${h.text}`).toBe(HOMEBREW.text);
     }
-    // the bar's selected action: its marker amber, its command in the text's colour
+    // the bar's selected action: its marker amber, what Enter does in the text's colour (R10 H167: the command itself is the
+    // details', not drawn on the bar)
     c.key('3', {});
     const bar = c.frame(160, 45).screen.slice(0, 8);
     const cursor = bar.flatMap((l) => l).find((s) => s.text === '▸');
     expect(cursor && amber(cursor)).toBe(true);
-    const cmd = bar.flatMap((l) => l).find((s) => /^\/run /.test(s.text));
-    expect(cmd, 'the selected action\'s command is drawn').toBeTruthy();
-    expect(amber(cmd!)).toBe(false);
+    expect(bar.flatMap((l) => l).find((s) => /^\/run /.test(s.text)), 'no command drawn on the bar').toBeUndefined();
+    const does = bar.flatMap((l) => l).find((s) => /^Enter opens its Run confirm/.test(s.text));
+    expect(does, 'what Enter does is drawn').toBeTruthy();
+    expect(amber(does!)).toBe(false);
     expect(Object.keys(seen)).toHaveLength(10);
   }, 60_000);
 

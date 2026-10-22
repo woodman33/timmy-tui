@@ -122,23 +122,25 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(lines).toHaveLength(50);
     expect(lines.every((l) => visibleWidth(l) === 180)).toBe(true);
     const t = f.text();
-    // row 1: TIMMY and the project, then the ten tabs, the active one in a heavy box
-    expect(lines[1]).toContain('TIMMY · tray-wide');
+    // R10 (H167): the header's first row: TIMMY, the project, the route of the next turn, what runs and waits; its second the
+    // ten tabs on one row, the active one bracketed (amber)
+    expect(lines[0]).toContain('TIMMY · tray-wide');
+    expect(lines[0]).toContain('next turn:');
     for (const label of ['1 Home', '2 Chat & Intent', '3 Workflows', '4 Studio', '5 VoxVision', '6 3D & Motion', '7 Control Room', '8 Fleet & Clef', '9 Tools & MCP', '0 Logs & Receipts']) expect(lines[1]).toContain(label);
-    expect(lines[1]).toContain('┃1 Home┃');
+    expect(lines[1]).toContain('[1 Home]');
     // row 2: the workflow actions have the keyboard first; the run state and Stop at its end
     expect(t).toMatch(/┏━ ◆ Workflow actions/);
     expect(t).toMatch(/run: idle\s+Stop current: idle/);
-    // the body: Home's connection cards and its preview; the navigation is a drawer (not shown)
-    expect(t).toContain('tray-wide / Home · connections, as observed');
-    expect(t).toContain('Preview · the companion and Studio, in words');
+    // the body: Home's recent work and the selected item (R10 H167); the navigation is a drawer (not shown)
+    expect(t).toContain('tray-wide · recent work');
+    expect(t).toMatch(/Selected/);
     expect(t).not.toMatch(/CREATE[\s\S]*OPERATE/);
     expect(t).toMatch(/Activity & log/);
     expect(t).toMatch(/Activity\s+0 running · 0 waiting on you/);
     // 6: 3D & Motion, a workspace with Context beside it (R5, H136: tab 3's body takes the whole width, below)
     await press(f.r, '6');
     const w = f.text();
-    expect(f.lines()[1]).toContain('┃6 3D & Motion┃');
+    expect(f.lines()[1]).toContain('[6 3D & Motion]');
     // (R5 H131, the QA of e7f853e, defect 23: the pane says the tab's own name)
     expect(w).toContain('tray-wide / 3D & Motion · scenes, CAD and compositions');
     expect(w).toContain('Context');
@@ -170,7 +172,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     // column beside it; i opens it as a drawer, Esc closes it
     await press(f.r, '3');
     const wf = f.text();
-    expect(f.lines()[1]).toContain('┃3 Workflows┃');
+    expect(f.lines()[1]).toContain('[3 Workflows]');
     expect(wf).toContain('tray-wide / Workflows · plan and run');
     expect(wf).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wf).toContain(block);
@@ -193,7 +195,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     const lines = f.lines();
     expect(lines).toHaveLength(36);
     expect(lines.every((l) => visibleWidth(l) <= 110)).toBe(true);
-    expect(lines[1]).toContain('TIMMY · tray-medium');
+    expect(lines[0]).toContain('TIMMY · tray-medium');
     // under 120 columns the tabs' labels are short (the frame's first words), the active one too
     expect(lines[1]).not.toContain('Chat & Intent');
     expect(f.text()).not.toContain('Context');
@@ -274,8 +276,9 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
       expect(f.text()).toMatch(/▸ Control Room 1 run\s+7/);
       await press(f.r, ESC);
       // Activity's first row counts it; the log's newest line is its start (the workspace frame's log)
-      await until('the frame\'s log', () => f.text().includes(`${job.id} started: FAKE job`), 5000, f.text);
-      expect(f.text()).toMatch(new RegExp(`Activity\\s+\\S* ?1 running[\\s\\S]*${job.id} started: FAKE job`));
+      // (R10 H167: the log says a job by its label, its id the details')
+      await until('the frame\'s log', () => f.text().includes('started: FAKE job'), 5000, f.text);
+      expect(f.text()).toMatch(/Activity\s+\S* ?1 running[\s\S]*started: FAKE job/);
       await press(f.r, 'x');
       await sleep(400);
       // (R7 H150: a job's outcome in the job's word, cancelled; H148's N5)
@@ -311,7 +314,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     await sleep(100);
     await press(f.r, '\r');
     expect(JSON.parse(readFileSync(activeProjectPath(), 'utf8')).root).toBe(b.root);
-    expect(f.text()).toContain('pick-b / ');
+    expect(f.text()).toContain('pick-b · recent work');
     expect(f.text()).toMatch(/Now in pick-b/);
   });
 
@@ -375,7 +378,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     const made = JSON.parse(readFileSync(activeProjectPath(), 'utf8'));
     expect(made.name).toBe('made-here');
     expect(existsSync(made.root)).toBe(true);
-    expect(f.text()).toContain('made-here / ');
+    expect(f.text()).toContain('made-here · recent work');
     expect(f.text()).toMatch(/Now in made-here[\s\S]*a blank project/);
   });
 

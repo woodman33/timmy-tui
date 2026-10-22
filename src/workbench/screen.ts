@@ -7,7 +7,9 @@
  */
 import { tabOf } from '../contracts/workspace.js';
 import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js';
-import { eventLogView, frameTabs, isHub, pipelineLines, previewView, tabBar, type PageHit } from './hub.js';
+import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, tabBar, type PageHit } from './hub.js';
+import type { WorkspaceConnection } from '../contracts/workspace.js';
+import { headerRows, homeSideView, selectedHome } from './home-journey.js';
 import { bodyKind, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
@@ -50,7 +52,7 @@ const rangeNote = (scroll: number, height: number, total: number): string | unde
 
 /** R5 (H131): the body's title: the project and the workspace (Home: its hub), as the crumb "project / workspace" was. */
 export function bodyTitle(ui: Ui, data: Data): string {
-  if (ui.page === 'home' && ui.workspace === 'connections') return `${data.project.name} / Home · connections, as observed`;
+  if (ui.page === 'home' && ui.workspace === 'connections') return `${data.project.name} · recent work`;
   return `${data.project.name} / ${navItem(ui.workspace).title}`;
 }
 
@@ -66,8 +68,11 @@ export function frameOf(a: FrameAsk): Frame {
   const tabs: Frame['tabs'] = [];
   const actions: Frame['actions'] = [];
 
-  // row 1: TIMMY, the project, the ten tabs (the frame's; the contract's until the frame is first read)
-  const bar = tabBar(frameTabs(data.frame), ui.page, data.project.name, a.columns, layout.tabRows, g);
+  // row 1: TIMMY, the project, the ten tabs (the frame's; the contract's until the frame is first read). R10 (H167): two rows
+  // where there is room, the status row (the project, the route of the next turn, what runs and waits) above the tabs
+  const bar = layout.tabRows === 2 && !layout.tooSmall
+    ? headerRows(data, ui.page, a.columns, g)
+    : tabBar(frameTabs(data.frame), ui.page, data.project.name, a.columns, 1, g);
   placed.push({ rect: layout.tabs, rows: bar.lines.slice(0, layout.tabs.h).map((l) => fit(l, a.columns, g.ellipsis)) });
   const pages: PageHit[] = bar.hits.map((h) => ({ ...h, y0: layout.tabs.y + h.y0, y1: Math.min(layout.tabs.y + layout.tabs.h - 1, layout.tabs.y + h.y1) }));
 
@@ -88,7 +93,7 @@ export function frameOf(a: FrameAsk): Frame {
   // row 2: the workflow actions (the region 'top'), the run state and Stop
   {
     const c = ctx(layout.top);
-    const t = topLines(c, layout.topDetail);
+    const t = topLines(c, layout.topDetail, layout.tabRows === 2);
     const tab = tabOf(ui.page);
     // R7 (H150): an unfinished tab says so beside its name (the frame's tabs[].unfinished), in words, not by colour
     const unfinished = frameTabs(data.frame).find((x) => x.id === ui.page)?.unfinished;
@@ -162,10 +167,15 @@ export function frameOf(a: FrameAsk): Frame {
   if (layout.right && layout.rightAs === 'hub') {
     const c = ctx(layout.right);
     const home = ui.page === 'home';
-    const v = home ? previewView(c) : eventLogView(c);
+    // R10 (H167): Home's right column is the selected item of recent work (where it opens, its receipt), the connections in a
+    // word each and the project; the preview in words, the cards and their addresses are the inspector's ([i])
+    const homeConn = home && ui.workspace === 'connections';
+    const v = homeConn ? homeSideView(c, connStepWords) : home ? previewView(c) : eventLogView(c);
     const list = `right:hub-${ui.page}`;
     const scroll = scrollFor(ui, list, [], { height: c.height, total: v.lines.length });
-    const title = home ? 'Preview · the companion and Studio, in words' : 'Event log · newest at the top';
+    const picked = homeConn ? selectedHome({ ui, data, now: a.now }) : null;
+    const pickedName = picked?.kind === 'work' ? picked.work.title : picked?.kind === 'conn' ? picked.conn.label : '';
+    const title = homeConn ? (pickedName ? `Selected ${g.sep} ${pickedName}` : 'Selected') : home ? 'Preview · the companion and Studio, in words' : 'Recent events · newest at the top';
     placed.push({ rect: layout.right, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'right', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.right, g) });
     regions.right = { rect: layout.right, list, items: [], scroll, fixed: 0, height: c.height, total: v.lines.length };
   } else if (layout.right) {
@@ -214,6 +224,15 @@ export function frameOf(a: FrameAsk): Frame {
   }
 
   return { screen: compose(layout, placed), layout, regions, tabs, pages, actions };
+}
+
+/** R10 (H167): what Enter does on a connection of Home's list, in words (the controller's activate does it): the companion's and
+ *  Studio's Show; a step the Workbench carries out; any other step shown to copy. */
+function connStepWords(conn: WorkspaceConnection): string | null {
+  if (conn.id === 'companion') return 'Companion · Show: opens the companion in your browser';
+  if (conn.id === 'studio') return 'Studio · Show: opens the canvas';
+  if (!conn.setup) return null;
+  return routeOf({ command: conn.setup }).words.replace(/^Enter /, '');
 }
 
 function overlayTitle(ui: Ui): string {

@@ -43,8 +43,8 @@ export interface Layout {
   tooSmall: boolean;
   /** row 1: TIMMY, the project and the tabs */
   tabs: Rect;
-  /** row 1's height: 3 (boxed labels) or 1 (a short terminal) */
-  tabRows: 1 | 3;
+  /** row 1's height: 2 (R10 H167: the status row, then the tabs) or 1 (a short terminal) */
+  tabRows: 1 | 2;
   /** row 2: the workflow actions (the region 'top') */
   top: Rect;
   /** whether row 2 has its detail row (the selected action, the run state and Stop): false on a short terminal, where the
@@ -71,7 +71,8 @@ export const WIDE = 120;
 export const MEDIUM = 100;
 export const MIN_COLUMNS = 60;
 export const MIN_ROWS = 16;
-/** From here row 1's tabs are boxed labels (3 rows); below, one row of keys with the active label. */
+/** From here the header is two rows (R10 H167: TIMMY, the project, the route and what runs and waits; then the tabs); below,
+ *  one row of keys with the active label. */
 export const TAB_BOX_ROWS = 30;
 /** The navigation drawer's width. */
 const NAV_W = 28;
@@ -79,6 +80,8 @@ const NAV_W = 28;
 const DRAWER_W = 40;
 /** below this the center gives way to an open drawer entirely */
 const CENTER_MIN = 30;
+/** R10 (H167): Home's and Chat's left column's share of the width (recent work, the conversation) */
+export const HUB_LEFT = 0.57;
 /** the Chat tab's pipeline row: its border, its boxes and its words */
 const STRIP_H = 4;
 
@@ -110,8 +113,9 @@ export function layoutFor(a: LayoutAsk): Layout {
   const mode = modeOf(columns);
   const body = a.body ?? 'workspace';
   const tooSmall = columns < MIN_COLUMNS || rows < MIN_ROWS;
-  // (under 30 rows the boxes give their two rows to the body: at 80x24 a workspace's list would show 9 rows, not 11)
-  const tabRows: 1 | 3 = rows >= TAB_BOX_ROWS ? 3 : 1;
+  // (under 30 rows the header gives its status row to the body: at 80x24 a workspace's list would show 10 rows, not 11; the
+  // route and what runs and waits are then said on row 2 and Activity's first row)
+  const tabRows: 1 | 2 = rows >= TAB_BOX_ROWS ? 2 : 1;
   const topDetail = rows >= 24;
   const topH = topDetail ? 4 : 3;
   const logLines = rows >= 40 ? 4 : rows >= 28 ? 3 : rows >= 20 ? 2 : 1;
@@ -147,8 +151,9 @@ export function layoutFor(a: LayoutAsk): Layout {
   };
   if (!nav) {
     if (body === 'hub' && !a.focusMode && columns >= MEDIUM) {
-      // Home and Chat: ≈48% | ≈52%; Context opened ([i]) takes the right column's place, as a drawer
-      split(columns - Math.round(columns * 0.48));
+      // Home and Chat: R10 (H167) ≈57% | ≈43%, the work (recent work, the conversation) the larger, as reference 02's direct
+      // column (58%); Context opened ([i]) takes the right column's place, as a drawer
+      split(columns - Math.round(columns * HUB_LEFT));
       rightAs = a.rightOpen ? 'drawer' : 'hub';
     } else if (contextIsColumn(columns, body, a.focusMode)) {
       // a workspace and Context beside it: the list keeps the room a row of it needs

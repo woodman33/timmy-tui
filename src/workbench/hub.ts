@@ -261,7 +261,7 @@ export function routeOf(a: Pick<WorkspaceAction, 'command'>): ActionRoute {
   if (k) return { kind: 'key', key: k.key, words: k.words };
   const w = BY_WORKSPACE[cmd];
   if (w) return { kind: 'workspace', ws: w.ws, words: w.words };
-  if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer' };
+  if (cmd === 'type in Chat, then Enter') return { kind: 'composer', words: 'Enter opens the composer in 2 Chat: type, then Enter sends' };
   // (while a turn runs the frame says where it stops, by the surface that sent it: src/ops/workspace-frame.ts turnStopCommand,
   // "Esc in the composer that sent it (the Workbench)", "Ctrl+C in the REPL that sent it", "Stop on the companion page …")
   // R5 (H131; the QA of e7f853e, item 16): and one sent elsewhere is asked to stop, by its id (src/agent/chat-turn.ts
@@ -365,6 +365,18 @@ export function actionsRow(acts: readonly WorkspaceAction[], sel: number, focuse
   return { line, hits };
 }
 
+/** R10 (H167): what Enter does, said short, for a row that has no room for the whole of it. */
+const SHORT_WORDS: Readonly<Partial<Record<ActionRoute['kind'], string>>> = {
+  model: 'Enter lists what Ollama has now; Enter on one chooses it',
+  'free-models': 'Enter lists the free models; Enter on one chooses it',
+  check: 'Enter checks the connections (free requests, no model called)',
+  setup: 'Enter shows what the setup asks (it runs in a shell)',
+  composer: 'Enter opens the composer',
+};
+
+/** R10 (H167): what an action touches, in words. */
+const EFFECT_WORDS: Readonly<Record<string, string>> = { read: 'reads only', network: 'asks over the network', 'local change': 'changes files on this computer', spend: 'can spend' };
+
 /** The selected action's words for the row below the buttons: what it is, and what Enter does or why it is not now. */
 export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POSITIVE_INFINITY): Line {
   if (!a) return [S('No action is selected.', 'secondary')];
@@ -374,23 +386,28 @@ export function actionWords(a: ActNow | undefined, g: Glyphs, width = Number.POS
   // the command first (the same on every surface), then what Enter does with it here, then what it touches. R5 (H131; the QA
   // round's defect 15): where the row is short, what it touches goes first, then Enter's words are said shorter, whole
   const sep = S(` ${g.sep} `, 'secondary');
-  // R7 (H150; H148's N3): an action done on another surface says where, and that Enter does not do it here
+  // R7 (H150; H148's N3): an action done on another surface says where, and that Enter does not do it here (R10 H167: and
+  // how it is done there, in its words, not a command)
   const away = awayOf(a);
   if (away) {
     const words = route.kind === 'abort' ? `done in ${away}, not here: Enter does not stop it; x asks you first` : `done in ${away}, not here: Enter does not do it`;
-    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(words, 'text')], [...head, S(`done in ${away}, not here`, 'text')]];
+    const forms: Line[] = [[...head, S(words, 'text'), sep, S(a.command, 'secondary')], [...head, S(words, 'text')], [...head, S(`done in ${away}, not here`, 'text')]];
     return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
   }
   if (a.note) {
-    const forms: Line[] = [[...head, S(a.command, 'text'), sep, S(a.note, 'text')], [...head, S(a.note, 'text')]];
+    const forms: Line[] = [[...head, S(a.note, 'text')]];
     return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
   }
-  const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : route.words;
+  // R10 (H167; the operator's review: "raw commands up front"): what Enter does, in words; the command itself is the
+  // inspector's ([i]) and the box Enter opens for a command to copy
+  const short = route.kind === 'show' ? `Enter shows it to copy (it runs in ${route.where}, not from here)` : route.kind === 'run' ? 'Enter opens its Run confirm' : SHORT_WORDS[route.kind] ?? route.words;
+  const effect = EFFECT_WORDS[a.effect] ?? a.effect;
   const forms: Line[] = [
-    [...head, S(a.command, 'action'), S(` ${g.sep} ${a.effect} ${g.sep} `, 'secondary'), S(route.words, 'text')],
-    [...head, S(a.command, 'action'), sep, S(route.words, 'text')],
-    [...head, S(a.command, 'action'), sep, S(short, 'text')],
-    [...head, S(a.command, 'action')],
+    ...(route.kind === 'composer' ? [] : [[...head, S(route.words, 'text'), S(` ${g.sep} ${effect}`, 'secondary')]]),
+    [...head, S(route.words, 'text')],
+    [...head, S(short, 'text')],
+    [S(short, 'text')],
+    head.slice(0, 1),
   ];
   return forms.find((f) => lineCells(f) <= width) ?? forms[forms.length - 1];
 }
@@ -668,6 +685,37 @@ export function turnEndWords(t: Pick<TurnRow, 'state' | 'surface' | 'stoppedBy'>
   return stopTableEndWords(t, 'workbench'); // R6 (H140): the one table's words, who asked always said ("by you" where the Workbench asked)
 }
 
+// ── plain words: ids and hashes said by what they are ──────────────────────────
+
+/**
+ * R10 (H167; the operator's review: "hashes, operation ids … up front"): a log's, an event's or a stage's words with its ids
+ * and hashes said by what they name: a job by its label, a receipt as sealed, an operation left out, a /run request as the run
+ * it asks for. The inspector ([i]) and tab 0 keep them whole.
+ */
+export function plainWords(words: string, data: Pick<Data, 'jobs'>): string {
+  // a job's id is its label, once: "j1 started: REPORT.md › report" is "started: REPORT.md › report", and "j1 report completed"
+  // is "REPORT.md › report: report completed"
+  let out = words.replace(/^(j[0-9a-f]{6})\b(.*)$/, (_m, id: string, rest: string) => {
+    const j = data.jobs.find((x) => x.id === id);
+    const label = j ? j.label : 'a job';
+    return rest.includes(label) ? rest.replace(/^[\s:]+/, '') : `${label}:${rest.startsWith(':') ? rest.slice(1) : rest}`;
+  }).replace(/\bj[0-9a-f]{6}\b/g, (id) => {
+    const j = data.jobs.find((x) => x.id === id);
+    return j ? j.label : 'a job';
+  });
+  out = out
+    .replace(/^\/run (\S+) (\S+)$/, 'run $1 › $2')
+    .replace(/\s*\((?:receipt )?[0-9a-f]{8}\)/g, '')
+    .replace(/\bsealed [0-9a-f]{8}\b/g, 'sealed')
+    .replace(/\s*·\s*receipt\s+[0-9a-f]{8}\b/g, ' · receipt sealed')
+    .replace(/\breceipt\s+[0-9a-f]{8}\b/g, 'receipt sealed')
+    .replace(/\s*·\s*operation\s+o[0-9a-f]{8}\b/g, '')
+    .replace(/\boperation\s+o[0-9a-f]{8}\b/g, 'its operation')
+    .replace(/\(o[0-9a-f]{8}\)/g, '')
+    .replace(/ {2,}/g, ' ');
+  return out.trim();
+}
+
 // ── Chat: the pipeline row and the event log ───────────────────────────────────
 
 const STAGES: ReadonlyArray<{ id: 'intent' | 'predict' | 'sandbox' | 'receipt'; name: string }> = [
@@ -699,7 +747,8 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
   // (what is left goes first to the receipt, then the intent, what ran it, and the prediction). R5 (H131; the QA of e7f853e,
   // defect 11): the receipt's words are kept whole first ("sealed fb72a565 · verified here" was cut to "verified…"), and the
   // other three share the rest (the request is the one cut first: the line under says the run it is)
-  const words = stages.map((x) => x.s.words);
+  // R10 (H167): each stage's words without its receipt's hash or its request's command (the inspector keeps them)
+  const words = stages.map((x) => plainWords(x.s.words, c.data));
   const room = width - fixed;
   const receiptRoom = Math.max(1, Math.min(lineCells([S(words[3])]), room - 3 * 12));
   const three = fillShares(words.slice(0, 3), room - receiptRoom, g, [2, 1, 0]);
@@ -714,7 +763,7 @@ export function pipelineLines(c: ViewCtx, width: number): Line[] {
     ? (p.live ? 'being answered now: its request as sent from here; its receipt is sealed once it is answered' : 'from its records: its request, a prediction if one was sealed, the turn, its receipt (verified here)')
     : 'from its records: the operation\'s request, its predict receipt, its job, its receipt (verified here)';
   const source: Line = p?.operation
-    ? [S(p.kind === 'chat' ? 'newest operation ' : 'newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} operation ${p.operation} ${g.sep} ${from}`, 'secondary')]
+    ? [S(p.kind === 'chat' ? 'newest operation ' : 'newest run ', 'secondary'), S(p.label ?? '', 'strong'), S(` ${g.sep} ${from}`, 'secondary')]
     : [S('Nothing has run in this project yet: each stage says not run yet. A run from 3 Workflows, or a message sent here, fills it as its records are written.', 'secondary')];
   return [row, source];
 }
@@ -730,11 +779,11 @@ function toneOf(e: WorkspaceLogEntry, g: Glyphs): { role: Role; mark: string } {
 }
 
 /** One log entry on one row: its time, its tag, its words (cut at the row's end). */
-export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs): Line {
+export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs, data?: Pick<Data, 'jobs'>): Line {
   const t = toneOf(e, g);
   const head: Seg[] = [S(`${clock(e.at)} `, 'secondary'), S(`[${e.tag}] `, 'secondary')];
   const room = Math.max(4, width - lineCells(head));
-  return [...head, S(cut(`${t.mark}${e.words}`, room, g.ellipsis), t.role)];
+  return [...head, S(cut(`${t.mark}${data ? plainWords(e.words, data) : e.words}`, room, g.ellipsis), t.role)];
 }
 
 const SURFACE_NAME: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
@@ -776,7 +825,7 @@ export function eventLogView(c: ViewCtx): View {
   }
   for (const j of live) {
     const where = sameFolder(j.root, data.project.root) ? '' : ` ${g.sep} in ${j.project}`;
-    lines.push([S(`  ${g.run} running `, 'text'), S(j.id, 'strong'), S(`  ${j.label}`, 'text'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
+    lines.push([S(`  ${g.run} running `, 'text'), S(j.label, 'strong'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
   }
   lines.push(blank, heading('Event log, newest at the top'));
   const log = eventsNow(data);
@@ -785,7 +834,7 @@ export function eventLogView(c: ViewCtx): View {
   for (const e of log) {
     const t = toneOf(e, g);
     const head = `${clock(e.at)} [${e.tag}] `;
-    const [first = '', ...more] = wrapText(`${t.mark}${e.words}`, Math.max(10, width - head.length), g.ellipsis);
+    const [first = '', ...more] = wrapText(`${t.mark}${plainWords(e.words, data)}`, Math.max(10, width - head.length), g.ellipsis);
     lines.push([S(clock(e.at), 'secondary'), S(` [${e.tag}] `, 'secondary'), S(first, t.role)]);
     for (const m of more) lines.push([S(' '.repeat(head.length)), S(m, t.role)]);
   }
@@ -801,11 +850,11 @@ export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: numb
   // R5 (H131; the QA round's defect 9): events in words; what a job printed is tab 0's (0 Logs & Receipts)
   const events = eventsNow(c.data);
   if (!events.length) return [[S('No event yet: no job has run in this project. [a] expands Activity (this Workbench\'s own notices too).', 'secondary')]];
-  return events.slice(0, n).map((e) => logLine(e, width, c.g));
+  return events.slice(0, n).map((e) => logLine(e, width, c.g, c.data));
 }
 
 /** The key-hint line: the keys that matter most first, each whole or left out. */
-export function hintLine(width: number, o: { tabs?: boolean } = {}): Line {
+export function hintLine(width: number, o: { tabs?: boolean; details?: boolean } = {}): Line {
   const h = (k: string, w: string, rank: number): { line: Line; rank: number } => ({ line: [key(k), S(` ${w}`, 'secondary')], rank });
   // R5 (H131; the QA round's defect 16): [?] keys is the last hint drawn and the last left out; on a narrow row the less
   // needed hints go first. R8 (H157; the R7 package's item E): in this one order of rank, each whole (pickRanked), so the
@@ -813,6 +862,7 @@ export function hintLine(width: number, o: { tabs?: boolean } = {}): Line {
   return pickRanked([
     ...(o.tabs === false ? [] : [h('1–0', 'tabs', 1)]),
     h('Enter', 'acts', 2), h('Tab', 'zones', 4), h('x', 'Stop', 3), h('c', 'Companion · Show', 5), h('s', 'Studio · Show', 6), h('a', 'log', 7),
-    h('/', 'find', 8), h(',', 'settings', 10), h('i', 'Context', 9), h('?', 'keys', 0),
+    // R10 (H167): on Home and Chat, i is the details (ids, receipts, addresses, the build), and is kept before the Show keys
+    h('/', 'find', 8), h(',', 'settings', 10), o.details ? h('i', 'details', 4.5) : h('i', 'Context', 9), h('?', 'keys', 0),
   ], width, S('  '));
 }
