@@ -40,6 +40,8 @@
 // and tldraw's classes, so the rules below run in Node's tests too.
 import { isTimmyArrow, OPERATION_ID, operationLine, placementKey, placementPlan, placementWords, PLACEMENTS, readPlacement, removalWords, ROW_GAP, rowLayout } from './operations.js';
 import { clockOf } from './when.js';
+// R10 (H167): a card's title in words (a file by its name, no id); its whole title is the title's tip
+import { faceTitle } from './face.js';
 
 // R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
 // agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
@@ -1011,7 +1013,9 @@ export function createCards(deps) {
    */
   function opFace(op) {
     if (!op || typeof op !== 'object') return null;
-    if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op' }, 'operation ', h('code', { className: 'tc-op-id' }, op.id));
+    // R10 (H167; the round's rule: ids behind a details control): the operation in words, its state as its record says; its id is
+    // the line's tip and in the card's Details (opRows: the id, its request, its state and /op), beside Run detail
+    if (typeof op.id === 'string' && op.id) return h('p', { className: 'tc-op', title: `operation ${op.id}` }, `its operation ${one(op.state) || 'is recorded'}`);
     return h('p', { className: 'tc-op tc-op-none' }, operationLine(null, op.from));
   }
 
@@ -1068,7 +1072,8 @@ export function createCards(deps) {
     return h(HTMLContainer, { className: `tc tc-${type}`, 'data-timmy-card': shape.id, style: { width: p.w, height: p.h, pointerEvents: 'all' } },
       h('div', { ref, className: 'tc-inner', role: 'group', 'aria-label': `${type} card: ${p.title}` },
         h('div', { className: 'tc-head' },
-          h('strong', { className: 'tc-title' }, p.title || p.card),
+          // (R10 H167: in words; the record's whole title, with its places and ids, is the title's tip)
+          h('strong', { className: 'tc-title', title: p.title || p.card }, faceTitle(p.title) || p.title || p.card),
           span(`tc-badge tc-${mode.badge}`, mode.badge)),
         h('p', { className: `tc-mode${mode.executable ? ' tc-mode-on' : ''}` }, mode.words),
         // R4 (H100): the operation its record names (none on a withheld card: its words say how to read it)

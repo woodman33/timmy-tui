@@ -159,13 +159,19 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     // R6 (H143): the companion's tab 5 draws the record (c); no Timmy surface draws depth or voxels; Rerun's viewer shows its files
     expect(flat(f, 'center')).toContain(`No Timmy surface draws depth or voxels (no adapter here). Rerun's own viewer shows its files, where it is installed (/vox view ${r.vox}).`);
     expect(flat(f, 'center')).toContain("this record's image with what was measured over it, its frames and its mesh views (tab 5)");
-    // [i]: Context as a drawer, its Inspector with the record in full; [i] again closes it
+    // [i]: Context as a drawer, its Inspector with the record in full; [i] again closes it. R10 (H167, 468dd4ef): and gives the
+    // keyboard back to the zone that had it before [i]
+    const had = c.ui.focus;
+    // (a tab opens with the keyboard on its workflow actions, not on its list)
+    expect(had).toBe('top');
     c.key('i', {});
+    expect(c.ui.focus).toBe('right');
     f = c.frame(160, 45);
     expect(text(f, 'right')).toContain(`RECORD ${r.vox}`);
     expect(flat(f, 'right')).toMatch(/TOOLS · 1 stl: timmy-stl-readback\/\d+ · in Timmy's process/);
     c.key('i', {});
     expect(c.frame(160, 45).regions.right).toBeFalsy();
+    expect(c.ui.focus).toBe(had);
     // VoxVision has one workspace (src/contracts/workspace.ts TABS): 5 again keeps it
     c.key('5', {});
     expect(c.ui.workspace).toBe('voxvision');
@@ -173,6 +179,12 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     c.key('9', {});
     expect([c.ui.page, c.ui.workspace]).toEqual(['tools', 'tools']);
     expect(c.data.toolsTab?.calls.map((x) => x.read.record.id)).toEqual([r.call]);
+    // R10 (H167, 468dd4ef): the list has the keyboard only once Tab gives it (the drawer gave it back to the zone before): until
+    // then the hint says so; then the search's key
+    expect(c.ui.focus).toBe('top');
+    expect(text(c.frame(160, 45), 'center')).toMatch(/^ Search the tools: Tab to this list, then \//);
+    for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) c.key('', { tab: true });
+    expect(c.ui.focus).toBe('center');
     f = c.frame(160, 45);
     expect(f.regions.right).toBeFalsy();
     const tools = text(f, 'center');

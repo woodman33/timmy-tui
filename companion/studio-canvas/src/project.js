@@ -15,9 +15,14 @@
 // for this browser), and an operation's group has "Place this operation" (./cards.js placeOperation), which places its
 // workflow, flow and result cards at once, left to right in the order they ran, linked.
 //
-// Nothing here imports anything but ./operations.js (pure rules): canvas.js hands in tldraw's helpers, so this file's pure
-// part runs in Node's tests too.
+// Nothing here imports anything but ./operations.js (pure rules) and (R10 H167) ./face.js (the face's words): canvas.js hands
+// in tldraw's helpers, so this file's pure part runs in Node's tests too.
+//
+// R10 (H167; the round's rule: ids, paths and raw commands in a secondary inspector or details control): a row says its card in
+// words (its title and state, its record by its file's name) beside its actions; its record's place, its receipt, its
+// operation and its command (with Copy) are under the row's Details.
 import { groupByOperation, OPERATION_ID, operationLine } from './operations.js';
+import { FACE_ID, faceTitle, faceWords, fileName } from './face.js';
 
 /** The kinds of card, in the order the panel shows them (the editable artifacts first), with the heading of each. */
 export const GROUPS = [
@@ -345,10 +350,17 @@ export function createProjectPanel(deps) {
   function row(card, board, withOp = true) {
     const li = el('li', undefined, { className: 'pcard' });
     li.dataset.card = card.id;
-    li.append(el('div', card.title, { className: 'pcard-title' }), el('div', card.state, { className: 'pcard-state' }));
+    const title = faceTitle(card.title) || String(card.title ?? '');
+    li.append(el('div', title, { className: 'pcard-title', title: title !== card.title ? String(card.title ?? '') : '' }), el('div', faceWords(card.state), { className: 'pcard-state' }));
+    // its record by its file's name on the face; the record's place, its receipt, its operation and its command under Details
+    // (a record whose file is named by an id, a flow's or an operation's, is said by its place under Details only)
+    if (card.record && !FACE_ID.test(fileName(card.record))) li.append(el('div', `record ${fileName(card.record)}`, { className: 'pcard-file' }));
+    const more = el('details', undefined, { className: 'pcard-more' });
+    more.append(el('summary', 'Details'), ' ');
     const behind = [card.record ? `record ${card.record}` : '', card.receipt ? `receipt ${card.receipt}` : ''].filter(Boolean).join(' · ');
-    if (behind) li.append(el('div', behind, { className: 'pcard-behind' }));
-    if (withOp) li.append(el('div', operationLine(opOf(card), card.operationFrom), { className: opOf(card) ? 'pcard-op' : 'pcard-op pcard-op-none' }));
+    if (behind) more.append(el('div', behind, { className: 'pcard-behind' }));
+    if (withOp) more.append(el('div', operationLine(opOf(card), card.operationFrom), { className: opOf(card) ? 'pcard-op' : 'pcard-op pcard-op-none' }));
+    if (title !== card.title || faceWords(card.state) !== card.state) more.append(el('div', [card.title, card.state].filter(Boolean).join(' · '), { className: 'pcard-said' }));
     const cmd = el('button', undefined, { type: 'button', className: 'pcard-cmd', title: 'Copy this command, then paste it into Timmy' });
     cmd.append(el('code', card.command));
     cmd.addEventListener('click', () => {
@@ -374,7 +386,9 @@ export function createProjectPanel(deps) {
     const href = boardHref(board, card);
     // R4 (H60): the new tab asks a board tab already open for the token (the board's own handoff); this page never holds it.
     if (href) acts.append(el('a', 'Open on the board', { className: 'pcard-board', href, target: '_blank', rel: 'noopener noreferrer', title: 'The live board on this machine (/board live); a tab of it you already have open gives the new tab its token' }));
-    li.append(cmd, acts);
+    more.append(el('div', 'its command, for Timmy (Copy copies it):', { className: 'pcard-cmd-k' }), cmd);
+    acts.append(more);
+    li.append(acts);
     return li;
   }
 

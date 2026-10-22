@@ -131,7 +131,9 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
       expect(await text(page, `${at} .tc-build`)).toBe('Its build: recipe job abcd1234 succeeded, predicted 150 x 80 x 30 mm, its readback matches');
       // a record: no Save, no Rebuild, no field to type in
       expect(await page.locator(`${at} [data-tc-act], ${at} input, ${at} select`).count()).toBe(0);
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
 
       // the file's own card (Place card in the list) shows today's 160
       await page.click('#project-by button[data-by="kind"]');

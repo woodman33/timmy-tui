@@ -355,7 +355,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
         header: { project: 'switching to blank…', acts: 0 },
         panel: { name: 'switching to blank…', cards: 0 },
         jobs: ['Switching to blank: its canvas jobs show once its board is loaded.'],
-        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · job turn-tray-draft · from revision \d+$/), project: tray.id, buttons: [off('Move it to free space'), off('Show'), off('Accept'), off('Discard')] }] },
+        drafts: { count: "1 of tray's, on hold", why, edge: 'rgb(68, 68, 68)', rows: [{ line: expect.stringMatching(/^tray's draft · DRAFT · proposed by Timmy · 3 shapes · from revision \d+$/), project: tray.id, buttons: [off('Move it to free space'), off('Show'), off('Accept'), off('Discard')] }] },
         save: why,
         open: true,
       });
@@ -578,7 +578,7 @@ describe.skipIf(!browserPath)('Studio project isolation: two projects, pending d
       // Accept, a person's click, on blank's first draft: blank's board and blank's record; tray's files as they were
       const first = (await drafts(page)).find((d) => d.job === 'turn-blank-draft')!;
       await page.click(`#draft-list li[data-draft="${first.id}"] .draft-accept`);
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(3 shapes, job turn-blank-draft\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(3 shapes\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       const records = saved(blank).drafts().filter((r) => r.draft === first.id);
       expect(records.map((r) => [r.event, r.project])).toEqual([['proposed', blank.id], ['accepted', blank.id]]);
       expect(saved(tray).drafts().some((r) => r.draft === first.id)).toBe(false);

@@ -81,7 +81,11 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it('loads nothing from any host but 127.0.0.1, and says it is ready, saved', async () => {
     const { page, context, origins, errors } = await open();
     expect([...origins]).toEqual([base]);
-    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · ● Timmy connected · revision 0, saved$/);
+    // R10 (H167; the round's rule: diagnostics in a details control): the line says the canvas's state; tldraw's version and its
+    // license's verdict are the canvas's Details, under the save line (closed at first), beside the folder Timmy saves the board in
+    expect(await page.textContent('#status')).toBe('Canvas ready · ● Timmy connected · revision 0, saved');
+    expect(await page.textContent('#side-about-canvas')).toMatch(/^tldraw 5\.5\.2 · .+$/);
+    expect(await page.$eval('#side-about', (d) => (d as HTMLDetailsElement).open)).toBe(false);
     // R5 (H137; QA defect 26): the bar beside the line is neutral (its facts are not live observations); only "● Timmy connected",
     // the bridge's socket open now, is green, and only that part
     const look = await page.evaluate(() => {
@@ -101,9 +105,13 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     const { page, context } = await open();
     try {
       await page.waitForSelector('#guide:not([hidden])');
-      // R6 (H139): the project's own board, in its own folder of the canvas folder
+      // R6 (H139): the project's own board, in its own folder of the canvas folder. R10 (H167; the round's rule: no path on the
+      // face outside the inspector): the guide says where in words, and the folder itself is in the panel's Details
       expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas', 'projects', projectId(join(home, 'project'))));
+      expect(await page.$eval('#guide-dir', (e) => !!e.closest('#side-about'))).toBe(true);
+      expect(await page.locator('#guide').textContent()).toContain('Timmy saves it for this project, in its home (the panel\'s Details say where), so it reopens where you left it.');
       expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
+      expect(await page.locator('#guide').textContent()).not.toContain(home);
       // R5 (H137; QA defect 13): its heading is off-white (amber is focus and the one next step), and New board's Open is outlined:
       // no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's selection)
       const look = await page.evaluate(() => ({
@@ -185,12 +193,17 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(ra.time.datetime).toBe(a.at);
         // R5 (H137; the QA round, defect 6): the one time format, this computer's 24-hour clock (the date too on another day)
         expect(ra.time.text).toMatch(/^(\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d$/);
-        expect(ra.canvas).toBe(`Canvas job ${tag}-a, rev ${a.revision}`);
-        expect(rb.canvas).toBe(`Canvas job ${tag}-b, rev ${b.revision}`);
-        expect(ra.receipt).toBe('Receipt a1b2c3d4');
+        // R10 (H167; the round's rule: ids behind a details control): the job by the revision it left and what it drew, its
+        // receipt by its page; the job's id and its receipt's are under the row's Details (closed at first)
+        expect(ra.canvas).toBe(`Canvas revision ${a.revision}: select what it drew`);
+        expect(rb.canvas).toBe(`Canvas revision ${b.revision}: select what it drew`);
+        expect(ra.receipt).toBe('Receipt open its page');
         expect(ra.receiptHref).toBe('/receipts/a1b2c3d4');
         expect(rb.receipt).toBe('Receipt not linked yet');
         expect(rb.receiptHref).toBeNull();
+        const more = (id: string) => page.$eval(`#job-list li[data-job="${id}"] .job-more`, (d) => ({ open: (d as HTMLDetailsElement).open, words: d.textContent }));
+        expect(await more(`${tag}-a`)).toEqual({ open: false, words: `Details job ${tag}-a · receipt a1b2c3d4` });
+        expect(await more(`${tag}-b`)).toEqual({ open: false, words: `Details job ${tag}-b` });
         // Readable: nothing clipped or sideways, the panel inside the screen and clear of tldraw's toolbar, text at 12px or more.
         // R5 (H137): the toolbar as drawn (its inner part: .tlui-main-toolbar is a full-width container that draws nothing at the
         // left), and the navigation panel at the bottom left: the panel now reaches down to whichever is under it, never over it
@@ -231,7 +244,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       expect((await post('/api/canvas/exec', { code: 'return 1;', jobId: 'draws-nothing' })).ok).toBe(true);
       await page.waitForSelector('#job-list li[data-job="draws-nothing"]', { timeout: 10_000 });
       await page.click('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"] button');
-      await page.waitForFunction(() => /draws-nothing[\s\S]*no shapes of this job on this page/i.test(document.getElementById('job-list')!.textContent ?? ''));
+      await page.waitForFunction(() => /no shapes of this job on this page/i.test(document.querySelector('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"]')?.textContent ?? ''));
     } finally {
       await context.close();
     }

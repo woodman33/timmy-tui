@@ -90,7 +90,10 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       // (B10, B4), and its label says so in words
       expect(look).toEqual({ style: 'dashed', color: 'rgb(232, 228, 217)', label: 'DRAFT · proposed by Timmy', labelColor: 'rgb(232, 228, 217)', events: 'none' });
       await page.waitForSelector('#drafts:not([hidden])');
-      expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · job draft-accept · from revision \d+$/);
+      expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-line`)).toMatch(/^DRAFT · proposed by Timmy · 2 shapes · from revision \d+$/);
+      // R10 (H167): the job that proposed it, by its id, under the draft's Details
+      expect(await page.textContent(`#draft-list li[data-draft="${id}"] .draft-more`)).toBe('Details proposed by job draft-accept');
+      expect(await page.$eval(`#draft-list li[data-draft="${id}"] .draft-more`, (d) => (d as HTMLDetailsElement).open)).toBe(false);
       expect(await page.locator(`#draft-list li[data-draft="${id}"] button`).allTextContents()).toEqual(['Show', 'Accept', 'Discard']);
       // R5 (H137; QA defect 13): one amber next step on screen (B10): no fill of the page's own is amber (tldraw's own chrome, its
       // selected tool, is tldraw's selection), New board's Open is outlined, and the drafts' heading is off-white. R6 (H139): the
@@ -134,7 +137,7 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       const focus = await page.evaluate(() => { const el = document.activeElement as HTMLElement; const s = getComputedStyle(el); return { text: el.textContent, outline: `${s.outlineStyle} ${s.outlineColor}`, visible: el.matches(':focus-visible') }; });
       expect(focus).toEqual({ text: 'Accept', outline: 'solid rgb(255, 176, 0)', visible: true });
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes, job draft-accept\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Accepted Timmy's draft \(2 shapes\): kept on the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       await savedState(page);
       // the shapes stay, unmarked, saying who proposed them; the outline and the row are gone
       for (const s of [a, b]) {
@@ -172,7 +175,7 @@ describe.skipIf(!browserPath)('drafts in Timmy Canvas, in a real browser', () =>
       const mine = await page.evaluate((f) => { const e = (window as never as Win).timmyCanvas.editor; const id = `shape:mine-${Date.now()}`; e.createShape({ id, type: 'geo', parentId: f, x: 180, y: 120, props: { w: 60, h: 40 } }); return id; }, frame);
       expect((await page.evaluate((x) => (window as never as Win).timmyCanvas.editor.getShape(x)!.meta, mine)).timmyDraft).toBeUndefined();
       await page.click(`#draft-list li[data-draft="${drawn.draft!.id}"] .draft-discard`);
-      await page.waitForFunction(() => /^Discarded Timmy's draft \(2 shapes, job draft-discard\): removed from the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
+      await page.waitForFunction(() => /^Discarded Timmy's draft \(2 shapes\): removed from the board; saved at revision \d+ and recorded\. No tool or job ran\.$/.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
       await savedState(page);
       const left = await page.evaluate((ids) => ids.map((x) => { const s = (window as never as Win).timmyCanvas.editor.getShape(x); return s ? { id: s.id, parent: s.parentId } : null; }), [frame, child, mine]);
       expect(left[0]).toBeNull();

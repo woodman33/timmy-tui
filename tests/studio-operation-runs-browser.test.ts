@@ -112,7 +112,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       // its run is the newest now: said as its own run, with no "now" line
       await waitText(page, `${at} .tc-last`, new RegExp(`^Run of operation ${X} \\(build\\): completed`));
       expect(await page.locator(`${at} .tc-now-run`).count()).toBe(0);
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
 
       // Y runs RUN.md › build again (its own record, a job started inside it): the newest run is Y's now
       writeOperation(p, { id: Y, request: '/run RUN.md build' });
@@ -122,7 +124,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       await waitText(page, `${at} .tc-now-run`, new RegExp(`^now: the newest run of RUN\\.md \\(build\\) is completed, by operation ${Y}$`));
       // X's card still says X's run, and names X: never Y's run in its place
       expect(await text(page, `${at} .tc-last`)).toMatch(new RegExp(`^Run of operation ${X} \\(build\\): completed`));
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
       await page.click(`${at} .tc-toggle`);
       await waitText(page, `${at} .tc-details`, new RegExp(`run of operation ${X}job ${x.job.id}`));
       expect(await text(page, `${at} .tc-details`)).toContain(`newest runjob ${y.id}`);
@@ -139,7 +143,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: a workflow card placed for an opera
       const plain = await page.evaluate(() => (window as never as Win).timmyCanvas.editor.store.allRecords()
         .find((r) => r.typeName === 'shape' && r.type === 'timmy-workflow' && !r.meta?.timmyOperation)?.id);
       await waitText(page, `[data-timmy-card="${plain}"] .tc-last`, /^Newest run \(build\): completed/);
-      expect(await text(page, `[data-timmy-card="${plain}"] .tc-op`)).toBe(`operation ${Y}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `[data-timmy-card="${plain}"] .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`[data-timmy-card="${plain}"] .tc-op`, 'title')).toBe(`operation ${Y}`);
       expect(await page.locator(`[data-timmy-card="${plain}"] .tc-now-run`).count()).toBe(0);
       if (process.env.TIMMY_CANVAS_SHOTS) await page.screenshot({ path: join(process.env.TIMMY_CANVAS_SHOTS, 'operation-runs-1440x900.png') });
       expect([...origins].every((o) => o === base)).toBe(true);

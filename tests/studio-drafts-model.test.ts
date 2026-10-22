@@ -39,7 +39,8 @@ describe('a draft mark', () => {
       { id: D1, job: 'turn-1', from: 3, at: '2026-10-15T20:00:00.000Z', shapes: ['shape:a', 'shape:b'], pages: ['page:p1', 'page:p2'], assets: ['asset:img'] },
       { id: D2, job: 'turn-2', from: 5, at: '2026-10-15T21:00:00.000Z', shapes: ['shape:frame', 'shape:inside'], pages: ['page:p1'], assets: [] },
     ]);
-    expect(draftLine(pendingDrafts(records)[0])).toBe(`${DRAFT_LABEL} · 2 shapes · job turn-1 · from revision 3`);
+    // R10 (H167): the job's id is under the draft's Details, not on its line
+    expect(draftLine(pendingDrafts(records)[0])).toBe(`${DRAFT_LABEL} · 2 shapes · from revision 3`);
     expect(DRAFT_LABEL).toBe('DRAFT · proposed by Timmy');
   });
 });
@@ -124,7 +125,7 @@ describe('Accept and Discard', () => {
   });
   it('says what was decided, that nothing ran, and whether its save is on disk yet', () => {
     const d = { shapes: ['a', 'b'], job: 'turn-1' };
-    expect(decisionWords('accepted', d, { revision: 12 })).toBe("Accepted Timmy's draft (2 shapes, job turn-1): kept on the board; saved at revision 12 and recorded. No tool or job ran.");
+    expect(decisionWords('accepted', d, { revision: 12 })).toBe("Accepted Timmy's draft (2 shapes): kept on the board; saved at revision 12 and recorded. No tool or job ran.");
     expect(decisionWords('discarded', { count: 1, job: null }, null)).toBe("Discarded Timmy's draft (1 shape): removed from the board; not saved yet (the save line says why). No tool or job ran.");
   });
 });

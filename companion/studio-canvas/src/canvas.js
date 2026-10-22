@@ -238,8 +238,12 @@ function showStatus(editor) {
   // the live mark; the version, the license and the save are facts, not live observations
   // R6 (H139): while Studio switches boards (or cannot show the project the canvas shows), the line says that, not a revision
   const blocked = identity.project === null && identity.switching === null ? null : blockedWords(identity);
+  // R10 (H167; the round's rule: diagnostics in a details control): tldraw's version and its license's verdict are the canvas's
+  // Details (#side-about, under the save line), beside the folder Timmy saves the board in; the line says the canvas's state
+  const about = document.getElementById('side-about-canvas');
+  if (about) about.textContent = `tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`}`;
   const text = [
-    `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · `,
+    `${canvas.notice ? `${canvas.notice} ` : ''}Canvas ready · `,
     bridgeState.linked ? { live: 'Timmy connected' } : 'Timmy not connected',
     ` · ${blocked && identity.blocked() ? (identity.switching ? switchingTo(identity.switching) : 'no board shown') : savedWords(saveState(canvas))}`,
   ];
@@ -791,7 +795,8 @@ function showJobs(editor) {
     if (job.waiting) head.append(el('span', job.waiting, { className: 'job-waiting' }));
     const canvasRow = el('div', undefined, { className: 'job-row' });
     canvasRow.dataset.row = 'Canvas';
-    const show = el('button', `job ${job.id}${Number.isInteger(job.revision) ? `, rev ${job.revision}` : ''}`, { type: 'button', className: 'job-show', title: 'Select what this job drew' });
+    // R10 (H167; the round's rule: ids behind a details control): the job by what it left, its id under the row's Details
+    const show = el('button', `${Number.isInteger(job.revision) ? `revision ${job.revision}: ` : ''}select what it drew`, { type: 'button', className: 'job-show', title: 'Select what this job drew' });
     show.addEventListener('click', () => current && showJob(current, job.id));
     canvasRow.append(el('span', 'Canvas', { className: 'k' }), ' ', show);
     const note = b.jobNotes.get(job.id);
@@ -801,8 +806,12 @@ function showJobs(editor) {
     receiptRow.append(
       el('span', 'Receipt', { className: 'k' }),
       ' ',
-      job.receipt ? el('a', job.receipt, { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener' }) : el('span', 'not linked yet'),
+      job.receipt ? el('a', 'open its page', { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener', title: "Opens this job's receipt (Studio's receipt page) in a new tab" }) : el('span', 'not linked yet'),
     );
+    // (the ids under Details, at the head row's end: opened, they take a line of their own)
+    const more = el('details', undefined, { className: 'job-more' });
+    more.append(el('summary', 'Details'), ' ', el('span', `job ${job.id}${job.receipt ? ` · receipt ${job.receipt}` : ''}`, { className: 'job-ids' }));
+    head.append(more);
     li.append(head, canvasRow, receiptRow);
     return li;
   });
@@ -915,6 +924,12 @@ function showDrafts(editor) {
     accept.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'accepted'); });
     discard.addEventListener('click', (e) => { if (e.isTrusted === true) decide(d.id, 'discarded'); });
     acts.append(show, accept, discard);
+    // R10 (H167): the job that proposed it, by its id, under the card's Details (the line says the draft in words)
+    if (d.job) {
+      const more = el('details', undefined, { className: 'draft-more' });
+      more.append(el('summary', 'Details'), ' ', el('span', `proposed by job ${d.job}`, { className: 'draft-ids' }));
+      acts.append(more);
+    }
     li.append(acts);
     return li;
   }));
@@ -1277,6 +1292,9 @@ function watchSide() {
     const b = side.getBoundingClientRect();
     const right = `${b.width > 0 ? Math.ceil(b.right) : 0}px`;
     if (document.documentElement.style.getPropertyValue('--side-right') !== right) document.documentElement.style.setProperty('--side-right', right);
+    // R10 (H167): and its foot (--side-bottom): on a phone the guide sits under the panel (index.html), there being no room beside it
+    const bottom = `${b.height > 0 ? Math.ceil(b.bottom) : 0}px`;
+    if (document.documentElement.style.getPropertyValue('--side-bottom') !== bottom) document.documentElement.style.setProperty('--side-bottom', bottom);
   };
   set();
   if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(side);

@@ -58,10 +58,11 @@ describe('the artifact card\'s rules (R6 H145)', () => {
   });
 
   it('a receipt is green only when it verifies now; one that does not verify is said with ✕; outputs are what a run made', () => {
-    expect(receiptMark({ short: '1a2b3c4d', verified: true, words: 'sealed and verified now' })).toEqual({ tone: 'verified', text: '✓ sealed and verified · receipt 1a2b3c4d' });
-    expect(receiptMark({ short: '1a2b3c4d', verified: false, words: 'receipt 1a2b3c4d does not verify now: its signature does not verify' })).toEqual({ tone: 'failed', text: '✕ receipt 1a2b3c4d does not verify now: its signature does not verify' });
-    expect(receiptMark({ short: '', verified: false, words: 'not sealed: no vox receipt of this project names this record' })).toEqual({ tone: 'none', text: 'not sealed: no vox receipt of this project names this record' });
-    expect(receiptMark(null)).toEqual({ tone: 'none', text: 'no receipt read' });
+    // R10 (H167; the round's rule: ids behind a details control): the mark in words, the receipt's id beside it for its Details
+    expect(receiptMark({ short: '1a2b3c4d', verified: true, words: 'sealed and verified now' })).toEqual({ tone: 'verified', text: '✓ sealed and verified', id: '1a2b3c4d' });
+    expect(receiptMark({ short: '1a2b3c4d', verified: false, words: 'receipt 1a2b3c4d does not verify now: its signature does not verify' })).toEqual({ tone: 'failed', text: '✕ its receipt does not verify now: its signature does not verify', id: '1a2b3c4d' });
+    expect(receiptMark({ short: '', verified: false, words: 'not sealed: no vox receipt of this project names this record' })).toEqual({ tone: 'none', text: 'not sealed: no vox receipt of this project names this record', id: '' });
+    expect(receiptMark(null)).toEqual({ tone: 'none', text: 'no receipt read', id: '' });
     const files = [{ path: './BUILD.md', role: 'input' }, { path: './out/a.stl', role: 'output' }, { path: './out/log', role: 'log' }, { path: './r.json', role: 'record' }];
     expect(runOutputs({ files }).outputs.map((f) => f.path)).toEqual(['./out/a.stl', './out/log']);
   });

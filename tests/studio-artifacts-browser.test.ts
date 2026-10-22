@@ -258,7 +258,9 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       await row.waitFor({ timeout: 15_000 });
       expect(await row.getAttribute('data-project')).toBe(tray.id);
       expect(await page.locator(`#artifact-list li[data-artifact="vox:${blankVox}"]`).count()).toBe(0);
-      expect((await row.textContent()) ?? '').toMatch(/VoxVision record\s*detect refs\/photo\.png\s*FAKE/);
+      // (R10 H167: in words, the file by its name; the record's whole title, its place included, under the item's Details)
+      expect((await row.textContent()) ?? '').toMatch(/VoxVision record\s*detect photo\.png\s*FAKE/);
+      expect(await row.locator('.aitem-more').textContent()).toContain('detect refs/photo.png');
       // Place on the board: the card shows the artifact
       await row.locator('button.aitem-place').click();
       const card = page.locator(`[data-artifact="vox:${trayVox}"].ta`);
@@ -272,8 +274,10 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       expect(await text(page, `[data-artifact="vox:${trayVox}"] .ta-fake`)).toBe('FAKE');
       expect(await text(page, `[data-artifact="vox:${trayVox}"] .ta-fake-words`)).toBe('FAKE: made by a test double (timmy-look fake), not by the real tool');
       // its receipt: green only because it verifies now
+      // (R10 H167: in words on the card; the receipt's id is its tip)
       const receipt = card.locator('.ta-receipt');
-      expect(await receipt.textContent()).toMatch(/^✓ sealed and verified · receipt [0-9a-f]{8}$/);
+      expect(await receipt.textContent()).toBe('✓ sealed and verified');
+      expect(await receipt.getAttribute('title')).toMatch(/^receipt [0-9a-f]{8}$/);
       expect(await receipt.evaluate((e) => getComputedStyle(e).color)).toBe('rgb(40, 254, 20)');
       await savedState(page);
       await capture(page, '01-tray-vox-artifact-card');
@@ -286,7 +290,7 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       await page.waitForFunction(() => document.querySelectorAll('#artifact-preview-images img[data-ta-image]').length === 2, null, { timeout: 15_000 });
       expect(await page.locator('#artifact-preview-images img[data-ta-image]').evaluateAll((l) => l.map((e) => e.getAttribute('data-ta-image')))).toEqual(['refs/photo.png', `results/vox/${trayVox}/annotated.png`]);
       expect(await page.locator('#artifact-preview-images figure').first().locator('svg.ta-overlay > *').count()).toBe(3);
-      expect(await text(page, '#artifact-preview-body .ap-receipt')).toMatch(/^✓ sealed and verified · receipt [0-9a-f]{8}$/);
+      expect(await text(page, '#artifact-preview-body .ap-receipt')).toBe('✓ sealed and verified');
       expect(await text(page, '#artifact-preview-body .ap-companion')).toBe(`The companion's tab 5 shows this record in full (its entity tree, frames, pipeline and engines): in the Workbench, 5, select ${trayVox}, then c.`);
       expect(await text(page, '#artifact-preview-body code.rd-cmd')).toBe(`/open results/vox/${trayVox}.json`);
       await capture(page, '02-tray-vox-preview');
@@ -310,7 +314,8 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       await receiptRow.locator('button.aitem-place').click();
       const rc = page.locator(`[data-artifact="receipt:${rid}"].ta`);
       await rc.waitFor({ timeout: 15_000 });
-      expect(await rc.locator('.ta-receipt').textContent()).toBe(`✓ sealed and verified · receipt ${rid}`);
+      expect(await rc.locator('.ta-receipt').textContent()).toBe('✓ sealed and verified');
+      expect(await rc.locator('.ta-receipt').getAttribute('title')).toBe(`receipt ${rid}`);
       const [popup] = await Promise.all([s.context.waitForEvent('page'), rc.locator('button.ta-open').click()]);
       await popup.waitForLoadState();
       expect(new URL(popup.url()).pathname).toBe(`/receipts/${rid}`);
@@ -344,14 +349,20 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       // a placement whose reading is held until the switch to blank has begun
       let release: () => void = () => {};
       const gate = new Promise<void>((done) => { release = done; });
+      let taken = false;
       let seen = false;
       let routed = 0;
       const holdIt = async (route: Route): Promise<void> => {
         routed += 1;
         const u = new URL(route.request().url());
-        if (seen || u.pathname !== '/api/project/artifacts') { await route.fallback(); return; }
-        seen = true;
+        if (taken || u.pathname !== '/api/project/artifacts') { await route.fallback(); return; }
+        taken = true;
+        // R10 (H167; it failed once in a whole studio run at 2 workers, the kept note missing): the reading is answered for tray
+        // before the switch begins (`seen` once it is answered), then held. `seen` had been set before the request reached the
+        // server, so on a loaded computer the switch could come first, the server answered for blank, and the page dropped the
+        // reading without a note (there was no reading of tray's to note)
         const answered = await route.fetch();
+        seen = true;
         await gate;
         await route.fulfill({ response: answered });
       };
