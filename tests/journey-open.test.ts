@@ -34,6 +34,9 @@ describe('openTarget: where each kind opens', () => {
     expect(openTarget({ kind: 'turn', id: '0a1b2c3d' })).toMatchObject({ tab: 'chat', select: { name: 'receipt', value: '0a1b2c3d' }, query: 'tab=chat&receipt=0a1b2c3d' });
     expect(openTarget({ kind: 'receipt', id: '0a1b2c3d' })).toMatchObject({ tab: 'logs', select: { name: 'receipt', value: '0a1b2c3d' }, query: 'tab=logs&receipt=0a1b2c3d' });
     expect(openTarget({ kind: 'observation', id: 'v1a2b3c4d' })).toMatchObject({ tab: 'voxvision', select: { name: 'vox', value: 'v1a2b3c4d' }, query: 'tab=voxvision&vox=v1a2b3c4d' });
+    // a turn being answered has no receipt yet: Chat at the turn itself (its hold's id, as the workspace frame names it)
+    expect(openTarget({ kind: 'turn', id: 't4242-0a1b2c3d' })).toMatchObject({ tab: 'chat', select: { name: 'turn', value: 't4242-0a1b2c3d' }, query: 'tab=chat&turn=t4242-0a1b2c3d', words: 'the companion\'s Chat & Intent tab, at the turn being answered' });
+    expect(askedOf('?tab=chat&turn=t4242-0a1b2c3d')).toEqual({ tab: 'chat', select: { name: 'turn', value: 't4242-0a1b2c3d' }, problems: [] });
   });
 
   it('an image or a reference: the companion\'s preview (file=<its path as hex>), with what kind of preview it takes', () => {

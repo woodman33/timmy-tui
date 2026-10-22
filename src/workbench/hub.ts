@@ -587,8 +587,9 @@ export function previewView(c: ViewCtx): View {
   const own = (gr: (typeof data.files.groups)[number]): number => gr.files.filter((f) => !TIMMY_LOGS.has(f.rel)).length;
   const logs = data.files.timmyLogs ?? 0;
   const projectFiles = data.files.total - logs;
-  lines.push(heading(`Files (${projectFiles})`));
-  if (!projectFiles) lines.push([S('  No files yet: this project is blank.', 'secondary')]);
+  lines.push(heading(data.files.reading ? 'Files' : `Files (${projectFiles})`));
+  if (data.files.reading) lines.push([S('  being read…', 'secondary')]);   // R10 (H163): read right after the first frame
+  else if (!projectFiles) lines.push([S('  No files yet: this project is blank.', 'secondary')]);
   else {
     const kinds = data.files.groups.map((gr) => [gr.kind, own(gr)] as const).filter(([, n]) => n).map(([k, n]) => count(n, k === 'other' ? 'other file' : KIND_WORD[k]));
     lines.push(...wrapSegs([S(kinds.join(` ${g.sep} `), 'text')], Math.max(8, c.width - 2), '  ').map((r) => [S('  '), ...r]));

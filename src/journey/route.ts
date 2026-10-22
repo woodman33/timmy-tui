@@ -15,7 +15,8 @@
  *
  * The companion page's own Send (POST /chat, src/companion/chat-route.ts pageRoute) is another route: its own OpenRouter model
  * (OPENROUTER_MODEL) and no tools, and it seals no receipt; `surface: 'companion'` gives that one, so a page never shows the
- * session's model for what its Send would ask.
+ * session's model for what its Send would ask. R10 (H164; the lead's call (b)): it is this page's own chat, not the project's
+ * conversation, and says so: `conversation: 'this page'`, `receipt: false`, and its words are the page's own label (pageRoute).
  *
  * What a turn took is read back from its sealed receipt (routeTaken): the provider that answered, the model asked and the one
  * that answered, and where, as src/repl/seal.ts sealed them. tests/journey-route.test.ts sends turns (a FAKE Ollama; a FAKE
@@ -27,7 +28,7 @@
  */
 import { chatRouteNow, type ChatRoute, type ModelFrom } from '../agent/chat-route.js';
 import { modelPrice, type ModelPrice } from '../agent/model-price.js';
-import { OPENROUTER_MODEL } from '../companion/chat-route.js';
+import { OPENROUTER_MODEL, pageRoute } from '../companion/chat-route.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import { chatTurnOf } from '../repl/seal.js';
 import { cloudModelTag } from '../setup/ollama-models.js';
@@ -80,6 +81,11 @@ export interface JourneyRoute {
   surface: ChatSurface;
   /** the tools the turn offers: Timmy's gated tools (the chat session, the REPL), none (the companion page's own Send) */
   tools: 'gated' | 'none';
+  /** whose conversation the turn continues: the project's (the one the Workbench, the REPL and the monitor share, kept in
+   *  .sessions), or this page's own (the companion page's Send: its request carries the page's own messages) */
+  conversation: 'project' | 'this page';
+  /** whether the turn is sealed as a receipt (a project's turn is, once it reaches the model; the page's own Send is not) */
+  receipt: boolean;
   /** for an inspector only (never a key): the Ollama address as recorded, where the model came from, where the key was found,
    *  the free-only policy, the context window set, a variable set and not used */
   details: { host?: string; modelFrom?: ModelFrom | 'the settings' | 'the companion page'; keyFrom: KeySource | null; freeOnly: boolean; numCtx?: number; note?: string };
@@ -150,12 +156,15 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
   const env = ctx.env ?? process.env;
   const cwd = ctx.cwd ?? process.cwd();
   const surface: ChatSurface = ctx.surface ?? 'workbench';
-  const tools: JourneyRoute['tools'] = surface === 'companion' ? 'none' : 'gated';
+  const page = surface === 'companion';
+  const tools: JourneyRoute['tools'] = page ? 'none' : 'gated';
+  const conversation: JourneyRoute['conversation'] = page ? 'this page' : 'project';
+  const receipt = !page;
   const keyFrom = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
   if (ctx.fake) {
     return {
       provider: 'fake', model: ctx.fake.model, where: 'this computer', price: { state: 'unknown', words: 'FAKE: no model is asked, so no price applies' },
-      fake: true, fakeWhy: ctx.fake.why, ready: true, words: `chat: ${ctx.fake.model} · FAKE`, surface, tools, details: { keyFrom, freeOnly: false },
+      fake: true, fakeWhy: ctx.fake.why, ready: true, words: `chat: ${ctx.fake.model} · FAKE`, surface, tools, conversation, receipt, details: { keyFrom, freeOnly: false },
     };
   }
   // the companion page's own Send asks its own model (src/companion/chat-route.ts pageRoute); every other surface's turn, the
@@ -164,6 +173,8 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
   const key = ctx.agent ? ctx.agent.hasModelKey() || keyFrom !== null : keyFrom !== null;
   const now = chatRouteNow({ env, cwd, session: ctx.sessionModel ?? null, key, openRouterModel, surface, ...(ctx.price ? { price: ctx.price } : {}) });
   const s = now.state;
+  // the page's own Send says itself in its own label (src/companion/chat-route.ts pageRoute): one set of words for its chip and here
+  const words = page ? (() => { try { return pageRoute(env, cwd).label; } catch { return s.words; } })() : s.words;
   const freeOnly = s.kind === 'openrouter' && /· free-only(?:: not sent)?$/.test(s.words);
   const refusal = s.refusal ?? [];
   const r: ChatRoute = now.route;
@@ -177,7 +188,7 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
       price: { state: 'unknown', words: where === 'this computer' ? LOCAL_PRICE : AWAY_PRICE },
       fake: !!fakeWhy, ...(fakeWhy ? { fakeWhy } : {}),
       ready: s.ready, ...(s.ready ? {} : notReady(refusal, kind)),
-      words: s.words, surface, tools,
+      words, surface, tools, conversation, receipt,
       details: { host: r.host, ...(r.from ? { modelFrom: r.from } : {}), keyFrom, freeOnly: false, ...(r.numCtx ? { numCtx: r.numCtx } : {}), ...(r.note ? { note: r.note } : {}) },
     };
   }
@@ -188,13 +199,13 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
     return {
       provider: 'openrouter', model, where: 'cloud', price, fake: !!fakeWhy, ...(fakeWhy ? { fakeWhy } : {}),
       ready: s.ready, ...(s.ready ? {} : notReady(refusal, freeOnly ? 'free-model' : 'other')),
-      words: s.words, surface, tools,
+      words, surface, tools, conversation, receipt,
       details: { modelFrom: surface === 'companion' ? 'the companion page' : 'the settings', keyFrom, freeOnly },
     };
   }
   return {
     provider: 'none', model: null, where: null, price: { state: 'unknown', words: 'no route: nothing is asked' }, fake: false,
-    ready: false, ...notReady(refusal, 'key'), words: s.words, surface, tools, details: { keyFrom, freeOnly: false },
+    ready: false, ...notReady(refusal, 'key'), words, surface, tools, conversation, receipt, details: { keyFrom, freeOnly: false },
   };
 }
 

@@ -11,8 +11,9 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hexOfPath, recentWork, RECENT_CAPS, type WorkItem } from '../src/journey/index.js';
-import { projectId } from '../src/project/index.js';
+import { takeTurnHold } from '../src/agent/chat-turn.js';
+import { hexOfPath, recentWork, RECENT_CAPS, runTitle, type WorkItem } from '../src/journey/index.js';
+import { listProjectFiles, projectId } from '../src/project/index.js';
 import { boardDir } from '../src/studio/boards.js';
 import { canvasDir } from '../src/studio/document.js';
 import { appendReceipt, readChain, type Receipt } from '../src/utils/receipts.js';
@@ -68,7 +69,11 @@ beforeEach(() => {
   // a VoxVision observation, sealed by a vox receipt of its exact bytes
   const record = JSON.stringify({ schema: 'timmy.vox/1', id: 'v1a2b3c4d', action: 'detect', command: '/detect refs/preview.png color 255,255,255', made_at: T(6), project: 'tray', status: 'ok', inputs: [{ path: 'refs/preview.png', kind: 'image' }], tools: [], metrics: [], highlights: [], failures: [], notes: [] });
   put('results/vox/v1a2b3c4d.json', record, T(6));
-  seal('vox', { kind: 'vox', subject: 'vox · detect refs/preview.png', policy: 'human-gated', status: 'ok', project_id: pid, outputs: [{ path: 'results/vox/v1a2b3c4d.json', sha256: sha(record) }], ts: T(6) });
+  // the /detect that made it (its operation), and the /add that brought the image in (an intake), as `timmy act` records them
+  op('o5555eeee', { request: '/detect refs/preview.png color 255,255,255', state: 'succeeded', started: T(6), ended: T(6) });
+  seal('vox', { kind: 'vox', subject: 'vox · detect refs/preview.png', policy: 'human-gated', status: 'ok', operation_id: 'o5555eeee', project_id: pid, outputs: [{ path: 'results/vox/v1a2b3c4d.json', sha256: sha(record) }], ts: T(6) });
+  op('o6666ffff', { request: '/add /elsewhere/examples/visual-tools/preview.png', state: 'answered', started: T(3), ended: T(3) });
+  seal('intake', { kind: 'intake', subject: 'intake · 1 file into refs/', policy: 'human-gated', status: 'ok', operation_id: 'o6666ffff', project_id: pid, files: [{ path: 'refs/preview.png', sha256: sha(Buffer.from('89504e47', 'hex')) }], ts: T(3) });
   // Studio's board for the project, saved with a draft Timmy proposed on it (waiting for Accept or Discard)
   const board = join(boardDir(canvasDir(process.env), pid), 'canvas.json');
   mkdirSync(dirname(board), { recursive: true });
@@ -137,6 +142,21 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     expect(items.some((i) => i.id === 'REPORT.md')).toBe(false);
   });
 
+  it('one item per thing done: a /detect is its observation, an /add its file (with its intake receipt), never a run besides', () => {
+    const items = recentWork(ctx(), 20).items;
+    expect(by(items, 'run', 'o5555eeee')).toBeUndefined();
+    expect(by(items, 'run', 'o6666ffff')).toBeUndefined();
+    expect(by(items, 'observation')).toMatchObject({ operation: 'o5555eeee' });
+    expect(by(items, 'reference', 'refs/preview.png')).toMatchObject({ operation: 'o6666ffff', receipt: { id: short(sealed.intake), verified: true } });
+  });
+
+  it('a run\'s words name a file, never a path', () => {
+    expect(runTitle('/add /opt/elsewhere/examples/visual-tools/preview.png')).toBe('Add: preview.png');
+    expect(runTitle('/detect refs/preview.png color 255,255,255')).toBe('Detect: preview.png color 255,255,255');
+    expect(runTitle('/run docs/REPORT.md report')).toBe('Workflow run: report in REPORT.md');
+    expect(runTitle('/iterate tray make the walls 2 mm thicker')).toBe('Iterate: tray make the walls 2 mm thicker');
+  });
+
   it('an observation with its vox receipt verified; a Studio draft waiting for Accept or Discard, counted once', () => {
     const items = recentWork(ctx(), 20).items;
     expect(by(items, 'observation')).toMatchObject({ id: 'v1a2b3c4d', title: 'detect preview.png', when: T(6), state: 'completed', receipt: { id: short(sealed.vox), verified: true }, open: { tab: 'voxvision', query: 'tab=voxvision&vox=v1a2b3c4d' } });
@@ -150,6 +170,22 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     // the prediction and the workflow receipt are the run's; the vox receipt the observation's: not listed again
     expect(items.filter((i) => i.kind === 'receipt')).toHaveLength(1);
     expect(JSON.stringify(items)).not.toContain(short(sealed.foreign));
+  });
+
+  it('a chat turn being answered now (its hold, read only) is listed first, running, opening Chat at that turn', () => {
+    const held = takeTurnHold(root, 'repl');
+    if (!held.ok) throw new Error(held.lines.join('\n'));
+    try {
+      const first = recentWork(ctx(), 20).items[0];
+      expect(first).toMatchObject({ kind: 'turn', id: held.hold.id, state: 'running', title: 'A chat turn being answered in the REPL', receipt: null, open: { tab: 'chat', select: { name: 'turn', value: held.hold.id }, query: `tab=chat&turn=${held.hold.id}` } });
+    } finally { held.hold.release(); }
+    expect(recentWork(ctx(), 20).items.some((i) => i.state === 'running' && i.kind === 'turn')).toBe(false);
+  });
+
+  it('a running run a NEEDS YOU box blocks is waiting on you (the caller says which: its own boxes, the decisions view)', () => {
+    const r = recentWork({ ...ctx(), waiting: (op) => (op === 'o2222bbbb' ? 'write_project_file asks to write notes.md' : undefined) }, 20);
+    expect(by(r.items, 'run', 'o2222bbbb')).toMatchObject({ state: 'waiting on you', waiting: 'write_project_file asks to write notes.md' });
+    expect(by(r.items, 'run', 'o1111aaaa')).toMatchObject({ state: 'completed' });
   });
 
   it('limit: the newest `limit` items only', () => {
@@ -173,10 +209,31 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     for (let i = 0; i < 12; i += 1) put(`refs/extra-${String(i).padStart(2, '0')}.txt`, `${i}`, T(-30 + i));
     const r = recentWork(ctx(), 20, { caps: { ...RECENT_CAPS, fileEntries: 6 } });
     expect(r.notes).toContain('Not all files were looked at: the reader stops after 6 folder entries, so an older file may be left out.');
+    // more VoxVision records than the cap: none is read (tab 5's list reads every record's time), and the note says so
+    const many = recentWork(ctx(), 20, { caps: { ...RECENT_CAPS, voxRecords: 0 } });
+    expect(many.items.some((i) => i.kind === 'observation')).toBe(false);
+    expect(many.notes).toContain('The project has 1 VoxVision record, more than the 0 read here: the observations are not listed (tab 5 lists them).');
     // the defaults are small, fixed numbers (never "the whole project")
     expect(RECENT_CAPS.fileEntries).toBeLessThanOrEqual(1000);
     expect(RECENT_CAPS.operations).toBeLessThanOrEqual(2000);
     expect(RECENT_CAPS.fileDepth).toBeLessThanOrEqual(4);
+    expect(RECENT_CAPS.voxRecords).toBeLessThanOrEqual(2000);
+  });
+
+  it('a surface that has read the project\'s files already passes them: no folder of the project is listed again', () => {
+    // a list the Workbench read (its FilesView rows): one mesh in it is not on disk, so it can only come from the list
+    const files = [{ rel: 'refs/only-in-the-list.stl', mtimeMs: Date.parse(T(40)) }, { rel: 'REPORT.md', mtimeMs: Date.parse(T(41)) }, { rel: 'src/main.ts', mtimeMs: Date.parse(T(42)) }];
+    const items = recentWork({ ...ctx(), files }, 20).items;
+    expect(by(items, 'mesh')).toMatchObject({ id: 'refs/only-in-the-list.stl', when: T(40) });
+    // the files on disk are not walked: the demo mesh is not listed, nor a document or a source file of the list
+    expect(by(items, 'mesh', 'refs/demo-tray.stl')).toBeUndefined();
+    expect(items.some((i) => i.id === 'REPORT.md' || i.id === 'src/main.ts')).toBe(false);
+  });
+
+  it('the Workbench\'s own list of the project\'s files gives the same items as the folder reader (one rule)', () => {
+    const walked = recentWork(ctx(), 20).items.map((i) => `${i.kind}:${i.id}`);
+    const listed = recentWork({ ...ctx(), files: listProjectFiles(root).files }, 20).items.map((i) => `${i.kind}:${i.id}`);
+    expect(listed).toEqual(walked);
   });
 
   it('an empty project: no items, and no error', () => {

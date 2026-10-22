@@ -85,10 +85,14 @@ describe('the journey\'s routes on the companion (R10 H164)', () => {
 
   it('route: the page\'s own Send by default (its model, no tools), the session\'s on ?surface=workbench; never the key', async () => {
     const page = await json('/api/journey/route');
-    expect(page).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: OPENROUTER_MODEL, where: 'cloud', tools: 'none', ready: true, surface: 'companion' } });
-    // the page's own Send: the same model the page's chat route names (GET /api/chat/route)
+    expect(page).toMatchObject({ ok: true, surface: 'companion', route: { provider: 'openrouter', model: OPENROUTER_MODEL, where: 'cloud', tools: 'none', ready: true, surface: 'companion', conversation: 'this page', receipt: false } });
+    // the page's own Send: the same model and the same words the page's chat route gives (GET /api/chat/route), and the plain
+    // sentence that it is the page's own chat, not the project's conversation
     const chat = await json('/api/chat/route');
     expect(chat.model).toBe(page.route.model);
+    expect(page.route.words).toBe(chat.label);
+    expect(chat.scope).toEqual({ conversation: 'this page', tools: 'none', receipt: false, words: 'This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.' });
+    expect(chat.words).toMatch(/^This page's own chat, not the project's conversation \(the Workbench's and the REPL's\): no tools, no receipt\. Send asks /);
     const wb = await json('/api/journey/route?surface=workbench');
     expect(wb.route).toMatchObject({ provider: 'openrouter', model: loadConfig().model, tools: 'gated', surface: 'workbench' });
     expect(JSON.stringify([page, wb])).not.toContain(KEY);

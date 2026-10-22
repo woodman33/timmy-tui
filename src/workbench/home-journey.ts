@@ -583,7 +583,8 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
   const docs = data.workflows.docs.length;
   // (its jobs, as the Control Room lists them: a job no operation record names, such as another session's task, is not in the
   // recent work above, which lists the runs the operation records name)
-  lines.push(...wrapSegs([S(`${count(files, 'file')}${sep}${count(docs, 'workflow document')}${sep}${count(data.jobs.length, 'job')}`, 'text')], width, '  '));
+  // R10 (H163): the files and workflow documents are read right after the first frame: until then, said so
+  lines.push(...wrapSegs([S(data.files.reading || data.workflows.reading ? `files and workflow documents being read${sep}${count(data.jobs.length, 'job')}` : `${count(files, 'file')}${sep}${count(docs, 'workflow document')}${sep}${count(data.jobs.length, 'job')}`, 'text')], width, '  '));
   // R5 (H131; the QA round's defect 24): Timmy's own logs (logs/*.log, written where it runs) are not the project's files
   if (data.files.timmyLogs) lines.push(...wrapSegs([S(`not counted: ${count(data.files.timmyLogs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], width, '  '));
   return { lines, items: [] };
