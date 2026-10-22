@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hexOfPath, recentWork, RECENT_CAPS, type WorkItem } from '../src/journey/index.js';
+import { hexOfPath, recentWork, RECENT_CAPS, runTitle, type WorkItem } from '../src/journey/index.js';
 import { projectId } from '../src/project/index.js';
 import { boardDir } from '../src/studio/boards.js';
 import { canvasDir } from '../src/studio/document.js';
@@ -68,7 +68,11 @@ beforeEach(() => {
   // a VoxVision observation, sealed by a vox receipt of its exact bytes
   const record = JSON.stringify({ schema: 'timmy.vox/1', id: 'v1a2b3c4d', action: 'detect', command: '/detect refs/preview.png color 255,255,255', made_at: T(6), project: 'tray', status: 'ok', inputs: [{ path: 'refs/preview.png', kind: 'image' }], tools: [], metrics: [], highlights: [], failures: [], notes: [] });
   put('results/vox/v1a2b3c4d.json', record, T(6));
-  seal('vox', { kind: 'vox', subject: 'vox · detect refs/preview.png', policy: 'human-gated', status: 'ok', project_id: pid, outputs: [{ path: 'results/vox/v1a2b3c4d.json', sha256: sha(record) }], ts: T(6) });
+  // the /detect that made it (its operation), and the /add that brought the image in (an intake), as `timmy act` records them
+  op('o5555eeee', { request: '/detect refs/preview.png color 255,255,255', state: 'succeeded', started: T(6), ended: T(6) });
+  seal('vox', { kind: 'vox', subject: 'vox · detect refs/preview.png', policy: 'human-gated', status: 'ok', operation_id: 'o5555eeee', project_id: pid, outputs: [{ path: 'results/vox/v1a2b3c4d.json', sha256: sha(record) }], ts: T(6) });
+  op('o6666ffff', { request: '/add /elsewhere/examples/visual-tools/preview.png', state: 'answered', started: T(3), ended: T(3) });
+  seal('intake', { kind: 'intake', subject: 'intake · 1 file into refs/', policy: 'human-gated', status: 'ok', operation_id: 'o6666ffff', project_id: pid, files: [{ path: 'refs/preview.png', sha256: sha(Buffer.from('89504e47', 'hex')) }], ts: T(3) });
   // Studio's board for the project, saved with a draft Timmy proposed on it (waiting for Accept or Discard)
   const board = join(boardDir(canvasDir(process.env), pid), 'canvas.json');
   mkdirSync(dirname(board), { recursive: true });
@@ -135,6 +139,21 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     expect(by(items, 'reference')).toMatchObject({ id: 'refs/preview.png', title: 'preview.png', open: { tab: 'home', preview: 'image', query: `tab=home&file=${hexOfPath('refs/preview.png')}` } });
     // a workflow document at the project's top is not an artifact
     expect(items.some((i) => i.id === 'REPORT.md')).toBe(false);
+  });
+
+  it('one item per thing done: a /detect is its observation, an /add its file (with its intake receipt), never a run besides', () => {
+    const items = recentWork(ctx(), 20).items;
+    expect(by(items, 'run', 'o5555eeee')).toBeUndefined();
+    expect(by(items, 'run', 'o6666ffff')).toBeUndefined();
+    expect(by(items, 'observation')).toMatchObject({ operation: 'o5555eeee' });
+    expect(by(items, 'reference', 'refs/preview.png')).toMatchObject({ operation: 'o6666ffff', receipt: { id: short(sealed.intake), verified: true } });
+  });
+
+  it('a run\'s words name a file, never a path', () => {
+    expect(runTitle('/add /opt/elsewhere/examples/visual-tools/preview.png')).toBe('Add: preview.png');
+    expect(runTitle('/detect refs/preview.png color 255,255,255')).toBe('Detect: preview.png color 255,255,255');
+    expect(runTitle('/run docs/REPORT.md report')).toBe('Workflow run: report in REPORT.md');
+    expect(runTitle('/iterate tray make the walls 2 mm thicker')).toBe('Iterate: tray make the walls 2 mm thicker');
   });
 
   it('an observation with its vox receipt verified; a Studio draft waiting for Accept or Discard, counted once', () => {

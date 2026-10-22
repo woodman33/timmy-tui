@@ -10,7 +10,8 @@
  *   run           the project's operation records (.timmy/operations: the names listed once, each file's time read, the
  *                 newest records read); its own receipt as the Chat tab's pipeline row picks it (its workflow receipt, else
  *                 its newest that is not the prediction); the outputs its receipts sealed are its results (receiptOutputs,
- *                 the run inspection's rule)
+ *                 the run inspection's rule). One item per thing done: a VoxVision action's operation is listed as its
+ *                 observation (they share the vox receipt), an intake's (/add) as the file it brought in, with its receipt
  *   mesh,         the project's files in the folders where references and results live (refs/, assets/, inputs/, media/,
  *   recording,    uploads/, docs/, out/, outputs/, results/, renders/, exports/, models/, scenes/, and the top's own mesh,
  *   reference,    recording and image files), at most RECENT_CAPS.fileEntries entries and RECENT_CAPS.fileDepth folders deep;
@@ -118,13 +119,20 @@ function chainOf(root: string, env: Env): Receipt[] {
   try { return env.TIMMY_STORE ? readChain('runs') : readChain('runs', root); } catch { return []; }
 }
 
-/** A run's request in plain words: "/run REPORT.md report" is "Workflow run: report in REPORT.md"; "/iterate x" "Iterate: x". */
+/** A command's words with each path in it named by its file's name ("/somewhere/refs/a.png" is "a.png"; an address stays). */
+const fileNames = (words: string): string => words.split(' ').map((w) => (/[\\/]/.test(w) && !/^[a-z][a-z0-9+.-]*:\/\//i.test(w) ? (w.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || w) : w)).join(' ');
+
+/**
+ * A run's request in plain words, each path named by its file's name: "/run REPORT.md report" is "Workflow run: report in
+ * REPORT.md"; "/iterate x" "Iterate: x"; "/add /somewhere/preview.png" "Add: preview.png". A request typed as words (a chat
+ * message) is kept as typed.
+ */
 export function runTitle(request: string): string {
   const r = request.replace(/\s+/g, ' ').trim();
   const run = /^\/run (\S+) (\S+)/.exec(r);
-  if (run) return cut(`Workflow run: ${run[2]} in ${run[1]}`);
+  if (run) return cut(`Workflow run: ${run[2]} in ${fileNames(run[1])}`);
   const cmd = /^\/([a-z][a-z-]*)(?: (.*))?$/.exec(r);
-  if (cmd) return cut(`${cmd[1][0].toUpperCase()}${cmd[1].slice(1).replace(/-/g, ' ')}${cmd[2] ? `: ${cmd[2]}` : ''}`);
+  if (cmd) return cut(`${cmd[1][0].toUpperCase()}${cmd[1].slice(1).replace(/-/g, ' ')}${cmd[2] ? `: ${fileNames(cmd[2])}` : ''}`);
   return cut(r || 'a request with no words recorded');
 }
 
@@ -333,12 +341,21 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   }
 
   // ── the runs: the newest operation records; their own receipt and results from the chain ──
+  // One item per thing done: a VoxVision action's operation is its observation (the same receipt), and an intake's (/add) is
+  // the file it brought in, with its receipt; neither is listed again as a run.
   const claimed = new Set<string>();
+  const voxOps = new Map<string, string>();
+  const intakes = new Map<string, { op: string; hash: string }>();
   for (const rec of newestOperations(root, want + turnOps.size, caps, notes)) {
     if (turnOps.has(rec.id)) continue;
     const mine = byOp.get(rec.id) ?? [];
     // its own receipt: its workflow's, else its newest that is not the prediction (the pipeline row's rule)
     const own = mine.find((r) => r.kind === 'workflow') ?? mine.find((r) => r.kind !== 'predict');
+    if (own?.kind === 'vox') { voxOps.set(shortOf(own), rec.id); continue; }
+    if (own?.kind === 'intake') {
+      for (const f of own.files ?? []) { const p = typeof f?.path === 'string' ? f.path.replace(/^\.\//, '') : ''; if (projectFile(p) && !intakes.has(p)) intakes.set(p, { op: rec.id, hash: own.hash }); }
+      continue;
+    }
     // (mine is newest first: the outputs in the order they were sealed)
     const results = receiptOutputs([...mine].reverse()).slice(0, RESULTS_MAX);
     for (const f of results) claimed.add(f);
@@ -360,7 +377,9 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     const x = extOf(f.rel);
     const kind: OpenKind = MESH_EXT.has(x) ? 'mesh' : x === 'rrd' ? 'recording' : f.top === 'result' ? 'result' : 'reference';
     files += 1;
-    cands.push({ at: f.mtimeMs, item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: null } });
+    // a file an intake (/add) brought in carries that intake's receipt
+    const took = intakes.get(f.rel);
+    cands.push({ at: f.mtimeMs, ...(took ? { hash: took.hash } : {}), item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: took?.op ?? null } });
   }
 
   // ── the VoxVision observations (tab 5's own list and receipt state) ──
@@ -376,7 +395,7 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
           kind: 'observation', id: v.id, title: cut(`${v.action}${input ? ` ${basename(input)}` : ''}`), when: Number.isFinite(at) ? v.madeAt! : null,
           state: VOX_STATE[v.status] ?? 'unknown',
           receipt: v.receipt.short ? { id: v.receipt.short, verified: v.receipt.verified, ...(v.receipt.verified ? {} : { why: v.receipt.words }) } : null,
-          open: openTarget({ kind: 'observation', id: v.id }), fake: v.fake, operation: null,
+          open: openTarget({ kind: 'observation', id: v.id }), fake: v.fake, operation: (v.receipt.short ? voxOps.get(v.receipt.short) : undefined) ?? null,
         },
       });
     }
