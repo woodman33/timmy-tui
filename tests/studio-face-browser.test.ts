@@ -189,6 +189,30 @@ describe.skipIf(!browserPath)("Timmy Studio's face in words, its ids, places and
       expect(at.words).toMatch(/^This board is blank\.\nDraw with the tools below, or ask Timmy in the REPL/);
       expect(leaks(await face(page))).toEqual([]);
       await shoot(page, 'studio-face-390x844-blank.png');
+      // R10 lead (CI at fa45040 failed the wait above): the panel's top is the workspace strip's height, so the strip growing
+      // after the panel's lists arrived moved the panel down without resizing it, and its published foot stayed where it was.
+      // Grow the strip by hand: the published foot follows the panel, and the guide stays under it.
+      const moved = await page.evaluate(async () => {
+        const side = document.getElementById('side')!;
+        const before = side.getBoundingClientRect().bottom;
+        const extra = document.createElement('div');
+        extra.style.height = '24px';
+        document.getElementById('frame')!.appendChild(extra);
+        const read = () => {
+          const after = side.getBoundingClientRect().bottom;
+          const published = getComputedStyle(document.documentElement).getPropertyValue('--side-bottom').trim() === `${Math.ceil(after)}px`;
+          return { before, after, published, guideTop: document.getElementById('guide')!.getBoundingClientRect().top };
+        };
+        for (let i = 0; i < 180; i++) {
+          const r = read();
+          if (r.published && r.after > r.before) return r;
+          await new Promise((done) => requestAnimationFrame(() => done(null)));
+        }
+        return read();
+      });
+      expect(moved.after, 'the strip grew and moved the panel down').toBeGreaterThan(moved.before);
+      expect(moved.published, 'the page published the moved panel\'s foot').toBe(true);
+      expect(moved.guideTop, 'the guide stays under the moved panel').toBeGreaterThanOrEqual(moved.after);
       expect(errors).toEqual([]);
     } finally {
       await context.close();

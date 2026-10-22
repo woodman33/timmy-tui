@@ -1297,7 +1297,14 @@ function watchSide() {
     if (document.documentElement.style.getPropertyValue('--side-bottom') !== bottom) document.documentElement.style.setProperty('--side-bottom', bottom);
   };
   set();
-  if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(side);
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(set).observe(side);
+    // R10 lead (CI at fa45040): the panel's top is the workspace strip's height (index.html #side, --frame-h), so the strip
+    // growing or shrinking moves the panel without resizing it, and the observer above never fires: the guide kept a stale
+    // foot. The strip's own observer (showFrame) sets --frame-h; this one reads the panel a frame later, once it has moved.
+    const strip = document.getElementById('frame');
+    if (strip) new ResizeObserver(() => requestAnimationFrame(set)).observe(strip);
+  }
   window.addEventListener('resize', set, { passive: true });
 }
 
