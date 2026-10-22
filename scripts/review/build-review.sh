@@ -10,6 +10,7 @@
 #   timmy-review              the one launch command (R10, H163; scripts/review/timmy-review): first run installs and seeds,
 #                             every run opens the Workbench; a name no one takes for the installed `timmy`
 #   review.sh                 the launcher (scripts/review/review.sh): a sandbox beside itself, env -i, its own ports
+#   census.mjs                what still runs in the sandbox (./review.sh census; R10, H163)
 #   fake-lanes/               FAKE stand-ins for the lane programs, so a review never starts a real lane
 #   bin/upmd, its licence     only when UPMD_BIN (and UPMD_LICENSE) name them: upmd for Linux x86_64 (workflows)
 #   README.md                 scripts/review/README.md with this revision filled in
@@ -63,6 +64,8 @@ fill scripts/review/review.sh "$pkg/review.sh"
 fill scripts/review/timmy-review "$pkg/timmy-review"
 fill scripts/review/README.md "$pkg/README.md"
 chmod +x "$pkg/review.sh" "$pkg/timmy-review"
+# R10 (H163): ./review.sh census counts what still runs in the sandbox, never itself or what it runs under
+cp scripts/review/census.mjs "$pkg/census.mjs"
 mkdir -p "$pkg/fake-lanes"
 cp scripts/review/fake-lanes/* "$pkg/fake-lanes/"
 chmod +x "$pkg"/fake-lanes/*

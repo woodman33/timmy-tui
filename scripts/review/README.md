@@ -320,3 +320,7 @@ installed.
 - **A browser page:** close it; nothing runs in the page itself.
 - **Everything:** close the windows above, then `./review.sh clean` removes the sandbox, after you type yes. Nothing outside
   this folder was installed or started.
+- **What is still running:** `./review.sh census` lists every process whose command line names the sandbox or whose working
+  folder is inside it (itself and the shell it runs under are not counted), each with its parent; once every Timmy window
+  here has quit, it says none runs (exit 0). The Workbench leaves none when it quits (tested on Linux; on macOS the census
+  asks `ps` and `lsof`, which this package's tests did not run).

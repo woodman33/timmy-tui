@@ -109,6 +109,8 @@ Timmy review package, revision $REV
   ./review.sh timmy ARGS...  any timmy command (for example: timmy op <id> --project <folder>, timmy receipts, timmy tools)
   ./review.sh shell          a shell in the review's environment (type timmy ... yourself; exit to leave)
   ./review.sh where          the folders and ports this review uses
+  ./review.sh census         what still runs in the sandbox (its command line or working folder inside it); after
+                             every Timmy window here has quit: nothing
   ./review.sh clean          remove the sandbox ($BOX), only that
 
 Ports (127.0.0.1 only): Studio $STUDIO_PORT, the log companion $LOGS_PORT, the browser companion $COMPANION_PORT
@@ -220,6 +222,14 @@ HELP
       say "node          not recorded yet (./review.sh install records the node it used)"
     fi
     say "shell's node  $(command -v node || echo 'not found') $(node --version 2>/dev/null) (first on this shell's PATH; not the one Timmy runs on when they differ)"
+    ;;
+  census)
+    # R10 (H163): R9's Mac census counted its own runner (a sh in the run folder) as a process left behind; this one leaves
+    # out itself and what it runs under, and names each process it counts (census.mjs, beside this script)
+    n="$(cat "$NODE_FILE" 2>/dev/null)"
+    { [ -n "$n" ] && [ -x "$n" ]; } || n="$(command -v node)" || die "no node to count with: ./review.sh install records one" 3
+    [ -d "$BOX" ] || { say "no sandbox yet ($BOX): nothing runs in it"; exit 0; }
+    "$n" "$HERE/census.mjs" "$BOX" "$@"
     ;;
   clean)
     case "$BOX" in /|"$HOME"|"") die "refusing to remove $BOX" 2 ;; esac
