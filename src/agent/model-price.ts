@@ -14,6 +14,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { readCache, type ModelCache } from '../models/registry.js';
+// R10 (H169): the catalog's one price rule (src/models/catalog.ts openRouterPrice): free only when every price it lists is zero
+import { contextWords, money as moneyWords, openRouterPrice } from '../models/catalog.js';
 import { settingsFile } from '../utils/model-key.js';
 
 type Env = Record<string, string | undefined>;
@@ -36,13 +38,8 @@ export interface ModelPrice {
   words: string;
 }
 
-const perM = (raw: string | undefined): number | undefined => {
-  if (raw === undefined) return undefined;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n * 1e6 : undefined; // OpenRouter's "-1" is a router's variable price: unknown
-};
-const money = (n: number): string => (n === 0 ? '$0' : n < 0.01 ? `$${n.toPrecision(2)}` : `$${Number(n.toFixed(2))}`);
-const ctxWords = (n: number): string => (n >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M` : `${Math.round(n / 1000)}k`);
+const money = moneyWords;
+const ctxWords = contextWords;
 
 /** What this computer knows of a model's price and abilities. */
 export function modelPrice(id: string, cache: ModelCache | null = safeCache()): ModelPrice {
@@ -50,10 +47,13 @@ export function modelPrice(id: string, cache: ModelCache | null = safeCache()): 
   const of = at ? `OpenRouter catalog of ${at}` : 'no catalog on this computer';
   const m = cache?.models.find((x) => x.id === id);
   if (m) {
-    const inPerM = perM(m.pricing?.prompt);
-    const outPerM = perM(m.pricing?.completion);
-    const known = inPerM !== undefined && outPerM !== undefined;
-    const free = known ? inPerM === 0 && outPerM === 0 : null;
+    // R10 (H169): OpenRouter's "-1" (a router's variable price) and a missing price are unknown; a model whose token prices
+    // are zero and that charges for something else (a request, an image, a search) is not free (src/models/catalog.ts)
+    const p = openRouterPrice(m.pricing);
+    const inPerM = p.inPerM;
+    const outPerM = p.outPerM;
+    const known = inPerM !== undefined && outPerM !== undefined && p.free !== 'unknown';
+    const free = p.free === 'unknown' ? null : p.free;
     const tools = Array.isArray(m.supported_parameters) ? m.supported_parameters.includes('tools') : null;
     const price = free === true ? 'free' : known ? `${money(inPerM!)} in / ${money(outPerM!)} out per 1M tokens` : 'price unknown (the catalog gives no fixed price)';
     const extra = [m.context_length ? `${ctxWords(m.context_length)} context` : null, tools === true ? 'tools' : tools === false ? 'no tools' : null].filter(Boolean);
@@ -69,7 +69,7 @@ export function modelPrice(id: string, cache: ModelCache | null = safeCache()): 
 /** The catalog's free models (both prices 0), by id. */
 export function freeModels(cache: ModelCache | null = safeCache()): Array<{ id: string; ctx?: number; tools: boolean | null }> {
   return (cache?.models ?? [])
-    .filter((m) => perM(m.pricing?.prompt) === 0 && perM(m.pricing?.completion) === 0)
+    .filter((m) => openRouterPrice(m.pricing).free === true)
     .map((m) => ({ id: m.id, ...(m.context_length ? { ctx: m.context_length } : {}), tools: Array.isArray(m.supported_parameters) ? m.supported_parameters.includes('tools') : null }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
