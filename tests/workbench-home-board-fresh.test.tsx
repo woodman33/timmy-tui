@@ -114,6 +114,8 @@ describe('Home\'s board follows a run (R6 H141; REMAINING-DEFECTS #31)', () => {
     expect(area(c, 'center')).not.toMatch(/Quick \(FAKE workflow, this test\) +not run yet/);
     // Home's recent work names the run as it ended
     c.selectPage('home');
-    await until('the run in Home\'s recent work', () => /Quick \(FAKE workflow, this test\) › say +run · completed/.test(area(c, 'center')), 10_000, () => area(c, 'center'));
+    // (H164's recentWork names a run by its request, "Workflow run: say in QUICK.md", from its operation record; a run with no
+    // operation record in this test's REPL is said by its receipts, "workflow · QUICK.md › say · completed")
+    await until('the run in Home\'s recent work', () => /Workflow run: say in QUICK\.md +run · completed|workflow · QUICK\.md › say · completed +receipt · sealed/.test(area(c, 'center')), 10_000, () => area(c, 'center'));
   }, 60_000);
 });

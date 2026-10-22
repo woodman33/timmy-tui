@@ -110,7 +110,8 @@ describe('Enter on tab 2 never stops another surface\'s turn; the send is accept
     await replWait(/Enter to send/, 60_000);
     // the Chat tab opened once first: its chat session opens then (the first opening loads the agent), then Home again
     await sendKeys(wb, ['2']);
-    await seen(/tray \/ Chat[\s\S]*\[Enter\] Type a message \(sent through the chat session/, 60_000);
+    // (R10 H167: the composer's closed row names where a message goes once its chat session is open: "· to" the model)
+    await seen(/tray \/ Chat[\s\S]*\[Enter\] Type a message +· to qwen3:8b/, 60_000);
     await sendKeys(wb, ['1']);
     await seen(/2 Check connections \(free requests\)/, 20_000);
 
@@ -122,7 +123,8 @@ describe('Enter on tab 2 never stops another surface\'s turn; the send is accept
     expect(chat).toMatch(/\[▶ 3 Stop the turn\]/);
     keep('done-in-1-tab2-while-repl-answers', chat, 'tab 2 while the REPL answers: Send selected, Stop the turn done in the REPL');
     await sendKeys(wb, ['Enter']);
-    const composer = await seen(/COMPOSER[\s\S]*› /);
+    // (R10 H167: the composer is a box of its own, titled Message)
+    const composer = await seen(/Message[\s\S]*› /);
     keep('done-in-2-composer-open', composer, '2 → Enter while the REPL answers: the composer');
     expect(composer).not.toMatch(/Stop asked of the turn/);
     await sendKeys(wb, ['hello from the Workbench'], { literal: true });

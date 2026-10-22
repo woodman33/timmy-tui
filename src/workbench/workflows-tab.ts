@@ -495,14 +495,14 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
           const at = ` ${g.sep} sealed ${clock(p.frozenAt)}`;
           rows.push([S('frozen before the run', 'text'), ...(cells(`frozen before the run${at}`) <= iw ? [S(at, 'secondary')] : [])]);
         } else rows.push(...para('frozen before the run: not recorded', iw, 'secondary', '', 2, g.ellipsis));
-        rows.push(...para(p.words, iw, 'text', '', 4, g.ellipsis));
-        rows.push(...fieldRows('receipt', p.receipt, iw, 'strong', o));
+        // R10 (H167): its words with the request as the run it asks for; its receipt's id is the Inspector's ([i])
+        rows.push(...para(p.words.replace(/^\/run (\S+) (\S+):/, 'run $1 › $2:'), iw, 'text', '', 4, g.ellipsis));
+        rows.push([S(`${g.ok} sealed`, 'text'), S(' before the run', 'secondary')]);
       }
     }
   }
   const title = titled(b.name, '.predict', w, g.ellipsis);
-  const note = run ? noteFor(title, run.job, w) : undefined;
-  return card({ w, title: [S(title, 'accent', { bold: true })], ...(note ? { note } : {}), body: rows, edge: 'accent', g });
+  return card({ w, title: [S(title, 'accent', { bold: true })], body: rows, edge: 'accent', g });
 }
 
 /** Where a run runs, as its records say it: this computer, in the project folder, by upmd (on a pty or over a pipe); the
@@ -511,12 +511,8 @@ function sandboxRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): 
   const { g } = c;
   const rows: Line[] = [...head('Sandbox', 'where it runs', w, g)];
   rows.push(...para('this computer, in the project folder (upmd)', w, 'text', '', 2, g.ellipsis));
-  const d = detailFor(c, run);
-  const detail = d?.state === 'ready' ? d.value : undefined;
-  // the runner where its records say more than upmd (on a pty), and the environment its run detail names (its env lock)
-  const runner = detail?.worker.harness?.value ?? (run?.pty ? 'upmd on a pty' : undefined);
-  if (runner && runner !== 'upmd') rows.push(...fieldRows('runner', runner, w, 'secondary', { pad: 11, max: 2, ellipsis: g.ellipsis }));
-  if (detail?.worker.environment) rows.push(...fieldRows('environment', detail.worker.environment.value, w, 'secondary', { pad: 11, max: 1, ellipsis: g.ellipsis }));
+  // R10 (H167): the runner's file and the environment its run detail names are the Inspector's ([i]), not this column's
+  void run;
   return rows;
 }
 
@@ -534,7 +530,10 @@ function stepsRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Li
   // (or under it), never broken across rows
   const state: Line = [S(`${m.glyph} ${run.word}`, m.role)];
   const timed: Line = [...state, S(` ${g.sep} ${long}`, 'secondary')];
-  const one: Line = [...heading('Steps'), S(` ${g.sep} ${run.job} `, 'secondary'), ...state];
+  // R10 (H167): progress, steps done of all, in words; the job's id is the Inspector's
+  const done = run.steps.filter((x) => x.word === 'completed').length;
+  const progress = run.steps.length ? ` ${g.sep} ${done} of ${count(run.steps.length, 'step')}` : '';
+  const one: Line = [...heading('Progress'), S(` ${g.sep} `, 'secondary'), ...state, S(progress, 'secondary')];
   const label = `${run.label}${run.stale ? ' (its record is stale)' : ''}`;
   const rows: Line[] = [];
   if (lineCells(one) <= w) {
@@ -542,7 +541,7 @@ function stepsRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Li
     if (cells(`${label} ${g.sep} ${long}`) <= w) rows.push([S(`${label} ${g.sep} ${long}`, 'secondary')]);
     else rows.push(...para(label, w, 'secondary', '', 2, g.ellipsis), [S(long, 'secondary')]);
   } else {
-    rows.push([...heading('Steps'), S(` ${g.sep} ${run.job}`, 'secondary')], lineCells(timed) <= w ? timed : state, ...para(label, w, 'secondary', '', 2, g.ellipsis));
+    rows.push([...heading('Progress'), S(progress, 'secondary')], lineCells(timed) <= w ? timed : state, ...para(label, w, 'secondary', '', 2, g.ellipsis));
     if (lineCells(timed) > w) rows.push([S(long, 'secondary')]);
   }
   for (const s of run.steps) {
@@ -573,7 +572,7 @@ function sourceRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
   if (!ins || !('value' in ins)) return [];
   const s = ins.value.source;
   if (!('doc' in s)) return [];
-  const rows: Line[] = [...head('Source', `${s.doc} as it ran ${g.sep} sha256 ${short12(s.asRan.sha256)}`, w, g)];
+  const rows: Line[] = [...head('Source', `${s.doc} as it ran`, w, g)];
   const from = s.copy.state === 'kept' ? 'the copy upmd read' : s.copy.state === 'project' ? `${s.doc} in the project` : '';
   if (s.now.state === 'same') {
     const l: Line = [S(`${g.ok} `, 'live'), S('the same bytes now', 'text')];
@@ -581,7 +580,7 @@ function sourceRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
     rows.push(l);
   } else if (s.now.state === 'changed') {
     const diff = s.diff?.shown ? ` (+${s.diff.added} −${s.diff.removed})` : '';
-    rows.push(...para(`${g.fail} changed since the run: sha256 ${short12(s.now.sha256)} now, ${short12(s.asRan.sha256)} as it ran${diff}`, w, 'failure', '', 2, g.ellipsis));
+    rows.push(...para(`${g.fail} changed since the run${diff}`, w, 'failure', '', 2, g.ellipsis));
   } else rows.push(...para(s.now.words, w, 'secondary', '', 2, g.ellipsis));
   return rows;
 }
@@ -608,13 +607,15 @@ function changesRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, r
   const { g } = c;
   if (!run?.operation) return [];
   const ins = inspectionFor(c, run);
-  if (!ins) return [...head('Changes', 'what it wrote', w, g, true), [S('reading…', 'secondary')]];
-  if (!('value' in ins)) return [...head('Changes', 'what it wrote', w, g, true), ...para(`not read: ${ins.why}`, w, 'secondary', '', 2, g.ellipsis)];
+  if (!ins) return [...head('Result', 'what it wrote', w, g, true), [S('reading…', 'secondary')]];
+  if (!('value' in ins)) return [...head('Result', 'what it wrote', w, g, true), ...para(`not read: ${ins.why}`, w, 'secondary', '', 2, g.ellipsis)];
   const i = ins.value;
   const list = i.changes.list;
   const total = list.length + i.changes.more;
-  if (!total) return [...head('Changes', 'none that Timmy records', w, g), ...(i.changes.notes[0] ? para(i.changes.notes[0], w, 'secondary', '', 2, g.ellipsis) : [])];
-  const rows: Line[] = [...head('Changes', `${count(total, 'file')} ${g.sep} /review ${i.operation}`, w, g, true)];
+  // (R10 H167: a note's job id said as what it is: the Inspector names it)
+  if (!total) return [...head('Result', 'none that Timmy records', w, g), ...(i.changes.notes[0] ? para(i.changes.notes[0].replace(/\bworkflow run j[0-9a-f]{6}: ?/, '').replace(/\bj[0-9a-f]{6}\b/g, 'its job'), w, 'secondary', '', 2, g.ellipsis) : [])];
+  // R10 (H167): the result: the files it wrote, in words (the review command is the Inspector's)
+  const rows: Line[] = [...head('Result', `${count(total, 'file')} written`, w, g, true)];
   // the first change with a line diff: each hunk's head, then its lines from the one before its first change to the one after
   // its last (`full`), or only its changed lines where the room is short (`core`): a terminal's few rows go to what changed
   const withDiff = list.find((x) => x.diff.shown);
@@ -647,7 +648,7 @@ function changesRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, r
     const pathRoom = Math.max(4, w - cells(how) - 1 - (extra ? cells(extra) + 1 : 0));
     rows.push([S(`${how} `, 'secondary'), S(cut(ch.path, pathRoom, g.ellipsis), 'text'), ...(extra ? [S(` ${extra}`, 'secondary')] : [])]);
   }
-  if (moreRow) rows.push([S(cut(`${g.ellipsis} ${count(total - shown.length, 'more file')} (/review ${i.operation})`, w, g.ellipsis), 'secondary')]);
+  if (moreRow) rows.push([S(cut(`${g.ellipsis} ${count(total - shown.length, 'more file')} (c: all of them in the companion)`, w, g.ellipsis), 'secondary')]);
   if (withDiff?.diff.shown && full.length && rows.length < room) {
     const d = withDiff.diff;
     const against = d.against === 'kept' ? 'against the version Timmy kept' : d.against === 'nothing' ? 'added by the run' : 'as it ran → now';
@@ -694,7 +695,7 @@ function outputRows(c: TabViewCtx, run: RunNow | null | undefined, w: number, ro
   const shown = all.length > fits ? all.slice(-Math.max(1, fits - 1)) : all;
   if (shown.length < all.length) {
     const earlier = `${g.ellipsis} ${count(all.length - shown.length, 'earlier line')}`;
-    rows.push([S(cells(`${earlier} (/jobs ${run.job})`) <= w ? `${earlier} (/jobs ${run.job})` : earlier, 'secondary')]);
+    rows.push([S(earlier, 'secondary')]);
   }
   // R8 (H157): what the run printed, cut where the row ends (src/workbench/text.ts clip), never moved back to a word
   for (const l of shown) rows.push([S(clip(l, w, g.ellipsis), 'text')]);
@@ -734,7 +735,39 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
 /** The one line where the references draw a picture: a terminal says the run in words, and where it is drawn. */
 // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface had a run's preview. R6 (H144): the companion's run detail draws
 // the run's changes (their diffs), its images and its outputs
-const previewWords = (op: string | null | undefined): string => `The companion (c) draws this run's diffs, images and outputs: its Workflows tab${op ? `, /run/${op} on it` : ''}.`;
+// R10 (H167): c opens the companion on this run (its address names it, H164's openTarget); its page's path is the Inspector's
+const previewWords = (op: string | null | undefined): string => `The companion (c) draws this run's diffs, images and outputs${op ? ', on its Workflows tab' : ''}.`;
+
+/**
+ * R10 (H167): what the run's columns leave out, for the Inspector ([i]): the job's and the operation's ids, the receipt's id,
+ * kind and hash, the document's sha256 as it ran and now, the runner and the environment its run detail names, and the
+ * commands that show it all in the REPL. Empty when the block has no run read.
+ */
+export function runDetailRows(c: TabViewCtx, w: number): Line[] {
+  const t = c.data.workflowsTab;
+  const run = t?.run;
+  if (!run) return [];
+  const { g } = c;
+  const rows: Line[] = [heading('Its newest run · details')];
+  const f = (k: string, v: string): void => { rows.push(...fieldRows(k, v, w, 'text', { pad: 11, max: 3, ellipsis: g.ellipsis })); };
+  f('job', run.job);
+  f('operation', run.operation ?? 'none named');
+  if (run.receipt) { f('receipt', `${run.receipt.id} (${run.receipt.kind})`); f('hash', run.receipt.hash); }
+  else if (run.named) f('receipt', `${run.named} (named by its job record; not on the chain read here)`);
+  const ins = inspectionFor(c, run);
+  if (ins && 'value' in ins && 'doc' in ins.value.source) {
+    const src = ins.value.source;
+    f('as it ran', `${src.doc} · sha256 ${src.asRan.sha256 ?? 'not recorded'}`);
+    if ('sha256' in src.now && src.now.sha256) f('now', `sha256 ${src.now.sha256}`);
+  }
+  const d = detailFor(c, run);
+  const detail = d?.state === 'ready' ? d.value : undefined;
+  const runner = detail?.worker.harness?.value ?? (run.pty ? 'upmd on a pty' : 'upmd');
+  f('runner', runner);
+  if (detail?.worker.environment) f('environment', detail.worker.environment.value);
+  if (run.operation) f('commands', `/op ${run.operation} · /review ${run.operation} · /jobs ${run.job}`);
+  return rows;
+}
 
 /** The newest run's receipt card: green and verified only when verifyReceiptIn passed in this reading. */
 function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined, w: number): Line[] {
@@ -746,20 +779,19 @@ function receiptCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
   if (run === undefined) rows.push(...para('reading its newest run…', iw, 'secondary', '', 2, g.ellipsis));
   else if (run === null) rows.push(...para('not recorded: nothing has run it, so nothing is sealed', iw, 'secondary', '', 3, g.ellipsis));
   else if (!run.receipt) {
-    if (run.named) rows.push(...fieldRows('id', run.named, iw, 'strong', o), ...para(`${g.fail} not verified: its job record names it, and it is not on the chain read here`, iw, 'failure', '', 3, g.ellipsis));
+    if (run.named) rows.push(...para(`${g.fail} not verified: its job record names it, and it is not on the chain read here`, iw, 'failure', '', 3, g.ellipsis));
     else rows.push(...para(run.live ? 'not sealed yet: it runs; its receipt is sealed as it ends' : 'none sealed for this run', iw, 'secondary', '', 3, g.ellipsis));
     if (run.named) edge = 'failure';
   } else {
     const r = run.receipt;
-    rows.push(...fieldRows('id', r.id, iw, 'strong', o), ...fieldRows('kind', r.kind, iw, 'text', o), ...fieldRows('sealed', clock(r.ts), iw, 'text', o));
-    if (r.verified.ok) { edge = 'live'; rows.push([S(`${g.ok} verified`, 'live')], ...para('its link, body, signature: read now', iw, 'secondary', '', 2, g.ellipsis)); }
-    else { edge = 'failure'; rows.push(...para(`${g.fail} not verified: ${r.verified.why}`, iw, 'failure', '', 4, g.ellipsis)); }
+    // R10 (H167): sealed and verified, in words (its id and kind are the Inspector's)
+    if (r.verified.ok) { edge = 'live'; rows.push([S(`${g.ok} sealed and verified`, 'live')], [S(`sealed ${clock(r.ts)}`, 'secondary')], ...para('its link, body and signature, read now', iw, 'secondary', '', 2, g.ellipsis)); }
+    else { edge = 'failure'; rows.push([S(`sealed ${clock(r.ts)}`, 'text')], ...para(`${g.fail} not verified: ${r.verified.why}`, iw, 'failure', '', 4, g.ellipsis)); }
   }
   // R6 (H144): each stage's receipts of the run (the producer's inspection), as verified now
   if (run) rows.push(...chainRow(inspectionFor(c, run), iw, g));
   const title = titled(b.name, '.receipt', w, g.ellipsis);
-  const note = run ? noteFor(title, run.job, w) : undefined;
-  return card({ w, title: [S(title, edge === 'live' ? 'live' : edge === 'failure' ? 'failure' : 'strong', { bold: true })], ...(note ? { note } : {}), body: rows, edge, g });
+  return card({ w, title: [S(title, edge === 'live' ? 'live' : edge === 'failure' ? 'failure' : 'strong', { bold: true })], body: rows, edge, g });
 }
 
 /** The run detail's checks, predicted against actual (green only for one that passed), its verdict, and timmy op <id>. */
@@ -791,7 +823,9 @@ function reviewRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
     const v = detail.verdict;
     const vm = verdictMark(v.state, g);
     rows.push([S(`${vm.glyph} `, vm.role), S(v.state, vm.role === 'secondary' ? 'text' : vm.role, { bold: true })]);
-    const words = v.words.startsWith(v.state) ? v.words.slice(v.state.length).replace(/^[:\s·-]+/, '') : v.words;
+    const said = v.words.startsWith(v.state) ? v.words.slice(v.state.length).replace(/^[:\s·-]+/, '') : v.words;
+    // R10 (H167): a job by its label (its id is the Inspector's)
+    const words = said.replace(/\bjob j[0-9a-f]{6} /g, '').replace(/\bj[0-9a-f]{6}\b/g, 'its job');
     if (words) rows.push(...para(words, w, 'secondary', '', 3, g.ellipsis));
   } else {
     // its run detail is not here: the run's own record, in its words (never a verdict made here)

@@ -134,7 +134,7 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     const t = terminal('wbLocalModel');
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor(/tray1 \/ Home · connections, as observed[\s\S]*Activity & log/, 'Home, at the start', 60_000);
+    await t.waitFor(/tray1 \/ Home · recent work[\s\S]*Activity & log/, 'Home, at the start', 60_000);
     // the one next step, on Home: the local route with no model chosen
     await t.waitFor(/▶ 1 Choose the local model \(from what Ollama lists\)/, 'Home\'s one next step: the local model', 30_000);
     // Enter acts on the zone with the keyboard: the Workflow actions bar, where the fix is the one primary (and selected)
@@ -168,8 +168,11 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
 
     // the route reads it: Chat's route names the model, and the chat is ready (nothing was sent to any model)
     await t.keys('Escape', '2');
-    const chat = await t.waitFor(/Route\s+chat: local fake-qwen3:8b · Ollama/, 'Chat\'s route on the model chosen', 20_000);
-    expect(chat).toMatch(/Ready\s+a message can be sent on this route/);
+    // (R10 H167: Chat's own route row, under its title, as routeNow reads it (the header says the same on every tab); a model
+    // whose name says FAKE is named FAKE; the composer's row says where a message goes once its session is open)
+    const chat = await t.waitFor(/tray1 \/ Chat · conversation[\s\S]*next turn: FAKE fake-qwen3:8b · this computer \(Ollama\)[\s\S]*\[Enter\] Type a message +· to FAKE fake-qwen3:8b/, 'Chat\'s route on the model chosen, and its composer ready', 30_000);
+    // (R10 H167: a ready route has no "not ready" words)
+    expect(chat).not.toMatch(/not ready/);
     expect(asked.every((a) => a === 'GET /api/tags'), `the FAKE Ollama was asked only for its list: ${asked.join(', ')}`).toBe(true);
     // nothing of this machine on the screens: not the sandbox's folders, not its name
     for (const s of [listed, done, chat]) {

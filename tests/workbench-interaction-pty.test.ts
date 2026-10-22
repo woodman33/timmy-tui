@@ -302,8 +302,9 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
       // it asked the terminal for button reports in SGR encoding, in its own screen (R5 H136: it asks before its first frame,
       // src/workbench/run.ts, so the frame waited for above comes after it)
       expect(t.modes()).toBe('1 1 1 1');
-      // a click on row 1's 7 Control Room opens it, and on 3 Workflows (R5: the tabs; the navigation is a drawer)
-      await t.click(t.cellOf('Control Room'));
+      // a click on row 1's 7 Control Room opens it, and on 3 Workflows (R5: the tabs; the navigation is a drawer). R10 (H167):
+      // the tabs are the header's second row, their first words at 160 columns beside the word "unfinished"
+      await t.click(t.cellOf('7 Control'));
       await t.waitFor(/trayA \/ Control Room/, 5000);
       await t.click(t.cellOf('Workflows'));
       await t.waitFor(/trayA \/ Workflows/, 5000);
@@ -728,11 +729,11 @@ describe('`timmy workbench` in a terminal: the interaction proof (tmux; R4 H112,
         const shot = t.capture(`wb-resize-run-${w}x${h}`);
         expect(count(shot, 'Workflow actions'), shot).toBe(1);
         expect(widest(shot)).toBeLessThanOrEqual(w);
-        // one frame from the first row to the last: row 1's tabs first (TIMMY and the project on its middle row), Activity &
-        // log's bottom border last
+        // one frame from the first row to the last: the header first (R10 H167: TIMMY and the project on its first row, the
+        // tabs on its second), Activity & log's bottom border last
         const rows = shot.trimEnd().split('\n');
         expect(rows).toHaveLength(h);
-        expect(rows[1]).toMatch(/^TIMMY · trayA/);
+        expect(rows[0]).toMatch(/^TIMMY · trayA/);
         expect(rows[h - 1]).toMatch(/^[╰┗]/);
       }
       releaseWait();
