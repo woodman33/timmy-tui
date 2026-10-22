@@ -8,7 +8,7 @@
 // line or its working folder (read from /proc on Linux). The second test is the census after the Workbench quits.
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -120,6 +120,9 @@ describe('the Workbench leaves nothing behind when it quits (R10, H163)', () => 
       expect(after.map(said)).toEqual([]);
     } finally {
       try { tmux('kill-server'); } catch { /* ended */ }
+      // tmux leaves the server's socket file: this test's own label's, only a socket
+      const sock = join(tmpdir(), `tmux-${process.getuid?.() ?? 0}`, label);
+      try { if (lstatSync(sock).isSocket()) rmSync(sock, { force: true }); } catch { /* none */ }
     }
   }, 180_000);
 });
