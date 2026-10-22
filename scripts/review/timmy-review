@@ -194,7 +194,7 @@ else
   else
     say "A Timmy home is already in the sandbox: it is not seeded again."
   fi
-  mkdir -p "$BOX" && printf '%s, revision %s, node %s\n' "$(date '+%Y-%m-%d %H:%M %Z')" "$REV" "$NODE" > "$FIRST_RUN"
+  mkdir -p "$BOX" && printf '%s\nrevision %s, node %s\n' "$(date '+%Y-%m-%d %H:%M %Z')" "$REV" "$NODE" > "$FIRST_RUN"
 fi
 
 name="$(active_name || true)"
