@@ -449,7 +449,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(screen(c)).toMatch(/newest turn in the Workbench · asked: a long one, please/);
     expect(c.data.pipeline?.operation).toBe(c.data.turn!.operation);
     expect(screen(c)).toContain('sealed · verified here');
-    expect(region(c, 'right')).toMatch(/EVENT LOG, NEWEST AT THE TOP \S+ \[chat\] turn answered in the Workbench · fixture\/chat-model · receipt sealed/);
+    // (R10 H167; the lead's note on the A2 captures: Chat's right column is the conversation's own, its turns, no job lines)
+    expect(region(c, 'right')).toMatch(/THIS CONVERSATION'S TURNS, NEWEST AT THE TOP \S+ \[chat\] turn answered in the Workbench · fixture\/chat-model · receipt sealed/);
     // the receipt's id is in the details ([i]: Chat's newest operation, its stages as their records say them; R10 H167), once
     // the composer is left (i typed there is the message's)
     if (c.ui.input.field === 'composer') c.key('', { escape: true });

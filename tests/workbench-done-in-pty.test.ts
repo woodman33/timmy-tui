@@ -142,8 +142,8 @@ describe('Enter on tab 2 never stops another surface\'s turn; the send is accept
     const idle = await seen(/RUNNING NOW \(0\)/);
     expect(idle).toMatch(/› hello from the Workbench/);
     await sendKeys(wb, ['Enter']);
-    const sent1 = await seen(/Answered: receipt [0-9a-f]{8}/, 20_000);
-    const first = /Answered: receipt ([0-9a-f]{8})/.exec(sent1)![1];
+    // (R10 H167: the notice says the receipt is sealed; its id is the details', [i])
+    const sent1 = await seen(/Answered: its receipt is sealed/, 20_000);
     keep('done-in-5-sent-after-repl-answered', sent1, 'RUNNING NOW 0 after the REPL\'s answer: the Workbench\'s message sent and answered');
     expect(sent1).not.toMatch(/Not sent/);
     expect(ollama.chats().length).toBe(2);
@@ -161,7 +161,10 @@ describe('Enter on tab 2 never stops another surface\'s turn; the send is accept
     keep('done-in-6-repl-ctrl-c', stopped, 'the REPL\'s own Ctrl+C stopped its turn 2');
     await seen(/RUNNING NOW \(0\)/);
     await sendKeys(wb, ['Enter']);
-    const sent2 = await seen(new RegExp(`Answered: receipt (?!${first})[0-9a-f]{8}`), 20_000);
+    // (the first answer's notice is long gone: it holds for its few seconds, and the REPL's turn 2 ran meanwhile; this one is
+    // the second answer's, after Ollama was asked the fourth time)
+    for (const end = Date.now() + 20_000; ollama.chats().length < 4 && Date.now() < end;) await sleep(20);
+    const sent2 = await seen(/Answered: its receipt is sealed/, 20_000);
     keep('done-in-7-sent-after-repl-stop', sent2, 'RUNNING NOW 0 after the REPL\'s Ctrl+C: the Workbench\'s message sent and answered');
     expect(sent2).not.toMatch(/Not sent/);
     expect(ollama.chats().length).toBe(4);

@@ -795,9 +795,10 @@ function stageWords(id: (typeof STAGES)[number]['id'], s: PipelineStage, p: Data
   if (id === 'intent') return 'recorded';
   if (id === 'predict') return s.state === 'done' ? 'sealed before it ran' : 'none sealed';
   if (id === 'sandbox') {
-    // none is recorded for any run yet (src/workbench/state.ts readPipeline): what ran it, then how it is
-    const ran = p?.kind === 'chat' ? (/ in (the [\w ]+?) ·/.exec(s.words)?.[1] ?? 'a chat turn') : (/none recorded: (.+?) ran it/.exec(s.words)?.[1] ?? 'a job');
-    return `none · ${ran}${s.state === 'running' ? ', running' : s.state === 'failed' ? ', failed' : ''}`;
+    // none is recorded for any run yet (src/workbench/state.ts readPipeline); R10 (H167; the lead's note on the A2 captures: the
+    // chip was cut at 122 columns): what ran it is the source row's ("newest turn in the Workbench"), not the chip's
+    void p;
+    return `none${s.state === 'running' ? ', running' : s.state === 'failed' ? ', failed' : ''}`;
   }
   return s.state === 'done' ? (s.verified ? 'sealed · verified here' : 'sealed') : s.state === 'failed' ? 'does not verify' : s.state === 'running' ? 'not sealed yet' : 'none sealed';
 }
@@ -842,14 +843,16 @@ export function eventsNow(data: ViewCtx['data']): WorkspaceLogEntry[] {
 }
 
 /** The Chat tab's right column: what runs now (the jobs, and a chat turn being answered), then the events, the chat turns
- *  among them, the newest at the top. */
+ *  among them, the newest at the top. R10 (H167; the lead's note on the A2 captures: it repeated Activity & log's job lines,
+ *  references 02 and 11 give it to the conversation): the conversation's own context: the turn being answered now, then this
+ *  project's chat turns, each as its sealed receipt says it (how it ended, where, the model, its time; the receipt said as
+ *  sealed, its id the details'), the newest at the top. A workflow's jobs are Activity & log's and 7 Control Room's. */
 export function eventLogView(c: ViewCtx): View {
   const { data, g, width } = c;
   const lines: Line[] = [];
-  const live = [...data.jobs, ...(data.away ?? [])].filter((j) => j.live);
   const turn = chatTurnNow(data);
-  lines.push(heading(`Running now (${live.length + (turn ? 1 : 0)})`));
-  if (!live.length && !turn) lines.push([S('  Nothing runs.', 'secondary')]);
+  lines.push(heading(`Running now (${turn ? 1 : 0})`));
+  if (!turn) lines.push([S('  No chat turn runs now.', 'secondary')]);
   if (turn) {
     // R5 (H131; the QA of e7f853e, the lead's batch): when it began in this Workbench's own clock (the frame's words carry
     // none), how long it has run, and how it stops from here
@@ -857,14 +860,9 @@ export function eventLogView(c: ViewCtx): View {
     lines.push(...wrapSegs([S(`  ${g.run} running `, 'text'), S('chat turn', 'strong'), S(`  being answered in ${turn.where}`, 'text'),
       S(Number.isFinite(since) ? ` ${g.sep} since ${clock(turn.since)} ${g.sep} ${took(c.now - since)}` : '', 'secondary'), S(` ${g.sep} ${turnStopHere(turn)}`, 'secondary')], width, '    '));
   }
-  for (const j of live) {
-    const where = sameFolder(j.root, data.project.root) ? '' : ` ${g.sep} in ${j.project}`;
-    lines.push([S(`  ${g.run} running `, 'text'), S(j.label, 'strong'), S(` ${g.sep} ${j.elapsed}${where}`, 'secondary')]);
-  }
-  lines.push(blank, heading('Event log, newest at the top'));
-  const log = eventsNow(data);
-  if (!data.frame && !log.length) lines.push([S('  Reading the workspace frame…', 'secondary')]);
-  else if (!log.length) lines.push([S('  No event yet: no job has run and no chat turn is sealed in this project.', 'secondary')]);
+  lines.push(blank, heading('This conversation\'s turns, newest at the top'));
+  const log = (data.turns ?? []).map(turnEntry).sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+  if (!log.length) lines.push(...wrapSegs([S('  No chat turn of this project is sealed yet: a message sent here, in the REPL or in the monitor is listed once its receipt is sealed.', 'secondary')], width, '  '));
   for (const e of log) {
     const t = toneOf(e, g);
     const head = `${clock(e.at)} [${e.tag}] `;

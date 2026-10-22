@@ -1367,7 +1367,8 @@ export class Controller {
       // the session's own, which says "Stopped" itself, printed as it is (a session that still says "Cancelled…" is said
       // "Stopped…"); a refusal or a failure keeps its word before it
       // R10 (H167): the receipt said as sealed; its id is the inspector's ([i] on the turn in Home's recent work)
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? `: receipt ${receiptShort(r.receipt)} sealed` : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+      // (R10 H167; the lead's note on the A2 captures: the receipt said as sealed, its id the details' ([i] on the turn))
+      this.say(r.status === 'answered' ? `Answered${r.receipt ? ': its receipt is sealed' : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
         r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
