@@ -175,6 +175,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     base = `http://127.0.0.1:${server.port}`;
     // the browser resolves no name but 127.0.0.1: nothing the page asks for can leave this computer
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+    // R10 lead: say which browser ran this file, so a CI log shows it (the hostile-answer case first failed only on the
+    // runner image whose Google Chrome was newer than every other run's; a passing run proves a fix only on that browser)
+    console.log(`companion-page-browser: ${browser.browserType().name()} ${browser.version()} at ${browserPath}`);
   }, 600_000);
 
   afterAll(async () => {
