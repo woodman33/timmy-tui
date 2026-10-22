@@ -38,6 +38,7 @@ import { createRoot } from 'react-dom/client';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
 import { createMermaidPlugin } from '@streamdown/mermaid';
+import { inertDiagrams } from './inert-diagram.js';
 
 const h = React.createElement;
 const { useState, useRef, useEffect, createContext, useContext } = React;
@@ -51,8 +52,12 @@ const MODEL = 'qwen/qwen3.8-max';
 /** The command that checks Timmy's receipt chain where Timmy runs (src/cli.ts `timmy verify`: the runs chain). */
 export const VERIFY_COMMAND = 'timmy verify';
 
-/** Mermaid draws in its strict mode (no script in a diagram, no click handlers, labels as text), whatever a diagram asks. */
-const mermaid = createMermaidPlugin({ config: { securityLevel: 'strict' } });
+/**
+ * Mermaid draws in its strict mode (no script in a diagram, no click handlers), whatever a diagram asks. R10 (H164): and from
+ * the diagram's inert text (inert-diagram.js): a tag with an attribute in a label is drawn as the text it is (Mermaid's #lt;),
+ * so no attribute of a diagram's, a handler least of all, is ever handed to a parser of this page.
+ */
+const mermaid = inertDiagrams(createMermaidPlugin({ config: { securityLevel: 'strict' } }));
 
 /*
  * R4 (H104): a drawn diagram keeps readable labels. r24: the ✨ sample's diagram labels were about 6 px. Mermaid gives its
