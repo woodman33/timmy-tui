@@ -94,6 +94,8 @@
  *   GET /api/journey/run/<operation id>    the token                         a run's progress, result and receipt
  *   GET /api/journey/open                  the token                         what the page's address asks for, what is shown
  *                                                                            for it, and a notice when that differs
+ *   GET /api/journey/file                  the token                         a project file for the preview: an image (data URL,
+ *                                                                            its size in pixels) or a text's first 64 KB
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';

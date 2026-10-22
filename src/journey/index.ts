@@ -12,13 +12,18 @@
  *                            with its state, its receipt (verified here) and where it opens (./recent.ts)
  *   runSummary(ctx, runId)   a run's progress (steps done of total, state), result (exits, outputs, verdict) and receipt
  *                            (verified here), with its project, from the one run detail (./run.ts)
+ *   projectFile(project, p)  a file of the project as the preview draws it: an image as a data URL with its width and height,
+ *                            or a text file's first 64 KB; anything else, and any path not plainly in the project, refused
+ *                            in words (./file.ts)
  *
  * The browser companion serves them read only, behind its token (./routes.ts, mounted by src/companion/server.ts):
- * GET /api/journey/route, /api/journey/recent, /api/journey/run/<operation id> and /api/journey/open.
+ * GET /api/journey/route, /api/journey/recent, /api/journey/run/<operation id>, /api/journey/open and /api/journey/file.
  */
 export { FAKE_NAME, routeNow, routeTaken } from './route.js';
 export type { JourneyRoute, RouteAgent, RouteCtx, RoutePrice, RouteProvider, RouteStep, RouteTaken, RouteWhere } from './route.js';
-export { askedOf, DRAFT_ID, hexOfPath, OPERATION_ID, openTarget, openUrl, pathOfHex, previewOf, projectPath, RECEIPT_ID, shownFor, VOX_ID } from './open.js';
+export { askedOf, DRAFT_ID, hexOfPath, IMAGE_EXTENSIONS, OPERATION_ID, openTarget, openUrl, pathOfHex, previewOf, projectPath, RECEIPT_ID, shownFor, TEXT_EXTENSIONS, VOX_ID } from './open.js';
+export { FILE_IMAGE_MAX, FILE_TEXT_MAX, imageHeader, projectFile } from './file.js';
+export type { FileRefusal, ImageType, ProjectFileAnswer, ProjectFileImage, ProjectFileRefused, ProjectFileText } from './file.js';
 export type { AskedAddress, Openable, OpenKind, OpenTarget, PageHas, SelectName } from './open.js';
 export { RECENT_CAPS, receiptOutputs, recentWork, RESULTS_MAX, runState, runTitle, verifyMany } from './recent.js';
 export type { RecentCaps, RecentWork, WorkCtx, WorkItem, WorkKind, WorkState } from './recent.js';

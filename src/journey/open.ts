@@ -63,8 +63,11 @@ export const TURN_ID = /^t[0-9]+-[0-9a-f]{8}$/;
 /** The longest path an address carries (the page reads at most 1024 bytes of hex). */
 export const PATH_BYTES_MAX = 1024;
 
-const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
-const TEXT_EXT = new Set(['md', 'markdown', 'txt', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'py', 'ts', 'js', 'mjs', 'sh', 'scad', 'usda']);
+/** The files the preview draws: these images, and text (GET /api/journey/file serves exactly these: ./file.ts). */
+export const IMAGE_EXTENSIONS = Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'gif'] as const);
+export const TEXT_EXTENSIONS = Object.freeze(['txt', 'md', 'markdown', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'py', 'ts', 'js', 'mjs', 'sh', 'scad', 'usda'] as const);
+const IMAGE_EXT = new Set<string>(IMAGE_EXTENSIONS);
+const TEXT_EXT = new Set<string>(TEXT_EXTENSIONS);
 
 /** A path's UTF-8 bytes as lowercase hex (what the page reads back). */
 export const hexOfPath = (path: string): string => Buffer.from(path, 'utf8').toString('hex');
