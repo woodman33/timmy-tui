@@ -9,7 +9,7 @@ import { TABS } from '../src/contracts/workspace.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import type { BuildInfo } from '../src/build-info.js';
 import { openTarget, type JourneyRoute, type RecentWork, type WorkItem as JourneyWorkItem } from '../src/journey/index.js';
-import { diagnosticsLines, headerRows, homeSideView, homeWorkView, plainWords, recentWork, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
+import { companionWhat, diagnosticsLines, handoffWords, headerRows, homeSideView, homeWorkView, inWords, plainWords, recentWork, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import type { JobRow } from '../src/workbench/state.js';
 import { lineCells, plain } from '../src/workbench/text.js';
@@ -217,7 +217,7 @@ describe('Home\'s recent work (R10 H167): H164\'s recentWork, as Home draws it',
     expect(t).not.toContain('127.0.0.1');
     const onOllama = ui({ cursor: { 'center:connections': 7 } });
     const side = flat(homeSideView(ctx(withConns, onOllama, 50), () => 'checks the connections from here').lines);
-    expect(side).toMatch(/CONNECTION · ● live Ollama \(local models\) answered at its address with 1 model/);
+    expect(side).toMatch(/CONNECTION · ● live Ollama \(local models\) answered on this computer with 1 model/);
     expect(side).toMatch(/\[Enter\] checks the connections from here/);
     expect(side).not.toContain('127.0.0.1');
   });
@@ -261,5 +261,32 @@ describe('plain words (R10 H167): ids and hashes said by what they name', () => 
       .toBe('✓ REPORT.md › report completed · 1 of 1 steps · 0.2 s · prediction met · receipt sealed');
     expect(plainWords('  ✕ j5c4706 failed  operation o92079bb4 · REPORT.md › report: exit 2 · /jobs j5c4706 shows its output · /op o92079bb4', d))
       .toBe('✕ REPORT.md › report failed · REPORT.md › report: exit 2 · 0 Logs shows its output');
+  });
+});
+
+describe('words on Home and Chat (R10 H167; H168\'s F3): no address, port, path, command or id outside the details', () => {
+  it('a cause, a step and a setting are said by what they are; the details keep them whole', () => {
+    expect(inWords('Ollama at 127.0.0.1:11434 did not answer (the connection failed (ECONNREFUSED)). Start it (ollama serve, or open the Ollama app), then check again (timmy workspace check: free requests only).'))
+      .toBe('Ollama on this computer did not answer (the connection was refused). Start it, then check again.');
+    expect(inWords('Cause: the setup recorded none for Ollama at 127.0.0.1:11434.')).toBe('Cause: the setup recorded none for Ollama on this computer.');
+    expect(inWords('no key: timmy init --chat openrouter asks for it (typed hidden), or set OPENROUTER_API_KEY'))
+      .toBe('no key: the setup (in a shell) asks for it (typed hidden), or set it in the environment ([i])');
+    expect(inWords('answered at http://127.0.0.1:40623 with 1 model')).toBe('answered on this computer with 1 model');
+    expect(inWords('pull a local model (ollama pull <model>, not a cloud one), then timmy workspace check')).toBe('pull a local model, then check again');
+    // words with none of them are kept as they are
+    expect(inWords('answered 3 min ago (FAKE: 2 models); live: an answer seen in the last 30 minutes')).toBe('answered 3 min ago (FAKE: 2 models); live: an answer seen in the last 30 minutes');
+  });
+
+  it('a hand-off says what opened: the item by its name, else the tab; its address is the details\' (the server\'s own words, kept)', () => {
+    const hex = Buffer.from('refs/demo-tray.stl', 'utf8').toString('hex');
+    expect(companionWhat(`tab=create&mesh=${hex}`)).toBe('demo-tray.stl in 3D & Motion');
+    expect(companionWhat('tab=workflows&run=o92079bb4', 'for Workflow run: report in REPORT.md')).toBe('Workflow run: report in REPORT.md in Workflows');
+    expect(companionWhat('tab=voxvision&vox=v8764e36c')).toBe('the observation chosen in VoxVision');
+    expect(companionWhat('tab=chat')).toBe('its Chat & Intent tab');
+    expect(handoffWords('companion', `The Companion opened in your browser (http://127.0.0.1:4472/?tab=create&mesh=${hex}), through a private page that carries its key`, 'demo-tray.stl in 3D & Motion'))
+      .toBe('Opened in the companion: demo-tray.stl in 3D & Motion.');
+    expect(handoffWords('studio', 'Studio opened in your browser (http://127.0.0.1:4470/), through a private page that carries its key. It shows tray.', '')).toBe('Opened Studio: it shows tray.');
+    expect(handoffWords('companion', 'The Companion is at http://127.0.0.1:4472/; this computer has no browser opener here, so open it yourself', 'its Home tab'))
+      .toBe('The companion serves its Home tab on this computer, but no browser was opened from here: the details ([i]) say its address, to open it yourself.');
   });
 });

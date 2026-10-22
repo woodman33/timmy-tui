@@ -345,18 +345,23 @@ describe('tab 6\'s items\' actions: Enter, c, Context\'s Tools and Files (R9 H16
       focusOn(c, 'center');
       const said = async (): Promise<string> => { await c.showCompanion(); return c.ui.flash?.text ?? ''; };
       // the first mesh (the cursor's as the tab opens), then the second
-      expect(await said()).toContain(`The Companion opened in your browser (http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.obj')}), through a private page that carries its key`);
+      // (R10 H167; H168's F3: said in words, the mesh by its file's name; the address is the details', [i])
+      expect(await said()).toMatch(/^Opened in the companion: demo-tray\.obj in 3D & Motion\./);
+      expect(companion.state().last).toContain(`(http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.obj')}), through a private page that carries its key`);
       c.key('', { downArrow: true });
-      expect(await said()).toContain(`?tab=create&mesh=${hex('refs/demo-tray.ply')})`);
+      expect(await said()).toMatch(/^Opened in the companion: demo-tray\.ply in 3D & Motion\./);
+      expect(companion.state().last).toContain(`?tab=create&mesh=${hex('refs/demo-tray.ply')})`);
       // the page carries the same address (the key after #)
       expect(readFileSync(fileURLToPath(hrefs[1]), 'utf8')).toBe(launchPageHtml(`http://127.0.0.1:4399/?tab=create&mesh=${hex('refs/demo-tray.ply')}#t=FAKE`));
       // the recording, then the first tool: tab 6 alone
       c.key('', { downArrow: true });
       c.key('', { downArrow: true });
-      expect(await said()).toContain('(http://127.0.0.1:4399/?tab=create)');
+      expect(await said()).toMatch(/^Opened in the companion: its 3D & Motion tab\./);
+      expect(companion.state().last).toContain('(http://127.0.0.1:4399/?tab=create)');
       c.key('', { downArrow: true });
       expect(c.selected()?.kind).toBe('cap');
-      expect(await said()).toContain('(http://127.0.0.1:4399/?tab=create)');
+      expect(await said()).toMatch(/^Opened in the companion: its 3D & Motion tab\./);
+      expect(companion.state().last).toContain('(http://127.0.0.1:4399/?tab=create)');
     } finally {
       // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
       for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });

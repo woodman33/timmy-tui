@@ -269,7 +269,8 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     await c.runAction(fix);
     await until('the list', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'listed');
     const listed = region(c, 'center');
-    expect(listed).toContain('What Ollama at 127.0.0.1:11434 lists now (asked just now, no charge): the names timmy init --chat local --model takes.');
+    // (R10 H167; H168's F3: in words; the address is the details', [i])
+    expect(listed).toContain('What Ollama on this computer lists now (asked just now, no charge): the local models the chat can take.');
     expect(listed).toContain('1 cloud-backed model it lists is not offered here: Ollama sends that chat off this computer.');
     expect(listed).toContain('LOCAL MODELS (2)');
     expect(listed).toMatch(/fake-llama:8b\s+local weights · 8B · Q4_K_M · 4\.9 GB/);
@@ -328,8 +329,9 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     await c.runAction((await chatActions(c)).find((a) => a.primary));
     await until('the box', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'failed');
     const text = region(c, 'center');
-    expect(text).toContain('Ollama at 127.0.0.1:11434 did not answer (FAKE: connection refused). Start it (the Ollama app, or ollama serve), then check again. Nothing was changed.');
-    expect(text).toContain('Check the connections again (timmy workspace check: free requests only)');
+    // (R10 H167; H168's F3: in words; the address and the commands are the details', [i])
+    expect(text).toContain('Ollama on this computer did not answer (FAKE: connection refused). Start the Ollama app, then check again. Nothing was changed.');
+    expect(text).toContain('Check the connections again (free requests only)');
     c.key('\r', ENTER);
     await until('the check\'s words', () => /answered/.test(message(c)) && message(c));
     const said = message(c);
@@ -339,7 +341,8 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     expect(said).toContain('Timmy Studio  not running');
     expect(said).toContain('Browser companion  not running');
     expect(said).toContain('Cloudflare edge  not asked: none is set up');
-    expect(said).toMatch(/Recorded in .*connections\.json/);
+    // (R10 H167; H168's F3: where it is recorded is the details', [i])
+    expect(said).toContain('Recorded. Home\'s connection rows say these now');
     await until('the Ollama card live', () => c.data.frame?.connections.find((x) => x.id === 'ollama')?.state === 'live', 10_000, () => screen(c));
   }, 30_000);
 

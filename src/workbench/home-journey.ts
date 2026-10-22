@@ -17,6 +17,7 @@
  */
 import { tabOf, type TabId, type WorkspaceConnection } from '../contracts/workspace.js';
 import { tildePath } from '../utils/home-scrub.js';
+import { connectionsPath } from '../ops/workspace-frame.js';
 import { boxOf, type Glyphs } from './frame.js';
 import { chatTurnNow, connectionMark, frameTabs, unfinishedMark } from './hub.js';
 export { plainWords } from './hub.js';
@@ -422,6 +423,23 @@ export function homeItems(c: Pick<JourneyCtx, 'data' | 'now'>): Item[] {
   return [...recentWork(c.data, HOME_WORK, c.now).map(workItem), ...(c.data.frame?.connections ?? []).map((conn): Item => ({ kind: 'conn', key: `conn:${conn.id}`, conn }))];
 }
 
+/**
+ * R10 (H168's F2): the item Home's list selects until the person moves in it: its newest work; with none, the connection the
+ * ready route uses (Ollama for the local route, OpenRouter for the cloud one), else the first connection that is not "not set
+ * up": never a connection that is not set up while a route is ready.
+ */
+export function homeDefault(c: Pick<JourneyCtx, 'data' | 'now'>): number {
+  const all = homeItems(c);
+  if (!all.length || all[0].kind === 'work') return 0;
+  const j = c.data.journeyRoute;
+  if (!j?.ready) return 0;
+  const id = j.provider === 'openrouter' ? 'openrouter' : j.provider === 'ollama' ? 'ollama' : null;
+  const own = id ? all.findIndex((it) => it.kind === 'conn' && it.conn.id === id) : -1;
+  if (own >= 0) return own;
+  const set = all.findIndex((it) => it.kind === 'conn' && it.conn.state !== 'not set up');
+  return set >= 0 ? set : 0;
+}
+
 /** Home's selected item (an item of recent work or a connection), or the first. */
 export function selectedHome(c: Pick<JourneyCtx, 'ui' | 'data' | 'now'>): Item | null {
   const all = homeItems(c);
@@ -435,8 +453,88 @@ export function selectedWork(c: Pick<JourneyCtx, 'ui' | 'data' | 'now'>): WorkIt
   return it?.kind === 'work' ? it.work : null;
 }
 
+/**
+ * R10 (H167; H168's F3, an acceptance line): words for Home and Chat: an address, a port, a path, a raw command, an error code
+ * or a setting's name said by what it is ("Ollama on this computer did not answer: start it, then check again"). The details
+ * ([i]: the Inspector's About · diagnostics, and Activity expanded on another tab) keep them whole.
+ */
+export function inWords(words: string): string {
+  return words
+    // an address on this computer, then any other
+    .replace(/\b(?:at|on) (?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?(?=[\s,;.)]|$)/g, 'on this computer')
+    .replace(/\(?(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/[^\s,;)]*)?\)?/g, 'this computer')
+    .replace(/\bhttps?:\/\/[^\s,;)]+/g, 'its address')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, 'its address')
+    // an error's code: "(the connection failed (ECONNREFUSED))" is "(the connection was refused)"
+    .replace(/the connection failed \(ECONNREFUSED\)/g, 'the connection was refused')
+    .replace(/\s*\(E[A-Z]{3,}\)/g, '')
+    // a command in brackets after its words, or as the step itself
+    .replace(/\s*\((?:[^()]*: )?(?:timmy|ollama|npm|npx|brew|curl|open|xdg-open)\b[^()]*\)/g, '')
+    .replace(/\b(?:start it|run) \((?:ollama serve|open -a Ollama)[^)]*\)/gi, 'start the Ollama app')
+    .replace(/`[^`]+`/g, 'the command ([i])')
+    .replace(/\bthen timmy workspace check\b/g, 'then check again')
+    .replace(/\btimmy workspace check\b/g, 'a check')
+    .replace(/\btimmy (?:init|setup|act)(?: --?[\w-]+(?:[ =](?!asks\b|reads\b|and\b|or\b)[\w./:<>-]+)?)*/g, 'the setup (in a shell)')
+    .replace(/\/(?:setup|model|run|op|jobs|open)\b(?: (?![A-Z])[\w./-]+)*/g, 'a REPL command ([i])')
+    .replace(/\bollama (?:serve|pull|run)\b(?: [\w.:<>-]+)?/g, 'Ollama')
+    // a setting's name and a path
+    .replace(/\bset [A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g, 'set it in the environment ([i])')
+    .replace(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g, 'a setting ([i])')
+    .replace(/\s*\(\.sessions\)/g, '')
+    .replace(/(?:~|<Timmy home>)?\/?(?:[\w.@-]+\/)+[\w.@-]+\.(?:json|jsonl|md|log|txt|ts|js|png|stl|obj|ply|rrd)\b/g, 'its file')
+    .replace(/(?:~|<Timmy home>)\/[\w.@/-]+/g, 'its folder')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 /** A connection's words with its address said by what it is (the details say it whole). */
-const noAddress = (words: string): string => words.replace(/\bhttps?:\/\/[^\s,;)]+/g, 'its address').replace(/\b\d{1,3}(?:\.\d{1,3}){3}:\d+\b/g, 'its address').replace(/~?\/[\w./-]+\/[\w.-]+/g, 'its file');
+const noAddress = (words: string): string => inWords(words);
+
+const COMPANION_TAB: Readonly<Record<string, string>> = {
+  home: 'Home', chat: 'Chat & Intent', workflows: 'Workflows', studio: 'Studio', voxvision: 'VoxVision', create: '3D & Motion',
+  control: 'Control Room', fleet: 'Fleet & Clef', tools: 'Tools & MCP', logs: 'Logs & Receipts',
+};
+
+/**
+ * R10 (H167; H168's F3 and F5): what a hand-off to the companion opens, in words, from the page's query (H164's openTarget
+ * query: tab=create&mesh=…) and the item's name when one was given ("for demo-tray.stl"): "demo-tray.stl in 3D & Motion", or
+ * "its Chat & Intent tab".
+ */
+export function companionWhat(query: string, why = ''): string {
+  const p = new URLSearchParams(query);
+  const tab = COMPANION_TAB[p.get('tab') ?? 'home'] ?? 'Home';
+  const item = /^for (.+)$/.exec(why.trim())?.[1];
+  if (item) return `${item} in ${tab}`;
+  // a mesh, a recording or a file is named in the address by its path's hex (H164's hexOfPath): said by its file's name
+  for (const k of ['mesh', 'recording', 'file']) {
+    const hex = p.get(k);
+    if (!hex || !/^(?:[0-9a-f]{2})+$/.test(hex)) continue;
+    const path = Buffer.from(hex, 'hex').toString('utf8');
+    if (/^[\x20-\x7e]+$/.test(path)) return `${path.split('/').pop()} in ${tab}`;
+  }
+  const chosen = ['run', 'mesh', 'recording', 'file', 'vox', 'receipt'].find((k) => p.has(k));
+  const what: Readonly<Record<string, string>> = { run: 'the run', mesh: 'the mesh', recording: 'the recording', file: 'the file', vox: 'the observation', receipt: 'the receipt' };
+  return chosen ? `${what[chosen]} chosen in ${tab}` : `its ${tab} tab`;
+}
+
+/**
+ * R10 (H167; H168's F3): a server's hand-off words (src/workbench/servers.ts: "The Companion opened in your browser
+ * (http://127.0.0.1:4472/?tab=…), through a private page…") said in words, with what opened; the address, the port it took
+ * and the private page are the details' ([i], where the server's own words are kept whole).
+ */
+export function handoffWords(which: 'companion' | 'studio', words: string, what: string): string {
+  const name = which === 'companion' ? 'the companion' : 'Studio';
+  if (/opened in your browser/.test(words)) {
+    if (which === 'studio') {
+      const shows = /It shows ([^.]+)\./.exec(words)?.[1];
+      const elsewhere = /Another Timmy serves it\./.test(words) ? ' Another Timmy serves it.' : '';
+      return `Opened Studio${shows ? `: it shows ${shows}` : ''}.${elsewhere}`;
+    }
+    return `Opened in the companion: ${what}.${/port asked for, was taken/.test(words) ? ' It took another port than the one asked for ([i] says which).' : ''}`;
+  }
+  if (/so open it yourself|could not be written/.test(words)) return `${which === 'companion' ? 'The companion' : 'Studio'} serves ${what || 'its page'} on this computer, but no browser was opened from here: the details ([i]) say its address, to open it yourself.`;
+  return inWords(words.replace(/\bThe Companion\b/, 'The companion'));
+}
 
 /** The name a connection goes by on Home's rows. */
 const connName = (conn: WorkspaceConnection): string => (conn.id === 'openrouter' ? 'OpenRouter' : conn.id === 'ollama' ? 'Ollama' : conn.id === 'companion' ? 'Companion' : conn.id === 'studio' ? 'Studio' : conn.id === 'cloudflare' ? 'Cloudflare' : conn.label.replace(/\s*\(.*\)$/, ''));
@@ -475,7 +573,7 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
     if (conn.observedAt) lines.push([S(`observed ${clock(conn.observedAt)}`, 'secondary')]);
     lines.push(blank);
     const does = step?.(conn) ?? null;
-    if (does) lines.push(...wrapSegs([key('Enter'), S(` ${does}`, 'text')], width, '        '));
+    if (does) lines.push(...wrapSegs([key('Enter'), S(` ${inWords(does)}`, 'text')], width, '        '));
     lines.push(...wrapSegs([key('i'), S('     details: its address, its step, what was observed', 'secondary')], width, '        '));
   } else {
     lines.push(heading('Nothing selected'), [S('Recent work is empty: the next step above starts it.', 'secondary')]);
@@ -535,11 +633,12 @@ export function workDetail(w: WorkItem, width: number, g: Glyphs): Line[] {
 }
 
 /** About · Diagnostics: the build, the route in its own words, and each connection whole (its address and its step). */
-export function diagnosticsLines(c: Pick<JourneyCtx, 'data' | 'g' | 'width'>, env: Record<string, string | undefined> = process.env): Line[] {
+export function diagnosticsLines(c: Pick<JourneyCtx, 'data' | 'g' | 'width'> & { ui?: Pick<Ui, 'companion' | 'studio'> }, env: Record<string, string | undefined> = process.env): Line[] {
   const { data, g, width } = c;
   const out: Line[] = [heading('About · diagnostics')];
-  for (const [k, v] of buildWords(env, data.build)) out.push(...wrapSegs([S(`${k.padEnd(10)} `, 'secondary'), S(v, 'text')], width, ' '.repeat(11)));
-  out.push(...wrapSegs([S(`${'Route'.padEnd(10)} `, 'secondary'), S(routeLine(data).words, 'text')], width, ' '.repeat(11)));
+  const row = (k: string, v: string, role: Role = 'text'): void => { out.push(...wrapSegs([S(`${k.padEnd(10)} `, 'secondary'), S(v, role)], width, ' '.repeat(11))); };
+  for (const [k, v] of buildWords(env, data.build)) row(k, v);
+  row('Route', routeLine(data).words);
   const j = data.journeyRoute;
   if (j) {
     if (j.price.words) out.push(...wrapSegs([S(`${'Price'.padEnd(10)} `, 'secondary'), S(j.price.words, 'text')], width, ' '.repeat(11)));
@@ -549,6 +648,20 @@ export function diagnosticsLines(c: Pick<JourneyCtx, 'data' | 'g' | 'width'>, en
     if (j.cause) out.push(...wrapSegs([S(`${'Cause'.padEnd(10)} `, 'secondary'), S(j.cause, 'text')], width, ' '.repeat(11)));
   }
   for (const n of data.recent?.notes ?? []) out.push(...wrapSegs([S(`${'Recent'.padEnd(10)} `, 'secondary'), S(n, 'secondary')], width, ' '.repeat(11)));
+  // R10 (H167; H168's F3): what Home and Chat say in words, whole here: the servers' addresses and their last words, the
+  // project's folder, where the connections' checks are recorded, and the newest notices as they were said
+  if (c.ui) {
+    for (const [k, s] of [['Companion', c.ui.companion], ['Studio', c.ui.studio]] as const) {
+      row(k, `${s.serving ? `served by this Workbench at ${s.address}` : s.other && s.address ? `served by another Timmy at ${s.address}` : 'not served by this Workbench'}${s.last ? ` · last: ${s.last}` : ''}`);
+    }
+  }
+  row('Project', `${data.project.name} · ${data.project.shown}`);
+  row('Checks', tildePath(connectionsPath(env as NodeJS.ProcessEnv), env as NodeJS.ProcessEnv));
+  const said = data.activity.events.filter((e) => !e.output).slice(0, 4);
+  if (said.length) {
+    out.push(blank, heading('Newest notices, as said'));
+    for (const e of said) out.push(...wrapSegs([S(`${clock(e.at)} `, 'secondary'), S(e.words, 'text')], width, ' '.repeat(9)));
+  }
   out.push(blank, heading('Connections, as observed'));
   for (const conn of data.frame?.connections ?? []) {
     const m = connectionMark(conn.state, g);

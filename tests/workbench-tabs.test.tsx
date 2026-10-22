@@ -338,6 +338,8 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
       const at = items.findIndex((x) => x.item.key === `conn:${conn.id}`);
       c.ui.cursor['center:connections'] = at;
       c.ui.sel['center:connections'] = `conn:${conn.id}`;
+      // (R10 H167: a row the person chose; until then Home selects its newest work, else the ready route's connection)
+      (c.ui.chosen ??= {})['center:connections'] = true;
       const side = regionRows(c.frame(160, 70), 'right').join(' ').replace(/\s+/g, ' ');
       expect(side, `${conn.label}'s words`).toContain(conn.words.split(/\s+/).slice(0, 2).join(' '));
       expect(side).toContain(`CONNECTION · ${MARK[conn.state]}`);

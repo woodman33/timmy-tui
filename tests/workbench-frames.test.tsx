@@ -337,7 +337,10 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     await press(f.r, 'c');
     await sleep(150);
     // (R6 H141: on the tab shown here, Home: the page opens the tab its address names)
-    expect(f.text()).toContain('The Companion opened in your browser (http://127.0.0.1:4321/?tab=home), through a private page that carries its key');
+    // (R10 H167; H168's F3: said in words on the screen; the address, without its key, is the details', [i])
+    expect(f.text()).toContain('Opened in the companion: its Home tab.');
+    expect(f.text()).not.toContain('127.0.0.1');
+    expect(companion.state().last).toContain('http://127.0.0.1:4321/?tab=home');
     expect(f.text()).not.toContain(key);
     expect(hrefs).toHaveLength(1);
     expect(hrefs[0]).toMatch(/^file:\/\//);
@@ -351,7 +354,8 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect({ starts, opened: hrefs.length }).toEqual({ starts: 1, opened: 2 });
     await press(f.r, 'C');
     await sleep(100);
-    expect(f.text()).toContain('The Companion at http://127.0.0.1:4321/ stopped serving.');
+    // (R10 H167; H168's F3: in words)
+    expect(f.text()).toContain('The Companion on this computer stopped serving.');
     expect(stops).toBe(1);
     // the private pages go with their minute or with the process; this test's worker does not end here, so it removes its own
     for (const h of hrefs) rmSync(dirname(fileURLToPath(h)), { recursive: true, force: true });

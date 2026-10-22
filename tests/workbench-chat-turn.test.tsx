@@ -229,10 +229,14 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     // (R10 H167: the operation's id is the details', [i])
     expect(screen(c)).toMatch(/newest operation chat turn in the Workbench · being answered now/);
 
-    // Esc: the turn stops; the composer stays open, and the notice says so
+    // while it is answered the key-hint row says only the composer's keys (R10 H167; H168's F1)
+    expect(screen(c)).toMatch(/\[Enter\] sends once it is answered {2}\[Esc\] stops the turn and leaves the composer/);
+    expect(region(c, 'bottom')).not.toMatch(/\[1–0\] tabs|\[x\] Stop|\[Tab\] zones/);
+    // Esc: the turn stops and the composer is left (R10 H167; H168's F1: the keys after it are the Workbench's again), and the
+    // notice says so
     c.key('', ESC);
-    expect(c.ui.input.field).toBe('composer');
-    expect(c.ui.flash?.text).toBe('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).');
+    expect(c.ui.input.field).toBe(null);
+    expect(c.ui.flash?.text).toBe('Esc: stopping the chat turn being answered, and left the composer. Enter opens it again.');
     await until('the turn stopped', () => c.data.turn?.state === 'cancelled', 10_000, () => screen(c));
     // R7 (H150; H148's N5): the stop's notice in the turn's word, once: the session's own line ("Stopped: Cancelled: …" before)
     await until('the stop\'s notice', () => /^Stopped/.test(c.ui.flash?.text ?? ''), 5000, () => screen(c));
@@ -240,8 +244,8 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(region(c, 'top')).toContain('run: idle');
     expect(region(c, 'top')).toContain('Stop current: idle');
     expect(region(c, 'right')).toContain('RUNNING NOW (0)');
-    // (R10 H167: the composer's foot says where the message goes)
-    expect(region(c, 'center')).toMatch(/Enter sends to .* · Esc leaves/);
+    // (R10 H167: the composer, left, says where a message would go)
+    expect(region(c, 'center')).toMatch(/\[Enter\] Type a message +· to FAKE FIXTURE route/);
     // R5 (H131; the QA of e7f853e, defect 8): the conversation keeps the agent's own record of the stop (isTimmyRecord): it is
     // never shown as the model's words under its label; the partial answer once, marked partial, then the stop in Timmy's own
     // words, once, with its receipt and when (this Workbench's clock); the session's "Cancelled…" line does not say it again
@@ -259,10 +263,9 @@ describe('the Chat tab and a chat turn (R5 H131, the QA round)', () => {
     expect(said).not.toContain('YOUR LAST MESSAGE HERE');
     // the event log lists it as the frame says it
     expect(region(c, 'right')).toContain('[chat] turn stopped (asked from the Workbench) in the Workbench · fixture/chat-model · receipt sealed');
-    // Esc again: it leaves the composer, and says so
-    c.key('', ESC);
-    expect(c.ui.input.field).toBe(null);
-    expect(c.ui.flash?.text).toBe('Esc: left the composer. Enter opens it again.');
+    // nothing more was sent: the Workbench's keys after the Esc are not a message
+    c.key('1', {});
+    expect(c.ui.page).toBe('home');
     expect(chat.state.sent).toEqual(['hello there']);
   }, 30_000);
 

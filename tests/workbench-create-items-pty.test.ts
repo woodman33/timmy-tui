@@ -184,7 +184,8 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
       // c: the companion on tab 6 with this mesh chosen (the launch page the FAKE opener was given carries the address)
       const before = openedPages().length;
       await t.keys('c');
-      await t.waitFor(`the Companion opened at ${size}`, (s) => /The Companion opened in your browser/.test(s), 60_000);
+      // (R10 H167; H168's F3: said in words, the mesh by its file's name; the address is the details', [i])
+      await t.waitFor(`the Companion opened at ${size}`, (s) => /Opened in the companion: demo-tray\.obj/.test(s), 60_000);
       for (const end = Date.now() + 10_000; openedPages().length <= before && Date.now() < end;) await sleep(100);
       const pages = openedPages();
       expect(pages.length, `${size}: one more page given to the FAKE opener`).toBe(before + 1);
