@@ -96,6 +96,12 @@ export interface DispatchCopy {
   /** where its outputs were kept, relative to the project: .timmy/dispatch/<id>/outputs */
   outputs_at?: string;
   outputs?: DispatchOutput[];
+  /**
+   * R10 (H163; the R9 review's F11): where its session runs: the tmux server's socket (as tmux said right after the session
+   * started) and the session's name, also written in the copy's marker. Absent in records made before R10, or when tmux did
+   * not say: then only a cancel releases the copy.
+   */
+  tmux?: { socket: string; session: string };
 }
 
 export interface StoredPlan {
@@ -278,6 +284,13 @@ const tmux = (args: string[]) => {
 // place the copy is released is pauseOrCancelLane's cancel (releaseCopy, after its kill-session): the only point where Timmy
 // itself ends the session, so has-session is asked right after the end it caused; a cancel of a session that had already ended
 // (killed elsewhere) releases its copy the same way. collectRun and the others only say what the copy's state is.
+//
+// R10 (H163; the R9 review's F11): a session that ended outside Timmy (its tmux session or server killed, the computer
+// restarted) left its copy in use until someone cancelled. Each dispatch now records where its session runs (the tmux server's
+// socket, read right after the session started) in its record and in its copy's marker; at the next start of a dispatch in the
+// project (releaseEndedCopies, which dispatchPlan calls first), a copy whose marker names that session and server, where tmux
+// says the session no longer runs, is released the same way (outputs kept, then removed), and its record, an event and a
+// receipt say so. A record from before R10 names no server: it is left for a cancel, and said.
 
 const COPY_MARKER = '.timmy-dispatch-copy';
 const nowIso = (): string => new Date().toISOString();
@@ -396,13 +409,93 @@ function sessionRuns(session: string | undefined): { runs: boolean | null; why?:
 }
 
 /**
+ * R10 (H163): whether `session` runs on the tmux server whose socket is `socket` (tmux -S). Ended only when tmux says so: no
+ * such session, no server on that socket, or no socket there; any other answer (a socket it may not use, no tmux) is not known.
+ */
+function sessionRunsAt(socket: string, session: string): { runs: boolean | null; why?: string } {
+  const h = spawnSync('tmux', ['-S', socket, 'has-session', '-t', `=${session}`], { encoding: 'utf8', timeout: 5000 });
+  if (h.error) return { runs: null, why: `tmux could not be asked (${errWords(h.error)})` };
+  if (h.status === 0) return { runs: true };
+  const said = String(h.stderr || h.stdout || '').trim();
+  if (h.status === 1 && /^(can't find session|no server running on |error connecting to .*\(No such file or directory\))/.test(said)) return { runs: false, why: said };
+  return { runs: null, why: `tmux answered ${h.status}: ${errWords(said)}` };
+}
+
+/** R10 (H163): the copy's marker, rewritten to name its session and the server it runs on (only a regular file, the copy's own). */
+function markSession(id: string, copy: DispatchCopy, session: string, socket: string): boolean {
+  if (!ownCopy(id, copy).ok) return false;
+  const m = join(copy.path, COPY_MARKER);
+  try {
+    const mark = JSON.parse(readFileSync(m, 'utf8')) as Record<string, unknown>;
+    if (!lstatSync(m).isFile()) return false;
+    writeFileSync(m, `${JSON.stringify({ ...mark, session, socket })}\n`, { mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
+
+/** R10 (H163): what the copy's marker says of its session and server, or null when it says nothing readable. */
+function markedSession(copy: DispatchCopy): { plan_id?: unknown; marker?: unknown; session?: unknown; socket?: unknown } | null {
+  try {
+    const m = join(copy.path, COPY_MARKER);
+    return lstatSync(m).isFile() ? JSON.parse(readFileSync(m, 'utf8')) as { plan_id?: unknown; marker?: unknown; session?: unknown; socket?: unknown } : null;
+  } catch { return null; }
+}
+
+/**
+ * R10 (H163; the R9 review's F11): the copies of this project's dispatches still in use whose sessions ended outside Timmy
+ * (their tmux session or server killed, the computer restarted), released as a cancel releases them: outputs kept in the
+ * dispatch record, then the copy removed (or left, with why). Only a copy whose record names the server its session ran on and
+ * whose marker names that same session and server, where tmux says no such session runs. dispatchPlan calls it as it starts;
+ * any start may. Returns what it released and what it left (a copy whose session still runs is not listed).
+ */
+export function releaseEndedCopies(dir?: string): Array<{ id: string; state: DispatchCopy['state']; words: string }> {
+  const out: Array<{ id: string; state: DispatchCopy['state']; words: string }> = [];
+  for (const s of listPlans(dir).sort((a, b) => a.id.localeCompare(b.id))) {
+    const c = s.copy;
+    if (!c || c.state !== 'in_use' || !s.session) continue;
+    if (!c.tmux) {
+      out.push({ id: s.id, state: 'in_use', words: 'left in use: its record does not say which tmux server its session ran on (made before Timmy recorded it), so whether it ended is not known; a cancel releases it' });
+      continue;
+    }
+    const there = existsSync(c.path);
+    const mark = there ? markedSession(c) : null;
+    if (there && (!mark || mark.plan_id !== s.id || mark.marker !== c.marker || mark.session !== c.tmux.session || mark.socket !== c.tmux.socket || c.tmux.session !== s.session)) {
+      out.push({ id: s.id, state: 'in_use', words: 'left in use: its marker does not name this dispatch\'s session and tmux server (it releases only a copy its marker says is this session\'s)' });
+      continue;
+    }
+    const now = sessionRunsAt(c.tmux.socket, c.tmux.session);
+    if (now.runs === true) continue;
+    if (now.runs === null) {
+      out.push({ id: s.id, state: 'in_use', words: `left in use: whether its session ended is not known (${now.why})` });
+      continue;
+    }
+    releaseCopy(s, dir, { ended: true });
+    if (s.copy?.state === 'removed') s.copy.why = `released at the next start: its session (${c.tmux.session}) had ended outside Timmy; outputs kept at ${s.copy.outputs_at ?? outputsRel(s.id)}`;
+    // as tail does when it sees the end: a session gone while the record said running is no longer running
+    if (s.lifecycle === 'running') s.lifecycle = 'failed';
+    writeStored(s, dir);
+    const words = copyWords(s);
+    ev(s.copy?.state === 'removed' ? 'dispatch.copy_released' : s.copy?.state === 'gone' ? 'dispatch.copy_gone' : 'dispatch.copy_kept', s,
+      { words, found: 'at the next start: its session had ended outside Timmy', copy: basename(c.path ?? ''), ...(s.copy?.outputs_at ? { outputs_at: s.copy.outputs_at } : {}), ...(s.copy?.outputs ? { outputs: s.copy.outputs } : {}) }, dir);
+    appendReceipt('runs', {
+      kind: 'run', subject: `dispatch ${s.id} copy released at the next start · ${words}`, policy: 'human-gated',
+      status: s.copy?.state === 'removed' ? 'ok' : 'failed', ...(s.copy?.state === 'removed' ? {} : { error_class: 'env' as const }),
+      plan_hash: s.plan_hash, ...copyReceiptFields(s), spans: [], artifacts: [],
+    }, dir);
+    out.push({ id: s.id, state: s.copy?.state ?? 'in_use', words });
+  }
+  return out;
+}
+
+/**
  * R9 (H161): the one place a dispatch's copy is released (see the header above; called by pauseOrCancelLane's cancel). It
  * changes the record's copy in place; the caller writes the record, its events and its receipt.
  */
-function releaseCopy(s: StoredPlan, dir?: string): DispatchCopy | undefined {
+function releaseCopy(s: StoredPlan, dir?: string, o: { ended?: boolean } = {}): DispatchCopy | undefined {
   const c = s.copy;
   if (!c || c.state !== 'in_use') return c;
-  const ended = sessionRuns(s.session);
+  // R10 (H163): releaseEndedCopies has asked the server the record names already (o.ended)
+  const ended = o.ended ? { runs: false as const } : sessionRuns(s.session);
   if (ended.runs !== false) {
     c.why = ended.runs ? 'not removed yet: the session still runs' : `not removed yet: whether the session ended is not known: ${ended.why}`;
     return c;
@@ -483,6 +576,9 @@ function establishIsolation(s: StoredPlan): { ok: boolean; workdir?: string; cop
 }
 
 export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: string; session?: string; blocked?: { state: string; note: string } } {
+  // R10 (H163; review F11): a dispatch starting is the next start for the copies earlier dispatches of this project left in use
+  // after their sessions ended outside Timmy (a release that fails never stops this dispatch)
+  try { releaseEndedCopies(dir); } catch { /* each copy stays as its record says */ }
   const s = readStored(id, dir);
   if (!s) return { ok: false, note: 'unknown plan' };
   if (s.lifecycle !== 'armed') return { ok: false, note: `plan not armed (lifecycle ${s.lifecycle}) — chat prepares, authority launches` };
@@ -527,6 +623,13 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
     writeStored(s, dir);
     if (s.copy) ev('dispatch.spawn_failed', s, { copy: copyWords(s) }, dir);
     return { ok: false, note: 'tmux spawn failed' };
+  }
+  // R10 (H163; review F11): where the session runs, in the record and in the copy's marker (before anything runs in the copy),
+  // so the next start can ask that server whether it still runs (releaseEndedCopies)
+  if (s.copy) {
+    const at = tmux(['display-message', '-p', '-t', `=${session}:`, '#{socket_path}']);
+    const socket = at.status === 0 ? (at.stdout ?? '').trim() : '';
+    if (isAbsolute(socket) && markSession(s.id, s.copy, session, socket)) s.copy.tmux = { socket, session };
   }
   // TIMMY_DISPATCH_DRYRUN=1: exercise session mechanics without launching a
   // real harness (tests, demos). Isolation + approval gates still apply.
