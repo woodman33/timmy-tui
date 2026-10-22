@@ -63,6 +63,9 @@ export interface TurnView {
   model?: string;
   /** the operation the message ran as */
   operation?: string;
+  /** R10 (H163; H168's N5): the route's words when it was sent (src/workbench/views.ts routeShown): a failure's fix is the next
+   *  step only while the route is still that one */
+  route?: string;
   tools: Array<{ name: string; phase: 'start' | 'end'; outcome?: string }>;
   at: number;
   /** R5 (H131): when its answer ended (this process's clock) */

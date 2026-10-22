@@ -161,6 +161,29 @@ function column(text: string[], i: 0 | 1 | 2, width: number): string[] {
   return text.map((t) => [...t].slice(from, to).join(''));
 }
 
+/** R10 (H163; H168's F4): the rules between the three columns at their places (a light box at a column's edge draws a │ of its
+ *  own beside a rule, so the rows are not told apart by splitting at " │ "). */
+function ruled(t: string, width: number): boolean {
+  const [l, m] = columnWidths(width);
+  const ch = [...t];
+  return ch.slice(l, l + 3).join('') === ' │ ' && ch.slice(l + 3 + m, l + 6 + m).join('') === ' │ ';
+}
+
+/** R10 (H163; H168's F4): a row's segments in the centre column, by their cells. */
+function centreSegs(line: Line, width: number): Line {
+  const [l, m] = columnWidths(width);
+  const from = l + 3;
+  const to = from + m;
+  const out: Line = [];
+  let x = 0;
+  for (const s of line) {
+    const w = visibleWidth(s.text);
+    if (x < to && x + w > from) out.push(s);
+    x += w;
+  }
+  return out;
+}
+
 /** Every segment of the rows drawn green, with its row's words. */
 const greens = (lines: readonly Line[]): string[] => lines.flatMap((l) => l.filter((s) => s.role === 'live').map((s) => s.text));
 
@@ -236,19 +259,22 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(text.length).toBeLessThanOrEqual(AT_160.height);
     // (R10 H167; H168's F4: the first row says the run in one row across the columns, as Home says a run)
     expect(text[0]).toMatch(/^PAIR\.md › second · ✓ completed · 2 of 2 steps · \S+ (?:ms|s|min) · (?:no file written|\d+ files? written) · ✓ sealed and verified\s*$/);
-    expect(text.slice(1).filter((t) => t.split(' │ ').length === 3).length).toBe(text.length - 1);
+    expect(text.slice(1).filter((t) => ruled(t, AT_160.width)).length).toBe(text.length - 1);
     const [left, centre, right] = [column(text, 0, AT_160.width), column(text, 1, AT_160.width), column(text, 2, AT_160.width)];
     const L = left.join('\n');
     const C = centre.join('\n');
     const R = right.join('\n');
-    // left: the plan (upmd found), every document and block (the whole list shows at this size), the selected one marked;
-    // .intent and .predict
-    expect(L).toContain('PLAN · upmd found');
+    // left: the plan (its runner installed), every document and block (the whole list shows at this size), the selected one
+    // marked; .intent and .predict
+    // (R10 H163; H168's F4, pass 2a: the runner by what it is; upmd, /run and the block's command are the Inspector's, [i])
+    expect(L).toContain('PLAN · its runner is installed');
+    expect(text.join('\n')).not.toMatch(/upmd|\/run\b|REPL's own/);
     for (const name of ['APPROVAL.md', 'PAIR.md', 'WORKFLOW.md', 'tidy', 'first', 'second', 'change', 'inspect', 'result', 'lesson']) expect(L).toContain(name);
     expect(L).not.toMatch(/more above|of \d+ rows/);
     expect(L).toMatch(/▸\s+2 second\s+✓ completed exit 0/);
     expect(L).toMatch(/second\.intent[^\n]*block 2/);
-    expect(flat(left)).toMatch(/document PAIR\.md command echo second says three needs first runs first → second no destructive command/);
+    expect(flat(left)).toMatch(/document PAIR\.md command 1 line of bash \(\[i\] shows it\) needs first runs first → second no destructive command/);
+    expect(L).not.toContain('echo second says three');
     // (R10 H167: the job's id and the prediction's receipt id are the Inspector's, [i])
     expect(L).toMatch(/second\.predict/);
     expect(L).not.toMatch(/second\.predict[^\n]*j[0-9a-f]{6}/);
@@ -260,7 +286,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).not.toContain('frozen before the run: not recorded');
     // centre: where it ran, the run's blocks, its log's last lines (cut, never wrapped), the RUN box, the preview line
     expect(C).toContain('SANDBOX · where it runs');
-    expect(flat(centre)).toContain('this computer, in the project folder (upmd)');
+    expect(flat(centre)).toContain('this computer, in the project folder');
     // the environment the run detail names (its env lock), where it names one; upmd over a pipe adds no runner line
     // (R10 H167: the environment its run detail names, and the runner, are the Inspector's)
     expect(flat(centre)).not.toMatch(/\(upmd\) environment \S/);
@@ -275,17 +301,25 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(C).toContain('second says three');
     expect(C).toContain('RUN PAIR.md › second');
     expect(C).toContain('[Enter] Run it here');
-    expect(flat(centre)).toContain('[Enter] Run it here the REPL\'s own /run, one job; it asks first');
+    expect(flat(centre)).toContain('[Enter] Run it here one job; it asks first');
+    // (R10 H163; H168's F4: a plain action, never a second amber call beside row 2's primary: structure's edges, no amber)
+    const top = v.lines.findIndex((l) => /RUN PAIR\.md › second/.test(plain(centreSegs(l, AT_160.width))));
+    expect(top).toBeGreaterThan(0);
+    const runBox = v.lines.slice(top, top + 5).map((l) => centreSegs(l, AT_160.width));
+    expect(runBox.map(plain).join('\n')).not.toMatch(/[┏┓┃━┗┛]/);
+    expect(runBox.flat().filter((x) => x.role === 'focus' || x.role === 'accent' || x.role === 'attention')).toEqual([]);
     // (R10 H167; H168's F4: the commands that run it, in the REPL and a shell, are the Inspector's, [i])
     expect(C).not.toMatch(/\/run PAIR\.md second|timmy md/);
     const details = runDetailRows({ ui, data, g, width: 60, height: 40, now: Date.now(), can: { run: true, chat: false, detail: true }, columns: 160 } as ViewCtx & { columns: number }, 60).map(plain).join('\n');
     expect(details).toMatch(/REPL\s+\/run PAIR\.md second/);
     expect(details).toMatch(/shell\s+timmy md PAIR\.md second/);
+    expect(details).toMatch(/Enter\s+runs it as the REPL's own \/run does: one job; it\s+asks first/);
+    expect(details).toMatch(/runner\s+upmd, found on this computer/);
     expect(details).toContain(`timmy op ${op}`);
     // R6 (H144): its source as it ran (the copy upmd read, the same bytes now) and what it changed (nothing Timmy records:
     // its blocks only echo), the producer's inspection; where the companion draws the run's diffs, images and outputs
     // (the source under the cards where it fits beside the whole list, else in the centre column)
-    expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran ✓ the same bytes now · read from the copy upmd read/);
+    expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran ✓ the same bytes now · read from the copy the run read/);
     expect(flat(centre)).toContain('RESULT · none that Timmy records');
     // (R10 H167: its page's path is the Inspector's)
     expect(flat(centre)).toContain('The companion (c) draws this run\'s diffs, images and outputs, on its Workflows tab.');
@@ -380,7 +414,9 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).toMatch(/▸\s+1 tidy\s+⚠ · not run yet/);
     expect(L).toContain('tidy.intent');
     expect(L).toContain('⚠ needs you before it runs');
-    expect(L).toMatch(/command\s+mkdir -p scratch/);
+    // (R10 H163; H168's F4: the command by what it is; its lines are the Inspector's)
+    expect(L).toMatch(/command\s+\d+ lines? of bash/);
+    expect(L).not.toContain('mkdir -p scratch');
     expect(L).toContain('tidy.predict');
     expect(fl).toMatch(/not recorded: nothing has run it yet/);
     expect(fc).toContain('not run yet: no job has run this block');
@@ -437,11 +473,15 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(top.join('\n')).toContain('RUN WORKFLOW.md › result');
     expect(flat(top)).toContain('Enter acts on row 2 now. Tab to this list: then Enter runs WORKFLOW.md › result');
     expect(top.join('\n')).not.toContain('[Enter]');
+    // (R10 H163; H168's F4: the box is a plain action whichever zone has the keyboard: no amber in it)
+    const amber = (u: Ui) => body(data, u, AT_160).v.lines.map((l) => centreSegs(l, AT_160.width)).filter((l) => /RUN WORKFLOW\.md › result|Enter acts on|Run it here|runs change/.test(plain(l))).flatMap((l) => l.filter((x) => x.role === 'focus' || x.role === 'accent' || x.role === 'attention'));
+    expect(amber(ui)).toEqual([]);
     ui.focus = 'center';
     const here = column(body(data, ui, AT_160).text, 1, AT_160.width);
     expect(here.join('\n')).toContain('[Enter] Run it here');
     expect(flat(here)).not.toContain('Enter acts on');
     expect(flat(here)).toContain('runs change → inspect → result');
+    expect(amber(ui)).toEqual([]);
   });
 
   it('120x40 and 100x30: every row fits its box (three columns at 120, stacked at 100: the list, then what Enter does); a clipped column says 1–N of M', async () => {
@@ -462,7 +502,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(at120.text.length).toBeLessThanOrEqual(AT_120.height);
     // (R10 H167; H168's F4: the run's summary row first, across the columns)
     expect(at120.text[0]).toMatch(/^PAIR\.md › second · ✓ completed/);
-    expect(at120.text.slice(1).every((t) => t.split(' │ ').length === 3)).toBe(true);
+    expect(at120.text.slice(1).every((t) => ruled(t, AT_120.width))).toBe(true);
     expect(at120.text.join('\n')).not.toMatch(/[●○]/);
     // 100x30: stacked, one column as wide as the body; the list first, the RUN box right under it
     const at100 = body(data, ui, AT_100);
@@ -569,7 +609,7 @@ describe('tab 3 Workflows: the newest run inspected, its source, changes, output
     const C = centre.map((t) => t.trimEnd());
     // the source (in the left column, beside the whole list): the document as upmd ran it (the copy /run kept for it), the
     // same bytes now
-    expect(flat(column(text, 0, AT_160.width))).toMatch(/SOURCE · REPORT\.md as it ran ✓ the same bytes now · read from the copy upmd read/);
+    expect(flat(column(text, 0, AT_160.width))).toMatch(/SOURCE · REPORT\.md as it ran ✓ the same bytes now · read from the copy the run read/);
     // the changes: how many, /review's command, a row per file (the parameter file: its diff's size, /restore offered),
     // and the parameter file's diff against the version the flow kept, its lines marked − and +
     expect(flat(centre)).toContain(`RESULT · ${total} files written`);
