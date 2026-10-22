@@ -109,7 +109,8 @@ const chatRoute = (() => {
   const set = (r) => {
     now = r;
     const line = document.getElementById('sd-route');
-    if (line) line.textContent = r.ready ? `POST /chat → ${r.label} → SSE → live React components` : String(r.label);
+    // R10 (H167; H164's scope): whose chat this is, in words (H164's route.scope.words), not the request's path
+    if (line) line.textContent = r.ready ? String((r.scope && r.scope.words) || r.label) : String(r.label);
     for (const fn of listeners) { try { fn(r); } catch (e) { /* one listener's failure is its own */ } }
   };
   const refresh = async () => {
@@ -223,8 +224,9 @@ const REPL_TURN = /^repl · (cancelled · )?(\d+) steps?$/; // src/repl/seal.ts:
 const SURFACE_TURN = /^chat\.turn · (monitor|workbench|companion) · (?:(cancelled|failed) · )?(\d+) steps? · /;
 // how each surface is named in the mirror (its label, and where its words are: never on the bus)
 const SURFACES = {
-  monitor: { icon: '◉', name: 'Monitor', where: 'the monitor (<span class="mirror-code">timmy watch</span>)', words: 'Its words are in the monitor\'s chat (this page shows a monitor\'s words above only when that monitor serves it)' },
-  workbench: { icon: '▣', name: 'Workbench', where: 'the Workbench (<span class="mirror-code">timmy workbench</span>)', words: 'Its words are in the Workbench\'s Chat' },
+  // (R10 H167; H168's F3 on the page: a surface by its name, not its command)
+  monitor: { icon: '◉', name: 'Monitor', where: 'the monitor', words: 'Its words are in the monitor\'s chat (this page shows a monitor\'s words above only when that monitor serves it)' },
+  workbench: { icon: '▣', name: 'Workbench', where: 'the Workbench', words: 'Its words are in the Workbench\'s Chat' },
   companion: { icon: '◇', name: 'Companion', where: 'a companion page', words: 'Its words are on the companion page that sent it' },
 };
 
@@ -351,7 +353,7 @@ function surfaceTurnHtml(turn) {
           <span>${s.icon} ${s.name} turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed its receipt, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here. <details class="mirror-more"><summary>Details</summary> receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span></details></div>
       </div>
     `;
 }
@@ -366,7 +368,7 @@ function replTurnHtml(turn) {
           <span>⌨ REPL turn · ${escapeMirrorText(end.words)}</span>
           <span class="log-time">${escapeMirrorText(time)}</span>
         </div>
-        <div class="log-content">A chat turn in the REPL (<span class="mirror-code">timmy</span>) ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed it as receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span>. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.</div>
+        <div class="log-content">A chat turn in the REPL ${escapeMirrorText(turnEndPhrase(end, turn.steps))}; Timmy sealed its receipt. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here. <details class="mirror-more"><summary>Details</summary> receipt <span class="mirror-code">${escapeMirrorText(turn.receipt)}</span></details></div>
       </div>
     `;
 }
@@ -795,7 +797,7 @@ function mirrorChanged() {
  * frame carries them (frame.chat.turns, from their receipts), those this page did not see arrive: a page opened after a turn
  * still shows it, labelled as sealed before this page connected. Its words are never here (receipts keep hashes only).
  */
-const SURFACE_OF = { repl: { icon: '⌨', name: 'REPL', where: 'the REPL (<span class="mirror-code">timmy</span>)', words: 'Its words are in the REPL' }, ...SURFACES };
+const SURFACE_OF = { repl: { icon: '⌨', name: 'REPL', where: 'the REPL', words: 'Its words are in the REPL' }, ...SURFACES };
 // the mirror is drawn from the first lines this file runs, before the frame's part below is set up: until then no frame is known
 function frameDrawn() { try { return workspace.frame; } catch (e) { return null; } }
 function frameOther(f) { try { return otherProject(f); } catch (e) { return false; } }
@@ -814,7 +816,7 @@ function frameTurnHtml(t) {
           <span>${s.icon} ${s.name} turn · ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}</span>
           <span class="log-time">${escapeMirrorText(clockOf(t.at))}</span>
         </div>
-        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))}, sealed before this page connected as receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op} (${escapeMirrorText(t.model || 'model not recorded')}), in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here.</div>
+        <div class="log-content">A chat turn in ${s.where} ${escapeMirrorText(turnEndSaid(t.state, t.surface, t.stoppedBy || ''))} (${escapeMirrorText(t.model || 'model not recorded')}), its receipt sealed before this page connected, in this project's one conversation. ${s.words}: Timmy seals a turn's prompt and answer as hashes only, so they are not shown here. <details class="mirror-more"><summary>Details</summary> receipt <span class="mirror-code">${escapeMirrorText(t.receipt)}</span>${op}</details></div>
       </div>
     `;
 }
@@ -1032,12 +1034,14 @@ function projectHeader(p) {
     btn.textContent = `Pin: keep this page on ${p.name}`;
   }
   const reads = `Project folder: ${p.folder}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab`;
-  folder.textContent = p.mode === 'fixed' ? `${reads}. TIMMY_REPO fixed this folder: this companion follows no project.`
+  const whole = (p.mode === 'fixed' ? `${reads}. TIMMY_REPO fixed this folder: this companion follows no project.`
     : p.mode === 'pinned' ? `${reads}. Pinned on this page${otherActive ? `; the active project is now ${p.active.name} (${p.active.folder})` : ''}.`
-      : `${reads}. Following the active project, which Timmy records in ${p.record}.`;
-  if (p.note) folder.textContent += ` ${p.note}`;
-  // R5 (H132): the line is cut to one row on a wide screen; its whole words on hover
-  folder.title = folder.textContent;
+      : `${reads}. Following the active project, which Timmy records in ${p.record}.`) + (p.note ? ` ${p.note}` : '');
+  // R10 (H167; H168's F3 on the page): said in words; the folder, the record's file and the note whole under Details (and on
+  // hover). R5 (H132): the line is one row on a wide screen
+  const said = `This page reads ${p.name}’s event bus and receipts, for the Chat Mirror’s REPL turns and the Logs tab. ${p.mode === 'fixed' ? 'A setting fixed its folder: this companion follows no project.' : p.mode === 'pinned' ? `Pinned on this page${otherActive ? `; the active project is now ${p.active.name}` : ''}.` : 'Following the active project.'}`;
+  folder.replaceChildren(h('span', { class: 'folder-said' }, said), ' ', h('details', { class: 'folder-more' }, h('summary', null, 'Details'), h('span', { class: 'folder-whole' }, whole)));
+  folder.title = whole;
   // R5 (H132): the workspace frame of the project shown now
   if (typeof onProjectShown === 'function') onProjectShown(p);
   if (pendingRun) { const op = pendingRun; pendingRun = null; openRun(op, false); }
@@ -1322,6 +1326,9 @@ function drawFrame() {
   drawProjectCmds(f);
   drawConnections(f);
   drawHome(f, own);
+  // R10 (H167): Home's recent work read again when the frame changes (a run that started or ended, a turn sealed)
+  if (workspace.tab === 'home' || homeWork.items === null) readHomeWork(true);
+  drawHomeWork();
   drawEvents(f, own);
   drawRuns(f, own);
   drawStudio(f);
@@ -1446,12 +1453,17 @@ function showWorkspaceTab(id, o = {}) {
   if (id === 'studio') refreshCanvas();
   if (id === 'create') openSlate();
   if (id === 'workflows') openNewestRun();
+  if (id === 'home') { readHomeWork(); drawHomeWork(); }
+  if (id === 'chat') { readProjectRoute(); drawProjectRoute(); }
   if (was !== id && workspace.frame) drawPanel(id, workspace.frame);
   markOverflow();
   try { sessionStorage.setItem(WS_TAB_KEY, id); } catch (e) { /* no storage here */ }
 }
 
 // ── the Workflow actions strip ──
+
+/** R10 (H167): what an action touches, in words (the Workbench's row 2 says the same) */
+const EFFECT_WORDS = { network: 'asks over the network', 'local change': 'changes files on this computer', spend: 'can spend' };
 
 function drawActions(f, own) {
   const list = document.getElementById('ws-actions');
@@ -1466,7 +1478,8 @@ function drawActions(f, own) {
       return h('li', { 'data-primary': a.primary ? 'true' : 'false' }, h('button', {
         type: 'button', class: `act${a.primary ? ' is-primary' : ''}`, 'data-stop-turn': running.id, 'data-n': a.n, 'aria-disabled': 'false',
         title: `Asks ${String(running.surface)} to stop the turn it is answering`,
-      }, h('span', { class: 'act-n' }, `${a.n}.`), h('span', { class: 'act-label' }, a.label), h('code', { class: 'act-cmd' }, `from this page, or ${a.command}`)));
+      // (R10 H167: where its own key is, in words beside it, as the frame says it; no command chip)
+      }, h('span', { class: 'act-n' }, `${a.n}.`), h('span', { class: 'act-label' }, a.label), h('span', { class: 'act-effect' }, `· from this page, or ${a.command}`)));
     }
     const kind = commandKind(String(a.command));
     const why = off ? h('span', { id: `act-why-${a.n}`, class: 'act-why' }, `not now: ${a.why || 'not available'}`) : null;
@@ -1474,8 +1487,11 @@ function drawActions(f, own) {
       type: 'button', class: `act${a.primary ? ' is-primary' : ''}`, 'data-act': a.command, 'data-act-kind': kind, 'data-n': a.n,
       'aria-disabled': off ? 'true' : 'false', 'aria-describedby': off ? `act-why-${a.n}` : null,
       title: kind === 'tab' ? `Opens tab ${a.command}` : kind === 'command' ? 'Copies the command for Timmy’s terminal' : 'Done in Timmy’s terminal',
-    }, h('span', { class: 'act-n' }, `${a.n}.`), h('span', { class: 'act-label' }, a.label), h('code', { class: 'act-cmd' }, a.command),
-    a.effect && a.effect !== 'read' ? h('span', { class: `act-effect${a.effect === 'spend' ? ' spends' : ''}` }, `· ${a.effect}`) : null);
+    // R10 (H167; H168's patterns 1 and 7): the action in words, what it touches beside it; the command it copies is said when
+    // pressed (the strip's note) and on hover, never as the button's words
+    }, h('span', { class: 'act-n' }, `${a.n}.`), h('span', { class: 'act-label' }, a.label),
+    a.effect && a.effect !== 'read' ? h('span', { class: `act-effect${a.effect === 'spend' ? ' spends' : ''}` }, `· ${EFFECT_WORDS[a.effect] || a.effect}`) : null);
+    if (kind === 'command') btn.title = `Copies its command for Timmy’s terminal: ${a.command}`;
     return h('li', { 'data-primary': a.primary ? 'true' : 'false' }, btn, why);
   }));
   if (!acts.length) list.append(h('li', { class: 'empty' }, own ? 'The frame gives this tab no actions.' : 'Not shown: the frame is another project’s.'));
@@ -1503,20 +1519,57 @@ async function runAction(btn) {
 function drawProjectCmds(f) {
   const box = document.getElementById('project-cmds');
   if (!box || !f.project) return;
-  const cmd = (label, c) => h('button', { type: 'button', class: 'cmd', 'data-copy': c, title: `Copies the command for Timmy’s terminal: ${c}` }, h('span', { class: 'cmd-label' }, `${label} `), c);
-  box.replaceChildren(cmd('switch:', f.project.switch), cmd('new:', f.project.create));
+  // R10 (H167; H168's pattern 1): the two steps in words; each copies its command for Timmy's terminal (said on hover and when
+  // copied), never shown as the button's words
+  const cmd = (label, c) => h('button', { type: 'button', class: 'btn-action tiny project-cmd', 'data-copy': c, title: `Copies the command for Timmy’s terminal: ${c}` }, label);
+  box.replaceChildren(cmd('Switch project', f.project.switch), cmd('New project', f.project.create));
 }
 
 // ── connections: one card each, the frame's own state word with its glyph ──
 
+/**
+ * R10 (H167; H168's F3 and pattern 1): a connection's words as a screen says them: an address, a port, an error's code, a
+ * command, a setting's name and a path said by what they are (the terminal Workbench's inWords, src/workbench/home-journey.ts);
+ * the card's Details keep them whole.
+ */
+function inWordsPage(words) {
+  return String(words || '')
+    .replace(/\b(?:at|on) (?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?(?=[\s,;.)]|$)/g, 'on this computer')
+    .replace(/\(?(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/[^\s,;)]*)?\)?/g, 'this computer')
+    .replace(/\bhttps?:\/\/[^\s,;)]+/g, 'its address')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, 'its address')
+    .replace(/the connection failed \(ECONNREFUSED\)/g, 'the connection was refused')
+    .replace(/\s*\(E[A-Z]{3,}\)/g, '')
+    .replace(/\s*\((?:[^()]*: )?(?:timmy|ollama|npm|npx|brew|curl|open|xdg-open)\b[^()]*\)/g, '')
+    .replace(/\b(?:start it|run) \((?:ollama serve|open -a Ollama)[^)]*\)/gi, 'start the Ollama app')
+    .replace(/`[^`]+`/g, 'the command (Details)')
+    .replace(/\bthen timmy workspace check\b/g, 'then check again')
+    .replace(/\btimmy workspace check\b/g, 'a check')
+    .replace(/\btimmy (?:init|setup|act)(?: --?[\w-]+(?:[ =](?!asks\b|reads\b|and\b|or\b)[\w./:<>-]+)?)*/g, 'the setup (in a shell)')
+    .replace(/\/(?:setup|model|run|op|jobs|open)\b(?: (?![A-Z])[\w./-]+)*/g, 'a REPL command (Details)')
+    .replace(/\bollama (?:serve|pull|run)\b(?: [\w.:<>-]+)?/g, 'Ollama')
+    .replace(/\bset [A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g, 'set it in the environment (Details)')
+    .replace(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g, 'a setting (Details)')
+    .replace(/(?:~|<Timmy home>)?\/?(?:[\w.@-]+\/)+[\w.@-]+\.(?:json|jsonl|md|log|txt|ts|js|png|stl|obj|ply|rrd)\b/g, 'its file')
+    .replace(/(?:~|<Timmy home>)\/[\w.@/-]+/g, 'its folder')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 function connectionCard(c, where) {
   const [glyph, cls] = CONN_GLYPH[c.state] || ['?', 'is-unknown'];
   const id = `${where}-conn-${c.id}`;
+  // R10 (H167): the card in words; its own words whole, its address and its step's command under Details
+  const said = inWordsPage(c.words);
+  const more = said !== c.words || (c.detail && inWordsPage(c.detail) !== c.detail) || c.setup;
   return h('article', { class: 'conn-card', 'data-connection': c.id, 'data-state': c.state, tabindex: '0', 'aria-labelledby': `${id}-name`, 'aria-describedby': `${id}-words` },
     h('div', { class: 'conn-head' }, h('h3', { class: 'conn-name', id: `${id}-name` }, c.label), h('span', { class: `conn-state ${cls}` }, `${glyph} ${c.state}`)),
-    h('p', { class: 'conn-words', id: `${id}-words` }, c.words),
-    c.detail ? h('p', { class: 'conn-detail' }, c.detail) : null,
-    c.setup ? h('p', { class: 'conn-setup' }, h('span', { class: 'cmd-label' }, 'step:'), h('button', { type: 'button', class: 'cmd', 'data-copy': c.setup, title: 'Copies the command for Timmy’s terminal' }, c.setup)) : null);
+    h('p', { class: 'conn-words', id: `${id}-words` }, said),
+    c.detail ? h('p', { class: 'conn-detail' }, inWordsPage(c.detail)) : null,
+    more ? h('details', { class: 'conn-more' }, h('summary', null, 'Details'),
+      said !== c.words ? h('p', { class: 'conn-raw' }, c.words) : null,
+      c.detail && inWordsPage(c.detail) !== c.detail ? h('p', { class: 'conn-raw' }, c.detail) : null,
+      c.setup ? h('p', { class: 'conn-setup' }, h('span', { class: 'cmd-label' }, 'its step, for Timmy’s terminal: '), h('button', { type: 'button', class: 'cmd', 'data-copy': c.setup, title: 'Copies the command for Timmy’s terminal' }, c.setup)) : null) : null);
 }
 
 /**
@@ -1563,9 +1616,11 @@ function studioItem(f) {
   return h('div', { class: 'preview-item', 'data-preview': 'studio' },
     h('div', { class: 'preview-head' }, h('span', null, 'Timmy Studio'), c ? h('span', { class: `state-word ${cls === 'is-live' ? 'is-live' : ''}` }, `${glyph} ${c.state}`) : null),
     h('p', { class: 'preview-words' }, c ? c.words : 'The frame does not say.'),
+    // (R10 H167, H168's F3 and pattern 1 on the page: Studio opened by its name, its address the link's own; a step in words,
+    // the command it copies for Timmy's terminal said on hover and when copied)
     h('div', { class: 'preview-actions' },
-      s.state === 'running' && s.url ? h('a', { class: 'link-open', href: s.url, target: '_blank', rel: 'noopener noreferrer' }, `Open Studio at ${s.url}`) : null,
-      step ? h('button', { type: 'button', class: 'cmd', 'data-copy': step.command, title: 'Copies the command for Timmy’s terminal' }, h('span', { class: 'cmd-label' }, `${step.label}: `), step.command) : null),
+      s.state === 'running' && s.url ? h('a', { class: 'link-open', href: s.url, target: '_blank', rel: 'noopener noreferrer', title: 'Opens Timmy Studio in a new tab, at its address on this computer' }, 'Open Studio') : null,
+      step ? h('button', { type: 'button', class: 'btn-action tiny', 'data-copy': step.command, title: `Copies its command for Timmy’s terminal: ${step.command}` }, step.label) : null),
     h('p', { class: 'preview-note' }, s.openAtStart ? 'Opens when the workspace starts.' : 'Opens when asked.'));
 }
 
@@ -1623,7 +1678,9 @@ async function homeRunImage(project) {
   const im = body.image;
   // no run in the records yet: nothing to say beside Home's own "No image yet"
   if (!im) return body.looked ? { none: body.why || 'no run of this project holds an image Timmy can show' } : null;
-  return { op: im.op, path: im.path, src: im.src, newer: Number(im.newer) || 0, words: `run ${im.op} · ${im.path}${im.width && im.height ? ` · ${im.width} × ${im.height}` : ''}` };
+  // R10 (H167; H168's F3 on the page): said in words, the file by its name; the run's id is its Open's (and that button's tip).
+  // (Its name taken here, not by baseName: this part of the page runs on its own in tests/companion-home-images-ask.test.ts)
+  return { op: im.op, path: im.path, src: im.src, newer: Number(im.newer) || 0, words: `run · ${String(im.path).split('/').pop()}${im.width && im.height ? ` · ${im.width} × ${im.height}` : ''}` };
 }
 
 /** The newest VoxVision record with an image it can show: { id, path, src, words, newer } or { none: why }, or null with no record. */
@@ -1657,7 +1714,7 @@ async function homeVoxImage(project) {
       fr.onerror = () => reject(new Error('the image could not be read in the page'));
       fr.readAsDataURL(blob);
     });
-    return { id: rec.id, path: im.path, src, newer: newerThan(rec.id), words: `VoxVision ${rec.id} · ${rec.action} · ${im.path}` };
+    return { id: rec.id, path: im.path, src, newer: newerThan(rec.id), words: `VoxVision · ${rec.action} · ${String(im.path).split('/').pop()}` };
   }
   return { none: why.join('; ') || 'no image of its records can be shown' };
 }
@@ -1674,8 +1731,8 @@ function homeFigure(kind, it) {
     h('figcaption', null, it.words),
     newer ? h('p', { class: 'home-thumb-note', 'data-home-newer': kind }, newer) : null,
     kind === 'run'
-      ? h('button', { type: 'button', class: 'btn-action tiny', 'data-open-run': it.op }, `Open run ${it.op}`)
-      : h('button', { type: 'button', class: 'btn-action tiny', 'data-open-vox': it.id }, `Open ${it.id} in VoxVision`));
+      ? h('button', { type: 'button', class: 'btn-action tiny', 'data-open-run': it.op, title: `operation ${it.op}` }, 'Open its run detail')
+      : h('button', { type: 'button', class: 'btn-action tiny', 'data-open-vox': it.id, title: `record ${it.id}` }, 'Open it in VoxVision'));
 }
 
 function homeImagesItem(own) {
@@ -1758,8 +1815,9 @@ function drawHome(f, own) {
   const run = own ? newestRunOf(f) : null;
   items.push(h('div', { class: 'preview-item', 'data-preview': 'run' },
     h('div', { class: 'preview-head' }, h('span', null, 'The newest run'), run ? h('time', { class: 'ev-time', datetime: run.at }, clockOf(run.at)) : null),
-    run ? h('p', { class: 'preview-words' }, h('span', { class: `ev-tag tone-${run.tone}` }, `[${run.tag}] `), run.words) : h('p', { class: 'preview-words' }, own ? 'Nothing has run in this project yet.' : 'Not shown: the frame is another project’s.'),
-    run ? h('div', { class: 'preview-actions' }, h('button', { type: 'button', class: 'btn-action', 'data-open-run': run.operation }, `Open run ${run.operation}`)) : (unknownWhy(f, 'log') ? h('p', { class: 'preview-note' }, `The frame says: ${unknownWhy(f, 'log')}.`) : null)));
+    // (R10 H167, H168's F3 on the page: the run in words; its operation's id is its Open's tip)
+    run ? h('p', { class: 'preview-words' }, h('span', { class: `ev-tag tone-${run.tone}` }, `[${run.tag}] `), eventWords(run.words) || run.words) : h('p', { class: 'preview-words' }, own ? 'Nothing has run in this project yet.' : 'Not shown: the frame is another project’s.'),
+    run ? h('div', { class: 'preview-actions' }, h('button', { type: 'button', class: 'btn-action', 'data-open-run': run.operation, title: `operation ${run.operation}` }, 'Open its run detail')) : (unknownWhy(f, 'log') ? h('p', { class: 'preview-note' }, `The frame says: ${unknownWhy(f, 'log')}.`) : null)));
   const a = f.activity || { running: 0, waitingOnYou: 0, stopCurrent: { words: '' } };
   items.push(h('div', { class: 'preview-item', 'data-preview': 'activity' },
     h('div', { class: 'preview-head' }, h('span', null, 'Running · waiting on you')),
@@ -1771,6 +1829,421 @@ function drawHome(f, own) {
       ...unknown.map((u) => h('p', { class: 'preview-note' }, h('strong', null, `${u.field}: `), u.why))));
   }
   box.replaceChildren(...items);
+}
+
+// ── R10 (H167): Home's recent work and the selected item's preview ──
+// The journey's first screen in the browser (the R10 brief: "open Timmy and understand the project and the next action";
+// "open a project artifact in the companion preview"; "inspect a run's progress, result and receipt without losing project
+// context"), as the terminal Workbench's Home draws it, from the same functions (H164's src/journey, by its routes):
+//   GET /api/journey/recent     the project's recent work, newest first, each with where it opens (openTarget)
+//   GET /api/journey/run/<op>   a run's progress, result and receipt, each receipt verified on the companion's server now
+//   GET /api/journey/open       what this page's own address asks for (?tab=home&file=…, run=…, vox=…), and a notice in
+//                               words when that is not what is shown
+// The selected item is drawn large beside the list: an image as its pixels (the run detail's or a VoxVision record's copy of
+// it, the routes those tabs read: no new route), a run's progress, result and receipt, a mesh's format, a turn's question and
+// route; under it the one way to open it where it belongs. Words only: ids, paths and addresses are under its Details. An
+// image the companion has no copy of says so, and what would give it one.
+const homeWork = { project: null, items: null, notes: [], why: '', asking: null, at: 0, sel: '', asked: undefined, notice: '', runs: new Map(), images: new Map() };
+const HOME_WORK_EVERY_MS = 5000;
+const HOME_RUN_AGAIN_MS = 3000;
+const workKey = (it) => `${it.kind}:${it.id}`;
+const baseName = (p) => String(p || '').split('/').pop();
+/** words with each project path said by its file's name (the path is the Details') */
+const pathsAsNames = (t) => String(t || '').replace(/(?:[\w.~-]+\/)+([\w.-]+)/g, '$1');
+const WORK_KIND = { run: 'run', turn: 'chat', observation: 'VoxVision', result: 'result', reference: 'reference', mesh: 'mesh', recording: 'recording', receipt: 'receipt', draft: 'draft', card: 'card' };
+const FILE_KIND = new Set(['result', 'reference', 'mesh', 'recording']);
+/** what a file is, by its kind of content (the row says "reference · image") */
+function fileWhat(p) {
+  const ext = (/\.([A-Za-z0-9]+)$/.exec(String(p)) || [])[1]?.toLowerCase() || '';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image';
+  if (['stl', 'obj', 'ply', 'glb', 'gltf', 'usd', 'usda', 'usdz'].includes(ext)) return ext.toUpperCase();
+  if (ext === 'step' || ext === 'stp') return 'STEP';
+  if (ext === 'rrd') return 'Rerun';
+  if (ext === 'md' || ext === 'markdown') return 'document';
+  return ext ? 'text' : 'file';
+}
+const WORK_GLYPH = { answered: '✓', completed: '✓', saved: '◇', sealed: '✓', 'no change': '✓', failed: '✕', refused: '✕', running: '▶', 'waiting on you': '⚠', draft: '◌' };
+function workAgo(iso) {
+  const t = Date.parse(iso || '');
+  if (!Number.isFinite(t)) return 'time not recorded';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? clockOf(iso).slice(0, 5) : dateTimeOf(iso).slice(0, 16);
+}
+/** two files of one name say their folders (the terminal's Home does the same) */
+function workTitles(items) {
+  const n = new Map();
+  for (const it of items) if (FILE_KIND.has(it.kind)) n.set(baseName(it.id), (n.get(baseName(it.id)) || 0) + 1);
+  return new Map(items.map((it) => {
+    if (!FILE_KIND.has(it.kind)) return [workKey(it), pathsAsNames(it.title)];
+    const name = baseName(it.id);
+    const dir = String(it.id).split('/').slice(0, -1).join('/');
+    return [workKey(it), n.get(name) > 1 && dir ? `${name} (in ${dir})` : name];
+  }));
+}
+
+/** Reads the shown project's recent work (at most every HOME_WORK_EVERY_MS unless `force`), then draws Home's list and stage. */
+function readHomeWork(force = false) {
+  if (!companion.token || companion.refused) return;
+  const project = shownProjectId();
+  if (homeWork.project !== project) {
+    Object.assign(homeWork, { project, items: null, notes: [], why: '', at: 0, sel: '' });
+    homeWork.runs.clear();
+    homeWork.images.clear();
+  }
+  if (homeWork.asked === undefined) readHomeAsked(project);
+  if (homeWork.asking || (!force && Date.now() - homeWork.at < HOME_WORK_EVERY_MS)) return;
+  homeWork.asking = (async () => {
+    try {
+      const body = await homeJson(`/api/journey/recent?limit=12${project ? `&project=${encodeURIComponent(project)}` : ''}`);
+      if (homeWork.project !== project) return;
+      homeWork.items = Array.isArray(body.items) ? body.items : [];
+      homeWork.notes = Array.isArray(body.notes) ? body.notes : [];
+      homeWork.why = '';
+    } catch (e) {
+      if (homeWork.project === project) homeWork.why = e && e.message ? e.message : String(e);
+    } finally {
+      homeWork.at = Date.now();
+      homeWork.asking = null;
+      drawHomeWork();
+    }
+  })();
+}
+
+/** What this page's own address asks Home to show (?tab=home&file=…, run=…): H164's GET /api/journey/open, once. */
+function readHomeAsked(project) {
+  homeWork.asked = null;
+  if (companion.askedTab !== 'home' && !/[?&](?:file|vox|mesh|recording|receipt)=/.test(location.search)) return;
+  const q = location.search.replace(/^\?/, '').split('&').filter((p) => p && !p.startsWith('project=')).join('&');
+  if (!q) return;
+  homeJson(`/api/journey/open?${q}${project ? `&project=${encodeURIComponent(project)}` : ''}`)
+    .then((b) => { homeWork.asked = (b.asked && b.asked.select) || null; homeWork.notice = b.notice ? pathsAsNames(b.notice) : (b.asked && b.asked.problems && b.asked.problems[0] ? pathsAsNames(b.asked.problems[0]) : ''); })
+    .catch((e) => { homeWork.notice = `What this page’s address asks for could not be read: ${e && e.message ? e.message : String(e)}.`; })
+    .finally(() => drawHomeWork());
+}
+
+/** The item the address asked for, as one of the list's (a file by its path; a run, a record or a receipt by its id). */
+function askedItem(items) {
+  const a = homeWork.asked;
+  if (!a) return null;
+  const by = { file: (it) => FILE_KIND.has(it.kind) && it.id === a.value, run: (it) => it.kind === 'run' && it.id === a.value, vox: (it) => it.kind === 'observation' && it.id === a.value, mesh: (it) => it.kind === 'mesh' && it.id === a.value, recording: (it) => it.kind === 'recording' && it.id === a.value, receipt: (it) => it.receipt && it.receipt.id === a.value };
+  const f = by[a.name];
+  const found = f ? items.find(f) : null;
+  if (found) return found;
+  // a file of the project that is not among the newest: shown all the same (H164's open route said it is one)
+  if (a.name === 'file' && !homeWork.notice) return { kind: 'reference', id: a.value, title: a.value, when: null, state: 'saved', receipt: null, fake: false, operation: null, open: { surface: 'companion', tab: 'home', select: a, query: '', path: '', preview: fileWhat(a.value) === 'image' ? 'image' : 'none', words: 'the companion’s preview' } };
+  return null;
+}
+
+function selectedWork() {
+  const items = homeWork.items || [];
+  const asked = askedItem(items);
+  if (!homeWork.sel && asked) homeWork.sel = workKey(asked);
+  const it = items.find((x) => workKey(x) === homeWork.sel) || (asked && workKey(asked) === homeWork.sel ? asked : null) || items[0] || null;
+  if (it) homeWork.sel = workKey(it);
+  return it;
+}
+
+function drawHomeWork() {
+  const list = document.getElementById('home-work');
+  const stage = document.getElementById('home-stage');
+  if (!list || !stage) return;
+  const items = homeWork.items;
+  const title = document.getElementById('home-work-title');
+  if (title) title.textContent = items && homeWork.project !== null ? `Recent work · ${document.getElementById('project-name')?.textContent || 'this project'}` : 'Recent work';
+  if (!items) {
+    list.replaceChildren(h('li', { class: 'empty' }, homeWork.why ? `The project’s recent work could not be read: ${homeWork.why}.` : 'Reading the project’s recent work…'));
+    if (!homeWork.why) stage.replaceChildren(h('p', { class: 'empty' }, 'Reading the project’s recent work…'));
+    else stage.replaceChildren(h('p', { class: 'empty' }, 'Nothing to preview: the recent work could not be read.'));
+    return;
+  }
+  const sel = selectedWork();
+  const titles = workTitles(sel && !items.includes(sel) ? [...items, sel] : items);
+  if (!items.length) {
+    list.replaceChildren(h('li', { class: 'empty work-empty' },
+      h('strong', null, 'Nothing here yet. '),
+      'No workflow run, chat turn or result is recorded in this project yet. The next step above writes your first message; Workflows runs a block.'));
+  } else {
+    const focused = document.activeElement === list;
+    list.replaceChildren(...items.map((it) => {
+      const on = sel && workKey(it) === workKey(sel);
+      const glyph = WORK_GLYPH[it.state] || '·';
+      const kind = FILE_KIND.has(it.kind) ? `${WORK_KIND[it.kind] || it.kind} · ${fileWhat(it.id)}` : `${WORK_KIND[it.kind] || it.kind} · ${it.state}`;
+      return h('li', { class: `work-row${on ? ' is-selected' : ''}`, role: 'option', 'aria-selected': on ? 'true' : 'false', 'data-work': workKey(it), 'data-work-kind': it.kind, 'data-op': it.kind === 'run' ? it.id : null, id: `work-${workKey(it).replace(/[^A-Za-z0-9_-]/g, '_')}` },
+        h('span', { class: `work-glyph ${it.state === 'failed' || it.state === 'refused' ? 'tone-failed' : it.state === 'waiting on you' ? 'waits' : 'tone-quiet'}`, 'aria-hidden': 'true' }, glyph),
+        h('span', { class: 'work-title' }, `${it.fake ? 'FAKE · ' : ''}${titles.get(workKey(it)) || it.title}`),
+        h('span', { class: 'work-kind' }, kind),
+        h('time', { class: 'work-when', datetime: it.when || '' }, workAgo(it.when)));
+    }));
+    if (sel) list.setAttribute('aria-activedescendant', `work-${workKey(sel).replace(/[^A-Za-z0-9_-]/g, '_')}`);
+    if (focused) list.focus({ preventScroll: true });
+  }
+  for (const n of homeWork.notes) list.append(h('li', { class: 'work-note' }, pathsAsNames(n)));
+  drawStage(sel, sel ? titles.get(workKey(sel)) : '');
+}
+
+/** One fact of the stage: its name and its words. */
+const stageFact = (k, ...v) => h('div', { class: 'stage-fact' }, h('span', { class: 'stage-k' }, k), h('span', { class: 'stage-v' }, ...v));
+
+/** Where the selected item opens, as a button (one per stage: the primary is the strip's amber step, this a brighter neutral). */
+function stageOpen(it) {
+  const o = it.open || {};
+  if (o.surface === 'studio') {
+    const s = workspace.frame && workspace.frame.surfaces && workspace.frame.surfaces.studio;
+    return s && s.state === 'running' && s.url
+      ? h('a', { class: 'btn-action stage-open', href: s.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open Studio: Accept or Discard it there')
+      : h('p', { class: 'stage-note' }, 'It waits in Studio, on the project’s board, for Accept or Discard: Studio is not running now (the Workbench’s s starts it).');
+  }
+  const sel = o.select || {};
+  const label = o.tab === 'workflows' ? 'Open its run detail' : o.tab === 'voxvision' ? 'Open it in VoxVision' : o.tab === 'create' ? 'Open it in 3D & Motion' : o.tab === 'chat' ? 'Open it in Chat & Intent' : o.tab === 'logs' ? 'Open it in Logs & Receipts' : null;
+  if (!label) return null;
+  return h('button', { type: 'button', class: 'btn-action stage-open', 'data-work-open': workKey(it), 'data-open-tab': o.tab, 'data-open-name': sel.name || '', 'data-open-value': sel.value || '' }, label);
+}
+
+function stageDetails(it) {
+  const rows = [['Kind', it.kind], ['Id', it.id], ['Operation', it.operation || 'none'], ['Receipt', it.receipt ? `${it.receipt.id} ${it.receipt.verified ? '(verified on the companion’s server now)' : `(does not verify: ${it.receipt.why || 'not said'})`}` : 'none sealed'], ['When', it.when ? dateTimeOf(it.when) : 'not recorded'], ['Opens', it.open && it.open.path ? it.open.path : 'Studio, on the project’s board']];
+  if (it.results && it.results.length) rows.push(['Results', it.results.join(', ')]);
+  return h('details', { class: 'stage-details' }, h('summary', null, 'Details'), h('dl', null, ...rows.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, String(v))])));
+}
+
+function drawStage(it, title) {
+  const stage = document.getElementById('home-stage');
+  if (!stage) return;
+  const head = document.getElementById('home-stage-title');
+  if (!it) {
+    if (head) head.textContent = 'Preview';
+    stage.replaceChildren(h('p', { class: 'empty' }, (homeWork.items || []).length ? 'Choose an item of the recent work: it is drawn here.' : 'Nothing to preview yet: a run’s results, an image, a mesh or a chat turn shows here once the project has one.'),
+      homeWork.notice ? h('p', { class: 'stage-notice', role: 'status' }, homeWork.notice) : null);
+    return;
+  }
+  if (head) head.textContent = `Preview · ${it.fake ? 'FAKE · ' : ''}${title || it.title}`;
+  const kids = [];
+  if (homeWork.notice) kids.push(h('p', { class: 'stage-notice', role: 'status' }, homeWork.notice));
+  if (it.kind === 'run') kids.push(...stageRun(it));
+  // R10 (H167): a file of the project drawn as it is now (H164's GET /api/journey/file): an image, or a text's first lines
+  else if (FILE_KIND.has(it.kind) && it.open && (it.open.preview === 'image' || it.open.preview === 'text')) kids.push(...stageFile(it));
+  else if (it.kind === 'observation') kids.push(...stageImage(it));
+  else if (it.kind === 'mesh' || it.kind === 'recording') kids.push(stageFact('What', `${WORK_KIND[it.kind]} · ${fileWhat(it.id)}`), h('p', { class: 'stage-note' }, it.kind === 'mesh' ? '3D & Motion draws its triangles, a view you can turn, and what Timmy’s own reader measured from the whole file.' : '3D & Motion says what Timmy can read of it: its entities and timelines.'));
+  else if (it.kind === 'turn') {
+    const r = it.route || {};
+    kids.push(h('p', { class: 'stage-question' }, it.title));
+    kids.push(stageFact('Answered by', `${r.fake ? 'FAKE ' : ''}${r.answeredBy || r.requested || 'not recorded'}${r.where ? ` · ${r.where}` : ''}${r.fallback ? ' · the last-resort fallback' : ''}`));
+  } else kids.push(stageFact('What', `${WORK_KIND[it.kind] || it.kind} · ${it.state}`));
+  if (it.kind !== 'run') kids.push(stageReceipt(it.receipt, it.kind === 'turn' || it.kind === 'observation'));
+  kids.push(stageFact('When', it.when ? `${clockOf(it.when)} · ${workAgo(it.when)}` : 'not recorded'));
+  const open = stageOpen(it);
+  if (open) kids.push(h('div', { class: 'stage-actions' }, open));
+  kids.push(stageDetails(it));
+  stage.replaceChildren(...kids);
+}
+
+function stageReceipt(r, expected) {
+  if (!r) return stageFact('Receipt', expected ? 'none sealed for it yet' : 'none: a file is not sealed by itself (the run that wrote it is)');
+  return r.verified
+    ? stageFact('Receipt', h('span', { class: 'stage-verified is-verified' }, '✓ sealed and verified'), ' on the companion’s server now')
+    : stageFact('Receipt', h('span', { class: 'tone-failed' }, `✕ sealed, not verified: ${r.why || 'not said'}`));
+}
+
+/** A run's progress, result and receipt (H164's runSummary, read on the companion's server), its first image drawn large. */
+function stageRun(it) {
+  const op = it.id;
+  const held = homeWork.runs.get(op);
+  if (!held || (!held.asking && held.answer && held.answer.ok && held.answer.run.progress.state === 'running' && Date.now() - held.at > HOME_RUN_AGAIN_MS)) askRun(op);
+  const a = held && held.answer;
+  if (!a) return [h('p', { class: 'stage-note' }, 'Reading its progress, result and receipt…')];
+  if (!a.ok) return [h('p', { class: 'stage-note' }, `Its progress is not read: ${pathsAsNames(a.error || 'the companion did not say why')}.`)];
+  const r = a.run;
+  const out = [];
+  const glyph = WORK_GLYPH[r.progress.state] || '·';
+  out.push(stageFact('Progress', h('strong', { class: `stage-state tone-${r.progress.state === 'failed' ? 'failed' : 'quiet'}` }, `${glyph} ${r.progress.state}`), ` · ${pathsAsNames(r.progress.words)}`));
+  const t = r.time || {};
+  const ms = typeof t.ms === 'number' ? t.ms : (Date.parse(t.endedAt || '') - Date.parse(t.startedAt || ''));
+  if (t.startedAt) out.push(stageFact('Time', `${clockOf(t.startedAt)}${t.endedAt ? ` to ${clockOf(t.endedAt)}` : ' · still running'}${Number.isFinite(ms) && ms >= 0 ? ` · ${ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`}` : ''}`));
+  const outputs = (r.result && r.result.outputs) || [];
+  out.push(stageFact('Result', outputs.length ? `${outputs.length} ${outputs.length === 1 ? 'file' : 'files'} written: ${outputs.slice(0, 4).map((o) => baseName(o.path)).join(', ')}${outputs.length > 4 ? `, ${outputs.length - 4} more` : ''}` : pathsAsNames(r.result.verdict || 'no file written')));
+  out.push(stageReceipt(r.receipt ? { id: r.receipt.id, verified: r.receipt.verified, why: r.receipt.why } : null, true));
+  const image = homeWork.images.get(`run:${op}`);
+  if (image === undefined) askRunImage(op);
+  else if (image && image.src) out.unshift(stageFigure(image.src, image.words));
+  return out;
+}
+
+function askRun(op) {
+  const held = homeWork.runs.get(op) || {};
+  if (held.asking) return;
+  const project = homeWork.project;
+  homeWork.runs.set(op, { ...held, asking: true });
+  homeJson(`/api/journey/run/${encodeURIComponent(op)}${project ? `?project=${encodeURIComponent(project)}` : ''}`)
+    .then((b) => ({ ok: true, run: b.run }), (e) => ({ ok: false, error: e && e.message ? e.message : String(e) }))
+    .then((answer) => { if (homeWork.project !== project) return; homeWork.runs.set(op, { answer, at: Date.now(), asking: false }); drawHomeWork(); });
+}
+
+/** The run detail's own copy of the first image the run wrote or changed (the route Workflows reads), or none. */
+function askRunImage(op, path) {
+  const key = path ? `file:${path}` : `run:${op}`;
+  if (homeWork.images.has(key)) return;
+  homeWork.images.set(key, null);
+  const project = homeWork.project;
+  companion.fetch(`/api/run/${encodeURIComponent(op)}${project ? `?project=${encodeURIComponent(project)}` : ''}`)
+    .then((r) => r.json()).then((b) => {
+      const list = (b && b.inspection && b.inspection.changes && b.inspection.changes.list) || [];
+      const ch = list.find((x) => x && x.preview && x.preview.kind === 'image' && typeof x.preview.data === 'string' && x.preview.data.startsWith('data:image/') && (!path || x.path === path));
+      if (homeWork.project !== project) return;
+      homeWork.images.set(key, ch ? { src: ch.preview.data, words: `${baseName(ch.path)}${ch.preview.width && ch.preview.height ? ` · ${ch.preview.width} × ${ch.preview.height} px` : ''}`, w: ch.preview.width, h: ch.preview.height } : { none: path ? 'the run that wrote it holds no copy the page can draw' : '' });
+      drawHomeWork();
+    }, () => { if (homeWork.project === project) { homeWork.images.set(key, { none: 'the run’s detail could not be read' }); drawHomeWork(); } });
+}
+
+/** A VoxVision record's copy of an image (the newest record that observed `path`, or the record itself), or none. */
+function askVoxImage(id, path) {
+  const key = id ? `vox:${id}` : `file:${path}`;
+  if (homeWork.images.has(key)) return;
+  homeWork.images.set(key, null);
+  const project = homeWork.project;
+  const q = project ? `project=${encodeURIComponent(project)}` : '';
+  (async () => {
+    const records = id ? [{ id }] : ((await homeJson(`/api/panel/voxvision/records${q ? `?${q}` : ''}`)).records || []).filter((r) => r && r.counts && r.counts.images > 0).slice(0, HOME_VOX_TRIES);
+    for (const rec of records) {
+      const body = await homeJson(`/api/panel/voxvision/record?id=${encodeURIComponent(rec.id)}${q ? `&${q}` : ''}`);
+      const images = (body.preview && body.preview.images) || [];
+      const im = path ? images.find((x) => x.servable && x.path === path) : (images.find((x) => x.servable && x.role === 'highlight') || images.find((x) => x.servable));
+      if (!im) continue;
+      const r = await companion.fetch(`/api/panel/voxvision/file?id=${encodeURIComponent(rec.id)}&path=${encodeURIComponent(im.path)}${q ? `&${q}` : ''}`);
+      if (!r.ok) continue;
+      const blob = await r.blob();
+      const src = await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.onerror = () => reject(new Error('not read')); fr.readAsDataURL(blob); });
+      const measured = (body.preview && (body.preview.measures || body.preview.values)) || null;
+      return { src, words: `${baseName(im.path)}${im.role === 'highlight' ? ' · as VoxVision marked it' : ''}`, by: rec.id, measured: Array.isArray(measured) ? measured.length : null, when: body.at || null };
+    }
+    return { none: id ? 'none of its images can be drawn here' : 'no VoxVision record has observed it, and no run wrote it' };
+  })().then((v) => v, (e) => ({ none: `not read: ${e && e.message ? e.message : String(e)}` }))
+    .then((v) => { if (homeWork.project !== project) return; homeWork.images.set(key, v); drawHomeWork(); });
+}
+
+function stageFigure(src, words) {
+  return h('figure', { class: 'stage-figure' },
+    h('button', { type: 'button', class: 'stage-img-btn', 'data-enlarge': words, title: 'Show it at size' }, h('img', { class: 'stage-img', src, alt: words })),
+    h('figcaption', null, words));
+}
+
+/** An image: drawn from the copy a run's detail or a VoxVision record holds, with its pixel size and who observed it. */
+function stageImage(it) {
+  const out = [];
+  let key;
+  if (it.kind === 'observation') { key = `vox:${it.id}`; askVoxImage(it.id, null); }
+  else if (it.operation && OPERATION_ID.test(it.operation)) { key = `file:${it.id}`; askRunImage(it.operation, it.id); }
+  else { key = `file:${it.id}`; askVoxImage(null, it.id); }
+  const im = homeWork.images.get(key);
+  if (!im) out.push(h('p', { class: 'stage-note' }, 'Reading the image…'));
+  else if (im.src) {
+    out.push(stageFigure(im.src, im.words));
+    if (im.by) out.push(stageFact('Observed', `by VoxVision${im.measured !== null && im.measured !== undefined ? ` · ${im.measured} values measured` : ''} (Open it in VoxVision for what was measured)`));
+  } else out.push(h('p', { class: 'stage-note' }, `This page draws an image from a run’s detail or a VoxVision record; ${im.none}. VoxVision’s Detect in the terminal observes it.`));
+  out.push(stageFact('What', `${WORK_KIND[it.kind] || it.kind} · ${it.kind === 'observation' ? 'an observation' : fileWhat(it.id)}`));
+  return out;
+}
+
+/** The most of a text file's lines the stage shows (the companion sends its first 64 KB). */
+const STAGE_TEXT_LINES = 60;
+
+/**
+ * R10 (H167): a project file as the companion reads it now (H164's GET /api/journey/file: an image as a data URL with its
+ * pixel size, a text's first 64 KB, or why not in words), kept by its path until the project or the list moves on.
+ */
+function askFile(path) {
+  const key = `now:${path}`;
+  if (homeWork.images.has(key)) return;
+  homeWork.images.set(key, null);
+  const project = homeWork.project;
+  companion.fetch(`/api/journey/file?${project ? `project=${encodeURIComponent(project)}&` : ''}path=${encodeURIComponent(path)}`)
+    .then((r) => r.json().then((b) => b, () => null).then((b) => (b && typeof b === 'object' ? b : { ok: false, why: `the companion answered HTTP ${r.status}` })))
+    .then((b) => b, (e) => ({ ok: false, why: `not read: ${e && e.message ? e.message : String(e)}` }))
+    .then((b) => { if (homeWork.project !== project) return; homeWork.images.set(key, b); drawHomeWork(); });
+}
+
+/** A file of the project as it is now: its image drawn large, or its text's first lines; else the copy a run or a record keeps. */
+function stageFile(it) {
+  const now = homeWork.images.get(`now:${it.id}`);
+  if (now === undefined) askFile(it.id);
+  if (!now) return [h('p', { class: 'stage-note' }, 'Reading it…'), stageFact('What', `${WORK_KIND[it.kind] || it.kind} · ${fileWhat(it.id)}`)];
+  const what = stageFact('What', `${WORK_KIND[it.kind] || it.kind} · ${fileWhat(it.id)}${typeof now.size === 'number' ? ` · ${humanSize(now.size)}` : ''}`);
+  if (now.ok && now.kind === 'image' && typeof now.data === 'string' && now.data.startsWith('data:image/')) {
+    return [stageFigure(now.data, `${baseName(it.id)} · ${now.width} × ${now.height} px · as the file is now`), what];
+  }
+  if (now.ok && now.kind === 'text' && typeof now.data === 'string') {
+    const lines = now.data.split('\n');
+    const shown = lines.slice(0, STAGE_TEXT_LINES);
+    const more = lines.length - shown.length;
+    return [h('pre', { class: 'stage-text', tabindex: '0', 'aria-label': `${baseName(it.id)}, its first lines` }, shown.join('\n')),
+      h('p', { class: 'stage-note' }, `${baseName(it.id)} as the file is now${more > 0 || now.truncated ? ': its first lines (the whole file opens where it belongs)' : ''}`), what];
+  }
+  // not drawn from the file (too big, another type, a link…): an image is drawn from the copy its run or a record keeps
+  const why = h('p', { class: 'stage-note' }, `Not read from the file itself: ${pathsAsNames(now.why || 'the companion did not say why')}.`);
+  return it.open && it.open.preview === 'image' ? [why, ...stageImage(it)] : [why, what];
+}
+
+/** A size in bytes, in words. */
+function humanSize(n) {
+  return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** Enter (or a click) on the stage's button: where the item belongs, on this page. */
+function openWork(btn) {
+  const tab = btn.dataset.openTab;
+  const name = btn.dataset.openName;
+  const value = btn.dataset.openValue;
+  if (tab === 'workflows' && OPERATION_ID.test(value)) { showRun(value); return; }
+  if (tab === 'voxvision' && value) { document.dispatchEvent(new CustomEvent('timmy:vox-show', { detail: { id: value } })); showWorkspaceTab('voxvision'); return; }
+  if (tab === 'create' && value) { document.dispatchEvent(new CustomEvent('timmy:create-show', { detail: { [name]: value } })); showWorkspaceTab('create'); return; }
+  if (tab) showWorkspaceTab(tab);
+}
+
+document.addEventListener('click', (e) => {
+  const row = e.target instanceof Element ? e.target.closest('#home-work [data-work]') : null;
+  if (row) { homeWork.sel = row.dataset.work; drawHomeWork(); return; }
+  const open = e.target instanceof Element ? e.target.closest('[data-work-open]') : null;
+  if (open) openWork(open);
+});
+document.addEventListener('keydown', (e) => {
+  const list = document.getElementById('home-work');
+  if (!list || document.activeElement !== list || !homeWork.items || !homeWork.items.length) return;
+  const keys = homeWork.items.map(workKey);
+  const at = Math.max(0, keys.indexOf(homeWork.sel));
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+    e.preventDefault();
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : Math.max(0, Math.min(keys.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)));
+    homeWork.sel = keys[next];
+    drawHomeWork();
+    document.querySelector('#home-work [aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    const btn = document.querySelector('#home-stage [data-work-open]');
+    if (btn) { e.preventDefault(); openWork(btn); }
+  }
+});
+
+// ── R10 (H167): the project's conversation, where it continues and the route its next turn takes ──
+// This page's own Send is its own chat (H164's scope: no tools, no receipt); the project's conversation continues in the
+// Workbench (2 Chat) or the REPL, and the mirror says the route its next turn takes there, as their top lines say it
+// (H164's routeNow for the Workbench), FAKE where its model's name says so. Asked when the Chat tab is shown, at most every
+// HOME_WORK_EVERY_MS.
+const projectRoute = { at: 0, asking: false, route: null, why: '' };
+function readProjectRoute() {
+  if (!companion.token || companion.refused || projectRoute.asking || Date.now() - projectRoute.at < HOME_WORK_EVERY_MS) return;
+  projectRoute.asking = true;
+  homeJson('/api/journey/route?surface=workbench')
+    .then((b) => { projectRoute.route = b.route || null; projectRoute.why = ''; }, (e) => { projectRoute.why = e && e.message ? e.message : String(e); })
+    .finally(() => { projectRoute.asking = false; projectRoute.at = Date.now(); drawProjectRoute(); });
+}
+function drawProjectRoute() {
+  const el = document.getElementById('mirror-route');
+  if (!el) return;
+  const r = projectRoute.route;
+  if (!r) { el.textContent = projectRoute.why ? `The project’s route is not known here: ${projectRoute.why}.` : 'Asking the companion which route the project’s next turn takes…'; return; }
+  const where = r.where === 'this computer' ? 'this computer' : r.where === 'another computer' ? 'another computer' : r.where === 'cloud' ? 'the cloud' : 'no place yet';
+  const said = r.ready
+    ? [h('span', null, 'The project’s conversation continues in the Workbench (2 Chat) or the REPL; its next turn goes to '), h('strong', null, `${r.fake ? 'FAKE ' : ''}${r.model}`), ` · ${where} · ${(r.price && r.price.words) || 'no price declared'}.`]
+    : [h('span', null, `The project’s conversation has no route now: ${r.why || 'nothing would be sent'}.`)];
+  el.replaceChildren(...said);
+  el.title = r.words || '';
 }
 
 function drawStudio(f) {
@@ -1835,7 +2308,8 @@ function drawActsFull(f, own) {
       const kind = commandKind(String(a.command));
       return h('div', { class: `act-row${a.primary ? ' is-primary' : ''}`, 'data-n': a.n },
         h('div', { class: 'act-row-head' }, h('span', null, `${a.n}. ${a.label}`), h('span', { class: `act-row-tag${a.primary ? ' is-next' : ''}` }, a.primary ? 'the next step' : a.effect || '')),
-        kind === 'command' ? h('p', null, h('button', { type: 'button', class: 'cmd', 'data-copy': a.command, title: 'Copies the command for Timmy’s terminal' }, a.command))
+        // (R10 H167, H168's F3 on the page: what it does in words; the command it copies for Timmy's terminal under Details)
+        kind === 'command' ? h('details', { class: 'act-row-more' }, h('summary', null, 'Details'), h('p', null, h('span', { class: 'cmd-label' }, 'its command, for Timmy’s terminal: '), h('button', { type: 'button', class: 'cmd', 'data-copy': a.command, title: 'Copies the command for Timmy’s terminal' }, a.command)))
           : h('p', { class: 'act-row-why' }, kind === 'tab' ? `Key ${a.command} opens it.` : `In Timmy’s terminal: ${a.command}.`),
         a.primary && a.effect ? h('p', { class: 'act-row-why' }, `effect: ${a.effect}`) : null,
         a.enabled === false ? h('p', { class: 'act-row-why' }, `not now: ${a.why || 'not available'}`) : null);
@@ -1845,13 +2319,23 @@ function drawActsFull(f, own) {
 
 // ── events, runs and the activity stream, newest first ──
 
+/**
+ * R10 (H167; H168's F3 on the page): an event's words as the activity stream says them: a job by what it ran (its id dropped),
+ * a receipt as sealed, an operation's id left to its link's tip; Logs & Receipts (tab 0) keeps every event whole.
+ */
+const eventWords = (w) => String(w || '')
+  .replace(/\bj[0-9a-f]{6}\b:? ?/g, '')
+  .replace(/\breceipt [0-9a-f]{8}\b/g, 'receipt sealed')
+  .replace(/\s*\(?\bo[0-9a-f]{8}\b\)?/g, '')
+  .replace(/ {2,}/g, ' ').trim();
+
 function eventItem(e, o = {}) {
   const tone = e.tone === 'live' ? 'is-live' : `tone-${e.tone}`;
   const glyph = e.tone === 'failure' ? '✕ ' : e.tone === 'live' ? '✓ ' : '';
   return h('li', { class: 'ev', 'data-tone': e.tone },
     h('time', { class: 'ev-time', datetime: e.at }, clockOf(e.at)),
-    h('div', { class: 'ev-main' }, h('span', { class: `ev-tag ${tone}` }, `${glyph}[${e.tag}]`), e.words,
-      e.operation ? h('button', { type: 'button', class: 'run-link ev-op', 'data-open-run': e.operation, title: `Opens run ${e.operation} in Workflows` }, e.operation) : null,
+    h('div', { class: 'ev-main' }, h('span', { class: `ev-tag ${tone}` }, `${glyph}[${e.tag}]`), o.plain ? eventWords(e.words) : e.words,
+      e.operation ? h('button', { type: 'button', class: 'run-link ev-op', 'data-open-run': e.operation, title: `Opens run ${e.operation} in Workflows` }, o.plain ? (e.tag === 'chat' ? 'its record' : 'open the run') : e.operation) : null,
       o.from && e.source ? h('span', { class: 'ev-from' }, `from ${e.source}`) : null));
 }
 
@@ -1875,8 +2359,11 @@ function eventsOf(f, own) {
 
 function drawEvents(f, own) {
   const log = eventsOf(f, own);
+  // R10 (H167; the lead's note on the A2 captures, references 02 and 11): beside the conversation, its own events (its turns),
+  // in words; every event is the activity stream's and Logs & Receipts'
+  const turns = log.filter((e) => e.tag === 'chat');
   const chat = document.getElementById('chat-events');
-  if (chat) chat.replaceChildren(...(log.length ? log.map((e) => eventItem(e)) : [emptyLog(f, own)]));
+  if (chat) chat.replaceChildren(...(turns.length ? turns.map((e) => eventItem(e, { plain: true })) : [own ? h('li', { class: 'empty' }, 'No chat turn of this project is sealed yet: a turn sent in the Workbench, the REPL or the monitor is listed once its receipt is sealed.') : emptyLog(f, own)]));
   const logs = document.getElementById('logs-events');
   if (logs) logs.replaceChildren(...(log.length ? log.map((e) => eventItem(e, { from: true })) : [emptyLog(f, own)]));
 }
@@ -1891,7 +2378,7 @@ function drawActivity(f, own) {
     counts.title = counts.textContent;
   }
   const events = eventsOf(f, own);
-  if (list) list.replaceChildren(...(events.length ? events.map((e) => eventItem(e)) : [emptyLog(f, own)]));
+  if (list) list.replaceChildren(...(events.length ? events.map((e) => eventItem(e, { plain: true })) : [emptyLog(f, own)]));
 }
 
 function drawRuns(f, own) {
@@ -1902,8 +2389,9 @@ function drawRuns(f, own) {
   if (!list) return;
   const seen = new Set();
   const runs = (own ? (f.log || []) : []).filter((e) => e.operation && !seen.has(e.operation) && seen.add(e.operation));
-  list.replaceChildren(...(runs.length ? runs.map((e) => h('li', null, h('button', { type: 'button', class: 'run-pick', 'data-open-run': e.operation, 'aria-current': workspace.run === e.operation ? 'true' : 'false' },
-    h('span', { class: 'run-pick-op' }, e.operation), h('span', { class: 'run-pick-words' }, e.words), h('time', { class: 'run-pick-time', datetime: e.at }, clockOf(e.at))))) : [emptyLog(f, own)]));
+  // R10 (H167; H168's F3 on the page): each run by what it did, in words; its operation's id is the button's tip
+  list.replaceChildren(...(runs.length ? runs.map((e) => h('li', null, h('button', { type: 'button', class: 'run-pick', 'data-open-run': e.operation, 'aria-current': workspace.run === e.operation ? 'true' : 'false', title: `operation ${e.operation}` },
+    h('span', { class: 'run-pick-words' }, eventWords(e.words) || e.words), h('time', { class: 'run-pick-time', datetime: e.at }, clockOf(e.at))))) : [emptyLog(f, own)]));
 }
 
 /** A run opened from the page: the Workflows tab, its run detail. */
@@ -2100,7 +2588,7 @@ function onProjectShown(p) { if (!workspace.frame || workspace.frame.project.id 
 const WS_POLL_MS = 3000;
 setInterval(() => { if (!document.hidden) readFrame(); }, WS_POLL_MS);
 // R9 lead (item D): Home's newest run image asked again while Home is shown, whatever the frame does (homeImagesDue)
-setInterval(() => { const home = document.getElementById('ws-home'); if (!document.hidden && home && !home.hidden) homeImagesDue(); }, WS_POLL_MS);
+setInterval(() => { const home = document.getElementById('ws-home'); if (!document.hidden && home && !home.hidden) { homeImagesDue(); readHomeWork(); } }, WS_POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) readFrame(); });
 
 (() => {

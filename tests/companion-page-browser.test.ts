@@ -727,7 +727,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
       const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ').trim();
       expect(row).toMatch(/^⌨ REPL turn · ended \d/);
-      expect(row).toContain(`A chat turn in the REPL (timmy) ended (2 steps); Timmy sealed it as receipt ${first.payload.hash.slice(7, 15)}. Its words are in the REPL: Timmy seals a REPL turn's prompt and answer as hashes only, so they are not on the event bus and are not shown here.`);
+      // (R10 H167, H168's F3 on the page: the REPL by its name, the receipt's id behind the row's Details)
+      expect(row).toContain('A chat turn in the REPL ended (2 steps); Timmy sealed its receipt. Its words are in the REPL: Timmy seals a REPL turn\'s prompt and answer as hashes only, so they are not on the event bus and are not shown here.');
+      expect(row).toMatch(new RegExp(`Details receipt ${first.payload.hash.slice(7, 15)}$`));
       expect(await page.locator('#console-logs [data-mirror="empty"]').count()).toBe(0);
       await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
       // this monitor's chat as its terminal sends it (sync), around a second, cancelled REPL turn: one list, in time order
@@ -743,7 +745,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       // R5 lead: a cancelled turn is said stopped, the word the Workbench and the shared frame use (1598141)
       // R7 (H152): with who asked (no other surface did, so the REPL that sent it)
       expect(order).toEqual(['⌨ REPL turn · ended', '▶ You', '⌨ REPL turn · stopped (asked from the REPL)', '◀ TIMMY Agent']);
-      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL (timmy) stopped (asked from the REPL; 1 step);');
+      expect((await page.locator('#console-logs [data-mirror="repl-turn"]').nth(1).textContent())!.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL stopped (asked from the REPL; 1 step);');
       // the same sealed turn again (as a reconnect's tail brings it) is still one row
       appendFileSync(bus, `${JSON.stringify(first)}\n`);
       await page.waitForTimeout(1_500);
@@ -770,7 +772,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
       expect(readFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), 'utf8')).toContain(sealed.hash);
       await page.waitForSelector('#console-logs [data-mirror="repl-turn"]', { timeout: 15_000 });
       const row = (await page.textContent('#console-logs [data-mirror="repl-turn"]'))!.replace(/\s+/g, ' ');
-      expect(row).toContain(`A chat turn in the REPL (timmy) ended (3 steps); Timmy sealed it as receipt ${sealed.id}.`);
+      expect(row).toContain('A chat turn in the REPL ended (3 steps); Timmy sealed its receipt.');
+      expect(row).toContain(`Details receipt ${sealed.id}`);
       expect(await page.textContent('#console-logs')).not.toMatch(/SYNTHETIC (prompt|answer)/);
       await page.waitForFunction(() => document.getElementById('mirror-status')?.textContent === 'Local chat mirror: LIVE', null, { timeout: 5_000 });
       expect(seen.outside).toEqual([]);

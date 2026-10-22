@@ -286,7 +286,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(page, '#project-pin')).toBe('Pin: keep this page on alpha');
       expect(await page.isEnabled('#project-pin')).toBe(true);
       expect(await page.getAttribute('#project', 'data-project')).toBe(projectId(alpha.root));
-      expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
       // the mirror's words name where a REPL turn must happen to be seen here
       const empty = await text(page, '#console-logs');
       expect(empty).toContain(`A REPL turn is seen here when the REPL works in the project this page shows, alpha (${tildePath(alpha.root)}) (in the REPL, /project chooses one): Timmy keeps an event bus in each project's folder, and this page reads that project's.`);
@@ -301,7 +302,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const followedIn = Date.now() - t0;
       expect(followedIn).toBeLessThan(2_500);
       expect(await text(page, '#project-mode')).toBe('following the active project');
-      expect(await text(page, '#project-folder')).toContain(`Project folder: ${tildePath(beta.root)}:`);
+      expect(await text(page, '#project-folder .folder-whole')).toContain(`Project folder: ${tildePath(beta.root)}:`);
       expect(await text(page, '#project-pin')).toBe('Pin: keep this page on beta');
       // alpha's turn is not shown with beta; a turn in alpha now is not shown, one in beta is
       expect(await turns(page)).toEqual([]);
@@ -345,7 +346,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(pinned.page, '#project-name')).toBe('beta');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned · the active project is gamma');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project (gamma)');
-      expect(await text(pinned.page, '#project-folder')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(pinned.page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
       expect(await pinned.page.isHidden('#project-pin-mark')).toBe(false);
       expect(await following.page.isHidden('#project-pin-mark')).toBe(true);
       // each page's mirror shows its own project's REPL turns
@@ -395,7 +397,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(page, '#project-mode')).toBe('fixed by TIMMY_REPO');
       expect(await page.isDisabled('#project-pin')).toBe(true);
       expect(await text(page, '#project-pin')).toBe('Pin: off (TIMMY_REPO fixed this companion’s folder)');
-      expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(fixed.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. TIMMY_REPO fixed this folder: this companion follows no project.`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(fixed.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. TIMMY_REPO fixed this folder: this companion follows no project.`);
       choose(project('elsewhere'));
       await page.waitForTimeout(PROJECT_POLL_MS + 500);
       expect(await text(page, '#project-name')).toBe('fixed-folder');
@@ -417,8 +420,9 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
         await tab(page, 'streamdown');
         await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · this page\'s own chat · no tools', null, { timeout: 15_000 });
         expect(await page.getAttribute('#sd-route-chip', 'data-route')).toBe('local');
-        expect(await text(page, '#sd-route')).toBe('POST /chat → local fake-chat:8b · Ollama · this page\'s own chat · no tools → SSE → live React components');
-        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b … (Ollama, no tools here)');
+        // (R10 H167; H164's scope: whose chat this is, in words, not the request's path)
+        expect(await text(page, '#sd-route')).toBe('This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.');
+        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b here: this page’s own chat (no tools, no receipt)');
         expect(await page.locator('#sd-route-off').count()).toBe(0);
         await page.fill('#sd-input', 'FAKE: a question for the local model');
         expect(await page.isEnabled('#sd-send')).toBe(true);
@@ -559,26 +563,43 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await page.evaluate(() => location.href)).toBe(`http://127.0.0.1:${own.port}/run/o1a2b3c4d`);
       expect(asked).toEqual([{ op: 'o1a2b3c4d', project: alpha.root }]);
       const field = (f: string): Promise<string> => text(page, `#run-detail .run-row[data-field="${f}"] dd`);
-      expect(await text(page, '#run-detail .run-title')).toBe('Run o1a2b3c4d · alpha-runs');
-      expect(await field('verdict')).toBe('no change · FIXTURE: the run changed nothing; its result was already current from receipt FIXTURE-rc-1');
-      expect(await field('stage')).toBe('inspect · 2 of 3 steps done from .timmy/jobs/FIXTURE-job.json');
-      expect(await field('exits')).toBe('upmd: exit 4 (stale build) from .timmy/jobs/FIXTURE-job.log runner: exit 0 from .timmy/jobs/FIXTURE-job.json');
-      expect(await field('freshness')).toBe('stale · FIXTURE: its input changed after the result was made from .timmy/operations/o1a2b3c4d.json');
+      // (R10 H167: the run named in words, its request as Home lists it; its operation's id is the title's tip)
+      expect(await text(page, '#run-detail .run-title')).toMatch(/ · alpha-runs$/);
+      expect(await page.getAttribute('#run-detail .run-title', 'title')).toBe('operation o1a2b3c4d');
+      // (R10 H167, H168's F3 as on Home: each value on the face; where it came from, the project's folder and id and a next
+      // step's command in its column's Details)
+      expect(await field('verdict')).toBe('no change · FIXTURE: the run changed nothing; its result was already current');
+      expect(await field('stage')).toBe('inspect · 2 of 3 steps done');
+      expect(await field('exits')).toBe('upmd: exit 4 (stale build) runner: exit 0');
+      expect(await field('freshness')).toBe('stale · FIXTURE: its input changed after the result was made');
       expect(await field('acceptance')).toBe('not reviewed');
-      expect(await field('objective')).toBe('FIXTURE: tidy the tray inbox from .timmy/operations/o1a2b3c4d.json');
-      expect(await field('project')).toBe(`alpha-runs ${tildePath(alpha.root)} · id ${projectId(alpha.root)}`);
-      expect(await field('worker')).toBe('model FIXTURE-model from receipt FIXTURE-rc-1');
+      expect(await field('objective')).toBe('FIXTURE: tidy the tray inbox');
+      expect(await field('project')).toBe('alpha-runs');
+      expect(await field('worker')).toBe('model FIXTURE-model');
       expect(await field('time')).toMatch(/^started .+ · ended .+ · elapsed 1 min 12 s$/);
       expect(await field('cost')).toBe('unknown: FIXTURE: no model was asked in this run');
-      expect(await field('next')).toBe('FIXTURE: run it again once its input settles /run APPROVAL.md tidy');
+      expect(await field('next')).toBe('FIXTURE: run it again once its input settles');
       expect(await field('summary')).toBe('none saved');
+      const more = (col: string): Promise<string> => text(page, `#run-detail .${col} .run-facts + .rv-more`);
+      expect(await more('rd-before')).toBe('Details Objective from .timmy/operations/o1a2b3c4d.json');
+      expect(await more('rd-run')).toBe(`Details Workflow stage from .timmy/jobs/FIXTURE-job.json Process exits upmd from .timmy/jobs/FIXTURE-job.log; runner from .timmy/jobs/FIXTURE-job.json Artifact freshness from .timmy/operations/o1a2b3c4d.json Project ${tildePath(alpha.root)} · id ${projectId(alpha.root)} Source revision from .timmy/operations/o1a2b3c4d.json Worker model from receipt FIXTURE-rc-1`);
+      expect(await more('rd-after')).toBe('Details Timmy’s verdict from receipt FIXTURE-rc-1 Parent · children parent o0a0b0c0d; children o5e6f7a8b Next its command: /run APPROVAL.md tidy');
+      expect(await field('related')).toBe('its parent run · child run 1');
       const view = await text(page, '#run-detail .run-view');
-      expect(view).toContain('Prediction (frozen before the result; not an observed receipt) FIXTURE: Predicted change, then inspect, then result, each exits 0 receipt FIXTURE-rc-0');
-      expect(view).toContain('inspect exits 0 exited 4 from .timmy/jobs/FIXTURE-job.log differs');
-      expect(view).toContain('result none not run from .timmy/jobs/FIXTURE-job.json not compared');
-      expect(view).toContain('inbox/FIXTURE-note.txt from .timmy/operations/o1a2b3c4d.json input abababababab');
-      expect(view).toContain('FIXTURE-rc-0 · predict · workflow · predict');
+      expect(view).toMatch(/Prediction \(frozen before the result; not an observed receipt\) FIXTURE: Predicted change, then inspect, then result, each exits 0(?: · frozen .+?)? Details its receipt FIXTURE-rc-0/);
+      expect(view).toContain('inspect exits 0 exited 4 differs');
+      expect(view).toContain('result none not run not compared');
+      expect(view).toContain('Details inspect its actual from .timmy/jobs/FIXTURE-job.log result its actual from .timmy/jobs/FIXTURE-job.json');
+      expect(view).toContain('inbox/FIXTURE-note.txt input Timmy’s record log');
+      expect(view).toContain('Details inbox/FIXTURE-note.txt sha256 abababababab · from .timmy/operations/o1a2b3c4d.json Timmy’s record (log) .timmy/jobs/FIXTURE-job.log · no sha256 recorded · from .timmy/jobs/FIXTURE-job.json');
+      expect(view).toContain('Receipts predict · workflow · predict');
+      expect(view).toContain('Details predict receipt FIXTURE-rc-0');
       expect(view).toContain('Not known (no record says) acceptance: FIXTURE: no person has reviewed this result');
+      // what a person sees (a closed Details shows its summary only) names no operation and no place under .timmy
+      const face = await page.$eval('#run-detail .run-view', (e) => (e as HTMLElement).innerText);
+      expect(face).not.toContain('o1a2b3c4d');
+      expect(face).not.toContain('.timmy/');
+      expect(face).not.toContain('FIXTURE-rc-');
       // never a percentage
       expect(view).not.toContain('%');
 
@@ -586,12 +607,16 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await page.click('#run-detail [data-op="o5e6f7a8b"]');
       await page.waitForSelector('#run-detail .run-view[data-operation="o5e6f7a8b"]', { timeout: 10_000 });
       expect(await page.evaluate(() => location.pathname)).toBe('/run/o5e6f7a8b');
-      expect(await field('verdict')).toBe('completed · FIXTURE: the run made its result from receipt FIXTURE-rc-9');
-      expect(await field('cost')).toBe('$0.0123 (reported) from receipt FIXTURE-rc-9');
-      expect(await field('acceptance')).toMatch(/^accepted by FIXTURE-operator, .+ from receipt FIXTURE-rc-10$/);
-      expect(await field('related')).toBe('o1a2b3c4d · no children');
+      expect(await field('verdict')).toBe('completed · FIXTURE: the run made its result');
+      expect(await field('cost')).toBe('$0.0123 (reported)');
+      expect(await field('acceptance')).toMatch(/^accepted by FIXTURE-operator, \S.*$/);
+      expect(await field('related')).toBe('its parent run · no children');
+      expect(await page.getAttribute('#run-detail .run-row[data-field="related"] [data-op="o1a2b3c4d"]', 'title')).toBe('operation o1a2b3c4d');
+      expect(await text(page, '#run-detail .rd-after .run-facts + .rv-more')).toMatch(/^Details Timmy’s verdict from receipt FIXTURE-rc-9 A person’s acceptance from receipt FIXTURE-rc-10 Parent · children parent o1a2b3c4d Next its command: \/run APPROVAL\.md tidy$/);
+      expect(await text(page, '#run-detail .rd-run .run-facts + .rv-more')).toContain('Cost from receipt FIXTURE-rc-9');
 
-      // an id this project has no record of: the producer's words
+      // an id this project has no record of: the producer's words (the Operation id box is behind its Details control)
+      await page.click('#run-by-id > summary');
       await page.fill('#run-op', 'o99999999');
       await page.click('#run-open');
       await page.waitForSelector('#run-detail .run-error[data-run="refused"]', { timeout: 10_000 });

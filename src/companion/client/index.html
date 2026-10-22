@@ -78,17 +78,23 @@
 
   <main id="ws-main" class="ws-main right-col" tabindex="-1">
 
-    <!-- 1 · Home (references 01, 13): the connections as Timmy last observed them, and what to look at -->
+    <!-- 1 · Home (references 01, 13): the project's recent work, the selected item drawn large with the one way to open it,
+         the connections as Timmy last observed them, and the newest images. R10 (H167): the journey's first screen in the
+         browser, as the terminal Workbench's Home: recent work from H164's GET /api/journey/recent (each item opens where it
+         belongs: H164's openTarget), the selected item's preview beside it (an image drawn, a run's progress, result and
+         receipt, a mesh's format), in words: no address, port, path, command or id outside "Details". -->
     <section id="ws-home" class="ws-page" role="tabpanel" aria-labelledby="ws-tab-home" data-ws-page="home">
       <div class="cols cols-home">
-        <section class="box" aria-labelledby="home-conn-title">
-          <h2 id="home-conn-title" class="box-title">Connections &amp; runtimes</h2>
-          <div class="box-body"><div id="home-connections" class="conn-grid"><p class="empty">Reading the workspace…</p></div></div>
-        </section>
-        <div class="col-stack">
-          <section class="box" aria-labelledby="home-preview-title">
-            <h2 id="home-preview-title" class="box-title">Preview</h2>
-            <div class="box-body"><div id="home-preview" class="preview"><p class="empty">Reading the workspace…</p></div></div>
+        <div class="col-stack home-left">
+          <section class="box home-work-box" aria-labelledby="home-work-title">
+            <h2 id="home-work-title" class="box-title">Recent work</h2>
+            <div class="box-body">
+              <ol id="home-work" class="work-list" role="listbox" aria-label="Recent work, newest first: Up and Down choose, Enter opens it" tabindex="0"><li class="empty">Reading the project’s recent work…</li></ol>
+            </div>
+          </section>
+          <section class="box home-conn-box" aria-labelledby="home-conn-title">
+            <h2 id="home-conn-title" class="box-title">Connections &amp; runtimes</h2>
+            <div class="box-body"><div id="home-connections" class="conn-grid"><p class="empty">Reading the workspace…</p></div></div>
           </section>
           <section class="box box-fit" aria-labelledby="prefs-title">
             <h2 id="prefs-title" class="box-title">When the workspace starts</h2>
@@ -97,6 +103,18 @@
               <label class="check"><input type="checkbox" id="pref-studio" data-pref="openStudioAtStart" disabled> <span>Open Studio when the workspace starts</span></label>
               <p class="prefs-foot"><span id="prefs-state" class="prefs-state" role="status" aria-live="polite">Reading the settings…</span> <button type="button" id="prefs-reload" class="btn-action tiny" data-action="prefs-reload" hidden>Reload</button></p>
             </form>
+          </section>
+        </div>
+        <!-- R10 (H167; the brief and references 01, 02, 05, 09: the preview is the largest share of the page): the selected item
+             drawn large, with the one way to open it; under it, smaller, the newest images, Studio and the newest run -->
+        <div class="col-stack home-right">
+          <section class="box home-stage-box" aria-labelledby="home-stage-title">
+            <h2 id="home-stage-title" class="box-title">Preview</h2>
+            <div class="box-body"><div id="home-stage" class="stage" aria-live="polite"><p class="empty">Reading the project’s recent work…</p></div></div>
+          </section>
+          <section class="box home-more-box" aria-labelledby="home-preview-title">
+            <h2 id="home-preview-title" class="box-title">The newest images, Studio and runs</h2>
+            <div class="box-body"><div id="home-preview" class="preview"><p class="empty">Reading the workspace…</p></div></div>
           </section>
         </div>
       </div>
@@ -119,6 +137,9 @@
                 <div class="row-10">
                   <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
                 </div>
+                <!-- R10 (H167; the brief's step 2, "continue the chat with the actual route shown"): where the project's
+                     conversation continues and the route its next turn takes (H164's GET /api/journey/route?surface=workbench) -->
+                <p id="mirror-route" class="mirror-route" role="status">Asking the companion which route the project’s next turn takes…</p>
                 <div class="row-8">
                   <button type="button" class="btn-action tiny success" data-action="save-chat">Save chat</button>
                   <button type="button" class="btn-action tiny" data-action="download-chat">Download</button>
@@ -146,7 +167,7 @@
               <div class="card-header">
                 <span class="card-title">This page's own chat · not the project's conversation</span>
                 <!-- R4 (H104, second part): the route the chat takes, as the companion says it (the script writes it) -->
-                <span class="sd-route" id="sd-route">POST /chat → the chat's route (asking the companion) → SSE → live React components</span>
+                <span class="sd-route" id="sd-route">Asking the companion which route this page’s own chat takes…</span>
               </div>
               <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
               <div id="streamdown-root" class="dark"></div>
@@ -155,7 +176,7 @@
         </section>
 
         <section class="box" aria-labelledby="chat-log-title">
-          <h2 id="chat-log-title" class="box-title">Chat &amp; event log · newest at top</h2>
+          <h2 id="chat-log-title" class="box-title">This conversation’s turns · newest at the top</h2>
           <div class="box-body"><ol id="chat-events" class="events"><li class="empty">Reading the workspace…</li></ol></div>
         </section>
       </div>
@@ -181,14 +202,20 @@
           <section id="run-card" class="box" aria-labelledby="run-card-title">
             <h2 id="run-card-title" class="box-title">Run detail · intent → prediction → run → receipt</h2>
             <div class="box-body">
-            <div class="rv-top">
-              <form id="run-form" class="run-form" autocomplete="off">
-                <label for="run-op" class="run-label">Operation id</label>
-                <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
-                <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
-              </form>
-              <p id="run-hint" class="run-hint" title="This page's address for a run is /run/&lt;operation id&gt; on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.">An operation id is o and 8 hex digits, as Timmy prints it; this page's address for one is <code>/run/&lt;operation id&gt;</code>.</p>
-            </div>
+            <!-- R10 (H167; H168's F3, as on Home): a run is opened by its id behind a Details control (the runs on the left,
+                 Home's recent work and the activity open one in words); it opens by itself when the page has no token, as the
+                 words in the run box then name it -->
+            <details id="run-by-id" class="run-by-id">
+              <summary>Details · open a run by its operation id</summary>
+              <div class="rv-top">
+                <form id="run-form" class="run-form" autocomplete="off">
+                  <label for="run-op" class="run-label">Operation id</label>
+                  <input id="run-op" class="run-op" name="op" placeholder="o1a2b3c4d" maxlength="9" spellcheck="false" aria-describedby="run-hint">
+                  <button type="submit" id="run-open" class="btn-action">Open its run detail</button>
+                </form>
+                <p id="run-hint" class="run-hint" title="This page's address for a run is /run/&lt;operation id&gt; on this companion (Timmy's terminal Workbench and Studio cards link it); like every page of the companion, it shows nothing without the companion's token, so open the companion from Timmy first.">An operation id is o and 8 hex digits, as Timmy prints it; this page's address for one is <code>/run/&lt;operation id&gt;</code>.</p>
+              </div>
+            </details>
             <div id="run-detail" class="run-detail" aria-live="polite">
               <p class="run-empty">No run detail opened yet.</p>
             </div>

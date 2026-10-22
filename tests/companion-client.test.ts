@@ -224,9 +224,9 @@ describe('companion connection and chat mirror', () => {
     c.receive({ type: 'bus', event: turn(since + 2_000, 'chat.turn · workbench · cancelled · 0 steps · SYNTHETIC-model', { kind: 'chat' }) });
     const html = c.consoleLogs.innerHTML.replace(/\s+/g, ' ');
     expect(html).toContain('⌨ REPL turn · stopped (asked from the companion)');
-    expect(html).toContain('A chat turn in the REPL (<span class="mirror-code">timmy</span>) stopped (asked from the companion; 1 step); Timmy sealed it');
+    expect(html).toContain('A chat turn in the REPL stopped (asked from the companion; 1 step); Timmy sealed its receipt');
     expect(html).toContain('▣ Workbench turn · stopped (asked from the Workbench)');
-    expect(html).toContain('stopped (asked from the Workbench; 0 steps); Timmy sealed it');
+    expect(html).toContain('stopped (asked from the Workbench; 0 steps); Timmy sealed its receipt');
     expect(html).not.toMatch(/cancelled|Cancelled/);
     // a stopped_by that is not a surface is not believed: the row says the surface that sent it
     c.receive({ type: 'bus', event: turn(since + 3_000, 'repl · cancelled · 2 steps', { stopped_by: '<b>x</b>' }) });
@@ -248,7 +248,9 @@ describe('companion connection and chat mirror', () => {
       { v: 1, ts: new Date(since + 1_800).toISOString(), kind: 'approval.required', payload: { command: 'SYNTHETIC' } },
     ] });
     expect(rows(c.consoleLogs.innerHTML)).toBe(1);
-    expect(c.consoleLogs.innerHTML.replace(/\s+/g, ' ')).toContain(`A chat turn in the REPL (<span class="mirror-code">timmy</span>) ended (2 steps); Timmy sealed it as receipt <span class="mirror-code">${first.payload.hash.slice(7, 15)}</span>. Its words are in the REPL`);
+    // (R10 H167, H168's F3: the receipt's id behind the row's Details, the REPL by its name)
+    expect(c.consoleLogs.innerHTML.replace(/\s+/g, ' ')).toContain('A chat turn in the REPL ended (2 steps); Timmy sealed its receipt. Its words are in the REPL');
+    expect(c.consoleLogs.innerHTML.replace(/\s+/g, ' ')).toContain(`<details class="mirror-more"><summary>Details</summary> receipt <span class="mirror-code">${first.payload.hash.slice(7, 15)}</span></details>`);
     expect(c.context.updateMirrorStatus).toHaveBeenLastCalledWith('LIVE');
     // live: a cancelled turn; then the first again (a reconnect's tail): still one row each
     c.receive({ type: 'bus', event: turn(since + 2_000, 'repl · cancelled · 1 step') });
@@ -262,7 +264,7 @@ describe('companion connection and chat mirror', () => {
     c.receive({ type: 'bus', event: turn(since + 3_000, '<img src=x onerror=alert(1)>') });
     expect(rows(c.consoleLogs.innerHTML)).toBe(3);
     expect(c.consoleLogs.innerHTML).not.toMatch(/<img|onerror/);
-    expect(c.consoleLogs.innerHTML).toContain('(<span class="mirror-code">timmy</span>) ended; Timmy sealed it');
+    expect(c.consoleLogs.innerHTML).toContain('A chat turn in the REPL ended; Timmy sealed its receipt');
     // none in a saved chat's view
     c.context.isViewingSaved = true;
     c.context.renderConsoleLogs([{ role: 'user', content: 'SYNTHETIC saved', timestamp: 1 }]);

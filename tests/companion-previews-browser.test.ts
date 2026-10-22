@@ -103,8 +103,9 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
         open: e.querySelector('[data-open-run], [data-open-vox]')?.getAttribute(e.querySelector('[data-open-run]') ? 'data-open-run' : 'data-open-vox'),
       })));
       expect(home).toEqual([
-        { kind: 'run', natural: 640, shown: expect.any(Number), words: `run ${op} · out/shot.png · 640 × 360`, open: op },
-        { kind: 'vox', natural: 640, shown: expect.any(Number), words: 'VoxVision vfa4e0b17 · detect · refs/newest.png', open: 'vfa4e0b17' },
+        // (R10 H167, H168's F3 on the page: in words, each file by its name; the ids are their Open buttons')
+        { kind: 'run', natural: 640, shown: expect.any(Number), words: 'run · shot.png · 640 × 360', open: op },
+        { kind: 'vox', natural: 640, shown: expect.any(Number), words: 'VoxVision · detect · newest.png', open: 'vfa4e0b17' },
       ]);
       for (const t of home) expect(t.shown, `${t.kind} thumbnail`).toBeGreaterThan(60);
 
@@ -122,7 +123,7 @@ describe.skipIf(!browserPath)('the companion\'s previews: drawn, legible and sho
           centred: Math.abs(r.left - (innerWidth - r.right)) <= 2 && Math.abs(r.top - (innerHeight - r.bottom)) <= 2,
         };
       });
-      expect(shown).toEqual({ natural: 640, width: 640, words: `run ${op} · out/shot.png · 640 × 360`, focus: 'btn-action enlarge-close', centred: true });
+      expect(shown).toEqual({ natural: 640, width: 640, words: 'run · shot.png · 640 × 360', focus: 'btn-action enlarge-close', centred: true });
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => !document.querySelector('dialog.enlarge')?.hasAttribute('open'));
       expect(await page.evaluate(() => document.activeElement?.closest('[data-home-image]')?.getAttribute('data-home-image'))).toBe('run');
