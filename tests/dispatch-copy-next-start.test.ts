@@ -36,6 +36,16 @@ let dir = '';
 beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'timmy-dispatch-start-')); process.env.TIMMY_DISPATCH_DRYRUN = '1'; });
 afterAll(() => { delete process.env.TIMMY_DISPATCH_DRYRUN; rmSync(dir, { recursive: true, force: true }); });
 
+/** True once tmux says no server runs on `label` (its exit seen), at most 5 s after asking. */
+function serverGone(label: string): boolean {
+  for (const end = Date.now() + 5000; Date.now() < end;) {
+    const h = spawnSync('tmux', ['-L', label, 'has-session'], { encoding: 'utf8', timeout: 2000 });
+    if (h.status !== 0 && /no server running on |error connecting to .*\(No such file or directory\)/.test(String(h.stderr ?? ''))) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+  return false;
+}
+
 function launched(over: Partial<DispatchPlan> = {}) {
   const c = createPlan(basePlan(over), dir);
   expect(c.ok, c.note).toBe(true);
@@ -131,6 +141,10 @@ describe.skipIf(!hasTmux)('a copy whose session ended outside Timmy is released 
   it('the whole tmux server gone (as after a restart): released at the next start too', () => {
     const l = launched();
     expect(spawnSync('tmux', ['-L', own.label, 'kill-server']).status).toBe(0);
+    // R10 (H163; check h163-p2a-1 under load): kill-server returns before its server has exited, and a has-session asked at once
+    // can still reach the server going away, which the product rightly reads as not known (the copy stays in use): the restart
+    // this case stands for comes after the server has gone, so the case waits for that first
+    expect(serverGone(own.label), 'the tmux server had not exited 5 s after kill-server').toBe(true);
     const did = releaseEndedCopies(dir);
     expect(did.map((d) => [d.id, d.state])).toEqual([[l.id, 'removed']]);
     expect(existsSync(l.copy.path)).toBe(false);

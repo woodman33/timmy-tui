@@ -177,7 +177,10 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(wf).not.toMatch(/[╭┏][─━] (?:◆ )?Context/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wf).toContain(block);
     expect(wf).toContain('⚠ needs you before it runs');
-    expect(wf).toMatch(/PLAN · upmd [^\n]*│ SANDBOX · where it runs[^\n]*│ [╭┏][─━] tidy\.receipt/);
+    // (R10 H163; H168's F4: the runner by what it is, installed or not; its name and the command that installs it are the
+    // Inspector's, [i]: not on tab 3's face, the RUN box's reason included)
+    expect(wf).toMatch(/PLAN · (?:its runner is installed|the workflow runner is not installed)[^\n]*│ SANDBOX · where it runs[^\n]*│ [╭┏][─━] tidy\.receipt/);
+    expect(wf).not.toMatch(/upmd|brew install/);
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
     await press(f.r, 'i');
     expect(f.text()).toMatch(/◆ Context \(drawer\)/);

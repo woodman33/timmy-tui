@@ -724,7 +724,10 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
   } else {
     // R10 (H167; H168's F4): a run going on, by what it is (its job's and operation's ids are the Inspector's, [i])
     const going = runOfBlock(c, d.rel, b.name);
-    rows.push(...para(`Not from here now: ${going ? going.plain : run?.why ?? 'not available'}`, iw, 'secondary', '', 4, g.ellipsis));
+    // (R10 H163; H168's F4: a runner not installed by what it is; its name and the command that installs it are the
+    // Inspector's, [i])
+    const why = going ? going.plain : !c.data.workflows.upmd ? 'the workflow runner is not installed ([i] says how to install it)' : run?.why ?? 'not available';
+    rows.push(...para(`Not from here now: ${why}`, iw, 'secondary', '', 4, g.ellipsis));
   }
   rows.push(...fieldRows('runs', b.order.join(` ${g.arrow} `), iw, 'text', { pad: 5, max: 2, ellipsis: g.ellipsis }));
   if (b.risky.length) rows.push(...para(`${g.warn} its NEEDS YOU box asks first`, iw, 'attention', '', 2, g.ellipsis));
