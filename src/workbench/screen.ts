@@ -184,7 +184,7 @@ export function frameOf(a: FrameAsk): Frame {
     const scroll = scrollFor(ui, list, [], { height: c.height, total: v.lines.length });
     const picked = homeConn ? selectedHome({ ui, data, now: a.now }) : null;
     const pickedName = picked?.kind === 'work' ? picked.work.title : picked?.kind === 'conn' ? picked.conn.label : '';
-    const title = homeConn ? (pickedName ? `Selected ${g.sep} ${pickedName}` : 'Selected') : home ? 'Preview · the companion and Studio, in words' : 'Recent events · newest at the top';
+    const title = homeConn ? (pickedName ? `Selected ${g.sep} ${pickedName}` : 'Selected') : home ? 'Preview · the companion and Studio, in words' : 'This conversation · turns and receipts';
     placed.push({ rect: layout.right, rows: panel({ title, lines: v.lines.slice(scroll, scroll + c.height), focused: ui.focus === 'right', ...(rangeNote(scroll, c.height, v.lines.length) ? { note: rangeNote(scroll, c.height, v.lines.length)! } : {}) }, layout.right, g) });
     regions.right = { rect: layout.right, list, items: [], scroll, fixed: 0, height: c.height, total: v.lines.length };
   } else if (layout.right) {

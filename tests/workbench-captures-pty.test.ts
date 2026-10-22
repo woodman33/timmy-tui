@@ -143,8 +143,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     await t.keys('3');
     await t.waitFor(/tray1 \/ Workflows · plan and run/, 'Workflows');
     await t.keys('Home');
-    // (R10 H167: row 2 says what Enter does in words; the command is the run card's, its REPL row, beside it)
-    await t.waitFor(/1 Run APPROVAL\.md › tidy · Enter opens its Run confirm[\s\S]*REPL {2}\/run APPROVAL\.md tidy/, 'row 2\'s first action selected, with its command');
+    // (R10 H167: row 2 says what Enter does in words; H168's F4: the block's commands are the Inspector's, [i], checked below)
+    await t.waitFor(/1 Run APPROVAL\.md › tidy · Enter opens its Run confirm/, 'row 2\'s first action selected');
     await t.keys('Enter');
     await t.waitFor(/Run APPROVAL\.md › tidy\?/, 'the Run confirm');
     await t.keys('Enter');
@@ -155,6 +155,14 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     const tidy = () => jobRecords().find((j) => j.root === trayRoot && j.label === 'APPROVAL.md › tidy');
     for (const end = Date.now() + 60_000; tidy()?.state !== 'completed' && Date.now() < end;) await sleep(200);
     expect(tidy()?.state, 'the FAKE-upmd run of APPROVAL.md › tidy, by its job record').toBe('completed');
+    // (R10 H167; H168's F4) the block's command, where it now is: the Inspector ([i]) names the REPL's /run and a shell's
+    // timmy md for the selected block, with its newest run's ids; nothing of this machine there either
+    await t.keys('i');
+    const inspector = await t.waitFor(/selected block · commands[\s\S]*REPL\s+\/run APPROVAL\.md tidy[\s\S]*shell\s+timmy md APPROVAL\.md tidy/i, 'the block\'s commands in the Inspector ([i])');
+    expect(inspector.includes(box), 'the Inspector: a folder of this machine').toBe(false);
+    expect(inspector.includes(hostname()), 'the Inspector: this machine\'s name').toBe(false);
+    await t.keys('i');
+    await t.waitFor(/tray1 \/ Workflows · plan and run/, 'Workflows, the Inspector\'s drawer closed');
 
     const pages = [
       // (at 100x30 the title gives its tail to the range note, 1–N of M: QA defect 7)
