@@ -74,8 +74,8 @@ function trayProject(name: string): { name: string; root: string; chosen: boolea
 }
 
 /** A Workbench on the project. `slowMs` an hour: no slow reading reads the frame again while a test runs; `watch` false: the
- *  holds' watch never looks on its own (only x and Enter read them). */
-function workbench(p: { name: string; root: string; chosen: boolean }, o: { watch?: boolean } = {}): Controller {
+ *  holds' watch never looks on its own (only x and Enter read them); `everyMs`: how often the watch lists the holds' names. */
+function workbench(p: { name: string; root: string; chosen: boolean }, o: { watch?: boolean; everyMs?: number } = {}): Controller {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.TIMMY_STORE;
   const ws = new Workspace({ glyphs: glyphSet(true), env, onPath: () => null, notify: () => undefined, openWeb: () => '', link: (t) => t, seal: () => undefined, jobsDir, recoverAtStart: false, chdir: () => undefined }, p);
@@ -86,7 +86,7 @@ function workbench(p: { name: string; root: string; chosen: boolean }, o: { watc
     companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started in this test'); } }),
     studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(box, 'store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) }),
     capabilities: async () => [], tickMs: 100, slowMs: 3_600_000,
-    ...(o.watch === false ? { holdsEveryMs: 3_600_000, holdWatch: false } : {}),
+    ...(o.watch === false ? { holdsEveryMs: 3_600_000, holdWatch: false } : {}), ...(o.everyMs ? { holdsEveryMs: o.everyMs } : {}),
   });
   opened.push(c);
   return c;
@@ -270,6 +270,63 @@ describe('the Workbench sees another process\'s chat turn at once (R6 H141; the 
         expect(tableReads).toBeGreaterThan(0);
       } finally { w.close(); put2(); }
     } finally { child.kill('SIGKILL'); }
+  }, 30_000);
+
+  it('R10 (H163; the turn-holds latency): a hold first seen is proven by the process table once PROOF_MS has passed since it was first seen, never on the next look, so no process-table reading (a program run, tens to hundreds of ms on a loaded computer) comes between a hold\'s discovery and the first frame that names it', async () => {
+    const p = trayProject('holds-proof-later');
+    const dir = join(p.root, CHAT_TURNS_DIR);
+    mkdirSync(dir, { recursive: true });
+    // FIXTURE: another process (a sleep this test starts) as the holds' writer, its start as the process table would give it
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const started = new Date().toISOString();
+    // every reading of the process table, with when it was made (process-proof's own seam): the child runs, started then
+    const reads: number[] = [];
+    const put = useProcessTableReader({
+      all: () => { reads.push(Date.now()); return undefined; },
+      one: (pid) => { reads.push(Date.now()); return pid === child.pid ? Math.round((Date.now() - Date.parse(started)) / 1000) : undefined; },
+    });
+    const RUNNING = 'run: 1 running (the chat turn in the REPL)';
+    try {
+      const hold = (name: string) => writeFileSync(join(dir, name), `${JSON.stringify({ schema: CHAT_HOLD_SCHEMA, surface: 'repl', owner: { pid: child.pid, started }, taken: started })}\n`);
+
+      // 1. the watch alone, listing every 10 ms: a hold written after its first look is read at once (quickTurns) and proven by
+      // the table once PROOF_MS (400 ms here) has passed since it was first seen. Before R10 the very next look proved it
+      const seen: Array<{ at: number; ids: string[] }> = [];
+      const w = new HoldWatch({ root: () => p.root, now: () => Date.now(), onChange: (r) => seen.push({ at: Date.now(), ids: r.turns.map((t) => t.id) }), everyMs: 10, proofMs: 400, watch: false });
+      const one = `t${child.pid}-0000dddd.json`;
+      try {
+        w.start();
+        await sleep(50);
+        hold(one);
+        const found = await until('the watch seeing the hold', () => seen.find((s) => s.ids.includes(one.slice(0, -5))), 2000);
+        await sleep(300);
+        expect(reads.filter((t) => t >= found.at && t < found.at + 300), 'process-table readings in the 300 ms after the hold was first seen (the watch looked about 30 times)').toEqual([]);
+        await until('the table\'s proof once PROOF_MS had passed', () => reads.some((t) => t >= found.at + 390), 3000);
+      } finally { w.close(); }
+      rmSync(join(dir, one));
+
+      // 2. the Workbench, its watch listing every 5 ms; a frame drawn when the Workbench asks for one, 20 ms later (Ink draws on a
+      // later turn of the event loop, tens to hundreds of ms later on a loaded computer, the watch looking meanwhile): the first
+      // frame that names the REPL's turn comes with no process-table reading since the hold was written; the frame's own reading
+      // proves the hold by the table after it
+      const c = workbench(p, { everyMs: 5 });
+      c.start();
+      await until('the frame', () => c.data.frame, 10_000, () => screen(c));
+      await sleep(1100);   // past the frame's once-a-second bound, so the hold's own frame reading runs as soon as it asks
+      expect(top(c)).toContain('run: idle');
+      const frames: Array<{ at: number; names: boolean }> = [];
+      const off = c.subscribe(() => { setTimeout(() => frames.push({ at: Date.now(), names: top(c).includes(RUNNING) }), 20); });
+      try {
+        const two = `t${child.pid}-0000eeee.json`;
+        const written = Date.now();
+        hold(two);
+        const first = await until('a frame naming the REPL\'s turn', () => frames.find((f) => f.names), 3000, () => top(c));
+        expect(first.at - written, 'the first frame naming the turn, after its hold was written (ms)').toBeLessThan(500);
+        expect(reads.filter((t) => t >= written && t <= first.at), 'process-table readings between the hold and the first frame that names it').toEqual([]);
+        await until('the frame\'s reading proving the hold by the table, after that frame', () => reads.some((t) => t > first.at), 3000);
+        expect(top(c)).toContain(RUNNING);
+      } finally { off(); }
+    } finally { put(); child.kill('SIGKILL'); }
   }, 30_000);
 
   it('R8 (H156; R7\'s open item A): the first turn of a project whose chat-turns folder was not there when the watch began is seen at once, not at the next listing (the watch is on .timmy until the folder is made, then on the folder: its end is seen at once too)', async () => {

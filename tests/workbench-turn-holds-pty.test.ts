@@ -5,7 +5,8 @@
 // pressed at once, as soon as the hold is there, names that turn too (the Workbench reads the holds before it answers: never
 // "nothing runs" while a turn is held). R7 (H150; H148's N3): Enter on Stop the turn, done in the REPL, never stops it: it says
 // where it is done, and the turn goes on until x and y. The review saw "Stop current: nothing runs in tray." for the first 1
-// to 4.5 s of a REPL turn, which went on.
+// to 4.5 s of a REPL turn, which went on. R10 (H163): turn 1 is sent once the Workbench has settled (its readings after the
+// first frame landed, then 300 ms without a new frame), so its time is a hold's, not the Workbench's own start.
 //
 // FAKE pieces, labelled: the model is a FAKE Ollama on 127.0.0.1 (tests/fixtures/fake-ollama-chat.ts: no model behind it), each
 // answer a scripted long paragraph whose every sentence says "FAKE model", one sentence every 120 ms (12 s in all, so only a
@@ -104,8 +105,30 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     };
     const RUNNING = /run: 1 running \(the chat turn in the REPL\)/;
     const STOPPED_THERE = /asked from the Workbench/;
+    /**
+     * R10 (H163; the lead's order on the turn-holds latency): the Workbench has settled: what it reads right after its first
+     * frame has landed (Home's project line counts the files and workflow documents instead of saying they are being read),
+     * then no new frame for 300 ms (its screen, read every 25 ms, the same throughout). Turn 1 is sent then, so its time
+     * measures how soon a hold is named, not the Workbench's own start (on a loaded computer it worked for up to a second after
+     * its first frame, and turn 1 waited behind that). The budget is unchanged.
+     */
+    const settled = async (ms = 60_000): Promise<number> => {
+      await waitScreen(wb, { what: 'the Workbench\'s counts (its readings after the first frame landed)', re: /\b\d+ files? · \d+ workflow documents? · \d+ jobs?\b/, ms });
+      const begun = Date.now();
+      let last = wbScreen();
+      let since = Date.now();
+      while (Date.now() - since < 300) {
+        if (Date.now() - begun > ms) throw new Error(`the Workbench drew a new frame at least every 300 ms for ${ms} ms:\n${scrub(last, [box])}`);
+        await sleep(25);
+        const s = wbScreen();
+        if (s !== last) { last = s; since = Date.now(); }
+      }
+      return Date.now() - begun;
+    };
 
-    // 1. x about 0.5 s into the turn
+    // 1. x about 0.5 s into the turn (sent once the Workbench has settled)
+    const quiet = await settled();
+    expect(wbScreen()).toContain('run: idle');
     const one = await sendInRepl('the first long question (turn 1)');
     const named = await seen(RUNNING, one.held);
     expect(named.at, `the run line named the REPL's turn ${named.at} ms after its hold was written`).toBeLessThan(700);
@@ -168,7 +191,7 @@ describe('another process\'s chat turn, seen and stopped from the Workbench at o
     expect(ollama.chats().length).toBeLessThanOrEqual(TURNS);
 
     // the times seen, for the report
-    console.log(`R6 H141 holds PTY: turn 1 named in the run line ${named.at} ms after its hold; x at +${xAt - one.sent} ms stopped it in ${stoppedIn} ms; turn 2's x came ${xAt2 - two.held} ms after its hold; turn 3's Stop the turn offered ${offered.at} ms after its hold`);
+    console.log(`R6 H141 holds PTY: the Workbench settled in ${quiet} ms; turn 1 named in the run line ${named.at} ms after its hold; x at +${xAt - one.sent} ms stopped it in ${stoppedIn} ms; turn 2's x came ${xAt2 - two.held} ms after its hold; turn 3's Stop the turn offered ${offered.at} ms after its hold`);
 
     rt('send-keys', '-t', 't', '-l', '/exit');
     rt('send-keys', '-t', 't', 'Enter');

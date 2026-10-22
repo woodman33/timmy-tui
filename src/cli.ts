@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// R10 (H163): first, before anything can load React: its production build, NODE_ENV left as it was (src/react-build.ts)
+import './react-production.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
