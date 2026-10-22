@@ -248,12 +248,14 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     // Activity for the selected operation only, then all operations again (A)
     await press(f.r, 'a');
     const mine = regionText(c, 'bottom');
-    expect(mine).toContain(`Operation ${op} [A] all operations`);
+    // (R10 H163; H168's N2: the operation said by what it was; its id is the details', [i])
+    expect(mine).toContain('Only the run APPROVAL.md › tidy [A] all operations');
+    expect(mine).not.toContain(`Operation ${op} [A]`);
     expect(mine).toContain(`Operation ${op} /op ${op} shows the request`);
     // the box's answer is the operation's too (older than the rows shown: read from the events)
     expect(c.data.activity.events.filter((e) => e.operation === op).map((e) => e.words)).toContain('NEEDS YOU: allowed /run APPROVAL.md tidy once');
     await press(f.r, 'A');
-    expect(regionText(c, 'bottom')).toContain(`All operations [A] only ${op}`);
+    expect(regionText(c, 'bottom')).toContain('All operations [A] only the run APPROVAL.md › tidy');
     await press(f.r, 'A', 'a');
     const room = f.text();
     // (R5 H137: with nothing running, a quiet pane: its id on the edge, its word and label, who started it with its operation)

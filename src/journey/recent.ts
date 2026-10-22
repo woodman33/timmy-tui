@@ -5,8 +5,11 @@
  * now) and where it opens (./open.ts openTarget).
  *
  *   kind          read from (each reader reads at most what the list can show)
- *   turn          the runs chain, newest first (src/repl/seal.ts chatTurnOf: every surface's turn of this project); its
- *                 words are its operation's request (the receipt holds hashes only), its route what its receipt sealed
+ *   turn          the runs chain, newest first (src/repl/seal.ts chatTurnOf: every surface's turn of this project). The
+ *                 project's one conversation is ONE row (R10 H168 pass 2a N4: each turn sent pushed the artifacts a row
+ *                 down): its newest turn (a turn being answered now, else the newest sealed), with the conversation's turn
+ *                 count in its words and in `turns`; its words are its operation's request (the receipt holds hashes only),
+ *                 its route what its receipt sealed
  *   run           the project's operation records (.timmy/operations: the names listed once, each file's time read, the
  *                 newest records read); its own receipt as the Chat tab's pipeline row picks it (its workflow receipt, else
  *                 its newest that is not the prediction); the outputs its receipts sealed are its results (receiptOutputs,
@@ -15,7 +18,11 @@
  *   mesh,         the project's files in the folders where references and results live (refs/, assets/, inputs/, media/,
  *   recording,    uploads/, docs/, out/, outputs/, results/, renders/, exports/, models/, scenes/, and the top's own mesh,
  *   reference,    recording and image files), at most RECENT_CAPS.fileEntries entries and RECENT_CAPS.fileDepth folders deep;
- *   result        a VoxVision record's folder is the observation's, a run's result is the run's
+ *   result        a VoxVision record's folder is the observation's, a run's result is the run's. One mesh in several
+ *                 formats (files of one name in one folder: demo-tray.stl, .obj, .ply) is ONE row (N3): its STL when it has
+ *                 one (else OBJ, else PLY), the others in its words ("demo-tray.stl · also OBJ, PLY") and in `also`, at its
+ *                 newest file's time. Files of one name in different folders stay apart; when their words differ by a
+ *                 mesh's formats, each says its folder ("(in refs)"), as a surface says it for rows of equal words
  *   observation   the VoxVision records (src/vox/preview.ts listVoxRecords: the tab 5 list's own reading, its receipt state),
  *                 while the project has at most RECENT_CAPS.voxRecords of them (that list reads every record's time)
  *   draft         Studio's saved board of the project: each draft Timmy proposed that waits for Accept or Discard, once
@@ -71,6 +78,11 @@ export interface WorkItem {
   results?: string[];
   /** a run waiting on you: what its NEEDS YOU box asks */
   waiting?: string;
+  /** a turn: how many turns the project's one conversation has (those sealed in the receipts read, and any being answered
+   *  now); only its newest is listed */
+  turns?: number;
+  /** a mesh in more than one format: its other formats' files (the row opens the first: its STL when it has one) */
+  also?: string[];
 }
 
 export interface RecentWork {
@@ -119,7 +131,9 @@ const TITLE_MAX = 80;
 const REFERENCE_TOP = new Set(['refs', 'ref', 'references', 'reference', 'assets', 'inputs', 'docs', 'uploads', 'media', 'models', 'scenes']);
 const OUTPUT_TOP = new Set(['out', 'outputs', 'output', 'results', 'renders', 'exports']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.cache', 'coverage', '.turbo', '.next']);
-const MESH_EXT = new Set(['stl', 'obj', 'ply']);
+/** A mesh's formats, the one its row opens first. */
+const MESH_FORMATS = ['stl', 'obj', 'ply'];
+const MESH_EXT = new Set(MESH_FORMATS);
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 const extOf = (path: string): string => (/\.([A-Za-z0-9]+)$/.exec(path)?.[1] ?? '').toLowerCase();
 
@@ -212,13 +226,16 @@ export function receiptOutputs(receipts: readonly Receipt[]): string[] {
 
 interface Cand { item: Omit<WorkItem, 'receipt'> & { receipt: WorkItem['receipt'] }; at: number; hash?: string }
 
-/** The project's operation records, the newest first, at most `want` read (their names listed once, each one's time read). */
-function newestOperations(root: string, want: number, caps: RecentCaps, notes: string[]): OperationRecord[] {
+/** The project's operation records, the newest first, at most `want` read (their names listed once, each one's time read);
+ *  `skip`: operations known already not to be runs (the conversation's turns), never read. */
+function newestOperations(root: string, want: number, caps: RecentCaps, notes: string[], skip: ReadonlySet<string> = new Set()): OperationRecord[] {
   const dir = join(root, '.timmy', 'operations');
   let names: string[];
   try { names = readdirSync(dir).filter((n) => /^o[0-9a-f]{8}\.json$/.test(n)); } catch { return []; }
+  const all = names.length;
+  names = names.filter((n) => !skip.has(n.slice(0, -5)));
   if (names.length > caps.operations) {
-    notes.push(`The project has ${names.length} operation records: the times of ${caps.operations} of them were read, so an older run may be left out.`);
+    notes.push(`The project has ${all} operation records: the times of ${caps.operations} of them were read, so an older run may be left out.`);
     names = names.slice(0, caps.operations);
   }
   const timed = names.map((n) => { let t = 0; try { t = statSync(join(dir, n)).mtimeMs; } catch { t = 0; } return { n, t }; }).sort((a, b) => b.t - a.t || (a.n < b.n ? 1 : -1));
@@ -329,8 +346,11 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   const chain = ctx.chain ?? chainOf(root, env);
   const cands: Cand[] = [];
 
-  // ── the chain, newest first: the project's turns, each operation's receipts, the other receipts ──
-  const turns: Receipt[] = [];
+  // ── the chain, newest first: the project's turns (the newest, how many, each one's operation), each operation's receipts,
+  // the other receipts ──
+  let newestTurn: Receipt | null = null;
+  let sealedTurns = 0;
+  const turnOps = new Set<string>();
   const byOp = new Map<string, Receipt[]>();
   const loose: Receipt[] = [];
   let i = chain.length - 1;
@@ -338,26 +358,37 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     const r = chain[i];
     const foreign = typeof r.project_id === 'string' && r.project_id !== pid;
     if (foreign) continue;
-    if (chatTurnOf(r)) { if (r.project_id === pid && turns.length < want) turns.push(r); continue; }
+    if (chatTurnOf(r)) {
+      if (r.project_id === pid) {
+        sealedTurns += 1;
+        newestTurn ??= r;
+        if (typeof r.operation_id === 'string' && OPERATION_ID.test(r.operation_id)) turnOps.add(r.operation_id);
+      }
+      continue;
+    }
     const op = typeof r.operation_id === 'string' && OPERATION_ID.test(r.operation_id) ? r.operation_id : null;
     if (op) { byOp.set(op, [...(byOp.get(op) ?? []), r]); continue; }
     if (r.project_id === pid && r.kind !== 'vox' && loose.length < want) loose.push(r);
   }
-  if (i >= 0) notes.push(`Only the newest ${caps.chainScan} receipts were read: older turns and receipts are not listed.`);
+  const allRead = i < 0;
+  if (!allRead) notes.push(`Only the newest ${caps.chainScan} receipts were read: older turns and receipts are not listed.`);
 
-  // the turns being answered now: their holds (src/agent/chat-turn.ts runningTurns, read only: a writer's end is proven, nothing
-  // is removed), each by its own id; no receipt yet
-  if (ctx.live !== false) {
-    for (const t of runningTurns(root, undefined, { readOnly: true }).slice(0, want)) {
-      cands.push({ at: Date.parse(t.taken), item: { kind: 'turn', id: t.id, title: `A chat turn being answered in ${surfaceWords(t.surface)}`, when: t.taken, state: 'running', receipt: null, open: openTarget({ kind: 'turn', id: t.id }), fake: false, operation: null } });
-    }
-  }
-
-  // the turns: their words from their operation's request (a receipt holds hashes only)
-  const turnOps = new Set<string>();
-  for (const r of turns) {
+  // ── the conversation: ONE row (N4), its newest turn: one being answered now (its hold, src/agent/chat-turn.ts runningTurns,
+  // read only: a writer's end is proven, nothing is removed; by its own id, no receipt yet), else the newest sealed, its words
+  // from its operation's request (a receipt holds hashes only); the turn count in its words ──
+  const running = ctx.live !== false ? runningTurns(root, undefined, { readOnly: true }) : [];
+  const count = sealedTurns + running.length;
+  const counted = (words: string): string => {
+    if (count < 2) return cut(words);
+    const tail = `${allRead ? '' : 'at least '}${count} turns in this conversation`;
+    return `${cut(words, TITLE_MAX - tail.length - 3)} · ${tail}`;
+  };
+  const live = [...running].sort((a, b) => (Date.parse(b.taken) || 0) - (Date.parse(a.taken) || 0))[0];
+  if (live) {
+    cands.push({ at: Date.parse(live.taken), item: { kind: 'turn', id: live.id, title: counted(`A chat turn being answered in ${surfaceWords(live.surface)}`), when: live.taken, state: 'running', receipt: null, open: openTarget({ kind: 'turn', id: live.id }), fake: false, operation: null, turns: count } });
+  } else if (newestTurn) {
+    const r = newestTurn;
     const op = typeof r.operation_id === 'string' && OPERATION_ID.test(r.operation_id) ? r.operation_id : null;
-    if (op) turnOps.add(op);
     const rec = op ? readOperationRecord(root, op) : null;
     const route = routeTaken(r)!;
     const status = r.status ?? 'ok';
@@ -365,9 +396,9 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     cands.push({
       at: Date.parse(r.ts), hash: r.hash,
       item: {
-        kind: 'turn', id, title: rec?.ok ? cut(rec.record.request) : `A chat turn in ${route.surface === 'repl' ? 'the REPL' : `the ${route.surface}`} (its words are not recorded)`,
+        kind: 'turn', id, title: counted(rec?.ok ? rec.record.request : `A chat turn in ${route.surface === 'repl' ? 'the REPL' : `the ${route.surface}`} (its words are not recorded)`),
         when: r.ts ?? null, state: status === 'ok' ? 'answered' : status === 'cancelled' ? 'stopped' : 'failed',
-        receipt: null, open: openTarget({ kind: 'turn', id }), fake: route.fake || (rec?.ok ? FAKE_WORD.test(rec.record.request) : false), operation: op, route,
+        receipt: null, open: openTarget({ kind: 'turn', id }), fake: route.fake || (rec?.ok ? FAKE_WORD.test(rec.record.request) : false), operation: op, route, turns: count,
       },
     });
   }
@@ -378,8 +409,7 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   const claimed = new Set<string>();
   const voxOps = new Map<string, string>();
   const intakes = new Map<string, { op: string; hash: string }>();
-  for (const rec of newestOperations(root, want + turnOps.size, caps, notes)) {
-    if (turnOps.has(rec.id)) continue;
+  for (const rec of newestOperations(root, want, caps, notes, turnOps)) {
     const mine = byOp.get(rec.id) ?? [];
     // its own receipt: its workflow's, else its newest that is not the prediction (the pipeline row's rule)
     const own = mine.find((r) => r.kind === 'workflow') ?? mine.find((r) => r.kind !== 'predict');
@@ -408,16 +438,40 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
   const found = ctx.files
     ? ctx.files.flatMap((f) => { const top = placeOf(f.rel); return top ? [{ rel: f.rel, mtimeMs: f.mtimeMs, top }] : []; }).sort((a, b) => b.mtimeMs - a.mtimeMs || a.rel.localeCompare(b.rel))
     : artifactFiles(root, caps, notes);
+  // one mesh in several formats (files of one name in one folder, not a run's) is one row (N3): its STL first, else its OBJ,
+  // else its PLY; the others in its words and in `also`; at its newest file's time (the list is newest first)
+  const meshOf = (rel: string): string => rel.replace(/\.[A-Za-z0-9]+$/, '');
+  const formats = new Map<string, string[]>();
+  for (const f of found) if (!claimed.has(f.rel) && MESH_EXT.has(extOf(f.rel))) formats.set(meshOf(f.rel), [...(formats.get(meshOf(f.rel)) ?? []), f.rel]);
+  const meshListed = new Set<string>();
   let files = 0;
   for (const f of found) {
     if (files >= want) break;
     if (claimed.has(f.rel)) continue;
-    const x = extOf(f.rel);
+    let rel = f.rel;
+    let also: string[] = [];
+    if (MESH_EXT.has(extOf(f.rel))) {
+      const mesh = meshOf(f.rel);
+      if (meshListed.has(mesh)) continue;
+      meshListed.add(mesh);
+      const all = [...(formats.get(mesh) ?? [f.rel])].sort((a, b) => MESH_FORMATS.indexOf(extOf(a)) - MESH_FORMATS.indexOf(extOf(b)) || a.localeCompare(b));
+      rel = all[0];
+      also = all.slice(1);
+    }
+    const x = extOf(rel);
     const kind: OpenKind = MESH_EXT.has(x) ? 'mesh' : x === 'rrd' ? 'recording' : f.top === 'result' ? 'result' : 'reference';
     files += 1;
-    // a file an intake (/add) brought in carries that intake's receipt
-    const took = intakes.get(f.rel);
-    cands.push({ at: f.mtimeMs, ...(took ? { hash: took.hash } : {}), item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: took?.op ?? null } });
+    // a file an intake (/add) brought in carries that intake's receipt (a mesh's: its first format's that has one)
+    const took = [rel, ...also].map((p) => intakes.get(p)).find(Boolean);
+    const tail = also.length ? `also ${also.map((p) => extOf(p).toUpperCase()).join(', ')}` : '';
+    const title = tail ? `${cut(basename(rel), TITLE_MAX - tail.length - 3)} · ${tail}` : cut(basename(rel));
+    cands.push({
+      at: f.mtimeMs, ...(took ? { hash: took.hash } : {}),
+      item: {
+        kind, id: rel, title, when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: rel }), fake: [rel, ...also].some((p) => FAKE_WORD.test(basename(p))),
+        operation: took?.op ?? null, ...(also.length ? { also } : {}),
+      },
+    });
   }
 
   // ── the VoxVision observations (tab 5's own list and receipt state; it reads every record's time, so only up to a cap) ──
@@ -474,5 +528,20 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     const id = c.hash.slice(7, 15);
     return { ...c.item, receipt: v?.ok ? { id, verified: true } : { id, verified: false, why: v ? v.reason : 'it was not checked' } };
   });
-  return { project, items, notes };
+  return { project, items: saidFolders(items), notes };
+}
+
+const FILE_KINDS: ReadonlySet<WorkKind> = new Set(['mesh', 'recording', 'reference', 'result']);
+
+/**
+ * Files of one name in different folders, listed, where a mesh's formats make their words differ ("demo-tray.stl · also OBJ"
+ * beside "demo-tray.stl"): each says its folder, "(in refs)", as a surface says it for rows of equal words (a surface reads a
+ * file's words as a name, so a folder inside folders is said with › between them, never a slash).
+ */
+function saidFolders(items: WorkItem[]): WorkItem[] {
+  const byName = new Map<string, WorkItem[]>();
+  for (const it of items) if (FILE_KINDS.has(it.kind) && it.id.includes('/')) byName.set(basename(it.id), [...(byName.get(basename(it.id)) ?? []), it]);
+  const say = new Set<WorkItem>();
+  for (const same of byName.values()) if (same.length > 1 && same.some((it) => it.also?.length)) for (const it of same) say.add(it);
+  return say.size ? items.map((it) => (say.has(it) ? { ...it, title: `${it.title} (in ${it.id.split('/').slice(0, -1).join(' › ')})` } : it)) : items;
 }

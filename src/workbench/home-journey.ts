@@ -58,7 +58,18 @@ export interface RouteLine {
   why?: string;
   /** the route's own words, whole (the inspector shows them) */
   words: string;
+  /** R10 (H163; H168's N1): its price's long form where the face says it shorter ("no price declared (local)" beside "no
+   *  charge · local"): the inspector's */
+  priceWhole?: string;
 }
+
+/** R10 (H163; H168's N1, pass 2a): a local route's price, said one way wherever the face says it (the header, Chat's route row,
+ *  the composer's foot, a turn's line and its notice); its long forms ("no price declared (local)", "no charge (local
+ *  endpoint)") are the details' ([i]). A paid or unknown price keeps its own words. */
+export const LOCAL_PRICE = 'no charge · local';
+
+/** A turn's cost as the face says it: the session's "no charge (local endpoint)" is LOCAL_PRICE; any other its own words. */
+export const costOnFace = (words: string | undefined): string => (words ?? '').replace(/^no charge \(local endpoint\)/, LOCAL_PRICE);
 
 export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute'>): RouteLine {
   // the one source (H164's routeNow), unless the open chat session reports another route than it read (a test's FIXTURE
@@ -71,7 +82,7 @@ export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute
   const fake = /\b(?:fake|fixture)\b/i.test(r.words);
   const base = { fake, ready: r.ready, words: r.words };
   if (r.kind === 'local') {
-    if (/no model chosen/.test(words)) return { ...base, model: null, where: 'Ollama on this computer', price: 'no charge', why: 'no local model chosen yet' };
+    if (/no model chosen/.test(words)) return { ...base, model: null, where: 'Ollama on this computer', price: LOCAL_PRICE, priceWhole: 'no charge (local endpoint)', why: 'no local model chosen yet' };
     if (/address is not usable/.test(words)) return { ...base, model: null, where: 'Ollama', price: 'unknown', why: 'the Ollama address is not usable' };
     const m = /^(?:local\s+)?(\S+)\s+·\s+(.*)$/.exec(words);
     // words in no shape the route's own make (a test's FIXTURE route): the words are the model, said as they are
@@ -80,8 +91,8 @@ export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute
     const cloud = /cloud-backed/.test(rest);
     const away = /not this computer/.test(rest);
     const where = cloud ? 'Ollama, cloud-backed (leaves this computer)' : away ? 'Ollama on another computer' : m ? 'this computer (Ollama)' : 'the local route';
-    const price = cloud ? 'cost unknown' : away ? 'price unknown' : m ? 'no charge' : 'price unknown';
-    return { ...base, model, where, price, ...(r.ready ? {} : { why: 'the local route is not ready' }) };
+    const price = cloud ? 'cost unknown' : away ? 'price unknown' : m ? LOCAL_PRICE : 'price unknown';
+    return { ...base, model, where, price, ...(price === LOCAL_PRICE ? { priceWhole: 'no charge (local endpoint)' } : {}), ...(r.ready ? {} : { why: 'the local route is not ready' }) };
   }
   if (r.kind === 'openrouter') {
     const m = /^(\S+)\s+·\s+OpenRouter/.exec(words);
@@ -101,10 +112,12 @@ export function fromRouteNow(j: JourneyRoute): RouteLine {
       : j.provider === 'openrouter' ? 'OpenRouter (cloud)' : j.where;
   // a price is said as declared; a local model's is not declared (its receipt says "no charge" once Ollama reports local
   // weights), and another's unknown
+  // (R10 H163; H168's N1: a local one on this computer is said as every local price is, LOCAL_PRICE; its long form is [i]'s)
+  const local = j.price.state !== 'declared' && j.provider === 'ollama' && j.where === 'this computer';
   const price = j.price.state === 'declared' ? (j.price.free ? 'free (declared)' : j.price.words)
-    : j.provider === 'ollama' && j.where === 'this computer' ? 'no price declared (local)' : j.provider === 'fake' ? 'no price (FAKE)' : 'price unknown';
+    : local ? LOCAL_PRICE : j.provider === 'fake' ? 'no price (FAKE)' : 'price unknown';
   return {
-    model: j.model, where, price, fake: j.fake, ready: j.ready, words: j.words,
+    model: j.model, where, price, fake: j.fake, ready: j.ready, words: j.words, ...(local ? { priceWhole: 'no price declared (local)' } : {}),
     ...(j.ready ? {} : { why: j.why ?? 'not set up' }),
   };
 }
@@ -261,7 +274,7 @@ export interface WorkItem {
   title: string;
   /** its record's word: completed, failed, answered, saved, draft, waits on you */
   state: string;
-  tone: 'ok' | 'failed' | 'running' | 'waiting' | 'quiet';
+  tone: 'ok' | 'failed' | 'running' | 'waiting' | 'stopped' | 'quiet';
   /** when (ms since the epoch); NaN: not recorded */
   at: number;
   /** a few facts, in words (no id, hash, path or command) */
@@ -306,6 +319,8 @@ const TONE: Readonly<Record<string, WorkItem['tone']>> = {
   answered: 'ok', completed: 'ok', saved: 'ok', sealed: 'ok', 'no change': 'ok',
   failed: 'failed', refused: 'failed', differs: 'failed', untrusted: 'failed', interrupted: 'failed',
   running: 'running', 'waiting on you': 'waiting', draft: 'waiting', 'needs setup': 'waiting',
+  // R10 (H163; H168's N5): a stopped turn has the stop's own mark, as the conversation draws it (■), never a bare "·"
+  stopped: 'stopped',
 };
 
 const WHERE_WORDS: Readonly<Record<string, string>> = { 'this computer': 'this computer', 'another computer': 'another computer', cloud: 'the cloud' };
@@ -318,7 +333,8 @@ export function fromJourney(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'work
   if (it.kind === 'turn' && it.route) facts.push(...[it.route.answeredBy ?? it.route.requested ?? '', WHERE_WORDS[it.route.where] ?? ''].filter(Boolean));
   if (it.kind === 'run' && it.results?.length) facts.push(`${count(it.results.length, 'file')} written`);
   // (R10 H167; H168's F7: what the file is, by its content's kind, beside the kind its record gives: "reference · image")
-  if (it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result') facts.push(fileWhat(it.id));
+  // (R10 H163; H168's N5: the kind said once: a recording is "recording", never "recording · recording")
+  if (it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result') { const what = fileWhat(it.id); if (what !== KIND_WORD[kind]) facts.push(what); }
   const companion = it.open.surface === 'companion' ? it.open.query : '';
   const studio = it.open.surface === 'studio';
   const opens = targetOf(it, data, companion, studio);
@@ -417,6 +433,7 @@ export function workMark(w: Pick<WorkItem, 'tone' | 'kind'>, g: Glyphs): { glyph
     case 'failed': return { glyph: g.fail, role: 'failure' };
     case 'running': return { glyph: g.run, role: 'text' };
     case 'waiting': return { glyph: g.warn, role: 'attention' };
+    case 'stopped': return { glyph: g.unicode ? '■' : '#', role: 'text' };
     default: return { glyph: w.kind === 'result' ? (g.unicode ? '◇' : '*') : g.dot, role: 'secondary' };
   }
 }
@@ -427,7 +444,7 @@ function workRow(w: WorkItem, selected: boolean, focused: boolean, width: number
   const m = workMark(w, g);
   const when = ago(w.at, c.now);
   // (R10 H167; H168's F7: a file says what it is, "reference · image"; anything else its record's word, "run · completed")
-  const kind = FILE_KINDS.has(w.kind) && w.facts[0] ? `${KIND_WORD[w.kind]} ${g.sep} ${w.facts[0]}` : `${KIND_WORD[w.kind]} ${g.sep} ${w.state}`;
+  const kind = FILE_KINDS.has(w.kind) ? (w.facts[0] ? `${KIND_WORD[w.kind]} ${g.sep} ${w.facts[0]}` : KIND_WORD[w.kind]) : `${KIND_WORD[w.kind]} ${g.sep} ${w.state}`;
   const right: Seg[] = [S(kind.padEnd(Math.min(24, kind.length)), 'secondary'), S('  '), S(when.padStart(11), 'secondary')];
   const lead: Seg[] = [S(selected ? `${g.cursor} ` : '  ', selected && focused ? 'accent' : 'secondary'), S(`${m.glyph} `, m.role)];
   const room = Math.max(6, width - lineCells(lead) - lineCells(right) - 2);
@@ -485,15 +502,20 @@ const LIVE_MS = 30 * 60_000;
  * observation of the route's connection: a turn answered through Ollama (its sealed receipt names the route it took) within
  * the live bound makes Ollama live, through OpenRouter OpenRouter, said so ("answered a chat turn 06:02"). Nothing else is
  * changed: a connection no record observed stays as the frame says it.
+ *
+ * R10 (H163; the lead, with H164's 7df15a9b): the answers are the frame's own sealed turns (every surface's, the newest first,
+ * each with the route its receipt names), not recent work's rows: recent work says the conversation as ONE row, its newest
+ * turn, which is the turn being answered while one is, and which went through one provider only.
  */
 export function homeConnections(c: Pick<JourneyCtx, 'data' | 'now'>): WorkspaceConnection[] {
-  const turns = (c.data.recent?.items ?? []).filter((it) => it.kind === 'turn' && it.state === 'answered' && it.route && it.when);
+  const turns = (c.data.frame?.chat?.turns ?? []).filter((t) => t.state === 'answered' && Number.isFinite(Date.parse(t.at)));
   return (c.data.frame?.connections ?? []).map((conn) => {
     if (conn.state === 'live' || (conn.id !== 'ollama' && conn.id !== 'openrouter')) return conn;
-    const t = turns.find((it) => it.route!.provider === conn.id);
-    const at = t?.when ? Date.parse(t.when) : Number.NaN;
+    // (a receipt that names an Ollama endpoint, on this computer or off it, went through Ollama; one that names none, OpenRouter)
+    const t = turns.find((x) => (x.route === 'openrouter' ? 'openrouter' : 'ollama') === conn.id);
+    const at = t ? Date.parse(t.at) : Number.NaN;
     if (!t || !Number.isFinite(at) || c.now - at > LIVE_MS || (conn.observedAt && Date.parse(conn.observedAt) > at)) return conn;
-    return { ...conn, state: 'live' as const, words: `answered a chat turn ${clock(t.when!)} (its receipt is sealed); live: an answer seen in the last 30 minutes`, observedAt: t.when! };
+    return { ...conn, state: 'live' as const, words: `answered a chat turn ${clock(t.at)} (its receipt is sealed); live: an answer seen in the last 30 minutes`, observedAt: t.at };
   });
 }
 
@@ -572,6 +594,77 @@ export function inWords(words: string): string {
     .replace(/(?:~|<Timmy home>)\/[\w.@/-]+/g, 'its folder')
     .replace(/ {2,}/g, ' ')
     .trim();
+}
+
+/** A turn's end as the chat session gives it (src/contracts/chat-session.ts ChatTurnResult), the parts its words are made of. */
+export interface TurnEnd { status: string; lines?: readonly string[]; sent: boolean | null; receipt?: string; costWords?: string }
+
+/** The lines of a turn's failure the session gives (src/agent/chat-session.ts errorLines: what, "Cause: …", "Try: …"; the
+ *  agent's "Reason:" and "Next:" before it), told apart from its notices and from "Nothing was sent to any model." */
+const LABELLED = /^(?:Cause|Reason|Try|Next):/i;
+const NOTHING_SENT = /^Nothing was sent to any model\.?$/i;
+
+/**
+ * R10 (H163; H168's F3, pass 2a): a turn that failed, as the face says it: what happened, that nothing was sent and it cost
+ * nothing (when nothing was), then the next step, in words: "Ollama on this computer did not answer: nothing was sent, no cost.
+ * Start the Ollama app, then send again." From the session's lines; those lines whole, with the address, the cause's code and
+ * the commands, are the details' ([i] on Chat), and the turn's record and receipt keep them as the session gave them. `notices`:
+ * the session's notices before them, in words.
+ */
+export function failedTurnWords(t: Pick<TurnEnd, 'lines' | 'sent'>): { what: string; next: string | null; notices: string[]; fix: FailedFix } {
+  const lines = (t.lines ?? []).map((l) => l.trim()).filter(Boolean);
+  const cause = lines.findIndex((l) => /^(?:Cause|Reason):/i.test(l));
+  // what happened: the line its cause follows, else the last line that is neither labelled nor "Nothing was sent…"
+  const unlabelled = lines.map((l, i) => ({ l, i })).filter((x) => !LABELLED.test(x.l) && !NOTHING_SENT.test(x.l));
+  const at = cause > 0 && !LABELLED.test(lines[cause - 1]) ? cause - 1 : unlabelled.length ? unlabelled[unlabelled.length - 1].i : -1;
+  const head = at >= 0 ? lines[at] : 'The turn failed, and no reason came back.';
+  const notices = lines.slice(0, Math.max(0, at)).filter((l) => !LABELLED.test(l) && !NOTHING_SENT.test(l)).map(inWords);
+  let what = inWords(head).replace(/,?\s*so (?:nothing was sent|this message was not sent)\.?$/i, '').replace(/[.:;,\s]+$/, '');
+  if (t.sent === false) what = /\b(?:was not sent|nothing was sent)\b/i.test(what) ? `${what}: no cost.` : `${what}: nothing was sent, no cost.`;
+  else what = `${what}.`;
+  const step = lines.find((l) => /^(?:Try|Next):/i.test(l));
+  const s = step ? step.replace(/^(?:Try|Next):\s*/i, '') : '';
+  return { what, next: step ? stepInWords(s) : null, notices, fix: step ? fixOf(s) : /\b(?:did not answer|was not sent|stopped answering)\b/i.test(head) ? 'check' : null };
+}
+
+/** R10 (H163; H168's N5): what a failure's next step asks of the person, as an action of the Workbench's: check the
+ *  connections (the route did not answer), choose the model, set the Ollama address, set the chat up; null: send again. */
+export type FailedFix = 'check' | 'model' | 'address' | 'setup' | null;
+
+function fixOf(step: string): FailedFix {
+  if (/^start (?:it|Ollama)\b/i.test(step)) return 'check';
+  if (/^\/model\b|^choose (?:another|a) model\b/i.test(step)) return 'model';
+  if (/\/setup chat\b|\btimmy init --ollama\b/.test(step)) return 'address';
+  if (/^timmy init\b|\/setup key\b/.test(step)) return 'setup';
+  return null;
+}
+
+/** A failure's next step, in words (the commands it names are the details'). */
+function stepInWords(step: string): string {
+  const s = step.replace(/;?\s*no other model is tried\.?\s*$/i, '').replace(/[.;\s]+$/, '').trim();
+  if (/^start (?:it|Ollama)\b/i.test(s)) return 'Start the Ollama app, then send again.';
+  if (/^send (?:it )?again\b/i.test(s)) return /\bif it repeats, see Ollama's own log\b/i.test(s) ? 'Send again; if it repeats, Ollama\'s own log says why.' : 'Send again.';
+  if (/^\/model lists what it has\b/.test(s)) return /\bollama pull\b/.test(s) ? 'Choose a model it has, or have Ollama pull it first.' : 'Choose a model it has.';
+  if (/^\/model to choose one with local weights\b/.test(s)) return 'Choose a model with local weights.';
+  if (/^\/model to choose a chat model\b/.test(s)) return 'Choose a chat model Ollama lists.';
+  if (/^choose another model\b/i.test(s)) return 'Choose another model.';
+  if (/\/setup chat\b|\btimmy init --ollama\b/.test(s)) return 'Set the Ollama address the chat uses again: the setup asks for it.';
+  if (/^timmy init\b/.test(s)) return 'Run the setup (in a shell): it asks for a model key, or sets a local model.';
+  const w = inWords(s);
+  return w ? `${w.charAt(0).toUpperCase()}${w.slice(1)}.` : 'Send again.';
+}
+
+/**
+ * R10 (H163; H168's F3): the notice a turn's end gives (Activity's newest line): an answer with its receipt and its cost; a
+ * failure as the face says it (failedTurnWords); a refusal as the session words it. A stopped turn's is the controller's.
+ */
+export function turnEndNotice(r: TurnEnd, g: Pick<Glyphs, 'sep'>): string {
+  if (r.status === 'answered') return `Answered${r.receipt ? ': its receipt is sealed' : ''} ${g.sep} ${costOnFace(r.costWords) || 'cost unknown'}`;
+  if (r.status === 'failed') {
+    const f = failedTurnWords(r);
+    return `Failed: ${f.what}${f.next ? ` ${f.next}` : ''}`;
+  }
+  return `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`;
 }
 
 // ── the selected item, drawn as a terminal can (R10 H167; H168's F10) ───────────
@@ -815,10 +908,16 @@ export function diagnosticsLines(c: Pick<JourneyCtx, 'data' | 'g' | 'width'> & {
   const out: Line[] = [heading('About · diagnostics')];
   const row = (k: string, v: string, role: Role = 'text'): void => { out.push(...wrapSegs([S(`${k.padEnd(10)} `, 'secondary'), S(v, role)], width, ' '.repeat(11))); };
   for (const [k, v] of buildWords(env, data.build)) row(k, v);
-  row('Route', routeLine(data).words);
+  const rt = routeLine(data);
+  row('Route', rt.words);
+  // R10 (H163; H168's N1): the price in its long form (the face says a local one "no charge · local"), with what the route
+  // declares of it
+  const whole = rt.priceWhole ?? rt.price;
+  const priceWords = data.journeyRoute?.price.words ?? '';
+  const declared = whole.startsWith('no price declared') ? priceWords.replace(/^no price declared:\s*/, '') : priceWords;
+  row('Price', declared && declared !== whole ? `${whole} ${g.sep} ${declared}` : whole);
   const j = data.journeyRoute;
   if (j) {
-    if (j.price.words) out.push(...wrapSegs([S(`${'Price'.padEnd(10)} `, 'secondary'), S(j.price.words, 'text')], width, ' '.repeat(11)));
     if (j.fakeWhy) out.push(...wrapSegs([S(`${'FAKE'.padEnd(10)} `, 'secondary'), S(j.fakeWhy, 'text')], width, ' '.repeat(11)));
     if (j.details.host) out.push(...wrapSegs([S(`${'Ollama at'.padEnd(10)} `, 'secondary'), S(j.details.host, 'text')], width, ' '.repeat(11)));
     if (j.step) out.push(...wrapSegs([S(`${'Step'.padEnd(10)} `, 'secondary'), S(j.step.words, 'text')], width, ' '.repeat(11)));

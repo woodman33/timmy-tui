@@ -45,7 +45,7 @@ import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
-import { companionWhat, handoffWords, homeDefault, inWords, type WorkItem } from './home-journey.js';
+import { companionWhat, handoffWords, homeDefault, inWords, turnEndNotice, type WorkItem } from './home-journey.js';
 import { openTarget, recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
@@ -65,7 +65,7 @@ import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPl
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
 import { HoldWatch, type HoldsReading } from './turn-holds.js';
-import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
+import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, routeShown, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
 import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
 
 /** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
@@ -1422,7 +1422,7 @@ export class Controller {
     const session = chat.session;
     const ws = this.d.workspace;
     const h = ws.ops.begin({ request: text, via: 'workbench', root: ws.root, project: ws.project.name });
-    const turn: NonNullable<Data['turn']> = { text, answer: '', state: 'sending', lines: [], sent: null, tools: [], at: this.now(), operation: h.id };
+    const turn: NonNullable<Data['turn']> = { text, answer: '', state: 'sending', lines: [], sent: null, tools: [], at: this.now(), operation: h.id, route: routeShown(this.data).words };
     this.data.turn = turn;
     const abort = new AbortController();
     this.turnAbort = abort;
@@ -1460,7 +1460,9 @@ export class Controller {
       // "Stopped…"); a refusal or a failure keeps its word before it
       // R10 (H167): the receipt said as sealed; its id is the inspector's ([i] on the turn in Home's recent work)
       // (R10 H167; the lead's note on the A2 captures: the receipt said as sealed, its id the details' ([i] on the turn))
-      this.say(r.status === 'answered' ? `Answered${r.receipt ? ': its receipt is sealed' : ''} ${this.d.glyphs.sep} ${r.costWords}` : r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : `${r.status === 'refused' ? 'Refused' : 'Failed'}: ${(r.lines ?? [])[0] ?? r.status}${r.sent ? '' : ' Nothing was sent to any model.'}`,
+      // R10 (H163; H168's F3): an answer's and a failure's in the face's words (home-journey.ts turnEndNotice): a failure what
+      // happened and its next step, its address, code and commands the details' ([i] on Chat)
+      this.say(r.status === 'cancelled' ? `${stoppedLine((r.lines ?? [])[0])}${r.sent || /nothing was sent/i.test((r.lines ?? [])[0] ?? '') ? '' : ' Nothing was sent to any model.'}` : turnEndNotice(r, this.d.glyphs),
         r.status === 'failed' ? 'failure' : r.status === 'answered' ? 'text' : 'secondary', { operation: h.id });
     } catch (e) {
       Object.assign(turn, { state: 'failed', lines: [`The chat session failed: ${e instanceof Error ? e.message : String(e)}`] });
