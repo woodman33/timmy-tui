@@ -14,6 +14,11 @@
  *                                               (tab=, mesh=, recording=, file=, vox=, run=, receipt=), and what it shows for
  *                                               it from what the shown project has (tab 6's list, tab 5's records, the file),
  *                                               with a notice whenever that is not what was asked
+ *   GET /api/journey/file?path=<its path>       projectFile (./file.ts): a file of the project for the preview (journey step
+ *                                               3): an image (png, jpg, jpeg, webp, gif; up to 4 MB) as a data URL with its
+ *                                               width and height, or a text file's first 64 KB; anything else, and any path
+ *                                               not plainly in the project's own folder, refused in words (400 for a path
+ *                                               that is not one in the project, ok false otherwise)
  *
  * Each needs the companion's token, as every content route (refused, 401, before anything is read), and answers for the
  * project the page shows (?project=<id>, else the one followed; a project the companion does not know is 404). Nothing here
@@ -32,7 +37,7 @@ import { askedOf, OPERATION_ID, shownFor, type PageHas } from './open.js';
 
 type Env = Record<string, string | undefined>;
 
-export const JOURNEY_ROUTES = { route: '/api/journey/route', recent: '/api/journey/recent', run: '/api/journey/run/:op', open: '/api/journey/open' } as const;
+export const JOURNEY_ROUTES = { route: '/api/journey/route', recent: '/api/journey/recent', run: '/api/journey/run/:op', open: '/api/journey/open', file: '/api/journey/file' } as const;
 const SURFACES: readonly ChatSurface[] = ['repl', 'monitor', 'workbench', 'companion'];
 /** The most items one recent answer carries. */
 export const RECENT_MAX = 50;
@@ -130,6 +135,20 @@ export function mountJourneyRoutes(app: express.Express, c: JourneyRouteContext)
         has.files = file ? [sel.value] : [];
       }
       answer(res, 200, { ok: true, asked, ...shownFor(asked, has) });
+    } catch { answer(res, 500, { ok: false, error: FAILED }); }
+  });
+
+  app.get(JOURNEY_ROUTES.file, c.withToken, async (req, res) => {
+    const project = c.projectFor(req);
+    if (!project) { answer(res, 404, { ok: false, error: c.projectUnknown }); return; }
+    try {
+      const { projectFile } = await import('./file.js');
+      const r = projectFile({ name: project.name, root: project.root }, req.query.path, c.env as NodeJS.ProcessEnv);
+      const status = !r.ok && r.refusal === 'path' ? 400 : 200;
+      // an image's data is its own bytes as base64 (never rewritten: a home folder's name may occur in base64 by chance);
+      // every other string is written from ~, as every answer here
+      if (r.ok && r.kind === 'image') res.status(status).set('Cache-Control', 'no-store').json({ ...scrub({ ...r, data: '' }), data: r.data });
+      else answer(res, status, r);
     } catch { answer(res, 500, { ok: false, error: FAILED }); }
   });
 }
