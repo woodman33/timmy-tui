@@ -632,3 +632,37 @@ describe('quitting as a run ends (R4 H112, slice C items 2 and 4; found in tmux)
     expect(JSON.parse(readFileSync(join(jobsDir, `${third}.json`), 'utf8'))).toMatchObject({ state: 'cancelled' });
   }, 90_000);
 });
+
+// R10 (H167; the lead's 12:23 finding, rehearsing the Mac journey: on Home, i opened the Inspector and i again closed it with the
+// keyboard on recent work, not on the action strip that had it, so the next Enter opened the selected recent item instead of the
+// strip's step): the Inspector drawer gives the keyboard back to the zone that had it, whether i or Escape closes it.
+describe('the Inspector drawer gives the keyboard back (R10 H167)', () => {
+  it('on Home: from the action strip, i then i again (or Escape) leaves the strip with the keyboard; from recent work, recent work', async () => {
+    sandbox();
+    const p = trayProject('inspector-back');
+    const { c } = workbench(p);
+    c.start();
+    const f = frameOf(c, 122, 37);
+    await sleep(150);
+    expect(c.ui.page).toBe('home');
+    expect(c.ui.focus).toBe('top');
+    await press(f.r, 'i');
+    expect(c.ui.rightOpen).toBe(true);
+    expect(c.ui.focus).toBe('right');
+    await press(f.r, 'i');
+    expect(c.ui.rightOpen).toBe(false);
+    expect(c.ui.focus).toBe('top');
+    await press(f.r, 'i');
+    expect(c.ui.focus).toBe('right');
+    await press(f.r, ESC);
+    expect(c.ui.rightOpen).toBe(false);
+    expect(c.ui.focus).toBe('top');
+    // from recent work (Tab gives it the keyboard), back to recent work
+    await press(f.r, TAB);
+    expect(c.ui.focus).toBe('center');
+    await press(f.r, 'i');
+    expect(c.ui.focus).toBe('right');
+    await press(f.r, 'i');
+    expect(c.ui.focus).toBe('center');
+  }, 30_000);
+});
