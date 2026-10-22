@@ -145,7 +145,8 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     const before = asked.length;
     await t.keys('Enter');
     // the box: its title and first line, then what THAT Ollama lists (its address said), the FAKE models with their facts
-    const listed = await t.waitFor(new RegExp(`What Ollama at ${esc(host)} lists now \\(asked just now, no charge\\)`), 'the box with what the FAKE Ollama lists', 20_000);
+    // (R10 H167; H168's F3: the Ollama the setup names said in words, on this computer; its address is the details', [i])
+    const listed = await t.waitFor(/What Ollama on this computer lists now \(asked just now, no charge\)/, 'the box with what the FAKE Ollama lists', 20_000);
     expect(listed).toContain('Choose the local model');
     expect(listed).toContain('LOCAL MODELS (2)');
     expect(listed).toMatch(/fake-qwen3:8b\s+local weights · 8B · Q4_K_M · 5\.2 GB/);

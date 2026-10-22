@@ -44,7 +44,7 @@ import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
-import type { WorkItem } from './home-journey.js';
+import { companionWhat, handoffWords, homeDefault, inWords, type WorkItem } from './home-journey.js';
 import { recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
@@ -117,6 +117,9 @@ const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
 
 /** R4 lead: the keys that start or stop something, taken only when pressed alone (never from keys that arrived together). */
 const TAKEN_ALONE = new Set(['x', 'c', 's', 'C', 'S']);
+/** R10 (H167): the colour probe's answers as Ink hands them on when they come late: an OSC colour ("11;rgb:0000/0000/0000",
+ *  "4;7;rgb:c0c0/c0c0/c0c0", with or without its ] and its BEL) or a DA1 answer ("[?1;2c"). Never typed by a person. */
+const TERMINAL_REPLY = /rgb:[0-9a-f]{1,4}\/[0-9a-f]{0,4}|^\]?(?:\d{1,3};)+rgb:|^\[?\?[\d;]+c$/i;
 
 /** R9 (H161; R8's M): how long the answer to a key keeps the controls row, as long as bottomView draws a notice there (6 s). */
 const ANSWER_HOLD_MS = 6000;
@@ -182,9 +185,10 @@ export class Controller {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
     const project = projectView(d.workspace.project, d.env);
     const remembered = settings.settings.rememberLayout ? settings.settings.layouts[project.id] : undefined;
-    // R5 (H131): the Workbench opens on Home (the operator's opening hub, references 01 and 13), or where this project was left;
-    // the workflow actions have the keyboard first, their one primary next step selected (Tab: the body)
-    const workspace = remembered?.workspace ?? 'connections';
+    // R5 (H131): the Workbench opens on Home (the operator's opening hub, references 01 and 13); the workflow actions have the
+    // keyboard first, their one primary next step selected (Tab: the body). R10 (H167; H168's F11): always on Home, the
+    // project's last tab one key away (rememberLayout keeps Context's tab and Activity, no longer the tab it opens on)
+    const workspace: WorkspaceId = 'connections';
     this.ui = {
       page: pageOf(workspace), workspace, focus: 'top', tab: remembered?.tab ?? 'inspector',
       navOpen: false, rightOpen: false, activityOpen: remembered?.activity ?? false, activityAll: false, overlay: null,
@@ -583,6 +587,8 @@ export class Controller {
       try { this.data.turns = readTurns(this.chain(), root); } catch { /* the next reading */ }
       this.data.chat = readChatTail(root);
       this.readPipeline();
+      // R10 (H167): the turn that ended is Home's newest recent work at once
+      this.readJourney(this.chain());
       // R7 (H150; H148's N3): another surface's turn has ended while a message waits in the composer: said at once, so the
       // screen never keeps saying a turn is being answered beside RUNNING NOW (0)
       if (shown && !shown.mine && !chatTurnNow(this.data) && this.ui.input.field === 'composer' && this.ui.input.text.trim()) {
@@ -806,6 +812,9 @@ export class Controller {
     const c = this.ctx();
     // R5 (H131; the QA round's defect 8): the conversation's newest message is the selection until the person selects one
     resolve(this.ui, `center:${this.ui.workspace}`, centerView(c).items, this.ui.workspace === 'chat' && !this.ui.chosen?.['center:chat'] ? { follow: true } : {});
+    // R10 (H167; H168's F2): Home's list, until the person moves in it, selects its newest work, else the connection the ready
+    // route uses: never a connection not set up while a route is ready
+    if (this.ui.workspace === 'connections' && !this.ui.chosen?.['center:connections']) this.ui.cursor['center:connections'] = homeDefault({ data: this.data, now: this.now() });
     const right = rightView(c).items;
     resolve(this.ui, `right:${this.ui.tab}`, right);
     resolve(this.ui, 'bottom', bottomView(c).items, { follow: this.ui.activityFollow });
@@ -839,6 +848,11 @@ export class Controller {
     if (this.disposed) return 'nothing: the Workbench is ending';
     // R9 (H161): a key pressed: an answer held on the controls row gives way to whatever is said from now on
     this.keySeq++;
+    // R10 (H167): a terminal's late answers to the colour probe (src/term/probe.ts asks for OSC 11 and OSC 4 colours, then
+    // DA1, and listens 200 ms) are never keys, in a box, a field or anywhere. Under load they came after that wait, and Ink
+    // handed them on as typed text: "4;7;rgb:c0c0/c0c0/c0c0" was taken as 4, 7, r, g… (a tab, another tab, a reading, the
+    // navigation) up to its c; in a field it would have been typed into it
+    if (!k.ctrl && TERMINAL_REPLY.test(input)) return 'a terminal\'s late answer to the colour probe: not a key';
     const o = this.ui.overlay;
     // a NEEDS YOU box takes every key until it is answered; Ctrl+C denies it (a second Ctrl+C then quits)
     if (o?.kind === 'needs-you') return `the NEEDS YOU box: ${this.needsYouKey(o, input, k)}`;
@@ -907,8 +921,8 @@ export class Controller {
       case '/': this.search(); break;
       case 'c': void this.showCompanion(); break;
       case 's': void this.showStudio(); break;
-      case 'C': void this.d.companion.stopServing().then((w) => this.say(w)); break;
-      case 'S': void this.d.studio.stopServing().then((w) => this.say(w)); break;
+      case 'C': void this.d.companion.stopServing().then((w) => this.say(inWords(w))); break;
+      case 'S': void this.d.studio.stopServing().then((w) => this.say(inWords(w))); break;
       case ',': this.open({ kind: 'settings' }); break;
       case 'x': void this.stop(); break;
       case 'i': this.toggleRight(); break;
@@ -1142,14 +1156,26 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
-      // R5 (H131; the QA round's defect 1): Esc means one thing at a time, and says which: while this Workbench's turn is being
-      // answered it stops that turn and the composer stays open (what is typed in it is kept); otherwise it leaves the composer
+      // R5 (H131; the QA round's defect 1): Esc says what it did. R10 (H167; H168's F1, High): while this Workbench's turn is
+      // being answered, Esc stops that turn AND leaves the composer: the keys after it are the Workbench's again (a 1 opens a
+      // tab), never the start of another message that a later Enter would send; what was typed meanwhile is not sent
       if (f === 'composer' && this.turnAbort) {
         this.turnAbort.abort();
-        this.say('Esc: stopping the chat turn being answered. The composer stays open (Esc again leaves it).', 'secondary');
+        const typed = this.ui.input.text.trim();
+        this.ui.input = { field: null, text: '' };
+        // (the keyboard back where launch puts it: the workflow actions, whose one next step reopens the composer)
+        this.ui.focus = 'top';
+        delete this.ui.cursor.top;
+        this.say(`Esc: stopping the chat turn being answered, and left the composer${typed ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
+        this.emit();
         return;
       }
-      if (f === 'composer') this.say(`Esc: left the composer${this.ui.input.text.trim() ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
+      if (f === 'composer') {
+        this.say(`Esc: left the composer${this.ui.input.text.trim() ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
+        // R10 (H167; H168's F1 and F2): the keyboard back on the workflow actions (their one next step reopens it), as at launch
+        this.ui.focus = 'top';
+        delete this.ui.cursor.top;
+      }
       this.ui.input = { field: null, text: '' };
       if (f === 'picker' || f === 'new') this.ui.overlay = null;
       if (f === 'tools') {
@@ -1327,6 +1353,9 @@ export class Controller {
       // R5 (H131): and the pipeline shows the turn just answered; the frame no longer counts it
       this.readPipeline();
       this.refreshFrame();
+      // R10 (H167): and Home's recent work lists it at once (it was the list's first item only at the next reading, so Enter on
+      // Home acted on the row under it)
+      this.readJourney(this.chain());
       this.emit();
     }
   }
@@ -1493,7 +1522,8 @@ export class Controller {
       [],
       ...rows.map((r): Line => [S(`${r.name}  `, 'strong'), S(r.words, r.answered ? 'text' : 'secondary')]),
       [],
-      [S(`Recorded in ${tildePath(res.path)}. Home's cards say these now; a card is live only for an answer seen in the last 30 minutes.`, 'secondary')],
+      // R10 (H167; H168's F3 and F13): where it is recorded is the details' ([i])
+      [S('Recorded. Home\'s connection rows say these now; a row is live only for an answer seen in the last 30 minutes.', 'secondary')],
     ];
     if (this.ui.overlay?.kind === 'message' && this.ui.overlay.title === title) this.ui.overlay = { kind: 'message', title, lines };
     this.say(`Checked the connections: ${asked.filter((r) => r.answered).length} of ${asked.length} asked answered (free requests only).`, 'secondary');
@@ -1718,7 +1748,12 @@ export class Controller {
     this.ui.chosen = {};
     this.ui.toolsQuery = '';
     const remembered = this.ui.settings.settings.rememberLayout ? this.ui.settings.settings.layouts[this.data.project.id] : undefined;
-    if (remembered) { this.ui.workspace = remembered.workspace; this.ui.page = pageOf(remembered.workspace); this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
+    if (remembered) { this.ui.tab = remembered.tab; this.ui.activityOpen = remembered.activity; }
+    // R10 (H167; H168's F2 and F11): another project opens on the tab shown, with the keyboard where launch puts it: the
+    // workflow actions, their one next step selected (Enter does what the screen says first; a list row the person never
+    // chose, such as a connection not set up, is not what Enter acts on). Its last tab is one key away (1 to 0)
+    this.ui.focus = 'top';
+    this.ui.overlay = null;
     this.d.keyLog?.({ event: `now in ${p.name}: ${why}`, activity: this.ui.activityOpen });
     // R5 (H131): another project's frame: the last one is not shown for it (its actions and log are the other project's)
     delete this.ui.cursor.top;
@@ -1726,16 +1761,20 @@ export class Controller {
     this.refreshFrame();
     this.loadFor(this.ui.workspace);
     // R4 (H112): this Workbench's runs elsewhere go on, named with where they run
-    const away = this.data.away.filter((j) => j.live).map((j) => `${j.id} (${j.label}) keeps running in ${j.project}`);
-    this.say(`Now in ${p.name} (${this.data.project.shown}): ${why}. The REPL, the monitor and Studio follow the same record; a running job keeps its own project${away.length ? `: ${away.join('; ')}. Stop still names it` : ''}.`);
+    // R10 (H167; H168's F3): said by names (its folder and the jobs' ids are the details', [i])
+    const away = this.data.away.filter((j) => j.live).map((j) => `${j.label} keeps running in ${j.project}`);
+    this.say(`Now in ${p.name}: ${why}. The REPL, the monitor and Studio follow the same record; a running job keeps its own project${away.length ? `: ${away.join('; ')}. Stop still names it` : ''}.`);
   }
 
   // ── the servers ───────────────────────────────────────────────────────────────
 
   async showCompanion(why = '', where?: string): Promise<void> {
-    this.say(`Companion · Show${why ? ` ${why}` : ''}: starting it on 127.0.0.1 if this Workbench has none…`, 'secondary');
-    const w = await this.d.companion.show(where ?? this.companionWhere());
-    this.say(w, /did not start|failed/.test(w) ? 'failure' : 'text');
+    this.say(`Companion · Show${why ? ` ${why}` : ''}: starting it on this computer if this Workbench has none…`, 'secondary');
+    const q = where ?? this.companionWhere();
+    const w = await this.d.companion.show(q);
+    // R10 (H167; H168's F3 and F5): what opened, in words ("Opened in the companion: demo-tray.stl in 3D & Motion"); its
+    // address and the companion's own words are the details' ([i]: About · diagnostics, Companion)
+    this.say(handoffWords('companion', w, companionWhat(q, why)), /did not start|failed/.test(w) ? 'failure' : 'text');
   }
 
   /**
@@ -1780,9 +1819,10 @@ export class Controller {
   }
 
   async showStudio(why = ''): Promise<void> {
-    this.say(`Studio · Show${why ? ` ${why}` : ''}: as the REPL's /canvas open…`, 'secondary');
+    this.say(`Studio · Show${why ? ` ${why}` : ''}: as the REPL's canvas opens it…`, 'secondary');
     const w = await this.d.studio.show();
-    this.say(w, /not running|does not answer/.test(w) ? 'failure' : 'text');
+    // R10 (H167; H168's F3): in words ("Opened Studio: it shows tray."); its address is the details' ([i])
+    this.say(handoffWords('studio', w, ''), /not running|does not answer/.test(w) ? 'failure' : 'text');
   }
 
   // ── Stop current ──────────────────────────────────────────────────────────────

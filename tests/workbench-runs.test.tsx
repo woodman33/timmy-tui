@@ -318,7 +318,8 @@ describe('a project switch during a run (R4 H112, slice C item 3)', () => {
     expect(regionText(c, 'top')).toContain('run: 1 running in tray-a');
     expect(regionText(c, 'bottom')).toMatch(/Activity \S* ?1 running \(1 in tray-a\)/);
     // the switch's own words (the controls row shows their start; Activity keeps them whole)
-    expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b') && e.words.includes(`: ${job.id} (SLOW.md › wait) keeps running in tray-a. Stop still names it.`))).toBe(true);
+    // (R10 H167; H168's F3: said by names, its id and the folder in the details)
+    expect(c.data.activity.events.some((e) => e.words.startsWith('Now in tray-b:') && e.words.includes(': SLOW.md › wait keeps running in tray-a. Stop still names it.'))).toBe(true);
     c.selectWorkspace('control');
     // (R5 H137: its pane under that title, its id on the edge, its word and label, then where it runs). R5 lead: waited for
     // as a condition (the Control Room drawn with that pane), not a fixed 200 ms that a loaded machine can outlast

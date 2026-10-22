@@ -26,7 +26,7 @@ import { turnOf, turnStopWords } from '../ops/workspace-frame.js';
 import { sameFolder } from '../project/index.js';
 import { KIND_WORD, TIMMY_LOGS } from './state.js';
 import { boxOf, type Glyphs } from './frame.js';
-import type { Data, PipelineStage, TurnRow, View } from './model.js';
+import type { Data, PipelineStage, TurnRow, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
 import { turnEndWords as stopTableEndWords } from '../contracts/stop-words.js';
 import { clock, count, cut, fit, lineCells, pickRanked, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
@@ -794,11 +794,11 @@ function toneOf(e: WorkspaceLogEntry, g: Glyphs): { role: Role; mark: string } {
 }
 
 /** One log entry on one row: its time, its tag, its words (cut at the row's end). */
-export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs, data?: Pick<Data, 'jobs'>): Line {
+export function logLine(e: WorkspaceLogEntry, width: number, g: Glyphs, data?: Pick<Data, 'jobs'>, say: (w: string) => string = (w) => w): Line {
   const t = toneOf(e, g);
   const head: Seg[] = [S(`${clock(e.at)} `, 'secondary'), S(`[${e.tag}] `, 'secondary')];
   const room = Math.max(4, width - lineCells(head));
-  return [...head, S(cut(`${t.mark}${data ? plainWords(e.words, data) : e.words}`, room, g.ellipsis), t.role)];
+  return [...head, S(cut(`${t.mark}${say(data ? plainWords(e.words, data) : e.words)}`, room, g.ellipsis), t.role)];
 }
 
 const SURFACE_NAME: Readonly<Record<string, string>> = { repl: 'the REPL', monitor: 'the monitor', workbench: 'the Workbench', companion: 'the companion' };
@@ -859,13 +859,13 @@ export function eventLogView(c: ViewCtx): View {
 // ── Activity & log's newest lines, and the key-hint line ───────────────────────
 
 /** The collapsed log: the frame's newest `n` entries, the newest first, each on one row. */
-export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: number): Line[] {
+export function newestLog(c: Pick<ViewCtx, 'data' | 'g'>, n: number, width: number, say?: (w: string) => string): Line[] {
   const f = c.data.frame;
   if (!f) return [[S(c.data.frameError ? `The log could not be read: ${c.data.frameError}` : 'Reading the log…', c.data.frameError ? 'failure' : 'secondary')]];
   // R5 (H131; the QA round's defect 9): events in words; what a job printed is tab 0's (0 Logs & Receipts)
   const events = eventsNow(c.data);
   if (!events.length) return [[S('No event yet: no job has run in this project. [a] expands Activity (this Workbench\'s own notices too).', 'secondary')]];
-  return events.slice(0, n).map((e) => logLine(e, width, c.g, c.data));
+  return events.slice(0, n).map((e) => logLine(e, width, c.g, c.data, say));
 }
 
 /** The key-hint line: the keys that matter most first, each whole or left out. */
@@ -880,4 +880,23 @@ export function hintLine(width: number, o: { tabs?: boolean; details?: boolean }
     // R10 (H167): on Home and Chat, i is the details (ids, receipts, addresses, the build), and is kept before the Show keys
     h('/', 'find', 8), h(',', 'settings', 10), o.details ? h('i', 'details', 4.5) : h('i', 'Context', 9), h('?', 'keys', 0),
   ], width, S('  '));
+}
+
+/**
+ * R10 (H167; H168's F1, High): the key-hint line while a field has the keyboard: only that field's keys. Every other key is
+ * typed into it there, so the Workbench's keys (1–0, Tab, x, c, i, ?) are not offered: a hint that offered them led the
+ * reviewer to type "x1" into a message that the next Enter sent. `turn`: a chat turn being answered now, this Workbench's
+ * own (Esc stops it) or another surface's (Enter waits for it).
+ */
+export function fieldHintLine(width: number, field: NonNullable<Ui['input']['field']>, turn: { mine: boolean; where: string } | null = null): Line {
+  const h = (k: string, w: string, rank: number): { line: Line; rank: number } => ({ line: [key(k), S(` ${w}`, 'secondary')], rank });
+  const hints = field === 'composer'
+    ? turn?.mine
+      ? [h('Enter', 'sends once it is answered', 1), h('Esc', 'stops the turn and leaves the composer', 0)]
+      : [h('Enter', turn ? `sends once the turn in ${turn.where} has ended` : 'sends', 0), h('Esc', 'leaves the composer (what is typed is not sent)', 1)]
+    : field === 'search' ? [h('Enter', 'opens the first match', 0), h('Esc', 'closes the search', 1)]
+      : field === 'tools' ? [h('Enter', 'keeps these matches', 0), h('Esc', 'clears the search', 1)]
+        : field === 'picker' ? [h('↑↓', 'choose', 2), h('Enter', 'opens it', 0), h('Esc', 'closes', 1)]
+          : [h('Enter', 'makes it', 0), h('Esc', 'closes', 1)];
+  return pickRanked([...hints, { line: [S('other keys type into it', 'secondary')], rank: 3 }], width, S('  '));
 }

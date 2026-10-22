@@ -18,8 +18,8 @@ import { controlItemName, controlRoomView, liveTurnDetail } from './control-tab.
 import { createActions, createDetail, createItemFiles, createItemName, createItems, createTabView } from './create-tab.js';
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
-import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
-import { boxed, diagnosticsLines, homeWorkView, routeLine, routeSegs, workDetail } from './home-journey.js';
+import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
+import { boxed, diagnosticsLines, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -160,15 +160,18 @@ export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; 
   if (!f) return { acts: [], why: c.data.frameError ? `the workspace frame could not be read: ${c.data.frameError}` : 'reading the workspace frame…' };
   if (f.project.id !== c.data.project.id) return { acts: [], why: `the shared frame names ${f.project.name}, the project chosen elsewhere; this Workbench shows ${c.data.project.name} (Follow active project is off), so its actions are not offered here` };
   const acts = f.actions[c.ui.page] ?? [];
-  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : c.ui.page === 'workflows' || c.ui.page === 'control' ? jobActionsNow(acts, c) : c.ui.page === 'home' ? homeActionsNow(acts) : acts };
+  return { acts: c.ui.page === 'chat' ? chatActionsNow(acts, c.data) : c.ui.page === 'workflows' || c.ui.page === 'control' ? jobActionsNow(acts, c) : c.ui.page === 'home' ? homeActionsNow(acts, c.data) : acts };
 }
 
 /**
  * R10 (H167; the R10 brief: "the composer takes one key"): Home's next step to continue the chat opens the composer on 2 Chat
- * at once (Enter), not the tab alone; its label says so. The frame's other actions as they are.
+ * at once (Enter), not the tab alone; its label says so: "Continue the chat" where the project has a conversation, else
+ * "Write your first message" (H168's F2 and F13: a blank project, or one no turn was sent in yet). The frame's other actions
+ * as they are.
  */
-function homeActionsNow(acts: WorkspaceAction[]): WorkspaceAction[] {
-  return acts.map((a) => (a.command.trim() === '2' ? { ...a, label: 'Continue the chat', command: 'type in Chat, then Enter', effect: 'network' } : a));
+function homeActionsNow(acts: WorkspaceAction[], data: Pick<Data, 'chat' | 'turns'>): WorkspaceAction[] {
+  const talked = (data.chat?.total ?? 0) > 0 || (data.turns?.length ?? 0) > 0;
+  return acts.map((a) => (a.command.trim() === '2' ? { ...a, label: talked ? 'Continue the chat' : 'Write your first message', command: 'type in Chat, then Enter', effect: 'network' } : a));
 }
 
 /**
@@ -557,7 +560,8 @@ function chatView(c: ViewCtx): View {
   if (!route.ready) lines.push(...fieldRows('Ready', notReady, c.width, 'attention', 8));
   if (!route.ready && route.refusal?.length) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
-    for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(r, c.width, 'secondary', '  '));
+    // (R10 H167; H168's F3: in words; the refusal whole is the details', [i])
+    for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(inWords(r), c.width, 'secondary', '  '));
   }
   lines.push(blank);
   const t = data.chat;
@@ -588,7 +592,7 @@ function chatView(c: ViewCtx): View {
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
-  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet (.sessions).', 'secondary')]);
+  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
   const bodyW = Math.max(8, c.width - 2 - 6);
@@ -895,7 +899,8 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
         if (!shown.length) lines.push([S(q ? '  No project matches.' : '  None yet.', 'secondary')]);
         shown.forEach((p, i) => {
           items.push({ line: lines.length, item: { kind: 'project', key: `project:${p.root}`, choice: p } });
-          lines.push(row([S(p.name, p.active ? 'strong' : 'text'), S(p.active ? '  (open now)' : '', 'secondary'), S(`  ${p.shown}`, 'secondary'), S(p.changedMs ? ` ${g.sep} changed ${ago(p.changedMs, c.now)}` : '', 'secondary')], i === cur, g));
+          // (R10 H167; H168's F3: by name and when it changed; its folder is the details', [i] once it is open)
+          lines.push(row([S(p.name, p.active ? 'strong' : 'text'), S(p.active ? '  (open now)' : '', 'secondary'), S(p.changedMs ? `  ${g.sep} changed ${ago(p.changedMs, c.now)}` : '', 'secondary')], i === cur, g));
         });
         lines.push(blank);
         items.push({ line: lines.length, item: { kind: 'action', key: 'new-project', action: 'new-project' } });
@@ -904,7 +909,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
         lines.push(row([S('Open existing: type a folder\'s path, such as ~/work/app', 'secondary')], cur === shown.length + 1, g));
       }
       lines.push(blank);
-      lines.push(...para('Choosing writes the shared active-project record (<Timmy home>/state/active-project.json): the REPL, the monitor and Studio follow it. A job keeps the project it started in.', c.width));
+      lines.push(...para('Choosing writes the shared active-project record: the REPL, the monitor and Studio follow it. A job keeps the project it started in.', c.width));
       return { lines, items };
     }
     case 'new':
@@ -1043,17 +1048,18 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       if (o.state === 'asking') { lines.push(...para('Asking the Ollama the setup names for its models… (no charge; nothing is downloaded)', c.width)); return { lines, items }; }
       const l = o.list;
       if (o.state === 'failed') {
-        const why = l.why ? `${l.why.charAt(0).toUpperCase()}${l.why.slice(1)}` : `${l.where} did not answer`;
+        // R10 (H167; H168's F3): in words, on this screen opened from Home; its address and the commands are the details' ([i])
+        const why = inWords(l.why ? `${l.why.charAt(0).toUpperCase()}${l.why.slice(1)}` : `${l.where} did not answer`);
         lines.push(...para(l.answered
-          ? `${l.where} answered, and lists no model that runs on it (${count(l.listed, 'model')} listed${l.cloud ? `, ${l.cloud} of them cloud-backed, which send the chat off this computer` : ''}). ollama pull <model>, in a shell, adds one: Timmy downloads nothing. Nothing was changed.`
-          : `${why}. Start it (the Ollama app, or ollama serve), then check again. Nothing was changed.`, c.width, 'attention'));
+          ? `${inWords(l.where)} answered, and lists no model that runs on it (${count(l.listed, 'model')} listed${l.cloud ? `, ${l.cloud} of them cloud-backed, which send the chat off this computer` : ''}). A model pulled in Ollama adds one: Timmy downloads nothing. Nothing was changed.`
+          : `${why}. Start the Ollama app, then check again. Nothing was changed.`, c.width, 'attention'));
         lines.push(blank);
-        const step = stepRows([key('Enter'), S(' Check the connections again (timmy workspace check: free requests only)', 'text')], true, g, c.width);
+        const step = stepRows([key('Enter'), S(' Check the connections again (free requests only)', 'text')], true, g, c.width);
         items.push({ line: lines.length, item: { kind: 'action', key: 'local:check', action: 'check' }, rows: step.length });
         lines.push(...step);
         return { lines, items };
       }
-      lines.push(...para(`What ${l.where} lists now (asked just now, no charge): the names timmy init --chat local --model takes.`, c.width));
+      lines.push(...para(`What ${inWords(l.where)} lists now (asked just now, no charge): the local models the chat can take.`, c.width));
       if (l.cloud) lines.push(...para(`${count(l.cloud, 'cloud-backed model')} it lists ${l.cloud === 1 ? 'is' : 'are'} not offered here: Ollama sends that chat off this computer.`, c.width, 'secondary'));
       lines.push(blank, heading(`Local models (${l.models.length})`));
       const cur = cursorOf(ui, 'overlay', l.models.length);
@@ -1063,7 +1069,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
         lines.push(row([S(cut(m.name, nameW - 2, g.ellipsis).padEnd(nameW), 'strong'), S(m.facts, 'secondary')], i === cur, g));
       });
       lines.push(blank);
-      lines.push(...wrapSegs([key('Enter'), S(' makes the selected one the local chat\'s model (the setup\'s answer, as timmy init --chat local --model writes it)   ', 'text'), key('Esc'), S(' closes', 'text')], c.width));
+      lines.push(...wrapSegs([key('Enter'), S(' makes the selected one the local chat\'s model (the setup\'s answer)   ', 'text'), key('Esc'), S(' closes', 'text')], c.width));
       return { lines, items };
     }
     case 'setup': {
@@ -1498,13 +1504,25 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || chatTurnNow(data)?.id === ui.flash.whileTurn) ? ui.flash : null;
   // R5 (H131; the QA round's defect 15): a notice wider than the row takes the row above the hints too (for its few seconds),
   // so its words are read to their end ("…so Timmy asks once" was cut); a longer one is cut at the second row's end
-  const said = fresh ? wrapSegs([S(fresh.text, fresh.role)], width) : null;
-  const foot: Line = !said ? hintLine(width, { details: ui.page === 'home' || ui.page === 'chat' }) : said.length === 1 ? said[0] : fit(said.slice(1).flatMap((r, i) => (i ? [S(' '), ...r] : r)), width, g.ellipsis);
+  // R10 (H167; H168's F3): on Home and Chat a notice says addresses, paths, commands and ids by what they are (the details,
+  // [i], and Activity expanded on another tab keep them whole)
+  const hub = ui.page === 'home' || ui.page === 'chat';
+  const words = (w: string): string => (hub ? inWords(plainWords(w, data)) : w);
+  const said = fresh ? wrapSegs([S(hub ? inWords(fresh.text) : fresh.text, fresh.role)], width) : null;
+  // R10 (H167; H168's F1): while a field has the keyboard, only that field's keys
+  const turnNow = chatTurnNow(data);
+  const foot: Line = !said
+    ? (ui.input.field ? fieldHintLine(width, ui.input.field, turnNow ? { mine: turnNow.mine, where: turnNow.where } : null) : hintLine(width, { details: ui.page === 'home' || ui.page === 'chat' }))
+    : said.length === 1 ? said[0] : fit(said.slice(1).flatMap((r, i) => (i ? [S(' '), ...r] : r)), width, g.ellipsis);
   const footAbove = said && said.length > 1 ? said[0] : undefined;
   const a = data.activity;
   // R5 (H131; the QA round's defect 9): the newest event in words; a line a job printed (its raw output) is tab 0's
-  const newest = a.events.find((e) => !e.output) ?? null;
-  const last = newest ? `${clock(newest.at)} ${plainWords(newest.words, data)}` : 'nothing yet';
+  const own = a.events.find((e) => !e.output) ?? null;
+  // R10 (H167; H168's F12): a chat turn sealed after it (the log's own [chat] rows below) is newer: "last:" says that one
+  const sealed = (data.turns ?? [])[0];
+  const turnLast = sealed && (!own || Date.parse(sealed.at) > Date.parse(own.at)) ? turnEntry(sealed) : null;
+  const newest = turnLast ? { at: turnLast.at, words: turnLast.words, failed: turnLast.tone === 'failure' } : own;
+  const last = newest ? `${clock(newest.at)} ${hub ? words(newest.words) : plainWords(newest.words, data)}` : 'nothing yet';
   // R5 (H131; the QA round's defect 1): a chat turn being answered runs too
   const turn = chatTurnNow(data);
   const runningN = a.running + (turn ? 1 : 0);
@@ -1527,7 +1545,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   const items: View['items'] = [];
   if (!ui.activityOpen) {
     const n = Math.max(0, o.logLines ?? 3);
-    lines.push(...newestLog(c, n, width).slice(0, n));
+    lines.push(...newestLog(c, n, width, hub ? inWords : undefined).slice(0, n));
     return { lines, items, fixed: lines.length, foot, ...(footAbove ? { footAbove } : {}) };
   }
   {
@@ -1548,7 +1566,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
       // an event's words are whole here: a long one wraps under its time (the strip above shows only its start)
       const at = `${clock(e.at)} `;
       const role: Role = e.failed ? 'failure' : e.attention ? 'attention' : 'text';
-      const [first = '', ...more] = wrapText(e.words, Math.max(10, width - 2 - at.length), g.ellipsis);
+      const [first = '', ...more] = wrapText(words(e.words), Math.max(10, width - 2 - at.length), g.ellipsis);
       lines.push(row([S(at, 'secondary'), S(first, role)], i === cur && ui.focus === 'bottom', g));
       for (const rest of more) lines.push([S(' '.repeat(2 + at.length)), S(rest, role)]);
     });

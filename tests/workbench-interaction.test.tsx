@@ -436,6 +436,28 @@ describe('keys that arrive together (R4 H112; found in tmux under load)', () => 
     await press(f.r, '\u001b[200~Temp\nlates\u001b[201~');
     expect(c.ui.input).toEqual({ field: 'search', text: 'Temp lates' });
   });
+
+  // R10 (H167): CI-like load in the captures PTY test: the colour probe's answers (src/term/probe.ts: OSC 11 and OSC 4, then
+  // DA1) came after its 200 ms wait, and "4;7;rgb:c0c0/c0c0/c0c0" was taken as the keys 4, 7, r, g… up to its c
+  it('a terminal\'s late answers to the colour probe are never keys: not outside a field (no tab opens, no drawer), not typed into one', async () => {
+    sandbox();
+    const a = trayProject('late-replies');
+    const { c } = workbench(a);
+    c.start();
+    const f = frameOf(c, 180, 50);
+    await sleep(150);
+    const before = { page: c.ui.page, focus: c.ui.focus, nav: c.ui.navOpen, activity: c.ui.activityOpen };
+    // as the terminal writes them, each whole; and as a read may split them, after Ink has taken the ESC and the ]
+    for (const reply of ['\u001b]11;rgb:0000/0000/0000\u0007', '\u001b]4;7;rgb:c0c0/c0c0/c0c0\u0007', '\u001b[?62;22c', '4;7;rgb:c0c0/c0c0/c0c0', '11;rgb:aaaa/aaaa/aaaa\u0007']) {
+      await press(f.r, reply);
+    }
+    expect({ page: c.ui.page, focus: c.ui.focus, nav: c.ui.navOpen, activity: c.ui.activityOpen }).toEqual(before);
+    expect(regionText(c, 'bottom')).not.toContain('Keys that arrived together');
+    // in a field: nothing of them is typed into it
+    await press(f.r, '/');
+    await press(f.r, '4;7;rgb:c0c0/c0c0/c0c0');
+    expect(c.ui.input).toEqual({ field: 'search', text: '' });
+  });
 });
 
 describe('a selection is an item, not a place (R4 H112, slice C items 1 and 5)', () => {

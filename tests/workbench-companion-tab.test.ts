@@ -97,7 +97,7 @@ async function pressC(c: Controller): Promise<string> {
 
 describe('c opens the companion on the tab the Workbench shows (R6 H141; the lead\'s ask after 66a1323)', () => {
   it('from tab 5, on VoxVision with the record selected there: ?tab=voxvision&vox=<id>, the token after # only', async () => {
-    const { c, ws, root } = workbench('companion-vox');
+    const { c, ws, root, companion } = workbench('companion-vox');
     put(root, 'parts/cube.stl', cubeStl(10));
     await ws.inspect('parts/cube.stl');
     await settled(ws);
@@ -108,8 +108,10 @@ describe('c opens the companion on the tab the Workbench shows (R6 H141; the lea
     expect(sel?.kind === 'vox-record' ? sel.row.card.id : sel?.kind).toBe(vox);
     const words = await pressC(c);
     expect(opens()).toBe(`http://127.0.0.1:4567/?tab=voxvision&vox=${vox}#t=${FAKE_TOKEN}`);
-    // the words name the address it opened, never its token
-    expect(words).toBe(`The Companion opened in your browser (http://127.0.0.1:4567/?tab=voxvision&vox=${vox}), through a private page that carries its key`);
+    // the words say what opened (R10 H167; H168's F3: in words); the address it opened, never its token, is the details' ([i]:
+    // the companion's own words, kept whole)
+    expect(words).toBe('Opened in the companion: the observation chosen in VoxVision.');
+    expect(companion.state().last).toBe(`The Companion opened in your browser (http://127.0.0.1:4567/?tab=voxvision&vox=${vox}), through a private page that carries its key`);
     expect(JSON.stringify(c.data.activity.events)).not.toContain(FAKE_TOKEN);
   });
 
