@@ -51,7 +51,7 @@ beforeEach(() => {
   op('o3333cccc', { request: 'how deep is the tray?', via: 'workbench', state: 'answered', started: T(11), ended: T(12) });
   seal('predict', { kind: 'predict', subject: 'predict · REPORT.md › report', policy: 'human-gated', status: 'ok', operation_id: 'o1111aaaa', project_id: pid, ts: T(0) });
   seal('check', { kind: 'check', subject: 'setup check', policy: 'human-gated', status: 'ok', project_id: pid, ts: T(1) });
-  seal('workflow', { kind: 'workflow', subject: 'workflow · REPORT.md › report', policy: 'human-gated', status: 'ok', operation_id: 'o1111aaaa', project_id: pid, artifacts: ['out/report.md'], ts: T(2) });
+  seal('workflow', { kind: 'workflow', subject: 'workflow · REPORT.md › report', policy: 'human-gated', status: 'ok', operation_id: 'o1111aaaa', project_id: pid, outputs: [{ path: 'out/report.md', sha256: sha('# Report\n'), bytes: 9 }], ts: T(2) });
   seal('turn', {
     kind: 'chat', subject: 'chat.turn · workbench · 1 step · qwen3:8b', policy: 'human-gated', status: 'ok', operation_id: 'o3333cccc', project_id: pid,
     via: 'ollama', model_requested: 'qwen3:8b', model_resolved: 'qwen3:8b', prompt_hash: sha('how deep is the tray?'), response_hash: sha('12 mm.'),
