@@ -412,8 +412,8 @@ function sessionRuns(session: string | undefined): { runs: boolean | null; why?:
  * R10 (H163): whether `session` runs on the tmux server whose socket is `socket` (tmux -S). Ended only when tmux says so: no
  * such session, no server on that socket, or no socket there; any other answer (a socket it may not use, no tmux) is not known.
  */
-function sessionRunsAt(socket: string, session: string): { runs: boolean | null; why?: string } {
-  const h = spawnSync('tmux', ['-S', socket, 'has-session', '-t', `=${session}`], { encoding: 'utf8', timeout: 5000 });
+function sessionRunsAt(socket: string, session: string, timeoutMs = 5000): { runs: boolean | null; why?: string } {
+  const h = spawnSync('tmux', ['-S', socket, 'has-session', '-t', `=${session}`], { encoding: 'utf8', timeout: timeoutMs });
   if (h.error) return { runs: null, why: `tmux could not be asked (${errWords(h.error)})` };
   if (h.status === 0) return { runs: true };
   const said = String(h.stderr || h.stdout || '').trim();
@@ -448,11 +448,14 @@ function markedSession(copy: DispatchCopy): { plan_id?: unknown; marker?: unknow
  * whose marker names that same session and server, where tmux says no such session runs. dispatchPlan calls it as it starts;
  * any start may. Returns what it released and what it left (a copy whose session still runs is not listed).
  */
-export function releaseEndedCopies(dir?: string): Array<{ id: string; state: DispatchCopy['state']; words: string }> {
+export function releaseEndedCopies(dir?: string, o: { max?: number; timeoutMs?: number } = {}): Array<{ id: string; state: DispatchCopy['state']; words: string }> {
   const out: Array<{ id: string; state: DispatchCopy['state']; words: string }> = [];
+  // R10 (H163): bounded when asked (the Workbench's start: at most `max` copies looked at, each tmux question `timeoutMs`)
+  let looked = 0;
   for (const s of listPlans(dir).sort((a, b) => a.id.localeCompare(b.id))) {
     const c = s.copy;
     if (!c || c.state !== 'in_use' || !s.session) continue;
+    if (o.max !== undefined && ++looked > o.max) break;
     if (!c.tmux) {
       out.push({ id: s.id, state: 'in_use', words: 'left in use: its record does not say which tmux server its session ran on (made before Timmy recorded it), so whether it ended is not known; a cancel releases it' });
       continue;
@@ -463,7 +466,7 @@ export function releaseEndedCopies(dir?: string): Array<{ id: string; state: Dis
       out.push({ id: s.id, state: 'in_use', words: 'left in use: its marker does not name this dispatch\'s session and tmux server (it releases only a copy its marker says is this session\'s)' });
       continue;
     }
-    const now = sessionRunsAt(c.tmux.socket, c.tmux.session);
+    const now = sessionRunsAt(c.tmux.socket, c.tmux.session, o.timeoutMs);
     if (now.runs === true) continue;
     if (now.runs === null) {
       out.push({ id: s.id, state: 'in_use', words: `left in use: whether its session ended is not known (${now.why})` });

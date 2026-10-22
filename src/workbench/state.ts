@@ -98,7 +98,11 @@ export interface FilesView {
   total: number; truncated: boolean; groups: Array<{ kind: FileKind; title: string; files: FileRow[] }>;
   /** R5 (H131): of `total`, the logs Timmy itself writes in the folder (TIMMY_LOGS) */
   timmyLogs?: number;
+  /** R10 (H163): not read yet: the Workbench reads the project's files right after its first frame */
+  reading?: true;
 }
+/** R10 (H163): the files before their first reading (the Workbench's first frame says they are being read). */
+export const FILES_BEING_READ: FilesView = { total: 0, truncated: false, groups: [], reading: true };
 
 /**
  * R5 (H131; the QA round's defect 24): the logs Timmy itself writes into the folder it runs in (src/utils/logger.ts makes them,
@@ -157,7 +161,13 @@ export interface WorkflowDoc {
   error?: string;
 }
 
-export interface WorkflowsView { upmd: boolean; docs: WorkflowDoc[] }
+export interface WorkflowsView {
+  upmd: boolean; docs: WorkflowDoc[];
+  /** R10 (H163): not read yet: the Workbench reads the project's workflow documents right after its first frame */
+  reading?: true;
+}
+/** R10 (H163): the workflow documents before their first reading. */
+export const WORKFLOWS_BEING_READ: WorkflowsView = { upmd: false, docs: [], reading: true };
 
 export function readWorkflows(root: string, o: { jobs: readonly JobRecord[]; chain: readonly Receipt[]; files: readonly string[]; env?: Env; onPath?: (cmd: string) => string | null }): WorkflowsView {
   const env = o.env ?? process.env;
@@ -627,6 +637,12 @@ export interface StateDeps {
   /** R5 lead (H131's report): the project to read, named by the caller (a Workbench pinned to its own while another surface
    * chose another); absent: the active project (src/project readActiveProject: the one chosen, else the folder here) */
   project?: { name: string; root: string };
+  /**
+   * R10 (H163): the project's files and workflow documents as the caller has read them (the Workbench's Controller passes its
+   * own reading, so the workspace frame walks the project no second time); absent: read here
+   */
+  files?: () => FilesView;
+  workflows?: () => WorkflowsView;
 }
 
 /** The shell's state model: what `timmy workbench --json` prints and what the app starts from. Reads only. */
@@ -645,8 +661,8 @@ export async function workbenchJson(d: StateDeps = {}): Promise<WorkbenchJson> {
   try { chain = d.chain ? d.chain() : chainOf(project.root, env); } catch { chain = []; }
   const rows = readJobs(records, project.root, { mine: new Set(), chain });
   const decisions = readDecisions(project.root, records, chain, undefined, env);
-  const files = readFiles(project.root);
-  const wf = readWorkflows(project.root, { jobs: records.filter((j) => sameFolder(j.root, project.root)), chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env, ...(d.onPath ? { onPath: d.onPath } : {}) });
+  const files = d.files ? d.files() : readFiles(project.root);
+  const wf = d.workflows ? d.workflows() : readWorkflows(project.root, { jobs: records.filter((j) => sameFolder(j.root, project.root)), chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env, ...(d.onPath ? { onPath: d.onPath } : {}) });
   const act = activityOf(rows, decisions.total);
   const stop = stopTarget(rows);
   const groups = [...new Set(NAV.map((n) => n.group))];
