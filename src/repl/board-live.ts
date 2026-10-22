@@ -87,6 +87,11 @@ export interface LiveState {
   lessons?: string[];
   /** R4 (H65): the kept versions the review shows now (src/review/html.ts restorePairs): a file and its kept previous version. */
   restores?: Array<{ file: string; from: string }>;
+  /**
+   * R10 (H163): this answer's place among this board's answers (GET /state numbers each, 1, 2, …, in the order it makes them):
+   * the page puts no answer over one it has read with a higher number, so an older answer read after a newer one is dropped
+   */
+  seq?: number;
 }
 
 export interface LiveBoardDeps {
@@ -198,6 +203,8 @@ export class LiveBoard {
   private port = 0;
   /** Actions run one at a time, in the order they came. */
   private queue: Promise<unknown> = Promise.resolve();
+  /** R10 (H163): the number of the last GET /state answer made (LiveState.seq). */
+  private answered = 0;
 
   constructor(private readonly d: LiveBoardDeps) {}
 
@@ -289,7 +296,8 @@ export class LiveBoard {
       if (path === '/state') {
         if (req.method !== 'GET') return this.send(res, 405, 'GET only.', undefined, { Allow: 'GET' });
         if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
-        return this.send(res, 200, JSON.stringify(this.d.state()), 'application/json; charset=utf-8');
+        // R10 (H163): numbered as it is made, so the page can keep the newest it has read whatever order the answers arrive in
+        return this.send(res, 200, JSON.stringify({ ...this.d.state(), seq: ++this.answered }), 'application/json; charset=utf-8');
       }
       // R4 (H78): God's Eye View's model as JSON, for Timmy Canvas later: GET only, with the token, as /state.
       if (path === '/overview') {
@@ -498,6 +506,8 @@ const LIVE_SCRIPT = `
     try { channel.postMessage({ t: ASK, n: asked }); return true; } catch (e) { return false; }
   };
   var poll;
+  /* R10 (H163): the number of the newest /state answer this page has read (LiveState.seq) */
+  var newest = 0;
   if (channel) channel.onmessage = function (e) {
     var d = e.data;
     if (e.origin !== location.origin || !d || typeof d !== 'object' || Array.isArray(d)) return;
@@ -524,7 +534,12 @@ const LIVE_SCRIPT = `
     }
     fetch('/state', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
-      .then(function (s) { good = true; apply(s); mark('live'); say('live · ' + s.madeAt + ' · updates every 2 s'); },
+      .then(function (s) {
+          // R10 (H163): the asks are not one at a time (every 2 s and after each action), so their answers can arrive out of
+          // order: one the board made before the newest this page has read is dropped, never put over it
+          if (typeof s.seq === 'number') { if (s.seq <= newest) return; newest = s.seq; }
+          good = true; apply(s); mark('live'); say('live · ' + s.madeAt + ' · updates every 2 s');
+        },
         function (e) {
           if (e === 401) good = false;
           mark('not live');
