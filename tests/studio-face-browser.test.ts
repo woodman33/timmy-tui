@@ -164,11 +164,24 @@ describe.skipIf(!browserPath)("Timmy Studio's face in words, its ids, places and
     const { page, context, errors } = await open({ width: 390, height: 844 });
     try {
       await page.waitForFunction(() => document.getElementById('guide') && !document.getElementById('guide')!.hidden, null, { timeout: 30_000 });
-      const at = await page.evaluate(() => {
-        const g = document.getElementById('guide')!.getBoundingClientRect();
-        const side = document.getElementById('side')!.getBoundingClientRect();
-        return { left: g.left, right: g.right, top: g.top, width: g.width, sideBottom: side.bottom, vw: innerWidth, words: document.getElementById('guide')!.innerText };
+      // R10 lead: the page publishes the panel's foot (--side-bottom, canvas.js watchSide) from a ResizeObserver, a frame after
+      // the panel's size changes (its lists arrive and grow it), so the guide is read once that value is the panel's foot, as a
+      // person sees it settle: at 5532037 the guide was read a frame early under load (its top from the default 50vh)
+      const at = await page.evaluate(async () => {
+        const read = () => {
+          const g = document.getElementById('guide')!.getBoundingClientRect();
+          const side = document.getElementById('side')!.getBoundingClientRect();
+          const published = getComputedStyle(document.documentElement).getPropertyValue('--side-bottom').trim() === `${Math.ceil(side.bottom)}px`;
+          return { left: g.left, right: g.right, top: g.top, width: g.width, sideBottom: side.bottom, vw: innerWidth, words: document.getElementById('guide')!.innerText, published };
+        };
+        for (let i = 0; i < 180; i++) {
+          const r = read();
+          if (r.published) return r;
+          await new Promise((done) => requestAnimationFrame(() => done(null)));
+        }
+        return read();
       });
+      expect(at.published, 'the page published its panel\'s foot').toBe(true);
       expect(at.top, 'under the panel').toBeGreaterThanOrEqual(at.sideBottom);
       expect(at.left).toBeGreaterThanOrEqual(0);
       expect(at.right).toBeLessThanOrEqual(at.vw);
