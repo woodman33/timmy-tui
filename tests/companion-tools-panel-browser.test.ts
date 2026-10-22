@@ -93,8 +93,10 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await text('[data-mode-off="clyanything"]')).toMatch(/no Timmy route runs it/);
     expect(await texts('[data-route] [data-rung]')).toEqual([expect.stringMatching(/^installed · 1\.\d+\.\d+$/), 'installed · 0.12.4']);
     expect(await text('[data-route="sdk"]')).toMatch(/no call through it in this project yet/);
-    const fx = await text('[data-server="fixture"]');
-    expect(fx).toMatch(/^FAKE · timmy-fake-fixture stdio Timmy's own test server: its tools and answers are made up · not contacted from this page$/);
+    // R10 (H167; the lead's reading of a failure with four browser files at once on 2 CPUs: the row's words run together,
+    // 'timmy-fake-fixturestdioTimmy', as innerText gives an element not laid out yet): the row is read as drawn, once it is
+    await expect.poll(() => text('[data-server="fixture"]'), { timeout: 15_000, interval: 100 })
+      .toMatch(/^FAKE · timmy-fake-fixture stdio Timmy's own test server: its tools and answers are made up · not contacted from this page$/);
     // the one primary next step: list its tools (amber), and no other amber fill on the tab
     expect(await page.$eval('[data-tools-action="list"]', (el) => el.classList.contains('is-primary'))).toBe(true);
     expect(await text('[data-tools-action="list"]')).toBe("List the FAKE fixture's tools via the SDK route");
