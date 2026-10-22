@@ -267,6 +267,9 @@ export interface Ui {
   tab: RightTab;
   navOpen: boolean;
   rightOpen: boolean;
+  /** R10 (H167; the lead's 12:23 finding): the zone that had the keyboard when i opened the right drawer (the Inspector); its
+   *  closing (i again, or Escape) gives the keyboard back to it */
+  rightFrom?: Region;
   activityOpen: boolean;
   /** Activity shows every operation's events (else the selected one's) */
   activityAll: boolean;

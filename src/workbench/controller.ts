@@ -1067,7 +1067,7 @@ export class Controller {
 
   private escape(): void {
     if (this.ui.overlay) this.ui.overlay = null;
-    else if (this.ui.rightOpen) { this.ui.rightOpen = false; this.ui.focus = 'center'; }
+    else if (this.ui.rightOpen) { this.ui.rightOpen = false; this.ui.focus = this.backFromRight(); }
     else if (this.ui.navOpen) { this.ui.navOpen = false; this.ui.focus = 'center'; }
     else if (this.ui.focusMode) { this.ui.focusMode = false; }
     this.emit();
@@ -1235,8 +1235,21 @@ export class Controller {
     // R10 (H167): on Home and Chat, i opens the details (the Inspector: the selected item's ids, receipt and files, then About ·
     // diagnostics), from its first row
     if (this.ui.rightOpen && isHub(this.ui.page)) { this.ui.tab = 'inspector'; this.ui.scroll['right:inspector'] = 0; delete this.ui.wheel['right:inspector']; delete this.ui.anchor['right:inspector']; }
-    if (this.ui.rightOpen) { this.ui.navOpen = false; this.ui.focus = 'right'; } else this.ui.focus = 'center';
+    if (this.ui.rightOpen) {
+      // R10 (H167; the lead's 12:23 finding): the zone that had the keyboard, given back when the drawer closes
+      if (this.ui.focus !== 'right') this.ui.rightFrom = this.ui.focus;
+      this.ui.navOpen = false;
+      this.ui.focus = 'right';
+    } else this.ui.focus = this.backFromRight();
     this.emit();
+  }
+
+  /** R10 (H167): where the keyboard goes as the right drawer closes: back to the zone that had it (the action strip, the
+   *  workspace or Activity), else the workspace; a drawer that is shut by then (the navigation) is never given it. */
+  private backFromRight(): Region {
+    const from = this.ui.rightFrom;
+    delete this.ui.rightFrom;
+    return from === 'top' || from === 'center' || from === 'bottom' ? from : 'center';
   }
 
   private toggleNav(): void {
