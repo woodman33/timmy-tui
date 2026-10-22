@@ -22,6 +22,7 @@ import { readActiveProject, sameFolder } from '../project/index.js';
 import { listStarters } from '../project/starters.js';
 import { currentOperation } from '../ops/context.js';
 import { operationRel } from '../ops/operations.js';
+import { readProcessTable, START_SLACK_MS, startIn, withProcessTable, type ProcessTable } from '../ops/process-proof.js';
 import { buildWorkspaceFrame, turnStopCommand, turnStopWords } from '../ops/workspace-frame.js';
 import { JOB_CANCELLED } from '../contracts/stop-words.js';
 import type { ApprovalRequest, Decision } from '../repl/approvals.js';
@@ -176,6 +177,17 @@ export class Controller {
    * the hold is let go, not at the frame's next reading; x and Enter on Stop the turn read them again before they answer.
    */
   private readonly holds: HoldWatch;
+  /**
+   * R10 (H163; the turn-holds latency, the lead's item (e)): the process table as last read by a child process the event loop
+   * does not wait on (src/ops/process-proof.ts readProcessTable). A tick's readings, and every reading once a table is there,
+   * look the writers they name up in it (withTable): no program runs while the Workbench ticks. `looked`: the pids looked up;
+   * a new table that says something else of one has those readings read again (readTable).
+   */
+  private table: ProcessTable | null = null;
+  private tableReading = false;
+  private looked = new Set<number>();
+  private inTick = false;
+  private readonly startedAt = Date.now();
 
   constructor(private readonly d: ControllerDeps) {
     this.holds = new HoldWatch({
@@ -335,7 +347,8 @@ export class Controller {
 
   /** R10 (H167): the route the next turn takes and the project's recent work (H164's src/journey), and the build once (H163's
    *  buildInfo, which asks git where Timmy runs from source). A reading that fails leaves the one before. */
-  private readJourney(chain?: readonly Receipt[]): void {
+  private readJourney(chain?: readonly Receipt[]): void { this.withTable(() => this.readJourneyNow(chain)); }
+  private readJourneyNow(chain?: readonly Receipt[]): void {
     const p = this.data.project;
     try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
     // (H164's call shape: with the files this Workbench has read, so recentWork lists no folder again, and what a NEEDS YOU box
@@ -351,7 +364,8 @@ export class Controller {
 
   /** Everything but the on-demand parts (every few seconds, and on [r]). R10 (H163): `walks` false: all but the walks of the
    *  project (its files, its workflow documents), as the first frame reads it. */
-  readAll(o: { walks?: boolean } = {}): void {
+  readAll(o: { walks?: boolean } = {}): void { this.withTable(() => this.readAllNow(o)); }
+  private readAllNow(o: { walks?: boolean }): void {
     const root = this.data.project.root;
     this.readJobs();
     const files = o.walks === false ? this.data.files : readFiles(root);
@@ -389,7 +403,8 @@ export class Controller {
    * Files only: no network, no VM, no paid call. A reading that fails says why in Activity (once until it changes).
    */
   private tabError = '';
-  private readTab(ws: WorkspaceId = this.ui.workspace): void {
+  private readTab(ws: WorkspaceId = this.ui.workspace): void { this.withTable(() => this.readTabNow(ws)); }
+  private readTabNow(ws: WorkspaceId): void {
     if (ws !== 'logs' && ws !== 'fleet' && ws !== 'control' && ws !== 'voxvision' && ws !== 'tools') return;
     const root = this.data.project.root;
     try {
@@ -446,7 +461,8 @@ export class Controller {
   }
 
   /** R5 (H131): the newest run's pipeline (the Chat tab's row), its receipt verified here once per chain as read. */
-  private readPipeline(chain: Receipt[] = this.chain()): void {
+  private readPipeline(chain: Receipt[] = this.chain()): void { this.withTable(() => this.readPipelineNow(chain)); }
+  private readPipelineNow(chain: Receipt[]): void {
     const key = this.chainCache?.key ?? '';
     try {
       // R5 (H131; the QA round's defect 8): a chat turn too, sealed or being answered here
@@ -485,8 +501,12 @@ export class Controller {
     // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
     // another, its actions are still its project's)
     // R10 (H163): with this Workbench's own reading of the files and workflow documents (the frame walks the project no second time)
-    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), files: () => this.data.files, workflows: () => this.data.workflows, now: this.now() })
+    // R10 (H163; item (e)): against the process table this Workbench last read (none yet: the frame reads one itself, only if a
+    // proof needs it); a pid it looked up has the table read again, without blocking
+    const looked = new Set<number>();
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), files: () => this.data.files, workflows: () => this.data.workflows, now: this.now(), ...(this.table ? { processTable: this.table, processLooked: looked } : {}) })
       .then((f) => {
+        if (looked.size) { for (const pid of looked) this.looked.add(pid); this.readTable(); }
         if (this.disposed || !sameFolder(root, this.data.project.root)) return;
         const before = this.data.frame?.revision;
         this.data.frame = f;
@@ -520,7 +540,8 @@ export class Controller {
   }
 
   /** Studio's cards for the project shown (src/studio/project-cards.ts), from the records as this Workbench read them. */
-  private cardsNow(): { cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] } {
+  private cardsNow(): { cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] } { return this.withTable(() => this.cardsRead()); }
+  private cardsRead(): { cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] } {
     const p = this.data.project;
     const r = projectCards({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: null }, { chain: this.chain(), jobs: this.records.filter((j) => sameFolder(j.root, p.root)) });
     return { cards: r.cards, notes: r.notes, operations: r.operations ?? [] };
@@ -548,6 +569,61 @@ export class Controller {
     if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
   }
 
+  // ── the process table (R10 H163; the turn-holds latency, the lead's item (e)) ─────
+
+  /**
+   * `fn` (a reading) against the process table as last read, running no program: a writer the table does not list that
+   * started before it was read is gone (its pid is another process's now), one that started after is unknown (taken as running)
+   * until the next table (src/ops/process-proof.ts writerState). Before the first table: the start's own readings read the
+   * table as before, once each; a tick reads against an empty table as of the Workbench's start (nothing it cannot see runs).
+   * A reading that looked a pid up has the table read again, without blocking (readTable): what the new one says is applied
+   * when it arrives.
+   */
+  private withTable<T>(fn: () => T): T {
+    const table = this.table ?? (this.inTick ? { rows: new Map<number, number>(), at: this.startedAt } : null);
+    if (!table) { this.readTable(); return withProcessTable(fn); }
+    const seen = new Set<number>();
+    try { return withProcessTable(fn, table, seen); } finally {
+      for (const pid of seen) this.looked.add(pid);
+      if (seen.size) this.readTable();
+    }
+  }
+
+  /** A tick's work (the tick, the slow reading): read against the table as last read, never a program (withTable). */
+  private ticked(fn: () => void): void {
+    const was = this.inTick;
+    this.inTick = true;
+    try { fn(); } finally { this.inTick = was; }
+  }
+
+  /**
+   * The process table read again by a child process the event loop does not wait on, one reading at a time. When it says
+   * something else of a pid a reading looked up (its process ended, started, or is another one now), what those readings
+   * decided is read again with it (the journey, Studio's cards, the Control tab, the workspace frame) and the screen drawn.
+   */
+  private readTable(): void {
+    if (this.tableReading || this.disposed) return;
+    this.tableReading = true;
+    void readProcessTable().then((t) => {
+      this.tableReading = false;
+      if (this.disposed) return;
+      const was = this.table;
+      this.table = t;
+      const differs = (pid: number): boolean => {
+        const a = was ? startIn(was, pid) : undefined;
+        const b = startIn(t, pid);
+        return typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) > START_SLACK_MS : a !== b;
+      };
+      if (![...this.looked].some(differs)) return;
+      this.looked = new Set();
+      this.readJourney(this.chain());
+      this.refreshCards();
+      if (this.ui.workspace === 'control') this.readTab('control');
+      this.refreshFrame();
+      this.emit();
+    });
+  }
+
   // ── timers ────────────────────────────────────────────────────────────────────
 
   start(): void {
@@ -558,7 +634,7 @@ export class Controller {
     const slow = this.d.slowMs ?? 5000;
     this.timers.push(setInterval(() => this.onTick(), tick));
     // R5 (H131): the workspace frame with the slow reading too (at most once a second; the same revision draws nothing again)
-    this.timers.push(setInterval(() => { this.readAll(); this.refreshFrame(); this.emit(); }, slow));
+    this.timers.push(setInterval(() => { this.ticked(() => this.readAll()); this.refreshFrame(); this.emit(); }, slow));
     this.loadFor(this.ui.workspace);
     if (this.d.interactive) {
       const s = this.ui.settings.settings;
@@ -567,7 +643,8 @@ export class Controller {
     }
   }
 
-  private onTick(): void {
+  private onTick(): void { this.ticked(() => this.withTable(() => this.onTickNow())); }
+  private onTickNow(): void {
     this.followProject();
     this.readJobs();
     // R5 (H137): the Control Room's panes follow their logs and the turns being answered at the tick, while it is shown
