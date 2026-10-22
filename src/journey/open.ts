@@ -186,8 +186,9 @@ export function askedOf(address: string): AskedAddress {
   return { tab, select, problems };
 }
 
-/** What a page has to show on its tab (tab 6: its meshes and recordings, in its list's order; tab 5: its records). */
-export interface PageHas { meshes?: readonly string[]; recordings?: readonly string[]; records?: readonly string[] }
+/** What a page has to show on its tab (tab 6: its meshes and recordings, in its list's order; tab 5: its records; the
+ *  preview: the asked file when it is a file of the project). */
+export interface PageHas { meshes?: readonly string[]; recordings?: readonly string[]; records?: readonly string[]; files?: readonly string[] }
 
 /**
  * What a page shows for what its address asked (`asked`), given what it has: the asked one when it has it; otherwise its first
@@ -203,6 +204,8 @@ export function shownFor(asked: AskedAddress, has: PageHas): { shown: { name: Se
   const instead = first ? `${first.value} is shown instead` : onVox ? 'this project has no record to show' : 'this project has no mesh to show';
   if (asked.problems.length && !sel) return { shown: first, notice: `${asked.problems[0]}: ${instead}.` };
   if (!sel) return { shown: first, notice: null };
+  // the preview shows the file asked for, or nothing (it has no "first" to show instead)
+  if (sel.name === 'file' && has.files) return has.files.includes(sel.value) ? { shown: sel, notice: null } : { shown: null, notice: `${sel.value} is not a file of this project, so nothing is previewed.` };
   const list = sel.name === 'mesh' ? has.meshes : sel.name === 'recording' ? has.recordings : sel.name === 'vox' ? has.records : undefined;
   if (!list) return { shown: sel, notice: null };
   if (list.includes(sel.value)) return { shown: sel, notice: null };

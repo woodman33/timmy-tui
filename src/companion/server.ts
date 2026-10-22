@@ -84,6 +84,16 @@
  *                                                                            it (409 when that turn is not running now)
  *   GET /timmy-theme.css,                  nothing more                      Timmy's look and Monaspace Argon: no content
  *       /web/fonts/monaspace-argon-*
+ *
+ * R10 (H164): the journey's data (src/journey/routes.ts), read only, for the shown project, so the page draws what the
+ * terminal Workbench draws, from the same functions:
+ *
+ *   route                                  requires                          why
+ *   GET /api/journey/route                 the token                         the route the next chat turn takes (never a key)
+ *   GET /api/journey/recent                the token                         the project's newest work, where each opens
+ *   GET /api/journey/run/<operation id>    the token                         a run's progress, result and receipt
+ *   GET /api/journey/open                  the token                         what the page's address asks for, what is shown
+ *                                                                            for it, and a notice when that differs
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -114,6 +124,8 @@ import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-det
 // R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
 import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 import { mountPanels } from './panels.js';
+// R10 (H164): the journey's read-only routes (src/journey/routes.ts)
+import { mountJourneyRoutes } from '../journey/routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -828,6 +840,9 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
   mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p) });
+  // R10 (H164): the journey's routes (/api/journey/…), token-checked, for the shown project; the route of the page's own Send
+  // read from the environment its /chat reads
+  mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
