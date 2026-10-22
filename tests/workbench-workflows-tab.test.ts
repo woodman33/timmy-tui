@@ -247,20 +247,25 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     expect(L).toMatch(/▸\s+2 second\s+✓ completed exit 0/);
     expect(L).toMatch(/second\.intent[^\n]*block 2/);
     expect(flat(left)).toMatch(/document PAIR\.md command echo second says three needs first runs first → second no destructive command/);
-    expect(L).toMatch(/second\.predict[^\n]*j[0-9a-f]{6}/);
+    // (R10 H167: the job's id and the prediction's receipt id are the Inspector's, [i])
+    expect(L).toMatch(/second\.predict/);
+    expect(L).not.toMatch(/second\.predict[^\n]*j[0-9a-f]{6}/);
     // frozen before the run first (a clipped column keeps it), then the sealed words and their receipt
-    expect(flat(left)).toMatch(new RegExp(`second\\.predict ${job.id} frozen before the run (?:· sealed \\d\\d:\\d\\d:\\d\\d )?`));
-    expect(flat(left)).toContain(`${rd.detail.prediction!.words} receipt ${rd.detail.prediction!.receipt}`);
-    expect(L).toMatch(new RegExp(`receipt\\s+${rd.detail.prediction!.receipt}`));
+    expect(flat(left)).toMatch(/second\.predict frozen before the run (?:· sealed \d\d:\d\d:\d\d )?/);
+    expect(flat(left)).toContain(`${rd.detail.prediction!.words.replace(/^\/run (\S+) (\S+):/, 'run $1 › $2:')} ✓ sealed before the run`);
+    expect(L).not.toContain(rd.detail.prediction!.receipt);
     expect(L).toContain('frozen before the run');
     expect(L).not.toContain('frozen before the run: not recorded');
     // centre: where it ran, the run's blocks, its log's last lines (cut, never wrapped), the RUN box, the preview line
     expect(C).toContain('SANDBOX · where it runs');
     expect(flat(centre)).toContain('this computer, in the project folder (upmd)');
     // the environment the run detail names (its env lock), where it names one; upmd over a pipe adds no runner line
-    if (rd.detail.worker.environment) expect(flat(centre)).toMatch(/\(upmd\) environment \S/);
+    // (R10 H167: the environment its run detail names, and the runner, are the Inspector's)
+    expect(flat(centre)).not.toMatch(/\(upmd\) environment \S/);
     expect(flat(centre)).not.toContain('runner');
-    expect(C).toMatch(new RegExp(`STEPS · ${job.id} ✓ completed`));
+    // (R10 H167: progress, steps done of all, in words; the job's id is the Inspector's)
+    expect(C).toMatch(/PROGRESS · ✓ completed · \d+ of \d+ steps?/);
+    expect(C).not.toContain(job.id);
     expect(C).toMatch(/PAIR\.md › second · \d/);
     expect(C).toMatch(/✓ first completed · exit 0/);
     expect(C).toMatch(/✓ second completed · exit 0/);
@@ -273,14 +278,17 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // R6 (H144): its source as it ran (the copy upmd read, the same bytes now) and what it changed (nothing Timmy records:
     // its blocks only echo), the producer's inspection; where the companion draws the run's diffs, images and outputs
     // (the source under the cards where it fits beside the whole list, else in the centre column)
-    expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now · read from the copy upmd read/);
-    expect(flat(centre)).toContain('CHANGES · none that Timmy records');
+    expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran ✓ the same bytes now · read from the copy upmd read/);
+    expect(flat(centre)).toContain('RESULT · none that Timmy records');
     expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
     // right: the receipt card (verified in this reading), the checks predicted against actual, the verdict, timmy op
     expect(R).toContain('second.receipt');
-    expect(R).toMatch(new RegExp(`id\\s+${tab.run!.receipt!.id}`));
-    expect(R).toMatch(/kind\s+workflow/);
-    expect(R).toContain('✓ verified');
+    // (R10 H167: sealed and verified in words; its id is the Inspector's)
+    expect(R).toContain('✓ sealed and verified');
+    expect(R).not.toContain(tab.run!.receipt!.id);
+    // (R10 H167: its kind is the Inspector's)
+    expect(R).not.toMatch(/kind\s+workflow/);
+    expect(R).toContain('✓ sealed and verified');
     // R6 (H144): each stage's receipts, as verified now: the prediction's, the two blocks', the run's
     expect(flat(right)).toContain('.predict ✓ · run ✓ 2 · .receipt ✓');
     expect(flat(right)).toMatch(/CHECKS (?:· )?predicted vs actual/);
@@ -292,7 +300,7 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // green only for what was verified or passed in this reading: the receipt card and the checks that matched
     const green = greens(v.lines);
     expect(green.length).toBeGreaterThan(0);
-    for (const s of green) expect(s).toMatch(/^(?:[╭╮╰╯─│ ]+|second\.receipt|✓ verified|✓ | matches|block (?:first|second)|✓|✓ \d+)$/);
+    for (const s of green) expect(s).toMatch(/^(?:[╭╮╰╯─│ ]+|second\.receipt|✓ sealed and verified|✓ verified|✓ | matches|block (?:first|second)|✓|✓ \d+)$/);
     // one meaning per mark: no ● (live) or ○ (configured) for a block or a run
     expect(text.join('\n')).not.toMatch(/[●○]/);
     // the items: every block in the list's order, as before (Enter on one opens its Run confirm in the controller)
@@ -317,12 +325,12 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     const { v, text } = body(data, ui, AT_160);
     const R = column(text, 2, AT_160.width).join('\n');
     expect(R).toMatch(/✕ not verified:/);
-    expect(R).not.toContain('✓ verified');
+    expect(R).not.toMatch(/✓ (?:sealed and )?verified/);
     // R6 (H144): green only for what verified in this reading: the receipts sealed before the changed one (the prediction's,
     // the two blocks') and the source's bytes; the run's own receipt ✕
     expect(flat(column(text, 2, AT_160.width))).toContain('.predict ✓ · run ✓ 2 · .receipt ✕');
     expect(greens(v.lines).sort()).toEqual(['✓', '✓ ', '✓ 2']);
-    expect(`${flat(column(text, 0, AT_160.width))} ${flat(column(text, 1, AT_160.width))}`).toMatch(/SOURCE · PAIR\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now/);
+    expect(`${flat(column(text, 0, AT_160.width))} ${flat(column(text, 1, AT_160.width))}`).toMatch(/SOURCE · PAIR\.md as it ran ✓ the same bytes now/);
     // its run detail is not read here (none given): the .predict card and the checks say so, and the verdict is the job's
     expect(flat(column(text, 0, AT_160.width))).toMatch(/reading the run detail of o[0-9a-f]{8}/);
     expect(flat(column(text, 2, AT_160.width))).toMatch(/VERDICT ✓ completed \(its job record's word\)/);
@@ -391,13 +399,13 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     data = { ...data, workflowsTab: tabOf(data, ui, ws, records, chain, p.root) } as Data;
     const { text } = body(data, ui, AT_160);
     const [L, C, R] = [0, 1, 2].map((i) => column(text, i as 0 | 1 | 2, AT_160.width).join('\n'));
-    expect(C).toMatch(new RegExp(`STEPS · ${job.id} ▶ running`));
+    expect(C).toMatch(/PROGRESS · ▶ running/);
     expect(C).toMatch(/… second waiting/);
     expect(L).toMatch(/second\s+… waiting/);
     expect(flat(column(text, 2, AT_160.width))).toContain('not sealed yet: it runs');
     // the RUN box says a run of it goes on: Enter starts nothing until it ends, and x stops it
     expect(flat(column(text, 1, AT_160.width))).toMatch(new RegExp(`Not from here now: it is running now as ${job.id}[\\s\\S]*x stops ${job.id}`));
-    expect(R).not.toContain('✓ verified');
+    expect(R).not.toMatch(/✓ (?:sealed and )?verified/);
     expect(text.join('\n')).not.toMatch(/[●○]/);
     // the marks, each with its word
     expect(stateMark('running', g)).toEqual({ glyph: '▶', role: 'text' });
@@ -547,21 +555,23 @@ describe('tab 3 Workflows: the newest run inspected, its source, changes, output
     const C = centre.map((t) => t.trimEnd());
     // the source (in the left column, beside the whole list): the document as upmd ran it (the copy /run kept for it), the
     // same bytes now
-    expect(flat(column(text, 0, AT_160.width))).toMatch(/SOURCE · REPORT\.md as it ran · sha256 [0-9a-f]{12} ✓ the same bytes now · read from the copy upmd read/);
+    expect(flat(column(text, 0, AT_160.width))).toMatch(/SOURCE · REPORT\.md as it ran ✓ the same bytes now · read from the copy upmd read/);
     // the changes: how many, /review's command, a row per file (the parameter file: its diff's size, /restore offered),
     // and the parameter file's diff against the version the flow kept, its lines marked − and +
-    expect(flat(centre)).toContain(`CHANGES · ${total} files · /review ${op}`);
+    expect(flat(centre)).toContain(`RESULT · ${total} files written`);
+    expect(flat(centre)).not.toContain(`/review ${op}`);
     // its path whole (where the row is narrow, the diff's size gives way: the diff is drawn under it)
     expect(C).toEqual(expect.arrayContaining([expect.stringMatching(/^changed recipes\/tray\.params\.json (?:\+1 −1 · )?restore offered$/)]));
     expect(C).toEqual(expect.arrayContaining([expect.stringMatching(/^@@ -\d+,\d+ \+\d+,\d+ @@ against the version Timmy kept$/), expect.stringMatching(/^− +"width": 140,$/), expect.stringMatching(/^\+ +"width": 150,$/)]));
     // its log's last lines (here its last one: the changes took the rest), the earlier ones counted with where they are
-    expect(flat(centre)).toMatch(new RegExp(`OUTPUT · its log's last lines … \\d+ earlier lines \\(/jobs ${job}\\) <== report exited with code 0`));
+    expect(flat(centre)).toMatch(/OUTPUT · its log's last lines … \d+ earlier lines <== report exited with code 0/);
+    expect(flat(centre)).not.toContain(`/jobs ${job}`);
     // and where the companion draws the diffs, images and outputs
     expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
     // the receipts: each stage's verified now (the prediction's; the flow's and the two blocks'; the run's)
     expect(flat(right)).toContain('.predict ✓ · run ✓ 3 · .receipt ✓');
-    expect(flat(right)).toContain('✓ verified');
-    for (const g2 of greens(v.lines)) expect(g2).toMatch(/^(?:[╭╮╰╯─│ ]+|report\.receipt|✓ verified|✓ | matches|block (?:change|report)|✓|✓ \d+)$/);
+    expect(flat(right)).toContain('✓ sealed and verified');
+    for (const g2 of greens(v.lines)) expect(g2).toMatch(/^(?:[╭╮╰╯─│ ]+|report\.receipt|✓ sealed and verified|✓ verified|✓ | matches|block (?:change|report)|✓|✓ \d+)$/);
     const label = (what: string): string => `Workbench tab 3 (Workflows), its body at ${AT_160.width}x${AT_160.height} (a ${AT_160.columns}x45 terminal): the rows src/workbench/workflows-tab.ts draws, in the colours src/workbench/theme.ts gives each role, rendered in Chromium (not a terminal screenshot). ${what} FAKE run: REPORT.md (tests/helpers/run-inspect-fixture.ts; upmd and the change block's flow are test doubles).`;
     await keepRows(v.lines, 'workbench-tab3-156x28-source-changes-receipts', label(`Run ${op} (job ${job}).`));
 

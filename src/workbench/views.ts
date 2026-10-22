@@ -29,7 +29,7 @@ import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
-import { selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
+import { runDetailRows, selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, spread, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -1331,6 +1331,8 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
       if (b.risky.length) for (const r of b.risky) lines.push(...para(`${c.g.warn} ${r.name} needs you before it runs: ${r.command.split('\n')[0]}`, w, 'attention'));
       else f('Decides', 'it runs on its own (no destructive command)');
       if (b.command) { lines.push(blank, heading('Command')); for (const l of b.command.split('\n').slice(0, 6)) lines.push([S(`  ${l}`, 'text')]); }
+      // R10 (H167): what tab 3's columns leave out of its newest run (its ids, hashes, runner, environment, commands)
+      if (c.ui.workspace === 'workflows') { const more = runDetailRows(c, w); if (more.length) lines.push(blank, ...more); }
       break;
     }
     case 'job': {

@@ -206,7 +206,8 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     await press(f.r, 'y');
     const job = await until('the run\'s job', () => ws.jobs.list().find((j) => j.label === 'APPROVAL.md › tidy'), 10_000, f.text);
     // (R5, H136: tab 3's body takes the whole width and names the run; its Inspector is Context's drawer, i)
-    await until('the body to show the run', () => regionText(c, 'center').includes(`STEPS · ${job.id}`), 5000, f.text);
+    // (R10 H167: the run's progress in words; its job's id is the Inspector's, which follows it below)
+    await until('the body to show the run', () => /PROGRESS · /.test(regionText(c, 'center')) && regionText(c, 'center').includes('APPROVAL.md › tidy'), 5000, f.text);
     await press(f.r, 'i');
     await until('the Inspector to follow the run', () => regionText(c, 'right').includes(`Job ${job.id}`), 5000, f.text);
     await press(f.r, 'i');
