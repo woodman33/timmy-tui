@@ -305,7 +305,8 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
     for (const [cols, rows] of [[160, 45], [100, 30]] as const) {
       c.key('1', {});
       const fr = c.frame(cols, rows);
-      const strip = screenText(fr.screen).slice(0, 3);
+      // (R10 H167: the header is two rows, the tabs on its second)
+      const strip = screenText(fr.screen).slice(0, 2);
       for (const t of fr.pages) {
         const cells = strip.map((l) => [...l].slice(t.x0, t.x1 + 1).join('')).join('\n');
         const tab = c.data.frame!.tabs.find((x) => x.id === t.page)!;
@@ -315,10 +316,10 @@ describe('the unfinished tabs say so (R7 H150; the operator\'s order of 2026-10-
       expect(strip.join('\n'), `the word at ${cols}x${rows}`).toMatch(/unfinished/);
       // the active unfinished tab's name on row 2, with the word
       c.key('7', {});
-      const top = screenText(c.frame(cols, rows).screen).slice(3, 4).join('');
+      const top = screenText(c.frame(cols, rows).screen).slice(2, 3).join('');
       expect(top, `row 2 at ${cols}x${rows}`).toMatch(/7 Control Room · unfinished/);
       c.key('3', {});
-      expect(screenText(c.frame(cols, rows).screen).slice(3, 4).join('')).not.toMatch(/unfinished/);
+      expect(screenText(c.frame(cols, rows).screen).slice(2, 3).join('')).not.toMatch(/unfinished/);
     }
   }, 30_000);
 });

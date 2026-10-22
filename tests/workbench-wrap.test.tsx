@@ -208,15 +208,15 @@ describe('words given room (R5 H131, the QA round)', () => {
     writeFileSync(join(root, 'logs', 'build.log'), 'the project\'s own log\n');
     c.refresh();
     expect(c.data.files.total).toBe(before + 6);
+    // (R10 H167: Home's column beside recent work says the project's files, Timmy's own logs counted apart)
     const preview = joined(rows(c, 'right', 160, 70));
-    expect(preview).toContain(`FILES (${before + 1})`);
+    expect(preview).toContain(`${before + 1} file`);
     expect(preview).toContain('not counted: 5 logs Timmy writes itself (logs/*.log)');
-    expect(preview).toContain('1 other file');
 
-    // defect 7: at 100x30 both of Home's columns are clipped, and each says which rows it shows (1–N of M)
+    // defect 7: at 100x30 Home's list is clipped, and says which rows it shows (1–N of M)
     const small = screenText(c.frame(100, 30).screen);
-    const titles = small.find((r) => r.includes('Preview'))!;
-    expect(titles.match(/\d+–\d+ of \d+/g), `Home's column titles at 100x30: ${titles}`).toHaveLength(2);
+    const titles = small.find((r) => r.includes('recent work'))!;
+    expect((titles.match(/\d+–\d+ of \d+/g) ?? []).length, `Home's column titles at 100x30: ${titles}`).toBeGreaterThanOrEqual(1);
 
     // tab 6: 3D Create, then Motion (the key again); R5 (H131; the QA of e7f853e, defect 2): what no Timmy surface draws, and
     // what c and s show for it in truth, first

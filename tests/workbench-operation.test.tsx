@@ -153,18 +153,12 @@ function regionText(c: Controller, region: 'center' | 'right' | 'bottom' | 'top'
   return out.join(' ').replace(/\s+/g, ' ');
 }
 
-/** R5 (H131; the QA round's defect 4): what waits on you over a tab, as row 1 draws it without moving a tab: ⚠ and the count
- *  in the top edge of the box whose label starts with `label` ('' when nothing is drawn there). */
-function badgeOver(rows: readonly string[], label: string): string {
-  for (let y = 1; y < Math.min(3, rows.length); y++) {
-    const at = rows[y].indexOf(label);
-    if (at < 0) continue;
-    const left = Math.max(rows[y].lastIndexOf('│', at), rows[y].lastIndexOf('┃', at));
-    const ends = ['│', '┃'].map((b) => rows[y].indexOf(b, at)).filter((i) => i >= 0);
-    if (left < 0 || !ends.length) return '';
-    return /⚠\d*/.exec(rows[y - 1].slice(left, Math.min(...ends) + 1))?.[0] ?? '';
-  }
-  return '';
+/** R10 (H167): whether the header's tabs row marks a tab with ⚠ (its one mark cell, after its label), and the status row says
+ *  the count. */
+function waitsOn(rows: readonly string[], label: string, n: number): boolean {
+  const at = rows[1]?.indexOf(label) ?? -1;
+  if (at < 0) return false;
+  return /^[^⚠\[]*?⚠/.test(rows[1].slice(at + label.length, at + label.length + 12)) && rows[0].includes(`⚠ ${n} waiting on you`);
 }
 
 describe('the terminal Workbench, slice B: one connected operation (R4 H110)', () => {
@@ -202,7 +196,7 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(f.lines().every((l) => visibleWidth(l) === 180)).toBe(true);
     // what waits on you shows beside the Control Room's tab and Home's (R5, H131: the workspace frame's counts, read again
     // within a second of the box)
-    await until('the waiting counts on the tabs', () => badgeOver(f.lines(), '7 Control') === '⚠1' && badgeOver(f.lines(), '1 Home') === '⚠1', 5000, f.text);
+    await until('the waiting marks on the tabs and the count', () => waitsOn(f.lines(), '7 Control', 1) && waitsOn(f.lines(), '1 Home', 1), 5000, f.text);
     expect(ws.jobs.list().filter((j) => j.root === p.root)).toEqual([]);
     expect(existsSync(join(p.root, 'scratch'))).toBe(false);
     // Follow selected artifact (Quick settings): the run, once it starts, is what the Inspector and Activity show
@@ -352,8 +346,9 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     c.start();
     c.selectWorkspace('chat');
     const f = frameOf(c, 180, 50);
-    await until('the session', () => /chat: FIXTURE route/.test(f.text()), 5000, f.text);
-    expect(f.text()).toContain('[Enter] Type a message (sent through the chat session, on the route above)');
+    // (R10 H167: the route as the header and the composer say it; a FIXTURE route is named FAKE)
+    await until('the session', () => /next turn: FAKE FIXTURE route/.test(f.text()), 5000, f.text);
+    expect(f.text()).toMatch(/\[Enter\] Type a message +· to FAKE FIXTURE route/);
     await press(f.r, TAB, ENTER);
     for (const ch of 'hi there') f.r.stdin.write(ch);
     await sleep(100);
@@ -362,15 +357,17 @@ describe('the terminal Workbench, slice B: one connected operation (R4 H110)', (
     expect(f.text()).toContain('write_project_file');
     await sleep(400);
     await press(f.r, 'n');
-    await until('the answer', () => /answered · nothing was sent to any model · no charge \(FIXTURE: no model\) · receipt fixture1 · operation o[0-9a-f]{8}/.test(regionText(c, 'center')), 5000, f.text);
+    await until('the answer', () => /answered · nothing was sent to any model · no charge \(FIXTURE: no model\) · receipt sealed/.test(regionText(c, 'center')), 5000, f.text);
     expect(regionText(c, 'center')).toContain('Timmy: Hello from the FIXTURE session; the tool was denied.');
     expect(regionText(c, 'center')).toContain('You: hi there');
     expect(sent).toEqual(['hi there']);
     // R4 lead: through sendOnce, keyed by the operation the turn is recorded under (the one the center names)
-    const op = /operation (o[0-9a-f]{8})/.exec(regionText(c, 'center'))![1];
+    // (R10 H167: the operation's id is the details'; the turn records it)
+    const op = c.data.turn!.operation!;
+    expect(op).toMatch(/^o[0-9a-f]{8}$/);
     expect(keys).toEqual([`wb-${op}`]);
     // R4 lead: one route on every part of the Workbench: the top line and Settings say the session's own words
-    expect(regionText(c, 'top')).toContain('chat: FIXTURE route');
+    expect(f.lines()[0]).toContain('next turn: FAKE FIXTURE route');
   });
 
   it('without the producers: the Inspector and the composer say what they need; nothing is sent', async () => {

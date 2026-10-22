@@ -205,7 +205,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
       const fix = (await chatActions(c)).find((a) => a.primary);
       expect(fix).toMatchObject({ n: 2, label: 'Choose a free model (free-only stays on)', command: '/model free' });
       // the Ready line names the same one fix
-      expect(region(c, 'center')).toContain('Ready not ready: choose a free model (free-only stays on) (workflow action 2, row 2)');
+      expect(region(c, 'center')).toContain('Ready not ready: choose a free model (free-only stays on) (the next step above, Enter)');
       await c.runAction(fix);
       await until('the list', () => c.ui.overlay?.kind === 'free-models' && c.ui.overlay.state === 'listed');
       const listed = region(c, 'center');
@@ -265,7 +265,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     c.start();
     const fix = (await chatActions(c)).find((a) => a.primary);
     expect(fix).toMatchObject({ n: 2, label: 'Choose the local model (from what Ollama lists)', command: '/model' });
-    expect(region(c, 'center')).toContain('Ready not ready: choose the local model (from what Ollama lists) (workflow action 2, row 2)');
+    expect(region(c, 'center')).toContain('Ready not ready: choose the local model (from what Ollama lists) (the next step above, Enter)');
     await c.runAction(fix);
     await until('the list', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'listed');
     const listed = region(c, 'center');
@@ -375,7 +375,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     c.start();
     const fix = (await chatActions(c)).find((a) => a.primary);
     expect(fix).toMatchObject({ n: 2, label: 'Set up chat: an OpenRouter key (asked hidden) or a local model', command: 'timmy init --chat openrouter' });
-    expect(region(c, 'center')).toContain('Ready not ready: set up chat: an OpenRouter key (asked hidden) or a local model (workflow action 2, row 2)');
+    expect(region(c, 'center')).toContain('Ready not ready: set up chat: an OpenRouter key (asked hidden) or a local model (the next step above, Enter)');
     await c.runAction(fix);
     await until('the setup box', () => c.ui.overlay?.kind === 'setup');
     const text = region(c, 'center');
@@ -430,7 +430,8 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     await until('the cards', () => c.data.frame?.connections.find((x) => x.id === 'ollama'), 10_000, () => screen(c));
     expect(c.data.frame!.connections.find((x) => x.id === 'ollama')!.setup).toBe('timmy init --chat local --model <name>');
     c.ui.focus = 'center';
-    for (let i = 0; i < 12 && c.selected()?.key !== 'conn:ollama'; i++) c.key('', DOWN);
+    // R10 (H167): Home's list holds the project's recent work first, then the connections, a row each
+    for (let i = 0; i < 40 && c.selected()?.key !== 'conn:ollama'; i++) c.key('', DOWN);
     expect(c.selected()?.key).toBe('conn:ollama');
     await c.enter();
     await until('the setup box', () => c.ui.overlay?.kind === 'setup');

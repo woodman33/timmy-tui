@@ -189,7 +189,8 @@ describe('Enter never stops another surface\'s turn; one answer for being answer
     expect(region(c, 'top')).toMatch(/▸\[1 Send a message\]/);
     expect(region(c, 'top')).toMatch(/\[▶ 3 Stop the turn\]/);
     // what Enter does on the selected action, said under the bar: the composer opens; sending waits for the REPL's turn
-    expect(region(c, 'top')).toContain('1 Send a message · type in Chat, then Enter · Enter opens the composer: type now, sent once the turn in the REPL ends (one turn at a time per project)');
+    // (R10 H167: what Enter does, in words; the command is the details')
+    expect(region(c, 'top')).toContain('1 Send a message · Enter opens the composer: type now, sent once the turn in the REPL ends (one turn at a time per project)');
     c.key('\r', ENTER);
     expect(c.ui.input.field).toBe('composer');
     c.key('a question for later', {});
@@ -213,7 +214,8 @@ describe('Enter never stops another surface\'s turn; one answer for being answer
     c.key('', { rightArrow: true });
     c.key('', { rightArrow: true });
     expect(selectedAction(c).acts[selectedAction(c).at]).toMatchObject({ label: 'Stop the turn', doneIn: 'repl' });
-    expect(region(c, 'top')).toContain('3 Stop the turn · Ctrl+C in the REPL that sent it · done in the REPL, not here: Enter does not stop it; x asks you first');
+    // (R10 H167: where it is done first, then how it is done there)
+    expect(region(c, 'top')).toContain('3 Stop the turn · done in the REPL, not here: Enter does not stop it; x asks you first · Ctrl+C in the REPL that sent it');
     c.key('\r', ENTER);
     await sleep(300);
     expect(asked).toEqual([]);

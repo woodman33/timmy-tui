@@ -57,10 +57,10 @@ async function until<T>(what: string, get: () => T | undefined | false | null, m
   }
 }
 
-/** Home's preview (the body's right column) as drawn at 160x60, its rows joined. */
-function preview(c: Controller): string {
+/** A region of the frame as drawn at 160x60, its rows joined. */
+function area(c: Controller, name: 'center' | 'right'): string {
   const fr = c.frame(160, 60);
-  const rect = fr.regions.right!.rect;
+  const rect = fr.regions[name]!.rect;
   const text = screenText(fr.screen);
   const out: string[] = [];
   for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {
@@ -102,18 +102,18 @@ describe('Home\'s board follows a run (R6 H141; REMAINING-DEFECTS #31)', () => {
     });
     opened.push(c);
     c.start();
-    c.selectPage('home');
-    await until('Studio\'s cards read', () => c.data.studio.state === 'ready' && /Quick \(FAKE workflow, this test\) not run yet · 1 block: say/.test(preview(c)), 20_000, () => preview(c));
-    expect(preview(c)).toContain('Nothing has run in this project yet.');
+    // R10 (H167): Home's preview in words (its board, its last run) gave way to recent work and the selected item: Studio's
+    // cards are tab 4's list (the same reading of the project's records), and the run is an item of Home's recent work
+    c.selectPage('studio');
+    await until('Studio\'s cards read', () => c.data.studio.state === 'ready' && /Quick \(FAKE workflow, this test\) +not run yet · 1 block: say/.test(area(c, 'center')), 20_000, () => area(c, 'center'));
 
     // a run of it, through the REPL's own /run (FAKE upmd; the block prints a line)
     await ws.run('QUICK.md say');
-    await until('LAST RUN naming the run, ended', () => /LAST RUN ✓ j[0-9a-f]+ completed QUICK\.md › say/.test(preview(c)), 30_000, () => preview(c));
-    const job = /LAST RUN ✓ (j[0-9a-f]+) completed/.exec(preview(c))![1];
-    // the card follows (read again at the job's change, not at a slow reading): no "not run yet" beside LAST RUN's "completed"
-    await until('the card naming its newest run', () => /Quick \(FAKE workflow, this test\) newest run \([^)]*\) completed · 1 block: say/.test(preview(c)), 5000, () => preview(c));
-    const both = preview(c);
-    expect(both).not.toMatch(/Quick \(FAKE workflow, this test\) not run yet/);
-    expect(both).toContain(`LAST RUN ✓ ${job} completed QUICK.md › say`);
+    // the card follows (read again at the job's change, not at a slow reading): it names its newest run, never "not run yet"
+    await until('the card naming its newest run', () => /Quick \(FAKE workflow, this test\) +newest run \([^)]*\) completed · 1 block: say/.test(area(c, 'center')), 30_000, () => area(c, 'center'));
+    expect(area(c, 'center')).not.toMatch(/Quick \(FAKE workflow, this test\) +not run yet/);
+    // Home's recent work names the run as it ended
+    c.selectPage('home');
+    await until('the run in Home\'s recent work', () => /Quick \(FAKE workflow, this test\) › say +run · completed/.test(area(c, 'center')), 10_000, () => area(c, 'center'));
   }, 60_000);
 });

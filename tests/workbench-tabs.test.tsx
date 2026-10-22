@@ -160,10 +160,11 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
       await press(f.r, t.key);
       expect(c.ui.page, `the key ${t.key}`).toBe(t.id);
       expect(c.ui.workspace, `the key ${t.key}`).toBe(workspaceOfPage(t.id));
-      // row 1: the active tab in its heavy (amber) box, with its label from the frame; a waiting count may follow it
+      // R10 (H167): the header's tabs row: the active tab bracketed (amber), with its label from the frame (its first word at
+      // 160 columns); one active tab
       const label = c.data.frame!.tabs.find((x) => x.id === t.id)!.label;
-      expect(f.lines()[1], `row 1 with ${t.key} active`).toMatch(new RegExp(`┃\\s*${t.key} ${escape(label)}(?: ⚠\\d+)?\\s*┃`));
-      expect(f.lines()[1].match(/┃/g) ?? [], 'one heavy box on row 1').toHaveLength(2);
+      expect(f.lines()[1], `row 2 with ${t.key} active`).toMatch(new RegExp(`\\[${t.key} (?:${escape(label)}|${escape(label.split(/\s+/)[0])})\\]`));
+      expect(f.lines()[1].match(/\[/g) ?? [], 'one active tab').toHaveLength(1);
     }
     // the same key again: the tab's next workspace, then back to its first
     await press(f.r, '6');
@@ -325,14 +326,24 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
     const f = c.frame(160, 70);
     const left = regionRows(f, 'center');
     const MARK: Record<ConnectionState, string> = { live: '● live', configured: '○ configured', 'not set up': '· not set up', unreachable: '✕ unreachable', refused: '✕ refused', unknown: '? unknown' };
+    // R10 (H167): Home lists the connections under its recent work, a row each (its name, its mark and word); the selected
+    // one's words are in the column beside (its address and step in the details, [i])
     for (const conn of frame.connections) {
-      const top = left.findIndex((l) => l.includes(` ${conn.label.slice(0, 12)}`) && l.includes(` ${MARK[conn.state]} `));
-      expect(top, `${conn.label}'s card with ${MARK[conn.state]}`).toBeGreaterThanOrEqual(0);
-      // its words on the card's first row (cut with an ellipsis where they do not fit)
-      expect(left[top + 1], `${conn.label}'s words`).toContain(conn.words.slice(0, 16));
-      // a card that is not live says its step (or its detail), never "live"
-      if (conn.state !== 'live') expect(left.slice(top, top + 4).join(' ')).not.toMatch(/● live/);
+      const name = ({ openrouter: 'OpenRouter', ollama: 'Ollama', companion: 'Companion', studio: 'Studio', cloudflare: 'Cloudflare' } as Record<string, string>)[conn.id] ?? conn.label.replace(/\s*\(.*\)$/, '').slice(0, 10);
+      const row = left.findIndex((l) => l.includes(` ${name}`) && l.includes(` ${MARK[conn.state]}`));
+      expect(row, `${conn.label}'s row with ${MARK[conn.state]}`).toBeGreaterThanOrEqual(0);
+      if (conn.state !== 'live') expect(left[row]).not.toMatch(/● live/);
+      // selected, its words (the frame's) in the column beside
+      const items = f.regions.center!.items;
+      const at = items.findIndex((x) => x.item.key === `conn:${conn.id}`);
+      c.ui.cursor['center:connections'] = at;
+      c.ui.sel['center:connections'] = `conn:${conn.id}`;
+      const side = regionRows(c.frame(160, 70), 'right').join(' ').replace(/\s+/g, ' ');
+      expect(side, `${conn.label}'s words`).toContain(conn.words.split(/\s+/).slice(0, 2).join(' '));
+      expect(side).toContain(`CONNECTION · ${MARK[conn.state]}`);
     }
+    c.ui.cursor['center:connections'] = 0;
+    delete c.ui.sel['center:connections'];
     // green (role live) only on the live card's mark; the failures amber (role failure) with ✕ and their word
     const all = cells(f);
     const green = all.filter((s) => s.role === 'live' && s.text.trim());
@@ -380,10 +391,11 @@ describe('the terminal Workbench\'s tabs and workflow actions, from the shared w
         const rows = screenText(f.screen);
         expect(rows, `${t.label} at ${w}x${h}`).toHaveLength(h);
         for (const [y, row] of rows.entries()) expect(visibleWidth(row), `${t.label} at ${w}x${h}, row ${y + 1}`).toBe(w);
-        // row 1: three rows of boxes from 30 rows; TIMMY and the project on its middle row
-        expect(rows[1], `row 1 of ${t.label} at ${w}x${h}`).toContain(`TIMMY · ${p.name}`);
+        // R10 (H167): the header, two rows from 30 rows: TIMMY and the project on its first, the tabs on its second (the active
+        // one bracketed: its label, its first word, or its key with its name at the row's end)
+        expect(rows[0], `row 1 of ${t.label} at ${w}x${h}`).toContain(`TIMMY · ${p.name}`);
         const label = t.label;
-        expect(rows.slice(0, 3).join('\n'), `the active tab at ${w}x${h}`).toMatch(new RegExp(`┃\\s*${t.key}(?: ${escape(label)}| ${escape(label.split(/\s+/)[0])})?(?: ⚠\\d+)?\\s*┃`));
+        expect(rows[1], `the active tab at ${w}x${h}`).toMatch(new RegExp(`\\[${t.key}(?: ${escape(label)}| ${escape(label.split(/\s+/)[0])})?\\]`));
         expect(rows.join('\n'), `Workflow actions at ${w}x${h}`).toContain('Workflow actions');
         expect(rows.join('\n'), `Activity & log at ${w}x${h}`).toContain('Activity & log');
       }
