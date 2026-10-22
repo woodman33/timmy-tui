@@ -115,8 +115,8 @@ describe('the companion\'s chat under free-only: refused in the policy\'s words 
   it('free-only on and the page\'s model free by the catalog: Send goes, and the label and words say free-only passed', async () => {
     catalog({ prompt: '0', completion: '0' });
     const r = await route();
-    expect(r).toMatchObject({ kind: 'openrouter', ready: true, freeOnly: true, label: `${OPENROUTER_MODEL} · OpenRouter · free-only: free` });
-    expect(String(r.words)).toBe(`Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in the environment). Free-only is on, and this model is free: free (OpenRouter catalog of 2026-10-15) · 131k context · tools.`);
+    expect(r).toMatchObject({ kind: 'openrouter', ready: true, freeOnly: true, label: `${OPENROUTER_MODEL} · OpenRouter · this page's own chat · free-only: free` });
+    expect(String(r.words)).toBe(`This page's own chat, not the project's conversation (the Workbench's and the REPL's): no tools, no receipt. Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in the environment). Free-only is on, and this model is free: free (OpenRouter catalog of 2026-10-15) · 131k context · tools.`);
     const events = await chat('FAKE: a free message');
     expect(events.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE free answer');
     expect(posted).toHaveLength(1);
@@ -128,7 +128,7 @@ describe('the companion\'s chat under free-only: refused in the policy\'s words 
     env.TIMMY_CHAT_FREE_ONLY = '0';
     try {
       const r = await route();
-      expect(r).toMatchObject({ kind: 'openrouter', ready: true, freeOnly: false, label: `${OPENROUTER_MODEL} · OpenRouter · each message spends credits`, price: '$3 in / $15 out per 1M tokens (OpenRouter catalog of 2026-10-15) · 131k context · tools' });
+      expect(r).toMatchObject({ kind: 'openrouter', ready: true, freeOnly: false, label: `${OPENROUTER_MODEL} · OpenRouter · this page's own chat · each message spends credits`, price: '$3 in / $15 out per 1M tokens (OpenRouter catalog of 2026-10-15) · 131k context · tools' });
       expect(String(r.words)).toContain('each message spends its credits. Its price: $3 in / $15 out per 1M tokens');
     } finally { env.TIMMY_CHAT_FREE_ONLY = '1'; }
   });
