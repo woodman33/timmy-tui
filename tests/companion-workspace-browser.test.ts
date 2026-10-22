@@ -305,6 +305,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
       }
       // typing in a text field: the digits are the field's
       await page.keyboard.press('3');
+      // (R10 H167: the Operation id box is behind its Details control)
+      await page.click('#run-by-id > summary');
       await page.focus('#run-op');
       await page.keyboard.type('12');
       expect(await shown(page)).toMatchObject({ selected: ['workflows'], visible: ['workflows'] });
@@ -425,8 +427,9 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const f = await frameNow();
     const { page, context } = await open();
     try {
-      // the first box of each column (the right column is a stack of boxes)
-      const cols = await page.$$eval('#ws-home .cols-home > .box, #ws-home .cols-home > .col-stack > .box:first-child', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; }));
+      // the first box of each column (R10 H167: both columns are stacks of boxes: recent work over the connections; the
+      // selected item's preview over the newest images and the start-up settings)
+      const cols = await page.$$eval('#ws-home .cols-home > .col-stack > .box:first-child', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; }));
       expect(cols).toHaveLength(2);
       expect(cols[1][0]).toBeGreaterThan(cols[0][0]);
       expect(cols[1][1]).toBe(cols[0][1]);
@@ -512,7 +515,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     try {
       await openTab(page, 'chat');
       const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
-      expect(await btn.textContent()).toMatch(/^3\.Stop the turnfrom this page, or Esc in the composer that sent it \(the Workbench\)$/);
+      // (R10 H167: where its own key is, in words beside the label, not a command chip)
+      expect(await btn.textContent()).toMatch(/^3\.Stop the turn· from this page, or Esc in the composer that sent it \(the Workbench\)$/);
       expect(await btn.getAttribute('class')).toContain('is-primary');
       await page.waitForSelector(`#console-logs [data-mirror="frame-running"] [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
       await openTab(page, 'control');

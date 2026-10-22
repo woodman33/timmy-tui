@@ -87,11 +87,16 @@
       ? body.panes.map((p) => pane(h, p))
       : h('li', { class: 'empty', 'data-control-empty': 'panes' }, 'No job has run in this project yet, and no chat turn is being answered: a run is drawn here as a pane once it starts.'));
     if (keep) { const back = S.root.querySelector(`.control-pane[data-pane="${CSS.escape(keep)}"]`); if (back) back.focus({ preventScroll: true }); }
-    requestAnimationFrame(fitLogs);
     put(q('foot'),
       body.more > 0 ? h('p', { class: 'control-more', 'data-control': 'more' }, `${body.more} more running, not drawn here (four panes at most); the Workbench’s tab 7 (timmy workbench, key 7) shows every running pane`) : null,
       (body.notes || []).map((n) => h('p', { class: 'control-note tone-failed' }, `✕ ${n}`)),
       h('p', { class: 'control-note', 'data-control': 'read-only' }, 'Read-only: nothing here starts, stops or changes a run; a pane with a run opens its run detail.'));
+    // R10 (H167, with the lead's CI reading at 0394cd6: a read between a redraw and the next frame counted lines not fitted
+    // yet): the logs fitted now, as drawn, so no state of the page has a log's lines unfitted (getBoundingClientRect lays the
+    // page out first); again in the next frame and whenever a log's box changes size (a font that loads, the window resized)
+    fitLogs();
+    requestAnimationFrame(fitLogs);
+    watchLogs();
   }
 
   function pane(h, p) {
@@ -112,17 +117,19 @@
       h('p', { class: 'control-pane-head' },
         h('span', { class: `control-pane-state${failed ? ' tone-failed' : ''}`, 'data-pane-part': 'state' }, `${p.state ? p.state.glyph : '?'} ${p.state ? p.state.word : 'unknown'}`),
         h('span', { class: 'control-pane-name', 'data-pane-part': 'name', title: p.name }, p.name)),
-      h('p', { class: 'control-pane-who is-one', 'data-pane-part': 'who', title: who }, who),
+      // (R10 H167: how often its log is read, at the end of this row, so the pane's log keeps room with 13 px text)
+      h('p', { class: 'control-pane-who is-one', 'data-pane-part': 'who', title: p.every ? `${who} · log read every ${seconds(p.every)}` : who }, who,
+        p.every ? [' · ', h('span', { 'data-pane-part': 'every' }, `log read every ${seconds(p.every)}`)] : null),
       p.recovery ? h('p', { class: 'control-pane-who', 'data-pane-part': 'recovery' }, p.recovery) : null,
       p.proof ? h('p', { class: 'control-pane-who' }, p.proof) : null,
       lines && lines.length
         ? h('div', { class: 'control-log', 'data-pane-part': 'log' }, lines.map((l) => h('span', { class: 'control-line', title: l }, l)))
         : h('div', { class: 'control-log', 'data-pane-part': 'log' }, h('span', { class: 'control-log-why', 'data-pane-part': 'log-why' }, lines ? (p.quiet ? 'it printed nothing' : 'nothing printed yet') : tail.why)),
-      p.every ? h('p', { class: 'control-pane-foot', 'data-pane-part': 'every' }, `log read every ${seconds(p.every)}`) : null,
-      p.quiet ? h('p', { class: 'control-pane-foot' },
+      p.quiet ? h('p', { class: 'control-pane-foot is-one', title: `${p.exit || 'exit not recorded'} · ${p.receipt ? p.receipt.words : 'no receipt'}` },
         h('span', { 'data-pane-part': 'exit' }, p.exit || 'exit not recorded'), ' · ',
         receipt(h, p.receipt)) : null,
-      p.stop ? h('p', { class: 'control-pane-stop', 'data-pane-part': 'stop' }, p.stop.command ? `${p.stop.words} · in Timmy’s terminal: ${p.stop.command}` : p.stop.words) : null,
+      // (R10 H167: one row each, the whole words in its tip, so a pane's log keeps room for its newest lines with 13 px text)
+      p.stop ? h('p', { class: 'control-pane-stop is-one', 'data-pane-part': 'stop', title: p.stop.command ? `${p.stop.words} · in Timmy’s terminal: ${p.stop.command}` : p.stop.words }, p.stop.command ? `${p.stop.words} · in Timmy’s terminal: ${p.stop.command}` : p.stop.words) : null,
       h('p', { class: `control-pane-open is-one${opens ? ' is-link' : ''}`, 'data-pane-part': 'open', title: detail }, detail));
   }
 
@@ -138,7 +145,19 @@
     }
   }
   let fitting = 0;
-  window.addEventListener('resize', () => { if (!fitting) fitting = requestAnimationFrame(() => { fitting = 0; fitLogs(); }); });
+  const refit = () => { if (!fitting) fitting = requestAnimationFrame(() => { fitting = 0; fitLogs(); }); };
+  window.addEventListener('resize', refit);
+  // R10 (H167): a pane's log is fitted again whenever its box changes size, not only when the window does: the page's other
+  // boxes settle after a draw, and a web font that loads after it changes how its words wrap, so the box can be shorter
+  // than when its lines were first fitted (a line would be cut at its top edge)
+  // (its callback runs after layout and before paint, so the lines are fitted in the same frame the box changed in)
+  const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => fitLogs()) : null;
+  /** Each pane's log, watched for its size (the logs drawn now; the ones drawn before are let go). */
+  function watchLogs() {
+    if (!sized || !S.root) return;
+    sized.disconnect();
+    for (const log of S.root.querySelectorAll('.control-log')) sized.observe(log);
+  }
 
   /** a receipt: green only when the server verified it in this reading; amber with ✕ when it does not verify; else quiet */
   function receipt(h, r) {

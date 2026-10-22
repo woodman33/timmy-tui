@@ -374,9 +374,11 @@ function App() {
       : route.kind === 'openrouter'
         ? ['Send a message to stream ', MODEL, route.freeOnly ? ' through Streamdown (through OpenRouter, with this computer’s key; free-only is on, and this model is free),' : ' through Streamdown (through OpenRouter, with this computer’s key: each message spends its credits),', h('br', { key: 'b' }), 'or press ✨ Try it to stream this page’s own sample (no model is asked).']
         : ['Send is off here (why: under the messages).', h('br', { key: 'b' }), '✨ Try it streams this page’s own sample (no model is asked).'];
-  const placeholder = !route ? 'Asking the companion which route the chat takes…'
-    : route.kind === 'local' ? 'Message ' + route.model + ' … (Ollama, no tools here)'
-      : route.kind === 'openrouter' ? 'Message ' + MODEL + (route.freeOnly ? ' … (streams back as SSE; free-only: free)' : ' … (streams back as SSE; spends credits)')
+  // R10 (H167; H164's scope, the lead's call (b)): the box says whose chat this is: this page's own, not the project's
+  // conversation (no tools, no receipt), and what a message costs, in words
+  const placeholder = !route ? 'Asking the companion which route this page’s own chat takes…'
+    : route.kind === 'local' ? 'Message ' + route.model + ' here: this page’s own chat (no tools, no receipt)'
+      : route.kind === 'openrouter' ? 'Message ' + MODEL + ' here: this page’s own chat' + (route.freeOnly ? ' (free-only: free)' : ' (each message spends credits)')
         : 'Send is off: see why above';
 
   return h('div', { className: 'sd-app' },
@@ -413,6 +415,8 @@ function App() {
 
     // R4 (H104, second part): why Send is off, and where chat happens, when the chat has no route here
     route && !route.ready ? h('div', { className: 'sd-route-off', id: 'sd-route-off', role: 'status' }, route.words) : null,
+    // R10 (H167): with a route, whose chat this is (H164's route.scope.words), beside the box it is typed in
+    route && route.ready && route.scope && route.scope.words ? h('div', { className: 'sd-scope', id: 'sd-scope' }, route.scope.words) : null,
 
     // Input bar
     h('div', { className: 'sd-input-bar' },

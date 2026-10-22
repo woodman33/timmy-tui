@@ -47,12 +47,23 @@
   const GREYS = Array.from({ length: SHADES }, (_, s) => { const v = Math.round(46 + (s / (SHADES - 1)) * 186); return `rgb(${v}, ${v}, ${v})`; });
 
   // R9 (H159; H160's ask): the mesh an address names (…?mesh=<its path as lowercase hex of its UTF-8 bytes>, or in the #hash),
-  // as the Workbench's c gives it: chosen on the first list when the list names it
-  const HINT = (() => { try { const m = /[?#&]mesh=((?:[0-9a-f]{2}){1,1024})(?:[&#]|$)/.exec(`${location.search}${location.hash}`); return m ? new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(m[1].match(/../g).map((x) => parseInt(x, 16)))) : ''; } catch (e) { return ''; } })();
+  // as the Workbench's c gives it: chosen on the first list when the list names it. R10 (H167; H164's openTarget, the R9
+  // review's F5 and F6): a recording the same way (recording=<its path as hex>), and Home's "Open it in 3D & Motion" (the
+  // page's timmy:create-show); when the list does not name what was asked, the tab says so, in words (H164's
+  // GET /api/journey/open: what was asked, why it is not shown and what is shown instead), never silently another
+  const hexParam = (name) => { try { const m = new RegExp(`[?#&]${name}=((?:[0-9a-f]{2}){1,1024})(?:[&#]|$)`).exec(`${location.search}${location.hash}`); return m ? new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(m[1].match(/../g).map((x) => parseInt(x, 16)))) : ''; } catch (e) { return ''; } };
+  const HINT = hexParam('mesh');
+  const HINT_REC = hexParam('recording');
+  // what the address asked of this tab, as a query for the companion (its tab, mesh and recording only: never the token)
+  const ASKED = (() => { try { return `${location.search.replace(/^\?/, '')}&${location.hash.replace(/^#/, '')}`.split('&').filter((x) => /^(?:tab|mesh|recording)=/.test(x)).join('&'); } catch (e) { return ''; } })();
+  /** words with each project path said by its file's name (a notice says what, in words; the list shows the paths) */
+  const names = (t) => String(t || '').replace(/(?:[\w.~-]+\/)+([\w.-]+)/g, '$1');
 
   const S = {
     project: null, root: null, ctx: null, revision: null, listAt: 0, list: null, listSig: '', asking: null,
     sel: '', mesh: null, meshAsk: 0, view: null, drag: null, frame: 0, observer: null, again: 0,
+    // R10 (H167): the recording chosen (by an address or Home), the mesh Home asked for, and the tab's notice about what was asked
+    rec: HINT_REC, wantMesh: '', notice: '', noticeAsked: false,
   };
 
   const q = (name) => (S.root ? S.root.querySelector(`[data-create="${name}"]`) : null);
@@ -83,6 +94,7 @@
     const key = (k, label, words) => h('button', { type: 'button', class: 'btn-action tiny create-key', 'data-create-key': k, 'aria-keyshortcuts': k === '+' ? 'Plus' : k === '-' ? 'Minus' : k.toUpperCase(), title: words }, label);
     const root = h('div', { class: 'create-cols', 'data-create': 'root' },
       h('div', { class: 'col-stack create-left' },
+        h('p', { class: 'create-notice', 'data-create': 'notice', role: 'status', hidden: true }),
         box('Meshes in this project', 'meshes', 'create-meshes-box'),
         box('Recordings Timmy can read (.rrd)', 'recordings', 'create-recordings-box')),
       h('div', { class: 'col-stack create-centre' },
@@ -146,8 +158,11 @@
       if (sig === S.listSig && !first) return;
       S.listSig = sig;
       const paths = body.meshes.map((m) => m.path);
-      if (!S.sel || !paths.includes(S.sel)) S.sel = first && HINT && paths.includes(HINT) ? HINT : (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
+      const asked = S.wantMesh || (first ? HINT : '');
+      if (asked && paths.includes(asked)) { S.sel = asked; S.wantMesh = ''; }
+      else if (!S.sel || !paths.includes(S.sel)) S.sel = (body.meshes.find((m) => m.readback) || body.meshes[0] || { path: '' }).path;
       drawList(); drawRecordings(); drawMeasure();
+      if (first) void askNotice();
       const row = body.meshes.find((m) => m.path === S.sel);
       const want = row && row.readback ? row.readback.sha256 : '';
       if (!S.mesh || S.mesh.path !== S.sel || S.mesh.sha !== want) await loadMesh(row);
@@ -180,6 +195,24 @@
   }
   const markList = () => { if (S.root) for (const b of S.root.querySelectorAll('.create-mesh')) b.setAttribute('aria-current', b.dataset.createMesh === S.sel ? 'true' : 'false'); };
 
+  // R10 (H167; the R9 review's F6): what the address asked of this tab and what is shown for it, in words, when they differ
+  async function askNotice() {
+    if (S.noticeAsked || !/(?:^|&)(?:mesh|recording)=/.test(ASKED)) return;
+    S.noticeAsked = true;
+    try {
+      const r = await S.ctx.fetch(`/api/journey/open?${ASKED}${S.project ? `&project=${encodeURIComponent(S.project)}` : ''}`);
+      const b = await r.json().catch(() => null);
+      S.notice = b && b.ok && b.notice ? names(b.notice) : '';
+    } catch (e) { S.notice = ''; }
+    drawNotice();
+  }
+  function drawNotice() {
+    const el = q('notice');
+    if (!el) return;
+    el.textContent = S.notice || '';
+    el.hidden = !S.notice;
+  }
+
   function drawRecordings() {
     const h = S.ctx.h;
     const L = S.list;
@@ -194,10 +227,10 @@
     }
     put(q('recordings'), L.recordings.map((r) => {
       const f = r.facts;
-      if (!f) return h('div', { class: 'create-rec', 'data-create-recording': r.path }, h('p', { class: 'create-rec-path' }, r.path), h('p', { class: 'create-note' }, `${bytesWords(r.bytes)} · not read: ${r.why || 'unknown'}`),
+      if (!f) return h('div', { class: `create-rec${r.path === S.rec ? ' is-chosen' : ''}`, 'data-create-recording': r.path, 'aria-current': r.path === S.rec ? 'true' : null }, h('p', { class: 'create-rec-path' }, r.path), h('p', { class: 'create-note' }, `${bytesWords(r.bytes)} · not read: ${r.why || 'unknown'}`),
         r.cli ? h('dl', null, cliRows(h, r.cli)) : null);
       const stores = f.stores.map((s) => [s.kind, s.application ? `application ${s.application}` : '', s.recording ? `recording ${s.recording}` : ''].filter(Boolean).join(' · ')).join('; ');
-      return h('div', { class: 'create-rec', 'data-create-recording': r.path },
+      return h('div', { class: `create-rec${r.path === S.rec ? ' is-chosen' : ''}`, 'data-create-recording': r.path, 'aria-current': r.path === S.rec ? 'true' : null },
         h('p', { class: 'create-rec-path' }, r.path),
         h('dl', null,
           h('dt', null, 'header (read by Timmy from the file)'), h('dd', { 'data-rec': 'header' }, `written by ${f.writer} · compression ${f.compression} · ${f.serializer} · ${bytesWords(f.bytes)}`),
@@ -516,6 +549,17 @@
     zoomBy(Math.exp(-Math.max(-400, Math.min(400, event.deltaY)) * 0.0015));
   }
 
+  // R10 (H167): Home's "Open it in 3D & Motion" names the mesh or the recording (companion.js openWork): chosen here as an
+  // address would choose it, now if the list names it, else when the list is next read
+  document.addEventListener('timmy:create-show', (e) => {
+    const d = (e && e.detail) || {};
+    if (d.mesh) {
+      const row = S.list && S.list.meshes.find((m) => m.path === d.mesh);
+      if (row) { S.sel = d.mesh; S.wantMesh = ''; markList(); drawMeasure(); void loadMesh(row); markMore(); } else S.wantMesh = d.mesh;
+    }
+    if (d.recording) { S.rec = d.recording; if (S.list) { drawRecordings(); S.root?.querySelector('.create-rec.is-chosen')?.scrollIntoView({ block: 'nearest' }); } }
+  });
+
   TimmyPanels.register('create', {
     draw(host, frame, ctx) {
       S.ctx = ctx;
@@ -529,6 +573,7 @@
         S.root = skeleton(ctx.h);
         put(host, S.root);
         describeView();
+        drawNotice();
       }
       const now = Date.now();
       const rev = frame && frame.revision;

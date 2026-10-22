@@ -133,10 +133,12 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
         ['surface-turn', 'companion', '◇ Companion turn · ended'],
       ]);
       const ids = sealed.map((r) => r.hash.slice(7, 15));
-      expect(rows[0].text).toContain(`A chat turn in the REPL (timmy) ended (0 steps); Timmy sealed it as receipt ${ids[0]}.`);
-      expect(rows[1].text).toContain(`A chat turn in the Workbench (timmy workbench) ended (0 steps); Timmy sealed it as receipt ${ids[1]}, in this project's one conversation. Its words are in the Workbench's Chat: Timmy seals a turn's prompt and answer as hashes only`);
-      expect(rows[2].text).toContain(`A chat turn in the monitor (timmy watch) ended (0 steps); Timmy sealed it as receipt ${ids[2]}`);
-      expect(rows[3].text).toContain(`A chat turn in a companion page ended (0 steps); Timmy sealed it as receipt ${ids[3]}`);
+      // (R10 H167, H168's F3 on the page: each surface by its name, its receipt's id behind the row's Details)
+      expect(rows[0].text).toContain('A chat turn in the REPL ended (0 steps); Timmy sealed its receipt.');
+      expect(rows[1].text).toContain('A chat turn in the Workbench ended (0 steps); Timmy sealed its receipt, in this project\'s one conversation. Its words are in the Workbench\'s Chat: Timmy seals a turn\'s prompt and answer as hashes only');
+      expect(rows[2].text).toContain('A chat turn in the monitor ended (0 steps); Timmy sealed its receipt');
+      expect(rows[3].text).toContain('A chat turn in a companion page ended (0 steps); Timmy sealed its receipt');
+      expect(await page.$$eval('#console-logs .log-msg .mirror-more', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(ids.map((id) => `Details receipt ${id}`));
       const mirror = (await page.textContent('#console-logs'))!;
       expect(mirror).not.toMatch(/SYNTHETIC (question|answer)/);
       // a reconnect's tail, or the same seal read again, adds no row

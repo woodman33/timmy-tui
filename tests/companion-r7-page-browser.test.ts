@@ -77,8 +77,9 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
           drawn: (e.querySelector('img') as HTMLImageElement | null)?.naturalWidth ?? 0,
         })));
         expect(shown).toEqual([
-          { kind: 'run', tag: 'figure', newer: '1', words: `run ${p.op} · out/shot.png · 640 × 360`, note: 'the newest run that holds an image: 1 newer run holds none', open: p.op, drawn: 640 },
-          { kind: 'vox', tag: 'figure', newer: '1', words: 'VoxVision vfa4e0b17 · detect · refs/newest.png', note: 'the newest record with an image: 1 newer record observed none it can show', open: 'vfa4e0b17', drawn: 640 },
+          // (R10 H167, H168's F3 on the page: in words, each file by its name; the run's and the record's ids are their Open's)
+          { kind: 'run', tag: 'figure', newer: '1', words: 'run · shot.png · 640 × 360', note: 'the newest run that holds an image: 1 newer run holds none', open: p.op, drawn: 640 },
+          { kind: 'vox', tag: 'figure', newer: '1', words: 'VoxVision · detect · newest.png', note: 'the newest record with an image: 1 newer record observed none it can show', open: 'vfa4e0b17', drawn: 640 },
         ]);
         // its Open opens that run (not the newest) in Workflows
         await page.click(`${figs} [data-open-run="${p.op}"]`);
@@ -127,7 +128,10 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
         await page.goto(`${p.origin}/?tab=workflows&run=${p.op}#t=${p.token}`);
         await page.waitForSelector(`#run-detail .run-view[data-operation="${p.op}"][data-inspected="true"]`, { timeout: 30_000 });
         expect(await page.getAttribute('#ws-tabs [data-ws-tab="workflows"]', 'aria-selected')).toBe('true');
-        // and the Operation id box opens a run once the page has its token
+        // and the Operation id box opens a run once the page has its token (R10 H167: behind its Details control, opened as a
+        // person opens it)
+        expect(await page.$eval('#run-by-id', (d) => (d as HTMLDetailsElement).open)).toBe(false);
+        await page.click('#run-by-id > summary');
         await page.fill('#run-op', p.op);
         await page.click('#run-open');
         await page.waitForSelector(`#run-detail .run-view[data-operation="${p.op}"]`, { timeout: 30_000 });
