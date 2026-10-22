@@ -52,7 +52,8 @@ const rangeNote = (scroll: number, height: number, total: number): string | unde
 
 /** R5 (H131): the body's title: the project and the workspace (Home: its hub), as the crumb "project / workspace" was. */
 export function bodyTitle(ui: Ui, data: Data): string {
-  if (ui.page === 'home' && ui.workspace === 'connections') return `${data.project.name} · recent work`;
+  // R10 (H167): Home is the project's recent work now (the connections a row each under it), in the crumb every tab's title has
+  if (ui.page === 'home' && ui.workspace === 'connections') return `${data.project.name} / Home · recent work`;
   return `${data.project.name} / ${navItem(ui.workspace).title}`;
 }
 

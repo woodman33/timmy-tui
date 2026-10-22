@@ -193,7 +193,7 @@ describe('Home\'s recent work (R10 H167): H164\'s recentWork, as Home draws it',
     expect(side).toMatch(/Receipt ✓ sealed and verified/);
     expect(side).toMatch(/\[Enter\] opens its progress, result and receipt in 3 Workflows/);
     expect(side).toMatch(/\[c\] the companion: its source, changes, outputs and receipts, drawn/);
-    expect(side).toMatch(/PROJECT 7 files · 1 workflow document · 1 run/);
+    expect(side).toMatch(/PROJECT 7 files · 1 workflow document · 1 job/);
     expect(side).not.toMatch(/f7a8f9c4|o92079bb4|j5c4706/);
     const seal = homeSideView(ctx(d, run, 50)).lines.flat().find((s) => s.text.includes('sealed and verified'));
     expect(seal?.role).toBe('live');
@@ -256,5 +256,10 @@ describe('plain words (R10 H167): ids and hashes said by what they name', () => 
     expect(plainWords('sealed fb72a565 · verified here', d)).toBe('sealed · verified here');
     expect(plainWords('/run LONG.md wait', d)).toBe('run LONG.md › wait');
     expect(plainWords('done · operation o92079bb4', d)).toBe('done');
+    // the REPL's end lines (src/repl/end-lines.ts): the operation after the word and the /op at the end are the details'
+    expect(plainWords('  ✓ j5c4706 completed  operation o92079bb4 · REPORT.md › report · 1 of 1 steps · 0.2 s · prediction met · receipt f7a8f9c4 · /op o92079bb4', d))
+      .toBe('✓ REPORT.md › report completed · 1 of 1 steps · 0.2 s · prediction met · receipt sealed');
+    expect(plainWords('  ✕ j5c4706 failed  operation o92079bb4 · REPORT.md › report: exit 2 · /jobs j5c4706 shows its output · /op o92079bb4', d))
+      .toBe('✕ REPORT.md › report failed · REPORT.md › report: exit 2 · 0 Logs shows its output');
   });
 });

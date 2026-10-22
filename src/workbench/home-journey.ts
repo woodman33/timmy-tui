@@ -168,11 +168,13 @@ export function headerRows(data: Data, page: TabId, width: number, g: Glyphs): {
   let form = forms[forms.length - 1];
   let gap = 1;
   let withLegend = false;
-  // the fullest labels that fit come first; the legend is said where it fits beside them
-  choose: for (const f of forms) {
-    for (const want of legend ? [true, false] : [false]) {
+  // the legend first (R7 H150, the operator's order of 2026-10-16: a mark and a word), then the fullest labels that fit beside
+  // it; without it only where not even the keys leave it room
+  choose: for (const want of legend ? [true, false] : [false]) {
+    for (const f of forms) {
       const used = tabs.reduce((n, t) => n + cellOf(t, f.label), 0) + (f.slot ? Math.min(slotW, 16) + 2 : 0) + (want ? lineCells([S(legend)]) + 2 : 0);
-      for (const gp of [2, 1]) if (used + gp * (tabs.length - 1) <= width) { form = f; gap = gp; withLegend = want; break choose; }
+      // (a gap of 0 too: every cell ends in its mark's cell, a space where nothing is marked, as the boxed row's labels did)
+      for (const gp of [2, 1, 0]) if (used + gp * (tabs.length - 1) <= width) { form = f; gap = gp; withLegend = want; break choose; }
     }
   }
   const row: Line = [];
@@ -393,7 +395,7 @@ export function homeWorkView(c: JourneyCtx): View {
   const focused = c.ui.focus === 'center';
   if (!work.length) {
     lines.push([S('  Nothing here yet', 'strong')]);
-    lines.push(...wrapSegs([S('  This project has no run, chat turn or result. '), S('Enter', 'action'), S(' on the next step above types your first message; '), S('3', 'action'), S(' Workflows runs a block; '), S('n', 'action'), S(' starts a project from a starter.')], Math.max(10, c.width), '  '));
+    lines.push(...wrapSegs([S('  No workflow run, chat turn or result is recorded in this project yet. '), S('Enter', 'action'), S(' on the next step above types your first message; '), S('3', 'action'), S(' Workflows runs a block; '), S('n', 'action'), S(' starts a project from a starter.')], Math.max(10, c.width), '  '));
   }
   work.forEach((w, i) => {
     items.push({ line: lines.length, item: workItem(w) });
@@ -481,7 +483,9 @@ export function homeSideView(c: JourneyCtx, step?: (conn: WorkspaceConnection) =
   lines.push(blank, heading('Project'));
   const files = data.files.total - (data.files.timmyLogs ?? 0);
   const docs = data.workflows.docs.length;
-  lines.push(...wrapSegs([S(`${count(files, 'file')}${sep}${count(docs, 'workflow document')}${sep}${count(data.jobs.length, 'run')}`, 'text')], width, '  '));
+  // (its jobs, as the Control Room lists them: a job no operation record names, such as another session's task, is not in the
+  // recent work above, which lists the runs the operation records name)
+  lines.push(...wrapSegs([S(`${count(files, 'file')}${sep}${count(docs, 'workflow document')}${sep}${count(data.jobs.length, 'job')}`, 'text')], width, '  '));
   // R5 (H131; the QA round's defect 24): Timmy's own logs (logs/*.log, written where it runs) are not the project's files
   if (data.files.timmyLogs) lines.push(...wrapSegs([S(`not counted: ${count(data.files.timmyLogs, 'log')} Timmy writes itself (logs/*.log)`, 'secondary')], width, '  '));
   return { lines, items: [] };

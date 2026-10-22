@@ -135,14 +135,19 @@ describe('`timmy workbench` in a terminal: tab 7 Control Room\'s panes as a 2×2
       '',
     ].join('\n'));
     session = spawn(process.execPath, ['--import', LOADER, helper, join(timmyHome, 'jobs'), trayRoot, 'tray1', ids, join(box, 'release'), talkScript], { cwd: repo, env, stdio: 'ignore' });
-    for (const end = Date.now() + 30_000; !existsSync(ids) && Date.now() < end;) await sleep(100);
-    expect(existsSync(ids), 'the FAKE session\'s four jobs started').toBe(true);
-    const job = JSON.parse(readFileSync(ids, 'utf8')) as { a: string; b: string; talk: string; nap: string };
+    // (R10 H167: read once whole: the session's writeFileSync makes the file before its bytes are in it, and a read between the
+    // two found it empty under load)
+    const written = (): { a: string; b: string; talk: string; nap: string } | null => {
+      try { return JSON.parse(readFileSync(ids, 'utf8')) as { a: string; b: string; talk: string; nap: string }; } catch { return null; }
+    };
+    for (const end = Date.now() + 30_000; !written() && Date.now() < end;) await sleep(100);
+    expect(existsSync(ids) && written() !== null, 'the FAKE session\'s four jobs started').toBe(true);
+    const job = written()!;
 
     const t = terminal('wbGrid');
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · connections, as observed[\s\S]*Activity & log/.test(s));
+    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · recent work[\s\S]*Activity & log/.test(s));
     // 7: the Control Room (row 2's actions keep the keyboard, as after any tab key); Tab gives it to the panes
     await t.keys('7');
     await t.waitFor('the Control Room', (s) => /tray1 \/ Control Room · jobs/.test(s));

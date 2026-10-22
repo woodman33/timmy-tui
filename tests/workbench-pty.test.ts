@@ -103,18 +103,18 @@ function terminal(label: string) {
   return { tmux, pane, screen, waitFor, keys, typed, find, capture, close };
 }
 
-/** R5 (H131; the QA round's defect 4): what waits on you over a tab, as row 1 draws it without moving a tab: ⚠ and the count
- *  in the top edge of the box whose label starts with `label` ('' when nothing is drawn there). */
+/** R5 (H131; the QA round's defect 4): what waits on you at a tab, as the header draws it without moving a tab: ⚠ beside the
+ *  tab whose label starts with `label`, with the count the header says ('' when nothing is drawn there). */
 function badgeOver(rows: readonly string[], label: string): string {
-  for (let y = 1; y < Math.min(3, rows.length); y++) {
-    const at = rows[y].indexOf(label);
-    if (at < 0) continue;
-    const left = Math.max(rows[y].lastIndexOf('│', at), rows[y].lastIndexOf('┃', at));
-    const ends = ['│', '┃'].map((b) => rows[y].indexOf(b, at)).filter((i) => i >= 0);
-    if (left < 0 || !ends.length) return '';
-    return /⚠\d*/.exec(rows[y - 1].slice(left, Math.min(...ends) + 1))?.[0] ?? '';
-  }
-  return '';
+  // R10 (H167): the header is two rows: the tabs on its second, each tab's cell ending in a mark's cell (⚠ where something
+  // waits there), and the count on its first ("⚠ 1 waiting on you"): ⚠ beside the tab's label, with that count
+  const tabs = rows[1] ?? '';
+  const at = tabs.indexOf(label);
+  if (at < 0) return '';
+  // the tab's own cell: from its label to the next tab's key (a digit) or the active tab's bracket
+  const cell = /^[^\d[]*/.exec(tabs.slice(at + label.length))?.[0] ?? '';
+  if (!cell.includes('⚠')) return '';
+  return `⚠${/⚠ (\d+) waiting on you/.exec(rows[0] ?? '')?.[1] ?? ''}`;
 }
 
 beforeAll(async () => {
@@ -191,10 +191,12 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     // Activity & log; the left job named by Stop and counted by Activity
     const home = await waitFor(new RegExp(`Stop current: ${id}[\\s\\S]*Activity\\s+\\S* ?1 running`));
     expect(home).toContain('TIMMY · tray1');
-    for (const label of ['1 Home', '2 Chat & Intent', '3 Workflows', '7 Control Room', '0 Logs & Receipts']) expect(home).toContain(label);
+    // (R10 H167: the header's tabs on one row; at 160 columns their first words; the column beside Home's recent work is the
+    // selected item)
+    for (const label of ['1 Home', '2 Chat', '3 Workflows', '7 Control', '0 Logs']) expect(home).toContain(label);
     expect(home).toContain('Workflow actions');
-    expect(home).toContain('tray1 / Home · connections, as observed');
-    expect(home).toContain('Preview · the companion and Studio, in words');
+    expect(home).toContain('tray1 / Home · recent work');
+    expect(home).toMatch(/Selected/);
     expect(home).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);
     expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
     // 3: Workflows, the tray workflow's blocks in its three columns (R5, H136: the whole width; Context a drawer, i)

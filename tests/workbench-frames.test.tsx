@@ -132,7 +132,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     expect(t).toMatch(/┏━ ◆ Workflow actions/);
     expect(t).toMatch(/run: idle\s+Stop current: idle/);
     // the body: Home's recent work and the selected item (R10 H167); the navigation is a drawer (not shown)
-    expect(t).toContain('tray-wide · recent work');
+    expect(t).toContain('tray-wide / Home · recent work');
     expect(t).toMatch(/Selected/);
     expect(t).not.toMatch(/CREATE[\s\S]*OPERATE/);
     expect(t).toMatch(/Activity & log/);
@@ -314,7 +314,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     await sleep(100);
     await press(f.r, '\r');
     expect(JSON.parse(readFileSync(activeProjectPath(), 'utf8')).root).toBe(b.root);
-    expect(f.text()).toContain('pick-b · recent work');
+    expect(f.text()).toContain('pick-b / Home · recent work');
     expect(f.text()).toMatch(/Now in pick-b/);
   });
 
@@ -378,7 +378,7 @@ describe('the terminal Workbench\'s frames (R4 H110; R5 H131: the operator\'s re
     const made = JSON.parse(readFileSync(activeProjectPath(), 'utf8'));
     expect(made.name).toBe('made-here');
     expect(existsSync(made.root)).toBe(true);
-    expect(f.text()).toContain('made-here · recent work');
+    expect(f.text()).toContain('made-here / Home · recent work');
     expect(f.text()).toMatch(/Now in made-here[\s\S]*a blank project/);
   });
 

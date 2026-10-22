@@ -693,9 +693,15 @@ export function turnEndWords(t: Pick<TurnRow, 'state' | 'surface' | 'stoppedBy'>
  * it asks for. The inspector ([i]) and tab 0 keep them whole.
  */
 export function plainWords(words: string, data: Pick<Data, 'jobs'>): string {
+  // the REPL's end lines (src/repl/end-lines.ts): "✓ j1 completed  operation o… · REPORT.md › report · … · /op o…" says its
+  // operation right after its word and the command that shows it last: both are the details' ([i]); "/jobs j1" is tab 0's
+  let out = words
+    .replace(/ {2}operation o[0-9a-f]{8}\b/g, '')
+    .replace(/\s*[·|]\s*\/op o[0-9a-f]{8}\b/g, '')
+    .replace(/\/jobs j[0-9a-f]{6}\b/g, '0 Logs');
   // a job's id is its label, once: "j1 started: REPORT.md › report" is "started: REPORT.md › report", and "j1 report completed"
   // is "REPORT.md › report: report completed"
-  let out = words.replace(/^(j[0-9a-f]{6})\b(.*)$/, (_m, id: string, rest: string) => {
+  out = out.replace(/^(j[0-9a-f]{6})\b(.*)$/, (_m, id: string, rest: string) => {
     const j = data.jobs.find((x) => x.id === id);
     const label = j ? j.label : 'a job';
     return rest.includes(label) ? rest.replace(/^[\s:]+/, '') : `${label}:${rest.startsWith(':') ? rest.slice(1) : rest}`;
@@ -713,6 +719,15 @@ export function plainWords(words: string, data: Pick<Data, 'jobs'>): string {
     .replace(/\boperation\s+o[0-9a-f]{8}\b/g, 'its operation')
     .replace(/\(o[0-9a-f]{8}\)/g, '')
     .replace(/ {2,}/g, ' ');
+  // a label said again later in the line (its id said it first: "✓ REPORT.md › report completed · REPORT.md › report · 1 of 1
+  // steps") is said once
+  for (const j of data.jobs) {
+    const at = out.indexOf(j.label);
+    if (at < 0 || !j.label) continue;
+    const head = out.slice(0, at + j.label.length);
+    const again = new RegExp(`\\s*[·|]\\s*${j.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s*(?:[·|]|$))`, 'g');
+    out = head + out.slice(head.length).replace(again, '');
+  }
   return out.trim();
 }
 

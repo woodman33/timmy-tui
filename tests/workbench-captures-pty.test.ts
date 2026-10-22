@@ -134,7 +134,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     const t = terminal('wbR5');
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '160', '-y', '45', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor(/tray1 \/ Home · connections, as observed[\s\S]*Activity & log/, 'Home, at the start');
+    await t.waitFor(/tray1 \/ Home · recent work[\s\S]*Activity & log/, 'Home, at the start');
     await t.waitFor(new RegExp(`Stop current: ${leftId}`), 'Stop current naming the FAKE job a session left');
 
     // FAKE upmd: one run of APPROVAL.md › tidy, from row 2's first action on Workflows (the bar has the keyboard at the start;
@@ -143,7 +143,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
     await t.keys('3');
     await t.waitFor(/tray1 \/ Workflows · plan and run/, 'Workflows');
     await t.keys('Home');
-    await t.waitFor(/1 Run APPROVAL\.md › tidy · \/run APPROVAL\.md tidy · /, 'row 2\'s first action selected, with its command');
+    // (R10 H167: row 2 says what Enter does in words; the command is the run card's, its REPL row, beside it)
+    await t.waitFor(/1 Run APPROVAL\.md › tidy · Enter opens its Run confirm[\s\S]*REPL {2}\/run APPROVAL\.md tidy/, 'row 2\'s first action selected, with its command');
     await t.keys('Enter');
     await t.waitFor(/Run APPROVAL\.md › tidy\?/, 'the Run confirm');
     await t.keys('Enter');
@@ -157,7 +158,7 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
 
     const pages = [
       // (at 100x30 the title gives its tail to the range note, 1–N of M: QA defect 7)
-      { key: '1', name: 'home', title: /tray1 \/ Home · connections/ },
+      { key: '1', name: 'home', title: /tray1 \/ Home · recent work/ },
       { key: '2', name: 'chat', title: /tray1 \/ Chat · conversation/ },
       { key: '3', name: 'workflows', title: /tray1 \/ Workflows · plan and run/ },
       { key: '7', name: 'control-room', title: /tray1 \/ Control Room · jobs/ },
@@ -179,7 +180,8 @@ describe('`timmy workbench` at the operator\'s sizes, kept as captures (tmux; R5
         expect(rows, `${name}: one frame, as many rows as the terminal`).toHaveLength(h);
         expect(Math.max(...rows.map((l) => [...l].length)), `${name}: no row wider than the terminal`).toBeLessThanOrEqual(w);
         expect(txt.split('Workflow actions').length - 1, `${name}: one frame`).toBe(1);
-        expect(rows[1], `${name}: row 1`).toMatch(/^TIMMY · tray1/);
+        // (R10 H167: the header's first row says TIMMY and the project; the tabs are its second)
+        expect(rows[0], `${name}: row 1`).toMatch(/^TIMMY · tray1/);
         expect(txt).toContain('Activity & log');
         // nothing of this machine: not the sandbox's folders, not its name
         expect(txt.includes(box), `${name}: a folder of this machine`).toBe(false);

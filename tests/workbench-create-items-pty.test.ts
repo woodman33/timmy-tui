@@ -139,7 +139,7 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
     const t = terminal(SOCKET);
     t.tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '30', '-c', repo, 'bash', '--norc', '-c',
       `${process.execPath} --import ${LOADER} ${CLI} workbench; echo EXIT=$?; sleep 600`);
-    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · connections, as observed[\s\S]*Activity & log/.test(s), 90_000);
+    await t.waitFor('the Workbench, at the start', (s) => /tray1 \/ Home · recent work[\s\S]*Activity & log/.test(s), 90_000);
     const seen: Record<string, string[]> = {};
     for (const [cols, rows] of [[100, 30], [60, 16]] as const) {
       const size = `${cols}x${rows}`;
@@ -149,7 +149,7 @@ describe('`timmy workbench` in a terminal: tab 6 opens on its first mesh, whole 
       }
       // tab 6 afresh (from Home), its meshes measured: the first mesh whole in view, the cursor's mark on it
       await t.keys('1');
-      await t.waitFor(`Home at ${size}`, (s) => /\/ Home · connections/.test(s));
+      await t.waitFor(`Home at ${size}`, (s) => /\/ Home · recent work/.test(s));
       await t.keys('6');
       const mesh = await t.waitFor(`tab 6 at ${size}, its first mesh in view with the cursor on it`, (s) => firstMeshRows(s), 30_000);
       seen[size] = mesh;

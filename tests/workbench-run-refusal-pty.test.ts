@@ -127,6 +127,9 @@ describe('`timmy workbench` in a terminal: Enter on a running block (tmux; R9 H1
       const top = await t.waitFor(/Stop current: j[0-9a-f]+ CHAIN\.md › wait/, 20_000);
       const id = /Stop current: (j[0-9a-f]+)/.exec(top)![1];
       const refusal = new RegExp(`Not started: it is running now as ${id}, started by this Workbench`);
+      // (R10 H167: the same refusal on Activity's strip, where a job is said by its label)
+      const chainLabel = 'CHAIN\\.md › wait';
+      const refusalSaid = new RegExp(`Not started: it is running now as ${chainLabel}, started by this Workbench`);
       const jobs = runsOf('CHAIN.md › wait').length;
       const ops = operations();
       expect(jobs).toBe(1);
@@ -138,17 +141,18 @@ describe('`timmy workbench` in a terminal: Enter on a running block (tmux; R9 H1
         // event. So from the second Enter on, the Enter waits for that line first; the first stays pressed at once, as R8's
         // driver pressed it (within the second after "Stop current"), and its refusal may be seen on the strip or, held, on
         // the controls row: before it there is no refusal, so either place shows this one
-        if (i > 0) await t.waitFor(new RegExp(`last: [0-9:]+ ● ${id}\\s+running: ${block}\\b`), 8000);
+        // (R10 H167: Activity's strip says a job by its label, CHAIN.md › wait; its id is Stop current's and the Inspector's)
+        if (i > 0) await t.waitFor(new RegExp(`last: [0-9:]+ ● ${chainLabel}\\s+running: ${block}\\b`), 8000);
         await enterOnBlock(t.pane, 'CHAIN.md', 'wait');
         const at = Date.now();
         // a new refusal: from the second Enter on, Activity's strip names it as the newest event (before this Enter the strip
         // named the run's notice); the first, wherever Activity shows it
-        const said = await t.waitFor(i > 0 ? new RegExp(`last: [0-9:]+ ${refusal.source}`) : refusal, 5000);
+        const said = await t.waitFor(i > 0 ? new RegExp(`last: [0-9:]+ ${refusalSaid.source}`) : refusal, 5000);
         expect(said).not.toMatch(/Run CHAIN\.md › wait\?/);
         t.capture(`wb-refusal-160x45-enter-${i + 1}`);
         // the run moves on: block `block` ends, and a notice of the run itself (that end, or its follower's line) takes the strip
         release(block);
-        const after = await t.waitFor(new RegExp(`last: [0-9:]+ ● ${id}\\s+(?:${block} completed|running: )`), 8000);
+        const after = await t.waitFor(new RegExp(`last: [0-9:]+ ● ${chainLabel}\\s+(?:${block} completed|running: )`), 8000);
         const late = Date.now() - at;
         expect(late, 'the run\'s notice came while the refusal is still fresh (6 s)').toBeLessThan(5500);
         // R8's M: the refusal is still in Activity (its controls row) once the run's notice has come

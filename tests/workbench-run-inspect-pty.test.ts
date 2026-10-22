@@ -98,14 +98,17 @@ describe.skipIf(!tmuxHere)('the Workbench\'s tab 3 in a real terminal: the newes
       // card frozen before the run, and the checks
       const screen = await waitScreen(pane, {
         what: 'tab 3 with the run inspected and its run detail read', ms: 30_000,
-        test: (t) => /CHANGES · \d+ files/.test(t) && /\.predict ✓ · run ✓ 3 · \.receipt ✓/.test(t) && /frozen before the run/.test(t) && /✓ block \w+ matches/.test(t),
+        test: (t) => /RESULT · \d+ files written/.test(t) && /\.predict ✓ · run ✓ 3 · \.receipt ✓/.test(t) && /frozen before the run/.test(t) && /✓ block \w+ matches/.test(t),
       });
-      expect(screen).toMatch(/SOURCE · REPORT\.md as it ran · sha256 [0-9a-f]{12}/);
+      // (R10 H167: the source as it ran, its hash, and the review command are the Inspector's, [i])
+      expect(screen).toMatch(/SOURCE · REPORT\.md as it ran/);
+      expect(screen).not.toMatch(/sha256 [0-9a-f]{12}/);
       expect(screen).toMatch(/✓ the same bytes now/);
-      expect(screen).toContain(`/review ${op}`);
+      expect(screen).not.toContain(`/review ${op}`);
       expect(screen).toMatch(/@@ -\d+,\d+ \+\d+,\d+ @@ against the version Timmy kept/);
       expect(screen).toMatch(/− +"width": 140,/);
-      expect(screen).toContain(`/run/${op} on it`);
+      expect(screen).toContain('The companion (c) draws this run');
+      expect(screen).not.toContain(`/run/${op}`);
       if (CAPS) {
         const name = 'workbench-tab3-160x45-tmux-source-changes-receipts';
         mkdirSync(CAPS, { recursive: true });

@@ -735,7 +735,8 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
 /** The one line where the references draw a picture: a terminal says the run in words, and where it is drawn. */
 // R5 (H131; the QA of e7f853e, defect 2): no Timmy surface had a run's preview. R6 (H144): the companion's run detail draws
 // the run's changes (their diffs), its images and its outputs
-const previewWords = (op: string | null | undefined): string => `The companion (c) draws this run's diffs, images and outputs: its Workflows tab${op ? `, /run/${op} on it` : ''}.`;
+// R10 (H167): c opens the companion on this run (its address names it, H164's openTarget); its page's path is the Inspector's
+const previewWords = (op: string | null | undefined): string => `The companion (c) draws this run's diffs, images and outputs${op ? ', on its Workflows tab' : ''}.`;
 
 /**
  * R10 (H167): what the run's columns leave out, for the Inspector ([i]): the job's and the operation's ids, the receipt's id,

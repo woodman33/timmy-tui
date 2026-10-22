@@ -280,7 +280,8 @@ describe('tab 3 Workflows: three columns, as references 03 and 12 lay them out (
     // (the source under the cards where it fits beside the whole list, else in the centre column)
     expect(`${flat(left)} ${flat(centre)}`).toMatch(/SOURCE · PAIR\.md as it ran ✓ the same bytes now · read from the copy upmd read/);
     expect(flat(centre)).toContain('RESULT · none that Timmy records');
-    expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
+    // (R10 H167: its page's path is the Inspector's)
+    expect(flat(centre)).toContain('The companion (c) draws this run\'s diffs, images and outputs, on its Workflows tab.');
     // right: the receipt card (verified in this reading), the checks predicted against actual, the verdict, timmy op
     expect(R).toContain('second.receipt');
     // (R10 H167: sealed and verified in words; its id is the Inspector's)
@@ -567,7 +568,8 @@ describe('tab 3 Workflows: the newest run inspected, its source, changes, output
     expect(flat(centre)).toMatch(/OUTPUT · its log's last lines … \d+ earlier lines <== report exited with code 0/);
     expect(flat(centre)).not.toContain(`/jobs ${job}`);
     // and where the companion draws the diffs, images and outputs
-    expect(flat(centre)).toContain(`The companion (c) draws this run's diffs, images and outputs: its Workflows tab, /run/${op} on it.`);
+    // (R10 H167: its page's path is the Inspector's)
+    expect(flat(centre)).toContain('The companion (c) draws this run\'s diffs, images and outputs, on its Workflows tab.');
     // the receipts: each stage's verified now (the prediction's; the flow's and the two blocks'; the run's)
     expect(flat(right)).toContain('.predict ✓ · run ✓ 3 · .receipt ✓');
     expect(flat(right)).toContain('✓ sealed and verified');
