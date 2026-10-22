@@ -90,6 +90,9 @@ export interface WorkCtx {
   waiting?: (operation: string) => string | undefined;
   /** the chat turns being answered now (their holds, read only) are listed as running; false leaves them out (default true) */
   live?: boolean;
+  /** the project's files as the surface has read them already (the Workbench's FilesView rows: path and time): used instead
+   *  of listing the artifact folders again (the same rule picks references, results, meshes and recordings from them) */
+  files?: ReadonlyArray<{ rel: string; mtimeMs: number }>;
 }
 
 export interface RecentCaps {
@@ -222,6 +225,16 @@ function newestOperations(root: string, want: number, caps: RecentCaps, notes: s
     if (r.ok) out.push(r.record); else notes.push(`${r.rel} could not be read as an operation record: ${r.error}.`);
   }
   return out;
+}
+
+/** Where a file of the project lives, by the rule the folder reader follows: a reference or result folder, the top's own mesh,
+ *  recording or image, or none (a document, a source file, Timmy's records, a VoxVision record's folder, a private file). */
+function placeOf(rel: string): 'reference' | 'result' | 'top' | null {
+  const parts = rel.split('/');
+  if (parts.some((p) => p.startsWith('.')) || privatePath(rel) || rel === VOX_DIR || rel.startsWith(`${VOX_DIR}/`)) return null;
+  if (parts.length === 1) { const x = extOf(rel); return MESH_EXT.has(x) || x === 'rrd' || IMAGE_EXT.has(x) ? 'top' : null; }
+  if (parts.slice(1, -1).some((p) => SKIP_DIRS.has(p))) return null;
+  return REFERENCE_TOP.has(parts[0]) ? 'reference' : OUTPUT_TOP.has(parts[0]) ? 'result' : null;
 }
 
 /** The project's artifact files (references, results, meshes, recordings), the newest first, within the caps. */
@@ -387,9 +400,13 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     });
   }
 
-  // ── the files: references, results, meshes and recordings, in the folders where they live ──
+  // ── the files: references, results, meshes and recordings, in the folders where they live (from the surface's own list of
+  // the project's files when it has one: no folder is listed again) ──
+  const found = ctx.files
+    ? ctx.files.flatMap((f) => { const top = placeOf(f.rel); return top ? [{ rel: f.rel, mtimeMs: f.mtimeMs, top }] : []; }).sort((a, b) => b.mtimeMs - a.mtimeMs || a.rel.localeCompare(b.rel))
+    : artifactFiles(root, caps, notes);
   let files = 0;
-  for (const f of artifactFiles(root, caps, notes)) {
+  for (const f of found) {
     if (files >= want) break;
     if (claimed.has(f.rel)) continue;
     const x = extOf(f.rel);

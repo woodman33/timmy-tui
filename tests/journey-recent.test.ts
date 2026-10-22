@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { hexOfPath, recentWork, RECENT_CAPS, runTitle, type WorkItem } from '../src/journey/index.js';
-import { projectId } from '../src/project/index.js';
+import { listProjectFiles, projectId } from '../src/project/index.js';
 import { boardDir } from '../src/studio/boards.js';
 import { canvasDir } from '../src/studio/document.js';
 import { appendReceipt, readChain, type Receipt } from '../src/utils/receipts.js';
@@ -213,6 +213,22 @@ describe('recentWork: the project\'s newest work, newest first, each with where 
     expect(RECENT_CAPS.fileEntries).toBeLessThanOrEqual(1000);
     expect(RECENT_CAPS.operations).toBeLessThanOrEqual(2000);
     expect(RECENT_CAPS.fileDepth).toBeLessThanOrEqual(4);
+  });
+
+  it('a surface that has read the project\'s files already passes them: no folder of the project is listed again', () => {
+    // a list the Workbench read (its FilesView rows): one mesh in it is not on disk, so it can only come from the list
+    const files = [{ rel: 'refs/only-in-the-list.stl', mtimeMs: Date.parse(T(40)) }, { rel: 'REPORT.md', mtimeMs: Date.parse(T(41)) }, { rel: 'src/main.ts', mtimeMs: Date.parse(T(42)) }];
+    const items = recentWork({ ...ctx(), files }, 20).items;
+    expect(by(items, 'mesh')).toMatchObject({ id: 'refs/only-in-the-list.stl', when: T(40) });
+    // the files on disk are not walked: the demo mesh is not listed, nor a document or a source file of the list
+    expect(by(items, 'mesh', 'refs/demo-tray.stl')).toBeUndefined();
+    expect(items.some((i) => i.id === 'REPORT.md' || i.id === 'src/main.ts')).toBe(false);
+  });
+
+  it('the Workbench\'s own list of the project\'s files gives the same items as the folder reader (one rule)', () => {
+    const walked = recentWork(ctx(), 20).items.map((i) => `${i.kind}:${i.id}`);
+    const listed = recentWork({ ...ctx(), files: listProjectFiles(root).files }, 20).items.map((i) => `${i.kind}:${i.id}`);
+    expect(listed).toEqual(walked);
   });
 
   it('an empty project: no items, and no error', () => {
