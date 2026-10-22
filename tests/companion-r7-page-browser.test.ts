@@ -16,6 +16,8 @@
  * DOUBLE of tests/helpers/ops-sandbox.ts, labelled FAKE there). FAKE, labelled: the VoxVision records and their images
  * (tests/helpers/companion-page-kit.ts; the record with no image below).
  */
+import { utimesSync } from 'node:fs';
+import path from 'node:path';
 import type { Browser, Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { TABS } from '../src/contracts/workspace.js';
@@ -58,6 +60,11 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
         await page.waitForFunction((sel) => document.querySelectorAll(`${sel} figure[data-home-image] img`).length === 2, figs, { timeout: 30_000 });
         // a newer run, while Home is on screen, that writes no image
         writeFile(p.s.root, 'NOPIC.md', shotDoc('nopic'));
+        // R10 (H163; this case failed on CI's fast runners only): it starts less than a second after out/shot.png was written,
+        // as it does on a fast machine. Only the image's time is set (0.3 s before now; its bytes stay the SHOT run's). Up to R10
+        // the newer run's receipt then claimed out/shot.png as its own output, so Home's run image named the newer run, newer 0
+        const shotAt = (Date.now() - 300.5) / 1000;
+        utimesSync(path.join(p.s.root, 'out', 'shot.png'), shotAt, shotAt);
         const { op: newer } = await runOf(p.ws, 'NOPIC.md', 'nopic');
         // Home's newest run is that one now ...
         await page.waitForFunction((op) => document.querySelector('#home-preview [data-preview="run"] [data-open-run]')?.getAttribute('data-open-run') === op, newer, { timeout: 20_000 });
