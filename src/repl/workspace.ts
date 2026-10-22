@@ -259,6 +259,18 @@ export const freePort = (): Promise<number> => new Promise((resolve, reject) => 
   });
 });
 
+/**
+ * R10 (H163; R7's item D, which failed on CI's fast runners only): whether an output-folder file dated `mtimeMs` was written
+ * by a job whose start was stamped at `startMs` (JobManager stamps it before the job's process starts). A job's receipt seals
+ * the files this says yes to as its outputs (outputsSince). Up to R10 every file from a second before the start counted, so a
+ * run that began less than a second after another run wrote out/shot.png sealed that image as its own output, though it never
+ * wrote it. A sub-second time (ext4, APFS, tmpfs) is at most a clock tick early (the kernel dates writes with its coarse
+ * clock), so it counts from the start less WRITE_TICK_MS; a whole-second time (HFS+, FAT, some network shares) may date a
+ * write made in the run's first second up to a second before it began, so it keeps that second's margin.
+ */
+export const WRITE_TICK_MS = 50;
+export const writtenInRun = (mtimeMs: number, startMs: number): boolean => mtimeMs >= startMs - (mtimeMs % 1000 === 0 ? 1000 : WRITE_TICK_MS);
+
 /** Round R3 (/agent): `<agent> --version`'s first line (5 s at most), or null when it does not say. */
 const agentVersion = (bin: string): Promise<string | null> => new Promise((resolve) => {
   try {
@@ -1312,9 +1324,10 @@ export class Workspace {
   }
 
   private outputsSince(job: JobRecord): Array<{ path: string; sha256?: string; bytes: number }> {
-    const since = Date.parse(job.startedAt) - 1000;
+    // R10 (H163): only the files written in the run, never one another run wrote just before it (writtenInRun)
+    const start = Date.parse(job.startedAt);
     return listProjectFiles(job.root).files
-      .filter((f) => f.role === 'output' && f.mtimeMs >= since)
+      .filter((f) => f.role === 'output' && writtenInRun(f.mtimeMs, start))
       .slice(0, 50)
       .map((f) => { const sha = sha256File(join(job.root, f.rel)); return { path: f.rel, ...(sha ? { sha256: sha } : {}), bytes: f.bytes }; });
   }
