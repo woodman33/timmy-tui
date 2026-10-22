@@ -61,6 +61,9 @@ export interface Layout {
   bottom: Rect;
   /** how many of the log's newest lines the collapsed Activity & log shows */
   logLines: number;
+  /** R10 (H167): the collapsed Activity & log shows no log line (Chat: its own column is the log), only a row a notice two rows
+   *  long takes */
+  quietLog?: boolean;
   /** how many event rows the expanded Activity & log shows */
   activityRows: number;
 }
@@ -73,7 +76,7 @@ export const MIN_COLUMNS = 60;
 export const MIN_ROWS = 16;
 /** From here the header is two rows (R10 H167: TIMMY, the project, the route and what runs and waits; then the tabs); below,
  *  one row of keys with the active label. */
-export const TAB_BOX_ROWS = 30;
+export const TAB_BOX_ROWS = 20;
 /** The navigation drawer's width. */
 const NAV_W = 28;
 /** Context as a drawer: its width, unless the body is narrower. */
@@ -105,6 +108,8 @@ export interface LayoutAsk {
   activityOpen?: boolean;
   /** focus mode: the body's left column alone; the navigation and Context open only as drawers */
   focusMode?: boolean;
+  /** R10 (H167; H168's F9): Activity & log collapsed to its strip (and the hints) where the body draws the log itself (Chat) */
+  quietLog?: boolean;
 }
 
 export function layoutFor(a: LayoutAsk): Layout {
@@ -113,13 +118,15 @@ export function layoutFor(a: LayoutAsk): Layout {
   const mode = modeOf(columns);
   const body = a.body ?? 'workspace';
   const tooSmall = columns < MIN_COLUMNS || rows < MIN_ROWS;
-  // (under 30 rows the header gives its status row to the body: at 80x24 a workspace's list would show 10 rows, not 11; the
-  // route and what runs and waits are then said on row 2 and Activity's first row)
+  // (R10 H167; H168's F8: the status row, with the route, from 20 rows: at 80x24 too; below, one row of keys)
   const tabRows: 1 | 2 = rows >= TAB_BOX_ROWS ? 2 : 1;
   const topDetail = rows >= 24;
   const topH = topDetail ? 4 : 3;
-  const logLines = rows >= 40 ? 4 : rows >= 28 ? 3 : rows >= 20 ? 2 : 1;
-  const activityRows = Math.max(2, Math.min(8, Math.floor(rows / 4)));
+  // (under 30 rows the status row takes the row a log line had, so the body keeps every row it had: at 80x24 a workspace's
+  // list shows 11 rows, as before the status row was there)
+  const logLines = a.quietLog ? 0 : rows >= 40 ? 4 : rows >= 30 ? 3 : rows >= 28 ? 2 : 1;
+  // (and Activity & log expanded gives it one event row under 30 rows, for the same reason)
+  const activityRows = Math.max(2, Math.min(8, Math.floor(rows / 4)) - (tabRows === 2 && rows < 30 ? 1 : 0));
   const tabs: Rect = { x: 0, y: 0, w: columns, h: Math.min(rows, tabRows) };
   if (tooSmall) {
     return {
@@ -128,7 +135,9 @@ export function layoutFor(a: LayoutAsk): Layout {
     };
   }
   const top: Rect = { x: 0, y: tabs.h, w: columns, h: topH };
-  const bottomH = a.activityOpen ? 5 + activityRows : 4 + logLines;
+  // (R10 H167: a quiet log keeps one row under its strip for a notice two rows long, which takes it for its few seconds; empty
+  // otherwise, never the log's lines again)
+  const bottomH = a.activityOpen ? 5 + activityRows : 4 + logLines + (a.quietLog ? 1 : 0);
   const bodyY = top.y + top.h;
   const bodyH = Math.max(3, rows - bodyY - bottomH);
   const bottom: Rect = { x: 0, y: bodyY + bodyH, w: columns, h: rows - bodyY - bodyH };
@@ -164,7 +173,7 @@ export function layoutFor(a: LayoutAsk): Layout {
       rightAs = 'drawer';
     }
   }
-  return { columns, rows, mode, tooSmall, tabs, tabRows, top, topDetail, strip, nav, navAs, center, right, rightAs, bottom, logLines, activityRows };
+  return { columns, rows, mode, tooSmall, tabs, tabRows, top, topDetail, strip, nav, navAs, center, right, rightAs, bottom, logLines, ...(a.quietLog ? { quietLog: true } : {}), activityRows };
 }
 
 /** The zone a cell is in, for the mouse (0-based cells). */

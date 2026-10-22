@@ -138,11 +138,19 @@ describe('the Workbench\'s first frame waits on no walk of the project (R10, H16
     expect(seen.listed.filter((d) => d.startsWith(join(p.root, 'src'))), 'walked synchronously before the first frame: the folders under src/').toEqual([]);
     expect(seen.read, 'read synchronously before the first frame: the project\'s workflow documents').toEqual([]);
     expect(first).toMatch(/files and workflow documents being read/);
+    // R10 (H167; the lead's note on this work): Home's recent work (H164's recentWork: the project's top level, its result
+    // folders, its records) is read right after the first frame too, with the files it then takes as read: the first frame
+    // says it is being read
+    expect(c.data.recent, 'the recent work read before the first frame').toBeUndefined();
+    expect(first).toMatch(/Reading the project's recent work…/);
     // right after the first frame: read once, and Home names them (the tray starter's files and the fixture's)
     let now = '';
     for (const end = Date.now() + 10_000; Date.now() < end && !/\d+ files · \d+ workflow documents/.test(now); await sleep(20)) now = c.frame(122, 37).screen.map(rowText).join('\n');
     expect(now).toMatch(/\b2\d\d files · 1[0-9] workflow documents\b/);
     expect(now).not.toMatch(/being read/);
+    // and the recent work with them: the tray starter's files listed (its reference image, its workflow), no longer "being read"
+    expect(c.data.recent?.items.length ?? 0).toBeGreaterThan(0);
+    expect(now).not.toMatch(/Reading the project's recent work/);
   });
 
   it('reads the project\'s files and workflow documents once per reading: the workspace frame uses the Controller\'s own', async () => {

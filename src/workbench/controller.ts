@@ -45,7 +45,7 @@ import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
 import { companionWhat, handoffWords, homeDefault, inWords, type WorkItem } from './home-journey.js';
-import { recentWork as recentWorkOf, routeNow } from '../journey/index.js';
+import { openTarget, recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
 import { NAV_ORDER, type WorkspaceId } from './nav.js';
@@ -336,7 +336,14 @@ export class Controller {
   private readJourney(chain?: readonly Receipt[]): void {
     const p = this.data.project;
     try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
-    try { this.data.recent = recentWorkOf({ project: { name: p.name, root: p.root }, env: this.d.env, ...(chain ? { chain } : {}) }, 24); } catch { /* as it was */ }
+    // (H164's call shape: with the files this Workbench has read, so recentWork lists no folder again, and what a NEEDS YOU box
+    // asks of an operation, so a run it blocks is "waiting on you"; H163's first frame: not before the files are read, when
+    // Home says its recent work is being read)
+    if (!this.data.files.reading) {
+      const files = this.data.files.groups.flatMap((g) => g.files);
+      const waiting = (op: string): string | undefined => this.data.decisions.items.find((x) => x.blocks && x.operation === op)?.title;
+      try { this.data.recent = recentWorkOf({ project: { name: p.name, root: p.root }, env: this.d.env, ...(chain ? { chain } : {}), files, waiting }, 24); } catch { /* as it was */ }
+    }
     if (!this.data.build) { try { this.data.build = buildInfo({ env: this.d.env }); } catch { /* unknown */ } }
   }
 
@@ -1839,6 +1846,11 @@ export class Controller {
     }
     // R9 (H160): from tab 6, on the mesh selected there (mesh=<its path as hex>, which the page's tab 6 chooses)
     if (this.ui.page === 'create') return createCompanionHint(this.selected());
+    // R10 (H167; H168's F4 and F5): from tab 3, on the selected block's newest run (H164's openTarget: its run detail)
+    if (this.ui.page === 'workflows') {
+      const op = this.data.workflowsTab?.run?.operation;
+      if (op) return openTarget({ kind: 'run', id: op }).query;
+    }
     const sel = this.ui.page === 'voxvision' ? this.selected() : null;
     return `tab=${this.ui.page}${sel?.kind === 'vox-record' ? `&vox=${sel.row.card.id}` : ''}`;
   }

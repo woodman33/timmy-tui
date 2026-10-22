@@ -29,7 +29,7 @@ import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
-import { runDetailRows, selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
+import { blockKey, runDetailRows, selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
 import { clock, count, cut, fit, lineCells, spread, took, trimTo, wrapSegs, wrapText, type Line, type Role, type Seg } from './text.js';
 
 export interface ViewCtx {
@@ -186,6 +186,18 @@ function jobActionsNow(acts: WorkspaceAction[], c: Pick<ViewCtx, 'ui' | 'data'>)
     const sel = selectedBlock(c);
     const command = sel ? `/run ${sel.doc.rel} ${sel.block.name}` : '';
     if (sel && !/\s/.test(sel.doc.rel) && !/\s/.test(sel.block.name)) out = out.map((a) => (routeOf(a).kind === 'run' && a.command !== command ? { ...a, label: `Run ${sel.doc.rel} › ${sel.block.name}`, command } : a));
+    // R10 (H167; H168's F4): with the selected block's newest run ended, and nothing running or waiting on you, the next step is
+    // to review that run, not to run it again: Review it (Enter opens it in the companion's run detail, as c does: its
+    // progress, result, receipt, diffs and images), the Run second
+    const t = c.data.workflowsTab;
+    const ended = t?.run && !t.run.live && t.run.operation ? t.run : null;
+    const quiet = !c.data.decisions.total && !c.data.jobs.some((j) => j.live) && !stopWords(c.data).target;
+    const review = out.findIndex((a) => /^\/ops?\b/.test(a.command.trim()));
+    if (sel && ended && quiet && review >= 0 && t?.for === blockKey(sel.doc.rel, sel.block.name)) {
+      out = out.map((a, i) => (i === review
+        ? { ...a, label: 'Review this run', command: 'timmy watch', primary: true, enabled: true, effect: 'read' }
+        : { ...a, primary: false }));
+    }
   }
   if (stopWords(c.data).target && !c.data.decisions.total) {
     const stop = out.findIndex((a) => a.command === '/stop' && a.enabled);
@@ -658,12 +670,14 @@ function chatView(c: ViewCtx): View {
     }
   }
   lines.push(blank);
+  const footFrom = lines.length;
   // R10 (H167): the composer, a box of its own at the conversation's end (references 02 and 11: the prompt row under the
   // stream), amber while it has the keyboard; its foot says where the message goes
   const to: Seg[] = rt.model ? [S(`to ${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'secondary'), S(` ${g.sep} ${rt.where.replace(/ \(Ollama\)$/, '')} ${g.sep} ${rt.price}`, 'secondary')] : [S('no route: nothing would be sent', 'secondary')];
   if (ui.input.field === 'composer') {
     // R5 (H131; the QA round's defect 1): what Esc does now, one thing at a time
-    const foot: Line = turn?.state === 'sending' ? [S('Esc stops the turn being answered · Enter sends once it is answered', 'secondary')] : [S('Enter sends ', 'text'), ...to, S(` ${g.sep} Esc leaves`, 'secondary')];
+    // (R10 H167; H168's F13: the route whole first; Esc is the hint row's, under it)
+    const foot: Line = turn?.state === 'sending' ? [S('Esc stops the turn being answered · Enter sends once it is answered', 'secondary')] : [S('Enter sends ', 'text'), ...to];
     const typed = wrapText(ui.input.text, Math.max(4, c.width - 8));
     const rows: Line[] = typed.map((t, i): Line => [S(i === 0 ? '› ' : '  ', 'accent'), S(t, 'text'), ...(i === typed.length - 1 ? [S(' ', 'text', { inverse: true })] : [])]);
     lines.push(...boxed(rows.length ? rows : [[S('› ', 'accent'), S(' ', 'text', { inverse: true })]], c.width, g, { heavy: true, title: 'Message', foot }));
@@ -676,7 +690,7 @@ function chatView(c: ViewCtx): View {
   // R5 (H131; the QA of e7f853e, defect 2 and reference 02's difference 3): what a terminal cannot draw here, and what c and s
   // show for it in truth (R10 H167: said short)
   lines.push(...wrapSegs([key('c'), S(' this project\'s turns in the companion  ', 'secondary'), key('s'), S(' the canvas in Studio', 'secondary')], c.width, '  '));
-  return { lines, items };
+  return { lines, items, footRows: lines.length - footFrom };
 }
 
 /** R5 (H131; the QA of e7f853e, defect 8): what Timmy's own record of a turn that ended without its answer says
@@ -960,7 +974,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
         // R4 (H112): a run of it that goes on now: Enter starts nothing (one press, one operation, one job)
         const going = runOfBlock(c, o.doc, o.block);
         if (going) {
-          lines.push(...para(`Not now: ${going.words}.`, c.width, 'attention'));
+          lines.push(...para(`Not now: ${going.plain}.`, c.width, 'attention'));
           lines.push(blank);
           lines.push([key('Esc'), S(' Close', 'text')]);
           return { lines, items };
@@ -1143,13 +1157,15 @@ export interface Action { key: string; label: string; enabled: boolean; why?: st
  * box or its start still to come), or a job of it that runs in this project, whoever started it. A second press starts
  * nothing while one goes on (one press, one operation, one job); its words say which run and what stops it.
  */
-export function runOfBlock(c: Pick<ViewCtx, 'ui' | 'data'>, doc: string, block: string): { words: string; job?: JobRow } | undefined {
+export function runOfBlock(c: Pick<ViewCtx, 'ui' | 'data'>, doc: string, block: string): { words: string; plain: string; job?: JobRow } | undefined {
   const label = `${doc} › ${block}`;
-  if ((c.ui.starting ?? []).includes(label)) return { words: `${label} is being started here already (one press runs it once)` };
+  if ((c.ui.starting ?? []).includes(label)) { const words = `${label} is being started here already (one press runs it once)`; return { words, plain: words }; }
   const job = c.data.jobs.find((j) => j.live && j.label === label);
   if (!job) return undefined;
   const who = job.owner === 'workbench' ? 'this Workbench' : job.owner === 'live-session' ? 'another Timmy session' : job.recovery ? `a session that ended (${job.recovery.state})` : 'a session';
-  return { job, words: `it is running now as ${job.id}, started by ${who}${job.operation ? `, operation ${job.operation}` : ''}: Run starts nothing until it ends (x stops it${job.owner === 'live-session' ? ' only in the session that started it' : ''})` };
+  const stops = `Run starts nothing until it ends (x stops it${job.owner === 'live-session' ? ' only in the session that started it' : ''})`;
+  // R10 (H167; H168's F4): `plain`, for a screen's body: the run by what it is, its job's and operation's ids the Inspector's ([i])
+  return { job, words: `it is running now as ${job.id}, started by ${who}${job.operation ? `, operation ${job.operation}` : ''}: ${stops}`, plain: `it is running now, started by ${who}: ${stops}` };
 }
 
 /** The named actions of the workspace and its selection: what each does and to what; one that cannot run says what it needs. */
@@ -1498,9 +1514,10 @@ export function rightView(c: ViewCtx): View {
  * collapsed, the frame's newest log lines, the newest first (`logLines` of them); expanded ([a]), every event of this Workbench's
  * Activity (the jobs' records, the lines they printed, its own notices), oldest first and the newest at the bottom, as R4 drew
  * them. `foot` is the key-hint line, drawn last (a fresh notice takes its place for a few seconds). `fixed`: the rows at the top
- * that do not scroll.
+ * that do not scroll. R10 (H167): `quiet` (Chat, whose own column is the log): no log line, and one empty row under the strip that
+ * a notice two rows long takes (its first row would otherwise have no row to be drawn on).
  */
-export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
+export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean; quiet?: boolean } = {}): View & { fixed: number; foot: Line; footAbove?: Line } {
   const { ui, data, g, width } = c;
   // R7 (H150; H148's N3): a notice about a turn being answered is not drawn as fresh once that turn has ended
   const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || chatTurnNow(data)?.id === ui.flash.whileTurn) ? ui.flash : null;
@@ -1548,6 +1565,7 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean } 
   if (!ui.activityOpen) {
     const n = Math.max(0, o.logLines ?? 3);
     lines.push(...newestLog(c, n, width, hub ? inWords : undefined).slice(0, n));
+    if (o.quiet) lines.push([]);
     return { lines, items, fixed: lines.length, foot, ...(footAbove ? { footAbove } : {}) };
   }
   {

@@ -2,15 +2,20 @@
 // the route the next turn takes, what runs and waits, the ten tabs on one row), Home's recent work and the selected item, the
 // words without ids or hashes, and the details the inspector keeps. Pure functions over hand-made Data: FAKE records, no
 // project on disk, nothing run.
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TABS } from '../src/contracts/workspace.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import type { BuildInfo } from '../src/build-info.js';
 import { openTarget, type JourneyRoute, type RecentWork, type WorkItem as JourneyWorkItem } from '../src/journey/index.js';
-import { companionWhat, diagnosticsLines, handoffWords, headerRows, homeSideView, homeWorkView, inWords, plainWords, recentWork, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
+import { companionWhat, diagnosticsLines, handoffWords, headerRows, homeConnections, homeSideView, homeWorkView, inWords, plainWords, recentWork, representation, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
+import { layoutFor } from '../src/workbench/layout.js';
 import type { Data, Ui } from '../src/workbench/model.js';
+import { bottomView, pageActions } from '../src/workbench/views.js';
+import { blockKey } from '../src/workbench/workflows-tab.js';
+import { routeOf } from '../src/workbench/hub.js';
 import type { JobRow } from '../src/workbench/state.js';
 import { lineCells, plain } from '../src/workbench/text.js';
 
@@ -77,9 +82,9 @@ describe('the header (R10 H167): two rows, exactly the width, the tabs in their 
       expect(h.lines).toHaveLength(2);
       for (const l of h.lines) expect(lineCells(l), `${width}`).toBe(width);
       const [status, tabs] = h.lines.map(plain);
-      // (from 122 columns the route is whole; narrower, it is cut at a word, and what runs and waits stays whole)
+      // (from 122 columns the route is whole; narrower, its short form (H168's F8), and what runs and waits stays whole)
       if (width >= 122) expect(status).toMatch(/^TIMMY · tray {3}next turn: qwen3:8b · this computer \(Ollama\) · no charge/);
-      else expect(status).toMatch(/^TIMMY · tray {3}next turn: qwen3:8b/);
+      else expect(status).toMatch(/^TIMMY · tray {3}next: qwen3:8b · here · no charge/);
       expect(status).toMatch(/nothing runs · nothing waits on you$/);
       expect(tabs).toMatch(/^\[1[^\]]*\]/);
       expect(tabs.match(/\[/g) ?? [], `one active tab at ${width}`).toHaveLength(1);
@@ -288,5 +293,105 @@ describe('words on Home and Chat (R10 H167; H168\'s F3): no address, port, path,
     expect(handoffWords('studio', 'Studio opened in your browser (http://127.0.0.1:4470/), through a private page that carries its key. It shows tray.', '')).toBe('Opened Studio: it shows tray.');
     expect(handoffWords('companion', 'The Companion is at http://127.0.0.1:4472/; this computer has no browser opener here, so open it yourself', 'its Home tab'))
       .toBe('The companion serves its Home tab on this computer, but no browser was opened from here: the details ([i]) say its address, to open it yourself.');
+  });
+});
+
+describe('Home\'s rows and the selected item (R10 H167; H168\'s F6, F7 and F10)', () => {
+  const route = { provider: 'ollama' as const, requested: 'qwen3:8b', answeredBy: 'qwen3:8b', where: 'this computer' as const, fallback: false, fake: false, surface: 'workbench' as const };
+  const turn = { kind: 'turn', id: 'd2d756db', title: 'Summarise the report run in one line.', when: iso(2), state: 'answered', receipt: { id: 'd2d756db', verified: true }, fake: false, operation: 'oc372c7b3', route, open: openTarget({ kind: 'turn', id: 'd2d756db' }) } as unknown as JourneyWorkItem;
+  const frame = (conns: unknown[]) => ({ project: { id: 'p1' }, activity: { chatTurn: null }, log: [], tabs: [], connections: conns }) as unknown as Data['frame'];
+  const ollama = { id: 'ollama', label: 'Ollama (local models)', state: 'configured', words: 'set up, not checked yet (a setting is not a connection)', observedAt: null, setup: 'timmy workspace check' };
+  const studio = { id: 'studio', label: 'Timmy Studio', state: 'configured', words: 'not running when checked 2 min ago; Studio · Show (s) starts it', observedAt: iso(2), setup: null };
+
+  it('F6: a turn answered through Ollama is an answer seen from it (live, said so); a check that found a surface not running says so, never "not checked yet"', () => {
+    const d = data({ frame: frame([ollama, studio]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [turn] } });
+    const [o, st] = homeConnections({ data: d, now: NOW });
+    expect(o).toMatchObject({ state: 'live', observedAt: iso(2) });
+    expect(o.words).toMatch(/^answered a chat turn \d\d:\d\d:\d\d \(its receipt is sealed\)/);
+    expect(st.state).toBe('configured');
+    const rows = text(homeWorkView(ctx(d, ui(), 70)).lines);
+    expect(rows).toMatch(/Ollama +● live {2}· answered a chat turn \d\d:\d\d/);
+    expect(rows).toMatch(/Studio +○ configured {2}· not running · checked \d\d:\d\d/);
+    expect(rows).not.toMatch(/not checked yet/);
+    // an answer older than the live bound is not counted
+    const old = data({ frame: frame([ollama]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [{ ...turn, when: iso(45) }] } });
+    expect(homeConnections({ data: old, now: NOW })[0].state).toBe('configured');
+  });
+
+  it('F7: two files of one name say their folders; a reference is a reference', () => {
+    const item = (kind: string, id: string) => ({ kind, id, title: id, when: iso(3), state: 'saved', receipt: null, fake: false, operation: null, open: openTarget({ kind: kind as 'reference', id }) }) as unknown as JourneyWorkItem;
+    const d = data({ recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [item('reference', 'refs/preview.png'), item('result', 'out/preview.png'), item('result', 'out/notes.txt')] } });
+    expect(recentWork(d, 10, NOW).map((w) => [w.kind, w.title])).toEqual([['reference', 'preview.png (in refs)'], ['result', 'preview.png (in out)'], ['result', 'notes.txt']]);
+  });
+
+  it('F10: the selected item drawn as a terminal can: an image\'s pixel size and what measured it, a run\'s progress and files, a turn\'s question and answer', () => {
+    // FIXTURE: a 640 × 360 PNG's header (its IHDR) in a project of this test's own
+    const root = mkdtempSync(join(tmpdir(), 'wb-repr-'));
+    mkdirSync(join(root, 'refs'));
+    const png = Buffer.alloc(33);
+    png.writeUInt32BE(0x89504e47, 0); png.writeUInt32BE(0x0d0a1a0a, 4); png.writeUInt32BE(13, 8); png.write('IHDR', 12, 'ascii');
+    png.writeUInt32BE(640, 16); png.writeUInt32BE(360, 20);
+    writeFileSync(join(root, 'refs', 'preview.png'), png);
+    const image = { kind: 'reference', id: 'refs/preview.png', title: 'refs/preview.png', when: iso(3), state: 'saved', receipt: null, fake: false, operation: null, open: openTarget({ kind: 'reference', id: 'refs/preview.png' }) } as unknown as JourneyWorkItem;
+    const run = { kind: 'run', id: 'o92079bb4', title: 'Workflow run: report in REPORT.md', when: iso(9), state: 'completed', receipt: { id: 'f7a8f9c4', verified: true }, fake: false, operation: 'o92079bb4', results: ['out/report.md', 'out/preview.png', 'out/a.txt', 'out/b.txt'], open: openTarget({ kind: 'run', id: 'o92079bb4' }) } as unknown as JourneyWorkItem;
+    const d = data({
+      project: { name: 'tray', root, id: 'p1', shown: '~/timmy/projects/tray' } as Data['project'],
+      recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [turn, run, image] },
+      jobs: [job({ id: 'j5c4706', label: 'REPORT.md › report', operation: 'o92079bb4' })],
+      vox: [{ id: 'v8764e36c', what: 'detect refs/preview.png', state: 'ok', at: iso(4), record: 'results/vox/v8764e36c.json' }],
+      chat: { session: 's1', total: 2, messages: [{ role: 'user', text: 'Summarise the report run in one line.' }, { role: 'assistant', text: 'FIXTURE: the report run wrote four files and its receipt verifies.' }] },
+    });
+    const c = ctx(d, ui(), 50);
+    const [t, r, im] = recentWork(d, 10, NOW);
+    expect(representation(im, c).map(plain).join(' ')).toMatch(/Image +640 × 360 px .*Measured +VoxVision detect · ok · \d\d:\d\d/);
+    expect(representation(r, c).map(plain).join(' ')).toMatch(/Progress +completed · 1 of 1 step · 0\.2 s .*Wrote +report\.md, preview\.png, a\.txt, 1 more/);
+    expect(representation(t, c).map(plain).join(' ').replace(/\s+/g, ' ')).toMatch(/You Summarise the report run in one line\. Timmy FIXTURE: the report run wrote four files/);
+    // drawn in the Selected column, under the item's facts, with no path or id
+    const side = flat(homeSideView(ctx(d, ui({ cursor: { 'center:connections': 2 } }), 50)).lines);
+    expect(side).toMatch(/Image 640 × 360 px/);
+    expect(side).not.toMatch(/refs\/|o92079bb4|v8764e36c/);
+  });
+});
+
+describe('Chat\'s quiet log keeps a row for a notice; tab 3\'s next step after a run is to review it (R10 H167)', () => {
+  it('the collapsed Activity & log on Chat: no log line, one empty row a two-row notice takes (its first row was lost); under 30 rows a workspace keeps its body rows', () => {
+    const chat = layoutFor({ columns: 160, rows: 45, body: 'hub', pipeline: true, quietLog: true });
+    expect(chat).toMatchObject({ logLines: 0, quietLog: true });
+    expect(chat.bottom.h).toBe(5);
+    // 80x24 and 100x28: the status row took the row a log line had, so the body is as tall as it was with one header row
+    for (const [columns, rows, was] of [[80, 24, 2], [100, 28, 3]] as const) {
+      const l = layoutFor({ columns, rows });
+      expect(l.tabRows).toBe(2);
+      expect(l.logLines).toBe(was - 1);
+    }
+    const long = 'Not sent yet: one turn at a time per project, and a turn is being answered in the REPL. What you typed stays here; Enter sends it once that turn has ended (RUNNING NOW 0).';
+    const u = ui({ page: 'chat', workspace: 'chat', flash: { text: long, role: 'secondary', at: NOW - 1000 }, settings: { settings: { reducedMotion: true } }, activityOpen: false } as unknown as Partial<Ui>);
+    const v = bottomView({ ...ctx(data(), u, 156), height: 3 } as never, { logLines: 0, quiet: true });
+    expect(v.lines).toHaveLength(2);
+    expect(v.lines[1]).toEqual([]);
+    expect(plain(v.footAbove ?? [])).toMatch(/^Not sent yet: one turn at a time per project, and a turn is being answered in the REPL/);
+    expect(plain(v.foot)).toMatch(/\(RUNNING NOW 0\)\.\s*$/);
+  });
+
+  it('a finished run of the selected block, nothing running or waiting: Review this run is the primary (Enter opens it in the companion, as c), Run it second', () => {
+    const block = { doc: 'PAIR.md', key: '2', name: 'second', lang: 'bash', needs: ['first'], word: 'completed', glyph: '✓', detail: 'exit 0', order: ['first', 'second'], missing: [], risky: [] };
+    const acts = [
+      { n: 1, label: 'Run PAIR.md › second', command: '/run PAIR.md second', primary: true, enabled: true, effect: 'local change' },
+      { n: 2, label: 'Review the last run', command: '/op o12345678', primary: false, enabled: true, effect: 'read' },
+      { n: 3, label: 'Stop current', command: '/stop', primary: false, enabled: false, why: 'nothing runs', effect: 'local change' },
+      { n: 4, label: 'Receipts of this project', command: '/receipts', primary: false, enabled: true, effect: 'read' },
+    ];
+    const frame = { project: { id: 'p1', name: 'tray' }, activity: { chatTurn: null }, connections: [], log: [], tabs: [], actions: { workflows: acts } };
+    const run = { job: 'j123456', operation: 'o12345678', word: 'completed', live: false, steps: [], startedAt: iso(3), endedAt: iso(3), tail: { lines: [] } };
+    const base = { frame, workflows: { upmd: true, docs: [{ rel: 'PAIR.md', blocks: [{ ...block, name: 'first', key: '1', order: ['first'], needs: [] }, block], repeated: [] }] } };
+    const u = ui({ page: 'workflows', workspace: 'workflows', cursor: { 'center:workflows': 1 } });
+    const after = pageActions({ ui: u, data: data({ ...base, workflowsTab: { for: blockKey('PAIR.md', 'second'), run } } as unknown as Partial<Data>) }).acts;
+    expect(after.map((a) => [a.label, !!a.primary])).toEqual([['Run PAIR.md › second', false], ['Review this run', true], ['Stop current', false], ['Receipts of this project', false]]);
+    expect(routeOf(after[1])).toMatchObject({ kind: 'key', key: 'c' });
+    // while it runs, or for another block's run, the frame's own order stays
+    const live = pageActions({ ui: u, data: data({ ...base, workflowsTab: { for: blockKey('PAIR.md', 'second'), run: { ...run, live: true, endedAt: null } } } as unknown as Partial<Data>) }).acts;
+    expect(live.map((a) => [a.label, !!a.primary])[1]).toEqual(['Review the last run', false]);
+    const other = pageActions({ ui: u, data: data({ ...base, workflowsTab: { for: blockKey('PAIR.md', 'first'), run } } as unknown as Partial<Data>) }).acts;
+    expect(other[0].primary).toBe(true);
   });
 });

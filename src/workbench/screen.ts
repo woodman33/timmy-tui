@@ -62,6 +62,8 @@ export function frameOf(a: FrameAsk): Frame {
   const layout = layoutFor({
     columns: a.columns, rows: a.rows, body: bodyKind(isHub(ui.page), ui.workspace), pipeline: ui.page === 'chat' && !ui.overlay,
     navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityOpen: ui.activityOpen, focusMode: ui.focusMode === true,
+    // R10 (H167; H168's F9): Chat's own column is its event log; Activity & log keeps its strip there, not the same lines again
+    quietLog: ui.page === 'chat' && !ui.overlay,
   });
   const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can, columns: a.columns });
   const placed: Placed[] = [];
@@ -137,8 +139,14 @@ export function frameOf(a: FrameAsk): Frame {
     // scrolls; the rest is the list the cursor keys and the wheel move (its rows counted from below the pinned ones)
     const pin = Math.min(view.pin ?? 0, view.lines.length, Math.max(0, c.height - 1));
     const pinned = view.lines.slice(0, pin);
-    const v: View = pin ? { ...view, lines: view.lines.slice(pin), items: view.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line - pin : x.line })) } : view;
+    const cut: View = pin ? { ...view, lines: view.lines.slice(pin), items: view.items.map((x) => ({ ...x, line: x.line >= 0 ? x.line - pin : x.line })) } : view;
     const bodyH = Math.max(1, c.height - pin);
+    // R10 (H167; H168's F9): a view's foot (Chat's composer) at the column's foot, as references 02 and 11 draw the prompt
+    // row under the stream: the rows between are left blank (the rows above it keep their places)
+    const foot = Math.min(cut.footRows ?? 0, cut.lines.length);
+    const v: View = foot && cut.lines.length < bodyH
+      ? { ...cut, lines: [...cut.lines.slice(0, cut.lines.length - foot), ...Array.from({ length: bodyH - cut.lines.length }, (): Line => []), ...cut.lines.slice(cut.lines.length - foot)] }
+      : cut;
     const list = ui.overlay ? 'overlay' : `center:${ui.workspace}`;
     const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
     const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
@@ -207,7 +215,7 @@ export function frameOf(a: FrameAsk): Frame {
   // shown whole when it fits, the view following the newest only while the selection is the newest); the key-hint line last
   {
     const c = ctx(layout.bottom);
-    const v = bottomView(c, { logLines: layout.logLines, stop: !layout.topDetail });
+    const v = bottomView(c, { logLines: layout.logLines, stop: !layout.topDetail, quiet: layout.quietLog === true });
     const fixed = Math.min(v.fixed, v.lines.length);
     const body = Math.max(0, c.height - fixed - 1);
     const rest = v.lines.slice(fixed);

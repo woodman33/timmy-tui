@@ -88,7 +88,8 @@ describe('keys meant for the Workbench are never sent as a message (R10 H167, H1
 
     await waitScreen(wb, { what: 'the Workbench on tray', re: /tray \/ Home · recent work[\s\S]*Activity & log/, ms: 60_000 });
     // the route is ready (FAKE, by its name): Home's one next step opens the composer in one key
-    await seen(/next turn: FAKE fake-qwen3:8b/, 20_000);
+    // (the status row says the route shorter where the row is short: "next: FAKE fake-qwen3:8b · here · no price" at 122)
+    await seen(/next(?: turn)?: FAKE fake-qwen3:8b/, 20_000);
     await sendKeys(wb, ['Enter']);
     await seen(/Message[\s\S]*› /, 60_000);
     // 1. while the composer has the keyboard, the hint row says only its keys (read once no notice holds its place)
