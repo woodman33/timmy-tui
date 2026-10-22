@@ -8,8 +8,12 @@
  *   openTarget(item)         where an item of the project's work opens: a companion tab with what it chooses, or Studio (./open.ts)
  *   openUrl(target, base)    that place's address on a server, never with a token (./open.ts)
  *   askedOf, shownFor        what an address asks for, and what a page shows for it with a notice when it differs (./open.ts)
+ *   recentWork(ctx, limit)   the project's newest turns, runs, files, observations, drafts and receipts, newest first, each
+ *                            with its state, its receipt (verified here) and where it opens (./recent.ts)
  */
 export { FAKE_NAME, routeNow, routeTaken } from './route.js';
 export type { JourneyRoute, RouteAgent, RouteCtx, RoutePrice, RouteProvider, RouteStep, RouteTaken, RouteWhere } from './route.js';
 export { askedOf, DRAFT_ID, hexOfPath, OPERATION_ID, openTarget, openUrl, pathOfHex, previewOf, projectPath, RECEIPT_ID, shownFor, VOX_ID } from './open.js';
 export type { AskedAddress, Openable, OpenKind, OpenTarget, PageHas, SelectName } from './open.js';
+export { RECENT_CAPS, recentWork, RESULTS_MAX, runState, runTitle, verifyMany } from './recent.js';
+export type { RecentCaps, RecentWork, WorkCtx, WorkItem, WorkKind, WorkState } from './recent.js';
