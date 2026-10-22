@@ -33,6 +33,7 @@ if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0
 fi
 
 rev=$(git rev-parse --short=7 HEAD)
+revfull=$(git rev-parse HEAD)
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 pkg="$out/timmy-review-$rev"
@@ -40,13 +41,23 @@ rm -rf "$pkg"
 mkdir -p "$pkg"
 
 echo "build-review: packing $rev (npm pack runs the build) ..."
-npm pack --pack-destination "$pkg" --json > "$out/pack-$rev.json"
+# R10 (H163): the packed build carries the revision it was built from: TIMMY_BUILD_REVISION makes the build's
+# scripts/generate-version.ts write dist/build-info.json for this HEAD (it refuses any other), which `timmy --version` and the
+# Workbench's About read (src/build-info.ts). The checkout's own copy of the stamp is removed afterwards, whatever happens, so
+# a later build or a plain tsc there never carries this revision's stamp
+trap 'rm -f "$root/dist/build-info.json"' EXIT
+TIMMY_BUILD_REVISION="$revfull" npm pack --pack-destination "$pkg" --json > "$out/pack-$rev.json"
 tgz=$(cd "$pkg" && ls timmy-tui-*.tgz)
+stamped=$(tar -xzOf "$pkg/$tgz" package/dist/build-info.json 2>/dev/null | node -e 'let t = ""; process.stdin.on("data", (d) => { t += d; }).on("end", () => { try { const s = JSON.parse(t); process.stdout.write(`${s.revision} ${s.dirty}`); } catch { process.stdout.write("none"); } })') || stamped="none"
+if [ "$stamped" != "$revfull false" ]; then
+  echo "build-review: the packed build's stamp says \"$stamped\", not revision $revfull from a clean checkout: refusing to ship it" >&2
+  exit 1
+fi
+echo "build-review: the packed build carries its revision ($rev, dist/build-info.json)"
 
 # R9 lead (after the R9 independent review, its F2): the README's branch is the checkout's, never a fixed round's ("|", not
 # "/", as sed's delimiter: a branch name holds slashes)
 branch=$(git branch --show-current 2>/dev/null); branch=${branch:-a detached revision}
-revfull=$(git rev-parse HEAD)
 fill() { sed -e "s/__REVFULL__/$revfull/g" -e "s/__REV__/$rev/g" -e "s/__TGZ__/$tgz/g" -e "s|__BRANCH__|$branch|g" "$1" > "$2"; }
 fill scripts/review/review.sh "$pkg/review.sh"
 fill scripts/review/timmy-review "$pkg/timmy-review"
