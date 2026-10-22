@@ -873,6 +873,8 @@ export function workflowsTabView(c0: ViewCtx): View {
   const selBlock = sel?.kind === 'block' ? sel.block : undefined;
   const run = selDoc && selBlock ? runFor(c, selDoc, selBlock) : null;
 
+  // R10 (H163): read right after the first frame; until then neither the documents nor upmd are known, so neither is said
+  if (data.workflows.reading) return { lines: [fit([S('The workflow documents are being read…', 'secondary')], W, g.ellipsis)], items: [] };
   if (!data.workflows.docs.length) return { lines: [...planHead(c, W), [], ...noDocs(W, g)].map((l) => fit(l, W, g.ellipsis)), items: [] };
 
   if (!wide) {

@@ -57,8 +57,9 @@ import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
   activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readPipeline, readRoute, readTurns, readVoxRecords,
-  readWorkflows, type ActivityEvent,
+  readWorkflows, FILES_BEING_READ, WORKFLOWS_BEING_READ, type ActivityEvent,
 } from './state.js';
+import { releaseEndedCopies } from '../utils/dispatch.js';
 import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPlan } from './setup-paths.js';
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
@@ -193,8 +194,30 @@ export class Controller {
       companion: d.companion.state(), studio: d.studio.state(), mine: [], starting: [],
     };
     this.data = this.emptyData(project);
-    this.readAll();
-    this.refreshFrame();
+    // R10 (H163; R9's item B, for the Workbench): the first frame waits on no walk of the project. Its files and workflow
+    // documents are read once, right after the first frame (Ink draws it as the app is rendered, before this immediate
+    // runs), and the workspace frame is built from that same reading (refreshFrame); until then the screen says they are
+    // being read
+    this.data.files = FILES_BEING_READ;
+    this.data.workflows = WORKFLOWS_BEING_READ;
+    this.readAll({ walks: false });
+    setImmediate(() => {
+      if (this.disposed) return;
+      this.readAll();
+      this.refreshFrame();
+      this.emit();
+      // on the next turn (the app subscribes as its first frame commits, after this immediate): the screen drawn again, then
+      // the dispatch copies whose sessions ended outside Timmy released (src/utils/dispatch.ts; R9's F11), bounded: at most
+      // 20 copies, 2 s for each question to tmux; said in Activity only when one was released
+      setTimeout(() => {
+        if (this.disposed) return;
+        this.emit();
+        try {
+          const done = releaseEndedCopies(this.data.project.root, { max: 20, timeoutMs: 2000 }).filter((x) => x.state !== 'in_use');
+          if (done.length) this.say(`Released ${done.length === 1 ? 'a dispatch copy whose session' : `${done.length} dispatch copies whose sessions`} had ended outside Timmy (its outputs kept): ${done.map((x) => x.id).join(', ')}`, 'secondary');
+        } catch { /* each copy stays as its record says */ }
+      }, 0).unref?.();
+    });
   }
 
   private now(): number { return this.d.now?.() ?? Date.now(); }
@@ -313,15 +336,16 @@ export class Controller {
     if (!this.data.build) { try { this.data.build = buildInfo({ env: this.d.env }); } catch { /* unknown */ } }
   }
 
-  /** Everything but the on-demand parts (every few seconds, and on [r]). */
-  readAll(): void {
+  /** Everything but the on-demand parts (every few seconds, and on [r]). R10 (H163): `walks` false: all but the walks of the
+   *  project (its files, its workflow documents), as the first frame reads it. */
+  readAll(o: { walks?: boolean } = {}): void {
     const root = this.data.project.root;
     this.readJobs();
-    const files = readFiles(root);
+    const files = o.walks === false ? this.data.files : readFiles(root);
     this.data.files = files;
     const chain = this.chain();
     const own = this.records.filter((j) => sameFolder(j.root, root));
-    this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
+    if (o.walks !== false) this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
     this.data.decisions = readDecisions(root, this.records, chain, this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
     // R4 (H117): the project's chat turns, every surface's, from their sealed receipts in the same chain (the Control Room's)
     this.data.turns = readTurns(chain, root);
@@ -447,7 +471,8 @@ export class Controller {
     const root = this.data.project.root;
     // R5 lead: the frame of the project this Workbench shows, named to it (pinned to its own while another surface chose
     // another, its actions are still its project's)
-    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), now: this.now() })
+    // R10 (H163): with this Workbench's own reading of the files and workflow documents (the frame walks the project no second time)
+    void buildWorkspaceFrame({ env: this.d.env, cwd: root, project: { name: this.data.project.name, root }, jobsDir: this.d.jobsDir, onPath: this.d.onPath, jobs: () => this.records, chain: () => this.chain(), files: () => this.data.files, workflows: () => this.data.workflows, now: this.now() })
       .then((f) => {
         if (this.disposed || !sameFolder(root, this.data.project.root)) return;
         const before = this.data.frame?.revision;

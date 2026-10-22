@@ -116,6 +116,18 @@ describe.skipIf(!hasTmux)('a copy whose session ended outside Timmy is released 
     expect(pauseOrCancelLane(odd.id, 'cancel', dir).copy).toMatchObject({ state: 'removed' });
   });
 
+  it('bounded when asked, as the Workbench asks after its first frame: at most `max` copies looked at, the rest at the next look', () => {
+    const a = launched();
+    const b = launched();
+    kill(a.id);
+    kill(b.id);
+    const [first, second] = [a.id, b.id].sort();
+    expect(releaseEndedCopies(dir, { max: 1, timeoutMs: 2000 }).map((d) => [d.id, d.state])).toEqual([[first, 'removed']]);
+    expect(getPlan(second, dir)!.copy).toMatchObject({ state: 'in_use' });
+    expect(releaseEndedCopies(dir, { max: 1, timeoutMs: 2000 }).map((d) => [d.id, d.state])).toEqual([[second, 'removed']]);
+    expect(releaseEndedCopies(dir, { max: 1, timeoutMs: 2000 })).toEqual([]);
+  });
+
   it('the whole tmux server gone (as after a restart): released at the next start too', () => {
     const l = launched();
     expect(spawnSync('tmux', ['-L', own.label, 'kill-server']).status).toBe(0);

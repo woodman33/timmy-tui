@@ -462,6 +462,7 @@ function filesView(c: ViewCtx): View {
   const { data, g } = c;
   const lines: Line[] = [];
   const items: View['items'] = [];
+  if (data.files.reading) return { lines: [[S('The project\'s files are being read…', 'secondary')]], items };   // R10 (H163)
   if (!data.files.total) return { lines: blankGuides(c, 'No files yet.'), items };
   const cur = cursorOf(c.ui, 'center:files', data.files.total);
   let i = 0;
@@ -1448,6 +1449,7 @@ function relatedTo(item: Item | null, files: FileRow[]): FileRow[] {
 function filesTab(c: ViewCtx, item: Item | null): View {
   const lines: Line[] = [];
   const items: View['items'] = [];
+  if (c.data.files.reading) return { lines: [[S('The project\'s files are being read…', 'secondary')]], items };   // R10 (H163)
   const all = c.data.files.groups.flatMap((g) => g.files);
   const related = c.ui.related ? relatedTo(item, all) : all;
   lines.push(c.ui.related
