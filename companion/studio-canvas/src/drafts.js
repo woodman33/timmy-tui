@@ -310,10 +310,12 @@ export function discardPlan(records, id) {
   return { shapes: top, all: [...drafted], keepOut, assets };
 }
 
-/** One line for a pending draft, in the panel: its label, size, job and the revision it was made from. */
+/**
+ * One line for a pending draft, in the panel: its label, size and the revision it was made from. R10 (H167; the round's rule:
+ * ids behind a details control): the job that proposed it is named by its id under the draft's Details (canvas.js), not here.
+ */
 export function draftLine(d) {
   const parts = [DRAFT_LABEL, plural(d.shapes.length, 'shape')];
-  if (d.job) parts.push(`job ${d.job}`);
   if (isRevision(d.from)) parts.push(`from revision ${d.from}`);
   return parts.join(' · ');
 }
@@ -324,7 +326,8 @@ export function draftLine(d) {
  */
 export function decisionWords(decision, d, saved) {
   const count = Array.isArray(d.shapes) ? d.shapes.length : Number(d.count) || 0;
-  const what = `${decision === 'accepted' ? 'Accepted' : 'Discarded'} Timmy's draft (${plural(count, 'shape')}${d.job ? `, job ${d.job}` : ''})`;
+  // (R10 H167: the draft by its size, its job's id left to its Details and the drafts record)
+  const what = `${decision === 'accepted' ? 'Accepted' : 'Discarded'} Timmy's draft (${plural(count, 'shape')})`;
   const effect = decision === 'accepted' ? 'kept on the board' : 'removed from the board';
   const tail = saved ? `saved at revision ${saved.revision} and recorded` : 'not saved yet (the save line says why)';
   return `${what}: ${effect}; ${tail}. No tool or job ran.`;

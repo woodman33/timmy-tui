@@ -13,9 +13,11 @@
 //
 // R6 (H145, step 4c): connections. An arrow bound at both ends to two of Timmy's cards connects them. Data flows along it only
 // when it is one of an operation's own links (below: connectionOf); any other is a link that carries no data, and says so on the
-// board and in the panel's Connections. Imports only ./operations.js (which imports nothing), so its rules run in Node too.
+// board and in the panel's Connections. Imports only ./operations.js and (R10 H167) ./face.js (each imports nothing), so its rules run in Node too.
 
 import { isTimmyArrow, OPERATION_ID, PLACEMENTS, placementKey, readPlacement } from './operations.js';
+// R10 (H167): a node in words (a file by its name, no id): the card's own words, whole, are the item's tip
+import { faceTitle, faceWords } from './face.js';
 
 /** The node kinds, in the order the palette shows them: the drawn card's type (./cards.js CARD_SHAPES), or operation. */
 export const NODE_KINDS = [
@@ -278,9 +280,14 @@ export function createNodes(deps) {
         const list = el('ul', null, { className: 'nitems', 'aria-label': `${g.title} of ${p.project.name}` });
         for (const it of g.items) {
           const li = el('li', null, { className: 'nitem', 'data-node-kind': g.kind, 'data-node-id': it.id, 'data-project': p.project.id });
-          li.append(el('span', it.title, { className: 'nitem-title' }));
+          // R10 (H167; the round's rule: paths and ids behind the inspector): the node in words, a file by its name; its card's
+          // words as its record says them, whole, are the item's tip
+          const title = (g.kind === 'operation' && /^operation o[0-9a-f]{8}$/.test(it.title) ? 'An operation, its request not recorded' : faceTitle(it.title)) || it.title;
+          const said = [title !== it.title ? it.title : '', faceWords(it.state) !== it.state ? it.state : ''].filter(Boolean).join(' · ');
+          if (said) li.setAttribute('title', said);
+          li.append(el('span', title, { className: 'nitem-title' }));
           if (g.kind === 'result') li.append(el('span', it.kind, { className: 'nitem-kind' }));
-          li.append(el('span', it.state, { className: 'nitem-state' }));
+          li.append(el('span', faceWords(it.state), { className: 'nitem-state' }));
           const add = el('button', 'Add node', { type: 'button', className: 'nitem-add', title: `Adds this ${g.one} to ${p.project.name}'s board, bound to ${p.project.name}` });
           add.addEventListener('click', () => {
             add.disabled = true;

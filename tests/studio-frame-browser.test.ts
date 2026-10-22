@@ -329,6 +329,14 @@ describe.skipIf(!browserPath)('Timmy Studio: the shared workspace frame above th
       const { page, context, errors } = await open({ width, height });
       const where = `${width}x${height}`;
       try {
+        // R10 (H167; the round's rule: raw commands in a secondary inspector): on the strip's face each step is its number, its
+        // label and its Copy, and no command shows; the strip's Commands shows them (the checks below are of that view)
+        await page.waitForSelector('#frame-acts li');
+        expect(await page.locator('#frame code.fr-cmd:visible').count(), where).toBe(0);
+        expect(await page.locator('#frame-acts li button.fr-copy:visible').allTextContents(), where).toEqual(['Copy command', 'Copy command', 'Copy command', 'Copy command']);
+        await page.click('#frame-cmds-toggle');
+        expect(await page.getAttribute('#frame-cmds-toggle', 'aria-expanded'), where).toBe('true');
+        expect(await page.locator('#frame-acts li code.fr-cmd:visible').count(), where).toBe(4);
         const seen = await page.evaluate(() => {
           const vw = innerWidth;
           const vh = innerHeight;

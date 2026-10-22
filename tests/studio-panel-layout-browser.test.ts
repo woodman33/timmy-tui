@@ -152,7 +152,9 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         expect(row.bottom, 'the last row ends inside the region, above the band').toBeLessThanOrEqual(region.bottom + 0.5);
         // a region taller than a row shows it whole (on a short window a row may be taller than the region: its end shows)
         if (row.h <= region.h) expect(row.top).toBeGreaterThanOrEqual(region.top - 0.5);
-        for (const sel of [`${lastSel} .pcard-place`, `${lastSel} .pcard-cmd`]) expect(await reachable(page, sel), sel).toBe(true);
+        // (R10 H167: a row's command is under its Details, whose control is reachable beside Place on canvas)
+        for (const sel of [`${lastSel} .pcard-place`, `${lastSel} .pcard-more > summary`]) expect(await reachable(page, sel), sel).toBe(true);
+        expect(await page.$eval(`${lastSel} .pcard-cmd`, (b) => !!b.closest('details.pcard-more'))).toBe(true);
         // scrolled part-way: every Place button wholly in the open part of the region (below the list's heading, which stays at
         // its top while its list scrolls under it) is under nothing. R5 (H133): part-way is the middle row's Place button brought
         // to the middle of the region (it had been the list's exact middle: with the workspace strip above the canvas the region

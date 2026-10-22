@@ -208,7 +208,11 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       expect(pairs(chain)).toEqual([`${first[0].id} → ${first[1].id}`, `${first[1].id} → ${first[2].id}`, `${first[2].id} → ${first[3].id}`].sort());
       // each card names the operation on its face, as Timmy read it from its record now
       await page.waitForFunction((ids) => ids.every((id) => document.querySelector(`[data-timmy-card="${id}"] .tc-op`)), first.map((d) => d.id));
-      for (const d of first) expect(await text(page, `[data-timmy-card="${d.id}"] .tc-op`)).toBe(`operation ${o.op}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      for (const d of first) {
+        expect(await text(page, `[data-timmy-card="${d.id}"] .tc-op`)).toMatch(/^its operation /);
+        expect(await page.getAttribute(`[data-timmy-card="${d.id}"] .tc-op`, 'title')).toBe(`operation ${o.op}`);
+      }
       // the row is in view with the cards' heights: each card's last line (Details) is under nothing, neither the panel nor
       // tldraw's toolbar
       for (const d of first) {
