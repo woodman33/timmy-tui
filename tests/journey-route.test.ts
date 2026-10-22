@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openChatSession } from '../src/agent/chat-session.js';
 import { createAgent, type Agent } from '../src/agent/core.js';
 import { modelPrice } from '../src/agent/model-price.js';
-import { OPENROUTER_MODEL } from '../src/companion/chat-route.js';
+import { OPENROUTER_MODEL, pageRoute } from '../src/companion/chat-route.js';
 import { routeNow, routeTaken } from '../src/journey/index.js';
 import { loadConfig } from '../src/utils/config.js';
 import { readChain, type Receipt } from '../src/utils/receipts.js';
@@ -246,14 +246,19 @@ describe('the place, the price as declared, FAKE, the companion page\'s own Send
     expect(stand.price).toEqual({ state: 'unknown', words: 'FAKE: no model is asked, so no price applies' });
   });
 
-  it('the companion page\'s own Send: its own OpenRouter model and no tools (the page\'s /chat route, not the session\'s)', () => {
+  it('the companion page\'s own Send: its own model, no tools, no receipt, not the project\'s conversation, in the page\'s own words', () => {
     setUp({ chat: 'openrouter', key: true });
     process.env.OPENROUTER_MODEL = 'vendor/session-model';
     const page = routeNow({ surface: 'companion', price });
-    expect(page).toMatchObject({ provider: 'openrouter', model: OPENROUTER_MODEL, tools: 'none', surface: 'companion' });
-    expect(routeNow({ surface: 'workbench', price }).model).toBe('vendor/session-model');
+    expect(page).toMatchObject({ provider: 'openrouter', model: OPENROUTER_MODEL, tools: 'none', surface: 'companion', conversation: 'this page', receipt: false });
+    // its words are the page's own chip (src/companion/chat-route.ts pageRoute's label): one source for both
+    expect(page.words).toBe(pageRoute(process.env, process.cwd()).label);
+    expect(page.words).toBe(`${OPENROUTER_MODEL} · OpenRouter · this page's own chat · each message spends credits`);
+    // the project's chat (the Workbench's, the REPL's): the session's model, its gated tools, the project's conversation, sealed
+    expect(routeNow({ surface: 'workbench', price })).toMatchObject({ model: 'vendor/session-model', tools: 'gated', conversation: 'project', receipt: true });
+    expect(routeNow({ surface: 'repl', price })).toMatchObject({ conversation: 'project', receipt: true });
     setUp({ chat: 'local', model: 'qwen3:8b' });
-    expect(routeNow({ surface: 'companion' })).toMatchObject({ provider: 'ollama', model: 'qwen3:8b', tools: 'none' });
+    expect(routeNow({ surface: 'companion' })).toMatchObject({ provider: 'ollama', model: 'qwen3:8b', tools: 'none', conversation: 'this page', receipt: false, words: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' });
   });
 
   it('never the key: not in the route, its words or its details', () => {

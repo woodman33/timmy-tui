@@ -403,7 +403,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     } finally { await context.close(); }
   });
 
-  it('on the local route, Send streams the answer of the model the setup chose from the recorded Ollama (FAKE), with no tools, labelled "local <model> · Ollama · no tools here"; nothing reaches OpenRouter', async () => {
+  it('on the local route, Send streams the answer of the model the setup chose from the recorded Ollama (FAKE), with no tools, labelled "local <model> · Ollama · this page\'s own chat · no tools"; nothing reaches OpenRouter', async () => {
     const ollama = await startFakeOllama({
       models: [{ name: 'fake-chat:8b', capabilities: ['completion', 'tools'] }],
       chat: [() => ({ chunks: textChunks('fake-chat:8b', ['FAKE local ', 'answer: **streamed** ', 'from the FAKE Ollama.']), delayMs: 150 })],
@@ -415,9 +415,9 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       try {
         await connected(page);
         await tab(page, 'streamdown');
-        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · no tools here', null, { timeout: 15_000 });
+        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · this page\'s own chat · no tools', null, { timeout: 15_000 });
         expect(await page.getAttribute('#sd-route-chip', 'data-route')).toBe('local');
-        expect(await text(page, '#sd-route')).toBe('POST /chat → local fake-chat:8b · Ollama · no tools here → SSE → live React components');
+        expect(await text(page, '#sd-route')).toBe('POST /chat → local fake-chat:8b · Ollama · this page\'s own chat · no tools → SSE → live React components');
         expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b … (Ollama, no tools here)');
         expect(await page.locator('#sd-route-off').count()).toBe(0);
         await page.fill('#sd-input', 'FAKE: a question for the local model');
@@ -499,7 +499,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     try {
       // a cloud-backed model, chosen by its name (which says cloud): the label says so; the turn says the chat leaves this computer
       use({ chat: 'local', model: 'fake-big:70b-cloud' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'fake-big:70b-cloud · Ollama, cloud-backed · no tools here' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'fake-big:70b-cloud · Ollama, cloud-backed · this page\'s own chat · no tools' });
       const cloud = await chat(own, 'FAKE: for the cloud model');
       expect(cloud.find((e) => e.event === 'notice')?.data.text).toBe('fake-big:70b-cloud is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).');
       expect(cloud.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE cloud answer');
@@ -507,7 +507,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(cloud.at(-1)?.event).toBe('done');
       // a model Ollama sends elsewhere though its name does not say cloud: refused, nothing sent to /api/chat
       use({ chat: 'local', model: 'sneaky:8b' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · no tools here' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · this page\'s own chat · no tools' });
       const before = ollama.chats().length;
       const sneaky = await chat(own, 'FAKE: for the sneaky model');
       expect(sneaky.map((e) => e.event)).toEqual(['route', 'cost', 'error']);
@@ -522,7 +522,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const key = `FAKE-or-${randomBytes(12).toString('hex')}`;
       use({ chat: 'openrouter' }, { openrouter_api_key: key });
       const or = await route();
-      expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · each message spends credits' });
+      expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' });
       expect(JSON.stringify(or)).not.toContain(key);
       const answered = await chat(own, 'FAKE: for OpenRouter');
       expect(answered.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE OpenRouter answer');
