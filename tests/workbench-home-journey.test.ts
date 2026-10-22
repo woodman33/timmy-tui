@@ -10,7 +10,7 @@ import { TABS } from '../src/contracts/workspace.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import type { BuildInfo } from '../src/build-info.js';
 import { openTarget, type JourneyRoute, type RecentWork, type WorkItem as JourneyWorkItem } from '../src/journey/index.js';
-import { companionWhat, diagnosticsLines, handoffWords, headerRows, homeConnections, homeSideView, homeWorkView, inWords, plainWords, recentWork, representation, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
+import { companionWhat, diagnosticsLines, fileWhat, handoffWords, headerRows, homeConnections, homeSideView, homeWorkView, inWords, plainWords, recentWork, representation, routeLine, selectedWork, workDetail } from '../src/workbench/home-journey.js';
 import { layoutFor } from '../src/workbench/layout.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { bottomView, pageActions } from '../src/workbench/views.js';
@@ -316,6 +316,18 @@ describe('Home\'s rows and the selected item (R10 H167; H168\'s F6, F7 and F10)'
     // an answer older than the live bound is not counted
     const old = data({ frame: frame([ollama]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [{ ...turn, when: iso(45) }] } });
     expect(homeConnections({ data: old, now: NOW })[0].state).toBe('configured');
+  });
+
+  it('F7: a file\'s row says the kind its record gives and what the file is ("reference · image"), never "result" for a reference', () => {
+    const item = (kind: string, id: string) => ({ kind, id, title: id, when: iso(3), state: 'saved', receipt: null, fake: false, operation: null, open: openTarget({ kind: kind as 'reference', id }) }) as unknown as JourneyWorkItem;
+    const d = data({ recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [item('reference', 'refs/demo-preview.png'), item('mesh', 'refs/demo-tray.stl'), item('result', 'out/report.md'), item('recording', 'out/scene.rrd')] } });
+    const rows = text(homeWorkView(ctx(d, ui(), 90)).lines);
+    expect(rows).toMatch(/demo-preview\.png +reference · image/);
+    expect(rows).toMatch(/demo-tray\.stl +mesh · STL/);
+    expect(rows).toMatch(/report\.md +result · document/);
+    expect(rows).toMatch(/scene\.rrd +recording · recording/);
+    expect(rows).not.toMatch(/result · (?:image|mesh)/);
+    expect([fileWhat('a/b.JPG'), fileWhat('x.step'), fileWhat('notes.txt'), fileWhat('blob.bin')]).toEqual(['image', 'STEP', 'text', 'file']);
   });
 
   it('F7: two files of one name say their folders; a reference is a reference', () => {

@@ -289,6 +289,19 @@ const base = (rel: string): string => rel.split('/').pop() ?? rel;
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
+/** R10 (H167; H168's F7): what a file of the project is, by its kind of content, in a word (an image, a mesh's format, a
+ *  recording, a document, a text), as Home's row says it beside the kind its record gives ("reference · image"). */
+export function fileWhat(rel: string): string {
+  const ext = (/\.([A-Za-z0-9]+)$/.exec(rel)?.[1] ?? '').toLowerCase();
+  if (IMAGE.test(rel)) return 'image';
+  if (['stl', 'obj', 'ply', 'glb', 'gltf', 'usd', 'usda', 'usdz'].includes(ext)) return ext.toUpperCase();
+  if (ext === 'step' || ext === 'stp') return 'STEP';
+  if (ext === 'rrd') return 'recording';
+  if (ext === 'md' || ext === 'markdown') return 'document';
+  if (['txt', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'py', 'ts', 'js', 'mjs', 'sh', 'scad'].includes(ext)) return 'text';
+  return 'file';
+}
+
 const TONE: Readonly<Record<string, WorkItem['tone']>> = {
   answered: 'ok', completed: 'ok', saved: 'ok', sealed: 'ok', 'no change': 'ok',
   failed: 'failed', refused: 'failed', differs: 'failed', untrusted: 'failed', interrupted: 'failed',
@@ -304,7 +317,8 @@ export function fromJourney(it: JourneyWorkItem, data: Pick<Data, 'jobs' | 'work
   const facts: string[] = [];
   if (it.kind === 'turn' && it.route) facts.push(...[it.route.answeredBy ?? it.route.requested ?? '', WHERE_WORDS[it.route.where] ?? ''].filter(Boolean));
   if (it.kind === 'run' && it.results?.length) facts.push(`${count(it.results.length, 'file')} written`);
-  if (it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result') facts.push(IMAGE.test(it.id) ? 'image' : it.kind);
+  // (R10 H167; H168's F7: what the file is, by its content's kind, beside the kind its record gives: "reference · image")
+  if (it.kind === 'mesh' || it.kind === 'recording' || it.kind === 'reference' || it.kind === 'result') facts.push(fileWhat(it.id));
   const companion = it.open.surface === 'companion' ? it.open.query : '';
   const studio = it.open.surface === 'studio';
   const opens = targetOf(it, data, companion, studio);
@@ -412,7 +426,8 @@ function workRow(w: WorkItem, selected: boolean, focused: boolean, width: number
   const g = c.g;
   const m = workMark(w, g);
   const when = ago(w.at, c.now);
-  const kind = `${KIND_WORD[w.kind]} ${g.sep} ${w.state}`;
+  // (R10 H167; H168's F7: a file says what it is, "reference · image"; anything else its record's word, "run · completed")
+  const kind = FILE_KINDS.has(w.kind) && w.facts[0] ? `${KIND_WORD[w.kind]} ${g.sep} ${w.facts[0]}` : `${KIND_WORD[w.kind]} ${g.sep} ${w.state}`;
   const right: Seg[] = [S(kind.padEnd(Math.min(24, kind.length)), 'secondary'), S('  '), S(when.padStart(11), 'secondary')];
   const lead: Seg[] = [S(selected ? `${g.cursor} ` : '  ', selected && focused ? 'accent' : 'secondary'), S(`${m.glyph} `, m.role)];
   const room = Math.max(6, width - lineCells(lead) - lineCells(right) - 2);
