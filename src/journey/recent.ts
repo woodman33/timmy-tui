@@ -16,7 +16,8 @@
  *   recording,    uploads/, docs/, out/, outputs/, results/, renders/, exports/, models/, scenes/, and the top's own mesh,
  *   reference,    recording and image files), at most RECENT_CAPS.fileEntries entries and RECENT_CAPS.fileDepth folders deep;
  *   result        a VoxVision record's folder is the observation's, a run's result is the run's
- *   observation   the VoxVision records (src/vox/preview.ts listVoxRecords: the tab 5 list's own reading, its receipt state)
+ *   observation   the VoxVision records (src/vox/preview.ts listVoxRecords: the tab 5 list's own reading, its receipt state),
+ *                 while the project has at most RECENT_CAPS.voxRecords of them (that list reads every record's time)
  *   draft         Studio's saved board of the project: each draft Timmy proposed that waits for Accept or Discard, once
  *   receipt       the chain's other receipts of the project (none that is a listed turn's, run's or observation's)
  *
@@ -106,8 +107,10 @@ export interface RecentCaps {
   fileDepth: number;
   /** the largest Studio board file read for its drafts */
   boardBytes: number;
+  /** the most VoxVision records whose times tab 5's list reads (more, and the observations are not listed here) */
+  voxRecords: number;
 }
-export const RECENT_CAPS: Readonly<RecentCaps> = Object.freeze({ chainScan: 5000, operations: 2000, fileEntries: 800, fileDepth: 4, boardBytes: 32 * 1024 * 1024 });
+export const RECENT_CAPS: Readonly<RecentCaps> = Object.freeze({ chainScan: 5000, operations: 2000, fileEntries: 800, fileDepth: 4, boardBytes: 32 * 1024 * 1024, voxRecords: 2000 });
 /** How many of a run's results an item names. */
 export const RESULTS_MAX = 8;
 const TITLE_MAX = 80;
@@ -417,8 +420,11 @@ export function recentWork(ctx: WorkCtx, limit = 12, o: { caps?: RecentCaps } = 
     cands.push({ at: f.mtimeMs, ...(took ? { hash: took.hash } : {}), item: { kind, id: f.rel, title: cut(basename(f.rel)), when: iso(f.mtimeMs), state: 'saved', receipt: null, open: openTarget({ kind, id: f.rel }), fake: FAKE_WORD.test(basename(f.rel)), operation: took?.op ?? null } });
   }
 
-  // ── the VoxVision observations (tab 5's own list and receipt state) ──
-  try {
+  // ── the VoxVision observations (tab 5's own list and receipt state; it reads every record's time, so only up to a cap) ──
+  let voxCount = 0;
+  try { voxCount = readdirSync(join(root, VOX_DIR)).filter((n) => /^v[0-9a-f]{8}\.json$/.test(n)).length; } catch { voxCount = 0; }
+  if (voxCount > caps.voxRecords) notes.push(`The project has ${voxCount} VoxVision record${voxCount === 1 ? '' : 's'}, more than the ${caps.voxRecords} read here: the observations are not listed (tab 5 lists them).`);
+  if (voxCount > 0 && voxCount <= caps.voxRecords) try {
     const vox = listVoxRecords({ root, chain, env: env as NodeJS.ProcessEnv }, want);
     for (const u of vox.unreadable) notes.push(`${u.file} is not listed: ${u.why}.`);
     for (const v of vox.records) {
