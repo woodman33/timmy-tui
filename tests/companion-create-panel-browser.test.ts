@@ -562,7 +562,11 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
     const probeBytes = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
     const readings: Record<string, RrdReading> = {
       'rec/a-version.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'version=0.37.1' }) }),
-      'rec/b-slow.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'sleep:stats' }), timeoutMs: 400 }),
+      // R10 lead: the time limit applies to every call, and the FAKE `rerun` is a Node program that took over 0.4 s just to
+      // start on a loaded 2-CPU machine (seen beside six busy loops: rerun --version timed out, so verify was never run and
+      // no verify row was drawn): 3 s for each call, far under the 30 s the FAKE's stats sleeps, so only stats times out, as
+      // this case means
+      'rec/b-slow.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'sleep:stats' }), timeoutMs: 3000 }),
       'rec/c-kinds.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'garbage:print-vv' }) }),
       'rec/d-ranges.rrd': await readRrdWithCli(probeBytes, { env: env(), dataMax: 1024 }),
       'rec/e-edge.rrd': await readRrdWithCli(readFileSync(resolve('tests/fixtures/rrd-cli/edge.rrd')), { env: env() }),
@@ -585,7 +589,7 @@ describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through t
       expect(await at('rec/a-version.rrd', '[data-rec="cli"]')).toBe(`not read by the Rerun CLI: ${unchecked}`);
       expect(await at('rec/a-version.rrd', '[data-rec="entities"]')).toBe(`unknown: ${unchecked}`);
       expect(await at('rec/b-slow.rrd', '[data-rec="verify"]')).toBe('rrd verify: 1 file verified without error.');
-      expect(await at('rec/b-slow.rrd', '[data-rec="entities"]')).toBe('unknown: rrd stats gave no answer in 0.4 s, so it was stopped (its process group was killed)');
+      expect(await at('rec/b-slow.rrd', '[data-rec="entities"]')).toBe('unknown: rrd stats gave no answer in 3 s, so it was stopped (its process group was killed)');
       const vv = "unknown: rrd print -vv's output does not parse as rerun-cli 0.38.1's: it printed 0 chunks, and rrd stats counted 4";
       expect(await at('rec/c-kinds.rrd', '[data-rec="entities"]')).toBe('/__properties · /notes · /world/box · /world/points');
       expect(await at('rec/c-kinds.rrd', '[data-rec="static"]')).toBe(vv);
