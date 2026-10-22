@@ -1,8 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readChain, measuredCostUsd } from '../utils/receipts.js';
-import { timmyHome } from '../setup/home.js';
+// R10 (H169): one data path for OpenRouter's models: the catalog's raw model, its fetch and its kept copies (src/models/catalog.ts)
+import { cachePath, catalogPath, fetchOpenRouterCatalog, readCache, writeCatalogCache, type ModelCache, type OpenRouterCatalogModel } from './catalog.js';
+
+export { cachePath, catalogPath, readCache, type ModelCache };
 
 // CONTROL PLANE (ORDER control-plane-k3e7) — MODEL REGISTRY (data only).
 // Extends the /models slimming with architecture, supported_parameters and
@@ -12,6 +15,10 @@ import { timmyHome } from '../setup/home.js';
 export interface ModelEntry {
   id: string;
   name?: string;
+  /** R10 (H169): the catalog's description of it (undefined = the catalog does not list it, or says none) */
+  description?: string;
+  /** R10 (H169): when OpenRouter added it (epoch seconds; not its release date) */
+  created?: number;
   architecture?: { modality?: string; input_modality?: string; tokenizer?: string };
   supported_parameters?: string[];
   /** context window in tokens from the OpenRouter catalog (undefined = unlisted) */
@@ -38,54 +45,25 @@ export function readNotes(): Record<string, { role?: string; notes?: string; pin
   try { return JSON.parse(readFileSync(notesPath(), 'utf8')); } catch { return {}; }
 }
 
-interface ORModel {
-  id: string; name?: string; architecture?: ModelEntry['architecture']; supported_parameters?: string[];
-  top_provider?: { name?: string; throughput?: number };
-  context_length?: number;
-  pricing?: { prompt?: string; completion?: string };
-}
+type ORModel = OpenRouterCatalogModel;
 
 // FIX 1 (director, close): the registry is populated from the OpenRouter
 // catalog and cached WITH a fetched-at timestamp; dashes only for models the
-// API doesn't list.
+// API doesn't list. R10 (H169): the catalog's own fetch and kept copies (src/models/catalog.ts): the Timmy home's
+// openrouter-catalog.json (`timmy models --refresh` and the Models rail keep it), else the snapshot shipped with Timmy.
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
-/** The snapshot shipped with Timmy, dated by its fetchedAt: what Timmy knows when this computer has fetched no catalog. */
-export function cachePath(): string { return join(here, 'cache.json'); }
-/**
- * R5 lead: the catalog this computer fetched (`timmy models --refresh`), kept in the Timmy home. Before, a refresh wrote the
- * shipped snapshot in place: a tracked file in a checkout, the package's own folder when installed (which may not be
- * writable), and the installed package shipped no snapshot at all, so every price read as unlisted.
- */
-export function catalogPath(env: Record<string, string | undefined> = process.env): string { return join(timmyHome(env), 'models', 'openrouter-catalog.json'); }
-export interface ModelCache { fetchedAt: string; models: ORModel[] }
-function readCacheAt(path: string): ModelCache | null {
-  try {
-    const j = JSON.parse(readFileSync(path, 'utf8')) as ModelCache | ORModel[];
-    if (Array.isArray(j)) return { fetchedAt: '1970-01-01T00:00:00.000Z', models: j }; // legacy shape
-    if (j && Array.isArray(j.models)) return j;
-    return null;
-  } catch { return null; }
-}
-/** The catalog this computer fetched, else the shipped snapshot, else none. */
-export function readCache(): ModelCache | null { return readCacheAt(catalogPath()) ?? readCacheAt(cachePath()); }
 
+/** OpenRouter's public catalog (no key), or [] when it could not be fetched. */
 export async function fetchOpenRouterModels(): Promise<ORModel[]> {
-  try {
-    const r = await fetch('https://openrouter.ai/api/v1/models');
-    if (!r.ok) return [];
-    const j = await r.json() as { data?: ORModel[] };
-    return j.data ?? [];
-  } catch { return []; }
+  const got = await fetchOpenRouterCatalog();
+  return got.ok ? got.models : [];
 }
 
 export async function refreshModels(): Promise<{ ok: boolean; count: number; fetchedAt: string }> {
-  const models = await fetchOpenRouterModels();
-  if (!models.length) return { ok: false, count: 0, fetchedAt: readCache()?.fetchedAt ?? '' };
-  const fetchedAt = new Date().toISOString();
-  const path = catalogPath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ fetchedAt, models }, null, 2));
-  return { ok: true, count: models.length, fetchedAt };
+  const got = await fetchOpenRouterCatalog();
+  if (!got.ok) return { ok: false, count: 0, fetchedAt: readCache()?.fetchedAt ?? '' };
+  writeCatalogCache({ fetchedAt: got.fetchedAt, models: got.models });
+  return { ok: true, count: got.models.length, fetchedAt: got.fetchedAt };
 }
 
 export function spendByModel(dir?: string): Record<string, number> {
@@ -116,7 +94,9 @@ export function listModelsSync(dir?: string): ModelEntry[] {
     const rm = remote.find(m => m.id === id);
     const n = notes[id] ?? {};
     entries.push({
-      id, name: rm?.name, architecture: rm?.architecture, supported_parameters: rm?.supported_parameters,
+      id, name: rm?.name, ...(typeof rm?.description === 'string' && rm.description ? { description: rm.description } : {}),
+      ...(typeof rm?.created === 'number' && rm.created > 0 ? { created: rm.created } : {}),
+      architecture: rm?.architecture, supported_parameters: rm?.supported_parameters,
       ctx: rm?.context_length,
       price_in: rm?.pricing?.prompt !== undefined ? Number(rm.pricing.prompt) : undefined,
       price_out: rm?.pricing?.completion !== undefined ? Number(rm.pricing.completion) : undefined,

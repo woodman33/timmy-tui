@@ -1,5 +1,7 @@
 import { OpenRouter } from '@openrouter/sdk';
 import type { AgentConfig } from '../types/index.js';
+// R10 (H169): one data path for OpenRouter's models (src/models/catalog.ts): its fetch (no key, a timeout, never throws)
+import { fetchOpenRouterCatalog } from '../models/catalog.js';
 
 let clientInstance: OpenRouter | null = null;
 
@@ -41,15 +43,12 @@ export async function fetchModels(force = false): Promise<OpenRouterModel[]> {
   if (!force && modelCache.length > 0 && now - modelCacheTimestamp < CACHE_TTL) {
     return modelCache;
   }
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/models');
-    const data = await response.json() as { data: OpenRouterModel[] };
-    modelCache = data.data;
-    modelCacheTimestamp = now;
-    return modelCache;
-  } catch (error) {
-    return modelCache;
-  }
+  // a failed fetch keeps what this process had (as before); the catalog's own copy is src/models/catalog.ts loadCatalog's
+  const got = await fetchOpenRouterCatalog();
+  if (!got.ok) return modelCache;
+  modelCache = got.models as OpenRouterModel[];
+  modelCacheTimestamp = now;
+  return modelCache;
 }
 
 export async function findModels(filter: {
