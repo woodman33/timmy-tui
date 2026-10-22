@@ -49,7 +49,8 @@ describe('the real Workbench\'s colours without truecolor (R7 H150; tmux)', () =
       delete base.COLORTERM;
       delete base.TIMMY_PALETTE;
       const env: NodeJS.ProcessEnv = {
-        ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, name, 'store'),
+        // R10 CHAT (H167): this file checks the classic Chat tab; the Chat screen's shell that replaces it is tests/workbench-chat-shell.test.ts's
+        ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TIMMY_WORKBENCH_CHAT: 'classic', TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, name, 'store'),
         TIMMY_SETTINGS_DIR: join(box, name, 'settings'), TMPDIR: join(box, name, 'tmp'), OPENROUTER_API_KEY: '', TERM: 'xterm-256color',
         TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', ...extra,
       };

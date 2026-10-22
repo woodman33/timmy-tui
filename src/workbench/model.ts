@@ -2,6 +2,7 @@
  * R4 (H110): what the Workbench holds while it runs: the records it read (Data) and where the person is (Ui). The views
  * (src/workbench/views.ts) draw from these; the controller (src/workbench/controller.ts) changes them.
  */
+import type { RailModels } from './chat-shell.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
@@ -166,6 +167,8 @@ export interface Data {
   journeyRoute?: JourneyRoute;
   /** R10 (H167): the build (H163's src/build-info.ts buildInfo), read once: About · diagnostics */
   build?: BuildInfo;
+  /** R10 CHAT (H167): what the Models rail lists (src/workbench/chat-shell.ts RailModels): read by the controller, drawn there */
+  models?: RailModels;
 }
 
 /** R5 (H131): one stage of the newest run's pipeline, as its records say it. */
@@ -321,4 +324,16 @@ export interface Ui {
   follow?: string | null;
   /** focus mode ([z]): the center alone, with the top and the bottom */
   focusMode?: boolean;
+  /** R10 CHAT (H167): the Models rail's provider (else the next turn's route's), Ollama's Local or Cloud, its sort and search;
+   *  whether the Models drawer is open where the rail does not fit beside the conversation */
+  modelsProvider?: 'openrouter' | 'ollama' | 'cloudflare';
+  modelsOllama?: 'local' | 'cloud';
+  modelsSort?: 'recent' | 'name' | 'price' | 'context';
+  modelsSearch?: string;
+  modelsOpen?: boolean;
+  /** R10 CHAT (H167): the zone that had the keyboard when M gave it to the Models rail (Esc gives it back) */
+  modelsFrom?: Region;
+  /** R10 CHAT (H167): the Chat tab as it was before the shell (row 2's actions, the pipeline, the event log), where this
+   *  Workbench was started with TIMMY_WORKBENCH_CHAT=classic (the tests that check that layout); else the shell */
+  chatClassic?: boolean;
 }

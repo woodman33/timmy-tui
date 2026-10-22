@@ -20,6 +20,7 @@ import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fle
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
+import { nextTurnLine } from './chat-shell.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -47,6 +48,9 @@ export interface ViewCtx {
   columns?: number;
   /** R8 (H157): the page's Unfinished box leaves some of its words out (src/workbench/screen.ts): Context shows them first */
   unfinishedRest?: boolean;
+  /** R10 CHAT (H167): drawn in the Chat screen's shell (src/workbench/chat-shell.ts): the header says the route; the
+   *  conversation says who spoke on a row of its own, the model a turn used beside Timmy, and the next turn above the composer */
+  shell?: boolean;
 }
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -603,20 +607,21 @@ function chatView(c: ViewCtx): View {
   // R10 (H167): the route the next turn takes, one row: its model, where it runs, its price (FAKE when it says so); its words
   // whole are the inspector's ([i])
   const rt = routeLine(data);
-  lines.push(...wrapSegs(routeSegs(rt, g), c.width, '  '));
+  const shell = c.shell === true;
+  if (!shell) lines.push(...wrapSegs(routeSegs(rt, g), c.width, '  '));
   // R5 (H131; the QA round's defect 22): one remedy for a chat that is not set up, the workspace frame's fix (src/ops/
   // workspace-frame.ts chatFix: the primary Chat action, which Enter carries out); with no frame read yet, the setup (timmy
   // init; `timmy setup` makes a governed workspace's folders and asks nothing). The session's refusal is said for its cause.
   const framed = data.frame && data.frame.project.id === data.project.id ? data.frame : null;
   const fix = route.ready ? undefined : framed?.actions.chat?.find((a) => a.primary && a.enabled && !['composer', 'abort'].includes(routeOf(a).kind));
   const notReady = fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (the next step above, Enter)` : 'not ready: timmy init (in a shell) sets up a route';
-  if (!route.ready) lines.push(...fieldRows('Ready', notReady, c.width, 'attention', 8));
+  if (!route.ready) lines.push(...fieldRows(shell ? 'Not ready' : 'Ready', shell ? notReady.replace(/^not ready: /, '') : notReady, c.width, 'attention', shell ? 10 : 8));
   if (!route.ready && route.refusal?.length) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
     // (R10 H167; H168's F3: in words; the refusal whole is the details', [i])
     for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(inWords(r), c.width, 'secondary', '  '));
   }
-  lines.push(blank);
+  if (!shell || !route.ready) lines.push(blank);
   const t = data.chat;
   const turn = data.turn;
   // R5 (H131; the QA round's defect 21): the newest exchange is said once: while it is being answered, below the conversation
@@ -643,7 +648,7 @@ function chatView(c: ViewCtx): View {
   // its receipt and what came of it are said under it only while it is the conversation's newest exchange
   const keptLast = kept && (turn?.state === 'sending' || ownAt === n - 1);
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
-  lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
+  if (!shell) lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
   else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
@@ -676,6 +681,18 @@ function chatView(c: ViewCtx): View {
       return;
     }
     const who = m.role === 'user' ? 'You' : 'Timmy';
+    if (shell) {
+      // R10 CHAT (H167): who spoke on a row of its own (YOU, TIMMY with the model the turn used, as its receipt names it), the
+      // words under it, a blank row between messages
+      const used = m.role === 'assistant' ? turnModel(data, m.at) : null;
+      const body = messageRows(m.text, Math.max(8, c.width - 4));
+      const at = lines.length;
+      lines.push(row([S(who.toUpperCase(), m.role === 'user' ? 'strong' : 'ai', { bold: true }), ...(used ? [S(` ${g.sep} ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary')] : []), ...(m.at !== undefined ? [S(` ${g.sep} ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary')] : [])], sel, g));
+      for (const b of body) lines.push([S('  ', 'text', sel ? { selected: true } : {}), S(`  ${b}`, 'text', sel ? { selected: true } : {})]);
+      items.push({ line: at, item, rows: lines.length - at });
+      lines.push(blank);
+      return;
+    }
     const body = messageRows(m.text, bodyW);
     items.push({ line: lines.length, item, rows: body.length });
     body.forEach((b, k) => lines.push(k === 0 ? row([S(who.padEnd(6), m.role === 'user' ? 'strong' : 'ai'), S(b, 'text')], sel, g) : under(b, sel)));
@@ -719,11 +736,14 @@ function chatView(c: ViewCtx): View {
       else lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     }
   }
-  lines.push(blank);
+  if (!shell) lines.push(blank);
   const footFrom = lines.length;
+  // R10 CHAT (H167): the next turn's line above the composer (its model, provider and where it runs; Change model is [M])
+  if (shell) lines.push(nextTurnLine(c, c.width));
   // R10 (H167): the composer, a box of its own at the conversation's end (references 02 and 11: the prompt row under the
   // stream), amber while it has the keyboard; its foot says where the message goes
-  const to: Seg[] = rt.model ? [S(`to ${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'secondary'), S(` ${g.sep} ${rt.where.replace(/ \(Ollama\)$/, '')} ${g.sep} ${rt.price}`, 'secondary')] : [S('no route: nothing would be sent', 'secondary')];
+  // (R10 CHAT H167: in the shell the next turn's line above the composer says where it goes)
+  const to: Seg[] = shell ? [] : rt.model ? [S(`to ${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'secondary'), S(` ${g.sep} ${rt.where.replace(/ \(Ollama\)$/, '')} ${g.sep} ${rt.price}`, 'secondary')] : [S('no route: nothing would be sent', 'secondary')];
   if (ui.input.field === 'composer') {
     // R5 (H131; the QA round's defect 1): what Esc does now, one thing at a time
     // (R10 H167; H168's F13: the route whole first; Esc is the hint row's, under it)
@@ -733,13 +753,13 @@ function chatView(c: ViewCtx): View {
     lines.push(...boxed(rows.length ? rows : [[S('› ', 'accent'), S(' ', 'text', { inverse: true })]], c.width, g, { heavy: true, title: 'Message', foot }));
   } else {
     // R5 (H131): the conversation is the body's left column now: the hint is short enough for it
-    const hint: Line = c.can.chat ? [key('Enter'), S(' Type a message', 'text'), S(`  ${g.sep} `, 'secondary'), ...to] : [key('Enter'), S(' Type a message', 'secondary')];
+    const hint: Line = c.can.chat ? [key('Enter'), S(' Type a message', 'text'), ...(to.length ? [S(`  ${g.sep} `, 'secondary'), ...to] : [])] : [key('Enter'), S(' Type a message', 'secondary')];
     lines.push(...boxed([hint], c.width, g, { title: 'Message' }));
   }
   if (!c.can.chat) lines.push(...para(c.can.chatWhy ?? 'Sending is not available here.', c.width, 'secondary', '  '));
   // R5 (H131; the QA of e7f853e, defect 2 and reference 02's difference 3): what a terminal cannot draw here, and what c and s
-  // show for it in truth (R10 H167: said short)
-  lines.push(...wrapSegs([key('c'), S(' this project\'s turns in the companion  ', 'secondary'), key('s'), S(' the canvas in Studio', 'secondary')], c.width, '  '));
+  // show for it in truth (R10 H167: said short; R10 CHAT: the shell's rail opens Studio, and its bottom the logs)
+  if (!shell) lines.push(...wrapSegs([key('c'), S(' this project\'s turns in the companion  ', 'secondary'), key('s'), S(' the canvas in Studio', 'secondary')], c.width, '  '));
   return { lines, items, footRows: lines.length - footFrom };
 }
 
@@ -786,6 +806,18 @@ function stoppedNote(turn: NonNullable<Data['turn']>, d: Data, g: Glyphs): Line 
 /** R5 (H131; the QA round's defect 8): the conversation's view follows its newest rows (an answer's end, its receipt and the
  *  composer) until the person selects a message; while the composer is open it is always in view. */
 export const chatFollows = (ui: Pick<Ui, 'chosen' | 'input'>): boolean => !ui.chosen?.['center:chat'] || ui.input.field === 'composer';
+
+/** R10 CHAT (H167): the model a sealed turn used (its receipt's model_resolved, else model_requested), for the answer kept at
+ *  `at` (the conversation's timestamp): the turn sealed within a minute after it; null where no receipt says it. */
+function turnModel(d: Pick<Data, 'turns'>, at: number | undefined): string | null {
+  if (at === undefined || !d.turns?.length) return null;
+  let best: { model: string | null; gap: number } | null = null;
+  for (const t of d.turns) {
+    const gap = Date.parse(t.at) - at;
+    if (Number.isFinite(gap) && gap >= -5_000 && gap <= 60_000 && (!best || Math.abs(gap) < best.gap)) best = { model: t.model, gap: Math.abs(gap) };
+  }
+  return best?.model ?? null;
+}
 
 /** R5 (H131): a message's words as rows of at most `width` cells, its paragraphs kept (one blank row between them). */
 function messageRows(text: string, width: number): string[] {

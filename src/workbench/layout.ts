@@ -53,11 +53,13 @@ export interface Layout {
   /** the Chat tab's pipeline row (intent → predict → sandbox → receipt), above its two columns */
   strip: Rect | null;
   nav: Rect | null;
-  navAs: 'drawer' | 'hidden';
+  /** R10 CHAT (H167): 'rail': the Chat screen's permanent left rail */
+  navAs: 'drawer' | 'hidden' | 'rail';
   center: Rect | null;
   right: Rect | null;
-  /** column: Context beside a workspace; drawer: Context opened over the body ([i]); hub: Home's preview or Chat's log */
-  rightAs: 'column' | 'drawer' | 'hub' | 'hidden';
+  /** column: Context beside a workspace; drawer: Context opened over the body ([i]); hub: Home's preview or Chat's log;
+   *  R10 CHAT (H167): models: the Chat screen's Models rail (beside the conversation, or its drawer where it does not fit) */
+  rightAs: 'column' | 'drawer' | 'hub' | 'hidden' | 'models';
   bottom: Rect;
   /** how many of the log's newest lines the collapsed Activity & log shows */
   logLines: number;
@@ -66,6 +68,46 @@ export interface Layout {
   quietLog?: boolean;
   /** how many event rows the expanded Activity & log shows */
   activityRows: number;
+  /** R10 CHAT (H167): the Chat screen's shell (src/workbench/chat-shell.ts): the rail is `nav`, the header `tabs`, the
+   *  conversation `center`, Models `right`, this conversation's controls `bottom` */
+  shell?: 'chat';
+  /** R10 CHAT (H167): Models is a drawer here (it does not fit beside the conversation); [M] opens and Esc closes it */
+  modelsDrawer?: boolean;
+}
+
+/** R10 CHAT (H167): the Chat screen's rail and Models widths at 110 columns and more (IMPLEMENTATION_SPEC.md: about 18 and 30
+ *  at 122x37); the header's rows and the bottom area's. */
+export const CHAT_RAIL_W = 18;
+export const CHAT_MODELS_W = 30;
+const CHAT_HEADER_H = 3;
+const CHAT_BOTTOM_H = 5;
+/** the conversation keeps at least this many columns beside Models (else Models is a drawer) */
+const CHAT_CENTER_MIN = 56;
+
+/**
+ * R10 CHAT (H167): the Chat screen's shell at this size, or null where it does not fit (the Workbench's own minimum then
+ * applies): the permanent left rail the whole height; the 3-row header, the conversation and Models beside it, and this
+ * conversation's controls at the foot, right of the rail. Where Models does not fit beside a conversation of CHAT_CENTER_MIN
+ * columns, it is a drawer (open: the conversation narrows to make its room).
+ */
+export function chatLayout(a: { columns: number; rows: number; modelsOpen?: boolean }): Layout | null {
+  const columns = Math.max(1, Math.floor(a.columns));
+  const rows = Math.max(1, Math.floor(a.rows));
+  if (columns < MIN_COLUMNS || rows < MIN_ROWS + 4) return null;
+  const railW = columns >= 110 ? CHAT_RAIL_W : 16;
+  const mainW = columns - railW;
+  const fits = mainW - CHAT_MODELS_W >= CHAT_CENTER_MIN;
+  const modelsW = fits ? CHAT_MODELS_W : a.modelsOpen ? Math.min(CHAT_MODELS_W, Math.max(24, mainW - 30)) : 0;
+  const bodyY = CHAT_HEADER_H;
+  const bodyH = Math.max(3, rows - CHAT_HEADER_H - CHAT_BOTTOM_H);
+  const header: Rect = { x: railW, y: 0, w: mainW, h: CHAT_HEADER_H };
+  const right: Rect | null = modelsW ? { x: columns - modelsW, y: bodyY, w: modelsW, h: bodyH } : null;
+  return {
+    columns, rows, mode: modeOf(columns), tooSmall: false, tabs: header, tabRows: 2, top: { x: railW, y: bodyY, w: mainW, h: 0 }, topDetail: true,
+    strip: null, nav: { x: 0, y: 0, w: railW, h: rows }, navAs: 'rail', center: { x: railW, y: bodyY, w: mainW - modelsW, h: bodyH },
+    right, rightAs: right ? 'models' : 'hidden', bottom: { x: railW, y: bodyY + bodyH, w: mainW, h: rows - bodyY - bodyH }, logLines: 0, quietLog: true,
+    activityRows: 0, shell: 'chat', ...(right && !fits ? { modelsDrawer: true } : {}),
+  };
 }
 
 /** From here a workspace tab has Context as a column (below: a drawer, [i]). */
