@@ -19,7 +19,7 @@ import { createActions, createDetail, createItemFiles, createItemName, createIte
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
-import { boxed, diagnosticsLines, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
+import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -169,9 +169,42 @@ export function pageActions(c: Pick<ViewCtx, 'ui' | 'data'>): { acts: ActNow[]; 
  * "Write your first message" (H168's F2 and F13: a blank project, or one no turn was sent in yet). The frame's other actions
  * as they are.
  */
-function homeActionsNow(acts: WorkspaceAction[], data: Pick<Data, 'chat' | 'turns'>): WorkspaceAction[] {
+function homeActionsNow(acts: WorkspaceAction[], data: Data): WorkspaceAction[] {
   const talked = (data.chat?.total ?? 0) > 0 || (data.turns?.length ?? 0) > 0;
-  return acts.map((a) => (a.command.trim() === '2' ? { ...a, label: talked ? 'Continue the chat' : 'Write your first message', command: 'type in Chat, then Enter', effect: 'network' } : a));
+  const out = acts.map((a): WorkspaceAction => (a.command.trim() === '2' ? { ...a, label: talked ? 'Continue the chat' : 'Write your first message', command: 'type in Chat, then Enter', effect: 'network' } : a));
+  // R10 (H163; H168's N5, pass 2a): after this Workbench's own send failed, its fix is Home's next step too (the frame's own fix,
+  // from a check, stays first): Check connections where it is the fix, else the fix in the chat's place
+  const fix = out.some((a) => a.primary && routeOf(a).kind === 'composer') ? failedTurnFix(data) : null;
+  if (!fix) return out;
+  const check = fix.command === 'timmy workspace check' ? out.findIndex((a) => a.command === fix.command) : -1;
+  return out.map((a, i) => (check >= 0 ? { ...a, primary: i === check }
+    : routeOf(a).kind === 'composer' ? { ...a, label: fix.label, command: fix.command, effect: fix.effect, primary: true, enabled: true } : { ...a, primary: false }));
+}
+
+/**
+ * R10 (H163; H168's N5, pass 2a): after this Workbench's own send failed, its fix is the next step, not Send again: a route that
+ * did not answer is checked (free requests: what answers now, and the frame's own fix where it still does not), a model it
+ * does not have is chosen, an address it cannot use is set again, a chat not set up is set up (home-journey.ts
+ * failedTurnWords' fix); a failure whose step is to send again leaves Send the next step. It holds until something newer is
+ * observed: the route's connection checked since, a turn sealed since (any surface's), or the route changed.
+ */
+export function failedTurnFix(d: Pick<Data, 'turn' | 'frame' | 'turns' | 'route' | 'chatRoute'>): { label: string; command: string; effect: WorkspaceAction['effect'] } | null {
+  const t = d.turn;
+  if (!t || t.state !== 'failed' || t.ended === undefined) return null;
+  const fix = failedTurnWords(t).fix;
+  if (!fix) return null;
+  const r = d.chatRoute ?? d.route;
+  // (the route's words as the turn recorded them when it was sent: src/workbench/controller.ts send, routeShown)
+  if (t.route !== undefined && t.route !== routeShown(d as Data).words) return null;
+  const conn = d.frame?.connections.find((x) => x.id === (r.kind === 'openrouter' ? 'openrouter' : 'ollama'));
+  if (conn?.observedAt && Date.parse(conn.observedAt) > t.ended) return null;
+  const own = t.receipt ? receiptShort(t.receipt) : null;
+  const newest = (d.turns ?? [])[0];
+  if (newest && newest.receipt !== own && Date.parse(newest.at) > t.at) return null;
+  if (fix === 'check') return { label: 'Check connections (free requests)', command: 'timmy workspace check', effect: 'network' };
+  if (fix === 'model') return { label: 'Choose the model', command: '/model', effect: 'local change' };
+  if (fix === 'address') return { label: 'Set the Ollama address the chat uses', command: '/setup chat', effect: 'local change' };
+  return { label: 'Set up chat: an OpenRouter key (asked hidden) or a local model', command: 'timmy init --chat openrouter', effect: 'local change' };
 }
 
 /**
@@ -223,7 +256,11 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): ActNow[] {
   const framed = !!(d.frame && d.frame.project.id === d.project.id && d.frame.activity.chatTurn);
   const ready = routeShown(d).ready;
   const noWhy = (a: WorkspaceAction): WorkspaceAction => { const { why: _why, ...rest } = a; return rest; };
-  return acts.map((a): ActNow => {
+  // R10 (H163; H168's N5, pass 2a): after this Workbench's own send failed, the failure's fix is the next step in action 2's
+  // place (as the frame's own fix is), and Send is not; the frame's own fix, from a check, stays as it is
+  const framesFix = acts.some((a) => a.primary && !['composer', 'abort'].includes(routeOf(a).kind));
+  const fix = !turn && !framesFix ? failedTurnFix(d) : null;
+  const now = acts.map((a): ActNow => {
     const r = routeOf(a);
     if (r.kind === 'composer') {
       if (turn?.mine) return { ...a, primary: false, enabled: false, why: 'one turn at a time: a turn is being answered in this Workbench (Esc in the composer, or x, stops it)' };
@@ -246,6 +283,9 @@ function chatActionsNow(acts: WorkspaceAction[], d: Data): ActNow[] {
     if (turn && a.primary) return { ...a, primary: false };
     return a;
   });
+  if (!fix) return now;
+  return now.map((a): ActNow => (routeOf(a).kind === 'composer' ? { ...a, primary: false }
+    : a.n === 2 ? { ...noWhy(a), label: fix.label, command: fix.command, effect: fix.effect, primary: true, enabled: true } : a));
 }
 
 /**
@@ -643,18 +683,27 @@ function chatView(c: ViewCtx): View {
   // the composer's turn, as it went (the session's own words)
   if (turn) {
     const receipt = turn.receipt ? receiptShort(turn.receipt) : '';
+    // R10 (H163; H168's F3, pass 2a): a failed turn on the face: what happened, and the next step, in words ("Ollama on this
+    // computer did not answer: nothing was sent, no cost. Start the Ollama app, then send again."); the session's lines whole
+    // (the address, the cause's code, the commands) are the details' ([i]), and the turn keeps them as the session gave them
+    const failed = turn.state === 'failed' ? failedTurnWords(turn) : null;
     const status = turn.state === 'sending'
       ? ['being answered', 'Esc in the composer, or x, stops it']
-      : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', turn.costWords ?? '', turn.model ?? '', receipt ? 'receipt sealed' : ''];
+      // (nothing sent: "nothing was sent, no cost" is said in its words, not again here)
+      : failed && turn.sent === false ? [turn.state, turn.model ?? '', receipt ? 'receipt sealed' : '']
+        // (R10 H163; H168's N1: its cost as the face says every local price; the session's words are [i]'s)
+        : [turn.state, turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model' : '', costOnFace(turn.costWords), turn.model ?? '', receipt ? 'receipt sealed' : ''];
     const statusRole: Role = turn.state === 'failed' ? 'failure' : 'secondary';
     // a stopped turn: its stop is said once, in Timmy's own words (the session's "Stopped…" line says the same stop; R7 H150:
     // "Cancelled…" as the session said it before the lead's e686809)
-    const said = stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^(?:Stopped|Cancelled)\b/.test(l))) : turn.lines;
+    const said = failed ? failed.notices : stoppedHere ? turn.lines.filter((l, k) => !(k === 0 && /^(?:Stopped|Cancelled)\b/.test(l))) : turn.lines;
+    const failedRows: Line[] = failed ? wrapSegs([S('  '), S(failed.what, 'failure'), ...(failed.next ? [S(' '), S(failed.next, 'text')] : [])], c.width, '  ') : [];
     if (turn.state !== 'sending' && kept) {
       // kept in the conversation above: its receipt and what came of it, under it while it is the newest exchange (a stopped
       // one's said there, once); with another surface's turn after it, its receipt is in the log beside, and its stop at it
       if (keptLast) {
         for (const l of said) lines.push(...para(l, c.width, 'secondary', '  '));
+        lines.push(...failedRows);
         if (stoppedHere && !noted) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
         else if (!stoppedHere) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
       }
@@ -664,7 +713,8 @@ function chatView(c: ViewCtx): View {
       lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
       if (turn.answer) lines.push(...para(`Timmy${stoppedHere ? ' (partial)' : ''}: ${turn.answer}`, c.width, 'text'));
       for (const x of turn.tools.slice(-4)) lines.push([S(`  ${x.phase === 'start' ? `${g.run} running` : `${g.ok} done`} ${x.name}`, 'secondary'), S(x.outcome ? ` ${x.outcome}` : '', 'secondary')]);
-      for (const l of said) lines.push(...para(l, c.width, turn.state === 'failed' ? 'failure' : 'secondary', '  '));
+      for (const l of said) lines.push(...para(l, c.width, turn.state === 'failed' && !failed ? 'failure' : 'secondary', '  '));
+      lines.push(...failedRows);
       if (stoppedHere) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
       else lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     }
@@ -725,7 +775,7 @@ function stoppedNote(turn: NonNullable<Data['turn']>, d: Data, g: Glyphs): Line 
   const how = sealed && sealed.stoppedBy && sealed.stoppedBy !== sealed.surface ? turnEndWords(sealed) : 'stopped by you';
   const rest = [
     turn.sent === false ? 'nothing was sent to any model' : turn.sent ? 'sent to a model: what it did stands, nothing was rolled back' : '',
-    turn.sent && turn.costWords ? turn.costWords : '',
+    turn.sent && turn.costWords ? costOnFace(turn.costWords) : '',
     // R10 (H167): the receipt said as sealed; its id is the details' ([i])
     short ? 'receipt sealed' : 'no receipt sealed',
     turn.ended !== undefined ? clock(new Date(turn.ended).toISOString()) : '',
@@ -1263,6 +1313,32 @@ const operationOf = (item: Item | null): string | null => {
   return null;
 };
 
+/**
+ * R10 (H163; H168's N2, pass 2a): the operation an item belongs to, said by what it was ("the run APPROVAL.md › tidy", "the chat
+ * turn "Is Ollama there?""), as Activity's filter names it; its id is the details' ([i]).
+ */
+function operationWords(item: Item | null, g: Glyphs): string {
+  const q = (s: string): string => `"${cut(s.replace(/\s+/g, ' ').trim(), 40, g.ellipsis)}"`;
+  const asked = (r: string): string => { const run = /^\/run (\S+) (\S+)/.exec(r.trim()); return run ? `the run ${run[1]} › ${run[2]}` : q(r); };
+  if (!item) return 'the selected item\'s operation';
+  switch (item.kind) {
+    case 'job': return `the run ${item.job.label}`;
+    case 'turn': return `the chat turn of ${clock(item.turn.at)}`;
+    case 'card': return `the Studio card ${q(item.card.title)}`;
+    case 'operation': return item.op.request ? asked(item.op.request) : 'the selected operation';
+    case 'decision': return q(item.decision.title);
+    case 'record': return `the record ${q(item.rec.what)}`;
+    case 'work': {
+      const w = item.work;
+      if (w.kind === 'turn') return `the chat turn ${q(w.title)}`;
+      if (w.kind === 'observation') return `the observation ${q(w.title)}`;
+      if (w.kind === 'run') return q(w.title);
+      return `the operation that made ${q(w.title)}`;
+    }
+    default: return `the operation of ${q(itemName(item))}`;
+  }
+}
+
 function toolsTab(c: ViewCtx, item: Item | null): View {
   const ws = navItem(c.ui.workspace);
   const lines: Line[] = [heading(`Timmy tools · ${ws.task}`), [S(`For ${itemName(item)}, in ${c.data.project.name}.`, 'secondary')], blank];
@@ -1322,6 +1398,21 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
   const journey = c.ui.page === 'home' || c.ui.page === 'chat';
   if (journey && (!item || item.kind === 'work' || item.kind === 'message' || item.kind === 'conn')) {
     if (item?.kind === 'work') lines.push(...workDetail(item.work, w, c.g), blank);
+    // R10 (H163; H168's F3, pass 2a): this Workbench's last message, whole, as the session gave its end: its lines (the address,
+    // the cause's code, the commands the face says in words), whether it was sent and what it cost in the session's words, its
+    // model, receipt and operation
+    const t = c.data.turn;
+    if (c.ui.page === 'chat' && t && t.state !== 'sending') {
+      lines.push(heading('Your last message here · details'));
+      lines.push(...fieldRows('Ended', t.state, w, t.state === 'failed' ? 'failure' : 'text', 10));
+      for (const l of t.lines) lines.push(...para(l, w, 'text', '  '));
+      lines.push(...fieldRows('Sent', t.sent === true ? 'yes: a request went to a model' : t.sent === false ? 'no: nothing was sent to any model' : 'not known', w, 'text', 10));
+      if (t.costWords) lines.push(...fieldRows('Cost', t.costWords, w, 'text', 10));
+      if (t.model) lines.push(...fieldRows('Model', t.model, w, 'text', 10));
+      if (t.receipt) lines.push(...fieldRows('Receipt', receiptShort(t.receipt), w, 'text', 10));
+      if (t.operation) lines.push(...fieldRows('Operation', t.operation, w, 'text', 10));
+      lines.push(blank);
+    }
     // on Chat: the newest operation, its id and its stages as their records say them (their receipts' ids among them)
     if (c.ui.page === 'chat' && c.data.pipeline?.operation) {
       const p = c.data.pipeline;
@@ -1332,8 +1423,11 @@ function inspectorTab(c: ViewCtx, item: Item | null): View {
     }
     return { lines: [...lines, ...diagnosticsLines(c)], items: [] };
   }
+  // R10 (H163; H168's F4, pass 2a): tab 3's plan says the runner is not installed in words; its name and the command that
+  // installs it are here, whatever is selected
+  if (c.ui.workspace === 'workflows' && !c.data.workflows.upmd) lines.push(...fieldRows('Runner', 'upmd is not installed: brew install rezigned/tap/upmd', w, 'attention', 10), blank);
   // R5 (H131; the QA round's defect 17): the body's list, wherever it is drawn (there is no center column on every layout)
-  if (!item) return { lines: [heading('Inspector'), [S('Nothing is selected: choose a row in the list.', 'secondary')]], items: [] };
+  if (!item) return { lines: [...lines, heading('Inspector'), [S('Nothing is selected: choose a row in the list.', 'secondary')]], items: [] };
   const f = (l: string, v: string, r: Role = 'text'): void => { lines.push(...fieldRows(l, v, w, r, 10)); };
   switch (item.kind) {
     case 'file': {
@@ -1571,12 +1665,19 @@ export function bottomView(c: ViewCtx, o: { logLines?: number; stop?: boolean; q
   {
     const sel = selectedItem(c);
     const op = operationOf(sel);
+    // R10 (H163; H168's N2, pass 2a): the selected item's operation alone only where it has events here; else every operation's
+    // (Home's newest item, a turn or a run another session sealed, has none in this Workbench's Activity), said so. An operation
+    // is said by what it was; its id is the details' ([i])
+    const own = op ? a.events.filter((e) => e.operation === op) : [];
+    const only = !!op && !ui.activityAll && own.length > 0;
+    const name = op ? operationWords(sel, g) : '';
     // R4 (H112): oldest first, the newest at the bottom (a log's order): rows that arrive are added below, so a row the person
     // selected higher up, and the rows around it, stay where they are; the view follows the newest only while it is selected
-    const events = [...(ui.activityAll || !op ? a.events : a.events.filter((e) => e.operation === op))].reverse();
+    const events = [...(only ? own : a.events)].reverse();
     const follow = ui.activityFollow !== false;
     lines.push([
-      S(ui.activityAll || !op ? 'All operations' : `Operation ${op}`, 'strong'), S('  ', 'secondary'), key('A'), S(ui.activityAll || !op ? (op ? ` only ${op}` : '') : ' all operations', 'secondary'),
+      S(only ? `Only ${name}` : 'All operations', 'strong'),
+      ...(own.length ? [S('  ', 'secondary'), key('A'), S(only ? ' all operations' : ` only ${name}`, 'secondary')] : op ? [S(`  ${g.sep} none for ${name} here`, 'secondary')] : []),
       S(`  ${g.sep} `, 'secondary'), S(follow ? 'following the newest' : 'held where you are (End follows the newest)', follow ? 'secondary' : 'attention'),
     ]);
     const cur = cursorOf(ui, 'bottom', events.length);

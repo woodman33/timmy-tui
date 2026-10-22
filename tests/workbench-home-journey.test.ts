@@ -54,7 +54,8 @@ const flat = (lines: ReturnType<typeof homeWorkView>['lines']) => lines.map(plai
 
 describe('the route the next chat turn takes (R10 H167)', () => {
   it('says the model, where it runs and its price; a local model on this computer is no charge; FAKE when the model says so; not ready says why', () => {
-    expect(routeLine(data())).toMatchObject({ model: 'qwen3:8b', where: 'this computer (Ollama)', price: 'no charge', fake: false, ready: true });
+    // (R10 H163; H168's N1: a local route's price is said one way, "no charge · local"; its long forms are the details')
+    expect(routeLine(data())).toMatchObject({ model: 'qwen3:8b', where: 'this computer (Ollama)', price: 'no charge · local', fake: false, ready: true });
     expect(routeLine(data({ route: { kind: 'local', words: 'chat: local fake-model:1b · Ollama', ready: true } }))).toMatchObject({ model: 'fake-model:1b', fake: true });
     expect(routeLine(data({ route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false } }))).toMatchObject({ model: null, ready: false, why: 'no local model chosen yet' });
     expect(routeLine(data({ route: { kind: 'local', words: 'chat: gpt-oss:120b-cloud · Ollama, cloud-backed', ready: true } }))).toMatchObject({ model: 'gpt-oss:120b-cloud', where: 'Ollama, cloud-backed (leaves this computer)', price: 'cost unknown' });
@@ -66,7 +67,7 @@ describe('the route the next chat turn takes (R10 H167)', () => {
 describe('the route from H164\'s routeNow (R10 H167)', () => {
   const j = (o: Partial<JourneyRoute>): JourneyRoute => ({ provider: 'ollama', model: 'qwen3:8b', where: 'this computer', price: { state: 'unknown', words: 'no price declared' }, fake: false, ready: true, words: 'chat: local qwen3:8b · Ollama', surface: 'workbench', tools: 'gated', details: { keyFrom: null, freeOnly: false }, ...o } as JourneyRoute);
   it('the model, where it runs and its price as declared (a local model\'s is not declared before its turn); FAKE as it says; not ready with why', () => {
-    expect(routeLine(data({ journeyRoute: j({}) }))).toMatchObject({ model: 'qwen3:8b', where: 'this computer (Ollama)', price: 'no price declared (local)', fake: false, ready: true });
+    expect(routeLine(data({ journeyRoute: j({}) }))).toMatchObject({ model: 'qwen3:8b', where: 'this computer (Ollama)', price: 'no charge · local', priceWhole: 'no price declared (local)', fake: false, ready: true });
     expect(routeLine(data({ journeyRoute: j({ provider: 'openrouter', model: 'qwen/qwen3-coder:free', where: 'cloud', price: { state: 'declared', free: true, words: 'free' } }) }))).toMatchObject({ where: 'OpenRouter (cloud)', price: 'free (declared)' });
     expect(routeLine(data({ journeyRoute: j({ provider: 'fake', model: 'fake-chat:1b', fake: true, fakeWhy: 'declared' }) }))).toMatchObject({ fake: true, price: 'no price (FAKE)' });
     expect(routeLine(data({ journeyRoute: j({ provider: 'none', model: null, where: null, ready: false, why: 'no model key, and the chat is not set to the local model' }) }))).toMatchObject({ model: null, ready: false, why: 'no model key, and the chat is not set to the local model' });
@@ -120,7 +121,8 @@ describe('the header (R10 H167): two rows, exactly the width, the tabs in their 
     const notReady = headerRows(data({ route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false } }), 'home', 122, g).lines[0];
     expect(plain(notReady)).toContain('next turn: no local model chosen yet');
     expect(notReady.find((s) => s.text.includes('no local model chosen yet'))?.role).toBe('attention');
-    expect(plain(headerRows(data({ route: { kind: 'local', words: 'chat: local fake-qwen:1b · Ollama', ready: true } }), 'home', 122, g).lines[0])).toContain('next turn: FAKE fake-qwen:1b');
+    // (R10 H163; H168's N1: "no charge · local" is longer than "no charge", so at 122 the route takes its short form)
+    expect(plain(headerRows(data({ route: { kind: 'local', words: 'chat: local fake-qwen:1b · Ollama', ready: true } }), 'home', 122, g).lines[0])).toMatch(/next(?: turn)?: FAKE fake-qwen:1b · (?:this computer \(Ollama\)|here) · no charge · local/);
   });
 });
 
@@ -299,12 +301,14 @@ describe('words on Home and Chat (R10 H167; H168\'s F3): no address, port, path,
 describe('Home\'s rows and the selected item (R10 H167; H168\'s F6, F7 and F10)', () => {
   const route = { provider: 'ollama' as const, requested: 'qwen3:8b', answeredBy: 'qwen3:8b', where: 'this computer' as const, fallback: false, fake: false, surface: 'workbench' as const };
   const turn = { kind: 'turn', id: 'd2d756db', title: 'Summarise the report run in one line.', when: iso(2), state: 'answered', receipt: { id: 'd2d756db', verified: true }, fake: false, operation: 'oc372c7b3', route, open: openTarget({ kind: 'turn', id: 'd2d756db' }) } as unknown as JourneyWorkItem;
-  const frame = (conns: unknown[]) => ({ project: { id: 'p1' }, activity: { chatTurn: null }, log: [], tabs: [], connections: conns }) as unknown as Data['frame'];
+  // (R10 H163, the lead's addition with H164's one turn row: Home counts answers from the frame's own sealed turns)
+  const sealed = (at: string) => ({ receipt: 'd2d756db', surface: 'workbench', state: 'answered', model: 'qwen3:8b', at, operation: 'oc372c7b3', route: 'local', words: 'turn answered in the Workbench · qwen3:8b · receipt d2d756db' });
+  const frame = (conns: unknown[], turns: unknown[] = []) => ({ project: { id: 'p1' }, activity: { chatTurn: null }, log: [], tabs: [], connections: conns, chat: { turns } }) as unknown as Data['frame'];
   const ollama = { id: 'ollama', label: 'Ollama (local models)', state: 'configured', words: 'set up, not checked yet (a setting is not a connection)', observedAt: null, setup: 'timmy workspace check' };
   const studio = { id: 'studio', label: 'Timmy Studio', state: 'configured', words: 'not running when checked 2 min ago; Studio · Show (s) starts it', observedAt: iso(2), setup: null };
 
   it('F6: a turn answered through Ollama is an answer seen from it (live, said so); a check that found a surface not running says so, never "not checked yet"', () => {
-    const d = data({ frame: frame([ollama, studio]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [turn] } });
+    const d = data({ frame: frame([ollama, studio], [sealed(iso(2))]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [turn] } });
     const [o, st] = homeConnections({ data: d, now: NOW });
     expect(o).toMatchObject({ state: 'live', observedAt: iso(2) });
     expect(o.words).toMatch(/^answered a chat turn \d\d:\d\d:\d\d \(its receipt is sealed\)/);
@@ -314,7 +318,7 @@ describe('Home\'s rows and the selected item (R10 H167; H168\'s F6, F7 and F10)'
     expect(rows).toMatch(/Studio +○ configured {2}· not running · checked \d\d:\d\d/);
     expect(rows).not.toMatch(/not checked yet/);
     // an answer older than the live bound is not counted
-    const old = data({ frame: frame([ollama]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [{ ...turn, when: iso(45) }] } });
+    const old = data({ frame: frame([ollama], [sealed(iso(45))]), recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [{ ...turn, when: iso(45) }] } });
     expect(homeConnections({ data: old, now: NOW })[0].state).toBe('configured');
   });
 
@@ -325,7 +329,9 @@ describe('Home\'s rows and the selected item (R10 H167; H168\'s F6, F7 and F10)'
     expect(rows).toMatch(/demo-preview\.png +reference · image/);
     expect(rows).toMatch(/demo-tray\.stl +mesh · STL/);
     expect(rows).toMatch(/report\.md +result · document/);
-    expect(rows).toMatch(/scene\.rrd +recording · recording/);
+    // (R10 H163; H168's N5: its kind once)
+    expect(rows).toMatch(/scene\.rrd +recording +\d+ min ago/);
+    expect(rows).not.toContain('recording · recording');
     expect(rows).not.toMatch(/result · (?:image|mesh)/);
     expect([fileWhat('a/b.JPG'), fileWhat('x.step'), fileWhat('notes.txt'), fileWhat('blob.bin')]).toEqual(['image', 'STEP', 'text', 'file']);
   });

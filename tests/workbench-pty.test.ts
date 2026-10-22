@@ -304,7 +304,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
       await waitFor(/tray1 \/ [\s\S]*Activity/);
       await find('Workflows');
       const wf = await waitFor(/tray1 \/ Workflows[\s\S]*\[Enter\] Run it here/);
-      expect(wf).toContain('upmd found');
+      // (R10 H163; H168's F4: the runner by what it is; its name is the Inspector's)
+      expect(wf).toContain('its runner is installed');
       // Enter asks first; Enter again runs it through the REPL's own /run, whose NEEDS YOU box is drawn here (R5 H136: the
       // first Enter only once a whole frame shows APPROVAL.md › tidy selected in the list that has the keyboard)
       await enterOnBlock(pane, 'APPROVAL.md', 'tidy');

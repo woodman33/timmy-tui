@@ -393,7 +393,7 @@ function planRows(c: TabViewCtx, w: number, cur: number): { rows: PlanRow[]; ite
     const titled: Line = [...docHead, S(` ${g.sep} ${d.title ?? ''}`, 'secondary')];
     rows.push({ line: d.title && lineCells(titled) <= w ? titled : docHead });
     if (d.error) for (const l of para(`${g.fail} not read: ${d.error}`, w, 'failure', '  ', 2, g.ellipsis)) rows.push({ line: l });
-    if (d.repeated.length) for (const l of para(`${g.warn} not runnable: it names ${d.repeated.join(', ')} more than once; /run runs none of them`, w, 'attention', '  ', 2, g.ellipsis)) rows.push({ line: l });
+    if (d.repeated.length) for (const l of para(`${g.warn} not runnable: it names ${d.repeated.join(', ')} more than once; none of them can run`, w, 'attention', '  ', 2, g.ellipsis)) rows.push({ line: l });
     if (!d.blocks.length) {
       const item: Item = { kind: 'doc', key: `doc:${d.rel}`, doc: d };
       const sel = items.length === cur;
@@ -434,7 +434,8 @@ function intentCard(d: WorkflowDoc, b: BlockRow, w: number, g: Glyphs): Line[] {
   const o = { ellipsis: g.ellipsis };
   rows.push(...fieldRows('document', d.rel, iw, 'text', o));
   const cmd = (b.command ?? '').split('\n').filter((l) => l.trim());
-  rows.push(...fieldRows('command', cmd.length ? `${cmd[0]}${cmd.length > 1 ? ` (and ${count(cmd.length - 1, 'more line')})` : ''}` : 'not read (the document carries none here)', iw, cmd.length ? 'text' : 'secondary', o));
+  // R10 (H163; H168's F4, pass 2a): the command by what it is, its lines the Inspector's ([i]: the block's COMMAND)
+  rows.push(...fieldRows('command', cmd.length ? `${count(cmd.length, 'line')} of ${b.lang || 'shell'} ([i] shows ${cmd.length === 1 ? 'it' : 'them'})` : 'not read (the document carries none here)', iw, cmd.length ? 'text' : 'secondary', o));
   rows.push(...fieldRows('needs', b.needs.length ? b.needs.join(', ') : 'nothing', iw, 'text', o));
   // the order it runs in, where that is more than the block itself (its needs first)
   if (b.order.length && !(b.order.length === 1 && b.order[0] === b.name)) rows.push(...fieldRows('runs', b.order.join(` ${g.arrow} `), iw, 'text', o));
@@ -476,7 +477,7 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
   const rows: Line[] = [];
   const o = { ellipsis: g.ellipsis };
   if (run === undefined) rows.push(...para('reading its newest run…', iw, 'secondary', '', 2, g.ellipsis));
-  else if (run === null) rows.push(...para('not recorded: nothing has run it yet. /run seals a prediction before upmd starts.', iw, 'secondary', '', 4, g.ellipsis));
+  else if (run === null) rows.push(...para('not recorded: nothing has run it yet. A run seals its prediction before it starts.', iw, 'secondary', '', 4, g.ellipsis));
   else {
     const d = detailFor(c, run);
     const why = detailWhy(c, run, d);
@@ -510,7 +511,8 @@ function predictCard(c: TabViewCtx, b: BlockRow, run: RunNow | null | undefined,
 function sandboxRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): Line[] {
   const { g } = c;
   const rows: Line[] = [...head('Sandbox', 'where it runs', w, g)];
-  rows.push(...para('this computer, in the project folder (upmd)', w, 'text', '', 2, g.ellipsis));
+  // (R10 H163; H168's F4: the runner, upmd, is the Inspector's, [i])
+  rows.push(...para('this computer, in the project folder', w, 'text', '', 2, g.ellipsis));
   // R10 (H167): the runner's file and the environment its run detail names are the Inspector's ([i]), not this column's
   void run;
   return rows;
@@ -573,7 +575,7 @@ function sourceRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
   const s = ins.value.source;
   if (!('doc' in s)) return [];
   const rows: Line[] = [...head('Source', `${s.doc} as it ran`, w, g)];
-  const from = s.copy.state === 'kept' ? 'the copy upmd read' : s.copy.state === 'project' ? `${s.doc} in the project` : '';
+  const from = s.copy.state === 'kept' ? 'the copy the run read' : s.copy.state === 'project' ? `${s.doc} in the project` : '';
   if (s.now.state === 'same') {
     const l: Line = [S(`${g.ok} `, 'live'), S('the same bytes now', 'text')];
     if (from && lineCells(l) + cells(` ${g.sep} read from ${from}`) <= w) l.push(S(` ${g.sep} read from ${from}`, 'secondary'));
@@ -715,9 +717,10 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
     // "[Enter] Run it here": Enter acts where the keyboard is, and the box says so before anything is pressed
     const { acts, at } = selectedAction(c);
     const zone = c.ui.focus === 'top' ? `row 2${acts[at] ? ` (${acts[at].n} ${acts[at].label})` : ''}` : c.ui.focus === 'right' ? 'Context' : c.ui.focus === 'bottom' ? 'Activity & log' : 'the navigation';
-    rows.push(...para(`Enter acts on ${zone} now. Tab to this list: then Enter runs ${d.rel} › ${b.name}`, iw, 'attention', '', 4, g.ellipsis));
+    rows.push(...para(`Enter acts on ${zone} now. Tab to this list: then Enter runs ${d.rel} › ${b.name}`, iw, 'secondary', '', 4, g.ellipsis));
   } else if (run?.enabled) {
-    rows.push([key('Enter'), S(' Run it here', 'text')], ...para('the REPL\'s own /run, one job; it asks first', iw, 'secondary', '', 2, g.ellipsis));
+    // (R10 H163; H168's F4: that it is the REPL's own /run is the Inspector's, [i])
+    rows.push([key('Enter'), S(' Run it here', 'text')], ...para('one job; it asks first', iw, 'secondary', '', 2, g.ellipsis));
   } else {
     // R10 (H167; H168's F4): a run going on, by what it is (its job's and operation's ids are the Inspector's, [i])
     const going = runOfBlock(c, d.rel, b.name);
@@ -732,7 +735,9 @@ function runBox(c: TabViewCtx, d: WorkflowDoc, b: BlockRow, w: number): Line[] {
   const full = `RUN ${d.rel} › ${b.name}`;
   const fits = cells(full) <= w - 7;
   if (!fits) rows.unshift([S(`${d.rel} ›`, 'secondary'), S(` ${b.name}`, 'strong')]);
-  return card({ w, title: [S(fits ? full : `RUN ${cut(b.name, Math.max(1, w - 10), g.ellipsis)}`, here ? 'focus' : 'strong')], body: rows, edge: here ? 'focus' : 'border', heavy: here, g });
+  // R10 (H163; H168's F4, pass 2a): a plain action in structure's colours, whichever zone has the keyboard: amber is the focus's
+  // and the one primary's (row 2), and the list's own selection marks the block Enter runs
+  return card({ w, title: [S(fits ? full : `RUN ${cut(b.name, Math.max(1, w - 10), g.ellipsis)}`, 'strong')], body: rows, edge: 'border', g });
 }
 
 /** The one line where the references draw a picture: a terminal says the run in words, and where it is drawn. */
@@ -756,6 +761,9 @@ export function runDetailRows(c: TabViewCtx, w: number): Line[] {
     rows.push(heading('The selected block · commands'));
     f('REPL', `/run ${sel.doc.rel} ${sel.block.name}`);
     f('shell', `timmy md ${sel.doc.rel} ${sel.block.name}`);
+    // (R10 H163; H168's F4: what the RUN box and the plan say in words)
+    f('Enter', 'runs it as the REPL\'s own /run does: one job; it asks first');
+    if (c.data.workflows.upmd) f('runner', 'upmd, found on this computer');
   }
   const t = c.data.workflowsTab;
   const run = t?.run;
@@ -885,8 +893,9 @@ function reviewRows(c: TabViewCtx, run: RunNow | null | undefined, w: number): L
 function planHead(c: TabViewCtx, w: number): Line[] {
   const { g } = c;
   const wf = c.data.workflows;
-  if (wf.upmd) return [heading('Plan', `${g.sep} upmd found`)];
-  return [[S('PLAN', 'secondary', { bold: true }), S(` ${g.sep} `, 'secondary'), S('upmd is not installed', 'attention')], [S('brew install rezigned/tap/upmd', 'action')], ...para('nothing can run until it is', w, 'secondary', '', 1, g.ellipsis)];
+  // (R10 H163; H168's F4: the runner by what it is; its name and the command that installs it are the Inspector's, [i])
+  if (wf.upmd) return [heading('Plan', `${g.sep} its runner is installed`)];
+  return [[S('PLAN', 'secondary', { bold: true }), S(` ${g.sep} `, 'secondary'), S('the workflow runner is not installed', 'attention')], ...para('[i] says how to install it; nothing can run until it is', w, 'secondary', '', 2, g.ellipsis)];
 }
 
 /** No workflow document: what a workflow is, and where a starter is. */
