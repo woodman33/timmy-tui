@@ -2,7 +2,7 @@
 
 This document outlines the design and integration model for scaling the local-first **TIMMY Agent Trust OS** to Cloudflare's serverless edge network.
 
-TIMMY's philosophy is simple: **trust the receipt, not the model.** While the interactive TUI, CLI execution loop, and tamper-evident run manifests reside strictly on the local client machine, Cloudflare acts as the decentralized, tamper-proof global auditor and validation gate.
+TIMMY's philosophy is simple: **trust the receipt, not the model.** While the interactive TUI, CLI execution loop, and tamper-evident run manifests reside strictly on the local client machine, Cloudflare is proposed as a second, off-machine auditor and validation gate (planned: nothing in this tree anchors a chain to Cloudflare today; a local chain is tamper-evident, never tamper-proof, since its signing key is self-generated on the same machine).
 
 ---
 

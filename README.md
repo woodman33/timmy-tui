@@ -77,9 +77,14 @@ project, see [the review package](scripts/review/README.md).
 - **Receipts**: sha256 hash-chained, ed25519-signed records, each with the
   environment it ran in (`env_lock`: OS, architecture and the build hashes of
   the tools it used) and its status; a run's also lists what it made (paths
-  with their sha256).
-  `timmy receipts` verifies the chain; `timmy epoch` rotates the release
-  epoch.
+  with their sha256). The chain is tamper-evident, not tamper-proof: the
+  signing key is generated on this machine (`.timmy/keys`), so a signature
+  proves this machine's key, not an outside identity, and a holder of that
+  key could re-sign a rewritten chain. `timmy receipts` and `timmy verify`
+  check the hash chain (each `prev_hash` link and body hash); a receipt's
+  signature is checked where one receipt is shown (`/op`, the Workbench's
+  pipeline row) and after each chat turn is sealed. No external anchor or
+  independent verifier exists yet. `timmy epoch` rotates the release epoch.
 - **Replay**: `timmy clip list|run|replay` replays a clip from its cut-list
   alone and refuses a machine whose tool build hashes, or a source whose
   hash, drifted (the failure is sealed, saying which); `timmy export otio
