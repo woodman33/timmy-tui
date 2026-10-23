@@ -177,15 +177,18 @@ export function chatRouteNow(o: {
   }
   const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
   if (key) {
-    // R11 (H169, Phase 0 item 1): a key and no model chosen: refused before anything, on every surface, whatever the policy
-    if (!String(o.openRouterModel ?? '').trim()) {
-      return { route, state: { kind: 'openrouter', words: `${said(chatRoute({ key: true, model: null, short: o.short }))} · ${NO_MODEL_CHOSEN_WORDS}`, ready: false, refusal: noModelChosenRefusal(surface) } };
-    }
-    const words = said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }));
-    // R10 (H169): local-only refuses OpenRouter, whatever the model costs
+    const chosen = String(o.openRouterModel ?? '').trim();
+    const words = said(chatRoute({ key: true, model: chosen || null, short: o.short }));
+    // R10 (H169): local-only refuses OpenRouter, whatever the model costs, and (R11, item 2) whether one is chosen or not: it
+    // is said first, since choosing a model would not help
     if (policy.localOnly) {
-      const c = checkRoute({ source: 'openrouter', model: o.openRouterModel ?? 'the chat\'s OpenRouter model', role: 'turn' }, policy, o.price ? { price: o.price } : {});
+      const c = checkRoute({ source: 'openrouter', model: chosen || 'the chat\'s OpenRouter model', role: 'turn' }, policy, o.price ? { price: o.price } : {});
       if (!c.ok) return { route, state: { kind: 'openrouter', words: `${words} · local-only: not sent`, ready: false, refusal: policyRefusalLines(c, surface !== 'repl') } };
+    }
+    // R11 (H169, Phase 0 item 1): a key and no model chosen: refused before anything else, on every surface (free-only needs
+    // the chosen model's price, so it comes after)
+    if (!chosen) {
+      return { route, state: { kind: 'openrouter', words: `${words} · ${NO_MODEL_CHOSEN_WORDS}`, ready: false, refusal: noModelChosenRefusal(surface) } };
     }
     // R5: free-only refuses a model not known to be free (unknown is refused, never passed), on every surface alike
     if (policy.freeOnly) {

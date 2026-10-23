@@ -11,9 +11,11 @@
  *                             (the model was chosen by that name), and the label says so
  *   local, no model or no     off, saying why and where to fix it (the REPL's /model, /setup chat)
  *   usable Ollama address
- *   OpenRouter (or none),     as before: qwen/qwen3.8-max through OpenRouter with this computer's  "qwen/qwen3.8-max · OpenRouter · this
- *   with a key                key (each message spends credits)                                  page's own chat · each message spends
- *                                                                                                 credits"
+ *   OpenRouter (or none),     the model chosen in the settings (the one the Workbench's Models     "<model> · OpenRouter · this page's own
+ *   with a key, a model       chose: src/utils/model-choice.ts) through OpenRouter with this      chat · each message spends credits"
+ *   chosen                    computer's key (each message spends credits)
+ *   OpenRouter, with a key,   off (R11 H169, Phase 0 item 2: there is no shipped default, and     "No model chosen: choose one in Models ·
+ *   no model chosen           this page never asks a model nobody chose): reason 'no-model-chosen' Send is off"
  *   OpenRouter (or none),     off, saying where chat happens (the REPL and the monitor) and how
  *   no key                    to give the chat a route (`timmy init`)
  *
@@ -30,18 +32,33 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { chatRouteNow, localRouteWords } from '../agent/chat-route.js';
+import { dirname, join, resolve } from 'node:path';
+import { chatRouteNow, localRouteWords, NO_MODEL_CHOSEN_SENTENCE } from '../agent/chat-route.js';
 import { modelPrice } from '../agent/model-price.js';
 import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
+import { chosenModel } from '../utils/model-choice.js';
 import { settingsFile } from '../utils/model-key.js';
 
 type Env = Record<string, string | undefined>;
 
-/** The model the OpenRouter route asks (the page's chat as it was: TMX P3). */
-export const OPENROUTER_MODEL = 'qwen/qwen3.8-max';
+/**
+ * R11 (H169, Phase 0 item 2): the OpenRouter model this page's Send asks: the one chosen in the settings, the same the Workbench's
+ * Models chose (src/utils/model-choice.ts chosenModel: OPENROUTER_MODEL for one process, a local timmy-tui.config.json's model,
+ * else the settings', never an older file's shipped default nobody chose), read by path as the key is; '' when none is chosen.
+ * The page's own fixed model (qwen/qwen3.8-max, nobody's choice) is gone.
+ */
+export function pageModel(env: Env, cwd: string): string {
+  if (env.OPENROUTER_MODEL?.trim()) return env.OPENROUTER_MODEL.trim();
+  const local = readJson(resolve(cwd, 'timmy-tui.config.json'));
+  const fromLocal = keyIn(local, 'model');
+  if (fromLocal) return fromLocal;
+  const file = settingsFile(env);
+  return chosenModel({ settings: readJson(file) as { model?: unknown; modelChosen?: unknown } | undefined, workbench: readJson(join(dirname(file), 'workbench.json')) as { openRouterModel?: unknown } | undefined, env: {} });
+}
+/** The sentence every "no model chosen" label and words carry (H172's test reads it on this surface). */
+export const NO_MODEL_CHOSEN_PAGE = 'No model chosen: choose one in Models';
 
 /** Where the OpenRouter key was found (never the key). */
 export type KeyFrom = 'environment' | 'timmy-tui.config.json' | 'providers.json' | 'settings';
@@ -55,7 +72,8 @@ export type PageRoute =
   /** R5 (H132): `price`, what this computer knows of the model's price (src/agent/model-price.ts, never a guess); `freeOnly`,
    *  the free-only policy is on and passed (the model is known to be free) */
   | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom; price: string; freeOnly: boolean; scope: typeof PAGE_SCOPE }
-  | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[] };
+  /** R11 (H169): `reason` 'no-model-chosen': a key, and no OpenRouter model chosen for the next turn (Send is off until one is) */
+  | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[]; reason?: 'no-model-chosen' };
 
 /** R10 (H164): what the page's Send is, as data and in plain words: this page's own chat, not the project's conversation. */
 export const PAGE_SCOPE = Object.freeze({
@@ -97,9 +115,10 @@ export function openRouterKey(env: Env, cwd: string): { key: string; from: KeyFr
  * the page's own, about what its Send does.
  */
 export function pageRoute(env: Env, cwd: string): PageRoute {
-  // R5 (H132, the lead's free-only policy, 39d21ec): the page's own model is named, so its price can be known; without one,
-  // free-only refuses (unknown is never free)
-  const now = chatRouteNow({ env, cwd, surface: 'companion', openRouterModel: OPENROUTER_MODEL });
+  // R5 (H132, the lead's free-only policy, 39d21ec): the page's model is named, so its price can be known; without one,
+  // free-only refuses (unknown is never free). R11 (H169): the model is the settings' chosen one, or none
+  const model = pageModel(env, cwd);
+  const now = chatRouteNow({ env, cwd, surface: 'companion', openRouterModel: model || null });
   const r = now.route;
   const refusal = [...(now.state.refusal ?? [])];
   if (r.kind === 'local') {
@@ -130,6 +149,12 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
       words: `${PAGE_SCOPE.words} Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
     };
   }
+  // R11 (H169, Phase 0 item 2): a key and no model chosen: Send is off until one is chosen (in Models, the same choice as the
+  // Workbench's), never a model nobody chose
+  if (now.state.kind === 'openrouter' && !now.state.ready && refusal[0] === `Error: ${NO_MODEL_CHOSEN_SENTENCE}`) {
+    return { kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', refusal, label: `${NO_MODEL_CHOSEN_PAGE} · Send is off`,
+      words: `Send is off: ${NO_MODEL_CHOSEN_PAGE} (this page's Chat, or M in timmy workbench: the same choice serves both), and nothing is sent to a model nobody chose. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
+  }
   // R5 (H132): free-only is on and the page's model is not known to be free: Send is off, in the policy's own words (its
   // refusal: what, Cause, Try), never "no key" (the key is there; the policy refuses)
   if (now.state.kind === 'openrouter' && !now.state.ready) {
@@ -152,15 +177,15 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
   }
   // R5 (H132): the model's price as this computer knows it (src/agent/model-price.ts); free-only passed says so (the one
   // route's words end in "· free-only" when it did)
-  const price = modelPrice(OPENROUTER_MODEL);
+  const price = modelPrice(model);
   const freeOnly = /· free-only$/.test(now.state.words);
   const found = key.from === 'environment' ? 'the environment' : key.from;
   return {
-    kind: 'openrouter', ready: true, model: OPENROUTER_MODEL, keyFrom: key.from, price: price.words, freeOnly,
-    label: freeOnly ? `${OPENROUTER_MODEL} · OpenRouter · ${PAGE_OWN} · free-only: free` : `${OPENROUTER_MODEL} · OpenRouter · ${PAGE_OWN} · each message spends credits`, scope: PAGE_SCOPE,
+    kind: 'openrouter', ready: true, model, keyFrom: key.from, price: price.words, freeOnly,
+    label: freeOnly ? `${model} · OpenRouter · ${PAGE_OWN} · free-only: free` : `${model} · OpenRouter · ${PAGE_OWN} · each message spends credits`, scope: PAGE_SCOPE,
     words: freeOnly
-      ? `${PAGE_SCOPE.words} Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}). Free-only is on, and this model is free: ${price.words}.`
-      : `${PAGE_SCOPE.words} Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}): each message spends its credits. Its price: ${price.words}.`,
+      ? `${PAGE_SCOPE.words} Send asks ${model} (the model chosen in Models) through OpenRouter with this computer's key (found in ${found}). Free-only is on, and this model is free: ${price.words}.`
+      : `${PAGE_SCOPE.words} Send asks ${model} (the model chosen in Models) through OpenRouter with this computer's key (found in ${found}): each message spends its credits. Its price: ${price.words}.`,
   };
 }
 

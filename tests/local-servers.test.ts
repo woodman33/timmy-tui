@@ -106,7 +106,7 @@ const DOC = {
 };
 
 const saved: Record<string, string | undefined> = {};
-const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
+const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
 const originalCwd = process.cwd();
 let work = '';
 let root = '';
@@ -128,6 +128,8 @@ beforeAll(async () => {
   writeFileSync(busFile(), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.seeded', payload: { note: 'SYNTHETIC bus event' } })}\n`);
   process.env.TIMMY_REPO = root;
   process.env.OPENROUTER_API_KEY = FAKE_KEY;
+  // R11 (H169, Phase 0 item 2): the page's Send asks the model chosen for this process (no fixed model of its own): a FAKE one
+  process.env.OPENROUTER_MODEL = 'fake-maker/fake-local-servers-model';
   process.env.TIMMY_HOME = home;
   delete process.env.TIMMY_TUI_ACTIVE;
   process.chdir(work);
@@ -307,7 +309,7 @@ describe('the browser companion (timmy watch)', () => {
     expect(chat.body).toContain('event: done');
     expect(fake.seen).toHaveLength(1);
     expect(fake.seen[0].auth).toBe(`Bearer ${FAKE_KEY}`);
-    expect(JSON.parse(fake.seen[0].body)).toMatchObject({ stream: true, messages: [{ role: 'user', content: 'hello companion' }] });
+    expect(JSON.parse(fake.seen[0].body)).toMatchObject({ model: 'fake-maker/fake-local-servers-model', stream: true, messages: [{ role: 'user', content: 'hello companion' }] });
 
     const fusion = await call(cport, 'POST', '/api/workflow/fusion', { headers: { 'Content-Type': 'application/json', ...auth(ctoken) }, body: JSON.stringify({ prompt: 'SYNTHETIC fusion', models: ['m1'] }) });
     expect(fusion.status).toBe(200);
