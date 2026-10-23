@@ -261,14 +261,21 @@ function savedTurn(t, i) {
     if (t.model && fakeModel(t.model)) who.append(h('span', { class: 'cx-chip' }, 'FAKE model'));
   }
   if (t.at) who.append(h('span', { class: 'cx-when', title: t.at }, clock(t.at)));
-  const li = h('li', { class: `cx-turn ${you ? 'is-you' : 'is-timmy'}` }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, you ? '›' : '>_'), who, textBlock(t.text));
+  // R10 (H171; H168's pass 3b R19): a stopped turn shows the answer written before the stop (or that none was) and the stop,
+  // with its receipt; Timmy's record of the stop, which the conversation keeps for the next turn, is said apart, folded
+  const stop = !you && t.stopped ? t.stopped : null;
+  const body = stop && !t.text ? h('p', { class: 'cx-text is-none' }, 'Nothing was written before the stop.') : textBlock(t.text);
+  const li = h('li', { class: `cx-turn ${you ? 'is-you' : 'is-timmy'}${stop ? ' is-stopped' : ''}` }, h('span', { class: 'cx-mark', 'aria-hidden': 'true' }, you ? '›' : '>_'), who, body);
   if (!you) {
     const meta = h('div', { class: 'cx-meta' });
+    const ended = stop ? `■ stopped by you${stop.by ? ` (asked from ${SURFACE_SAID[stop.by] || 'another surface'})` : ''}` : t.receipt ? (t.receipt.status === 'ok' ? 'answered' : t.receipt.status) : '';
     if (t.receipt) {
-      meta.append(h('span', null, `${t.receipt.status === 'ok' ? 'answered' : t.receipt.status} · sent from ${SURFACE_SAID[t.receipt.surface] || 'another surface'} · sealed in receipt ${t.receipt.id} (not checked here)`));
-    } else meta.append(h('span', null, 'no sealed receipt of this project matches this answer'));
+      meta.append(h('span', null, `${ended} · sent from ${SURFACE_SAID[t.receipt.surface] || 'another surface'} · sealed in receipt ${t.receipt.id} (not checked here)`));
+    } else meta.append(h('span', null, `${stop ? `${ended} · ` : ''}no sealed receipt of this project matches this ${stop ? 'turn' : 'answer'}`));
     if (t.cut) meta.append(h('span', null, 'cut: the answer is longer than this page shows'));
-    li.append(meta, h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
+    li.append(meta);
+    if (stop) li.append(h('details', { class: 'cx-tool cx-stop-record' }, h('summary', null, 'Timmy’s record of the stop · kept in the conversation for the next turn'), h('pre', null, stop.record)));
+    if (t.text) li.append(h('div', { class: 'cx-actions' }, h('button', { type: 'button', class: 'cx-link', 'data-cx-copy-text': '1' }, 'Copy text')));
   }
   return li;
 }
@@ -650,10 +657,10 @@ function inUse(row) {
 }
 
 /** A model's row; the selected one carries its detail right below it (SELECTED), so a short list has no gap and a long one scrolls. */
-function modelRow(row) {
+function modelRow(row, first = false) {
   const sel = row.id === cx.models.selected;
   const btn = h('button', {
-    type: 'button', class: 'cm-row', 'aria-current': sel ? 'true' : 'false', 'data-model': row.id, tabindex: sel ? '0' : '-1', ...(sel ? { 'aria-describedby': 'cm-detail' } : {}),
+    type: 'button', class: 'cm-row', 'aria-current': sel ? 'true' : 'false', 'data-model': row.id, tabindex: sel || (first && !cx.models.selected) ? '0' : '-1', ...(sel ? { 'aria-describedby': 'cm-detail' } : {}),
   },
   h('span', { class: 'cm-row-name' }, h('span', { class: 'cm-name' }, row.name), inUse(row) ? h('span', { class: 'cm-inuse' }, '✓ in use') : null),
   row.name !== row.id ? h('span', { class: 'cm-row-id' }, row.id) : null,
@@ -692,7 +699,8 @@ function modelDetail(row) {
       h('p', { id: 'cm-use-why' }, `Not available on this page yet: its Send asks ${r && r.model ? r.model : 'the setup’s model'}, the setup’s choice. In the REPL, /setup chat keeps the model every surface uses.`));
   }
   return h('div', { class: 'cm-detail', id: 'cm-detail' },
-    h('div', { class: 'cm-detail-top' }, h('p', { class: 'cm-detail-k' }, 'Selected'), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud')),
+    // R10 (H171; H168's pass 3b R18): SELECTED only for the next turn's model; a row the person opened is MODEL / its name
+    h('div', { class: 'cm-detail-top' }, h('p', { class: 'cm-detail-k' }, inUse(row) ? 'Selected' : 'Model'), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud')),
     h('h3', { class: 'visually-hidden' }, row.name), h('dl', { class: 'cm-facts' }, ...facts), use);
 }
 
@@ -747,19 +755,27 @@ function drawModelsRail(o = {}) {
     selectOpt('context', 'Context', m.q.context, [['', 'All'], ['32000', '32K+'], ['128000', '128K+'], ['1000000', '1M+']])));
   if (m.q.search || m.q.maker || m.q.capability || m.q.cost || m.q.context) kids.push(h('button', { type: 'button', class: 'cm-clear', 'data-cx': 'clear-filters' }, 'Clear filters'));
   const rows = (a && a.ok && a.rows) || [];
-  if (rows.length && !rows.some((r) => r.id === m.selected)) {
-    const used = rows.find(inUse);
-    m.selected = (used || rows[0]).id;
-  }
+  // R10 (H171; H168's pass 3b R18): a row is opened for the person only when it is the next turn's model; with none in use
+  // here nothing is ("Model / none"), until the person opens a row (a click, Enter, or the arrows)
+  if (!rows.some((r) => r.id === m.selected)) { const used = rows.find(inUse); m.selected = used ? used.id : ''; }
   const matched = a && a.ok ? (typeof a.matched === 'number' ? a.matched : rows.length) : 0;
-  kids.push(h('div', { class: 'cm-list-head' }, h('span', null, m.provider === 'openrouter' ? (a && a.from === 'cache' ? (a.cache === 'fetched' ? 'Public catalog · fetched' : 'Public catalog snapshot') : 'Catalog') : m.sub === 'local' ? 'Installed on this computer' : 'Ollama Cloud'), h('span', null, a && a.ok ? `${matched} model${matched === 1 ? '' : 's'}${matched > rows.length ? ` · first ${rows.length}` : ''}` : '')));
+  // (the local Ollama: its chat models of all it lists, H168's R20; a model that is not one is listed, not a row)
+  const listed = a && a.ok && typeof a.listed === 'number' && a.listed > (a.all || 0) ? a.listed : 0;
+  const count = `${matched} ${listed ? `chat model${matched === 1 ? '' : 's'} · ${listed} listed` : `model${matched === 1 ? '' : 's'}`}${matched > rows.length ? ` · first ${rows.length}` : ''}`;
+  kids.push(h('div', { class: 'cm-list-head' }, h('span', null, m.provider === 'openrouter' ? (a && a.from === 'cache' ? (a.cache === 'fetched' ? 'Public catalog · fetched' : 'Public catalog snapshot') : 'Catalog') : m.sub === 'local' ? 'Installed on this computer' : 'Ollama Cloud'), h('span', null, a && a.ok ? count : '')));
+  if (rows.length && !m.selected) {
+    const r = routeOf(cx.view);
+    kids.push(h('p', { class: 'cm-none', id: 'cm-none' }, h('span', { class: 'cm-none-k' }, 'Model'), ' / none · ',
+      r && r.ready ? `the next turn uses ${r.model} (${routeWhere(r)}), not a row here; a row shows its facts when you open it.` : 'no model is chosen for the next turn; a row shows its facts when you open it.'));
+  }
   const list = h('ul', { class: 'cm-list', id: 'cm-list', 'aria-label': 'Models' });
   // an Ollama with nothing listed: the state line above already says why, in the provider's words
   const stated = m.provider === 'ollama' && providerState(m.sub === 'cloud' ? 'ollama-cloud' : 'ollama-local');
   if (!a) list.append(h('li', { class: 'cm-empty' }, 'Reading the models…'));
   else if (!a.ok) list.append(h('li', { class: 'cm-empty' }, a.error));
-  else if (!rows.length) list.append(h('li', { class: 'cm-empty' }, a.all ? 'No model matches these filters. Clear filters shows them all again.' : stated ? 'None listed: the line above says why.' : a.words));
-  else for (const r of rows) list.append(modelRow(r));
+  else if (!rows.length) list.append(h('li', { class: 'cm-empty' }, a.all ? 'No model matches these filters. Clear filters shows them all again.' : stated ? (listed ? 'No local chat model here: the line above says why.' : 'None listed: the line above says why.') : a.words));
+  else rows.forEach((r, i) => list.append(modelRow(r, i === 0)));
+  if (a && a.ok && a.left) list.append(h('li', { class: 'cm-empty cm-left' }, `Not shown as local chat models: ${a.left}.`));
   kids.push(list);
   // OpenRouter's catalog: where its rows come from and their date (a snapshot, never a live quote)
   if (a && a.ok && m.provider === 'openrouter' && a.words) kids.push(h('div', { class: 'cm-foot', id: 'cm-foot' }, a.words));

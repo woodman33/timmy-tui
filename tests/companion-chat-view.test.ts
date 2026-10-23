@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { companionCatalog, companionProviders, catalogQueryOf, savedConversation } from '../src/companion/chat-view.js';
+import { companionCatalog, companionProviders, catalogQueryOf, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
@@ -73,6 +73,40 @@ describe('the Chat\'s data: the saved conversation, the catalog rows and the pro
     expect(savedConversation(join(box, 'none'), {})).toEqual({ session: null, total: 0, turns: [] });
   });
 
+  it('a stopped turn (H168\'s pass 3b R19): its receipt found by the person\'s message it answers, its answer before the stop shown, Timmy\'s record of the stop said apart; a prompt asked again takes its own receipt', () => {
+    const root = join(box, 'p-stopped');
+    mkdirSync(join(root, '.sessions'), { recursive: true });
+    const t0 = Date.parse('2026-10-22T23:40:00.000Z');
+    const ask = 'Stop that one, please.';
+    const partial = 'FAKE partial: the first "step" was';
+    // the record src/agent/core.ts cancelRecord keeps in the conversation where the answer would be
+    const record = `[Cancelled by the user before I finished answering. No tool had run. What I had written so far: ${JSON.stringify(partial)}. I stopped here and will not continue this request unless the user asks me to.]`;
+    const lines = [
+      { role: 'user', content: ask, timestamp: t0 },
+      { role: 'assistant', content: record, timestamp: t0 + 2000 },
+      { role: 'user', content: ask, timestamp: t0 + 10_000 },
+      { role: 'assistant', content: 'FAKE answer after asking again.', timestamp: t0 + 11_000 },
+    ];
+    writeFileSync(join(root, '.sessions', 'session-1792712400000-stop01.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
+    const sealed = (o: Record<string, unknown>): string => JSON.stringify({ v: 1, stream: 'runs', kind: 'chat', via: 'ollama', model_requested: 'fake-qwen3:8b', model_resolved: 'fake-qwen3:8b', ...o });
+    writeFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), [
+      // the stopped turn's receipt: its answer's hash is the text streamed before the stop, not the conversation's record
+      sealed({ id: 'rc_stop', ts: '2026-10-22T23:40:02.000Z', subject: 'chat.turn · workbench · cancelled · 0 steps · fake-qwen3:8b', status: 'cancelled', stopped_by: 'monitor',
+        cancelled_at: 'before-tools', prompt_hash: sha(ask), response_hash: sha(partial), hash: `sha256_${'6e'.repeat(32)}` }),
+      sealed({ id: 'rc_again', ts: '2026-10-22T23:40:11.000Z', subject: 'chat.turn · workbench · 0 steps · fake-qwen3:8b', status: 'ok',
+        prompt_hash: sha(ask), response_hash: sha('FAKE answer after asking again.'), hash: `sha256_${'5d'.repeat(32)}` }),
+    ].join('\n') + '\n');
+    const c = savedConversation(root, {});
+    expect(c.turns.map((t) => t.kind)).toEqual(['you', 'timmy', 'you', 'timmy']);
+    expect(c.turns[1]).toMatchObject({ kind: 'timmy', text: partial, model: 'fake-qwen3:8b', receipt: { id: '6e6e6e6e', status: 'cancelled', surface: 'workbench' }, stopped: { record, by: 'monitor' } });
+    expect(c.turns[3]).toMatchObject({ kind: 'timmy', text: 'FAKE answer after asking again.', receipt: { id: '5d5d5d5d', status: 'ok' } });
+    expect(c.turns[3].stopped).toBeUndefined();
+    // a record of a turn stopped before anything was written: no answer to show, the record kept
+    expect(stoppedAnswerOf('[Cancelled by the user before I answered. No tool had run. I stopped here and will not continue this request unless the user asks me to.]')).toBe('');
+    expect(stoppedAnswerOf(record)).toBe(partial);
+  });
+
   it('OpenRouter\'s rows as this computer keeps them, asking no one: the fetched copy with its date, else the snapshot shipped with Timmy', async () => {
     const home = join(box, 'home-fetched');
     keepCatalog(home);
@@ -112,6 +146,10 @@ describe('the Chat\'s data: the saved conversation, the catalog rows and the pro
     expect(answered).toMatchObject({ id: 'ollama-local', state: 'checked', at, models: 1 });
     expect(answered.words).toBe('Ollama answered its list of models at 127.0.0.1:11434: 1 installed here (no model ran, no charge).');
     expect(answered.next).toBeUndefined();
+    // (H168's pass 3b R20) Ollama lists 4, 3 of them chat models: both counts, and why the fourth is not a row
+    const four = companionProviders(env, join(box, 'cwd'), { answered: true, models: 3, listed: 4, left: '1 did not pass Ollama\'s /api/show check as local weights', at }, linux)[1];
+    expect(four.words).toBe('Ollama answered its list of models at 127.0.0.1:11434: it lists 4, 3 of them local chat models (no model ran, no charge).');
+    expect(four.lines).toEqual(['Not shown as local chat models: 1 did not pass Ollama\'s /api/show check as local weights.']);
     const empty = companionProviders(env, join(box, 'cwd'), { answered: true, models: 0, at }, linux)[1];
     expect(empty).toMatchObject({ state: 'checked', models: 0 });
     expect(empty.next).toMatch(/^Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/);
@@ -183,7 +221,9 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(body.policy).toEqual({ freeOnly: false, localOnly: false, from: { freeOnly: 'settings', localOnly: 'settings' } });
     const local = body.providers.find((p: { id: string }) => p.id === 'ollama-local');
     expect(local).toMatchObject({ state: 'checked', models: 1 });
-    expect(local.words).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: 1 installed here \(no model ran, no charge\)\.$/);
+    // (H168's pass 3b R20: the FAKE lists two, its cloud model not a local one)
+    expect(local.words).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 2, 1 of them a local chat model \(no model ran, no charge\)\.$/);
+    expect(local.lines).toEqual(['Not shown as local chat models: 1 cloud model is not local.']);
     expect(body.providers.map((p: { id: string }) => p.id)).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare']);
     expect(Date.parse(local.at)).toBeGreaterThan(Date.now() - 60_000);
     // the requests off this process: the local Ollama's list of models and their facts; no model asked
@@ -211,6 +251,7 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(byName.rows.map((r: { id: string }) => r.id).sort()).toEqual(free.rows.map((r: { id: string }) => r.id).sort());
     const local = (await get('/api/chat/models?source=ollama-local')).body;
     expect(local.rows.map((r: { id: string; installed: boolean }) => [r.id, r.installed])).toEqual([['fake-qwen3:8b', true]]);
+    expect(local).toMatchObject({ all: 1, listed: 2, left: '1 cloud model is not local' });
     expect(local.rows[0].price).toMatchObject({ inPerM: 0, outPerM: 0, free: true });
     const cloud = (await get('/api/chat/models?source=ollama-cloud')).body;
     expect(cloud).toMatchObject({ ok: true, rows: [], from: 'none', matched: 0 });
