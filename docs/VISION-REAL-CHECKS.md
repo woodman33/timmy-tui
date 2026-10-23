@@ -61,9 +61,19 @@ bridge/worker instead of silently omitting it from the package.
 
 Roboflow model inference is unverified: no real authorized run has succeeded.
 A bridge file in the package, a configuration probe, a doctor row or an SDK-double
-test does not establish it. The one real run recorded so far (2026-10-23) was
-VoxVision's `/detect` colour check through `timmy act`: the OpenCV look worker,
-a vox record and a signed receipt, with no Roboflow and no semantic vision.
+test does not establish it. The real runs recorded so far (both 2026-10-23) are
+VoxVision's `/detect` colour check through `timmy act` on a packed build: the
+OpenCV look worker, a vox record and a signed receipt, with no Roboflow and no
+semantic vision. First on macOS from a fresh `npm install` of the tarball
+(Python 3.14 venv; operation `oeb1ae07a`, receipt `sha256_90ff18e8…`), then
+reproduced on Linux from the tarball of revision `99a1b235` extracted where
+`npm install` places it, its dependencies linked from an identical lockfile
+(system Python 3.13, OpenCV 5.0; operation `oe2a1c4d1`, receipt
+`sha256_1e82157a…`, verified with the package's own `receipts.js`). The
+100-red-pixel control gave pixels 100, box [7,9,17,19], centroid [12,14] both
+times. The second run's `vision status` on that same installed package said
+`not_configured` (bridge present, no SDK, no key, no request made): the bridge's
+probe ran there; its inference path did not.
 
 Neither these tests nor a configuration probe qualifies hosted/self-hosted
 Roboflow inference, remote cancellation, UI interaction or physical measurements.
