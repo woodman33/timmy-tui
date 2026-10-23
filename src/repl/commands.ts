@@ -9,6 +9,7 @@ import { plural } from './steps.js';
 import { nearest } from './suggest.js';
 import { surfacesSegments } from '../setup/surfaces.js';
 import { freeModels, freeOnlyOn, modelPrice } from '../agent/model-price.js';
+import { localOnlyOn, policyFrom, saveRoutePolicy } from '../agent/route-policy.js';
 
 /** The four meanings with a color of their own (DESIGN.md §10 B2, B4). */
 export type MeaningRole = 'verified' | 'estimate' | 'failure' | 'ai';
@@ -390,7 +391,7 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'model',
     group: 'setup',
-    description: 'Model and price; /model <id>, free, free-only',
+    description: 'Model, price; <id>|free|free-only|local-only',
     run: (args, ctx) => {
       const a = args.trim();
       // R5: what a model costs and can do, from OpenRouter's catalog as this computer has it (src/agent/model-price.ts)
@@ -416,6 +417,25 @@ export const COMMANDS: SlashCommand[] = [
           saveConfig({ freeOnly: fo[1] === 'on' });
           ctx.print(freeOnlyLine());
           if (process.env.TIMMY_CHAT_FREE_ONLY?.trim()) ctx.print([{ text: '  TIMMY_CHAT_FREE_ONLY is set in this environment and wins over this setting.', role: 'secondary' }]);
+        });
+      }
+      // R10 (H169; the lead's decision of 2026-10-22 19:41): local-only, kept beside free-only in the settings (src/agent/
+      // route-policy.ts saveRoutePolicy: localOnly; TIMMY_CHAT_LOCAL_ONLY wins for one process). Parsed here, before a model
+      // name, as free-only is: `/model local-only on` is the policy's on every route, never a model's name
+      const localOnlyLine = (): Segment[] => localOnlyOn()
+        ? [{ text: '  Local-only: on', role: 'strong' }, { text: ' · OpenRouter and Ollama Cloud are refused, and so are a cloud model and another computer\'s Ollama; Ollama on this computer answers', role: 'secondary' }]
+        : [{ text: '  Local-only: off', role: 'secondary' }, { text: ' · /model local-only on refuses OpenRouter, Ollama Cloud and any model not on this computer', role: 'secondary' }];
+      const localOnlyEnv: Segment[] = [{ text: '  TIMMY_CHAT_LOCAL_ONLY is set in this environment and wins over this setting.', role: 'secondary' }];
+      const lo = /^local-only(?:\s+(on|off))?$/.exec(a);
+      if (lo) {
+        if (!lo[1]) {
+          ctx.print(localOnlyLine());
+          if (policyFrom().localOnly === 'environment') ctx.print(localOnlyEnv);
+          return;
+        }
+        return saveRoutePolicy({ localOnly: lo[1] === 'on' }).then(({ overridden }) => {
+          ctx.print(localOnlyLine());
+          if (overridden.includes('localOnly')) ctx.print(localOnlyEnv);
         });
       }
       // R4 (H103): the local route lists and switches among the models Ollama has (it checks a name before taking it).
