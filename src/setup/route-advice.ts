@@ -17,29 +17,30 @@
  *   rule     the decision layer's deterministic path (src/decision/deterministic.ts deterministicProposal over
  *            src/decision/policy.ts allowedChoices: a DeterministicRule {option, rule}): the model selected for the next
  *            turn, else the only permitted option, else a person chooses; nothing is invented
- *   refusal  the shared contract's reasons (src/agent/route-policy.ts checkRoute, H169's): paid-under-free-only,
- *            price-unknown-under-free-only, cloud-under-local-only. Until that file lands, policyRefusal below keeps the same
- *            rules (an unknown price is not free; a cloud model served through localhost is cloud; a model on this
- *            computer's own Ollama has no per-call charge, as the chat route treats it), for the lead to switch at the merge.
+ *   refusal  the shared contract's rule and reasons (src/agent/route-policy.ts checkRoute, H169's): paid-under-free-only,
+ *            price-unknown-under-free-only, cloud-under-local-only, decided by checkRoute's own rule (src/agent/route-check.ts
+ *            checkRouteWith, which checkRoute is with this computer's catalog prices; the rule reads nothing, so the helper
+ *            gives it the prices it was given: an unknown price is not free; a cloud model served through localhost is cloud; a
+ *            model on this computer's own Ollama has no per-call charge, as the chat route treats it). R10 (H169, the lead's
+ *            18:02 decision): switched from the interim copy of those rules this helper held until route-policy landed.
  */
+import { checkRouteWith, type PolicyRefusal, type RoutePolicy } from '../agent/route-check.js';
 import { allowedChoices } from '../decision/policy.js';
 import { deterministicProposal, type DeterministicProposal } from '../decision/deterministic.js';
 import type { DecisionOption, DeterministicRule } from '../decision/types.js';
 import type { ModelPrice } from '../agent/model-price.js';
+import type { ModelSource } from '../models/catalog.js';
 import type { OllamaProbeResult } from '../agent/providers.js';
 import type { ChatFix } from '../ops/workspace-frame.js';
 import { scrubHomes } from '../utils/home-scrub.js';
 import { redactString } from '../utils/redact.js';
 import { cloudModelTag } from './ollama-models.js';
 
-/** Where a model runs, as the shared contract names it (src/models/catalog.ts ModelSource, H169's). */
-export type ModelSource = 'openrouter' | 'ollama-local' | 'ollama-cloud';
+/** Where a model runs (src/models/catalog.ts ModelSource) and the route policy (src/agent/route-check.ts RoutePolicy): the shared contract's. */
+export type { ModelSource, RoutePolicy };
 
-/** The route policy, as the shared contract names it (src/agent/route-policy.ts RoutePolicy, H169's). */
-export interface RoutePolicy { freeOnly: boolean; localOnly: boolean }
-
-/** Why the policy refuses a route, as the shared contract names it (checkRoute's reasons). */
-export type RouteRefusalReason = 'paid-under-free-only' | 'price-unknown-under-free-only' | 'cloud-under-local-only';
+/** Why the policy refuses a route: checkRoute's reasons. */
+export type RouteRefusalReason = PolicyRefusal;
 
 /** What this computer knows of a model's price (src/agent/model-price.ts modelPrice): free true, false or null (unknown). */
 export type PriceFacts = Pick<ModelPrice, 'free' | 'words'>;
@@ -104,25 +105,22 @@ const SOURCE_WORDS: Record<ModelSource, string> = {
   'ollama-cloud': 'Ollama Cloud (a cloud service)',
 };
 
-/** A model served through localhost with a cloud tag runs in a cloud: it is cloud. */
-const isCloud = (m: Pick<OfferedModel, 'source' | 'id'>): boolean => m.source !== 'ollama-local' || cloudModelTag(m.id);
-
 /**
- * Why the policy refuses this model, or null when it permits it. The same rules as the shared contract's checkRoute (H169's
- * src/agent/route-policy.ts), kept here until it lands: local-only refuses every cloud model, localhost's cloud tags too;
- * free-only refuses a price known to cost and a price not known, and passes a model on this computer's own Ollama.
+ * Why the policy refuses this model, or null when it permits it: the shared contract's rule (checkRoute's, src/agent/route-check.ts
+ * checkRouteWith) decides, from the facts the helper was given: a local model's price is where it runs (local weights on this
+ * computer cost nothing; a cloud tag is cloud, from localhost too), another's is what this computer knows of it (unknown when
+ * nothing is, and unknown is never free). The words are the helper's own short ones (the setup's lists show them).
  */
 export function policyRefusal(m: OfferedModel, p: RoutePolicy): { reason: RouteRefusalReason; words: string } | null {
-  const cloud = isCloud(m);
-  if (p.localOnly && cloud) {
+  const free = m.source === 'ollama-local' ? undefined : m.price?.free === true ? true : m.price?.free === false ? false : 'unknown' as const;
+  const c = checkRouteWith({ source: m.source, model: m.id, ...(free === undefined ? {} : { free }) }, p);
+  if (c.ok) return null;
+  if (c.reason === 'cloud-under-local-only') {
     const via = m.source === 'ollama-local' ? 'a cloud model tag: this computer\'s Ollama sends it to a cloud' : `it runs on ${SOURCE_WORDS[m.source]}`;
-    return { reason: 'cloud-under-local-only', words: `local only: ${m.id} is not on this computer (${via})` };
+    return { reason: c.reason, words: `local only: ${m.id} is not on this computer (${via})` };
   }
-  if (p.freeOnly && cloud) {
-    if (m.price?.free === false) return { reason: 'paid-under-free-only', words: `free only: ${m.id} costs (${m.price.words}); a paid model is never used in place of a free one` };
-    if (m.price?.free !== true) return { reason: 'price-unknown-under-free-only', words: `free only: the price of ${m.id} is not known (${m.price?.words ?? 'no price is known here'}); an unknown price is not free` };
-  }
-  return null;
+  if (c.reason === 'paid-under-free-only') return { reason: c.reason, words: `free only: ${m.id} costs (${m.price?.words ?? 'a price this computer knows'}); a paid model is never used in place of a free one` };
+  return { reason: c.reason, words: `free only: the price of ${m.id} is not known (${m.price?.words ?? 'no price is known here'}); an unknown price is not free` };
 }
 
 /** Why a model cannot answer here whatever the policy, or null when it can (its route has what it needs). */
