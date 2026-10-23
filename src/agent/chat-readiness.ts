@@ -44,7 +44,7 @@ export async function chatReadiness(o: { env: Env; node: string; keySource: stri
   const leaves = cloudModelTag(route.model) || !route.at.loopback;
   return {
     route: 'local', answers: true,
-    replLine: `  ✓ REPL: ready (Node ${node}): the chat is the local model ${route.model} on ${where}, which lists it now; no model key is needed${leaves ? ` (${cloudModelTag(route.model) ? 'cloud-backed' : 'another computer'}: the chat leaves this computer, and no cost comes back)` : ', and nothing is charged'}. No model was run.`,
+    replLine: `  ✓ REPL: ready (Node ${node}): the chat is the local model ${route.model} on ${where}, which lists it now; no model key is needed${leaves ? ` (${cloudModelTag(route.model) ? 'ollama cloud: it runs on Ollama\'s servers; your account\'s terms' : 'another computer'}: the chat leaves this computer, and no cost comes back)` : ', and nothing is charged'}. No model was run.`,
     exitLine: `Exit 0: the REPL is ready. ${CODES}`,
     next: 'Next step: `timmy` opens the REPL.',
     json: { route: 'local', ...json, ollama: 'listed', listed: true, ready: true },

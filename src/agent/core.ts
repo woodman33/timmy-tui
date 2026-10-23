@@ -393,14 +393,16 @@ export class Agent extends EventEmitter<AgentEvents> {
   public relayedVmLogs: string[] = [];
 
   // TMUX Cluster & Background Workspace Session Tracker. Round R1 review: no memory or cost figures;
-  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4).
+  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4). R11 Phase 2 (H169, item b):
+  // a lane's `model` is a label and nothing here runs a model, so the labels name none (the old ones named models nobody
+  // chose and nothing asked: `/tmux list` says "no model named"); the lane names stay as they were.
   public tmuxSessions: Array<{ id: string; name: string; model: string }> = [
-    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
-    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
-    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3' },
-    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3' },
-    { id: '5', name: 'jcode', model: 'jcode/default' },
-    { id: '6', name: 'Minds CLI', model: 'animoca/builder' }
+    { id: '1', name: 'OpenCode CLI', model: '' },
+    { id: '2', name: 'Hermes CLI', model: '' },
+    { id: '3', name: 'Pi Daemon', model: '' },
+    { id: '4', name: 'Systems MCP', model: '' },
+    { id: '5', name: 'jcode', model: '' },
+    { id: '6', name: 'Minds CLI', model: '' }
   ];
   public showTmuxDropdown = false;
 
@@ -520,13 +522,15 @@ export class Agent extends EventEmitter<AgentEvents> {
     const session = this.tmuxSessions.find(s => s.id === id);
     if (!session) return;
 
+    // R11 Phase 2 (H169, item b): a pane's agent label names no model (nothing here runs one); the OpenRouter pane's label is
+    // the chosen model, or none
     const agentsMap: Record<string, { name: string; model: string }> = {
-      opencode: { name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
-      hermes: { name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
-      pi: { name: 'Pi Daemon', model: 'inflection/pi-3' },
-      jcode: { name: 'jcode', model: 'jcode/default' },
-      minds: { name: 'Minds CLI', model: 'animoca/builder' },
-      openrouter: { name: 'OpenRouter Agent', model: this.config.model || 'anthropic/claude-3-5-sonnet' }
+      opencode: { name: 'OpenCode CLI', model: '' },
+      hermes: { name: 'Hermes CLI', model: '' },
+      pi: { name: 'Pi Daemon', model: '' },
+      jcode: { name: 'jcode', model: '' },
+      minds: { name: 'Minds CLI', model: '' },
+      openrouter: { name: 'OpenRouter Agent', model: this.config.model || '' }
     };
 
     const selected = agentsMap[agentKey];

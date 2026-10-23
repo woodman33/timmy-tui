@@ -39,6 +39,7 @@ import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
 import { chosenModel } from '../utils/model-choice.js';
+import { OLLAMA_CLOUD_TERMS } from '../models/catalog.js';
 import { settingsFile } from '../utils/model-key.js';
 
 type Env = Record<string, string | undefined>;
@@ -139,8 +140,9 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
       return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · no model chosen · Send is off',
         words: `Send is off: the setup chose the local model for chat, and no model is chosen${r.note ? ` (${r.note})` : ''}. In the REPL, /model lists what ${atWords(r.at)} has and /setup chat keeps one. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
     }
+    // R11 Phase 2 (H169, item c): a ":cloud" name runs on Ollama's servers under the person's Ollama account (never "free")
     const where = r.cloud
-      ? 'Its name says it is cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).'
+      ? `Its name says cloud: it ${OLLAMA_CLOUD_TERMS}. Ollama sends the chat off this computer, and no cost comes back (unknown).`
       : r.at.loopback ? 'No charge: Ollama on this computer, with the model\'s local weights (Ollama is asked again at each message whether it sends the model elsewhere; then nothing is sent).'
         : 'The chat leaves this computer for that one, and no cost comes back (unknown).';
     return {
@@ -212,7 +214,7 @@ export async function streamLocalChat(o: { route: Extract<PageRoute, { kind: 'lo
             const info = args[2] as { complete?: boolean; basis?: string } | undefined;
             send('cost', info?.complete && info.basis === 'local endpoint'
               ? { usd: 0, measured: true, basis: 'local endpoint', words: 'no charge: Ollama on this computer, the model\'s local weights' }
-              : { usd: null, measured: false, why: 'Ollama reports no cost for a cloud-backed model or another computer\'s', words: 'cost unknown: Ollama reports none for this route' });
+              : { usd: null, measured: false, why: route.cloud ? `${OLLAMA_CLOUD_TERMS} (Ollama reports no cost per request)` : 'Ollama reports no cost for another computer\'s model', words: 'cost unknown: Ollama reports none for this route' });
           }
         },
         call: () => undefined, output: () => undefined, text: () => undefined,

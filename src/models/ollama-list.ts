@@ -238,6 +238,11 @@ export interface LocalOllamaListing {
   answer?: OllamaAnswer;
   /** the local models that passed /api/show's check, with their facts; never a cloud model */
   models: OllamaModelFacts[];
+  /**
+   * R11 Phase 2 (H169, item c): the ":cloud" names Ollama lists: models that run on Ollama's servers under the person's Ollama
+   * account, reached through this Ollama (no /api/show is asked of them; what /api/tags says of each). Never in `models`.
+   */
+  cloud: OllamaModelFacts[];
   /** why there is no list, or what was left out of it, in words */
   why?: string;
 }
@@ -258,7 +263,7 @@ export async function listLocalOllama(o: { baseUrl?: string; timeoutMs?: number;
         : a.state === 'not sent' ? `the request to Ollama was not sent: ${a.why}`
           : a.state === 'no answer' ? `Ollama at ${result.base ?? 'its address'} did not answer (${a.why})`
             : `something answered at ${result.base ?? 'its address'}, but not as Ollama (${a.why})`;
-    return { answered: false, asked: a?.state === 'no answer' || a?.state === 'unreadable', ...(result.base ? { base: result.base } : {}), ...(a ? { answer: a } : {}), models: [], why };
+    return { answered: false, asked: a?.state === 'no answer' || a?.state === 'unreadable', ...(result.base ? { base: result.base } : {}), ...(a ? { answer: a } : {}), models: [], cloud: [], why };
   }
   // which models are loaded now (GET /api/ps): unknown when Ollama does not say
   let running: Set<string> | null = null;
@@ -280,8 +285,11 @@ export async function listLocalOllama(o: { baseUrl?: string; timeoutMs?: number;
       sizeBytes: t?.size ?? null, running: running ? running.has(info.name) : null,
     };
   });
+  const cloud: OllamaModelFacts[] = [...tags.entries()].filter(([name]) => cloudModelTag(name)).map(([name, t]) => ({
+    name, capabilities: null, contextLength: null, family: t.family, parameterSize: t.parameterSize, quantizationLevel: t.quantization, sizeBytes: t.size, running: null,
+  }));
   const left = [a.cloud ? `${a.cloud} cloud ${a.cloud === 1 ? 'model is' : 'models are'} not local` : '', a.failed ? `${a.failed} did not pass Ollama's /api/show check as local weights` : '', a.late ? `${a.late} not checked within ${a.deadlineMs / 1000} s` : ''].filter(Boolean);
-  return { answered: true, asked: true, base: result.base, answer: a, models, ...(left.length ? { why: `Ollama lists ${a.listed}: ${left.join('; ')}` } : {}) };
+  return { answered: true, asked: true, base: result.base, answer: a, models, cloud, ...(left.length ? { why: `Ollama lists ${a.listed}: ${left.join('; ')}` } : {}) };
 }
 
 /**

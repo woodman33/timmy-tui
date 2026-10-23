@@ -24,6 +24,7 @@ import { convertZodToJsonSchema, executeTool } from '@openrouter/sdk/lib/tool-ex
 import type { ParsedToolCall, Tool } from '@openrouter/sdk/lib/tool-types.js';
 import type { AgentEvents } from './events.js';
 import { atWords, boundedText, cloudModelTag, failure, ollamaAt, type OllamaAt } from '../setup/ollama-models.js';
+import { OLLAMA_CLOUD_TERMS } from '../models/catalog.js';
 import { neverSent } from './never-sent.js';
 
 /** The chat's local route: the Ollama address the setup recorded, and the model chosen. */
@@ -69,6 +70,8 @@ export interface LocalTurnResult {
   toolsOff?: string;
   /** a loopback Ollama and a model with local weights: no charge */
   localEndpoint: boolean;
+  /** R11 Phase 2 (H169, item c): the model ran on Ollama's servers (its name says cloud, or Ollama named a remote host for it) */
+  cloud: boolean;
 }
 
 /** An error of the local route, worded as the turn shows it (what; Reason; Next), never an OpenRouter key's fix. */
@@ -95,6 +98,38 @@ const MAX_LINE = 1024 * 1024;
 
 /** What /api/show says of a model: its capabilities (null when Ollama lists none), and a remote host when it has one. */
 export interface ShownModel { capabilities: string[] | null; remote: string | null }
+
+/**
+ * R28 (R11 Phase 2, H169; H168's pass 4a): what /api/show said of a model, kept per model name and Ollama address, so the
+ * chat asks it once per model choice, not before every /api/chat. The setup's check of a choice (src/setup/local-model-check.ts)
+ * can keep its answer here too (rememberShownModel), and the first turn then asks nothing before its /api/chat. Forgotten
+ * when that Ollama stops answering a turn (the next turn asks again: the model may be gone, or another Ollama may listen
+ * there), when /api/chat answers 404 for the model, and on forgetShownModel. Never more than a few entries: one per
+ * name + address ever chosen in this process.
+ */
+const shownModels = new Map<string, ShownModel>();
+const shownKey = (at: Pick<OllamaAt, 'origin'>, model: string): string => `${at.origin}\u0000${model}`;
+/** Keeps what /api/show said of `model` at `at` (a check already made), so the next turn there asks no /api/show. */
+export function rememberShownModel(at: Pick<OllamaAt, 'origin'>, model: string, shown: ShownModel): void {
+  if (shownModels.size >= 64) shownModels.delete(shownModels.keys().next().value as string);
+  shownModels.set(shownKey(at, model), { capabilities: shown.capabilities ? [...shown.capabilities] : null, remote: shown.remote });
+}
+/** Forgets one model's /api/show answer (the next turn asks again), or every one (no arguments). */
+export function forgetShownModel(at?: Pick<OllamaAt, 'origin'>, model?: string): void {
+  if (at && model !== undefined) shownModels.delete(shownKey(at, model)); else shownModels.clear();
+}
+/** What is kept of `model` at `at`, or null. */
+export function shownModelKept(at: Pick<OllamaAt, 'origin'>, model: string): ShownModel | null {
+  return shownModels.get(shownKey(at, model)) ?? null;
+}
+/** The /api/show answer for a turn: the kept one, else asked now (and kept). `asked` says whether a request went. */
+export async function showModelOnce(at: OllamaAt, model: string, signal?: AbortSignal, timeoutMs = 10_000): Promise<{ shown: ShownModel; asked: boolean }> {
+  const kept = shownModelKept(at, model);
+  if (kept) return { shown: kept, asked: false };
+  const shown = await showModel(at, model, signal, timeoutMs);
+  rememberShownModel(at, model, shown);
+  return { shown, asked: true };
+}
 
 /** POST /api/show for one model: what it can do, and whether Ollama sends it elsewhere. Throws a LocalChatError. */
 export async function showModel(at: OllamaAt, model: string, signal?: AbortSignal, timeoutMs = 10_000): Promise<ShownModel> {
@@ -222,8 +257,9 @@ async function runCall(tools: readonly unknown[], id: string, name: string, args
 let turnSeq = 0;
 
 /**
- * One turn on the local route: /api/show, then /api/chat, streamed, with the tool loop when tools are on. Throws a
- * LocalChatError on any failure, an AbortError on a cancel; the answer's text otherwise.
+ * One turn on the local route: /api/show (once per model choice: showModelOnce keeps the answer per name and address), then
+ * /api/chat, streamed, with the tool loop when tools are on. Throws a LocalChatError on any failure, an AbortError on a
+ * cancel; the answer's text otherwise.
  */
 export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult> {
   const { hooks, route } = o;
@@ -236,7 +272,7 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
   let localEndpoint = at.loopback && !cloud;
   const notice = (text: string): void => hooks.emit('message:user', { role: 'assistant', content: `⚙️ **[SYSTEM]** ${text}`, timestamp: Date.now() });
   try {
-    const shown = await showModel(at, model, o.signal);
+    const { shown } = await showModelOnce(at, model, o.signal);
     if (shown.remote && !cloudName) {
       throw new LocalChatError('Ollama would send this chat off this computer, so nothing was sent.', `Ollama names ${shown.remote} for ${model}; its name does not say cloud.`,
         `/model to choose one with local weights (cloud ones only by a name that says cloud); ${NOWHERE_ELSE}`);
@@ -250,7 +286,8 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       : shown.capabilities === null ? `Ollama did not say whether ${model} takes tool calls (its /api/show lists no capabilities)`
         : toolsOn ? undefined : `${model} does not take tool calls`;
     if (toolsOff) notice(`tools off: ${toolsOff}. This turn runs without tools.`);
-    if (cloud) notice(`${model} is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).`);
+    // R11 Phase 2 (H169, item c): the words of Ollama's cloud route (never "free", never "no charge")
+    if (cloud) notice(`${model} ${OLLAMA_CLOUD_TERMS}: Ollama sends this chat off this computer, and no cost comes back (unknown).`);
     else if (!at.loopback) notice(`${atWords(at)}: the chat leaves this computer for that one, and no cost comes back (unknown).`);
     const apiTools = toolsOn ? o.tools.map(apiTool) : [];
     const offNote = 'No tools are available in this conversation: you cannot read or change files or run anything. Never claim a tool ran or quote a tool result; say what the operator could do instead.';
@@ -276,6 +313,8 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
         res = await unlessCancelled(fetch(`${at.origin}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: o.signal, redirect: 'error' }), o.signal);
       } catch (err) {
         if (aborted()) throw cancelled();
+        // R28: Ollama did not answer this turn: the next one asks /api/show again (the model, or the Ollama, may have changed)
+        forgetShownModel(at, model);
         const f = failure(err, false, 0);
         const stopped = new LocalChatError(`${atWords(at)} stopped answering.`, f.why, `start Ollama and send again; ${NOWHERE_ELSE}`);
         // R4 lead (2026-10-12): the turn's first request never left this computer (no connection, no address): it sent nothing,
@@ -297,6 +336,8 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
           round = 0;
           continue;
         }
+        // R28: a model Ollama no longer has (404), or any other refusal of the request: the next turn asks /api/show again
+        forgetShownModel(at, model);
         throw new LocalChatError(`${atWords(at)} answered HTTP ${res.status} for ${model}.`, `its words: ${words || 'none'}`, `send again; if it repeats, see Ollama's own log; ${NOWHERE_ELSE}`);
       }
       // one step: the text (streamed), any thinking, and the tool calls the model asks for
@@ -378,7 +419,7 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       if (aborted()) throw cancelled();
     }
     if (!full && calls === 0) notice(`${model} gave no answer text.`);
-    return { fullText: full, actualModel, toolsOn, ...(toolsOff ? { toolsOff } : {}), localEndpoint };
+    return { fullText: full, actualModel, toolsOn, ...(toolsOff ? { toolsOff } : {}), localEndpoint, cloud };
   } finally {
     // no charge on a local endpoint, whatever happened (a cancel or a failure costs nothing there); otherwise unknown
     hooks.emit('cost:update', 0, 0, localEndpoint ? { complete: true, basis: 'local endpoint' } : { complete: false });

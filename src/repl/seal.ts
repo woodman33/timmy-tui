@@ -53,9 +53,12 @@ export interface TurnFacts {
    * kind "ollama"; absent on the OpenRouter route, whose receipts stay as they were.
    */
   route?: {
-    host: string; endpoint: 'local' | 'remote'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown';
+    /** R11 Phase 2 (H169, item c): 'cloud', the model ran on Ollama's servers under the person's Ollama account */
+    host: string; endpoint: 'local' | 'remote' | 'cloud'; tools: 'on' | 'off' | 'unknown'; modelResolved?: string; costBasis: 'local endpoint' | 'unknown';
     /** R4 (H113): the last-resort fallback answered after OpenRouter failed: its role, and OpenRouter's failure in a line */
     role?: 'last-resort fallback'; openrouterFailed?: string;
+    /** R11 Phase 2 (H169, item c): the route's name, sealed beside the source ("ollama cloud"); absent on the local route */
+    route?: 'ollama cloud';
   };
   /**
    * R4 (H113): which surface sent the turn (src/contracts/chat-session.ts ChatSurface): the REPL, the monitor, the terminal
@@ -120,6 +123,7 @@ export function sealTurn(
       ...(facts.route ? [{
         kind: 'ollama', host: facts.route.host, endpoint: facts.route.endpoint, tools: facts.route.tools, cost_basis: facts.route.costBasis,
         ...(facts.route.role ? { role: facts.route.role } : {}), ...(facts.route.openrouterFailed ? { openrouter_failed: facts.route.openrouterFailed } : {}),
+        ...(facts.route.route ? { route: facts.route.route } : {}),
       }] : []),
       ...(facts.canvas ?? []).map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })),
     ] } : {}),
