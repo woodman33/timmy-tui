@@ -251,7 +251,11 @@
   function renderRoutes() {
     const routes = (P.state && P.state.routes) || [];
     put(P.el.routes, h('p', { class: 'tools-sub' }, 'MCP TO CLI · BOTH ROUTES · RUNG, AND LAST CALL IN THIS PROJECT'), ...routes.map((r) => {
-      const last = (P.calls || []).find((c) => c.route === r.id);
+      // the last call through the route: the newest of the project's records, or the call this page just made (its result
+      // carries the same facts and its receipt as the companion verified it) until the records are read back
+      const recorded = (P.calls || []).find((c) => c.route === r.id);
+      const own = P.result && P.result.kind === 'call' && P.result.call && P.result.call.route === r.id ? P.result.call : null;
+      const last = own && (!recorded || String(own.startedAt) >= String(recorded.startedAt)) ? own : recorded;
       return h('div', { class: 'tools-route', 'data-route': r.id, title: `${r.details}. Reaches: ${r.reaches}.` },
         h('div', { class: 'row-between' }, h('strong', null, r.id === 'sdk' ? 'The SDK route' : 'The mcporter route'), h('span', { class: 'tools-rung', 'data-rung': r.rung }, `${r.rung}${r.version ? ` · ${r.version}` : ''}`)),
         last
