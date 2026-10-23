@@ -7,10 +7,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { CapabilityRow } from '../src/capabilities/index.js';
+import type { InventoryRow } from '../src/capabilities/inventory.js';
 import { findWorkspaces } from '../src/workbench/nav.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { pageOf } from '../src/workbench/hub.js';
-import { fromCapabilities, fromInventory, GROUPS, inventoryInspector, inventoryRow, nextWords, STATES, stateOf, stateSeg, type ExternalInventoryRow, type ScreenRow } from '../src/workbench/inventory-tab.js';
+import { fromCapabilities, fromInventory, GROUPS, inventoryInspector, inventoryNext, inventoryRow, matchingGroups, nextWords, STATES, stateOf, stateSeg, type ScreenRow } from '../src/workbench/inventory-tab.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { frameOf } from '../src/workbench/screen.js';
 import { plain } from '../src/workbench/text.js';
@@ -102,10 +103,10 @@ describe('the state in three words, from the ladder\'s evidence (never inferred,
     for (const r of ROWS) expect(nextWords(r).next).not.toMatch(/\bbrew\b|\bnpm\b|\bset [A-Z]|\bexport [A-Z]|timmy init|ollama pull/);
   });
 
-  it('the groups are the rail\'s, in its order, and the finder reaches the screen by its names', () => {
+  it('the groups are the rail\'s, in its order (each group\'s rows in All tools\' order of kinds), and the finder reaches the screen by its names', () => {
     expect(GROUPS.map((x) => x.label)).toEqual(['CHAT', 'WORK', 'CREATE', 'CONNECT']);
     expect(fromCapabilities(ROWS).map((x) => [x.label, x.rows.map((r) => r.id)])).toEqual([
-      ['CHAT', ['repl', 'openrouter', 'spatial-review']], ['WORK', ['workflows', 'receipts']], ['CREATE', ['look', 'blender']], ['CONNECT', ['trigger', 'taskforge', 'composio', 'claude-code', 'mcp-cli:sdk', 'flag']],
+      ['CHAT', ['repl', 'openrouter', 'spatial-review']], ['WORK', ['workflows', 'receipts']], ['CREATE', ['look', 'blender']], ['CONNECT', ['trigger', 'composio', 'mcp-cli:sdk', 'flag', 'taskforge', 'claude-code']],
     ]);
     for (const q of ['integrations', 'Tools & MCP', 'tools']) expect(findWorkspaces(q)[0]?.id, q).toBe('tools');
   });
@@ -204,34 +205,82 @@ describe('the screen at 122x37 and 80x24: the header, the honesty row, the group
   });
 });
 
-describe('H170\'s capability inventory shape (the handoff of 13:52 PT): the same screen rows from its facts', () => {
-  const fact = (ok: boolean, found: string, words: string): ExternalInventoryRow['available'] => ({ ok, found, source: 'FAKE fact', words });
-  const FAKE: ExternalInventoryRow[] = [
-    { id: 'model:ollama-local', name: 'Ollama local', group: 'Models', available: fact(true, 'ollama on PATH', 'Ollama is installed on this computer.'), configured: fact(true, 'the address is set', 'Ollama is set to this computer.'), exercised: { ok: true, receipt: 'ab12cd34', hash: 'sha256:fixture', when: '2026-10-22T23:00:00Z', what: 'a chat turn answered', source: 'FAKE chain', words: 'A chat turn ran through it.' } },
-    { id: 'model:openrouter', name: 'OpenRouter', group: 'Models', available: fact(true, 'built in', 'OpenRouter is built in.'), configured: fact(false, 'no key saved', 'No OpenRouter key is saved.'), exercised: { ok: false, found: 'no sealed turn', source: 'FAKE chain', words: 'No turn ran through it.' }, next: 'save a key in Models & accounts' },
-    { id: 'lane:hermes', name: 'Hermes', group: 'Lanes', available: fact(false, 'hermes is not on PATH', 'Hermes is not on this computer.'), configured: fact(false, 'nothing set', ''), exercised: { ok: false, found: 'no run', source: 'FAKE', words: '' }, next: 'install hermes' },
-    { id: 'receipts:chain', name: 'Receipts (timmy receipts)', group: 'Receipts', available: fact(true, '5 receipts', 'Five receipts are sealed here.'), configured: fact(false, 'nothing to set', ''), exercised: { ok: false, found: 'a chain is not run', source: 'FAKE', words: '' } },
-    { id: 'vox:look', name: 'Look (OpenCV)', group: 'Vision', available: fact(true, 'python3 on PATH', 'OpenCV is checked when an action runs.'), configured: fact(false, 'nothing to set', ''), exercised: { ok: false, found: 'no sealed run', source: 'FAKE', words: '' } },
+describe('H170\'s capability inventory (src/capabilities/inventory.ts): the same screen rows from its rows', () => {
+  const fact = (ok: boolean, found: string): InventoryRow['available'] => ({ ok, found, source: 'FAKE fact', words: `FAKE words: ${found}` });
+  const FAKE: InventoryRow[] = [
+    { id: 'model:ollama-local', name: 'Ollama (this computer)', group: 'Models', available: fact(true, 'Ollama is installed (the ollama command on PATH)'), configured: fact(true, 'the chat is set to local fake-qwen3:8b from the setup; Ollama at 127.0.0.1:4461'), exercised: { ok: true, receipt: 'ab12cd34', hash: 'sha256:fixture', when: '2026-10-22T23:00:00Z', what: 'a chat turn answered and sealed', source: 'FAKE chain', words: 'FAKE words' } },
+    { id: 'model:openrouter', name: 'OpenRouter', group: 'Models', available: fact(true, 'built in: Timmy\'s OpenRouter client (@openrouter/sdk); no install needed'), configured: fact(false, 'no key is set; the chat is set to local, and no model is chosen'), exercised: { ok: false, found: 'no sealed chat turn through OpenRouter yet', source: 'FAKE chain', words: 'FAKE words' }, next: 'Sign in with OpenRouter, or paste a key from openrouter.ai/keys' },
+    { id: 'model:cloudflare', name: 'Cloudflare (optional)', group: 'Models', available: fact(true, 'built in'), configured: fact(false, 'nothing is set'), exercised: { ok: false, found: 'never: Timmy sends Cloudflare no request to check it', source: 'FAKE', words: '' }, next: 'Optional: set TIMMY_EDGE_HOST (or the private overlay\'s edge host) for the Worker; the local app needs no Cloudflare account' },
+    { id: 'lane:hermes', name: 'Hermes', group: 'Lanes', available: fact(false, 'hermes is not on PATH'), configured: fact(false, 'nothing set'), exercised: { ok: false, found: 'no run', source: 'FAKE', words: '' }, next: 'pip install hermes-agent' },
+    { id: 'receipts:chain', name: 'Receipts (timmy receipts)', group: 'Receipts', available: fact(true, '5 receipts, the chain verifies'), configured: fact(false, 'nothing to set'), exercised: { ok: false, found: 'a chain is not run', source: 'FAKE', words: '' }, next: 'any sealed run (a chat turn, /observe, /mcp call) appends a signed receipt' },
+    { id: 'vox:look', name: 'Image observations (OpenCV)', group: 'Tools', available: fact(true, 'built in: python3 on PATH'), configured: fact(false, 'nothing to set'), exercised: { ok: false, found: 'no sealed run', source: 'FAKE', words: '' }, next: 'Run it once: /vox look <image> (its record and receipt seal the run)' },
   ];
-  it('the chip is the highest state whose fact is ok; what was found is that state\'s words; the next step its own, with where a key is set; the groups fold into the rail\'s', () => {
+  it('the chip is the highest state whose fact holds; what was found is that fact\'s own words through inWords (no address); the next step in the product\'s words with where it is set; the groups fold into the rail\'s', () => {
     const groups = fromInventory(FAKE);
     expect(groups.map((x) => [x.label, x.rows.map((r) => `${r.id}:${r.state ?? '-'}`)])).toEqual([
-      ['CHAT', ['model:ollama-local:exercised', 'model:openrouter:available']], ['WORK', ['receipts:chain:available']], ['CREATE', ['vox:look:available']], ['CONNECT', ['lane:hermes:-']],
+      ['CHAT', ['model:ollama-local:exercised', 'model:openrouter:available', 'model:cloudflare:available']], ['WORK', ['receipts:chain:available']], ['CREATE', ['vox:look:available']], ['CONNECT', ['lane:hermes:-']],
     ]);
     const rows = Object.fromEntries(groups.flatMap((x) => x.rows).map((r) => [r.id, r])) as Record<string, ScreenRow>;
-    expect(rows['model:ollama-local']).toMatchObject({ state: 'exercised', receipt: 'ab12cd34', at: '2026-10-22T23:00:00Z', found: 'A chat turn ran through it.', under: 'Models' });
-    expect(rows['model:openrouter']).toMatchObject({ state: 'available', found: 'OpenRouter is built in.', next: 'save a key in Models & accounts' });
-    expect(rows['model:openrouter'].where).toBeUndefined();
-    expect(rows['lane:hermes']).toMatchObject({ state: null, found: 'hermes is not on PATH', next: 'install hermes' });
+    expect(rows['model:ollama-local']).toMatchObject({ state: 'exercised', receipt: 'ab12cd34', at: '2026-10-22T23:00:00Z', found: `a chat turn answered and sealed · last run ${clockOf('2026-10-22T23:00:00Z')}`, under: 'Models', next: '' });
+    expect(rows['model:openrouter']).toMatchObject({ state: 'available', next: 'sign in with OpenRouter, or paste a key', short: 'sign in or paste a key', where: 'Models & accounts' });
+    expect(rows['model:openrouter'].found).toMatch(/^built in: Timmy's OpenRouter client/);
+    expect(rows['model:cloudflare']).toMatchObject({ next: 'optional: an address is needed (TIMMY_EDGE_HOST)', short: 'optional: an address (TIMMY_EDGE_HOST)', where: 'the .env file' });
+    expect(rows['lane:hermes']).toMatchObject({ state: null, found: 'hermes is not on PATH', next: 'install it on this computer; the command is in its details' });
+    expect(rows['receipts:chain']).toMatchObject({ state: 'available', next: 'run it once (it asks first); its receipt seals the run' });
+    expect(rows['vox:look']).toMatchObject({ group: 'create', under: 'Tools', next: 'run it once (it asks first); its receipt seals the run' });
+    // the facts whole (the address and the command are the details'), and the inventory's step sentence whole
     expect(rows['model:ollama-local'].facts).toEqual([
-      ['Available', 'yes: ollama on PATH (FAKE fact)'], ['Configured', 'yes: the address is set (FAKE fact)'], ['Exercised', `a chat turn answered; ${clockOf('2026-10-22T23:00:00Z')}; receipt ab12cd34 (FAKE chain)`],
+      ['Available', 'yes: Ollama is installed (the ollama command on PATH) (FAKE fact)'], ['Configured', 'yes: the chat is set to local fake-qwen3:8b from the setup; Ollama at 127.0.0.1:4461 (FAKE fact)'], ['Exercised', `a chat turn answered and sealed; ${clockOf('2026-10-22T23:00:00Z')}; receipt ab12cd34 (FAKE chain)`],
     ]);
+    expect(rows['model:openrouter'].facts[3]).toEqual(['Step', 'Sign in with OpenRouter, or paste a key from openrouter.ai/keys']);
+    // a configured row: the fact's words through inWords: the address becomes "this computer"
+    const configured = fromInventory([{ ...FAKE[0], exercised: { ok: false, found: 'no sealed chat turn yet', source: 'FAKE', words: '' }, next: 'Send a message in the chat (each answered turn seals a receipt)' }]).flatMap((x) => x.rows)[0];
+    expect(configured).toMatchObject({ state: 'configured', found: 'local FAKE fake-qwen3:8b; Ollama on this computer', next: 'send a message in the chat; each answered turn seals a receipt', short: 'send a message in the chat' });
+    expect(configured.where).toBeUndefined();
+    // a FAKE model is named FAKE wherever its name stands in the fact shown (an exercised run's words too)
+    const ran = fromInventory([{ ...FAKE[0], exercised: { ok: true, receipt: 'ab12cd34', hash: 'sha256:fixture', when: '2026-10-22T23:00:00Z', what: 'a sealed chat turn answered by fake-qwen3:8b through the Ollama on this computer', source: 'FAKE chain', words: '' } }]).flatMap((x) => x.rows)[0];
+    expect(ran.found).toBe(`a sealed chat turn answered by FAKE fake-qwen3:8b through the Ollama on this computer · last run ${clockOf('2026-10-22T23:00:00Z')}`);
     // drawn with the same row: the receipt first, the chip green
     const line = inventoryRow(rows['model:ollama-local'], 118, false, g);
-    expect(plain(line).trimEnd()).toBe('  Ollama local                exercised   receipt ab12cd34 · A chat turn ran through it.');
+    expect(plain(line).trimEnd()).toBe(`  Ollama (this computer)      exercised   receipt ab12cd34 · a chat turn answered and sealed · last run ${clockOf('2026-10-22T23:00:00Z')}`);
     expect(line.find((s) => s.text.trim() === 'exercised')?.role).toBe('live');
     const insp = inventoryInspector(rows['model:openrouter'], 60, g).map(plain);
     expect(insp[0]).toBe('CAPABILITY · Models');
-    expect(insp.join(' ').replace(/\s+/g, ' ')).toMatch(/Next save a key in Models & accounts Available yes: built in \(FAKE fact\) Configured no: no key saved \(FAKE fact\) Exercised no: no sealed turn \(FAKE chain\)/);
+    expect(insp.join(' ').replace(/\s+/g, ' ')).toMatch(/Next sign in with OpenRouter, or paste a key: Models & accounts \(nothing is set from here\) Available yes: built in: Timmy's OpenRouter client \(@openrouter\/sdk\); no install needed \(FAKE fact\) Configured no: no key is set; the chat is set to local, and no model is chosen \(FAKE fact\) Exercised no: no sealed chat turn through OpenRouter yet \(FAKE chain\) Step Sign in with OpenRouter, or paste a key from openrouter\.ai\/keys/);
+    // the search keeps the rows that hold every word of it (the name, the group, the state, what was found, the step)
+    expect(matchingGroups(groups, 'models key').flatMap((x) => x.rows.map((r) => r.id))).toEqual(['model:openrouter']);
+    expect(matchingGroups(groups, 'models').flatMap((x) => x.rows.map((r) => r.id))).toEqual(['model:ollama-local', 'model:openrouter', 'model:cloudflare']);
+    expect(matchingGroups(groups, 'exercised').flatMap((x) => x.rows.map((r) => r.id))).toEqual(['model:ollama-local']);
+    expect(matchingGroups(groups, '').flatMap((x) => x.rows).length).toBe(6);
+  });
+
+  it('the inventory\'s own step sentences (commands, addresses) as the row\'s words: where a key or an address is set, said; a run that would exercise it; an install kept in the details', () => {
+    expect(inventoryNext('Choose a local model: timmy init --chat local --model <name>, or /model in the REPL')).toEqual({ next: 'choose a local model', where: 'Models & accounts' });
+    expect(inventoryNext('Set the chat to OpenRouter (timmy init --chat openrouter, or /setup chat in the REPL), then send a message')).toEqual({ next: 'set the chat to OpenRouter', where: 'Models & accounts' });
+    expect(inventoryNext('Install Ollama, then start it')).toEqual({ next: 'install Ollama, then start it', short: 'install Ollama', where: 'Models & accounts' });
+    expect(inventoryNext('Install it: brew install --cask ollama; then open -a Ollama')).toEqual({ next: 'install Ollama, then start it', short: 'install Ollama', where: 'Models & accounts' });
+    expect(inventoryNext('Download a model: ollama pull qwen3:8b (no charge)')).toEqual({ next: 'download a model into Ollama', short: 'download a model', where: 'Models & accounts' });
+    expect(inventoryNext('Paste an Ollama API key from ollama.com/settings/keys')).toEqual({ next: 'paste an Ollama API key', where: 'Models & accounts' });
+    expect(inventoryNext('Choose a cloud-backed model (/model lists them as cloud-backed), then send a message: the chat then leaves this computer')).toEqual({ next: 'choose a cloud-backed model', short: 'a cloud-backed model', where: 'Models & accounts' });
+    expect(inventoryNext('set ROBOFLOW_API_KEY')).toEqual({ next: 'a key is needed (ROBOFLOW_API_KEY)', short: 'a key (ROBOFLOW_API_KEY)', where: 'the .env file' });
+    expect(inventoryNext('export TIMMY_BLENDER=<path to blender>')).toEqual({ next: 'a setting is needed (TIMMY_BLENDER)', short: 'a setting (TIMMY_BLENDER)', where: 'the .env file' });
+    expect(inventoryNext('set TIMMY_AGENT_MODEL to a model from ollama list')).toEqual({ next: 'a setting is needed (TIMMY_AGENT_MODEL)', short: 'a setting (TIMMY_AGENT_MODEL)', where: 'the .env file' });
+    expect(inventoryNext('Name a server in ~/.mcporter/mcporter.json (or config/mcporter.json in the project)')).toEqual({ next: 'name the server in MCPorter\'s config', short: 'name the server', where: 'MCPorter\'s config (mcporter.json)' });
+    expect(inventoryNext('/mcp call <server>.<tool> (its mcp.call receipt seals the answer)')).toEqual({ next: 'run it once (it asks first); its receipt seals the run', short: 'run it once; its receipt seals the run' });
+    expect(inventoryNext('/lanes dispatch hermes (it asks before it starts; the launch seals a receipt)')).toEqual({ next: 'run it once (it asks first); its receipt seals the run', short: 'run it once; its receipt seals the run' });
+    expect(inventoryNext('timmy vision run <image> (a real authorized run; until one succeeds, Roboflow inference stays unverified)')).toEqual({ next: 'run it once (it asks first); its receipt seals the run', short: 'run it once; its receipt seals the run' });
+    expect(inventoryNext('timmy init (it makes the store and its pin)')).toEqual({ next: 'run the setup once: it makes the store and its pin', short: 'run the setup once' });
+    expect(inventoryNext('install Docker (brew install --cask docker), then start it')).toEqual({ next: 'install it on this computer; the command is in its details', short: 'install it; the command is in its details' });
+    expect(inventoryNext('npm run build (the worker ships with the build)')).toEqual({ next: 'install it on this computer; the command is in its details', short: 'install it; the command is in its details' });
+    expect(inventoryNext('reinstall Timmy, or run it from a checkout of its repository')).toEqual({ next: 'reinstall Timmy, or run it from a checkout of its repository', short: 'reinstall, or run from a checkout' });
+    expect(inventoryNext('uv tool install openhands --python 3.12')).toEqual({ next: 'install it on this computer; the command is in its details', short: 'install it; the command is in its details' });
+    expect(inventoryNext('github.com/NousResearch/hermes-agent')).toEqual({ next: 'install it on this computer; its address is in its details', short: 'install it; its address is in its details' });
+    expect(inventoryNext('https://defold.com/download/')).toEqual({ next: 'install it on this computer; its address is in its details', short: 'install it; its address is in its details' });
+    expect(inventoryNext('see /vox')).toEqual({ next: 'its own page says the step; it is in its details', short: 'the step is in its details' });
+    expect(inventoryNext(undefined)).toEqual({ next: '' });
+    // never a command, an address or a key's name as a command on the row
+    for (const t of ['Choose a local model: timmy init --chat local --model <name>, or /model in the REPL', 'set ROBOFLOW_API_KEY', 'brew install --cask blender', '/mcp call x.y', 'Paste an Ollama API key from ollama.com/settings/keys']) {
+      expect(inventoryNext(t).next).not.toMatch(/timmy init|\bset [A-Z]|brew install|^\/mcp|ollama\.com/);
+    }
   });
 });

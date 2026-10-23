@@ -145,7 +145,8 @@ export interface ToolsSearch {
   finder?: string;
 }
 
-const KINDS = ['surface', 'model', 'tool', 'harness', 'adapter', 'vox'] as const;
+/** All tools' order of kinds (the inventory's groups keep it within a group). */
+export const KINDS = ['surface', 'model', 'tool', 'harness', 'adapter', 'vox'] as const;
 const TITLES: Readonly<Record<string, string>> = { surface: 'Where you work', model: 'Models', tool: 'Agent tools', harness: 'Other agents', adapter: 'Native apps and adapters', vox: 'VoxVision' };
 
 const ago = (t: number | undefined, now: number): string => {

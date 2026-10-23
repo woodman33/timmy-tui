@@ -487,7 +487,7 @@ function pageView(c: ViewCtx): View {
     // R5 (H134): tab 5 and tab 9, references 04, 05, 15, 16 and 08, 17 (src/workbench/voxvision-tab.ts, tools-tab.ts)
     case 'voxvision': return voxView(c, c.data.caps, c.data.voxTab);
     // R11 phase 2 (H167): the Tools & integrations screen: the honest inventory (src/workbench/inventory-tab.ts)
-    case 'tools': return inventoryView(c, c.data.caps, c.data.toolsTab, toolsSearch(c.ui), c.data.caps.state === 'ready' ? c.data.caps.at : undefined);
+    case 'tools': return inventoryView(c, { caps: c.data.caps, inventory: c.data.inventory ?? { state: 'idle' } }, c.data.toolsTab, toolsSearch(c.ui));
     // R10 (H167): Home's left column, the project's recent work (src/workbench/home-journey.ts); the connection cards (R5,
     // H131: src/workbench/hub.ts homeView) are the inspector's now ([i])
     case 'connections': return homeWorkView(c);

@@ -182,14 +182,17 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       expect(screen).not.toMatch(/receipt [0-9a-f]{8}/);
       // no command, no address on the screen (the details hold them)
       expect(screen).not.toMatch(/brew install|npm install|127\.0\.0\.1|ollama pull|\bset [A-Z][A-Z0-9_]+\b|\bexport [^=\n]{1,40}=/);
-      // the REPL with no model chosen is not configured: its next step names Models & accounts
-      const repl = inv.find((x) => /^[▸ ] REPL \(timmy\)/.test(x.row));
-      expect(repl?.chip, repl?.row).toBe('');
-      if (w === 122) expect(repl?.row).toMatch(/Models & accounts/);
-      // Enter on the selected row: its details in the right pane (the Inspector), with the state's meaning and the rung's evidence
+      // OpenRouter (the inventory's first row): built in, so available; no key, so its next step names Models & accounts
+      const or = inv.find((x) => /^[▸ ] OpenRouter/.test(x.row));
+      expect(or?.chip, or?.row).toBe('available');
+      expect(or?.row).toMatch(/Models & accounts/);
+      // Ollama on this computer: the FAKE Ollama answers over HTTP, but no ollama program is here and no model is chosen: no chip
+      const ol = inv.find((x) => /^[▸ ] Ollama \(this/.test(x.row));
+      expect(ol?.chip, ol?.row).toBe('');
+      // Enter on the selected row: its details in the right pane (the Inspector), with the state's meaning and the three facts
       await sendKeys(pane, ['Enter']);
       // (at 80x24 the drawer holds the state, what was found and the step; the rung's evidence is read on with ↓)
-      const detail = await waitScreen(pane, { what: 'the details drawer', re: w === 80 ? /CAPABILITY[\s\S]*State +(?:available|configured|exercised|–)/ : /CAPABILITY[\s\S]*State +(?:available|configured|exercised|–)[\s\S]*Rung +/, ms: 20_000 });
+      const detail = await waitScreen(pane, { what: 'the details drawer', re: w === 80 ? /CAPABILITY[\s\S]*State +(?:available|configured|exercised|–)/ : /CAPABILITY[\s\S]*State +(?:available|configured|exercised|–)[\s\S]*Available +yes/, ms: 20_000 });
       keepScreen(pane, CAPTURES, `tools-landing-${w}x${h}-02-details`, { foot: 'drawn' });
       expect(detail).toMatch(/Esc closes/);
       await sendKeys(pane, ['Escape']);
@@ -213,10 +216,12 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       const inv = inventoryRows(screen, w);
       expect(inv.length).toBeGreaterThanOrEqual(w === 80 ? 2 : 4);
       for (const { row, chip } of inv) expect(chip === '' || CHIP.test(chip), `${w}: "${row}"`).toBe(true);
-      // the REPL: a model and an address are set: configured, FAKE named on its row
-      const repl = inv.find((x) => /^[▸ ] REPL \(timmy\)/.test(x.row));
-      expect(repl?.chip, repl?.row).toBe('configured');
-      expect(repl?.row).toMatch(/fake-qwen3:8b/);
+      // Ollama on this computer: the chat is set to the FAKE local model at the FAKE address: configured (no ollama program
+      // is here, so not available: the inventory keeps the words apart); the model named on its row, the address not
+      const ol = inv.find((x) => /^[▸ ] Ollama \(this/.test(x.row));
+      expect(ol?.chip, ol?.row).toBe('configured');
+      // (at 80 columns the found words are cut by words: the FAKE marker stays, the name is the details')
+      expect(ol?.row).toMatch(w === 80 ? /local FAKE/ : /local FAKE fake-qwen3:8b/);
       // nothing ran: no exercised chip, no receipt id anywhere
       expect(inv.every((x) => x.chip !== 'exercised')).toBe(true);
       expect(screen).not.toMatch(/receipt [0-9a-f]{8}/);
@@ -229,15 +234,18 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       const tail = inventoryRows(end, w);
       for (const { row, chip } of tail) expect(chip === '' || CHIP.test(chip), `${w}: "${row}"`).toBe(true);
       expect(tail.every((x) => x.chip !== 'exercised')).toBe(true);
-      // the tab's own search (/ from the list) finds the lanes, whose FAKE stand-ins are on PATH: the files are here, so
-      // available, never more (nothing of theirs ran: the FAKE lanes' log stays empty)
+      // the tab's own search (/ from the list) keeps the lanes (their group): the FAKE stand-ins on PATH are available, or
+      // configured where no key is needed (the inventory's own reading), never exercised: nothing of theirs ran (the FAKE
+      // lanes' log stays unwritten)
       await sendKeys(pane, ['/']);
       await waitScreen(pane, { what: 'the tools search', re: /Search: /, ms: 20_000 });
       await sendKeys(pane, ['lanes']);
-      const found = await waitScreen(pane, { what: 'the lanes row', re: /\d+ tools? match(?:es)? "lanes"[\s\S]*Lanes \(\/lanes\)/, ms: 20_000 });
+      const found = await waitScreen(pane, { what: 'the lanes rows', re: /\d+ tools? match(?:es)? "lanes"[\s\S]*CONNECT · \d+ capabilit/, ms: 20_000 });
       keepScreen(pane, CAPTURES, `tools-landing-${w}x${h}-05-FAKE-populated-search-lanes`, { foot: 'drawn' });
-      const lanes = inventoryRows(found, w).find((x) => /^[▸ ] Lanes \(\/lanes\)/.test(x.row));
-      expect(lanes?.chip, lanes?.row).toBe('available');
+      const lanes = inventoryRows(found, w);
+      expect(lanes.length).toBeGreaterThanOrEqual(2);
+      for (const { row, chip } of lanes) expect(chip === '' || chip === 'available' || chip === 'configured', `${w}: "${row}"`).toBe(true);
+      expect(lanes.some((x) => x.chip === 'available' || x.chip === 'configured')).toBe(true);
       expect(found).not.toMatch(/receipt [0-9a-f]{8}|brew install|npm install|127\.0\.0\.1/);
       stop(session);
     }

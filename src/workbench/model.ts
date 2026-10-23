@@ -4,6 +4,7 @@
  */
 import type { RailModels } from './chat-shell.js';
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { Inventory } from '../capabilities/inventory.js';
 import type { ScreenRow } from './inventory-tab.js';
 import type { ChatRouteState, ChatSurface } from '../contracts/chat-session.js';
 import type { RunDetail } from '../contracts/run-detail.js';
@@ -135,6 +136,9 @@ export interface Data {
   studio: Lazy<{ cards: ProjectCard[]; notes: string[]; operations: ProjectOperation[] }>;
   overview: Lazy<Line[]>;
   caps: Lazy<CapabilityRow[]>;
+  /** R11 phase 2 (H167): H170's capability inventory for the project (src/capabilities/inventory.ts: files, settings and
+   *  receipts; nothing run), the Tools & integrations screen's rows; absent or idle, the screen reads the ladder's rows */
+  inventory?: Lazy<Inventory>;
   /** each job's run detail (src/contracts/run-detail.ts), by operation id, once asked */
   details: Record<string, Lazy<RunDetail>>;
   /** the chat session's own route (src/contracts/chat-session.ts), once a session is open */

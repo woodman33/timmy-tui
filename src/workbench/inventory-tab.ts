@@ -12,21 +12,22 @@
  * command the person did not ask for: the command stays in the details, [i] or Enter); a step that needs a key or an
  * address says where it is set (Models & accounts, the .env file) and does nothing itself. The groups
  * are the rail's (CHAT · WORK · CREATE · CONNECT), in its order. The header says what this installation has, and the row
- * under it that nothing here was run to make the list (src/capabilities reads files and asks this computer's own servers
- * whether they answer; it runs no capability). Enter on a row opens its details in the right pane (the Inspector: the facts
- * and the receipt id). At 80x24 the list scrolls; the chip is never cut.
+ * under it that nothing here was run to make the list. Enter on a row opens its details in the right pane (the Inspector:
+ * the facts and the receipt id). At 80x24 the list scrolls; the chip is never cut.
  *
- * The rows come from src/capabilities' rows (the /tools ladder) through `fromCapabilities` until H170's capability inventory
- * (src/capabilities/inventory.ts on its branch; its interface in the handoff at 13:52 PT) is merged: `fromInventory` reads
- * that shape into the same screen rows, so the swap is the data source alone (src/workbench/controller.ts).
+ * The rows come from H170's capability inventory (src/capabilities/inventory.ts: files, settings and receipts read for the
+ * project; nothing run, nothing contacted), through `fromInventory`, when the controller read one (src/workbench/run.ts
+ * wires inventory({ env, cwd })); a Data without one (the other tabs' tests, a Controller without the dependency) reads
+ * src/capabilities' rows (the /tools ladder) through `fromCapabilities` into the same screen rows.
  */
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { Inventory, InventoryRow } from '../capabilities/inventory.js';
 import type { Glyphs } from './frame.js';
 import { inWords } from './home-journey.js';
 import type { Lazy } from './model.js';
 import { fieldRows, heading, onBar, para, S, selectedIn, type TabCtx, type TabView } from './tab-columns.js';
 import { lazyRows } from './tab-parts.js';
-import { callRows, matching, MCP_ROUTES, searchRows, TOOLS_LIST, type McpCallRow, type ToolsData, type ToolsSearch } from './tools-tab.js';
+import { callRows, KINDS, MCP_ROUTES, searchRows, TOOLS_LIST, type McpCallRow, type ToolsData, type ToolsSearch } from './tools-tab.js';
 import { clock, count, cut, fit, pick, type Line, type Role, type Seg } from './text.js';
 
 /** The three words, and no fourth. */
@@ -178,7 +179,9 @@ export function grouped(rows: readonly ScreenRow[]): ScreenGroup[] {
 /** The inventory from src/capabilities' rows: grouped in the rail's order, each group's rows in /tools' order. */
 export function fromCapabilities(caps: readonly CapabilityRow[], extra: { calls?: readonly McpCallRow[]; sep?: string } = {}): ScreenGroup[] {
   const rows: ScreenRow[] = [];
-  for (const r of caps) {
+  // (All tools' order: by kind, then as the ladder lists them)
+  const ordered = KINDS.flatMap((k) => caps.filter((r) => r.kind === k));
+  for (const r of ordered) {
     const st = stateOf(r);
     const nx = nextWords(r);
     const row: ScreenRow = {
@@ -191,41 +194,81 @@ export function fromCapabilities(caps: readonly CapabilityRow[], extra: { calls?
   return grouped(rows);
 }
 
-// ── H170's capability inventory (src/capabilities/inventory.ts, its branch): the same screen rows from its shape ─────────
+// ── H170's capability inventory (src/capabilities/inventory.ts): the same screen rows from its rows ──────────────────
 
-/** H170's row, as the handoff of 13:52 PT states it (structural: nothing of its module is imported until it is merged). */
-export interface ExternalFact { ok: boolean; found: string; source: string; words: string }
-export type ExternalExercised = { ok: true; receipt: string; hash: string; when: string; what: string; record?: string; source: string; words: string } | { ok: false; found: string; source: string; words: string };
-export interface ExternalInventoryRow { id: string; name: string; group: 'Models' | 'Tools' | 'Integrations' | 'Lanes' | 'Vision' | 'Receipts'; available: ExternalFact; configured: ExternalFact; exercised: ExternalExercised; next?: string }
+/** H170's groups under the rail's: Models in CHAT, Receipts in WORK, the vox Tools and Vision in CREATE, the rest in CONNECT. */
+const RAIL_OF: Readonly<Record<InventoryRow['group'], RailGroupId>> = { Models: 'chat', Receipts: 'work', Tools: 'create', Vision: 'create', Integrations: 'connect', Lanes: 'connect' };
 
-/** H170's groups under the rail's: Models in CHAT, Receipts in WORK, Vision in CREATE, the rest in CONNECT. */
-const RAIL_OF: Readonly<Record<ExternalInventoryRow['group'], RailGroupId>> = { Models: 'chat', Receipts: 'work', Vision: 'create', Tools: 'connect', Integrations: 'connect', Lanes: 'connect' };
-
-/** Where a next step sets a key or an address, read from its words (said, never done here). */
-function whereOf(next: string | undefined): string | undefined {
-  if (!next || /Models & accounts|\.env|environment/i.test(next)) return undefined;
-  if (/OpenRouter|Ollama|model|key/i.test(next)) return 'Models & accounts';
-  if (/setting/i.test(next)) return 'the .env file';
-  return undefined;
+/** The inventory's next step (its own setup words, which name commands and addresses) as the row's words: the step, its short
+ *  form, and where a key, an address or a setting is set (said, never done here). The inventory's words whole are the details'. */
+export function inventoryNext(next: string | undefined): { next: string; short?: string; where?: string } {
+  const t = (next ?? '').trim();
+  if (!t) return { next: '' };
+  if (/Sign in with OpenRouter|openrouter\.ai\/keys/i.test(t)) return { next: 'sign in with OpenRouter, or paste a key', short: 'sign in or paste a key', where: 'Models & accounts' };
+  if (/Set the chat to OpenRouter/i.test(t)) return { next: 'set the chat to OpenRouter', where: 'Models & accounts' };
+  if (/Choose a local model|timmy init --chat local/i.test(t)) return { next: 'choose a local model', where: 'Models & accounts' };
+  if (/Install Ollama|^Install it: .*ollama/i.test(t)) return { next: 'install Ollama, then start it', short: 'install Ollama', where: 'Models & accounts' };
+  if (/^Download a (?:local )?model/i.test(t)) return { next: 'download a model into Ollama', short: 'download a model', where: 'Models & accounts' };
+  if (/Paste an Ollama API key|ollama\.com\/settings\/keys/i.test(t)) return { next: 'paste an Ollama API key', where: 'Models & accounts' };
+  if (/Choose a cloud-backed model/i.test(t)) return { next: 'choose a cloud-backed model', short: 'a cloud-backed model', where: 'Models & accounts' };
+  if (/^Send a message in the chat/i.test(t)) return { next: 'send a message in the chat; each answered turn seals a receipt', short: 'send a message in the chat' };
+  // (a run that would exercise it, before a setting its sentence names in passing)
+  if (/^Run it once: |^\/mcp call|^\/agent |^\/lanes dispatch|^timmy vision run|^any sealed run/i.test(t)) return { next: 'run it once (it asks first); its receipt seals the run', short: 'run it once; its receipt seals the run' };
+  const set = /\b(?:set|export) ([A-Z][A-Z0-9_]*)/.exec(t);
+  if (set) {
+    const kind = KEY_LIKE.test(set[1]) ? 'a key' : /URL|HOST|PATH|BASE|ADDR/.test(set[1]) ? 'an address' : 'a setting';
+    const opt = /^optional\b/i.test(t) ? 'optional: ' : '';
+    return { next: `${opt}${kind} is needed (${set[1]})`, short: `${opt}${kind} (${set[1]})`, where: 'the .env file' };
+  }
+  if (/\bname .* in MCPorter|^Name a server in/i.test(t)) return { next: 'name the server in MCPorter\'s config', short: 'name the server', where: 'MCPorter\'s config (mcporter.json)' };
+  if (/^timmy init \(it makes the store/i.test(t)) return { next: 'run the setup once: it makes the store and its pin', short: 'run the setup once' };
+  if (/reinstall Timmy|run it from a checkout/i.test(t)) return { next: 'reinstall Timmy, or run it from a checkout of its repository', short: 'reinstall, or run from a checkout' };
+  if (/github\.com\/|https?:\/\/|\bdownload\b/i.test(t) && !/\b(?:brew|npm|npx|pip3?|cargo|apt|uv tool)\b/i.test(t)) return { next: 'install it on this computer; its address is in its details', short: 'install it; its address is in its details' };
+  if (/\b(?:brew|npm|npx|pip3?|cargo|apt|uv tool|python3 -m venv)\b|^install /i.test(t)) return { next: 'install it on this computer; the command is in its details', short: 'install it; the command is in its details' };
+  if (/^see \//i.test(t)) return { next: 'its own page says the step; it is in its details', short: 'the step is in its details' };
+  return { next: inWords(t) };
 }
 
-/** The inventory from H170's rows: the chip is the highest state whose fact is ok (exercised green with its receipt),
- *  what was found is that state's own words, the next step its own. */
-export function fromInventory(rows: readonly ExternalInventoryRow[]): ScreenGroup[] {
+/** A fact's long sentence as a row's words: the chat's route said short, a FAKE model named FAKE, a key by where it is from. */
+const rowFound = (t: string): string => t.replace(/\s+/g, ' ')
+  .replace(/^the chat is set to local (\S+)(?: \([^)]*\))?(?: from [^;]+)?/, 'local $1')
+  // (a FAKE model is named FAKE on screen, wherever its name stands in the fact: the review's stand-ins are fake-…)
+  .replace(/(?<![\w-])(?<!FAKE )(fake(?:-[\w.:-]+|:[\w.:-]+))/gi, 'FAKE $1')
+  .replace(/^the chat is set to local, and no model is chosen/, 'local; no model chosen')
+  .replace(/^the chat is set to OpenRouter/, 'the chat: OpenRouter')
+  .replace(/\ba key is present \([^)]*\), from /, 'a key from ');
+
+/** The inventory from H170's rows: the chip is the highest state whose fact holds (exercised green with its receipt), what
+ *  was found is that fact's own words through inWords (no address, no command on the row; the sentence whole is the
+ *  details'), the next step the row's own in the product's words (the inventory's words whole in the details). */
+export function fromInventory(rows: readonly InventoryRow[], extra: { sep?: string } = {}): ScreenGroup[] {
+  const sep = extra.sep ?? '·';
   return grouped(rows.map((r): ScreenRow => {
     const state: InventoryState | null = r.exercised.ok ? 'exercised' : r.configured.ok ? 'configured' : r.available.ok ? 'available' : null;
-    const found = r.exercised.ok ? r.exercised.words : r.configured.ok ? r.configured.words : r.available.ok ? r.available.words : r.available.found;
+    const foundRaw = r.exercised.ok ? r.exercised.what : r.configured.ok ? r.configured.found : r.available.found;
+    const base = inWords(rowFound(foundRaw));
+    const found = r.exercised.ok ? `${base} ${sep} last run ${clock(r.exercised.when)}` : base;
+    const nx = inventoryNext(r.next);
     const facts: Array<[string, string]> = [
       ['Available', `${r.available.ok ? 'yes' : 'no'}: ${r.available.found} (${r.available.source})`],
       ['Configured', `${r.configured.ok ? 'yes' : 'no'}: ${r.configured.found} (${r.configured.source})`],
       ['Exercised', r.exercised.ok ? `${r.exercised.what}; ${clock(r.exercised.when)}; receipt ${r.exercised.receipt}${r.exercised.record ? `; record ${r.exercised.record}` : ''} (${r.exercised.source})` : `no: ${r.exercised.found} (${r.exercised.source})`],
+      ...(r.next ? [['Step', r.next] as [string, string]] : []),
     ];
-    const where = whereOf(r.next);
     return {
-      id: r.id, group: RAIL_OF[r.group], under: r.group, name: r.name, state, found, next: r.next ?? '', ...(where ? { where } : {}),
+      id: r.id, group: RAIL_OF[r.group], under: r.group, name: r.name, state, found, next: nx.next,
+      ...(nx.where ? { where: nx.where } : {}), ...(nx.short ? { short: nx.short } : {}),
       ...(r.exercised.ok ? { receipt: r.exercised.receipt, at: r.exercised.when } : {}), facts,
     };
   }));
+}
+
+/** The rows a search keeps (every word of it in the row's name, id, group, state, what was found or its step), by group. */
+export function matchingGroups(groups: readonly ScreenGroup[], query: string): ScreenGroup[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [...groups];
+  const text = (r: ScreenRow): string => `${r.name} ${r.id} ${r.under ?? ''} ${r.state ?? ''} ${r.found} ${r.next} ${r.row ? `${r.row.kind} ${r.row.rung} ${r.row.detail} ${r.row.setup ?? ''}` : ''}`.toLowerCase();
+  return groups.map((gr) => ({ ...gr, rows: gr.rows.filter((r) => words.every((w) => text(r).includes(w))) })).filter((gr) => gr.rows.length);
 }
 
 // ── the view ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -292,18 +335,27 @@ export function inventoryHead(w: number, g: Glyphs, n: number, checkedAt: number
  *  `mcp-call` case: the arguments, the outcome, the receipt verified now, the wire trace as text). */
 export type InventoryItem = { kind: 'inventory'; key: string; row: ScreenRow } | { kind: 'mcp-call'; key: string; call: McpCallRow };
 
-export function inventoryView(c: TabCtx, caps: Lazy<CapabilityRow[]>, d: ToolsData | undefined, s: ToolsSearch, checkedAt?: number): TabView<InventoryItem> {
+/** What the screen reads: H170's inventory once the controller read one (src/capabilities/inventory.ts; nothing run), else
+ *  the ladder's rows (the tabs that probe). */
+export interface InventorySource { caps: Lazy<CapabilityRow[]>; inventory: Lazy<Inventory> }
+
+export function inventoryView(c: TabCtx, src: InventorySource, d: ToolsData | undefined, s: ToolsSearch): TabView<InventoryItem> {
   const { g, width: W } = c;
   // (the search's rows first, as All tools has them: its words say the key and the way to the workspace finder; pinned at
   // the window's top while the list scrolls, so the search and what is typed into it stay in view)
   const lines: Line[] = searchRows(s, W, g);
   const pin = lines.length;
-  const wait = lazyRows(caps, 'Timmy\'s tools', W, c.now);
+  const fromInv = src.inventory.state !== 'idle';
+  const lazy: Lazy<unknown> = fromInv ? src.inventory : src.caps;
+  const checkedAt = lazy.state === 'ready' ? lazy.at : undefined;
+  const wait = lazyRows(lazy, 'Timmy\'s tools', W, c.now);
   if (wait) return { lines: [...lines, ...inventoryHead(W, g, 0, checkedAt, c.now, ''), [], ...wait], items: [], pin };
-  const all = (caps as Extract<typeof caps, { state: 'ready' }>).value;
-  const rows = matching(all, s.query);
-  const groups = fromCapabilities(rows, { calls: d?.calls ?? [], sep: g.sep });
+  const all = fromInv
+    ? fromInventory((src.inventory as Extract<Lazy<Inventory>, { state: 'ready' }>).value.rows, { sep: g.sep })
+    : fromCapabilities((src.caps as Extract<Lazy<CapabilityRow[]>, { state: 'ready' }>).value, { calls: d?.calls ?? [], sep: g.sep });
+  const groups = matchingGroups(all, s.query);
   const flat = groups.flatMap((gr) => gr.rows);
+  const rows = flat;
   // (the project's MCP calls, after the capabilities: the exercised evidence of the MCP routes, each with its receipt; a
   // search keeps the calls whose tool or server matches)
   const q = s.query.trim().toLowerCase();
