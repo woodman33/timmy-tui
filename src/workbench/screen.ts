@@ -258,8 +258,9 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
     const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
     return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [] };
   }
-  // (R10 CHAT H167: Connect OpenRouter takes the composer's rows too: its address and choices whole at 80x24)
-  const full = ui.overlay?.kind === 'connect';
+  // (R10 CHAT H167: Connect OpenRouter takes the composer's rows too: its address and choices whole at 80x24; and the Keys,
+  // H168's pass 3a R10: a longer list than the conversation's rows)
+  const full = ui.overlay?.kind === 'connect' || ui.overlay?.kind === 'help';
   const at = full ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
   const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, inChat: true };
   const view = centerView(c);

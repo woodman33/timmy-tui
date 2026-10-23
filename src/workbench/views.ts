@@ -616,9 +616,12 @@ function chatView(c: ViewCtx): View {
   // init; `timmy setup` makes a governed workspace's folders and asks nothing). The session's refusal is said for its cause.
   const framed = data.frame && data.frame.project.id === data.project.id ? data.frame : null;
   const fix = route.ready ? undefined : framed?.actions.chat?.find((a) => a.primary && a.enabled && !['composer', 'abort'].includes(routeOf(a).kind));
-  const notReady = fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (the next step above, Enter)` : 'not ready: timmy init (in a shell) sets up a route';
+  // (R10 CHAT H167; H168's pass 3a, R4: on the Chat screen, no model for the next turn in its words: Models chooses one; the
+  // setup's refusal, made for the REPL, is the details' [i], not drawn here through inWords: "Cause: no a setting ([i])")
+  const noModelHere = shell && !rt.model;
+  const notReady = noModelHere ? 'not ready: no model for the next turn: Models (M) chooses one' : fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (the next step above, Enter)` : 'not ready: timmy init (in a shell) sets up a route';
   if (!route.ready) lines.push(...fieldRows(shell ? 'Not ready' : 'Ready', shell ? notReady.replace(/^not ready: /, '') : notReady, c.width, 'attention', shell ? 10 : 8));
-  if (!route.ready && route.refusal?.length) {
+  if (!route.ready && route.refusal?.length && !noModelHere) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
     // (R10 H167; H168's F3: in words; the refusal whole is the details', [i])
     for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(inWords(r), c.width, 'secondary', '  '));
@@ -1086,6 +1089,26 @@ function connectView(c: ViewCtx, o: ConnectBox): View {
   return { lines, items };
 }
 
+/** R10 CHAT (H167; H168's pass 3a, R10): the Chat screen's keys, as its Help lists them (the tabbed Workbench's are HELP). */
+const CHAT_HELP: ReadonlyArray<[string, string]> = [
+  ['Tab', 'the next pane: the left menu, the conversation, Models (where it shows), the bottom; Shift+Tab the one before. Tab from the composer keeps what is typed as a draft'],
+  ['↑ ↓', 'move in the pane\'s list (k j too). In Models, ↑ above the first model reaches Search and the five filters; ↓ goes back to the list'],
+  ['← →', 'in Models, the provider (OpenRouter, Ollama local, Ollama cloud, Cloudflare); on a filter, its value'],
+  ['Enter', 'opens or acts: the left menu\'s item; the composer (a draft given back), and in it, sends; in Models, the model under the cursor for the next turn, or a filter\'s next value; a bottom control'],
+  ['Esc', 'closes a drawer or a box, the keyboard back where it was; leaves the composer with the draft kept, or, while this Workbench\'s turn is answered, stops it'],
+  ['M', 'Models: beside the conversation, or a drawer below 110 columns ([M] on the screen); Esc gives the keyboard back'],
+  ['/', 'in Models (OpenRouter), its Search: each key filters, Enter keeps the matches, Esc clears it; elsewhere the finder'],
+  ['i', 'in Models, Details of the model under the cursor, and back to the list'],
+  ['Bottom', 'Tools opens Tools & MCP, Plan / Run Workflows, Permissions the Control Room; Logs, Budget and (below 110 columns) More open drawers over the conversation, the draft kept; Cloudflare shows it in Models; Stop stops this Workbench\'s turn; Attach needs the companion'],
+  ['x', 'Stop current: a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked, after a confirm)'],
+  ['r', 'read the records again, and what the local Ollama lists (Models)'],
+  ['p  n', 'switch project (search, recent, open a folder)  ·  a new blank project'],
+  ['1 … 0', 'the other tabs of the Workbench (2 is this Chat screen)'],
+  ['?', 'these keys; Esc closes them'],
+  ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
+  ['Mouse', 'a click gives the pane under it the keyboard and selects the row under it (Enter acts); [M], [ Models ], [ Details ] and [ Close ] act as their keys'],
+];
+
 function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
   const { g, ui, data } = c;
   const lines: Line[] = [];
@@ -1096,7 +1119,7 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       // about half the width on Home and Chat)
       // R6 (H141; the interaction review of a77d80d, defect 6): it scrolls from the keyboard, and says how
       lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. ↑ ↓ (k j) scroll this list, PgUp PgDn a page, Home End to its start or end; the title says which rows show. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
-      for (const [k, w] of HELP) {
+      for (const [k, w] of c.inChat ? CHAT_HELP : HELP) {
         const words = wrapText(w, Math.max(8, c.width - KEY_COLUMN));
         words.forEach((r, i) => lines.push(i === 0 ? [S(k.padEnd(KEY_COLUMN), 'action'), S(r, 'text')] : [S(' '.repeat(KEY_COLUMN)), S(r, 'text')]));
       }
