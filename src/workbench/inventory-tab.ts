@@ -22,6 +22,7 @@
  */
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { Inventory, InventoryRow } from '../capabilities/inventory.js';
+import { standingWord } from '../capabilities/inventory-words.js';
 import type { Glyphs } from './frame.js';
 import { inWords } from './home-journey.js';
 import type { Lazy } from './model.js';
@@ -238,16 +239,19 @@ const rowFound = (t: string): string => t.replace(/\s+/g, ' ')
   .replace(/^the chat is set to OpenRouter/, 'the chat: OpenRouter')
   .replace(/\ba key is present \([^)]*\), from /, 'a key from ');
 
-/** The inventory from H170's rows: the chip is the highest state whose fact holds (exercised green with its receipt), what
- *  was found is that fact's own words through inWords (no address, no command on the row; the sentence whole is the
- *  details'), the next step the row's own in the product's words (the inventory's words whole in the details). */
+/** The inventory from H170's rows: the chip is its standing word (exercised green with its receipt; none where its files are
+ *  not here now), what was found is that fact's own words through inWords (no address, no command on the row; the sentence
+ *  whole is the details'), the next step the row's own in the product's words (the inventory's words whole in the details). */
 export function fromInventory(rows: readonly InventoryRow[], extra: { sep?: string } = {}): ScreenGroup[] {
   const sep = extra.sep ?? '·';
   return grouped(rows.map((r): ScreenRow => {
-    const state: InventoryState | null = r.exercised.ok ? 'exercised' : r.configured.ok ? 'configured' : r.available.ok ? 'available' : null;
-    const foundRaw = r.exercised.ok ? r.exercised.what : r.configured.ok ? r.configured.found : r.available.found;
+    // (H170's standing word, the one both surfaces show: never contradicts the present, so a row whose files are not here
+    // now has no word, whatever a key or an earlier receipt says; the facts stay in the details)
+    const word = standingWord(r);
+    const state: InventoryState | null = word === 'none' ? null : word;
+    const foundRaw = word === 'exercised' && r.exercised.ok ? r.exercised.what : word === 'configured' ? r.configured.found : r.available.found;
     const base = inWords(rowFound(foundRaw));
-    const found = r.exercised.ok ? `${base} ${sep} last run ${clock(r.exercised.when)}` : base;
+    const found = word === 'exercised' && r.exercised.ok ? `${base} ${sep} last run ${clock(r.exercised.when)}` : base;
     const nx = inventoryNext(r.next);
     const facts: Array<[string, string]> = [
       ['Available', `${r.available.ok ? 'yes' : 'no'}: ${r.available.found} (${r.available.source})`],
@@ -258,7 +262,7 @@ export function fromInventory(rows: readonly InventoryRow[], extra: { sep?: stri
     return {
       id: r.id, group: RAIL_OF[r.group], under: r.group, name: r.name, state, found, next: nx.next,
       ...(nx.where ? { where: nx.where } : {}), ...(nx.short ? { short: nx.short } : {}),
-      ...(r.exercised.ok ? { receipt: r.exercised.receipt, at: r.exercised.when } : {}), facts,
+      ...(word === 'exercised' && r.exercised.ok ? { receipt: r.exercised.receipt, at: r.exercised.when } : {}), facts,
     };
   }));
 }

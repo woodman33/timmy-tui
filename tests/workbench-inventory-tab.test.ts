@@ -215,7 +215,7 @@ describe('H170\'s capability inventory (src/capabilities/inventory.ts): the same
     { id: 'receipts:chain', name: 'Receipts (timmy receipts)', group: 'Receipts', available: fact(true, '5 receipts, the chain verifies'), configured: fact(false, 'nothing to set'), exercised: { ok: false, found: 'a chain is not run', source: 'FAKE', words: '' }, next: 'any sealed run (a chat turn, /observe, /mcp call) appends a signed receipt' },
     { id: 'vox:look', name: 'Image observations (OpenCV)', group: 'Tools', available: fact(true, 'built in: python3 on PATH'), configured: fact(false, 'nothing to set'), exercised: { ok: false, found: 'no sealed run', source: 'FAKE', words: '' }, next: 'Run it once: /vox look <image> (its record and receipt seal the run)' },
   ];
-  it('the chip is the highest state whose fact holds; what was found is that fact\'s own words through inWords (no address); the next step in the product\'s words with where it is set; the groups fold into the rail\'s', () => {
+  it('the chip is the standing word (H170\'s); what was found is that fact\'s own words through inWords (no address); the next step in the product\'s words with where it is set; the groups fold into the rail\'s', () => {
     const groups = fromInventory(FAKE);
     expect(groups.map((x) => [x.label, x.rows.map((r) => `${r.id}:${r.state ?? '-'}`)])).toEqual([
       ['CHAT', ['model:ollama-local:exercised', 'model:openrouter:available', 'model:cloudflare:available']], ['WORK', ['receipts:chain:available']], ['CREATE', ['vox:look:available']], ['CONNECT', ['lane:hermes:-']],
@@ -237,6 +237,12 @@ describe('H170\'s capability inventory (src/capabilities/inventory.ts): the same
     const configured = fromInventory([{ ...FAKE[0], exercised: { ok: false, found: 'no sealed chat turn yet', source: 'FAKE', words: '' }, next: 'Send a message in the chat (each answered turn seals a receipt)' }]).flatMap((x) => x.rows)[0];
     expect(configured).toMatchObject({ state: 'configured', found: 'local FAKE fake-qwen3:8b; Ollama on this computer', next: 'send a message in the chat; each answered turn seals a receipt', short: 'send a message in the chat' });
     expect(configured.where).toBeUndefined();
+    // H170's rule (2c29de3d): the standing word never contradicts the present: the files gone, no word, whatever a key or an
+    // earlier receipt says; the facts stay in the details, the step is the install
+    const gone = fromInventory([{ ...FAKE[0], available: fact(false, 'Ollama is not installed here (no ollama on PATH)'), next: 'Install it: brew install --cask ollama; then open -a Ollama' }]).flatMap((x) => x.rows)[0];
+    expect(gone).toMatchObject({ state: null, found: 'Ollama is not installed here (no ollama on PATH)', next: 'install Ollama, then start it', where: 'Models & accounts' });
+    expect(gone.receipt).toBeUndefined();
+    expect(gone.facts[2][1]).toMatch(/^a chat turn answered and sealed; .*receipt ab12cd34/);
     // a FAKE model is named FAKE wherever its name stands in the fact shown (an exercised run's words too)
     const ran = fromInventory([{ ...FAKE[0], exercised: { ok: true, receipt: 'ab12cd34', hash: 'sha256:fixture', when: '2026-10-22T23:00:00Z', what: 'a sealed chat turn answered by fake-qwen3:8b through the Ollama on this computer', source: 'FAKE chain', words: '' } }]).flatMap((x) => x.rows)[0];
     expect(ran.found).toBe(`a sealed chat turn answered by FAKE fake-qwen3:8b through the Ollama on this computer · last run ${clockOf('2026-10-22T23:00:00Z')}`);

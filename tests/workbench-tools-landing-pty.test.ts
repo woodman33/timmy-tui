@@ -203,7 +203,7 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
     expect(asked.every((a) => a === 'GET /api/tags' || a === 'POST /api/show')).toBe(true);
   });
 
-  it('the FAKE-populated home (the local route with FAKE fake-qwen3:8b; the review\'s FAKE lanes on PATH) at 122x37 and 80x24: configured and available rows, still nothing exercised', async () => {
+  it('the FAKE-populated home (the local route with FAKE fake-qwen3:8b; the review\'s FAKE lanes on PATH) at 122x37 and 80x24: available and configured rows, no word for a program not here, still nothing exercised', async () => {
     const host = `127.0.0.1:${port}`;
     const set = await cli(['init', '--yes', '--chat', 'local', '--ollama', host, '--model', 'fake-qwen3:8b']);
     expect(set.status, `${set.stdout}\n${set.stderr}`).toBe(0);
@@ -216,12 +216,14 @@ describe('the Tools & integrations screen in a terminal (tmux; R11 phase 2, H167
       const inv = inventoryRows(screen, w);
       expect(inv.length).toBeGreaterThanOrEqual(w === 80 ? 2 : 4);
       for (const { row, chip } of inv) expect(chip === '' || CHIP.test(chip), `${w}: "${row}"`).toBe(true);
-      // Ollama on this computer: the chat is set to the FAKE local model at the FAKE address: configured (no ollama program
-      // is here, so not available: the inventory keeps the words apart); the model named on its row, the address not
+      // Ollama on this computer: the chat is set to the FAKE local model at the FAKE address, but no ollama program is here:
+      // the standing word never contradicts the present (H170's 2c29de3d), so no chip; the row says what is missing, and
+      // the install step (the model and the address are the details')
       const ol = inv.find((x) => /^[▸ ] Ollama \(this/.test(x.row));
-      expect(ol?.chip, ol?.row).toBe('configured');
-      // (at 80 columns the found words are cut by words: the FAKE marker stays, the name is the details')
-      expect(ol?.row).toMatch(w === 80 ? /local FAKE/ : /local FAKE fake-qwen3:8b/);
+      expect(ol?.chip, ol?.row).toBe('');
+      // (at 80 columns the found words are cut by words)
+      expect(ol?.row).toMatch(w === 80 ? /Ollama is not/ : /Ollama is not installed/);
+      if (w === 122) expect(ol?.row).toMatch(/install Ollama/);
       // nothing ran: no exercised chip, no receipt id anywhere
       expect(inv.every((x) => x.chip !== 'exercised')).toBe(true);
       expect(screen).not.toMatch(/receipt [0-9a-f]{8}/);
