@@ -79,7 +79,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(cols(t[0], 20, 30)).toBe('tray / Chat');
     expect(cols(t[0], 103, 121)).toBe('LOCAL RECORDS');
     expect(cols(t[1], 0, 121)).toBe(`${' '.repeat(20)}NEXT / Ollama local / FAKE fake-qwen3:8b`);
-    const none = text(frame(data({ route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false } as Data['route'] }), ui()));
+    const none = text(frame(data({ route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false } as Data['route'] }), ui({ firstRunDone: true })));
     expect(cols(none[1], 20, 121)).toBe('NEXT / Connect a model to chat');
   });
 
@@ -239,5 +239,68 @@ describe('Models\' query (H169\'s queryCatalog shape, drawn here until the switc
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent', minContext: 200_000 }).rows.map((r) => r.id)).toEqual(['fixture-maker/newest-model:free', 'other-maker/middle-model']);
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent', search: 'MIDDLE' }).rows.map((r) => r.id)).toEqual(['other-maker/middle-model']);
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent' })).toMatchObject({ total: 3, makers: ['fixture-maker', 'other-maker'] });
+  });
+});
+
+describe('the first run and Chat with no model (R10 CHAT H167; terminal-target captures/02-first-run-122x37, 05-first-run-80x24)', () => {
+  const NONE = { route: { kind: 'none', words: 'chat: none · no key, no model', ready: false }, chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+
+  it('no model and the question not answered: WELCOME TO TIMMY, FIRST RUN in the header, the four choices (Cloudflare only as the advanced one), the guide, the note; no composer', () => {
+    const f = frame(data(NONE), ui());
+    const t = text(f);
+    expect(cols(t[1], 20, 121)).toBe('FIRST RUN / choose how chat runs');
+    const c = center(t);
+    expect(c[4]).toBe('WELCOME TO TIMMY');
+    expect(c.slice(7, 10)).toEqual(['How would you like to run chat?', 'Choose one. You can add the others later.', '']);
+    expect(c.slice(10, 21)).toEqual([
+      '> [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).', '',
+      '  [ Ollama / this computer ]', '  Use installed models; no cloud account needed.', '',
+      '  [ Ollama / cloud ]', '  Remote models; no local weights required.', '',
+      '  [ Continue without a model ]', '  Explore files, setup and local records.',
+    ]);
+    expect(c.slice(22, 29)).toEqual(['  [ Advanced: Cloudflare (optional) ]', '  A gateway in front of a provider; Timmy sends it nothing to check.', '', '  [ Show the Timmy guide ]', '', 'Local logs are included; cloud sync is optional and off.', '']);
+    expect(f.screen[10].find((s) => s.text === '[ OpenRouter / cloud ]')?.role).toBe('accent');
+    expect(t.join('\n')).not.toMatch(/MESSAGE|\[ Send \]/);
+    // the rail, Models and the bottom as on every Chat screen
+    expect(cols(t[10], 0, 17)).toBe(' > Chat');
+    expect(models(t)[4]).toBe('MODELS           [ Details ]');
+    expect(cols(t[35], 20, 121)).toMatch(/^\[Attach\]  \[Tools\]/);
+    // the guide shown: its text after its row (the rows between the choices go to make it room), deterministic: the official
+    // pages, what is set up here
+    const g2 = center(text(frame(data(NONE), ui({ guide: true, cursor: { 'center:first': 5 } }))));
+    expect(g2.slice(10, 13)).toEqual(['  [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).', '  [ Ollama / this computer ]']);
+    expect(g2[20]).toBe('> [ Hide the Timmy guide ]');
+    expect(g2.join('\n')).toMatch(/TIMMY GUIDE[\s\S]*https:\/\/openrouter\.ai\/settings\/keys[\s\S]*https:\/\/ollama\.com\/download[\s\S]*\[x\] Logs and records on this computer[\s\S]*\[ \] A model for the next turn/);
+  });
+
+  it('at 80x24 the choices without the rows between them, as the target; the advanced choice and the guide below them', () => {
+    const t = text(frame(data(NONE), ui(), 80, 24));
+    const c = t.map((r) => cols(r, 16, 79));
+    expect(c[4]).toMatch(/^WELCOME TO TIMMY +\[ Models \]$/);
+    expect(c.slice(7, 9)).toEqual(['How would you like to run chat?', 'Choose one. You can add the others later.']);
+    expect(c.slice(10, 20)).toEqual([
+      '> [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).',
+      '  [ Ollama / this computer ]', '  Use installed models; no cloud account needed.',
+      '  [ Ollama / cloud ]', '  Remote models; no local weights required.',
+      '  [ Continue without a model ]', '  Explore files, setup and local records.',
+      '  [ Advanced: Cloudflare (optional) ]', '  [ Show the Timmy guide ]',
+    ]);
+    expect(c[22]).toBe('[Tools]  [Budget]  [Logs]  [More]');
+  });
+
+  it('answered with Continue without a model: Chat says a model is optional until an answer is needed, Choose a model and Review setup choices; the composer keeps a draft', () => {
+    const t = text(frame(data(NONE), ui({ firstRunDone: true, draft: 'a draft' })));
+    expect(cols(t[1], 20, 121)).toBe('NEXT / Connect a model to chat');
+    const c = center(t);
+    expect(c[4]).toBe('CHAT / tray');
+    expect(c[7]).toBe('A model is optional until you need an answer.');
+    expect(c.slice(8, 10)).toEqual(['Project files, logs and records work without one; what you write is', 'kept as a draft until a model is chosen.']);
+    expect(c.slice(11, 13)).toEqual(['> [ Choose a model ]', '  [ Review setup choices ]']);
+    expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: a draft']);
+    // with a conversation kept, the conversation (the header and the composer say what is missing)
+    const kept = center(text(frame(data({ ...NONE, chat: data().chat }), ui({ firstRunDone: true }))));
+    expect(kept[7]).toBe('Not ready  timmy init (in a shell) sets up a route');
+    expect(kept[9]).toMatch(/^YOU \/ \d\d:\d\d$/);
+    expect(kept[29]).toBe('Connect a model to chat (a draft is kept)');
   });
 });

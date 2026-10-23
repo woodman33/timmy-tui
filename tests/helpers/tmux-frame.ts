@@ -71,6 +71,12 @@ export function workbenchRuns(r: Read): boolean {
 export function frameProblem(r: Read, foot: Foot = 'drawn'): string | null {
   const rows = r.text.replace(/\n$/, '').split('\n');
   if (rows.length !== r.rows) return `${rows.length} rows were read of the terminal's ${r.rows}`;
+  // R10 CHAT (H167): the Chat screen (src/workbench/chat-shell.ts): TIMMY at row 1's third column and no box at its foot; it is
+  // whole once its last row ends with the terminal's size (the status row's right end, kept there whatever its left says)
+  if (/^ {2}TIMMY\b/.test(rows[0] ?? '')) {
+    const end = rows[r.rows - 1].trimEnd();
+    return end.endsWith(`${r.cols} x ${r.rows}`) ? null : `its last row does not end with the terminal's size (${r.cols} x ${r.rows}): a frame still being drawn`;
+  }
   if (!rows.slice(0, 3).some((l) => /^TIMMY\b/.test(l))) return 'row 1, TIMMY and the tab titles, is not drawn';
   const last = rows[r.rows - 1].trimEnd();
   if (!BOTTOM.test(last) || [...last].length !== r.cols) return `its last row is not Activity & log's bottom border, ${r.cols} cells wide (a frame still being drawn)`;

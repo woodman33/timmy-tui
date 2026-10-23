@@ -490,19 +490,20 @@ function bottomRows(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Lin
   const runningN = data.activity.running + (turn ? 1 : 0);
   const state = runningN ? `${runningN} running${turn ? ` (the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : ''}` : 'idle';
   const rt = routeLine(data);
-  const spend = /^no charge/.test(rt.price) ? 'no charge' : rt.price;
+  // (with no model nothing is sent, so nothing is spent: said so, not "unknown")
+  const spend = !rt.model ? 'none (no model)' : /^no charge/.test(rt.price) ? 'no charge' : rt.price;
   const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || turn?.id === ui.flash.whileTurn) ? ui.flash : null;
   const picked = ctls[cur];
   const left: Line = fresh ? [S(inWords(fresh.text), fresh.role)] : focused && picked && !picked.on && picked.needs ? [S(`${picked.label}: needs ${picked.needs}`, 'secondary')] : [S(`Logs: this computer / ${state}`, 'secondary')];
   // at its right: cloud sync off, the spend and the terminal's size (the target's), the spend left out where it does not fit
   const margin = grid.W >= WIDE_COLUMNS ? 8 : 3;
   const size = `${grid.W} x ${grid.H}`;
-  const wordsR = [`cloud sync off / spend ${spend} / ${size}`, `cloud sync off / ${size}`, size].find((t) => lineCells(left) + 2 + t.length <= w - 1 - margin) ?? size;
+  const wordsR = [`cloud sync off / spend ${spend} / ${size}`, `cloud sync off / ${size}`].find((t) => lineCells(left) + 2 + t.length <= w - 1 - margin) ?? size;
   const right: Line = [S(wordsR, 'secondary')];
-  const room = w - 1 - lineCells(right) - margin;
-  const status: Line = lineCells(left) <= room
-    ? [S(' '), ...left, S(' '.repeat(Math.max(1, w - 1 - lineCells(left) - lineCells(right) - margin))), ...right]
-    : [S(' '), ...trimTo(left, w - 2, g.ellipsis)];
+  // (the size stays at the row's right end whatever stands at its left: a notice too long is cut to leave it room)
+  const room = Math.max(4, w - 1 - lineCells(right) - margin - 2);
+  const shown = lineCells(left) <= room ? left : trimTo(left, room, g.ellipsis);
+  const status: Line = [S(' '), ...shown, S(' '.repeat(Math.max(2, w - 1 - lineCells(shown) - lineCells(right) - margin))), ...right];
   return { lines: [[S(' '), S((g.unicode ? '─' : '-').repeat(Math.max(0, w - 1)), 'border')], acts, status], items };
 }
 
@@ -541,20 +542,127 @@ function composerRows(c: ShellCtx, w: number): Line[] {
   return [label, ...box, send];
 }
 
+// ── the first run, and Chat with no model ──────────────────────────────────────
+
+/** The first run: the Chat screen asks how chat runs while the next turn has no model and the question is not answered in this
+ *  Workbench (a choice, or Continue without a model; Review setup choices asks it again). */
+export function isFirstRun(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
+  return !routeLine(c.data).model && c.ui.firstRunDone !== true;
+}
+
+/** Chat with no model and nothing in its conversation yet (after the first run's question): what it needs, said once. */
+export function noModelNow(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
+  return !isFirstRun(c) && !routeLine(c.data).model && !c.data.chat.messages.length && !c.data.turn;
+}
+
+/** The first run's choices, in the target's words where they are true (OpenRouter's sign-in in a browser is not in this build:
+ *  its key is typed in a shell, hidden), each opening its own setup; Cloudflare only as the advanced one. */
+export const FIRST_CHOICES: ReadonlyArray<{ id: string; label: string; about: string; advanced?: boolean }> = [
+  { id: 'openrouter', label: 'OpenRouter / cloud', about: 'Use an API key from OpenRouter (typed in a shell, hidden).' },
+  { id: 'ollama-local', label: 'Ollama / this computer', about: 'Use installed models; no cloud account needed.' },
+  { id: 'ollama-cloud', label: 'Ollama / cloud', about: 'Remote models; no local weights required.' },
+  { id: 'explore', label: 'Continue without a model', about: 'Explore files, setup and local records.' },
+  { id: 'cloudflare', label: 'Advanced: Cloudflare (optional)', about: 'A gateway in front of a provider; Timmy sends it nothing to check.', advanced: true },
+];
+
+/** The Timmy guide (deterministic: no model writes it): what each choice needs, the official pages, and what is set up here,
+ *  each in words. */
+function guideLines(c: ShellCtx, w: number): Line[] {
+  const rt = routeLine(c.data);
+  const para = (t: string): Line[] => wrapText(t, w).map((x): Line => [S(x, 'text')]);
+  const item = (on: boolean, words: string): Line => [S(on ? '[x] ' : '[ ] ', 'secondary'), S(words, on ? 'text' : 'secondary')];
+  return [
+    [S('TIMMY GUIDE', 'strong', { bold: true })],
+    ...para('OpenRouter: an account and an API key (https://openrouter.ai/settings/keys); timmy init --chat openrouter asks for it in a shell, hidden.'),
+    ...para('Ollama on this computer: the app (https://ollama.com/download) and a model it lists; Models shows them here.'),
+    ...para('Ollama cloud: an Ollama account (https://ollama.com); Timmy does not set it up yet.'),
+    item(true, 'Logs and records on this computer'),
+    item(!!rt.model, rt.model ? `A model for the next turn: ${rt.fake ? 'FAKE ' : ''}${rt.model}` : 'A model for the next turn'),
+  ];
+}
+
+/**
+ * The first run's rows for the center from its first conversation row (`rows` of them, `w` cells): the question, the choices
+ * ("> " and amber where the cursor is while the center has the keyboard), each with what it is, the advanced one, the guide's
+ * Show / Hide (its text after it while shown) and the note on logs and cloud sync; where they do not fit, the blank rows
+ * between the choices go first (the target's 80x24), then the advanced choice's words, the note, the choices' words.
+ */
+export function firstRunLines(c: ShellCtx, w: number, rows: number, focused: boolean): { lines: Line[]; items: View['items'] } {
+  const ids = [...FIRST_CHOICES.map((x) => x.id), 'guide'];
+  const cur = Math.max(0, Math.min(ids.length - 1, c.ui.cursor['center:first'] ?? 0));
+  const build = (o: { gaps: boolean; advAbout: boolean; note: boolean; abouts: boolean }): { lines: Line[]; items: View['items'] } => {
+    const lines: Line[] = [[S('How would you like to run chat?', 'strong', { bold: true })], [S('Choose one. You can add the others later.', 'secondary')], blank];
+    const items: View['items'] = [];
+    const choice = (id: string, label: string, about: string | null): void => {
+      const on = focused && ids[cur] === id;
+      const sel = on ? { selected: true } : {};
+      items.push({ line: lines.length, item: { kind: 'action', key: `first:${id}`, action: id }, rows: about ? 2 : 1 });
+      lines.push([S(on ? '> ' : '  ', 'accent', sel), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, ...sel } : {})]);
+      if (about) lines.push([S('  ', 'text', sel), S(about, 'secondary', sel)]);
+    };
+    FIRST_CHOICES.forEach((x, k) => {
+      if (k && o.gaps) lines.push(blank);
+      choice(x.id, x.label, x.advanced ? (o.advAbout ? x.about : null) : o.abouts ? x.about : null);
+    });
+    if (o.gaps) lines.push(blank);
+    choice('guide', c.ui.guide ? 'Hide the Timmy guide' : 'Show the Timmy guide', null);
+    if (c.ui.guide) lines.push(blank, ...guideLines(c, w));
+    if (o.note) lines.push(blank, ...wrapText('Local logs are included; cloud sync is optional and off.', w).map((t): Line => [S(t, 'secondary')]));
+    return { lines, items };
+  };
+  const tries = [
+    { gaps: true, advAbout: true, note: true, abouts: true },
+    { gaps: false, advAbout: true, note: true, abouts: true },
+    { gaps: false, advAbout: false, note: true, abouts: true },
+    { gaps: false, advAbout: false, note: false, abouts: true },
+    { gaps: false, advAbout: false, note: false, abouts: false },
+  ];
+  for (const t of tries) { const b = build(t); if (b.lines.length <= rows) return b; }
+  const b = build(tries[tries.length - 1]);
+  return { lines: b.lines.slice(0, rows), items: b.items.filter((x) => x.line < rows) };
+}
+
+/** Chat with no model and an empty conversation: a model is needed only for an answer; Choose a model (Models has the
+ *  keyboard) and Review setup choices (the first run's question again). The composer keeps a draft below. */
+export function noModelLines(c: ShellCtx, w: number, focused: boolean): { lines: Line[]; items: View['items'] } {
+  const ids = ['models', 'review'];
+  const cur = Math.max(0, Math.min(ids.length - 1, c.ui.cursor['center:first'] ?? 0));
+  const lines: Line[] = [
+    [S('A model is optional until you need an answer.', 'strong', { bold: true })],
+    ...wrapText('Project files, logs and records work without one; what you write is kept as a draft until a model is chosen.', w).map((t): Line => [S(t, 'secondary')]),
+    blank,
+  ];
+  const items: View['items'] = [];
+  [['models', 'Choose a model'], ['review', 'Review setup choices']].forEach(([id, label]) => {
+    const on = focused && ids[cur] === id;
+    items.push({ line: lines.length, item: { kind: 'action', key: `first:${id}`, action: id }, rows: 1 });
+    lines.push([S(on ? '> ' : '  ', 'accent', on ? { selected: true } : {}), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, selected: true } : {})]);
+  });
+  return { lines, items };
+}
+
+/** The first run's rows and width at this size: the conversation's and the composer's rows together (the question takes the
+ *  composer's place, as the target's first run). */
+export function firstRowsAt(W: number, H: number): { rows: number; width: number } {
+  const grid = chatGrid(W, H);
+  return { rows: Math.max(1, grid.contentH - CONVO_AT), width: grid.cw };
+}
+
 // ── the screen ─────────────────────────────────────────────────────────────────
 
 export interface ShellRegion { rect: { x: number; y: number; w: number; h: number }; list: string; items: View['items']; scroll: number; fixed: number; height: number; total: number }
 
 /**
  * The Chat screen at `c.width` x `c.height`, every row exactly that wide. `convo` is the conversation as chatView draws it in
- * the shell's form, already scrolled to the rows convoRowsAt gives; `first`: the first run's choices in its place.
+ * the shell's form, already scrolled to the rows convoRowsAt gives, or the first run's question (`first`: WELCOME TO TIMMY,
+ * the header's FIRST RUN, the rows firstRowsAt gives and no composer) or Chat with no model's rows; `list`: their cursor's.
  */
-export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: Line[]; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid } {
+export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: boolean; list?: string; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid } {
   const { g, ui, data } = c;
   const grid = chatGrid(c.width, c.height);
   const { W, H, railW, cw, contentH } = grid;
   const sep = S(g.unicode ? '│' : '|', 'border');
-  const head = headerRows(c, grid, !!a.first);
+  const head = headerRows(c, grid, a.first === true);
   const rail = railLines(c, grid, a.focus === 'nav');
   const drawer = grid.sepR === null && ui.modelsOpen === true;
   const ruleAt = ruleRow(contentH);
@@ -562,9 +670,13 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const title: Line = [S(a.first ? 'WELCOME TO TIMMY' : `CHAT / ${data.project.name}`, a.focus === 'center' && ui.input.field !== 'composer' ? 'accent' : 'strong', { bold: true })];
   const modelsKey: Line = grid.sepR === null && !drawer ? [S('[ Models ]', 'secondary')] : [];
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(modelsKey) - 3))), ...modelsKey];
-  (a.first ?? a.convo).slice(0, Math.max(1, ruleAt - CONVO_AT)).forEach((l, k) => { center[CONVO_AT + k] = l; });
-  center[ruleAt] = [S((g.unicode ? '─' : '-').repeat(cw), 'border')];
-  composerRows(c, cw).forEach((l, k) => { if (ruleAt + 1 + k < contentH) center[ruleAt + 1 + k] = l; });
+  // the first run's question takes the composer's rows too (the target's first run); else the rule, MESSAGE and the composer
+  const convoRows = a.first ? contentH - CONVO_AT : Math.max(1, ruleAt - CONVO_AT);
+  a.convo.slice(0, convoRows).forEach((l, k) => { center[CONVO_AT + k] = l; });
+  if (!a.first) {
+    center[ruleAt] = [S((g.unicode ? '─' : '-').repeat(cw), 'border')];
+    composerRows(c, cw).forEach((l, k) => { if (ruleAt + 1 + k < contentH) center[ruleAt + 1 + k] = l; });
+  }
   // Models: beside the center, or its drawer over the center's rows down to the composer (the action row stays in sight)
   const mN = drawer ? ruleAt + 5 : contentH;
   const models = grid.sepR !== null || drawer ? modelsLines(c, mN, grid.mw, a.focus === 'right', drawer) : null;
@@ -581,7 +693,7 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   }
   const regions: Partial<Record<Region, ShellRegion>> = {
     nav: { rect: { x: 0, y: 3, w: railW, h: H - 3 }, list: 'rail', items: rail.items, scroll: 0, fixed: 0, height: H - 3, total: H - 3 },
-    center: { rect: { x: grid.centerX, y: 3, w: grid.centerW, h: contentH }, list: ui.overlay ? 'overlay' : 'center:chat', items: a.convoItems, scroll: a.convoScroll, fixed: CONVO_AT, height: Math.max(1, ruleAt - CONVO_AT), total: a.convoTotal },
+    center: { rect: { x: grid.centerX, y: 3, w: grid.centerW, h: contentH }, list: ui.overlay ? 'overlay' : a.list ?? 'center:chat', items: a.convoItems, scroll: a.convoScroll, fixed: CONVO_AT, height: convoRows, total: a.convoTotal },
     bottom: { rect: { x: railW + 1, y: H - 3, w: W - railW - 1, h: 3 }, list: 'shellBottom', items: bottom.items, scroll: 0, fixed: 0, height: 3, total: 3 },
   };
   if (models) regions.right = { rect: grid.sepR !== null ? { x: grid.modelsX, y: 3, w: W - grid.modelsX, h: contentH } : { x: grid.centerX, y: 3, w: grid.centerW, h: mN }, list: 'right:models', items: models.items, scroll: 0, fixed: models.listFrom, height: models.listRows, total: models.items.length * models.perItem };

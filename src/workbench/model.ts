@@ -339,6 +339,11 @@ export interface Ui {
   draft?: string;
   /** R10 CHAT (H167): the zone that had the keyboard when M gave it to the Models rail (Esc gives it back) */
   modelsFrom?: Region;
+  /** R10 CHAT (H167): the first run's question answered in this Workbench (a choice made, or Continue without a model; Review
+   *  setup choices asks it again). Not kept: a later start with still no model asks it again */
+  firstRunDone?: boolean;
+  /** R10 CHAT (H167): the first run's Timmy guide shown (Show / Hide) */
+  guide?: boolean;
   /** R10 CHAT (H167): the Chat tab as it was before the shell (row 2's actions, the pipeline, the event log), where this
    *  Workbench was started with TIMMY_WORKBENCH_CHAT=classic (the tests that check that layout); else the shell */
   chatClassic?: boolean;

@@ -103,7 +103,9 @@ describe('React\'s production build in every timmy process (R10 H163; the turn-h
         for (const end = Date.now() + ms; Date.now() < end; await sleep(100)) if (re.test(pane())) return;
         throw new Error(`timed out waiting for ${what}:\n${pane()}`);
       };
-      await until('the Workbench drawn', /Stop current/, 120_000);
+      // (R10 CHAT H167: the Workbench opens on the Chat screen, whose header row ends with LOCAL RECORDS; Home's run line, where
+      // Stop current is, is one key away)
+      await until('the Workbench drawn', /Stop current|LOCAL RECORDS/, 120_000);
       tmux('send-keys', '-t', 't', 'C-c');
       await until('the Workbench ended', /EXIT=\d+/, 30_000);
       expect(pane()).toMatch(/EXIT=0\b/);
