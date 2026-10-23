@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { inventoryOfRows } from '../src/companion/panels/tools-inventory.js';
 import { FAKE_ROWS } from './fixtures/fake-inventory-rows.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -40,7 +41,7 @@ describe.skipIf(!browserPath)('the Tools & integrations inventory in a real brow
     mkdirSync(env.TIMMY_MCP_HOME, { recursive: true });
     process.env.TIMMY_HOME = env.TIMMY_HOME;
     process.env.TIMMY_REPO = root;
-    companion = await startCompanionServer(0, { workspace: { env, shareMs: 0 }, inventory: async () => { asked += 1; return { rows: FAKE_ROWS, read: FAKE_READ }; } });
+    companion = await startCompanionServer(0, { workspace: { env, shareMs: 0 }, inventory: async () => { asked += 1; return { inventory: inventoryOfRows(FAKE_ROWS), read: FAKE_READ }; } });
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
   }, LONG);
   afterAll(async () => {

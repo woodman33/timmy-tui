@@ -23,17 +23,18 @@ import express from 'express';
 import type { PanelContext } from '../panels.js';
 import { callFor, callRows, checkFor, configuredServers, inspectorState, listFor, parseServerSpec, projectChain, readCall, typedRefusal } from '../../mcp/inspector.js';
 import type { ActiveProject } from '../../project/index.js';
-import { fromLadder, inventoryPage, type InventoryPage, type InventoryRow } from './tools-inventory.js';
+import { inventory as readInventory } from '../../capabilities/inventory.js';
+import { inventoryPage, type Inventory, type InventoryPage } from './tools-inventory.js';
 
-/** How long one inventory answers every page of a project (the interim ladder source asks local programs); ?refresh=1 reads again. */
+/** How long one inventory answers every page of a project (it reads files, settings and receipts; a page polls); ?refresh=1 reads again. */
 export const INVENTORY_KEEP_MS = 30_000;
 /** How long GET …/state waits for the inventory before answering without it (the page then reads GET …/inventory). */
 export const INVENTORY_STATE_WAIT_MS = 2_000;
 
-/** The rows of a project's inventory and one sentence of how they were read (what was and was not run). */
-export interface InventorySource { rows: InventoryRow[]; read: string }
-/** The interim source's sentence (the ladder: src/capabilities capabilities(liveDeps(…)), which asks local programs). */
-export const LADDER_READ = 'files, settings and this project\'s receipts read, local programs asked (the capability ladder); no model ran, nothing was downloaded, no key left this computer';
+/** A project's inventory and one sentence of how it was read (what was and was not run). */
+export interface InventorySource { inventory: Inventory; read: string }
+/** How the inventory reads (src/capabilities/inventory.ts): files, settings and the project's receipts; nothing run, nothing contacted. */
+export const INVENTORY_READ = 'files, settings and this project\'s receipts read (src/capabilities inventory); nothing run, nothing contacted, no key left this computer';
 
 type Env = Record<string, string | undefined>;
 
@@ -65,24 +66,18 @@ export function mountToolsPanel(app: express.Express, ctx: PanelContext): void {
   app.use(base, (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
   // R11 Phase 2 (H171): the Tools & integrations inventory: the rows the terminal's Chat rail reads (H170's capability
-  // inventory shape, src/companion/panels/tools-inventory.ts), as cards in the three words. The interim source is the
-  // ladder's own checks (they ask local programs and read files and receipts; OpenRouter is not contacted: no key is given);
-  // a test gives FAKE rows through ctx.inventory. One reading answers a project for INVENTORY_KEEP_MS; GET …/inventory
-  // carries it with the page's cards (?refresh=1 reads again), and GET …/state carries the inventory itself.
+  // inventory, src/capabilities/inventory.ts: files, settings and the project's receipts; nothing run, nothing contacted),
+  // as cards in the three words (src/companion/panels/tools-inventory.ts); a test gives FAKE rows through ctx.inventory.
+  // One reading answers a project for INVENTORY_KEEP_MS; GET …/inventory carries it with the page's cards (?refresh=1 reads
+  // again), and GET …/state carries the inventory itself.
   const kept = new Map<string, { at: number; answer: Promise<InventoryPage & { read: string }> }>();
   const inventoryFor = (p: ActiveProject, refresh: boolean): Promise<InventoryPage & { read: string }> => {
     const have = kept.get(p.root);
     const read = async (): Promise<InventoryPage & { read: string }> => {
       const source: InventorySource = ctx.inventory
         ? await ctx.inventory(p)
-        : await (async () => {
-          const [{ capabilities }, { liveDeps }] = await Promise.all([import('../../capabilities/index.js'), import('../../capabilities/live.js')]);
-          // the project's own chain; no tools-check record is written for a page's reading (the terminal's `timmy tools` keeps one)
-          const deps = liveDeps({ env: env(), model: 'the chosen model', projectRoot: p.root, storeDir: p.root });
-          delete deps.record;
-          return { rows: fromLadder(await capabilities(deps)), read: LADDER_READ };
-        })();
-      return { ...inventoryPage(source.rows), read: source.read };
+        : { inventory: readInventory({ env: env(), cwd: p.root }), read: INVENTORY_READ };
+      return { ...inventoryPage(source.inventory), read: source.read };
     };
     const fresh = !have || refresh || Date.now() - have.at > INVENTORY_KEEP_MS;
     const entry = fresh ? { at: Date.now(), answer: read() } : have;

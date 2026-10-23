@@ -184,8 +184,9 @@ export interface CompanionOptions {
   token?: string;
   /** R4 (H84): the chat completions address /chat sends to (a test's FAKE on 127.0.0.1); OpenRouter's when absent. */
   upstream?: string;
-  /** R11 Phase 2 (H171): the rows the Tools & integrations inventory shows, in the capability inventory's shape (a test's FAKE
-   *  rows), with how they were read; absent: the ladder's own checks behind the same shape. */
+  /** R11 Phase 2 (H171): the inventory the Tools & integrations cards show (a test's FAKE rows, in the capability inventory's
+   *  shape) with how it was read; absent: src/capabilities inventory({ env, cwd }) for the project (files, settings and
+   *  receipts; nothing run). */
   inventory?: (project: ActiveProject) => Promise<InventorySource>;
   /** R4 (H87): the folder its page is served from (a test's); its own client folder when absent. */
   clientDir?: string;

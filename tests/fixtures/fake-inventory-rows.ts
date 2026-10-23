@@ -1,10 +1,11 @@
 /**
- * R11 Phase 2 (H171): six FAKE rows in the capability inventory's shape (H170's InventoryRow: three facts, each its own, with
- * the sentence a surface shows, from rowWords; the one next step), one of each standing word and more, named FAKE on every
+ * R11 Phase 2 (H171): six FAKE rows in the capability inventory's shape (src/capabilities/inventory.ts InventoryRow: three facts, each its
+ * own, with the sentence a surface shows, from rowWords; the one next step), one of each standing word and more, named FAKE on every
  * row. Given to the companion through CompanionOptions.inventory by the inventory tests and the capture script: nothing on
  * the machine decides the words.
  */
-import { rowWords, type InventoryRow } from '../../src/companion/panels/tools-inventory.js';
+import type { InventoryRow } from '../../src/capabilities/inventory.js';
+import { rowWords } from '../../src/capabilities/inventory-words.js';
 
 const SRC = 'a FAKE source (tests/fixtures/fake-inventory-rows.ts)';
 const row = (o: Omit<InventoryRow, 'available' | 'configured' | 'exercised'> & {
