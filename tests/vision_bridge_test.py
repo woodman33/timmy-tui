@@ -16,7 +16,7 @@ class VisionBridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.image = str(Path(self.temp.name) / "image.png")
-        Path(self.image).write_bytes(b"png")
+        Path(self.image).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -40,13 +40,16 @@ class VisionBridgeTests(unittest.TestCase):
         module.InferenceHTTPClient.assert_called_once_with(api_url="http://spark:9001", api_key="rf_private")
         client.infer.assert_called_once_with(self.image, model_id="cards/2")
 
-    def test_workflow_bypasses_definition_cache_and_preserves_parameters(self):
+    def test_workflow_is_refused_until_sdk_and_server_sink_controls_are_qualified(self):
         module, client = self.sdk()
         with patch.dict("sys.modules", {"inference_sdk": module}):
             result = bridge.handle({"action": "inspect", "runtime": "http", "serverUrl": "http://spark:9001", "imagePath": self.image,
                                     "workspace": "timmy", "workflowId": "inspect-box", "imageInput": "photo", "parameters": {"count": 37}})
-        self.assertTrue(result["ok"])
-        client.run_workflow.assert_called_once_with(images={"photo": self.image}, parameters={"count": 37}, use_cache=False, disable_sinks=True, workspace_name="timmy", workflow_id="inspect-box")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "not_available")
+        self.assertIn("disable_sinks", result["note"])
+        module.InferenceHTTPClient.assert_not_called()
+        client.run_workflow.assert_not_called()
 
     def test_outdated_sdk_does_not_downgrade_to_query_auth(self):
         module, client = self.sdk()

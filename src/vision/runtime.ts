@@ -23,11 +23,10 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 
 /**
- * R11 (H170; Phase 0 item 2): the bridge this runtime spawns, scripts/vision-bridge.py, is in neither this tree nor its git
- * history (inventory C, note 1), so `timmy vision run/status/serve` and the timmy_vision_* tools cannot do what they say.
- * Each now says so before anything runs, with the one thing that would make it available, and the MCP tools return it as a
- * structured refusal (state 'not_available'); nothing is spawned, stored or sent. A caller that injects its own runner (a
- * test's FAKE) needs no bridge: the check guards the spawn, not the logic.
+ * Check whether this installation contains the runtime bridge before spawning it.
+ * Missing assets are unavailable; package presence alone does not prove inference.
+ * Local history/feedback and the direct-HTTP catalog remain independent of it.
+ * An injected unit-test runner bypasses the spawn and is not integration evidence.
  */
 export const VISION_BRIDGE = 'scripts/vision-bridge.py';
 export const VISION_NOT_AVAILABLE = 'not_available' as const;
@@ -39,7 +38,7 @@ export function visionBridgeAvailability(dir = process.cwd()): VisionAvailabilit
   if (existsSync(bridge)) return { available: true, bridge };
   return {
     available: false, bridge, state: VISION_NOT_AVAILABLE,
-    words: `not available in this build: the vision bridge (${VISION_BRIDGE}) is not included. What would make it available: a Timmy build that ships that script (this tree and its history hold none, so no build does today). VoxVision's /observe, /detect and /measure do not need it.`,
+    words: `not available in this build: the vision bridge (${VISION_BRIDGE}) is missing from this installation. Reinstall a Timmy build that ships the bridge, then check the configured runtime. VoxVision's /observe, /detect and /measure do not need it.`,
   };
 }
 
@@ -152,17 +151,19 @@ export async function getVisionStatus(options: VisionRuntimeOptions = {}) {
         modelId: cfg.modelId || null, workspace: cfg.workspace || null, workflowId: cfg.workflowId || null,
         useCaseId: cfg.useCaseId || null, keyConfigured: Boolean(cfg.env.ROBOFLOW_API_KEY),
         storageDir: visionStorageDir(options), dependencies: {}, serverChecked: false,
-        capabilities: { imageInference: false, workflows: false, localEvents: false, feedback: false, cloudEvents: false, streaming: false, automaticTraining: false },
+        capabilities: { imageInference: false, workflows: false, localEvents: true, feedback: true, cloudEvents: false, streaming: false, automaticTraining: false },
       };
     }
   }
   const probe = await bridge({ action: 'probe' }, options, true);
   const dependencies = (probe.dependencies ?? {}) as Record<string, { installed?: boolean; version?: string }>;
+  const supported = (probe.capabilities ?? {}) as Record<string, boolean | undefined>;
   const reasons: string[] = [];
   if (!['http', 'library'].includes(cfg.runtime)) reasons.push('TIMMY_VISION_RUNTIME must be http or library.');
   if (!probe.ok) reasons.push(probe.note ?? 'Python runtime unavailable.');
   const needed = cfg.runtime === 'library' ? 'inference' : 'inference_sdk';
   if (probe.ok && !dependencies[needed]?.installed) reasons.push(`${needed === 'inference_sdk' ? 'inference-sdk' : 'inference'} Python package is missing.`);
+  if (cfg.workflowId && supported.workflows !== true) reasons.push('The configured Workflow is unavailable: its runtime has not qualified sink controls. Select a single model or a qualified Workflow runtime.');
   if (cfg.runtime === 'http' && !validateServer(cfg.serverUrl)) reasons.push('TIMMY_VISION_SERVER_URL must be an HTTP(S) address without credentials or query parameters.');
   if (!cfg.modelId && !(cfg.workspace && cfg.workflowId)) reasons.push('Choose a model or a workspace and Workflow before running.');
   if (!cfg.env.ROBOFLOW_API_KEY && (!cfg.modelId || cfg.modelId.includes('/') || cfg.workflowId || cfg.runtime === 'http')) reasons.push('ROBOFLOW_API_KEY is missing.');
@@ -173,8 +174,8 @@ export async function getVisionStatus(options: VisionRuntimeOptions = {}) {
     useCaseId: cfg.useCaseId || null, keyConfigured: Boolean(cfg.env.ROBOFLOW_API_KEY),
     storageDir: visionStorageDir(options), dependencies, reasons, serverChecked: false,
     note: 'Configuration check only; no model was loaded and no network request was made.',
-    capabilities: { imageInference: true, workflows: cfg.runtime === 'http', localEvents: true, feedback: true,
-      cloudEvents: Boolean(cfg.useCaseId && cfg.workspace && cfg.env.ROBOFLOW_API_KEY && dependencies.roboflow?.installed),
+    capabilities: { imageInference: supported.imageInference === true, workflows: supported.workflows === true && cfg.runtime === 'http', localEvents: true, feedback: true,
+      cloudEvents: Boolean(supported.cloudEvents && cfg.useCaseId && cfg.workspace && cfg.env.ROBOFLOW_API_KEY && dependencies.roboflow?.installed),
       streaming: false, automaticTraining: false },
   };
 }

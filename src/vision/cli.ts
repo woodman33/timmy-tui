@@ -33,8 +33,7 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   if (sub === 'proof-ladder') { const { runProofLadderCli } = await import('./proof-ladder-cli.js'); await runProofLadderCli(args.slice(1)); return; }
-  // R11 (H170; Phase 0 item 2): run, status, serve and open need the bridge (scripts/vision-bridge.py), which this build does
-  // not include: each says so and exits 2 before anything runs; doctor and stream say the same of their own scripts below
+  // Refuse a damaged installation before starting a runtime operation.
   if (['run', 'status', 'serve', 'open'].includes(sub)) {
     const a = visionBridgeAvailability();
     if (!a.available) {
@@ -43,7 +42,9 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
       process.exitCode = 2; return;
     }
   }
-  if (sub === 'status') { print(await getVisionStatus()); return; }
+  const resultExit = (result: { ok: boolean; state?: string }) => result.ok ? 0
+    : ['not_configured', 'invalid_request', 'not_available'].includes(result.state ?? '') ? 2 : 1;
+  if (sub === 'status') { const result = await getVisionStatus(); print(result); process.exitCode = resultExit(result); return; }
   if (sub === 'catalog') { print(await getVisionCatalog()); return; }
   if (sub === 'events') { const result = listVisionEvents({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
   if (sub === 'learning') { const result = listLearningCandidates({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
@@ -66,7 +67,8 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean; j
     const result = await runVisionInspection({ imagePath: flag('--image'), modelId: flag('--model'),
       workspace: flag('--workspace'), workflowId: flag('--workflow'),
       ...(spec ? { specification: JSON.parse(readFileSync(spec, 'utf8')) } : {}) });
-    print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result); return;
+    print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result);
+    process.exitCode = resultExit(result); return;
   }
   if (sub !== 'serve' && sub !== 'open') {
     console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;

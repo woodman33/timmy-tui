@@ -15,7 +15,7 @@
  *   roboflow  images                    scripts/roboflow-bridge.py in the project's venv          ROBOFLOW_API_KEY, the venv
  */
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AE_FFMPEG_SETUP, VIDEO_READBACK_SCRIPT, type VideoReadback } from '../flows/iterate-ae.js';
 import { BLEND_READBACK_SCRIPT, type BlendReadback } from '../flows/iterate-blender.js';
@@ -105,11 +105,15 @@ export function geoReady(t: ToolEnv): Readiness {
 /** The project's Roboflow venv, as src/utils/roboflow-adapter.ts finds it. */
 export function roboflowReady(t: ToolEnv): Readiness {
   if (!t.env.ROBOFLOW_API_KEY) return { ready: false, why: 'needs ROBOFLOW_API_KEY', setup: SETUP.roboflowKey };
+  const override = t.env.TIMMY_VISION_PYTHON;
+  if (override !== undefined && (!isAbsolute(override) || !runnable(override))) {
+    return { ready: false, why: 'TIMMY_VISION_PYTHON must name an existing absolute Python executable', setup: SETUP.roboflowVenv };
+  }
   const modern = join(t.root, '.timmy', 'venv-vision', 'bin', 'python');
-  const venv = existsSync(modern) ? modern : join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python');
+  const venv = override ?? (existsSync(modern) ? modern : join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python'));
   if (!existsSync(venv)) return { ready: false, why: "the project's Roboflow venv is missing (.timmy/venv-roboflow)", setup: SETUP.roboflowVenv };
   if (!existsSync(ROBOFLOW_BRIDGE)) return { ready: false, why: 'the Roboflow bridge (scripts/roboflow-bridge.py) is not in this Timmy', setup: SETUP.roboflowBridge };
-  return { ready: true, command: venv, via: "the project's venv" };
+  return { ready: true, command: venv, via: override ? 'set by TIMMY_VISION_PYTHON; SDK and endpoint not checked' : "the project's venv" };
 }
 
 /** What the board's tools panel says of each tool: built in, found (not run until an action uses it), or needs setup. */

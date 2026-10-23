@@ -1,11 +1,18 @@
-// R6 (lead, H146's finding): `timmy vision doctor` and `stream` name python scripts that neither the checkout nor the
-// package carries. They say so in plain words and exit 2, instead of handing python3 a missing file.
+// Explicit missing-installation controls. Test doubles are injected through the
+// asset resolver; production must never run a project-supplied Python script.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runVisionCli } from '../src/vision/cli.js';
 import { visionAsset } from '../src/vision/config.js';
+
+const assets = vi.hoisted(() => ({ root: '' }));
+vi.mock('../src/vision/config.js', async (original) => {
+  const real = await original<typeof import('../src/vision/config.js')>();
+  return { ...real, visionAsset: (path: string, dir = process.cwd()) =>
+    assets.root && path.startsWith('scripts/') ? join(assets.root, path) : real.visionAsset(path, dir) };
+});
 
 let dir: string;
 let before: string;
@@ -17,6 +24,7 @@ beforeEach(() => {
   before = process.cwd();
   exitBefore = process.exitCode;
   process.chdir(dir);
+  assets.root = dir;
 });
 afterEach(() => {
   process.chdir(before);
@@ -30,7 +38,7 @@ describe('timmy vision doctor and stream without their scripts', () => {
   for (const sub of ['doctor', 'stream'] as const) {
     it(`${sub} says its script is not in this build and exits 2`, async () => {
       const script = `scripts/vision-${sub}.py`;
-      expect(visionAsset(script)).toBe(join(dir, script)); // the repository does not carry it either
+      expect(visionAsset(script)).toBe(join(dir, script)); // explicitly simulated missing installation
       const said: string[] = [];
       vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { said.push(a.join(' ')); });
       await runVisionCli([sub]);
@@ -39,7 +47,7 @@ describe('timmy vision doctor and stream without their scripts', () => {
     });
   }
 
-  it('negative control: with the script present it runs it (node stands in for python, labelled here)', async () => {
+  it('UNIT child control: an explicitly injected script runs (node stands in for Python; no real doctor)', async () => {
     mkdirSync(join(dir, 'scripts'));
     writeFileSync(join(dir, 'scripts', 'vision-doctor.py'), 'process.exit(0);\n');
     process.env.TIMMY_VISION_PYTHON = process.execPath;

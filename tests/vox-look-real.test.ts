@@ -13,7 +13,9 @@ const kit = tempKit();
 afterEach(async () => { resetLookChecks(); await kit.cleanup(); });
 
 const which = (c: string): string | null => spawnSync('sh', ['-c', `command -v ${c}`], { encoding: 'utf8' }).stdout.trim() || null;
-const python = spawnSync('python3', ['-c', 'import cv2, numpy'], { encoding: 'utf8' }).status === 0 ? which('python3') : null;
+const selectedPython = process.env.TIMMY_VISION_PYTHON || which('python3');
+const python = selectedPython && spawnSync(selectedPython, ['-c', 'import cv2, numpy'], { encoding: 'utf8', timeout: 30000 }).status === 0 ? selectedPython : null;
+if (!python && process.env.TIMMY_REQUIRE_REAL_VISION === '1') throw new Error('Required real vision gate: the configured Python cannot import cv2 and numpy.');
 if (!python) console.warn('vox-look-real: python3 cannot import cv2 and numpy here, so the real Look worker checks are skipped');
 const ffmpeg = which('ffmpeg') && which('ffprobe') && which('python3');
 if (!ffmpeg) console.warn('vox-look-real: ffmpeg, ffprobe or python3 is missing here, so the real video readback checks are skipped');

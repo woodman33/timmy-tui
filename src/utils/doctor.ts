@@ -82,16 +82,17 @@ export const probePort = (port: number, ms = 750): Promise<boolean> => new Promi
 
 /**
  * R11 (H170; Phase 0 item 5): what this build carries, and what it does not. The npm package (and so the review package,
- * scripts/review/build-review.sh) ships neither scripts/roboflow-bridge.py nor lanes/*; the vision bridge
- * (scripts/vision-bridge.py) is in no build at all. Each is a row that names the capability it lacks and the one step that
- * would supply it, never a required check: a package without them is complete for chat, VoxVision's measurements and the
- * native apps, and the doctor never fails for them. Files only; nothing is run.
+ * scripts/review/build-review.sh) now lists scripts/roboflow-bridge.py, scripts/vision-bridge.py (recovered in the R11
+ * vision integration) and lanes/geo/*, and still leaves out lanes/engines. Each is a row that names the capability it lacks
+ * and the one step that would supply it, never a required check: a package without them is complete for chat, VoxVision's
+ * measurements and the native apps, and the doctor never fails for them. Files only; nothing is run. A bridge found here is
+ * a file, not a verified model: Roboflow inference stays unverified until a real authorized run succeeds.
  */
 export const BUILD_CONTENTS: ReadonlyArray<{ name: string; rel: string; absent: string; present: string }> = [
   { name: 'Roboflow bridge', rel: 'scripts/roboflow-bridge.py', absent: 'needs setup (the bridge is missing from this installation; the npm package carries it): reinstall Timmy, or run it from a checkout of its repository; a hosted detection also needs ROBOFLOW_API_KEY and the venv (.timmy/venv-roboflow). VoxVision\'s /observe, /detect (QR, ArUco, colour) and /measure do not need it', present: 'in this build; a hosted detection also needs ROBOFLOW_API_KEY and the venv (.timmy/venv-roboflow)' },
   { name: 'geo lane (voxel scorer)', rel: 'lanes/geo/voxel_score.py', absent: 'needs setup (the lane is missing from this installation; the npm package carries it): reinstall Timmy, or run it from a checkout of its repository; it also needs python3 with numpy and scipy', present: 'in this build; it needs python3 with numpy and scipy' },
   { name: 'engine shelf (timmy engine run)', rel: 'lanes/engines/engines.json', absent: 'needs setup (lanes/engines is not in this package): run Timmy from a checkout of its repository', present: 'in this build; each engine needs its own program' },
-  { name: 'vision bridge (timmy vision run, timmy_vision_* tools)', rel: 'scripts/vision-bridge.py', absent: 'not available in this build: the vision bridge is not included (no Timmy build ships it; this tree and its history hold none). VoxVision\'s /observe, /detect and /measure do not need it', present: 'in this build (a bridge is here; it is not Timmy\'s own)' },
+  { name: 'vision bridge (timmy vision run, timmy_vision_* tools)', rel: 'scripts/vision-bridge.py', absent: 'not available: the vision bridge is missing from this installation (the npm package carries it): reinstall Timmy, or run it from a checkout of its repository. VoxVision\'s /observe, /detect and /measure do not need it', present: 'in this build; a Roboflow model run through it also needs ROBOFLOW_API_KEY, a Python with inference-sdk and a configured model or server; Roboflow inference is unverified until a real authorized run succeeds' },
 ];
 
 /** The rows for what this build carries (BUILD_CONTENTS); `probe` answers whether a packaged file is here (a test's FAKE). */

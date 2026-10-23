@@ -64,6 +64,7 @@
     "SECURITY.md",
     "studio/tldraw-mission-map",
     "scripts/roboflow-bridge.py",
+    "scripts/vision-bridge.py",
     "lanes/geo/voxel_score.py",
     "lanes/geo/scale_solver.py",
     "lanes/geo/bench_loader.py",
@@ -115,7 +116,8 @@
     "mission-map": "tsx src/cli.ts vision serve --port 4321",
     "vision:studio": "tsx src/cli.ts vision serve",
     "vision:doctor": "tsx src/cli.ts vision doctor",
-    "build:cli": "node scripts/build-cli.mjs"
+    "build:cli": "node scripts/build-cli.mjs",
+    "test:vision:real": "node scripts/test-vision-real.mjs"
   },
   "repository": {
     "type": "git",
