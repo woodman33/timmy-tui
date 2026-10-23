@@ -24,6 +24,8 @@ import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
 import { clock, cut, fit, lineCells, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
+import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
+import type { ProviderState } from '../setup/providers-state.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
 const blank: Line = [];
@@ -168,86 +170,37 @@ function headerRows(c: ShellCtx, grid: ChatGrid, first: boolean): Line[] {
 
 // ── Models ─────────────────────────────────────────────────────────────────────
 
-/** H169's contract (src/models/catalog.ts), drawn here until it lands: one model as a provider lists it. */
-export type ModelSource = 'openrouter' | 'ollama-local' | 'ollama-cloud';
-export interface CatalogRow {
-  source: ModelSource;
-  id: string;
-  name: string;
-  maker: string;
-  description?: string;
-  /** epoch seconds: when OpenRouter ADDED it to its catalog (not the model's release) */
-  created?: number;
-  contextLength?: number;
-  price: { inPerM?: number; outPerM?: number; free: boolean | 'unknown' };
-  /** undefined: unknown */
-  caps: { tools?: boolean; vision?: boolean; reasoning?: boolean };
-  inputModalities?: string[];
-  installed?: boolean;
-  running?: boolean;
-  sizeBytes?: number;
-  /** a few words the provider gave (Ollama's list: its size and quantization) */
-  facts?: string;
-}
-export interface CatalogQuery { source: ModelSource; search?: string; sort: 'recent' | 'name' | 'price' | 'context'; maker?: string; capability?: 'tools' | 'vision' | 'reasoning'; cost?: 'free' | 'paid'; minContext?: number }
+/** Models' rows and query are H169's catalog's (src/models/catalog.ts, the shared contract): one model as a provider lists
+ *  it, and its query (sort, search and filters; a sort never resets the filters). */
+export type { CatalogQuery, CatalogRow, ModelSource };
 
-/** What the controller read for Models: OpenRouter's catalog (files only: the one this computer fetched, else the snapshot
- *  shipped with Timmy) and what the local Ollama lists (one request to it, no model run). */
+/** What the controller read for Models: OpenRouter's catalog (the copy this computer fetched, else the snapshot shipped with
+ *  Timmy: H169's loadCatalog with no refresh, so no request) and what the local Ollama lists (one request to it, no model
+ *  run); and the providers' states (H170's providerStates: files and observations only, nothing asked). */
 export interface RailModels {
   openrouter?: { from: 'fetched' | 'shipped' | 'none'; at: string | null; rows: CatalogRow[] };
   ollama?: { state: 'reading' | 'listed' | 'failed'; where: string; rows: CatalogRow[]; at?: string; why?: string; cloud?: number };
+  providers?: ProviderState[];
 }
 
-interface RawModel {
-  id: string; name?: string; created?: number; description?: string; context_length?: number;
-  architecture?: { input_modalities?: string[]; modality?: string };
-  pricing?: { prompt?: string; completion?: string };
-  supported_parameters?: string[];
+/** OpenRouter's catalog (its public /api/v1/models answer, as Timmy keeps it) as rows: H169's openRouterRow. */
+export function railCatalog(models: readonly OpenRouterCatalogModel[]): CatalogRow[] {
+  return models.map(openRouterRow);
 }
 
-/** OpenRouter's catalog (its public /api/v1/models answer, as Timmy keeps it) as rows: per-million prices from its per-token
- *  ones; free only where both are 0; a capability only where the catalog says it (else unknown). */
-export function railCatalog(models: readonly RawModel[]): CatalogRow[] {
-  const perM = (p?: string): number | undefined => { const n = p === undefined ? Number.NaN : Number(p); return Number.isFinite(n) ? n * 1e6 : undefined; };
-  return models.filter((m) => typeof m?.id === 'string').map((m) => {
-    const inPerM = perM(m.pricing?.prompt);
-    const outPerM = perM(m.pricing?.completion);
-    const params = m.supported_parameters;
-    const mods = m.architecture?.input_modalities;
-    return {
-      source: 'openrouter' as const, id: m.id, name: m.name ?? m.id, maker: m.id.split('/')[0] ?? 'unknown',
-      ...(m.description ? { description: m.description } : {}), ...(typeof m.created === 'number' ? { created: m.created } : {}),
-      ...(typeof m.context_length === 'number' ? { contextLength: m.context_length } : {}),
-      price: { ...(inPerM !== undefined ? { inPerM } : {}), ...(outPerM !== undefined ? { outPerM } : {}), free: inPerM === undefined || outPerM === undefined ? 'unknown' as const : inPerM === 0 && outPerM === 0 },
-      caps: { ...(params ? { tools: params.includes('tools'), reasoning: params.includes('reasoning') || params.includes('include_reasoning') } : {}), ...(mods ? { vision: mods.includes('image') } : {}) },
-      ...(mods ? { inputModalities: mods } : {}),
-    };
-  });
-}
-
-/** What the local Ollama lists, as rows: installed (it lists them) and local; its price no charge; what it does not say,
- *  unknown. */
+/** What the local Ollama lists (the setup's own request, src/workbench/setup-paths.ts ollama: a name and its facts in words),
+ *  as rows: installed (it lists them) and local; no charge; what it does not say, unknown. */
 export function ollamaRows(models: ReadonlyArray<{ name: string; facts: string }>): CatalogRow[] {
-  return models.map((m) => ({ source: 'ollama-local' as const, id: m.name, name: m.name, maker: m.name.split(/[:/]/)[0] ?? 'unknown', price: { inPerM: 0, outPerM: 0, free: true }, caps: {}, installed: true, facts: m.facts }));
+  return models.map((m) => ({ source: 'ollama-local' as const, id: m.name, name: m.name, maker: m.name.split(/[:/]/)[0] ?? 'unknown', price: { inPerM: 0, outPerM: 0, free: true }, caps: {}, installed: true, facts: m.facts } as CatalogRow & { facts: string }));
 }
 
-/** H169's queryCatalog, drawn here until it lands: the rows that match, sorted; a sort never resets the filters. */
+/** A local row's facts as the setup's list words them (absent on a catalog row). */
+const factsOf = (r: CatalogRow): string | undefined => (r as CatalogRow & { facts?: string }).facts;
+
+/** H169's queryCatalog: the rows that match, sorted; the makers by their ids. */
 export function queryRows(rows: readonly CatalogRow[], q: CatalogQuery): { rows: CatalogRow[]; total: number; makers: string[] } {
-  const s = q.search?.trim().toLowerCase();
-  const of = rows.filter((r) => r.source === q.source);
-  const makers = [...new Set(of.map((r) => r.maker))].sort();
-  const hit = of.filter((r) => (!s || r.name.toLowerCase().includes(s) || r.id.toLowerCase().includes(s) || r.maker.toLowerCase().includes(s))
-    && (!q.maker || r.maker === q.maker)
-    && (!q.capability || r.caps[q.capability] === true)
-    && (!q.cost || (q.cost === 'free' ? r.price.free === true : r.price.free === false))
-    && (!q.minContext || (r.contextLength ?? 0) >= q.minContext));
-  const by = {
-    recent: (a: CatalogRow, b: CatalogRow) => (b.created ?? -1) - (a.created ?? -1) || a.name.localeCompare(b.name),
-    name: (a: CatalogRow, b: CatalogRow) => a.name.localeCompare(b.name),
-    price: (a: CatalogRow, b: CatalogRow) => (a.price.inPerM ?? Infinity) - (b.price.inPerM ?? Infinity) || a.name.localeCompare(b.name),
-    context: (a: CatalogRow, b: CatalogRow) => (b.contextLength ?? -1) - (a.contextLength ?? -1) || a.name.localeCompare(b.name),
-  }[q.sort];
-  return { rows: [...hit].sort(by), total: of.length, makers };
+  const r = queryCatalog(rows, q);
+  return { rows: r.rows, total: r.total, makers: r.makers.map((m) => m.id) };
 }
 
 /** A context length in words ("262k context", "1M context"); unknown when the list does not say. */
@@ -322,6 +275,10 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   const head: Line = [S('MODELS', focused ? 'accent' : 'strong', { bold: true })];
   const button = drawer ? '[ Close ]' : ui.modelsDetails ? '[ List ]' : '[ Details ]';
   put(1, [...head, S(' '.repeat(Math.max(1, w - lineCells(head) - button.length))), S(button, drawer ? 'accent' : 'secondary')]);
+  // the shown provider's state (H170's providerStates: files and observations only, nothing asked), its word on the row under
+  // the title: green only for a passed check, with its time
+  const ps = data.models?.providers?.find((x) => x.id === p);
+  if (ps && !drawer) put(2, [S(ps.state === 'checked' && ps.at ? `checked ${clock(ps.at).slice(0, 5)}` : ps.state, ps.state === 'checked' ? 'live' : ps.state === 'refused' || ps.state === 'unreachable' ? 'failure' : 'secondary')]);
   const rule: Line = [S((g.unicode ? '─' : '-').repeat(w), 'border')];
   const mark = (on: boolean): Seg => S(on ? '> ' : '  ', 'accent');
   if (drawer) {
@@ -337,16 +294,17 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   const footAt = drawer ? n : n - 7;
   const per = drawer ? 1 : 2;
   let at = drawer ? 4 : 8;
-  if (p === 'cloudflare') {
-    put(at, [S('Optional.', 'strong')]);
-    wrapText('A Cloudflare AI Gateway can carry a provider\'s requests. Timmy sends nothing to Cloudflare to check it: a request there can create a gateway and bill.', w).forEach((t, k) => put(at + 1 + k, [S(t, 'secondary')]));
-    put(at + 7, label('Status', 'not set up'));
-    wrapText('Chat goes to its provider directly; logs stay on this computer.', w).forEach((t, k) => put(at + 8 + k, [S(t, 'secondary')]));
-    return { lines, items: [], listFrom: n, listRows: 0, perItem: per };
-  }
-  if (p === 'ollama-cloud') {
-    put(at, [S('OLLAMA CLOUD', 'secondary', { bold: true })]);
-    wrapText('Not set up here yet. Its models run on Ollama\'s computers, not this one; a key from Ollama sets it up.', w).forEach((t, k) => put(at + 2 + k, [S(t, 'secondary')]));
+  if (p === 'cloudflare' || p === 'ollama-cloud') {
+    // H170's words for it (what is set up, what a check would send, the next step), each wrapped; else the words this build has
+    const words = ps ? [ps.words, ...(ps.lines ?? []), ...(ps.next ? [`Next: ${ps.next}`] : [])]
+      : p === 'cloudflare' ? ['Optional. A Cloudflare AI Gateway can carry a provider\'s requests. Timmy sends nothing to Cloudflare to check it: a request there can create a gateway and bill.', 'Status: not set up']
+        : ['Not set up here yet. Its models run on Ollama\'s computers, not this one; a key from Ollama sets it up.'];
+    put(at, [S(p === 'cloudflare' ? 'CLOUDFLARE (optional)' : 'OLLAMA CLOUD', 'secondary', { bold: true })]);
+    let row = at + 2;
+    for (const para of words) {
+      for (const t of wrapText(para, w)) { if (row >= n - 1) break; put(row, [S(t, 'secondary')]); row += 1; }
+      row += 1;
+    }
     return { lines, items: [], listFrom: n, listRows: 0, perItem: per };
   }
   const sortV = ui.modelsSort ?? 'recent';
@@ -388,7 +346,7 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     items.push({ line: list.length, item: { kind: 'action', key: `model:${r.source}:${r.id}`, action: r.id }, rows: per });
     const nameRow: Line = [S(i === cur ? '> ' : '  ', 'accent', on), S(name, i === cur ? 'accent' : 'strong', { ...(i === cur ? { bold: true } : {}), ...on })];
     // a local model's facts without "local weights" (INSTALLED and the note below say where it runs; SELECTED keeps them whole)
-    const facts = (r.facts || 'installed').replace(/^local weights · /, '');
+    const facts = (factsOf(r) || 'installed').replace(/^local weights · /, '');
     // context / price; where it does not fit beside the indent, the price's own spaces go, then the word "context"
     const price = priceWords(r.price);
     const room = drawer ? w - lineCells(nameRow) - 3 : w - 2;
@@ -426,7 +384,7 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     const oneRow = 'SELECTED / '.length + [...shownName].length <= w;
     put(footAt + 1, oneRow ? [S('SELECTED / ', 'strong', { bold: true }), S(shownName, 'strong', { bold: true })] : [S('SELECTED', 'strong', { bold: true })]);
     if (!oneRow) put(footAt + 2, [S(shownName, 'strong', { bold: true })]);
-    const about = picked.description ?? (picked.source === 'ollama-local' ? picked.facts ?? 'Installed; Ollama gives no description.' : 'No description in the catalog.');
+    const about = picked.description ?? (picked.source === 'ollama-local' ? factsOf(picked) ?? 'Installed; Ollama gives no description.' : 'No description in the catalog.');
     const aboutRows = wrapText(about.replace(/\s+/g, ' '), w);
     const room = oneRow ? 2 : 1;
     aboutRows.slice(0, room).forEach((t, k) => put(footAt + (oneRow ? 2 : 3) + k, [S(k === room - 1 && aboutRows.length > room ? cut(`${t} ${aboutRows[room]}`, w, g.ellipsis) : t, 'secondary')]));

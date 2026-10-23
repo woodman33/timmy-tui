@@ -169,7 +169,8 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = press(c, 'hello there');
     t = press(c, '\r', ENTER);
     expect(c.ui.input).toEqual({ field: 'composer', text: 'hello there' });
-    expect(c.ui.flash?.text).toMatch(/^Not sent: .*What you typed stays here/);
+    // (the session is still being looked for here, so that is what the notice says; either way the text stays)
+    expect(c.ui.flash?.text).toMatch(/^Not sent( yet)?: .*What you typed stays here/);
     expect(c.ui.draft).toBeUndefined();
   });
 
