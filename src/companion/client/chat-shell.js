@@ -35,6 +35,9 @@ const cx = {
   /** the conversation follows new messages while the person is at its end */
   follow: true,
   lastKey: '',
+  /** the saved conversation as last drawn, and the center's state as last shown (a panel opens at its top) */
+  convKey: '',
+  shownKey: '',
 };
 
 const CX_VIEW_EVERY_MS = 4000;
@@ -43,6 +46,22 @@ const projectQuery = (sep = '?') => (cx.project && cx.project.id ? `${sep}projec
 const $ = (id) => document.getElementById(id);
 const clock = (iso) => { const t = new Date(iso); return Number.isNaN(t.getTime()) ? '' : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
 const fakeModel = (m) => /\bfake\b|^fake-|-fake\b/i.test(String(m || ''));
+const shown = (el) => el instanceof HTMLElement && document.contains(el) && el.getClientRects().length > 0;
+
+/**
+ * A region's children replaced, the keyboard kept where it was: the menu and the controls are drawn again every few seconds
+ * and the center whenever the companion's answer changes, and none of that may drop the focus of a person using the keys.
+ */
+function redraw(root, kids) {
+  const a = document.activeElement;
+  let pick = '';
+  if (a instanceof HTMLElement && a !== root && root.contains(a)) {
+    const k = ['data-cx-ctl', 'data-cx-way', 'data-cx', 'data-cx-copy', 'data-cx-dest', 'data-dest', 'data-away', 'data-stop-turn', 'href'].find((n) => a.getAttribute(n));
+    pick = a.id ? `#${CSS.escape(a.id)}` : k ? `[${k}="${CSS.escape(a.getAttribute(k))}"]` : '';
+  }
+  root.replaceChildren(...kids);
+  if (pick) { const back = root.querySelector(pick); if (back instanceof HTMLElement) back.focus({ preventScroll: true }); }
+}
 
 // ── the left menu ──
 
@@ -77,7 +96,7 @@ function drawRail() {
       'aria-current': d.id && d.id === cx.dest ? 'page' : null, ...(t ? { 'aria-keyshortcuts': String(t.key) } : {}),
     }, h('span', { class: 'rail-glyph', 'aria-hidden': 'true' }, d.glyph), h('span', { class: 'rail-label' }, `${d.label}${waiting}`), d.where ? h('span', { class: 'rail-where' }, d.where) : null);
   });
-  menu.replaceChildren(...items);
+  redraw(menu, items);
 }
 
 function railProject() {
@@ -101,7 +120,7 @@ function railProject() {
   if (f && f.project && f.project.switch) {
     kids.push(h('p', null, 'Another project opens in the terminal:'), h('button', { type: 'button', class: 'rail-small-btn', 'data-cx-copy': f.project.switch, title: f.project.switch }, 'Copy its command'));
   }
-  menu.replaceChildren(...kids);
+  redraw(menu, kids);
 }
 
 function toggleProjectMenu(open) {
@@ -303,7 +322,13 @@ function drawChat() {
       : 'The project keeps no conversation yet. The Workbench, the REPL and the monitor save theirs here; this page’s own chat (below) is not saved.';
     if (tag) { tag.hidden = !(v.route && v.route.kind === 'local' && fakeModel(v.route.model)); tag.textContent = 'FAKE model on this computer'; }
   }
-  turns.replaceChildren(...((conv && conv.turns) || []).map((t, i) => savedTurn(t, i)));
+  // the saved conversation drawn again only when it changed (the companion's answer also changes with a provider's check time):
+  // a focused Copy text or an open tool result stays as it was
+  const convKey = JSON.stringify(conv ? [conv.session, conv.total, conv.turns] : null);
+  if (convKey !== cx.convKey) {
+    cx.convKey = convKey;
+    turns.replaceChildren(...((conv && conv.turns) || []).map((t, i) => savedTurn(t, i)));
+  }
   drawOwn();
   drawEmpty();
   drawRoute();
@@ -317,7 +342,17 @@ function drawChat() {
     socket.textContent = live ? '● companion answering' : 'companion not connected';
     socket.classList.toggle('is-live', Boolean(live));
   }
-  if (scroll && cx.follow && atEnd) scroll.scrollTop = scroll.scrollHeight;
+  // a panel (the first run, a provider's setup) opens at its top; the conversation follows its end while the person is there,
+  // and comes back to its end when a panel closes
+  const st = document.body.dataset.chatState || '';
+  const panel = st === 'first-run' || st === 'setup';
+  const shownKey = `${st}:${cx.setup || ''}`;
+  const wasPanel = /^(first-run|setup):/.test(cx.shownKey || '');
+  if (scroll) {
+    if (panel) { if (cx.shownKey !== shownKey) scroll.scrollTop = 0; }
+    else if ((cx.follow && atEnd) || wasPanel) scroll.scrollTop = scroll.scrollHeight;
+  }
+  cx.shownKey = shownKey;
 }
 
 // ── the center's state: first run, a provider's setup, no model, or chat ──
@@ -419,35 +454,35 @@ function drawEmpty() {
   const r = routeOf(cx.view);
   if (st === 'first-run') {
     const sug = suggestedWay();
-    box.replaceChildren(
+    redraw(box, [
       h('p', { class: 'cx-kicker' }, 'Welcome / first run'), h('h2', { class: 'cx-title' }, 'How would you like to run chat?'),
       h('p', { class: 'cx-sub' }, 'Choose one; you can add the others later. Your project and its logs begin on this computer, and no account is needed to explore.'),
       h('div', { class: 'cx-ways' }, ...WAYS.map((w) => h('button', { type: 'button', class: `cx-way${w.id === sug.id ? ' is-suggested' : ''}`, 'data-cx-way': w.id },
         h('span', { class: 'cx-way-k' }, w.kicker), h('span', { class: 'cx-way-title' }, w.title), h('span', { class: 'cx-way-words' }, w.words), h('span', { class: 'cx-way-act' }, `${w.act} →`)))),
       h('div', { class: 'cx-note-box' }, h('strong', null, 'Local logs are included. Cloud sync is optional.'), h('span', null, 'Logs and receipts stay in the project’s .timmy folder. Cloudflare (advanced) can be set up later: '), h('button', { type: 'button', class: 'cx-link', 'data-cx-way': 'cloudflare' }, 'Cloudflare settings')),
-      h('div', { class: 'cx-guide' }, h('span', { class: 'cx-guide-k' }, 'Timmy guide · fixed words, no model'), h('p', null, `Suggested: ${WAYS.find((w) => w.id === sug.id).title}. ${sug.why} OpenRouter runs remotely; Ollama on this computer runs here; you can explore now and connect either later.`)));
+      h('div', { class: 'cx-guide' }, h('span', { class: 'cx-guide-k' }, 'Timmy guide · fixed words, no model'), h('p', null, `Suggested: ${WAYS.find((w) => w.id === sug.id).title}. ${sug.why} OpenRouter runs remotely; Ollama on this computer runs here; you can explore now and connect either later.`))]);
     return;
   }
   if (st === 'setup') {
     const [kicker, title, body] = setupBody(cx.setup);
-    box.replaceChildren(h('p', { class: 'cx-kicker' }, kicker), h('h2', { class: 'cx-title' }, title), ...body,
-      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'setup-back' }, '← Back to the choices')));
+    redraw(box, [h('p', { class: 'cx-kicker' }, kicker), h('h2', { class: 'cx-title', id: 'cx-setup-title', tabindex: '-1' }, title), ...body,
+      h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'setup-back' }, '← Back to the choices'))]);
     return;
   }
   if (st === 'no-model') {
     const conv = cx.view && cx.view.conversation;
     const n = conv ? conv.turns.length : 0;
-    box.replaceChildren(h('h3', null, 'A model is optional until you need an answer.'),
+    redraw(box, [h('h3', null, 'A model is optional until you need an answer.'),
       h('p', null, `${r && r.words ? r.words.replace(/^Send is off: /, 'Send is off: ') : 'No route for chat is set up.'}`),
       h('p', null, 'Write a draft below: connecting a model later keeps your draft and this project’s local history in place.'),
       h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn is-primary', 'data-cx': 'open-models' }, 'Choose a model →'), h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'setup-choices' }, 'Review setup choices')),
-      h('dl', { class: 'cx-avail' }, h('dt', null, 'Project files'), h('dd', null, 'available on this computer'), h('dt', null, 'Logs & records'), h('dd', null, 'kept on this computer'), h('dt', null, 'The saved conversation'), h('dd', null, n ? `${n} message${n === 1 ? '' : 's'} above` : 'none yet'), h('dt', null, 'AI answers'), h('dd', null, 'not connected')));
+      h('dl', { class: 'cx-avail' }, h('dt', null, 'Project files'), h('dd', null, 'available on this computer'), h('dt', null, 'Logs & records'), h('dd', null, 'kept on this computer'), h('dt', null, 'The saved conversation'), h('dd', null, n ? `${n} message${n === 1 ? '' : 's'} above` : 'none yet'), h('dt', null, 'AI answers'), h('dd', null, 'not connected'))]);
     return;
   }
   // a route and no conversation yet: one useful next action
-  box.replaceChildren(h('h3', null, 'Start the conversation.'),
+  redraw(box, [h('h3', null, 'Start the conversation.'),
     h('p', null, `Your first message goes to ${r.model} (${routeWhere(r)}). This page’s own chat is not saved to the project; the Workbench’s is.`),
-    h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message')));
+    h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message'))]);
 }
 
 function drawRoute() {
@@ -591,7 +626,7 @@ function readModels() {
     .then((r) => r.json())
     .then((body) => { if (seq !== m.asking) return; m.answer = body && body.ok ? body : { ok: false, error: (body && body.error) || 'The companion could not read the models.' }; })
     .catch(() => { if (seq === m.asking) m.answer = { ok: false, error: 'The companion did not answer the models’ read.' }; })
-    .finally(() => { if (seq === m.asking) drawModelsRail(); });
+    .finally(() => { if (seq === m.asking) drawModelsRail({ top: true }); });
 }
 
 const money = (n) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toPrecision(2)}` : `$${Number(n.toFixed(2))}`);
@@ -612,39 +647,40 @@ function inUse(row) {
   return row.source === 'openrouter' && row.id === r.model;
 }
 
+/** A model's row; the selected one carries its detail right below it (SELECTED), so a short list has no gap and a long one scrolls. */
 function modelRow(row) {
   const sel = row.id === cx.models.selected;
-  return h('li', { role: 'presentation' }, h('button', {
-    type: 'button', class: 'cm-row', role: 'option', 'aria-selected': sel ? 'true' : 'false', 'data-model': row.id, tabindex: sel ? '0' : '-1',
+  const btn = h('button', {
+    type: 'button', class: 'cm-row', 'aria-current': sel ? 'true' : 'false', 'data-model': row.id, tabindex: sel ? '0' : '-1', ...(sel ? { 'aria-describedby': 'cm-detail' } : {}),
   },
   h('span', { class: 'cm-row-name' }, h('span', { class: 'cm-name' }, row.name), inUse(row) ? h('span', { class: 'cm-inuse' }, '✓ in use') : null),
   row.name !== row.id ? h('span', { class: 'cm-row-id' }, row.id) : null,
   row.description ? h('span', { class: 'cm-row-desc' }, row.description) : null,
-  h('span', { class: 'cm-row-facts' }, h('span', null, row.source === 'openrouter' ? ctxWords(row.contextLength) : row.installed ? `installed${typeof row.sizeBytes === 'number' ? ` · ${(row.sizeBytes / 1e9).toFixed(1)} GB` : ''}` : 'cloud-backed'), h('span', null, row.source === 'ollama-local' ? 'no charge' : priceWords(row.price)))));
+  h('span', { class: 'cm-row-facts' }, h('span', null, row.source === 'openrouter' ? ctxWords(row.contextLength) : row.installed ? `installed${typeof row.sizeBytes === 'number' ? ` · ${(row.sizeBytes / 1e9).toFixed(1)} GB` : ''}` : 'cloud-backed'), h('span', null, row.source === 'ollama-local' ? 'no charge' : priceWords(row.price))));
+  return h('li', { class: sel ? 'is-selected' : null }, btn, sel ? modelDetail(row) : null);
 }
+
+const tokensWords = (n) => (typeof n !== 'number' ? 'unknown' : n >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M tokens` : `${n.toLocaleString('en-US')} tokens`);
 
 function modelDetail(row) {
   if (!row) return null;
   const facts = [];
-  const add = (k, v) => facts.push(h('dt', null, k), h('dd', null, v));
-  add('Model id', row.id);
+  const add = (k, v, wide = false) => facts.push(h('div', { class: `cm-fact${wide ? ' is-wide' : ''}` }, h('dt', null, k), h('dd', null, v)));
+  add('Model id', row.id, true);
   if (row.source === 'openrouter') {
-    add('Context', typeof row.contextLength === 'number' ? `${row.contextLength.toLocaleString('en-US')} tokens` : 'unknown');
-    add('Input', typeof row.price.inPerM === 'number' ? `${money(row.price.inPerM)} per 1M tokens` : 'unknown');
-    add('Output', typeof row.price.outPerM === 'number' ? `${money(row.price.outPerM)} per 1M tokens` : 'unknown');
-    add('Tools', capWord(row.caps.tools));
-    add('Vision', capWord(row.caps.vision));
-    add('Reasoning', capWord(row.caps.reasoning));
-    if (row.created) add('Added to OpenRouter', new Date(row.created * 1000).toISOString().slice(0, 10));
+    add('Context', tokensWords(row.contextLength));
+    add('Added', row.created ? new Date(row.created * 1000).toISOString().slice(0, 10) : 'unknown');
+    add('Input', typeof row.price.inPerM === 'number' ? `${money(row.price.inPerM)} per 1M` : 'unknown');
+    add('Output', typeof row.price.outPerM === 'number' ? `${money(row.price.outPerM)} per 1M` : 'unknown');
+    add('Tools · Vision · Reasoning', `${capWord(row.caps.tools)} · ${capWord(row.caps.vision)} · ${capWord(row.caps.reasoning)}`, true);
   } else {
-    add('Runs', row.source === 'ollama-local' ? 'on this computer (local weights)' : 'in Ollama’s cloud: the chat leaves this computer');
+    add('Runs', row.source === 'ollama-local' ? 'on this computer (local weights)' : 'in Ollama’s cloud: the chat leaves this computer', true);
     if (row.parameterSize) add('Parameters', row.parameterSize);
     if (row.quantization) add('Quantization', row.quantization);
-    if (typeof row.sizeBytes === 'number') add('On disk', `${(row.sizeBytes / 1e9).toFixed(1)} GB (not the memory it needs)`);
-    add('Context', typeof row.contextLength === 'number' ? `${row.contextLength.toLocaleString('en-US')} tokens` : 'unknown');
-    add('Tools', capWord(row.caps.tools));
-    add('Vision', capWord(row.caps.vision));
+    if (typeof row.sizeBytes === 'number') add('On disk', `${(row.sizeBytes / 1e9).toFixed(1)} GB (not the memory it needs)`, true);
+    add('Context', tokensWords(row.contextLength));
     if (typeof row.running === 'boolean') add('Loaded now', row.running ? 'yes' : 'no');
+    add('Tools · Vision', `${capWord(row.caps.tools)} · ${capWord(row.caps.vision)}`, true);
   }
   const r = routeOf(cx.view);
   const use = h('div', { class: 'cm-use' });
@@ -653,8 +689,9 @@ function modelDetail(row) {
     use.append(h('button', { type: 'button', class: 'cx-btn', disabled: true, 'aria-describedby': 'cm-use-why' }, 'Use for the next turn'),
       h('p', { id: 'cm-use-why' }, `Not available on this page yet: its Send asks ${r && r.model ? r.model : 'the setup’s model'}, the setup’s choice. In the REPL, /setup chat keeps the model every surface uses.`));
   }
-  return h('div', { class: 'cm-detail', 'aria-live': 'polite' }, h('p', { class: 'cm-detail-k' }, 'Selected'), h('h3', null, row.name), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud'),
-    row.description ? h('p', null, row.description) : null, h('dl', { class: 'cm-facts' }, ...facts), use);
+  return h('div', { class: 'cm-detail', id: 'cm-detail' },
+    h('div', { class: 'cm-detail-top' }, h('p', { class: 'cm-detail-k' }, 'Selected'), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud')),
+    h('h3', { class: 'visually-hidden' }, row.name), h('dl', { class: 'cm-facts' }, ...facts), use);
 }
 
 function selectOpt(name, label, value, options, cls = '', shown = true) {
@@ -664,7 +701,7 @@ function selectOpt(name, label, value, options, cls = '', shown = true) {
   return h('div', { class: `cm-filter ${cls}` }, h('label', { for: id, class: shown ? null : 'visually-hidden' }, label), sel);
 }
 
-function drawModelsRail() {
+function drawModelsRail(o = {}) {
   const rail = $('cx-models');
   if (!rail) return;
   const m = cx.models;
@@ -714,21 +751,28 @@ function drawModelsRail() {
   }
   const matched = a && a.ok ? (typeof a.matched === 'number' ? a.matched : rows.length) : 0;
   kids.push(h('div', { class: 'cm-list-head' }, h('span', null, m.provider === 'openrouter' ? (a && a.from === 'cache' ? (a.cache === 'fetched' ? 'Public catalog · fetched' : 'Public catalog snapshot') : 'Catalog') : m.sub === 'local' ? 'Installed on this computer' : 'Ollama Cloud'), h('span', null, a && a.ok ? `${matched} model${matched === 1 ? '' : 's'}${matched > rows.length ? ` · first ${rows.length}` : ''}` : '')));
-  const list = h('ul', { class: 'cm-list', id: 'cm-list', role: 'listbox', 'aria-label': 'Models' });
+  const list = h('ul', { class: 'cm-list', id: 'cm-list', 'aria-label': 'Models' });
+  // an Ollama with nothing listed: the state line above already says why, in the provider's words
+  const stated = m.provider === 'ollama' && providerState(m.sub === 'cloud' ? 'ollama-cloud' : 'ollama-local');
   if (!a) list.append(h('li', { class: 'cm-empty' }, 'Reading the models…'));
   else if (!a.ok) list.append(h('li', { class: 'cm-empty' }, a.error));
-  else if (!rows.length) list.append(h('li', { class: 'cm-empty' }, a.all ? 'No model matches these filters. Clear filters shows them all again.' : a.words));
+  else if (!rows.length) list.append(h('li', { class: 'cm-empty' }, a.all ? 'No model matches these filters. Clear filters shows them all again.' : stated ? 'None listed: the line above says why.' : a.words));
   else for (const r of rows) list.append(modelRow(r));
   kids.push(list);
-  const chosen = rows.find((r) => r.id === m.selected);
-  if (chosen) kids.push(modelDetail(chosen));
-  // the source's words (OpenRouter's catalog and its date; an Ollama that did not answer); the state line above says the rest
-  const foot = a && a.ok && (m.provider === 'openrouter' || !rows.length) ? a.words : '';
-  if (foot) kids.push(h('div', { class: 'cm-foot', id: 'cm-foot' }, foot));
+  // OpenRouter's catalog: where its rows come from and their date (a snapshot, never a live quote)
+  if (a && a.ok && m.provider === 'openrouter' && a.words) kids.push(h('div', { class: 'cm-foot', id: 'cm-foot' }, a.words));
+  const was = $('cm-list');
+  const listTop = was ? was.scrollTop : 0;
+  const railTop = rail.scrollTop;
+  const same = was && was.dataset.source === `${m.provider}:${m.sub}`;
+  list.dataset.source = `${m.provider}:${m.sub}`;
   rail.replaceChildren(...kids);
+  // drawn again with the same source (a provider's check time, a filter): the list and the rail stay where the person was
+  if (same && !o.top) list.scrollTop = listTop;
+  rail.scrollTop = railTop;
   if (focusedId) {
     const back = document.getElementById(focusedId) || rail.querySelector(`[data-model="${CSS.escape(focusedId)}"]`);
-    if (back) { back.focus(); if (back instanceof HTMLInputElement) { const n = back.value.length; back.setSelectionRange(n, n); } }
+    if (back) { back.focus({ preventScroll: true }); if (back instanceof HTMLInputElement) { const n = back.value.length; back.setSelectionRange(n, n); } }
   }
 }
 
@@ -741,29 +785,37 @@ function setQuery(name, value) {
 
 // ── the bottom: the conversation's controls, the drawer, the status line ──
 
+/** The conversation's controls, the lead's order; `minor` ones move into More under 1120 px (the terminal target's 80 x 24 does so). */
 const CONTROLS = [
-  ['attachments', '⎘', 'Attach'], ['tools', '⚒', 'Tools'], ['plan', '☰', 'Plan / Run'], ['approvals', '✓', 'Permissions'], ['budget', '$', 'Budget'],
+  ['attachments', '⎘', 'Attach', true], ['tools', '⚒', 'Tools', false], ['plan', '☰', 'Plan / Run', true], ['approvals', '✓', 'Permissions', true], ['budget', '$', 'Budget', false],
 ];
+const MINOR = [['attachments', '⎘', 'Attach'], ['plan', '☰', 'Plan / Run'], ['approvals', '✓', 'Permissions'], ['cloudflare', '☁', 'Cloudflare']];
+
+function controlCounts() {
+  const f = workspace.frame;
+  const v = cx.view;
+  const waiting = f && f.activity ? f.activity.waitingOnYou : null;
+  return { tools: '0', attachments: '0', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '—', approvals: waiting === null ? '' : String(waiting), logs: 'this computer', cloudflare: '' };
+}
 
 function drawControls() {
   const bar = $('cx-controls');
   if (!bar) return;
   const f = workspace.frame;
-  const v = cx.view;
-  const waiting = f && f.activity ? f.activity.waitingOnYou : null;
-  const counts = { tools: '0', attachments: '0', plan: '', budget: v && v.policy && v.policy.freeOnly ? 'free-only' : '—', approvals: waiting === null ? '' : String(waiting) };
+  const counts = controlCounts();
   const kids = [h('span', { class: 'cx-controls-label' }, 'This conversation')];
-  for (const [id, glyph, words] of CONTROLS) kids.push(ctlButton(id, glyph, words, counts[id]));
+  for (const [id, glyph, words, minor] of CONTROLS) kids.push(ctlButton(id, glyph, words, counts[id], minor));
   const other = f && f.activity && f.activity.chatTurn && f.activity.chatTurn.id ? f.activity.chatTurn : null;
   if (cx.running) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop' }, '■ Stop'));
   else if (other) kids.push(h('button', { type: 'button', class: 'cx-ctl is-stop', 'data-cx': 'stop-other', 'data-stop-turn': other.id, title: other.words }, `■ Stop the turn in ${SURFACE_SAID[other.surface] || 'another surface'}`));
   else kids.push(h('button', { type: 'button', class: 'cx-ctl is-off', disabled: true, title: 'Nothing is being answered now' }, '■ Stop'));
-  kids.push(ctlButton('logs', '▤', 'Logs', 'this computer'), ctlButton('cloudflare', '☁', 'Cloudflare', ''));
-  bar.replaceChildren(...kids);
+  kids.push(h('span', { class: 'cx-ctl-gap', 'aria-hidden': 'true' }), ctlButton('logs', '▤', 'Logs', counts.logs, false), ctlButton('cloudflare', '☁', 'Cloudflare', '', true),
+    h('button', { type: 'button', class: 'cx-more', id: 'cx-more', 'data-cx-ctl': 'more', 'aria-expanded': cx.drawer === 'more' ? 'true' : 'false', 'aria-controls': 'cx-drawer' }, h('span', { 'aria-hidden': 'true' }, '⋯'), 'More'));
+  redraw(bar, kids);
 }
 
-function ctlButton(id, glyph, words, n) {
-  return h('button', { type: 'button', class: 'cx-ctl', 'data-cx-ctl': id, 'aria-expanded': cx.drawer === id ? 'true' : 'false', 'aria-controls': 'cx-drawer' },
+function ctlButton(id, glyph, words, n, minor) {
+  return h('button', { type: 'button', class: `cx-ctl${minor ? ' is-minor' : ''}`, 'data-cx-ctl': id, 'aria-expanded': cx.drawer === id ? 'true' : 'false', 'aria-controls': 'cx-drawer' },
     h('span', { 'aria-hidden': 'true' }, glyph), words, n ? h('span', { class: 'cx-ctl-n' }, n) : null);
 }
 
@@ -794,6 +846,11 @@ function drawerBody(id) {
     }
     case 'logs': return ['Logs on this computer', [h('p', null, (v && v.logs && v.logs.words) || 'Logs and receipts stay on this computer.'), h('p', null, (v && v.logs && v.logs.cloud) || ''), h('div', { class: 'cx-empty-actions' },
       h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'logs' }, 'Open Logs & receipts'), h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'older' }, 'Show the turn mirror'))]];
+    case 'more': {
+      const counts = controlCounts();
+      return ['More controls', [h('div', { class: 'cx-more-list' }, ...MINOR.map(([k, glyph, words]) => h('button', { type: 'button', class: 'cx-btn', 'data-cx-ctl': k, 'aria-controls': 'cx-drawer' },
+        h('span', { 'aria-hidden': 'true' }, `${glyph} `), words, counts[k] ? h('span', { class: 'cx-ctl-n' }, ` ${counts[k]}`) : null)))]];
+    }
     case 'keys': return ['Keys', [h('div', { class: 'cx-drawer-grid' },
       h('section', null, h('h4', null, 'In the composer'), h('p', null, 'Enter sends · Shift+Enter a new line · keys you type never open anything')),
       h('section', null, h('h4', null, 'Anywhere else'), h('p', null, 'M shows or hides Models · ? these keys · 1 to 9, then 0, the destinations · Esc closes a drawer and returns to where you were')),
@@ -823,7 +880,8 @@ function closeDrawer() {
   cx.drawer = '';
   $('cx-keys')?.setAttribute('aria-expanded', 'false');
   drawControls();
-  const back = cx.drawerFrom && document.contains(cx.drawerFrom) ? cx.drawerFrom : (was === 'keys' ? $('cx-keys') : document.querySelector(`[data-cx-ctl="${was}"]`));
+  // focus back where the drawer was opened from, else its control (drawn again), else More (a control More holds is not shown)
+  const back = [cx.drawerFrom, was === 'keys' ? $('cx-keys') : null, document.querySelector(`#cx-controls [data-cx-ctl="${was}"]`), $('cx-more')].find(shown);
   cx.drawerFrom = null;
   if (back) back.focus();
   return true;
@@ -834,11 +892,12 @@ function drawStatus() {
   if (!bar) return;
   const r = routeOf(cx.view);
   const fake = r && r.kind === 'local' && fakeModel(r.model);
+  // each word and its value kept together (a phone's width puts the two on two lines, never a word apart from its value)
   bar.replaceChildren(
-    h('span', { class: 'cx-st-k' }, 'Logs:'), h('span', { class: 'cx-st-v' }, `this computer / ${cx.running ? 'answering' : 'idle'}`),
+    h('span', { class: 'cx-st-pair is-logs' }, h('span', { class: 'cx-st-k' }, 'Logs:'), h('span', { class: 'cx-st-v' }, `this computer / ${cx.running ? 'answering' : 'idle'}`)),
     h('span', { class: 'cx-st-sep', 'aria-hidden': 'true' }, '|'),
-    h('span', { class: 'cx-st-k' }, 'Inference:'), h('span', { class: 'cx-st-v' }, r ? `${routeWhere(r)}${r.ready ? ` / ${r.model}` : ''}` : 'not known yet'),
-    h('span', { class: 'cx-st-right' }, h('span', null, 'Cloud sync off'), fake ? h('span', null, 'FAKE model') : null));
+    h('span', { class: 'cx-st-pair is-inference' }, h('span', { class: 'cx-st-k' }, 'Inference:'), h('span', { class: 'cx-st-v' }, r ? `${routeWhere(r)}${r.ready ? ` / ${r.model}` : ''}` : 'not known yet')),
+    h('span', { class: 'cx-st-right' }, h('span', { class: 'cx-st-sync' }, 'Cloud sync off'), fake ? h('span', null, 'FAKE model') : null));
 }
 
 // ── events ──
@@ -865,7 +924,7 @@ document.addEventListener('click', (event) => {
   const go = at.closest('[data-cx-dest]');
   if (go) { closeDrawer(); showWorkspaceTab(go.dataset.cxDest); return; }
   const ctl = at.closest('[data-cx-ctl]');
-  if (ctl) { openDrawer(ctl.dataset.cxCtl, ctl); return; }
+  if (ctl) { openDrawer(ctl.dataset.cxCtl, ctl.closest('#cx-drawer') ? $('cx-more') : ctl); return; }
   if (at.closest('#cx-keys')) { openDrawer('keys', $('cx-keys')); return; }
   if (at.closest('#cx-models-toggle')) { toggleModels(); return; }
   if (at.closest('#cx-menu, #ws-menu')) { toggleRail(); return; }
@@ -888,8 +947,8 @@ document.addEventListener('click', (event) => {
   else if (what === 'stop') stopNow();
   else if (what === 'stop-other') stopOther(act);
   else if (what === 'older') { closeDrawer(); $('cx-older')?.scrollIntoView({ block: 'start' }); }
-  else if (what === 'setup-back') { cx.setup = ''; drawChat(); document.querySelector('[data-cx-way]')?.focus(); }
-  else if (what === 'setup-choices') { setExplored(false); cx.setup = ''; cx.forceChoices = true; drawChat(); }
+  else if (what === 'setup-back') { cx.setup = ''; drawChat(); document.querySelector('[data-cx-way]')?.focus({ preventScroll: true }); }
+  else if (what === 'setup-choices') { setExplored(false); cx.setup = ''; cx.forceChoices = true; drawChat(); document.querySelector('[data-cx-way]')?.focus({ preventScroll: true }); }
   else if (what === 'refresh') { readView(true, true).then(() => readModels()); }
 });
 
@@ -904,7 +963,8 @@ function chooseWay(id) {
   toggleModels(true);
   drawChat();
   readModels();
-  document.querySelector('[data-cx="setup-back"]')?.focus();
+  // the setup opens at its top, its title holding the keyboard (Tab goes on through its steps; Back is at its end)
+  $('cx-setup-title')?.focus({ preventScroll: true });
 }
 
 /** Under 1180 px the Models rail is a drawer over the conversation (closed until asked for), and under 760 px the menu is too. */
@@ -924,6 +984,9 @@ function toggleModels(open) {
   const btn = $('cx-models-toggle');
   if (!body || !btn) return;
   const show = open === undefined ? !modelsShown() : open;
+  // hiding the rail that holds the keyboard: the focus goes to the control that shows it again
+  const rail = $('cx-models');
+  if (!show && rail && rail.contains(document.activeElement)) btn.focus();
   if (narrow()) {
     if (show && !body.classList.contains('models-open')) modelsFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     body.classList.toggle('models-open', show);

@@ -126,6 +126,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cm-list .cm-row[data-model="fake-qwen3:8b"] .cm-inuse')).toBe('✓ in use');
       expect(await text(page, '.cm-detail')).toContain('✓ The next turn of this page uses this model.');
       expect(await text(page, '.cm-detail-k')).toBe('Selected');
+      // the selected model's detail sits right below its row (a one-row list leaves no gap before it)
+      const gap = await page.$eval('#cm-list li.is-selected', (li) => {
+        const row = li.querySelector('.cm-row')!.getBoundingClientRect();
+        const detail = li.querySelector('.cm-detail')!.getBoundingClientRect();
+        return detail.top - row.bottom;
+      });
+      expect(Math.abs(gap)).toBeLessThan(2);
       // OpenRouter: its public rows, Recently added first; Cost keeps through a Sort; Clear filters shows all
       await page.click('[data-cm-provider="openrouter"]');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length === n, TEXT.length, { timeout: 20_000 });
@@ -149,10 +156,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(detail).toContain('Model idanthropic/claude-haiku-5.5');
       expect(await page.isDisabled('.cm-detail .cx-btn')).toBe(true);
       expect(detail).toContain('Not available on this page yet: its Send asks fake-qwen3:8b');
-      // ArrowDown moves along the list
-      await page.focus('#cm-list .cm-row[aria-selected="true"]');
+      // ArrowDown moves along the list, the detail with it
+      await page.focus('#cm-list .cm-row[aria-current="true"]');
+      const before = await page.evaluate(() => document.activeElement?.getAttribute('data-model'));
       await page.keyboard.press('ArrowDown');
-      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-selected'))).toBe('true');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-current'))).toBe('true');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('data-model'))).not.toBe(before);
+      expect(await page.evaluate(() => document.activeElement?.parentElement?.querySelector('.cm-detail') !== null)).toBe(true);
 
       // a draft survives the page opened again in this browser tab (from Timmy, with its token: a reload has none, by design)
       await page.fill('#cx-input', 'A draft kept across opening the page again');
@@ -219,6 +229,85 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(errors).toEqual([]);
     } finally {
       await context.close();
+    }
+  }, 180_000);
+
+  it('at 390 × 844 the controls fit with More, its controls open their drawers (Esc back to More), FAKE stays named; a home with no route opens its first run at the top, and a setup too', async () => {
+    const { context, page, errors } = await openPage(browser, { origin }, { width: 390, height: 844 });
+    try {
+      await page.goto(`${origin}/#t=${token}`);
+      await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
+      expect(await page.isVisible('#shell-rail')).toBe(false);
+      expect(await page.isVisible('#cx-models')).toBe(false);
+      // the row of controls fits the phone's width: the minor ones are in More
+      expect(await page.$eval('#cx-controls', (b) => b.scrollWidth <= b.clientWidth + 1)).toBe(true);
+      const said = (sel: string): Promise<string[]> => page.$$eval(sel, (els) => els.filter((e) => e.getClientRects().length).map((e) => (e as HTMLElement).innerText.replace(/[^A-Za-z /]/g, '').trim()));
+      expect(await said('#cx-controls .cx-ctl, #cx-controls .cx-more')).toEqual(['Tools', 'Budget', 'Stop', 'Logs', 'More']);
+      await page.click('#cx-more');
+      expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Plan / Run', 'Permissions', 'Cloudflare']);
+      await page.click('#cx-drawer [data-cx-ctl="attachments"]');
+      expect(await text(page, '#cx-drawer')).toContain('Not on this page yet: its Send carries text only.');
+      await page.keyboard.press('Escape');
+      expect(await page.isVisible('#cx-drawer')).toBe(false);
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-more');
+      // the status keeps each word with its value, and FAKE is named on it
+      expect(await text(page, '#cx-status')).toContain('FAKE model');
+      expect(await page.$eval('#cx-status .is-inference', (e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim())).toMatch(/^INFERENCE: Ollama on this computer/i);
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+
+    // a home with no chat route and an empty project; its Ollama a FAKE with no model (this computer's own is never asked)
+    const fresh = mkdtempSync(join(tmpdir(), 'h171-chat-fresh-'));
+    const none = await startFakeOllama({ models: [] });
+    let other: CompanionServer | undefined;
+    const keptRepo = process.env.TIMMY_REPO;
+    try {
+      const root = join(fresh, 'untitled');
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, 'README.md'), '# untitled\n');
+      const env = { TIMMY_HOME: join(fresh, 'home'), TIMMY_SETTINGS_DIR: join(fresh, 'settings'), OLLAMA_HOST: none.host };
+      process.env.TIMMY_REPO = root;
+      other = await startCompanionServer(0, { chatEnv: env, workspace: { env } });
+      if (keptRepo === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = keptRepo;
+      const at = `http://127.0.0.1:${other.port}`;
+      const key = /#t=([0-9a-f]{64})$/.exec(other.url)![1];
+      const { context: c2, page: p2, errors: e2 } = await openPage(browser, { origin: at }, { width: 800, height: 600 });
+      try {
+        await p2.goto(`${at}/#t=${key}`);
+        await p2.waitForFunction(() => document.body.dataset.chatState === 'first-run', null, { timeout: 30_000 });
+        await p2.waitForTimeout(400);
+        // the first run opens at its top: its question in view, though the panel is taller than the window
+        expect(await p2.$eval('#cx-scroll', (s) => [s.scrollTop, s.scrollHeight > s.clientHeight])).toEqual([0, true]);
+        const title = await p2.$eval('#cx-empty .cx-title', (t) => [t.textContent, t.getBoundingClientRect().top >= (document.getElementById('cx-scroll') as HTMLElement).getBoundingClientRect().top]);
+        expect(title).toEqual(['How would you like to run chat?', true]);
+        // no model installed: OpenRouter is the suggested way, said why
+        expect(await p2.getAttribute('.cx-way.is-suggested', 'data-cx-way')).toBe('openrouter');
+        // a setup opens at its top too; the Models rail shows Ollama's answer once (its line), the list says so
+        await p2.$eval('#cx-scroll', (s) => { s.scrollTop = s.scrollHeight; });
+        await p2.click('[data-cx-way="ollama-local"]');
+        await p2.waitForFunction(() => document.body.dataset.chatState === 'setup', null, { timeout: 10_000 });
+        expect(await p2.$eval('#cx-scroll', (s) => s.scrollTop)).toBe(0);
+        await p2.waitForSelector('#cm-list .cm-empty', { timeout: 20_000 });
+        expect(await text(p2, '.cm-state')).toMatch(/^● answered \d\d:\d\d · 0 installed on this computer \(its list of models; no model ran\)\./);
+        expect(await text(p2, '#cm-list .cm-empty')).toBe('None listed: the line above says why.');
+        expect(await p2.$('#cm-foot')).toBeNull();
+        // Back to the choices: focus on the first way, the panel at its top again
+        await p2.click('[data-cx="setup-back"]');
+        await p2.waitForFunction(() => document.body.dataset.chatState === 'first-run', null, { timeout: 10_000 });
+        expect(await p2.evaluate(() => document.activeElement?.getAttribute('data-cx-way'))).toBe('openrouter');
+        expect(await p2.$eval('#cx-scroll', (s) => s.scrollTop)).toBe(0);
+        expect(none.chats()).toEqual([]);
+        expect(e2).toEqual([]);
+      } finally {
+        await c2.close();
+      }
+    } finally {
+      if (process.env.TIMMY_REPO !== keptRepo) { if (keptRepo === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = keptRepo; }
+      await other?.shutdown();
+      await none.close();
+      rmSync(fresh, { recursive: true, force: true });
     }
   }, 180_000);
 });
