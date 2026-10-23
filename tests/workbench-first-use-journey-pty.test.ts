@@ -65,7 +65,7 @@ function answerColumn(screen: string, model: string): string {
   const out: string[] = [];
   for (let i = head + 1; i < rows.length; i++) {
     const w = cell(rows[i]);
-    if (!w && out.some((x) => /receipt sealed/.test(x))) break;
+    if (!w && out.some((x) => /receipt [0-9a-f]{8}/.test(x))) break;
     if (w) out.push(w);
   }
   return out.join(' ').replace(/\s+/g, ' ');
@@ -295,10 +295,12 @@ async function journey(label: string, width: number, height: number): Promise<vo
     // (the answer wraps at the column's edge where it is narrow: read as the chat column's text)
     const answered = await t.until(new RegExp(`TIMMY / ${M} / \\d\\d:\\d\\d`), 'the FAKE answer drawn under the model\'s header', 40_000, (s) => answerColumn(s, MODEL).includes(FAKE_ANSWER));
     expect(asked.filter((a) => a.what === `POST /api/chat ${MODEL}`).length).toBe(1);
-    // its evidence line under the answer: answered, sent to a model, no charge, local, the model, the receipt sealed
-    const evidence = await t.until(/receipt sealed/, 'the answer\'s evidence line', 30_000);
+    // its evidence line under the answer (R11 H167 step 2, src/workbench/chat-evidence.ts): the model, where it ran, the seconds,
+    // its receipt's short id, and ✓ only when the receipt verified in this reading
+    const evidence = await t.until(/receipt [0-9a-f]{8}/, 'the answer\'s evidence line', 30_000);
     t.keep('09-answered');
-    expect(answerColumn(evidence, MODEL)).toMatch(new RegExp(`answered · sent to a model · no charge · local · ${M} · receipt sealed`));
+    // (where the column is narrow the model's name is cut first, with …; the receipt's id never: "granite4.2:lat… · this computer · …")
+    expect(answerColumn(evidence, MODEL)).toMatch(new RegExp(`granite4\\.2:(latest|lat[^ ]*…) · this computer · \\d+(\\.\\d+)? s · receipt [0-9a-f]{8} ✓`));
     expect(answered).not.toMatch(/EXIT=/);
     // nothing opened a browser; nothing asked Ollama's own 11434 (the FAKE heard everything)
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
