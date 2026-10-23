@@ -9,8 +9,9 @@ import { describe, expect, it } from 'vitest';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { chatLayout } from '../src/workbench/layout.js';
 import { frameOf } from '../src/workbench/screen.js';
+import { centerView } from '../src/workbench/views.js';
 import { evidenceSegs, spinnerFrame, toolRuns, turnCost, turnWhere } from '../src/workbench/chat-evidence.js';
-import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, type CatalogRow } from '../src/workbench/chat-shell.js';
+import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, RAIL_GROUPS, spendWords, type CatalogRow } from '../src/workbench/chat-shell.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { clock, plain } from '../src/workbench/text.js';
 import { UNANSWERED } from '../src/agent/core.js';
@@ -87,15 +88,23 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(cols(none[1], 20, 121)).toBe('NEXT / Connect a model to chat');
   });
 
-  it('the rail: PROJECT, the project selector, + New project, the menu with "> Chat" amber, ? Help at its foot', () => {
+  it('R11 step 3a: the rail in four groups: PROJECT, "> Chat" amber, WORK, CREATE, CONNECT (uppercase labels), "? Help  / find" at its foot; the plan\'s names kept for the finder and the companion', () => {
     const f = frame(data(), ui());
     const rail = text(f).map((r) => cols(r, 0, 17));
     expect(rail.slice(4, 8)).toEqual(['  PROJECT', '  tray v', '', '  + New project']);
-    expect(RAIL.map((r) => r.label)).toEqual(['Chat', 'Studio', 'Workflows', 'VoxVision', 'Motion', 'Control Room', 'Files', 'Logs & records', 'Connections']);
-    expect(rail.slice(10, 19)).toEqual([' > Chat', ...RAIL.slice(1).map((r) => `   ${r.label}`)]);
-    expect(rail[34]).toBe('  ? Help');
-    expect(f.screen[10].find((s) => s.text.includes('Chat'))?.role).toBe('accent');
-    expect(f.screen[11].find((s) => s.text.includes('Studio'))?.role).toBe('text');
+    expect(RAIL.map((r) => r.label)).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'Vision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations', 'Control Room']);
+    expect(RAIL_GROUPS.map((x) => [x.label, x.items.map((r) => r.id)])).toEqual([[null, ['chat']], ['WORK', ['files', 'workflows', 'logs', 'studio']], ['CREATE', ['voxvision', 'motion']], ['CONNECT', ['connections', 'tools', 'control']]]);
+    expect(rail.slice(9, 25)).toEqual(['> Chat', '', '  WORK', '  Files', '  Workflows', '  Runs & receipts', '  Canvas', '', '  CREATE', '  Vision', '  Motion & 3D', '', '  CONNECT', '  Models & keys', '  Tools & MCP', '  Control Room']);
+    expect(rail[34]).toBe('  ? Help  / find');
+    expect(f.screen[9].find((s) => s.text.includes('Chat'))?.role).toBe('accent');
+    expect(f.screen[11].find((s) => s.text === 'WORK')?.role).toBe('secondary');
+    expect(f.screen[12].find((s) => s.text.includes('Files'))?.role).toBe('text');
+    // the rail's items by row, Help and the finder each a cell of the footer row
+    const items = f.regions.nav?.items ?? [];
+    expect(items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line])).toEqual([['project', 2], ['new', 4], ['chat', 6], ['files', 9], ['workflows', 10], ['logs', 11], ['studio', 12], ['voxvision', 15], ['motion', 16], ['connections', 19], ['tools', 20], ['control', 21], ['help', 31], ['find', 31]]);
+    expect(items.slice(-2).map((x) => x.x)).toEqual([{ from: 2, to: 7 }, { from: 10, to: 15 }]);
+    // (the rail is the Chat screen's: the other pages keep the tabbed frame, so only Chat is ever marked on it)
+    expect(rail.filter((r) => r.startsWith('> '))).toEqual(['> Chat']);
   });
 
   it('the center: CHAT / project, YOU (grey) and TIMMY / the model that turn used (FAKE named), the rule, the composer (R11: › Message TIMMY…), [ Send ] with the chord hint and the model chip', () => {
@@ -246,8 +255,21 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
 
   it('the bottom: the actions in the target\'s order and words; the status row: logs here, idle, cloud sync off, the spend, the size; no id, hash, port or path', () => {
     const t = text(frame(data(), ui()));
-    expect(cols(t[35], 20, 121)).toBe('[Attach]  [Tools]  [Plan / Run]  [Permissions]  [Budget]  [Stop]  [Logs]  [Cloudflare]');
-    expect(cols(t[36], 20, 121)).toMatch(/^Logs: this computer \/ idle +cloud sync off \/ spend no charge \/ 122 x 37$/);
+    // (R11 step 3b: one compact row; the status row in sentences; R17c: the spend in a few words)
+    expect(cols(t[35], 20, 121)).toBe('[Attach]  [Tools]  [Budget]  [Logs]');
+    expect(cols(t[36], 20, 121)).toMatch(/^Logs stay on this computer +cloud sync off · spend no charge · 122 x 37$/);
+    // what waits on you counts on Tools (Permissions is under it)
+    expect(cols(text(frame(data({ decisions: { ...data().decisions, total: 2 } } as Partial<Data>), ui()))[35], 20, 121)).toBe('[Attach]  [Tools 2]  [Budget]  [Logs]');
+    // a running turn is said after the logs; a paid OpenRouter route's spend in and out per 1M (R17c)
+    const paid = data({ route: { kind: 'openrouter', words: 'chat: fixture-maker/older-model · OpenRouter', ready: true }, journeyRoute: { provider: 'openrouter', model: 'fixture-maker/older-model', where: 'cloud', fake: false, ready: true, words: 'chat: fixture-maker/older-model · OpenRouter', price: { state: 'declared', free: false, words: '$0.20 per million tokens in, $0.80 out (as OpenRouter lists it)' } } } as unknown as Partial<Data>);
+    expect(cols(text(frame(paid, ui()))[36], 20, 121)).toMatch(/^Logs stay on this computer +cloud sync off · spend \$0\.20 in \/ \$0\.80 out per 1M · 122 x 37$/);
+    expect(spendWords({ model: 'x', price: 'price as OpenRouter lists it (not read here)' })).toBe('as OpenRouter lists it');
+    expect(spendWords({ model: 'x', price: 'cost unknown' })).toBe('unknown');
+    expect(spendWords({ model: 'x', price: 'free' })).toBe('free');
+    expect(spendWords({ model: null, price: 'unknown' })).toBe('none (no model)');
+    const running = data({ turn: { text: 'Hello?', answer: '', state: 'sending', lines: [], sent: null, tools: [], at: NOW - 1000 } } as unknown as Partial<Data>);
+    // (the spend gives way to the longer sentence: the size keeps the row's right end)
+    expect(cols(text(frame(running, ui()))[36], 20, 121)).toMatch(/^Logs stay on this computer · 1 running \(the chat turn\) +cloud sync off · 122 x 37$/);
     expect(t.join('\n')).not.toMatch(/oc372c7b3|127\.0\.0\.1|4463|\/p\/tray|~\/timmy/);
     // (R11 step 2b: the receipt's short id is on the answer's evidence line, nowhere else)
     expect(t.filter((r) => /d2d756db/.test(r))).toHaveLength(1);
@@ -268,9 +290,9 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(cols(t[0], 64, 79)).toBe('LOCAL RECORDS');
     expect(cols(t[4], 16, 79)).toMatch(/^CHAT \/ tray +\[M\] Models$/);
     const rail = t.map((r) => cols(r, 0, 13));
-    expect(rail.slice(4, 8)).toEqual(['  PROJECT', '  tray', '', '  + New']);
-    expect(rail.slice(10, 19)).toEqual([' > Chat', '   Studio', '   Workflows', '   VoxVision', '   Motion', '   Control', '   Files', '   Logs', '   Connections']);
-    expect(rail[21]).toBe('  ? Help');
+    // (R11 step 3a: the groups packed, + New under the project, the short names, the footer "? Help  /")
+    expect(rail.slice(4, 8)).toEqual(['  PROJECT', '  tray', '  + New', '']);
+    expect(rail.slice(6, 22)).toEqual(['  + New', '', '> Chat', '  WORK', '  Files', '  Workflows', '  Runs', '  Canvas', '  CREATE', '  Vision', '  Motion & 3D', '  CONNECT', '  Models', '  Tools', '  Control', '  ? Help  /']);
     const c = t.map((r) => cols(r, 16, 79));
     expect(c[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(c[15]).toBe('─'.repeat(62));
@@ -279,8 +301,8 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(c[16]).toBe('› Message TIMMY…');
     expect(c[17]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
-    expect(c[22]).toBe('[Tools]  [Budget]  [Logs]  [More]');
-    expect(c[23]).toMatch(/^Logs: this computer \/ idle +cloud sync off \/ 80 x 24$/);
+    expect(c[22]).toBe('[Tools]  [Budget]  [More]');
+    expect(c[23]).toMatch(/^Logs stay on this computer +cloud sync off · 80 x 24$/);
   });
 
   it('Models a drawer over the center only ([ Close ], the providers on one row), the composer\'s action row in sight; the rail and the draft as they were', () => {
@@ -295,7 +317,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(c[17]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     expect(frame(data(), ui({ modelsOpen: true, focus: 'right', draft: 'kept words' }), 80, 24).chip).toEqual({ x0: 16, x1: 65, y: 18 });
-    expect(t.map((r) => cols(r, 0, 13))[10]).toBe(' > Chat');
+    expect(t.map((r) => cols(r, 0, 13))[8]).toBe('> Chat');
     expect(cols(text(frame(data(), ui({ draft: 'kept words' }), 80, 24))[16], 16, 79)).toBe('› kept words');
     const or = text(frame(data(OPENROUTER), ui({ modelsOpen: true, focus: 'right', modelsCost: 'all' }), 80, 24)).map((r) => cols(r, 16, 79));
     expect(or[6]).toBe('> OpenRouter     Local     Cloud     Cloudflare');
@@ -368,7 +390,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(f.screen[10].find((s) => s.text === '[ OpenRouter / cloud ]')?.role).toBe('accent');
     expect(t.join('\n')).not.toMatch(/Message TIMMY|\[ Send \]/);
     // the rail, Models and the bottom as on every Chat screen
-    expect(cols(t[10], 0, 17)).toBe(' > Chat');
+    expect(cols(t[9], 0, 17)).toBe('> Chat');
     // (R11 step 2; H168's pass 4a R30: before a choice the right pane lists the four providers' states only: no catalog rows,
     // no cursor on a priced model, no [ Details ]; the local Ollama's state is its own answer to the listing)
     expect(models(t)[4]).toBe('MODELS [M]');
@@ -404,7 +426,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
       '  [ Continue without a model ]', '  Explore files, setup and local records.',
       '  [ Advanced: Cloudflare (optional) ]', '  [ Show the Timmy guide ]',
     ]);
-    expect(c[22]).toBe('[Tools]  [Budget]  [Logs]  [More]');
+    expect(c[22]).toBe('[Tools]  [Budget]  [More]');
   });
 
   it('answered with Continue without a model: Chat says a model is optional until an answer is needed, Choose a model and Review setup choices; the composer keeps a draft', () => {
@@ -432,7 +454,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
 
 describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs drawer keeps the draft and gives the keyboard back to its opener)', () => {
   it('Logs: over the conversation, where logs are kept, the recent turns (no receipt id), Open Logs & records; the composer and its draft in sight', () => {
-    const f = frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 6 }, shellDrawer: 'logs', draft: 'kept words' }));
+    const f = frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 3 }, shellDrawer: 'logs', draft: 'kept words' }));
     const t = text(f);
     const c = center(t);
     expect(c[4]).toMatch(/^LOGS \/ this computer +\[ Close \]$/);
@@ -447,7 +469,7 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
   });
 
   it('Budget: the next turn\'s model and price, free-only and local-only and where each really switches, Open settings; More at 80x24: the controls the row leaves out, each as its button acts or what it needs', () => {
-    const b = center(text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 4 }, shellDrawer: 'budget' }))));
+    const b = center(text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 2 }, shellDrawer: 'budget' }))));
     expect(b[4]).toMatch(/^BUDGET \/ the next turn +\[ Close \]$/);
     expect(b[7]).toMatch(/^Next turn  FAKE fake-qwen3:8b \/ /);
     expect(b[8]).toBe('Free-only  off');
@@ -456,14 +478,42 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
     expect(b.join(' ')).toMatch(/Free-only and local-only switch in the REPL \(timmy\): \/model free-only on\|off and \/model local-only on\|off; TIMMY_CHAT_FREE_ONLY=1 or TIMMY_CHAT_LOCAL_ONLY=1 sets one for what runs with it\. Settings here does not switch them\./);
     expect(b.join(' ')).not.toMatch(/Settings turns free-only/);
     // the policy as read with the route: on, said so
-    const on = center(text(frame(data({ route: { ...data().route, policy: { freeOnly: true, localOnly: true } } } as unknown as Partial<Data>), ui({ focus: 'bottom', cursor: { shellBottom: 4 }, shellDrawer: 'budget' }))));
+    const on = center(text(frame(data({ route: { ...data().route, policy: { freeOnly: true, localOnly: true } } } as unknown as Partial<Data>), ui({ focus: 'bottom', cursor: { shellBottom: 2 }, shellDrawer: 'budget' }))));
     expect(on.slice(8, 10)).toEqual(['Free-only  on: a model the catalog does not price at 0 is not used', 'Local-only on: no cloud route, fallback or tool model call']);
     expect(b[25]).toBe('> [ Open settings ]');
-    const m = text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 3, shellDrawer: 1 }, shellDrawer: 'more' }), 80, 24)).map((r) => cols(r, 16, 79));
+    // (R11 step 3b: More holds what the compact row leaves out, Attach and Logs)
+    const m = text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 2, shellDrawer: 1 }, shellDrawer: 'more' }), 80, 24)).map((r) => cols(r, 16, 79));
     expect(m[4]).toMatch(/^THIS CONVERSATION +\[ Close \]$/);
     expect(m[7]).toMatch(/^  \[ Attach \]  needs the companion/);
-    expect(m.slice(8, 12)).toEqual(['> [ Plan / Run ]', '  [ Permissions ]', '  [ Stop ]  needs a turn being answered here', '  [ Cloudflare ]']);
+    expect(m[8]).toBe('> [ Logs ]');
     expect(m[17]).toMatch(/^\[ Send \]/);
+  });
+
+  it('R11 step 3b: Tools opens a drawer: Open Tools & integrations, then MORE CONTROLS (Plan / Run, Permissions with its count, Cloudflare); Stop lives in the composer', () => {
+    const t = center(text(frame(data({ decisions: { ...data().decisions, total: 2 } } as Partial<Data>), ui({ focus: 'bottom', cursor: { shellBottom: 1 }, shellDrawer: 'tools' }))));
+    expect(t[4]).toMatch(/^TOOLS +\[ Close \]$/);
+    expect(t[7]).toBe('> [ Open Tools & integrations ]  every tool and MCP server, its rung…');
+    expect(t[9]).toBe('MORE CONTROLS');
+    expect(t.slice(10, 13)).toEqual(['  [ Plan / Run ]  Workflows: the blocks, Enter runs one after it asks', '  [ Permissions 2 ]  the Control Room: what waits on you', '  [ Cloudflare ]  Models on Cloudflare (optional)']);
+    expect(t[14]).toBe('Stop lives in the composer: [ Stop ] during the turn, or Esc there.');
+    expect(t.join('\n')).not.toMatch(/\[ Stop \]  needs/);
+    const second = center(text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 1, shellDrawer: 2 }, shellDrawer: 'tools' }))));
+    expect(second[11]).toBe('> [ Permissions ]  the Control Room: what waits on you');
+  });
+
+  it('R11 step 3a: the finder (/ and the rail\'s "/ find") is a box over the conversation: the workspaces the words name, the plan\'s names too, the first marked', () => {
+    const f = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'runs' } }))));
+    expect(f[7]).toMatch(/^Find a workspace  type its name/);
+    expect(f[9]).toBe('/ runs');
+    expect(f[11]).toMatch(/^> Logs & Receipts  Runs & receipts · Logs & records  · Logs and/);
+    const canvas = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'canv' } }))));
+    expect(canvas[11]).toBe('> Studio  Canvas  · Studio outline');
+    const acc = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'accounts' } }))));
+    expect(acc[11]).toBe('> Connections  Models & accounts · Models & keys  · Connections');
+    const none = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'zzz' } }))));
+    expect(none[11]).toBe('No workspace is named "zzz". Enter searches All tools for it.');
+    const all = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: '' } }))));
+    expect(all[11]).toBe('> Chat  · Conversation');
   });
 });
 
@@ -754,9 +804,17 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
   it('R10: Help (?) on the Chat screen lists its own keys (the pane order, M, /, i, the drawers), not the tabbed layout\'s', () => {
     const h = center(text(frame(data(), ui({ overlay: { kind: 'help' } } as Partial<Ui>))));
     const all = h.join('\n');
-    expect(all).toMatch(/Tab +the next pane: the left menu, the conversation,/);
+    // (R11 step 3c: CHAT's keys on the first page, MODELS' after; Tab under MOVING AROUND, on a later page: `whole` below)
+    expect(all).toMatch(/Enter +in the conversation, opens the composer/);
     expect(all).toMatch(/M +Models: beside the conversation, or a drawer below/);
     expect(all).not.toMatch(/row 1|row 2|◆|the ten tabs/);
+    // (R11 step 3c: grouped by task, a group's name on its own row; the later groups on the next pages)
+    expect(h.filter((r) => /^(CHAT|MODELS|MOVING AROUND|RUNS)$/.test(r))).toEqual(['CHAT', 'MODELS']);
+    expect(all).toMatch(/a letter +in the conversation, opens the composer with it\n +typed \(after the draft\)/);
+    const whole = centerView({ ui: ui({ overlay: { kind: 'help' } } as Partial<Ui>), data: data(), g, width: 69, height: 20, now: NOW, can, columns: 122, inChat: true }).lines.map(plain);
+    expect(whole.filter((r) => /^(CHAT|MODELS|MOVING AROUND|RUNS)$/.test(r))).toEqual(['CHAT', 'MODELS', 'MOVING AROUND', 'RUNS']);
+    expect(whole[whole.indexOf('MODELS') - 1]).toBe('');
+    expect(whole.join('\n')).toMatch(/Tab +the next pane: the left menu, the conversation,/);
     // the title row says which of its rows show (the Keys' first line says it does)
     expect(h[4]).toMatch(/^CHAT \/ tray +Keys 1–\d+ of \d+$/);
   });

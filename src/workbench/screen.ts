@@ -306,6 +306,7 @@ function overlayTitle(ui: Ui): string {
   if (!o) return '';
   switch (o.kind) {
     case 'help': return 'Keys';
+    case 'find': return 'Find a workspace';
     case 'picker': return 'Switch project';
     case 'new': return 'New project';
     case 'settings': return 'Quick settings';
