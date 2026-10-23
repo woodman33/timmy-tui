@@ -14,7 +14,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAgent, UNANSWERED, type Agent } from '../src/agent/core.js';
-import { LocalChatError } from '../src/agent/local-chat.js';
+import { forgetShownModel, LocalChatError, rememberShownModel, showModelOnce, shownModelKept } from '../src/agent/local-chat.js';
+import { ollamaAt, type OllamaAt } from '../src/setup/ollama-models.js';
 import { sealedRoute } from '../src/agent/chat-route.js';
 import { ProjectTurnFiles } from '../src/agent/project-tools.js';
 import { gateTools, type ApprovalRequest, type Decision } from '../src/repl/approvals.js';
@@ -33,6 +34,7 @@ const fakes: FakeOllama[] = [];
 let box = '';
 let project = '';
 beforeEach(() => {
+  forgetShownModel();
   box = mkdtempSync(join(tmpdir(), 'local-chat-'));
   project = join(box, 'project');
   mkdirSync(join(project, 'src'), { recursive: true });
@@ -188,6 +190,34 @@ describe('the chat on a local model (FAKE Ollama)', () => {
     expect(first.tools.length).toBeGreaterThan(0);
     expect(second).not.toHaveProperty('tools');
     expect(r.out).toContain('Fine.');
+  });
+
+  it('R28 (R11 Phase 2): /api/show is asked once per model choice, not before every chat: three sends are 1 show and 3 chats; an Ollama that stops answering is asked again', async () => {
+    const script = (n: number) => () => ({ chunks: textChunks(MODEL, [`answer ${n}`]) });
+    const ollama = await fake({ models: [{ name: MODEL, capabilities: ['completion', 'tools'] }], chat: [script(1), script(2), script(3)] });
+    const at = ollamaAt(ollama.url) as OllamaAt;
+    forgetShownModel();
+    expect(shownModelKept(at, MODEL)).toBeNull();
+    const { agent, files, openRouterCalls } = localAgent(ollama.url, MODEL);
+    for (const q of ['one', 'two', 'three']) expect((await turn(agent, q, files)).result).toBe('ok');
+    // what the FAKE was sent: one /api/show (the first turn's), then a chat per send
+    expect(ollama.requests.map((r) => `${r.method} ${r.path}`)).toEqual(['POST /api/show', 'POST /api/chat', 'POST /api/chat', 'POST /api/chat']);
+    expect(ollama.chats().map((c) => c.messages.at(-1).content)).toEqual(['one', 'two', 'three']);
+    // every chat still carried the tools /api/show listed (the kept answer, not a guess)
+    for (const c of ollama.chats()) expect(c.tools.map((x: any) => x.function.name)).toContain('get_current_time');
+    expect(shownModelKept(at, MODEL)).toEqual({ capabilities: ['completion', 'tools'], remote: null });
+    expect(openRouterCalls()).toBe(0);
+    // the Ollama stops answering: the turn fails, and the kept answer is dropped, so the next turn asks /api/show again
+    await ollama.close();
+    fakes.splice(fakes.indexOf(ollama), 1);
+    agent.on('error', () => undefined);
+    expect((await turn(agent, 'four', files)).result).toBe('failed');
+    expect(shownModelKept(at, MODEL)).toBeNull();
+    // a check made elsewhere (the setup's choice check) can be kept, and the first turn then asks nothing before its chat
+    rememberShownModel(at, MODEL, { capabilities: ['completion'], remote: null });
+    expect(await showModelOnce(at, MODEL)).toEqual({ shown: { capabilities: ['completion'], remote: null }, asked: false });
+    forgetShownModel(at, MODEL);
+    expect(shownModelKept(at, MODEL)).toBeNull();
   });
 
   it('an Ollama that does not answer fails the turn with words and the fix; nothing goes to OpenRouter or another model', async () => {

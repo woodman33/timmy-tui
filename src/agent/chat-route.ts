@@ -283,11 +283,13 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
       quiet(`  /model lists what it has. ${PULL_WORDS}`),
     ];
   }
-  // what the model can do, asked of Ollama now (a turn asks again)
+  // what the model can do, asked of Ollama now: this choice's one /api/show, kept for the session's turns (R28: a turn asks
+  // no /api/show again while Ollama keeps answering); a fresh choice asks afresh
   let tools = 'tool calls: checked at the next message';
-  const { showModel, LocalChatError } = await import('./local-chat.js');
+  const { forgetShownModel, showModelOnce, LocalChatError } = await import('./local-chat.js');
   try {
-    const shown = await showModel(r.at, chosen.name, undefined, 5000);
+    forgetShownModel(r.at, chosen.name);
+    const { shown } = await showModelOnce(r.at, chosen.name, undefined, 5000);
     tools = shown.capabilities === null ? 'tool calls: Ollama does not say' : shown.capabilities.includes('tools') ? 'takes tool calls' : 'does not take tool calls: turns run without tools';
   } catch (err) {
     tools = err instanceof LocalChatError ? `tool calls: not known (${err.message.split('\n')[0]})` : tools;
