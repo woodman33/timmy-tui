@@ -182,9 +182,9 @@ export function createArtifacts(deps) {
   const setReading = (key, v) => readings.update((all) => ({ ...all, [key]: { ...(all[key] || {}), ...v } }));
   const handled = (e) => { const ed = deps.editor(); if (ed) ed.markEventAsHandled(e); };
   /**
-   * The cards placed in the last few seconds (shape id → until when): a card grows as its artifact is read (its image comes after
+   * The card placed last, for a few seconds (shape id → until when): a card grows as its artifact is read (its image comes after
    * its first drawing), so while it is new it is brought into view again each time its height changes, its action with it (it
-   * would otherwise sit under tldraw's toolbar).
+   * would otherwise sit under tldraw's toolbar). Only the newest: an earlier card never takes the camera from it.
    */
   const justPlaced = new Map();
   const KEEP_IN_VIEW_MS = 6000;
@@ -507,6 +507,10 @@ export function createArtifacts(deps) {
     // over a shape.
     const at = deps.place(editor, { w: ARTIFACT_WIDTH, h: ARTIFACT_PLACE_H });
     const shapeId = deps.createShapeId();
+    // (R10 H167; H172's RESULTS of 00:02, from CI's studio-artifacts-browser at 704d8510: the newest placement keeps the camera.
+    // An earlier card still in its few seconds that grew after a newer one was placed took the camera back to itself, and the
+    // card just placed went off screen; now only the newest is brought into view again as it grows)
+    justPlaced.clear();
     justPlaced.set(shapeId, Date.now() + KEEP_IN_VIEW_MS);
     editor.createShape({ id: shapeId, type: ARTIFACT_SHAPE, x: at.x, y: at.y, props: artifactProps(row, b.project) });
     editor.select(shapeId);

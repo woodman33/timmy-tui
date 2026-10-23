@@ -404,4 +404,44 @@ describe.skipIf(!browserPath)("Studio's project-linked artifacts: an artifact ca
       await s.context.close();
     }
   });
+
+  it("the newest placement keeps the camera: a card placed before it that grows within its own few seconds (H172's forced control: the run card grows after the receipt card is placed) never takes the camera back", async () => {
+    const s = await open();
+    const { page } = s;
+    type Ed = { getCamera: () => { x: number; y: number; z: number }; getShape: (id: string) => { props: { h: number } } | undefined };
+    try {
+      await shows(page, tray);
+      await page.locator(`#artifact-list li[data-artifact="run:${trayOp}"]`).waitFor({ timeout: 15_000 });
+      const rid = (await page.locator('#artifact-list li[data-artifact^="receipt:"]').first().getAttribute('data-artifact'))!.slice('receipt:'.length);
+      // the run card, then the receipt card at once: the run card still in its few seconds when the receipt card is placed
+      const t0 = Date.now();
+      const run = (await page.evaluate((op) => (window as never as Win).timmyCanvas.placeArtifact(`run:${op}`), trayOp)).shape;
+      const rc = (await page.evaluate((id) => (window as never as Win).timmyCanvas.placeArtifact(`receipt:${id}`), rid)).shape;
+      const receipt = page.locator(`[data-timmy-artifact="${rc}"]`);
+      // the receipt card read and drawn whole, the camera's move to it done
+      await page.waitForFunction((id) => document.querySelector(`[data-timmy-artifact="${id}"] .ta-receipt`)?.textContent === '✓ sealed and verified', rc, { timeout: 15_000 });
+      await page.waitForTimeout(500);
+      const camera = (): Promise<string> => page.evaluate(() => { const c = ((window as never as { timmyCanvas: { editor: Ed } }).timmyCanvas.editor).getCamera(); return `${Math.round(c.x)},${Math.round(c.y)},${c.z.toFixed(3)}`; });
+      const before = await camera();
+      // FORCED: the run card grows by 2000 px (as a reading that comes late would), within its own few seconds: so tall that it
+      // cannot be shown whole where it is (before the fix this moved the camera to it)
+      expect(Date.now() - t0, `the run card's growth came after its few seconds, so this control tests nothing`).toBeLessThan(5_000);
+      await page.evaluate((id) => {
+        const d = document.createElement('div');
+        d.style.height = '2000px';
+        d.setAttribute('data-forced-growth', 'a test\'s control');
+        document.querySelector(`[data-timmy-artifact="${id}"] .ta-inner`)?.appendChild(d);
+      }, run);
+      await page.waitForFunction((id) => (((window as never as { timmyCanvas: { editor: Ed } }).timmyCanvas.editor).getShape(id)?.props.h ?? 0) > 2000, run, { timeout: 10_000 });
+      await page.waitForTimeout(700);
+      expect(await camera()).toBe(before);
+      // the card just placed is still on screen, its Open where a person can press it
+      const box = await receipt.locator('button.ta-open').boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x >= 0 && box!.y >= 0 && box!.x + box!.width <= 1440 && box!.y + box!.height <= 900, JSON.stringify(box)).toBe(true);
+      expect(s.errors).toEqual([]);
+    } finally {
+      await s.context.close();
+    }
+  });
 });
