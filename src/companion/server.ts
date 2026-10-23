@@ -139,6 +139,7 @@ import { mountPanels } from './panels.js';
 import { mountJourneyRoutes } from '../journey/routes.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
 import { mountChatView } from './chat-view.js';
+import type { InventorySource } from './panels/tools.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -183,6 +184,10 @@ export interface CompanionOptions {
   token?: string;
   /** R4 (H84): the chat completions address /chat sends to (a test's FAKE on 127.0.0.1); OpenRouter's when absent. */
   upstream?: string;
+  /** R11 Phase 2 (H171): the inventory the Tools & integrations cards show (a test's FAKE rows, in the capability inventory's
+   *  shape) with how it was read; absent: src/capabilities inventory({ env, cwd }) for the project (files, settings and
+   *  receipts; nothing run). */
+  inventory?: (project: ActiveProject) => Promise<InventorySource>;
   /** R4 (H87): the folder its page is served from (a test's); its own client folder when absent. */
   clientDir?: string;
   /**
@@ -855,7 +860,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   // R6 lead: the tab panels' own routes (/api/panel/<tab>/…, src/companion/panels.ts), token-checked, for the shown project
-  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p) });
+  mountPanels(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, env: options.workspace?.env ?? process.env, frame: (p) => workspace.frame(p), ...(options.inventory ? { inventory: options.inventory } : {}) });
   // R10 (H164): the journey's routes (/api/journey/…), token-checked, for the shown project; the route of the page's own Send
   // read from the environment its /chat reads
   mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });

@@ -64,8 +64,8 @@ body.shell:not([data-dest="chat"]) .ws-menu { display: inline-flex; }
 .rail-find:focus { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
 .rail-find-hint { flex: 1 1 100%; font-size: 13px; color: var(--timmy-text-secondary); }
 .rail-none { margin: 6px 8px; font-size: 13px; color: var(--timmy-text-secondary); }
-.cx-start-k { margin-top: 22px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
-.cx-starters { margin-top: 10px; }
+.cx-start-k { margin-top: 14px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.cx-ways.cx-starters { margin-top: 8px; gap: 10px; }
 
 /* ---------- Chat: the composition fills the shell's main column ---------- */
 
@@ -155,8 +155,15 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-running { color: var(--timmy-text); }
 .cx-running-box { margin: 10px 0 0 42px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
 .cx-empty:not([hidden]) + .cx-running-box { max-width: 860px; margin: 16px auto 0; padding: 0 6px; }
-.cx-welcome-line { margin-top: 10px; font-size: 14px; line-height: 1.6; color: var(--timmy-text-secondary); }
-.cx-starters .cx-way { min-height: 128px; }
+.cx-welcome-line { margin-top: 6px; font-size: 14px; line-height: 1.6; color: var(--timmy-text-secondary); }
+/* R11 Phase 2 (R53): the starters as half-height cards (two rows of two above the composer at 1440x900) */
+.cx-starters .cx-way-compact { min-height: 0; gap: 2px; padding: 8px 14px; }
+.cx-way-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.cx-way-head .cx-way-title { flex: 1; min-width: 0; }
+.cx-way-compact .cx-way-words { flex: 0 0 auto; }
+.cx-way-compact .cx-way-act { display: inline; padding: 0; white-space: nowrap; }
+/* an empty conversation list keeps no padding: the welcome under the head takes the height */
+.cx-turns:empty { padding: 0; }
 @media (max-width: 720px) { .cx-running-box { margin-left: 0; } }
 .cx-turn.is-failed .cx-meta .cx-end { color: var(--timmy-accent); }
 .cx-empty { max-width: 74ch; margin: 30px auto 10px; padding: 0 10px; }
@@ -182,7 +189,8 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-composer:focus-within { border-color: var(--timmy-accent); }
 .cx-field { display: flex; align-items: flex-start; gap: 8px; margin: 6px 10px 0; padding: 6px 10px; border-radius: 3px; background: var(--timmy-accent-soft); }
 .cx-prompt { flex-shrink: 0; padding-top: 1px; font-size: 16px; line-height: 1.45; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); }
-.cx-input { display: block; flex: 1; min-width: 0; min-height: 46px; max-height: 240px; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 15px; line-height: 1.55; resize: none; caret-color: var(--timmy-accent); }
+/* R11 Phase 2 (R51): one row until typed in; the rows follow the draft (chat-shell.js fitInput), to eight */
+.cx-input { display: block; flex: 1; min-width: 0; min-height: 24px; max-height: 240px; padding: 2px 0; border: 0; background: transparent; color: var(--timmy-text); font-size: 15px; line-height: 1.55; resize: none; caret-color: var(--timmy-accent); overflow-y: auto; }
 .cx-input::placeholder { color: var(--timmy-text-secondary); }
 .cx-input:focus-visible { outline: none; }
 .cx-compose-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px 10px 12px; }
@@ -191,10 +199,12 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-send-why { margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; }
 .cx-send-why:empty { display: none; }
 .cx-compose-foot .cx-send-why ~ .cx-send, .cx-compose-foot .cx-chip ~ .cx-send { margin-left: 0; }
-.cx-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 62%; min-height: 32px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
+/* R11 Phase 2 (R52): the chip never forces Send off its row and is never cut: its basis is 0 and its words wrap inside it
+   (as at 390) when the row is tight; it is no wider than its words */
+.cx-chip { display: inline-flex; flex: 1 1 0; min-width: 0; max-width: max-content; align-items: center; gap: 7px; min-height: 32px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; text-align: left; cursor: pointer; }
 .cx-chip:hover { border-color: var(--timmy-text-secondary); }
 .cx-chip[aria-expanded="true"] { background: var(--timmy-surface); border-color: var(--timmy-text-secondary); }
-.cx-chip .cx-chip-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-chip .cx-chip-words { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .cx-dot { flex-shrink: 0; font-size: 13px; line-height: 1; color: var(--timmy-text-secondary); }
 .cx-dot[data-state="ready"] { color: var(--timmy-live); }
 .cx-dot[data-state="checking"] { color: var(--timmy-accent); animation: cx-pulse 1s ease-in-out infinite; }
@@ -325,8 +335,8 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* the first run, a provider's setup, no model (the handoff's captures 02, 04, 06; the terminal target's first run) */
-.cx-empty { max-width: 860px; margin: 26px auto 10px; padding: 0 6px; }
-.cx-empty .cx-title { margin-top: 8px; }
+.cx-empty { max-width: 860px; margin: 14px auto 10px; padding: 0 6px; }
+.cx-empty .cx-title { margin-top: 6px; }
 .cx-ways { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .cx-way { display: flex; flex-direction: column; gap: 8px; min-height: 150px; padding: 16px 18px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); color: var(--timmy-text); text-align: left; cursor: pointer; }
 .cx-way:hover { border-color: var(--timmy-text-secondary); }
@@ -360,6 +370,15 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 /* the controls' row: its label goes under 1440 px, the minor controls move into More from 1180 px (the terminal target's
    80 x 24 has [Tools] [Budget] [Logs] [More]), and the counts under 520 px; a row still too wide scrolls */
 @media (max-width: 1439px) { .cx-controls-label { display: none; } }
+/* R11 Phase 2 (R51, 1280x720): on a short screen the conversation takes the height first: the field's label is read, not
+   drawn (the field says "Message TIMMY…"), the draft sentence under the composer and the head's paragraph are not drawn */
+@media (max-height: 760px) {
+  .cx-input-k { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cx-field { margin-top: 10px; }
+  .cx-hint #cx-hint-draft { display: none; }
+  .cx-hint { justify-content: flex-end; }
+  .cx-head .cx-sub { display: none; }
+}
 @media (max-width: 1180px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
 @media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; } .cx-ctl, .cx-more { padding: 4px 8px; } }
 @media (max-width: 1180px) {

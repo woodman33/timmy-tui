@@ -424,7 +424,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     }
   }, 180_000);
 
-  it('at 1280 × 720 the composer, its chip and Send read as at 1440 (the rail beside them)', async () => {
+  it('at 1280 × 720 the composer, its chip and Send read as at 1440 (the rail beside them); the conversation takes the height first: the composer one row until typed in, the chip whole with Send on its row, the first answer above the fold (R51, R52)', async () => {
     const { context, page, errors } = await openPage(browser, { origin }, { width: 1280, height: 720 });
     try {
       await page.goto(`${origin}/#t=${token}`);
@@ -433,11 +433,27 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.isVisible('#cx-models')).toBe(true);
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · ready \d\d:\d\d$/);
       expect(await page.$eval('#cx-chip-words', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+      // R52: the chip's words are whole (wrapped inside the chip if the row is tight, never cut with …), and Send is on the chip's row
+      expect(await page.$eval('#cx-chip-words', (e) => getComputedStyle(e).whiteSpace !== 'nowrap' && e.scrollHeight <= e.clientHeight + 1)).toBe(true);
+      expect(await page.evaluate(() => { const c = document.getElementById('cx-chip')!.getBoundingClientRect(); const s = document.getElementById('cx-send')!.getBoundingClientRect(); return s.top < c.bottom && s.bottom > c.top; })).toBe(true);
+      // R51: the composer is one row until typed in; it grows with the draft and shrinks back
+      expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(1);
       expect(await page.isDisabled('#cx-send')).toBe(true);
+      // the conversation takes the height first: its scroll box has at least 400 px of the 720 (the head's paragraph, the
+      // field's label and the draft sentence are not drawn at this height; the composer is one row), so an exchange's answer
+      // is above the fold; the last answer's text is in view over the composer
+      expect(await page.$eval('#cx-scroll', (e) => e.clientHeight)).toBeGreaterThanOrEqual(400);
+      expect(await page.$$eval('#cx-turns .cx-turn.is-timmy .cx-text', (els) => { const r = els[els.length - 1].getBoundingClientRect(); const f = document.getElementById('cx-composer')!.getBoundingClientRect(); return r.top >= 0 && r.bottom <= f.top; })).toBe(true);
+      expect(await page.$eval('#cx-sub', (e) => e.getClientRects().length)).toBe(0);
+      expect(await page.$eval('#cx-hint-draft', (e) => e.getClientRects().length)).toBe(0);
       await page.fill('#cx-input', 'x');
       expect(await page.isDisabled('#cx-send')).toBe(false);
       expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
       expect(await page.$eval('#cx-composer', (f) => { const r = f.getBoundingClientRect(); return r.bottom <= window.innerHeight && r.width > 500; })).toBe(true);
+      await page.fill('#cx-input', 'one\ntwo\nthree');
+      expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(3);
+      await page.fill('#cx-input', '');
+      expect(await page.$eval('#cx-input', (e) => (e as HTMLTextAreaElement).rows)).toBe(1);
       expect(errors).toEqual([]);
     } finally { await context.close(); }
   }, 120_000);
@@ -479,13 +495,22 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           // (the terminal's words, H167's step 2)
           expect(welcome).toEqual([
             'Write below and press Enter: the model on the chip answers.',
-            'Logs and receipts stay on this computer, in this project’s .timmy folder: Logs & records lists them.',
+            'Logs and receipts stay on this computer, in this project’s .timmy folder: Runs & receipts lists them.',
           ]);
           expect(await text(page, '#cx-empty .cx-start-k')).toBe('Start with');
           const starters = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent?.trim()]));
           expect(starters).toEqual([['ask', 'Ask about this project'], ['image', 'Inspect an image'], ['workflow', 'Run a workflow'], ['canvas', 'Open the canvas']]);
           // every starter is in view with the composer (nothing cut), at both sizes
           expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.every((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; }))).toBe(true);
+          // R53: at 1440 × 900 all four starters are above the composer, two rows of two half-height cards, each whole
+          if (size.width === 1440) {
+            // (measured with the page's own font loaded: the fallback is narrower)
+            await page.evaluate(() => document.fonts.ready);
+            const geo = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: r.bottom, height: r.height, cut: e.scrollHeight > e.clientHeight + 1 }; }));
+            const fold = await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().top);
+            for (const g of geo) { expect(g.bottom).toBeLessThanOrEqual(fold); expect(g.cut).toBe(false); expect(g.height).toBeLessThan(120); }
+            expect(new Set(geo.map((g) => g.top)).size).toBe(2);
+          }
           // Ask: the sample question as a draft in the composer, which has the keyboard; the page's own draft is kept as it is
           await page.click('[data-cx-start="ask"]');
           expect(await page.inputValue('#cx-input')).toBe('What does this project do, and what ran here last?');
@@ -595,7 +620,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.click('[data-cx-way="ollama-local"]');
         await p2.waitForFunction(() => document.body.dataset.chatState === 'setup', null, { timeout: 10_000 });
         expect(await p2.$eval('#cx-scroll', (s) => s.scrollTop)).toBe(0);
-        await p2.waitForSelector('#cm-list .cm-empty', { timeout: 20_000 });
+        // (the list's answer, not its "Reading the models…" placeholder: the provider's state line and the list are two reads)
+        await p2.waitForFunction(() => { const e = document.querySelector('#cm-list .cm-empty'); return Boolean(e && !/^Reading/.test(e.textContent ?? '')); }, null, { timeout: 20_000 });
         expect(await text(p2, '.cm-state')).toMatch(/^● answered \d\d:\d\d · Ollama answered its list of models at 127\.0\.0\.1:\d+: 0 installed here \(no model ran, no charge\)\. Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/);
         expect(await text(p2, '#cm-list .cm-empty')).toBe('None listed: the line above says why.');
         expect(await p2.$('#cm-foot')).toBeNull();
