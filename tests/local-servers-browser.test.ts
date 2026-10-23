@@ -140,8 +140,10 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // every request the page made with the token carried it in a header, never in its address
       for (const s of seen) expect(s.path).not.toContain(token);
       expect(seen.find((s) => s.path === '/chat')?.auth).toBe(`Bearer ${token}`);
-      // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own)
-      await page.click('[data-tab="canvas"]');
+      // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own). R10 CHAT
+      // (H171): the page opens on Chat, where the tab row is not drawn; a person opens the canvas with the left menu's Studio
+      // (or its key, 4), and from there the tab row is drawn again (Slate 3D's tab below)
+      await page.click('#rail-menu .rail-item[data-dest="studio"]');
       await page.waitForFunction(() => /Revision 0|No canvas jobs yet/.test(document.getElementById('canvas-summary')?.textContent ?? ''), null, { timeout: 15_000 });
       expect(seen.find((s) => s.path.split('?')[0] === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
       // Slate 3D's frame is given the token in its fragment, never in its address's query (R4 H92: when its tab is opened)
