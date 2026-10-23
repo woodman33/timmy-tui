@@ -10,6 +10,8 @@
 import { chatRoute, knownAnswers, readSetupState, OLLAMA_DEFAULT, type SetupState } from '../setup/questions.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { freeOnlyOn, freeOnlyRefusal, modelPrice, type ModelPrice } from './model-price.js';
+// R10 (H169): the route policy (free-only and local-only) every model call is checked against
+import { checkRoute, localOnlyOn, policyRefusalLines, type RoutePolicy } from './route-policy.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
@@ -126,15 +128,28 @@ export function chatRouteNow(o: {
   env?: Env; cwd?: string; state?: SetupState; session?: string | null; key?: boolean; openRouterModel?: string | null; short?: boolean; surface?: ChatSurface;
   /** R5: free-only now (absent: TIMMY_CHAT_FREE_ONLY, else the settings' freeOnly); `price` answers what a model costs (a test's) */
   freeOnly?: boolean; price?: (id: string) => ModelPrice;
+  /** R10 (H169): local-only now (absent: TIMMY_CHAT_LOCAL_ONLY, else the settings' localOnly) */
+  localOnly?: boolean;
 }): RouteNow {
   const surface = o.surface ?? 'repl';
   const route = resolveChatRoute({ env: o.env, state: o.state, session: o.session });
+  // R10 (H169): the policy, read at every message (src/agent/route-policy.ts): local-only, then free-only
+  const policy: RoutePolicy = { freeOnly: o.freeOnly ?? freeOnlyOn(o.env ?? process.env), localOnly: o.localOnly ?? localOnlyOn(o.env ?? process.env) };
+  const tag = (words: string): string => `${words}${policy.localOnly ? ' · local-only' : ''}`;
   // the monitor's top line names its own /setup (it answers where the setup happens): never the REPL's /model or /setup chat
   const said = (words: string): string => (surface === 'monitor' ? words.replace(/ · \/(model|setup chat)$/, ' · /setup') : words);
   if (route.kind === 'local') {
     const words = said(localRouteWords(route));
     const ready = prepareLocal(route, { fail: '' });
-    if ('route' in ready) return { route, state: { kind: 'local', words, ready: true }, local: ready.route };
+    if ('route' in ready) {
+      // R10 (H169): a cloud model through this Ollama, or another computer's Ollama, is refused by local-only; free-only
+      // refuses what it cannot know to be free (a model with local weights here costs nothing)
+      if (policy.localOnly || policy.freeOnly) {
+        const c = checkRoute({ source: 'ollama-local', model: ready.route.model, host: ready.route.host, role: 'turn' }, policy, o.price ? { price: o.price } : {});
+        if (!c.ok) return { route, state: { kind: 'local', words: `${words} · ${c.reason === 'cloud-under-local-only' ? 'local-only' : 'free-only'}: not sent`, ready: false, refusal: policyRefusalLines(c, surface !== 'repl') } };
+      }
+      return { route, state: { kind: 'local', words: tag(words), ready: true }, local: ready.route };
+    }
     // the fix in the words of the surface: the REPL's own commands there, a command any terminal runs elsewhere
     const away = surface !== 'repl';
     const refusal = plainLines(ready.refusal).map((l) => (!away || !/^Try:/.test(l) ? l
@@ -145,8 +160,13 @@ export function chatRouteNow(o: {
   const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
   if (key) {
     const words = said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }));
+    // R10 (H169): local-only refuses OpenRouter, whatever the model costs
+    if (policy.localOnly) {
+      const c = checkRoute({ source: 'openrouter', model: o.openRouterModel ?? 'the chat\'s OpenRouter model', role: 'turn' }, policy, o.price ? { price: o.price } : {});
+      if (!c.ok) return { route, state: { kind: 'openrouter', words: `${words} · local-only: not sent`, ready: false, refusal: policyRefusalLines(c, surface !== 'repl') } };
+    }
     // R5: free-only refuses a model not known to be free (unknown is refused, never passed), on every surface alike
-    if (o.freeOnly ?? freeOnlyOn(o.env ?? process.env)) {
+    if (policy.freeOnly) {
       const model = o.openRouterModel ?? null;
       const refusal = freeOnlyRefusal(model, model ? (o.price ?? ((id: string) => modelPrice(id)))(model) : null, surface !== 'repl');
       if (refusal) return { route, state: { kind: 'openrouter', words: `${words} · free-only: not sent`, ready: false, refusal } };

@@ -23,6 +23,9 @@ import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-pa
 import { probeOllama, pickOllamaModel, ollamaChatCompletion, getLocalOllamaBaseUrl } from './providers.js';
 import { modelCheckUrl } from './model-check.js';
 import { runLocalTurn, type LocalChatRoute, type LocalTurnResult } from './local-chat.js';
+// R10 (H169): the route policy (free-only, local-only) every model call of a turn is checked against: the turn's own request,
+// each fallback model, the last-resort local answer, and each tool that asks a model of its own (src/agent/route-policy.ts)
+import { checkRoute, policyTools, PolicyRefusedError, routePolicyNow, type RoutePolicy } from './route-policy.js';
 
 export interface SendOptions {
   /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
@@ -542,6 +545,13 @@ export class Agent extends EventEmitter<AgentEvents> {
    * model, never by OpenRouter or another model; null (the default) is the OpenRouter route, as before.
    */
   private localChat: (LocalChatRoute & { numCtx?: number }) | null = null;
+  /** R10 (H169): the route policy, read at every turn (default: the settings', src/agent/route-policy.ts routePolicyNow) */
+  private routePolicy: () => RoutePolicy = () => routePolicyNow();
+
+  /** R10 (H169): where this agent reads the route policy (a test's, or a surface's own); null: the settings' again. */
+  setRoutePolicy(read: (() => RoutePolicy) | null): void {
+    this.routePolicy = read ?? (() => routePolicyNow());
+  }
   /** R4 (H103): what the last turn on the local route reported (null: none yet, or it did not finish). */
   private lastLocal: LocalTurnResult | null = null;
 
@@ -725,6 +735,20 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   /** R4 (H103, D1c): what the last turn's last-resort fallback was, when it answered (null: it did not answer that turn). */
   private lastResort: LastResortAnswer | null = null;
+  /** R10 (H169): the model OpenRouter named in its answers of the last turn (a response's `model`), when it named one */
+  private lastReturned: string | null = null;
+  /** R10 (H169): the model id the last turn's answer came from (the one asked, a fallback, or ollama/<model>), when it answered */
+  private lastUsed: string | null = null;
+
+  /** R10 (H169): the model the provider named in the last turn's answer (OpenRouter's response `model`), else null. */
+  lastReturnedModel(): string | null {
+    return this.lastReturned;
+  }
+
+  /** R10 (H169): the model id the last turn's answer came from, whatever was chosen since; null when it did not answer. */
+  lastTurnModel(): string | null {
+    return this.lastUsed;
+  }
 
   /** R4 (H103, D1c): the last turn was answered by the last-resort fallback: which local model, where, and why (else null). */
   lastFallback(): LastResortAnswer | null {
@@ -742,13 +766,17 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   private async tryOllamaLastResort(
     history: { role: string; content: string }[],
-    reason: string
+    reason: string,
+    policy: RoutePolicy | null = null,
   ): Promise<{ fullText: string; actualModel: string } | null> {
     try {
       const probe = await probeOllama();
       if (!probe.ok) return null;
       const model = pickOllamaModel(probe.models, ['granite', 'ornith', 'gemma', 'qwen']);
       if (!model) return null;
+      // R10 (H169): the last-resort answer is a model call like any other: the route policy checks it (a loopback Ollama's
+      // local weights pass both rules; anything else is not tried)
+      if (policy && !checkRoute({ source: 'ollama-local', model, host: probe.base, role: 'last-resort' }, policy).ok) return null;
       this.logModelEvent('model.fallback.used', { provider: 'ollama', model, reason: String(reason).slice(0, 200) });
       this.emit('stream:start');
       const text = await ollamaChatCompletion(model, history);
@@ -825,8 +853,26 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('error', refused);
       throw refused;
     }
+    // R10 (H169): the route policy, read once for the turn: the turn's own request first, refused before the conversation
+    // takes the message and before any request (every surface's own check comes first; this one holds for any caller)
+    const policy = this.routePolicy();
+    const guarded = policy.freeOnly || policy.localOnly;
+    if (guarded) {
+      const own = this.localChat
+        ? checkRoute({ source: 'ollama-local', model: this.localChat.model, host: this.localChat.host, role: 'turn' }, policy)
+        : checkRoute({ source: 'openrouter', model: this.config.model, role: 'turn' }, policy);
+      if (!own.ok) {
+        const refused = new PolicyRefusedError(own.reason, own.words);
+        this.emit('error', refused);
+        throw refused;
+      }
+    }
+    // the tools a turn offers: each that asks a model of its own is checked at its call (policy off: the tools as set)
+    const turnTools = guarded ? policyTools(this.tools, () => this.routePolicy(), { openRouterModel: () => this.config.model }) : this.tools;
     this.running = true;
     this.lastResort = null;
+    this.lastReturned = null;
+    this.lastUsed = null;
     // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
     const requestOptions = opts.signal || opts.retry
       ? {
@@ -881,7 +927,7 @@ export class Agent extends EventEmitter<AgentEvents> {
       if (this.localChat) {
         this.lastLocal = null;
         const local = await runLocalTurn({
-          route: this.localChat, instructions: this.config.instructions, history, tools: this.tools,
+          route: this.localChat, instructions: this.config.instructions, history, tools: turnTools,
           maxSteps: this.config.maxSteps || 10, signal: opts.signal, ...(this.localChat.numCtx ? { numCtx: this.localChat.numCtx } : {}),
           hooks: {
             emit: (event, ...args) => void (this.emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
@@ -895,6 +941,7 @@ export class Agent extends EventEmitter<AgentEvents> {
           },
         });
         this.lastLocal = local;
+        this.lastUsed = local.actualModel || this.localChat.model;
         this.activeProvider = 'ollama';
         this.emit('stream:end', local.fullText);
         const answer: Message = { role: 'assistant', content: local.fullText, timestamp: Date.now() };
@@ -908,7 +955,7 @@ export class Agent extends EventEmitter<AgentEvents> {
           model: modelId,
           instructions: this.config.instructions,
           input: history as any,
-          tools: this.tools.length > 0 ? this.tools : undefined,
+          tools: turnTools.length > 0 ? turnTools : undefined,
           stopWhen: [
             stepCountIs(this.config.maxSteps || 10),
             maxCost(this.config.maxCost || 1),
@@ -927,6 +974,8 @@ export class Agent extends EventEmitter<AgentEvents> {
         const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
         const price = (response: any): void => {
           if (!response || typeof response !== 'object') return;
+          // R10 (H169): the model OpenRouter says answered (its response's `model`), apart from the one asked
+          if (typeof response.model === 'string' && response.model) this.lastReturned = response.model.slice(0, 200);
           const key = typeof response.id === 'string' && response.id ? response.id : `response-${charged.size + unreported.size}`;
           const usage = response.usage ?? {};
           // On the operator's own provider key (BYOK), `cost` is only OpenRouter's fee and the provider
@@ -1071,12 +1120,21 @@ export class Agent extends EventEmitter<AgentEvents> {
         this.logModelEvent('openrouter.request.failed', { model: activeModel, error: sanitizedErr });
 
         let fallbackModel = '';
+        // R10 (H169): a fallback model the route policy refuses is never tried (free-only: no paid model in place of a free
+        // one; local-only: no cloud model at all); the refusal is said with the failure
+        const notTried: string[] = [];
         for (const candidate of FALLBACK_ORDER) {
           if (candidate !== activeModel) {
+            if (guarded) {
+              const c = checkRoute({ source: 'openrouter', model: candidate, role: 'fallback' }, policy);
+              if (!c.ok) { notTried.push(c.words); continue; }
+            }
             fallbackModel = candidate;
             break;
           }
         }
+        if (notTried.length) this.logModelEvent('model.fallback.refused', { selectedModel: activeModel, refused: notTried.length });
+        const policyNote = notTried.length ? `\n\nNo fallback model was tried: ${notTried[0]}${notTried.length > 1 ? ` (and ${notTried.length - 1} more)` : ''}` : '';
 
         if (fallbackModel) {
           this.logModelEvent('model.fallback.used', { selectedModel: activeModel, fallbackModel });
@@ -1095,7 +1153,7 @@ export class Agent extends EventEmitter<AgentEvents> {
           } catch (fallbackErr: any) {
             if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
             // R4 (H103, D1c): the notice is the fallback's own, said before its answer (tryOllamaLastResort)
-            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`);
+            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`, guarded ? policy : null);
             if (ollamaResult) {
               executionResult = ollamaResult;
             } else {
@@ -1106,11 +1164,11 @@ export class Agent extends EventEmitter<AgentEvents> {
             }
           }
         } else {
-          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`);
+          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`, guarded ? policy : null);
           if (ollamaResult) {
             executionResult = ollamaResult;
           } else {
-            const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.`;
+            const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.${policyNote}`;
             const error = new Error(finalErr);
             this.emit('error', error);
             throw error;
@@ -1119,6 +1177,7 @@ export class Agent extends EventEmitter<AgentEvents> {
       }
 
       this.emit('stream:end', executionResult.fullText);
+      this.lastUsed = executionResult.actualModel;
 
       const assistantMessage: Message = { role: 'assistant', content: executionResult.fullText, timestamp: Date.now() };
       this.conversation.appendMessage(assistantMessage);
