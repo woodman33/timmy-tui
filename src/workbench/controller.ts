@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import type { Key } from 'ink';
 import { requestTurnStop, runningTurns } from '../agent/chat-turn.js';
 import type { CapabilityRow } from '../capabilities/index.js';
+import type { Inventory } from '../capabilities/inventory.js';
 import type { ChatSession, OpenChatSession } from '../contracts/chat-session.js';
 import { TABS, tabByKey, type TabId, type WorkspaceAction } from '../contracts/workspace.js';
 import type { JobRecord } from '../jobs/index.js';
@@ -100,6 +101,9 @@ export interface ControllerDeps {
   studio: StudioControl;
   /** the /tools ladder's rows (local checks only: no model key is passed, so OpenRouter is never asked) */
   capabilities: () => Promise<CapabilityRow[]>;
+  /** R11 phase 2 (H167): H170's capability inventory for the project shown (files, settings and receipts; nothing run,
+   *  nothing contacted): the Tools & integrations screen's rows. Absent, that screen reads the ladder's rows. */
+  inventory?: () => Promise<Inventory>;
   settings?: { read: () => SettingsRead; save: (s: WorkbenchSettings) => SaveResult };
   /** asks the terminal for mouse reports, or gives them back */
   setMouse?: (on: boolean) => void;
@@ -288,7 +292,7 @@ export class Controller {
       project, projects: [], files: { total: 0, truncated: false, groups: [] }, workflows: { upmd: false, docs: [] }, jobs: [], away: [],
       decisions: { items: [], more: 0, total: 0, otherSetup: 0, tools: {}, operations: {}, notes: [] }, route: readRoute(this.d.env),
       activity: { running: 0, waiting: 0, last: null, events: [] }, chat: { session: null, total: 0, messages: [] }, vox: [], native: {},
-      starters: [], boards: [], studio: { state: 'idle' }, overview: { state: 'idle' }, caps: { state: 'idle' }, details: {}, readAt: 0,
+      starters: [], boards: [], studio: { state: 'idle' }, overview: { state: 'idle' }, caps: { state: 'idle' }, inventory: { state: 'idle' }, details: {}, readAt: 0,
     };
   }
 
@@ -582,7 +586,7 @@ export class Controller {
       });
   }
 
-  private async lazy<T>(key: 'overview' | 'studio' | 'caps', load: () => Promise<T>, force = false): Promise<void> {
+  private async lazy<T>(key: 'overview' | 'studio' | 'caps' | 'inventory', load: () => Promise<T>, force = false): Promise<void> {
     const cur = this.data[key] as Lazy<T>;
     if (!force && (cur.state === 'loading' || cur.state === 'ready')) return;
     (this.data[key] as Lazy<T>) = { state: 'loading', since: this.now() };
@@ -621,7 +625,9 @@ export class Controller {
     }
     // R5 (H131): Home's preview says Studio's board too
     if (ws === 'studio' || ws === 'connections') void this.lazy('studio', async () => this.cardsNow(), force);
-    if (['voxvision', 'create3d', 'motion', 'rea', 'tools'].includes(ws)) void this.lazy('caps', () => this.d.capabilities(), force);
+    if (['voxvision', 'create3d', 'motion', 'rea'].includes(ws) || (ws === 'tools' && !this.d.inventory)) void this.lazy('caps', () => this.d.capabilities(), force);
+    // R11 phase 2 (H167): Tools & integrations reads H170's capability inventory (files, settings and receipts; nothing run)
+    if (ws === 'tools' && this.d.inventory) void this.lazy('inventory', this.d.inventory, force);
     // R5 (H134): tabs 0, 8, 5 and 9 read when opened (then with the slow reading while they are shown); R5 (H137): tab 7 too
     if (ws === 'logs' || ws === 'fleet' || ws === 'control' || ws === 'voxvision' || ws === 'tools') this.readTab(ws);
   }

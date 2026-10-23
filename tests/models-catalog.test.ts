@@ -322,31 +322,41 @@ describe('loadCatalog(ollama-local): the loopback Ollama\'s own models, never a 
   });
 });
 
+// R11 Phase 2 (H169, item c): loadCatalog('ollama-cloud') reads this computer's Ollama first (its ":cloud" names: tests/ollama-cloud-route.test.ts),
+// then the hosted list; here the local Ollama is a closed port, so only the hosted part answers
+const LOCAL_CLOSED = 'http://127.0.0.1:4484';
+const localClosed = (hosted: (url: string, init?: RequestInit) => Response | Promise<Response>) => fakeFetch((url, init) => {
+  if (url.startsWith(LOCAL_CLOSED)) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED', syscall: 'connect' } });
+  return hosted(url, init);
+});
+
 describe('loadCatalog(ollama-cloud): the hosted list, with the key in the header only', () => {
-  it('asks nothing without a key, and says how to set one up', async () => {
-    const r = await loadCatalog('ollama-cloud', { env, fetch: never });
-    expect(r).toMatchObject({ from: 'none', asked: false, rows: [] });
-    expect(r.error).toMatch(/^Ollama Cloud is not set up: no key/);
+  it('asks nothing of the hosted list without a key, and says how to set one up (this computer\'s Ollama said not read when it did not answer)', async () => {
+    const r = await loadCatalog('ollama-cloud', { env, fetch: localClosed(() => { throw new Error('FAKE fetch: no hosted request may be made here'); }).f, ollamaHost: LOCAL_CLOSED, ollamaCloudKey: () => null });
+    expect(r).toMatchObject({ from: 'none', rows: [] });
+    expect(r.error).toBe('this computer\'s Ollama was not read for cloud models: Ollama at http://127.0.0.1:4484 did not answer (the connection failed (ECONNREFUSED)); Ollama Cloud\'s own list is not set up: no key (an Ollama account\'s key, from ollama.com/settings/keys)');
+    expect(never).toBeTypeOf('function');
   });
 
   it('lists the cloud models as remote rows (no local weights, price unknown), the key sent as a Bearer header', async () => {
-    const fake = fakeFetch(() => json({ models: [{ name: 'gpt-oss:120b', details: { family: 'gptoss', parameter_size: '116.8B' } }, { name: 'bad name' }] }));
-    const r = await loadCatalog('ollama-cloud', { env, fetch: fake.f, ollamaCloudKey: () => 'FAKE-ollama-key-0001' });
-    expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].url).toBe('https://ollama.com/api/tags');
-    expect(fake.calls[0].url).not.toContain('FAKE-ollama-key');
-    expect(fake.calls[0].headers.authorization).toBe('Bearer FAKE-ollama-key-0001');
+    const fake = localClosed(() => json({ models: [{ name: 'gpt-oss:120b', details: { family: 'gptoss', parameter_size: '116.8B' } }, { name: 'bad name' }] }));
+    const r = await loadCatalog('ollama-cloud', { env, fetch: fake.f, ollamaHost: LOCAL_CLOSED, ollamaCloudKey: () => 'FAKE-ollama-key-0001' });
+    const hosted = fake.calls.filter((c) => !c.url.startsWith(LOCAL_CLOSED));
+    expect(hosted).toHaveLength(1);
+    expect(hosted[0].url).toBe('https://ollama.com/api/tags');
+    expect(hosted[0].url).not.toContain('FAKE-ollama-key');
+    expect(hosted[0].headers.authorization).toBe('Bearer FAKE-ollama-key-0001');
     expect(r.from).toBe('live');
     expect(r.rows).toHaveLength(1);
-    expect(r.rows[0]).toMatchObject({ source: 'ollama-cloud', id: 'gpt-oss:120b', installed: false, price: { free: 'unknown' } });
+    expect(r.rows[0]).toMatchObject({ source: 'ollama-cloud', id: 'gpt-oss:120b', installed: false, cloudVia: 'ollama.com', price: { free: 'unknown', why: 'runs on Ollama\'s servers; your account\'s terms' } });
     expect(r.rows[0].running).toBeUndefined();
     expect(JSON.stringify(r)).not.toContain('FAKE-ollama-key');
   });
 
   it('says a refused key in words, and keeps the key out of them', async () => {
-    const r = await loadCatalog('ollama-cloud', { env, fetch: fakeFetch(() => json({ error: 'unauthorized' }, 401)).f, ollamaCloudKey: () => 'FAKE-ollama-key-0002' });
+    const r = await loadCatalog('ollama-cloud', { env, fetch: localClosed(() => json({ error: 'unauthorized' }, 401)).f, ollamaHost: LOCAL_CLOSED, ollamaCloudKey: () => 'FAKE-ollama-key-0002' });
     expect(r).toMatchObject({ from: 'none', asked: true });
-    expect(r.error).toBe('Ollama Cloud\'s list could not be read: Ollama refused the key (HTTP 401)');
+    expect(r.error).toBe('this computer\'s Ollama was not read for cloud models: Ollama at http://127.0.0.1:4484 did not answer (the connection failed (ECONNREFUSED)); Ollama Cloud\'s list could not be read: Ollama refused the key (HTTP 401)');
     expect(JSON.stringify(r)).not.toContain('FAKE-ollama-key');
   });
 });

@@ -22,6 +22,19 @@
 import express from 'express';
 import type { PanelContext } from '../panels.js';
 import { callFor, callRows, checkFor, configuredServers, inspectorState, listFor, parseServerSpec, projectChain, readCall, typedRefusal } from '../../mcp/inspector.js';
+import type { ActiveProject } from '../../project/index.js';
+import { inventory as readInventory } from '../../capabilities/inventory.js';
+import { inventoryPage, type Inventory, type InventoryPage } from './tools-inventory.js';
+
+/** How long one inventory answers every page of a project (it reads files, settings and receipts; a page polls); ?refresh=1 reads again. */
+export const INVENTORY_KEEP_MS = 30_000;
+/** How long GET …/state waits for the inventory before answering without it (the page then reads GET …/inventory). */
+export const INVENTORY_STATE_WAIT_MS = 2_000;
+
+/** A project's inventory and one sentence of how it was read (what was and was not run). */
+export interface InventorySource { inventory: Inventory; read: string }
+/** How the inventory reads (src/capabilities/inventory.ts): files, settings and the project's receipts; nothing run, nothing contacted. */
+export const INVENTORY_READ = 'files, settings and this project\'s receipts read (src/capabilities inventory); nothing run, nothing contacted, no key left this computer';
 
 type Env = Record<string, string | undefined>;
 
@@ -52,10 +65,49 @@ export function mountToolsPanel(app: express.Express, ctx: PanelContext): void {
   const base = '/api/panel/tools';
   app.use(base, (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
-  app.get(`${base}/state`, ctx.withToken, (req, res) => {
-    const p = project(req, res);
-    if (!p) return;
-    try { res.json({ ok: true, ...inspectorState(p.root, env()) }); } catch (e) { failed(res, e); }
+  // R11 Phase 2 (H171): the Tools & integrations inventory: the rows the terminal's Chat rail reads (H170's capability
+  // inventory, src/capabilities/inventory.ts: files, settings and the project's receipts; nothing run, nothing contacted),
+  // as cards in the three words (src/companion/panels/tools-inventory.ts); a test gives FAKE rows through ctx.inventory.
+  // One reading answers a project for INVENTORY_KEEP_MS; GET …/inventory carries it with the page's cards (?refresh=1 reads
+  // again), and GET …/state carries the inventory itself.
+  const kept = new Map<string, { at: number; answer: Promise<InventoryPage & { read: string }> }>();
+  const inventoryFor = (p: ActiveProject, refresh: boolean): Promise<InventoryPage & { read: string }> => {
+    const have = kept.get(p.root);
+    const read = async (): Promise<InventoryPage & { read: string }> => {
+      const source: InventorySource = ctx.inventory
+        ? await ctx.inventory(p)
+        : { inventory: readInventory({ env: env(), cwd: p.root }), read: INVENTORY_READ };
+      return { ...inventoryPage(source.inventory), read: source.read };
+    };
+    const fresh = !have || refresh || Date.now() - have.at > INVENTORY_KEEP_MS;
+    const entry = fresh ? { at: Date.now(), answer: read() } : have;
+    if (fresh) { kept.set(p.root, entry); entry.answer.catch(() => { if (kept.get(p.root) === entry) kept.delete(p.root); }); }
+    return entry.answer;
+  };
+  app.get(`${base}/state`, ctx.withToken, async (req, res) => {
+    const p = ctx.projectFor(req);
+    if (!p) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }
+    try {
+      const state = inspectorState(p.root, env());
+      // R11 Phase 2 (H171): the capability inventory rides with the state (the same reading GET …/inventory answers); a
+      // reading still under way after INVENTORY_STATE_WAIT_MS is left to GET …/inventory, so the state is not held up
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<{ inventory: null; inventoryPending: true }>((resolve) => { timer = setTimeout(() => resolve({ inventory: null, inventoryPending: true }), INVENTORY_STATE_WAIT_MS); });
+      const inv = await Promise.race([
+        inventoryFor(p, false).then((i) => ({ inventory: i.inventory }), (e: unknown) => ({ inventory: null, inventoryError: e instanceof Error ? e.message : String(e) })),
+        late,
+      ]).finally(() => clearTimeout(timer));
+      res.json({ ok: true, ...state, ...inv });
+    } catch (e) { failed(res, e); }
+  });
+
+  app.get(`${base}/inventory`, ctx.withToken, async (req, res) => {
+    const p = ctx.projectFor(req);
+    if (!p) { res.status(404).json({ ok: false, error: ctx.projectUnknown }); return; }
+    try {
+      const inv = await inventoryFor(p, req.query.refresh === '1');
+      res.json({ ok: true, ...inv, note: 'Nothing is set from these cards: a key or an address is set in Models & accounts, the environment or the .env file.' });
+    } catch (e) { failed(res, e); }
   });
 
   app.get(`${base}/servers`, ctx.withToken, async (req, res) => {

@@ -189,30 +189,37 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     expect(f.regions.right).toBeFalsy();
     const tools = text(f, 'center');
     expect(tools).toMatch(/^ \[\/\] Search the tools by name, kind or what they need {2}· a workspace: g, then \//);
-    expect(tools).toMatch(/AGENT TOOLS \(3\) +│ MCP TO CLI · two routes, each a command line/);
-    expect(tools).toMatch(/THE SDK ROUTE +installed │/);
+    // R11 phase 2 (H167): the Tools & integrations screen: the honest inventory in the rail's groups (src/workbench/inventory-tab.ts),
+    // the MCP routes among CONNECT's rows (available: their files are here, nothing contacted), the project's calls after them
+    expect(tools).toMatch(/TOOLS & INTEGRATIONS · what this installation has/);
+    expect(tools).toMatch(/nothing here was run to make this list · \d+ tools · checked/);
+    expect(tools).toMatch(/CONNECT · \d+ capabilities/);
+    expect(tools).toMatch(/MCP to CLI · SDK +available/);
+    expect(tools).toMatch(/MCP to CLI · MCPorter +available/);
+    expect(tools).toMatch(/MCP CALLS · the project's newest 1 call, each with its receipt/);
     expect(tools).toMatch(/echo · node fake-server\.js +answered/);
     expect(tools).toMatch(/#\d+ ✓ verified · \d/);
-    expect(tools).toMatch(/THE MCPORTER ROUTE +installed │/);
-    expect(flat(f, 'center')).toContain('no call yet /mcp call --route mcporter <tool> {json} -- <server command>');
-    // the keyboard on the list, End: the last row, the call, its detail at the column's top
+    expect(tools).not.toMatch(/\b(?:proposed|installed|reachable|qualified)\b {2,}/);
+    // the keyboard on the list, End: the last row, the call; Enter: its detail in the right pane (the Inspector): its arguments,
+    // its receipt verified now, the command that runs it again
     for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) c.key('', { tab: true });
     expect(c.ui.focus).toBe('center');
     c.key('', { end: true });
+    expect(c.selected()).toMatchObject({ kind: 'mcp-call' });
+    c.key('', { return: true });
     f = c.frame(160, 45);
-    const call = flat(f, 'center');
+    const call = flat(f, 'right');
     expect(call).toContain(`CALL ${r.call}`);
     expect(call).toContain('Args {"text":"FAKE"}');
-    expect(call).toMatch(/#\d+ ✓ verified \(verifyReceiptIn, now\) call\.json is the bytes it sealed/);
+    // (the drawer's 38 cells cut the verdict's long form at a word: the receipt, its mark and word, then what it sealed)
+    expect(call).toMatch(/RECEIPT #\d+ ✓ verified \(verifyReceiptIn[^)]*call\.json is the bytes it sealed/);
     expect(call).toContain('AGAIN /mcp call --route sdk echo {"text":"FAKE"} -- <server command>');
-    // R6 (H142): what a terminal does not draw, and the companion's tab 9 that does (R5 said no surface did)
-    expect(call).toMatch(/A terminal draws no schema form, flame graph or image\. \[c\] Companion( · Show)?: its tab 9, Tools & MCP, lists a server's tools with their schemas/);
-    // [i]: the Inspector has the call
-    c.key('i', {});
-    f = c.frame(160, 45);
-    expect(text(f, 'right')).toContain(`CALL ${r.call}`);
-    expect(flat(f, 'right')).toContain('Record .timmy/mcp/');
-    c.key('i', {});
+    expect(call).toContain('Record .timmy/mcp/');
+    // (R6 H142's "what a terminal does not draw" and the companion's tab 9 close the Inspector's rows, below the drawer's
+    // fold at this height; the output as the route printed it is in view)
+    expect(call).toContain('OUTPUT · as the route printed it');
+    c.key('', { escape: true });
+    expect(c.frame(160, 45).regions.right).toBeFalsy();
     // / searches the tools from their list (the All tools search: its words and keys); Enter keeps the matches
     c.key('/', {});
     expect(c.ui.input.field).toBe('tools');
@@ -223,7 +230,7 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
     expect(c.ui.toolsQuery).toBe('stl');
     f = c.frame(160, 45);
     expect(text(f, 'center')).toMatch(/^ Matching "stl" {2}· a workspace: g, then \/ {2}· \[\/\] change the search/);
-    expect(text(f, 'center')).toMatch(/\d+ tools? match "stl"/);
+    expect(text(f, 'center')).toMatch(/\d+ tools? match(?:es)? "stl"/);
     expect(text(f, 'center')).toContain('Timmy\'s STL reader');
     expect(text(f, 'center')).not.toContain('MCP servers (/mcp)');
     // the same key again: REA, then Templates, then back
@@ -261,7 +268,8 @@ describe('tabs 5 and 9 in the terminal Workbench (R5 H134)', () => {
         const body = text(f, 'center');
         // the columns side by side from 120 (the terminal's width decides, not the body's), stacked below
         if (key === '5') expect(/TOOLS[^\n]*│ RECORDS[^\n]*│ RECORD /.test(body), `${key} at ${w}x${h}`).toBe(w >= 120);
-        else expect(/AGENT TOOLS[^\n]*│ MCP TO CLI/.test(body), `${key} at ${w}x${h}`).toBe(w >= 120);
+        // (R11 phase 2: the Tools & integrations screen is one list at every width; its header at the top)
+        else expect(body, `${key} at ${w}x${h}`).toMatch(/TOOLS & INTEGRATIONS · what this installation has/);
         // the first row selected, the body opens at its top: the pipeline, or the search and its way to the finder
         // (the keyboard is on the workflow actions: / searches the tools from their list, and the row says so)
         expect(body.split('\n')[0], `${key} at ${w}x${h}`).toMatch(key === '5' ? /^ PIPELINE \.intent/ : /^ Search the tools: Tab to this list, then \//);

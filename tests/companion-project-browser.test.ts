@@ -509,11 +509,12 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     };
     const use = (answers: Record<string, string> | null, providers: Record<string, string> | null): void => { env.TIMMY_HOME = setupHome(answers, providers).TIMMY_HOME; };
     try {
-      // a cloud-backed model, chosen by its name (which says cloud): the label says so; the turn says the chat leaves this computer
+      // a cloud-backed model, chosen by its name (which says cloud): the label names the route (R11 Phase 2, H169: "ollama cloud · <name>"); the turn says
+      // the terms and that the chat leaves this computer
       use({ chat: 'local', model: 'fake-big:70b-cloud' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'fake-big:70b-cloud · Ollama, cloud-backed · this page\'s own chat · no tools' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'ollama cloud · fake-big:70b-cloud · this page\'s own chat · no tools' });
       const cloud = await chat(own, 'FAKE: for the cloud model');
-      expect(cloud.find((e) => e.event === 'notice')?.data.text).toBe('fake-big:70b-cloud is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).');
+      expect(cloud.find((e) => e.event === 'notice')?.data.text).toBe('fake-big:70b-cloud runs on Ollama\'s servers; your account\'s terms: Ollama sends this chat off this computer, and no cost comes back (unknown).');
       expect(cloud.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE cloud answer');
       expect(cloud.find((e) => e.event === 'cost')?.data).toMatchObject({ usd: null, measured: false });
       expect(cloud.at(-1)?.event).toBe('done');

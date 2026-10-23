@@ -164,32 +164,40 @@ describe('the capability inventory: one shape, three words kept apart, nothing r
       if (!row.exercised.ok) throw new Error('unreachable');
       return row.exercised;
     };
-    // Ollama on this computer: exercised by the local turn; not installed, not configured
+    // Ollama on this computer: exercised by the local turn; not installed, not configured. The receipt stays named, but a
+    // run sealed earlier never speaks for the present: the standing word is none, the words say "exercised earlier … ·
+    // not available now", and the next step is the install (the lead's 15:29 truth item, from H171's real capture)
     const ol = r['model:ollama-local'];
     expect(exercised(ol)).toMatchObject({ hash: local.hash, receipt: local.hash.slice(7, 15), when: local.ts });
     expect(exercised(ol).what).toBe('a sealed chat turn answered by qwen3:8b through Ollama at 127.0.0.1:11434');
     expect(ol.available.ok).toBe(false);
     expect(ol.configured.ok).toBe(false);
-    expect(ol.next).toBeUndefined();
-    expect(ol.exercised.words).toContain(`${PROVIDER_LABEL['ollama-local']}: exercised on ${local.ts.slice(0, 10)} at ${local.ts.slice(11, 16)} UTC, a sealed chat turn`);
-    expect(standingWord(ol)).toBe('exercised');
+    expect(ol.next).toMatch(/^Install it: /);
+    expect(ol.exercised.words).toBe(`${PROVIDER_LABEL['ollama-local']}: exercised earlier (on ${local.ts.slice(0, 10)} at ${local.ts.slice(11, 16)} UTC, a sealed chat turn answered by qwen3:8b through Ollama at 127.0.0.1:11434, receipt ${local.hash.slice(7, 15)}) · not available now, Ollama is not installed here (no ollama program on the PATH, and no Ollama app).`);
+    expect(standingWord(ol)).toBe('none');
     // Ollama Cloud: the cloud-backed model's turn, not the local one
     expect(exercised(r['model:ollama-cloud']).hash).toBe(cloud.hash);
     expect(exercised(r['model:ollama-cloud']).what).toContain('gpt-oss:120b-cloud, a cloud-backed model through Ollama');
     expect(r['model:ollama-cloud'].configured.ok).toBe(false);
-    // OpenRouter: the newest ok turn without the Ollama route; a failed turn never counts
+    // OpenRouter: the newest ok turn without the Ollama route; a failed turn never counts. Its client is built in (available),
+    // so the receipt stands: exercised, with no next step
     expect(exercised(r['model:openrouter']).hash).toBe(openrouter.hash);
-    expect(exercised(r['model:openrouter']).what).toBe('a sealed chat turn answered by fake/chat-model through OpenRouter');
+    expect(exercised(r['model:openrouter']).what).toBe('a sealed chat turn answered by fake/chat-model through OpenRouter (openrouter.ai)');
     expect(r['model:openrouter'].configured.ok).toBe(false);
+    expect(standingWord(r['model:openrouter'])).toBe('exercised');
+    expect(r['model:openrouter'].next).toBeUndefined();
+    expect(r['model:openrouter'].exercised.words).toMatch(/^OpenRouter: exercised on \d{4}-\d{2}-\d{2} at \d{2}:\d{2} UTC, a sealed chat turn/);
     // the MCP server named in the project's MCPorter config: configured by the file, exercised by its answered call
     expect(r['mcp:server:fake-server'].configured.found).toBe('named in config/mcporter.json; the server itself is not contacted here');
     expect(exercised(r['mcp:server:fake-server'])).toMatchObject({ hash: mcp.hash, what: 'an MCP call to fake-server answered through the mcporter route', record: '.timmy/mcp/m00000001/output.json' });
     expect(r['mcp:route:mcporter'].configured.found).toContain('1 server named in config/mcporter.json: fake-server');
-    // the lane: dispatched (the launch's receipt), while its key is not set and its command is not here
+    // the lane: dispatched (the launch's receipt), while its key is not set and its command is not here: none stands
     expect(exercised(r['lane:retool']).hash).toBe(dispatch.hash);
     expect(exercised(r['lane:retool']).what).toContain('dispatch d1 started 1 copy of this lane');
     expect(r['lane:retool'].configured.ok).toBe(false);
     expect(r['lane:retool'].available.ok).toBe(false);
+    expect(standingWord(r['lane:retool'])).toBe('none');
+    expect(r['lane:retool'].exercised.words).toContain(' · not available now, curl is not on PATH');
     // the chain itself: here, pinned, and its newest receipt shown
     const chain = r['receipts:chain'];
     expect(chain.available.ok).toBe(true);
@@ -199,6 +207,39 @@ describe('the capability inventory: one shape, three words kept apart, nothing r
     // Cloudflare and the vision bridge never count a run from these receipts
     expect(r['model:cloudflare'].exercised.ok).toBe(false);
     expect(r['vision:bridge'].exercised.ok).toBe(false);
+    expect(trap.calls).toEqual([]);
+  });
+
+  it('a run sealed earlier never speaks for the present: a turn through a FAKE Ollama at 127.0.0.1:<port> names where it went, and stands only while the program is here', () => {
+    const box = fakeBox({ setup: { chat: 'local', model: 'granite4.2:latest', ollama: 'http://127.0.0.1:4485' } });
+    const turn = seal(box.project, { kind: 'turn', subject: 'repl · 1 step', via: 'ollama', model_requested: 'granite4.2:latest', model_resolved: 'granite4.2:latest', sources: [{ kind: 'ollama', host: '127.0.0.1:4485', endpoint: '/api/chat', tools: false, cost_basis: 'local' }] } as Partial<ReceiptInput> & { kind: string });
+    trap.calls.length = 0;
+    // the program is not here now: the receipt is kept and named, the standing word is none, the install is the next step
+    const gone = byId(capabilityInventory({ env: box.env, cwd: box.project, platform: 'linux' }))['model:ollama-local'];
+    expect(gone.exercised.ok).toBe(true);
+    if (!gone.exercised.ok) throw new Error('unreachable');
+    expect(gone.exercised.what).toBe('a sealed chat turn answered by granite4.2:latest through Ollama at 127.0.0.1:4485');
+    expect(gone.exercised.hash).toBe(turn.hash);
+    expect(gone.available.ok).toBe(false);
+    expect(gone.configured.ok).toBe(true); // the setup names the model and the address: set, whether or not Ollama is here
+    expect(standingWord(gone)).toBe('none');
+    expect(gone.exercised.words).toContain(': exercised earlier (on ');
+    expect(gone.exercised.words).toContain('through Ollama at 127.0.0.1:4485, receipt ');
+    expect(gone.exercised.words).toContain(') · not available now, Ollama is not installed here');
+    expect(gone.next).toMatch(/^Install it: /);
+    // the program here (a FAKE file on the PATH, never run): the same receipt now stands as exercised, and no step is left
+    program(box.bin, 'ollama');
+    const here = byId(capabilityInventory({ env: box.env, cwd: box.project, platform: 'linux' }))['model:ollama-local'];
+    expect(here.available.ok).toBe(true);
+    expect(standingWord(here)).toBe('exercised');
+    expect(here.exercised.words).toMatch(/^Ollama \(this computer\): exercised on \d{4}-\d{2}-\d{2} at \d{2}:\d{2} UTC, a sealed chat turn answered by granite4.2:latest through Ollama at 127\.0\.0\.1:4485 \(receipt [0-9a-f]{8}\)\.$/);
+    expect(here.next).toBeUndefined();
+    // a turn whose receipt names no address says so, rather than implying this computer
+    const bare = fakeBox();
+    seal(bare.project, { kind: 'turn', subject: 'repl · 1 step', via: 'ollama', model_requested: 'qwen3:8b' } as Partial<ReceiptInput> & { kind: string });
+    trap.calls.length = 0;
+    const unnamed = byId(capabilityInventory({ env: bare.env, cwd: bare.project, platform: 'linux' }))['model:ollama-local'];
+    expect(unnamed.exercised.ok && unnamed.exercised.what).toBe('a sealed chat turn answered by qwen3:8b through Ollama at an address the receipt does not name');
     expect(trap.calls).toEqual([]);
   });
 
@@ -267,8 +308,14 @@ describe('the capability inventory: one shape, three words kept apart, nothing r
     expect(none).toEqual({ available: 'A thing: available, its file is here.', configured: 'A thing: not configured, no key is set.', exercised: 'A thing: not exercised, no run yet.' });
     const ran = rowWords({ ...base, exercised: { ok: true, receipt: 'abcdef01', hash: 'sha256_abcdef01', when: '2026-10-23T19:39:15.000Z', what: 'a sealed run', source: 'h' } });
     expect(ran.exercised).toBe('A thing: exercised on 2026-10-23 at 19:39 UTC, a sealed run (receipt abcdef01).');
+    const run = { ok: true as const, receipt: 'abcdef01', hash: 'sha256_abcdef01', when: '2026-10-23T19:39:15.000Z', what: 'a sealed run', source: 'h' };
     expect(standingWord({ ...base, exercised: { ok: false, found: 'x', source: 'h' } })).toBe('available');
     expect(standingWord({ ...base, configured: { ok: true, found: 'set', source: 'g' }, exercised: { ok: false, found: 'x', source: 'h' } })).toBe('configured');
+    expect(standingWord({ ...base, exercised: run })).toBe('exercised');
     expect(standingWord({ ...base, available: { ok: false, found: 'no', source: 'f' }, exercised: { ok: false, found: 'x', source: 'h' } })).toBe('none');
+    // the files gone: nothing stands, whatever a key or an earlier receipt says; the sentence keeps the receipt and says why
+    const gone = { ...base, available: { ok: false, found: 'its file is gone', source: 'f' }, configured: { ok: true, found: 'a key is present', source: 'g' }, exercised: run };
+    expect(standingWord(gone)).toBe('none');
+    expect(rowWords(gone).exercised).toBe('A thing: exercised earlier (on 2026-10-23 at 19:39 UTC, a sealed run, receipt abcdef01) · not available now, its file is gone.');
   });
 });

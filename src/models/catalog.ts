@@ -11,8 +11,10 @@
  *                  pass its own /api/show check as local completion weights, with what /api/show says of them, and which
  *                  are loaded now where /api/ps says. A cloud model is never a local row (its name says cloud, or Ollama
  *                  names a remote host for it).
- *   ollama-cloud   Ollama's hosted API (src/models/ollama-list.ts; its chat: src/agent/ollama-cloud.ts): its catalog, remote
- *                  inference, no local weights.
+ *   ollama-cloud   R11 Phase 2 (H169, item c): the ":cloud" names the Ollama on this computer lists (/api/tags): models that run
+ *                  on Ollama's servers under the person's Ollama account, reached through that Ollama (the local route sends
+ *                  to it, and Ollama forwards): "runs on Ollama's servers; your account's terms", never free, never no charge.
+ *                  And, with a key set up, Ollama's hosted API (its own list: remote inference, no local weights).
  *
  * What a row says is what its source said, and nothing else: `created` is when OpenRouter ADDED the model (never its release),
  * a price is free only when the catalog's prices are all zero ('unknown' when one is missing or variable, never free), and a
@@ -37,6 +39,13 @@ type Env = Record<string, string | undefined>;
 // ── the shared contract (R10 chat checkpoint: H167 and H171 draw from it) ─────────────────────────────────────────────
 
 export type ModelSource = 'openrouter' | 'ollama-local' | 'ollama-cloud';
+
+/** R11 Phase 2 (H169, item c): the Models rail's heading for Ollama's cloud models (the ones the person's Ollama account runs). */
+export const OLLAMA_CLOUD_HEADING = 'Ollama cloud (your Ollama account)';
+/** What such a model costs, in the only words this computer can say (never "free", never "no charge"). */
+export const OLLAMA_CLOUD_TERMS = 'runs on Ollama\'s servers; your account\'s terms';
+/** The route's name beside a model that answered there (the evidence line, the receipt): "ollama cloud · kimi-k2:cloud". */
+export const ollamaCloudRoute = (model: string): string => `ollama cloud · ${model}`;
 
 export interface CatalogRow {
   source: ModelSource;
@@ -84,6 +93,12 @@ export interface CatalogRow {
   /** Ollama: the parameter size and quantization /api/show reports ("8.2B", "Q4_K_M") */
   parameterSize?: string;
   quantization?: string;
+  /**
+   * R11 Phase 2 (H169, item c): an Ollama cloud row's way there: 'this computer's Ollama' (a ":cloud" name /api/tags lists,
+   * chosen like a local model; the chat goes to that Ollama, which forwards it to Ollama's servers), or 'ollama.com' (the
+   * hosted API, with its key)
+   */
+  cloudVia?: 'this computer\'s Ollama' | 'ollama.com';
 }
 
 export type CatalogSort = 'recent' | 'name' | 'price' | 'context';
@@ -328,10 +343,11 @@ export function openRouterRow(m: OpenRouterCatalogModel): CatalogRow {
 }
 
 /**
- * An Ollama model as a catalog row. Local: weights on this computer, no charge. Cloud: remote inference, no local weights,
- * its price unknown (Ollama's plans, not a per-token price), so free-only never takes it as free.
+ * An Ollama model as a catalog row. Local: weights on this computer, no charge. Cloud: it runs on Ollama's servers under the
+ * person's Ollama account (its price: the account's terms, not a per-token price this computer knows), so free-only never
+ * takes it as free; `via` says the way there (R11 Phase 2, H169: a ":cloud" name of this computer's Ollama, or the hosted API).
  */
-export function ollamaRow(m: OllamaModelFacts, source: 'ollama-local' | 'ollama-cloud'): CatalogRow {
+export function ollamaRow(m: OllamaModelFacts, source: 'ollama-local' | 'ollama-cloud', via: NonNullable<CatalogRow['cloudVia']> = 'ollama.com'): CatalogRow {
   const caps = Array.isArray(m.capabilities) ? m.capabilities : null;
   const family = clean(m.family ?? undefined, 60);
   const description = clean(m.description, 2000);
@@ -341,9 +357,10 @@ export function ollamaRow(m: OllamaModelFacts, source: 'ollama-local' | 'ollama-
     ...(positive(m.contextLength) ? { contextLength: Math.floor(m.contextLength as number) } : {}),
     price: source === 'ollama-local'
       ? { inPerM: 0, outPerM: 0, free: true }
-      : { free: 'unknown', why: 'Ollama\'s cloud is billed by its plans, not by a price per token this computer knows' },
+      : { free: 'unknown', why: OLLAMA_CLOUD_TERMS },
     caps: caps ? { tools: caps.includes('tools'), vision: caps.includes('vision'), reasoning: caps.includes('thinking') } : {},
     installed: source === 'ollama-local',
+    ...(source === 'ollama-cloud' ? { cloudVia: via } : {}),
     ...(source === 'ollama-local' && typeof m.running === 'boolean' ? { running: m.running } : {}),
     ...(typeof m.sizeBytes === 'number' && Number.isSafeInteger(m.sizeBytes) && m.sizeBytes > 0 ? { sizeBytes: m.sizeBytes } : {}),
     ...(clean(m.parameterSize ?? undefined, 40) ? { parameterSize: clean(m.parameterSize ?? undefined, 40) } : {}),
@@ -513,15 +530,30 @@ async function loadOllamaLocal(ctx: CatalogCtx): Promise<CatalogLoad> {
   return { rows: listing.models.map((m) => ollamaRow(m, 'ollama-local')), from: 'live', fetchedAt: at, asked: true, ...(listing.why ? { error: listing.why } : {}) };
 }
 
-/** Ollama Cloud's rows (its hosted list, with the key): none until a key is set up; nothing is kept (read when asked). */
+/**
+ * Ollama's cloud rows. R11 Phase 2 (H169, item c): first the ":cloud" names the Ollama on this computer lists (/api/tags; they
+ * run on Ollama's servers under the person's Ollama account, through that Ollama: choosable like a local model), then, with
+ * a key set up, the hosted API's own list. Nothing is kept: both are read when asked, and `refresh: 'never'` asks neither
+ * (the page's view reads that way until its Refresh). No model is ever run to list them.
+ */
 async function loadOllamaCloud(ctx: CatalogCtx): Promise<CatalogLoad> {
   const env = ctx.env ?? process.env;
   const key = ctx.ollamaCloudKey ? await ctx.ollamaCloudKey() : ollamaCloudKey(env);
-  if (!key) return { rows: [], from: 'none', asked: false, error: 'Ollama Cloud is not set up: no key (an Ollama account\'s key, from ollama.com/settings/keys)' };
-  if (ctx.refresh === 'never') return { rows: [], from: 'none', asked: false, error: 'Ollama Cloud\'s list is read when asked (it keeps no copy here)' };
+  const noKey = 'Ollama Cloud is not set up: no key (an Ollama account\'s key, from ollama.com/settings/keys)';
+  if (ctx.refresh === 'never') return { rows: [], from: 'none', asked: false, error: key ? 'Ollama Cloud\'s list is read when asked (it keeps no copy here)' : `${noKey}; this computer's Ollama's cloud models are read when asked` };
+  const at = iso((ctx.now ?? Date.now)());
+  const host = ctx.ollamaHost ?? ollamaAddressNow(env);
+  const listing = await listLocalOllama({ baseUrl: host, timeoutMs: ctx.timeoutMs ?? 3000, ...(ctx.fetch ? { fetch: ctx.fetch } : {}), ...(ctx.signal ? { signal: ctx.signal } : {}) });
+  const viaLocal = listing.answered ? listing.cloud.map((m) => ollamaRow(m, 'ollama-cloud', 'this computer\'s Ollama')) : [];
+  const localWords = listing.answered
+    ? (viaLocal.length ? `${viaLocal.length} cloud model${viaLocal.length === 1 ? '' : 's'} through this computer's Ollama (${OLLAMA_CLOUD_TERMS})` : 'this computer\'s Ollama lists no cloud model (ollama pull <name>:cloud adds one; it runs under your Ollama account)')
+    : `this computer's Ollama was not read for cloud models: ${listing.why ?? 'it did not answer'}`;
+  const hosted = (error: string, askedHosted = false): CatalogLoad => ({ rows: viaLocal, from: viaLocal.length ? 'live' : 'none', ...(viaLocal.length ? { fetchedAt: at } : {}), asked: listing.asked || askedHosted, error: `${localWords}; ${error}` });
+  if (!key) return hosted(`Ollama Cloud's own list is not set up: no key (an Ollama account's key, from ollama.com/settings/keys)`);
   const got = await listOllamaCloudModels({ key, ...(ctx.fetch ? { fetch: ctx.fetch } : {}), ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}), ...(ctx.signal ? { signal: ctx.signal } : {}) });
-  if (!got.ok) return { rows: [], from: 'none', asked: got.sent, error: `Ollama Cloud's list could not be read: ${got.why}` };
-  return { rows: got.models.map((m) => ollamaRow(m, 'ollama-cloud')), from: 'live', fetchedAt: iso((ctx.now ?? Date.now)()), asked: true };
+  if (!got.ok) return hosted(`Ollama Cloud's list could not be read: ${got.why}`, got.sent);
+  const seen = new Set(viaLocal.map((r) => r.id));
+  return { rows: [...viaLocal, ...got.models.filter((m) => !seen.has(m.name)).map((m) => ollamaRow(m, 'ollama-cloud', 'ollama.com'))], from: 'live', fetchedAt: at, asked: true, ...(viaLocal.length ? {} : { error: localWords }) };
 }
 
 /**

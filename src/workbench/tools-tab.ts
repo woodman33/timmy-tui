@@ -145,7 +145,8 @@ export interface ToolsSearch {
   finder?: string;
 }
 
-const KINDS = ['surface', 'model', 'tool', 'harness', 'adapter', 'vox'] as const;
+/** All tools' order of kinds (the inventory's groups keep it within a group). */
+export const KINDS = ['surface', 'model', 'tool', 'harness', 'adapter', 'vox'] as const;
 const TITLES: Readonly<Record<string, string>> = { surface: 'Where you work', model: 'Models', tool: 'Agent tools', harness: 'Other agents', adapter: 'Native apps and adapters', vox: 'VoxVision' };
 
 const ago = (t: number | undefined, now: number): string => {
@@ -156,7 +157,7 @@ const ago = (t: number | undefined, now: number): string => {
 const key = (k: string): Seg => S(`[${k}]`, 'action');
 
 /** The search's rows, as All tools has said them (src/workbench/views.ts, R4 H112 and R5 H131): the words and keys unchanged. */
-function searchRows(s: ToolsSearch, w: number, g: Glyphs): Line[] {
+export function searchRows(s: ToolsSearch, w: number, g: Glyphs): Line[] {
   if (s.typing) {
     return [
       [S('Search: ', 'secondary'), S(s.text, 'text'), S(' ', 'text', { inverse: true })],
@@ -193,7 +194,7 @@ function receiptSegs(c: McpCallRow, d: ToolsData, g: Glyphs, short: boolean): Se
 }
 
 /** One call as two rows: the server and tool with its outcome; when, how long, and its receipt. */
-function callRows(c: McpCallRow, d: ToolsData, w: number, selected: boolean, g: Glyphs): Line[] {
+export function callRows(c: McpCallRow, d: ToolsData, w: number, selected: boolean, g: Glyphs): Line[] {
   const r = c.read.record;
   const sel = selected ? { selected: true as const } : {};
   const mark = selected ? S(`${g.cursor} `, 'accent', sel) : S('  ');

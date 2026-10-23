@@ -6,6 +6,8 @@
  *   configured   the key, setting or address is set (whether a key is present and where it is kept; never its value)
  *   exercised    a receipt of a real run exists on the project's runs chain, which verifies here
  *
+ * A run sealed earlier never speaks for the present: a row whose files are not here now keeps its receipt but stands as
+ * none (./inventory-words.ts standingWord), its words "exercised earlier … · not available now", its `next` the install step.
  * Nothing is run to compute it and nothing is contacted: files, settings and receipts only, in well under a second. The
  * ladder (src/capabilities/index.ts, `timmy tools`) stays what it is: it probes; this reads. Every fact names the function
  * it came from (`source`), and `next` is the one step that would move the row to its next word, in the product's own
@@ -201,11 +203,12 @@ function turnReceipts(chain: Chain): { openrouter?: RunMark; ollamaLocal?: RunMa
     if ((r.kind !== 'turn' && r.kind !== 'chat') || r.status !== 'ok') continue;
     const model = str(r.model_resolved) ?? str(r.model_requested) ?? 'a model';
     if (r.via === 'ollama') {
+      // where the turn went is always said (a reader sees a FAKE Ollama at 127.0.0.1:<port> for what it was)
       const src = Array.isArray(r.sources) ? obj(r.sources.find((s) => obj(s)?.kind === 'ollama')) : undefined;
-      const host = str(src?.host);
-      if (cloudModelTag(model)) { if (!out.ollamaCloud && signed(r)) out.ollamaCloud = markOf(r, `a sealed chat turn answered by ${model}, a cloud-backed model through Ollama${host ? ` at ${host}` : ''}`); }
-      else if (!out.ollamaLocal && signed(r)) out.ollamaLocal = markOf(r, `a sealed chat turn answered by ${model} through Ollama${host ? ` at ${host}` : ''}`);
-    } else if (!out.openrouter && signed(r)) out.openrouter = markOf(r, `a sealed chat turn answered by ${model} through OpenRouter`);
+      const at = str(src?.host) ? `at ${str(src?.host)}` : 'at an address the receipt does not name';
+      if (cloudModelTag(model)) { if (!out.ollamaCloud && signed(r)) out.ollamaCloud = markOf(r, `a sealed chat turn answered by ${model}, a cloud-backed model through Ollama ${at}`); }
+      else if (!out.ollamaLocal && signed(r)) out.ollamaLocal = markOf(r, `a sealed chat turn answered by ${model} through Ollama ${at}`);
+    } else if (!out.openrouter && signed(r)) out.openrouter = markOf(r, `a sealed chat turn answered by ${model} through OpenRouter (openrouter.ai)`);
     if (out.openrouter && out.ollamaLocal && out.ollamaCloud) break;
   }
   return out;
@@ -248,7 +251,10 @@ const chainNone = (chain: Chain, none: string): string => chain.unread ?? (chain
 
 type Draft = { id: string; name: string; group: InventoryGroup; available: FactFound; configured: FactFound; exercised: ExercisedFound; next?: string };
 
-/** A row with its sentences (./inventory-words.ts); `next` only while a word is still to be earned. */
+/**
+ * A row with its sentences (./inventory-words.ts); `next` while a word is still to be earned, and again when the files are
+ * not here now (a run sealed earlier does not stand in for them).
+ */
 function row(d: Draft): InventoryRow {
   const words = rowWords(d);
   const r: InventoryRow = {
@@ -257,7 +263,7 @@ function row(d: Draft): InventoryRow {
     configured: { ...d.configured, words: words.configured },
     exercised: { ...d.exercised, words: words.exercised },
   };
-  if (!d.exercised.ok && d.next) r.next = d.next;
+  if ((!d.exercised.ok || !d.available.ok) && d.next) r.next = d.next;
   return r;
 }
 

@@ -37,7 +37,7 @@ export const sideBySideAt = (c: Pick<TabCtx, 'width' | 'columns'>): boolean =>
   c.width >= COLUMNS_MIN_WIDTH && (c.columns === undefined || c.columns >= COLUMNS_FROM);
 
 /** The View shape the other views return, over this body's own items (src/workbench/model.ts View, once wired). */
-export interface TabView<I> { lines: Line[]; items: Array<{ line: number; item: I; rows?: number }>; note?: string }
+export interface TabView<I> { lines: Line[]; items: Array<{ line: number; item: I; rows?: number }>; note?: string; /** rows kept at the window's top while the rest scrolls (src/workbench/screen.ts) */ pin?: number }
 
 // keep the shape in step with View: a TabView of View's own items is a View
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;

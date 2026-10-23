@@ -508,7 +508,8 @@ export async function runInit(args: string[], io: { isTTY: boolean; log: (s: str
   if (o.model !== undefined) {
     const refused = await modelRefusal(o.model, o);
     if (refused) { say(io.log, refused.words); return refused.code; }
-    if (cloudModelTag(o.model)) say(io.log, `${o.model} is cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).`);
+    // R11 Phase 2 (H169, item c): a ":cloud" name runs on Ollama's servers under the person's Ollama account (never "free")
+    if (cloudModelTag(o.model)) say(io.log, `${o.model} runs on Ollama's servers; your account's terms. Ollama sends the chat off this computer, and no cost comes back (unknown).`);
   }
   // R11 (H169): the OpenRouter model given is checked against the kept catalog before anything is written
   let price: string | undefined;

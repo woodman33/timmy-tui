@@ -438,7 +438,8 @@ function drawChat() {
     if (kicker) kicker.textContent = `Chat / ${cx.project ? cx.project.name : 'this project'}${Number.isFinite(since) ? ` · since ${new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${clock(new Date(since).toISOString())}` : ''}`;
     if (sub) sub.textContent = conv && conv.session
       ? `Kept in the project (its .sessions folder) and continued by the Workbench, the REPL and the monitor: ${n} message${n === 1 ? '' : 's'}${conv.total > conv.turns.length ? `, the newest ${conv.turns.length} of ${conv.total} shown` : ''}. Each answer names the model its sealed receipt records.`
-      : 'The project keeps no conversation yet. The Workbench, the REPL and the monitor save theirs here; this page’s own chat (below) is not saved.';
+      // (R53: one line, so the welcome's four starters are above the composer at 1440x900)
+      : 'No conversation saved here yet; this page’s own chat is not saved either.';
     if (tag) { tag.hidden = !(v.route && v.route.kind === 'local' && fakeModel(v.route.model)); tag.textContent = 'FAKE model on this computer'; }
   }
   // the saved conversation drawn again only when it changed (the companion's answer also changes with a provider's check time):
@@ -615,10 +616,14 @@ function drawEmpty() {
   // that work today, drawn as the first run's choices; the words are the terminal's (H167's step 2), which the page mirrors
   redraw(box, [h('p', { class: 'cx-kicker' }, 'Welcome'), h('h2', { class: 'cx-title' }, 'TIMMY runs tools and workflows on your machine and keeps a receipt for every step.'),
     h('p', { class: 'cx-welcome-line' }, 'Write below and press Enter: the model on the chip answers.'),
-    h('p', { class: 'cx-welcome-line' }, 'Logs and receipts stay on this computer, in this project’s .timmy folder: Logs & records lists them.'),
+    // (R43: the rail's name, "Runs & receipts"; the terminal says the same)
+    h('p', { class: 'cx-welcome-line' }, 'Logs and receipts stay on this computer, in this project’s .timmy folder: Runs & receipts lists them.'),
     h('p', { class: 'cx-start-k' }, 'Start with'),
-    h('div', { class: 'cx-ways cx-starters' }, ...STARTERS.map((a) => h('button', { type: 'button', class: 'cx-way', 'data-cx-start': a.id },
-      h('span', { class: 'cx-way-k' }, a.kicker), h('span', { class: 'cx-way-title' }, a.title), h('span', { class: 'cx-way-words' }, a.words), h('span', { class: 'cx-way-act' }, `${a.act} →`))))]);
+    // (R53: two rows of two half-height cards, so all four are above the composer at 1440x900: the kicker and the title on
+    // one line, the words under with the action at their end)
+    h('div', { class: 'cx-ways cx-starters' }, ...STARTERS.map((a) => h('button', { type: 'button', class: 'cx-way cx-way-compact', 'data-cx-start': a.id },
+      h('span', { class: 'cx-way-head' }, h('span', { class: 'cx-way-k' }, a.kicker), h('span', { class: 'cx-way-title' }, a.title)),
+      h('span', { class: 'cx-way-words' }, a.words, ' ', h('span', { class: 'cx-way-act' }, `${a.act} →`)))))]);
 }
 
 /** The four starter actions (the plan's section 2; the terminal's words): each a real action this page has today, never a tour. */
@@ -674,6 +679,18 @@ function drawRoute() {
  * answer (Ollama's /api/show for a local model, the key's check for OpenRouter), grey when nothing has answered, ✕ with the
  * word on a failure. The chip opens Models.
  */
+/**
+ * R11 Phase 2 (H168's pass 4b, R51): the composer is one row until typed in, and grows with the draft (to eight rows): the
+ * conversation takes the height first. The field's rows follow its text (the attribute, not a style: the page sets none).
+ */
+function fitInput(input) {
+  const lines = input.value ? input.value.split('\n').length : 1;
+  input.rows = 1;
+  const line = parseFloat(getComputedStyle(input).lineHeight) || 23;
+  const fits = Math.round((input.scrollHeight - 4) / line);
+  input.rows = Math.min(8, Math.max(1, lines, fits));
+}
+
 function drawComposer() {
   const input = $('cx-input');
   const send = $('cx-send');
@@ -681,6 +698,7 @@ function drawComposer() {
   if (!input || !send) return;
   const r = routeOf(cx.view);
   const c = choiceOf(cx.view);
+  fitInput(input);
   drawChip();
   if (cx.running) {
     send.disabled = false;
