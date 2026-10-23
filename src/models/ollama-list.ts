@@ -9,14 +9,13 @@
  *                                          weights, never a cloud model)
  *   listLocalOllama                        the probe's models with their /api/show and /api/tags facts, and /api/ps's running
  *   listOllamaCloudModels                  Ollama's hosted list (https://ollama.com/api/tags, the key in the header only)
+ *   ollamaCloudKey                         the key for it, from the setup's key store (src/setup/provider-keys.ts keyInUse)
  *   ollamaAddressNow                       the address the chat asks (src/capabilities/ollama-route.ts ollamaAddress's rule)
  *
  * Read only: nothing is loaded, downloaded or run.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { timmyHome } from '../setup/home.js';
 import { cloudModelTag, ollamaAt, validOllamaModelName } from '../setup/ollama-models.js';
+import { keyInUse } from '../setup/provider-keys.js';
 import { knownAnswers, OLLAMA_DEFAULT, readSetupState } from '../setup/questions.js';
 
 type Env = Record<string, string | undefined>;
@@ -308,27 +307,19 @@ export function ollamaAddressNow(env: Env = process.env): string {
 export const OLLAMA_CLOUD_BASE = 'https://ollama.com';
 
 /**
- * The Ollama Cloud key, or null: OLLAMA_API_KEY in the environment (the variable Ollama's own clients read), else the Timmy
- * home's providers.json `ollama_cloud_api_key` (0600, beside the OpenRouter key): the order and the field of the setup's key
- * store (H170's src/setup/provider-keys.ts keyInUse('ollama-cloud'), which this becomes at the merge). Never logged, shown, or
- * put in a URL.
+ * The Ollama Cloud key, or null: the setup's key store reads it (H170's src/setup/provider-keys.ts keyInUse('ollama-cloud')):
+ * OLLAMA_API_KEY in the environment (the variable Ollama's own clients read) first, else the Timmy home's providers.json
+ * `ollama_cloud_api_key` (0600, beside the OpenRouter key), where the setup saves the key a person pastes. Never logged,
+ * shown, or put in a URL.
  */
 export function ollamaCloudKey(env: Env = process.env): string | null {
-  const fromEnv = env.OLLAMA_API_KEY?.trim();
-  if (fromEnv) return fromEnv;
-  try {
-    const file = join(timmyHome(env), 'providers.json');
-    if (!existsSync(file)) return null;
-    const j = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-    const k = j && typeof j === 'object' ? j.ollama_cloud_api_key : undefined;
-    return typeof k === 'string' && k.trim() ? k.trim() : null;
-  } catch { return null; }
+  try { return keyInUse('ollama-cloud', env)?.key ?? null; } catch { return null; }
 }
 
 /** Where the key was found, in words (never the key). */
 export function ollamaCloudKeyFrom(env: Env = process.env): 'OLLAMA_API_KEY' | 'providers.json' | null {
-  if (env.OLLAMA_API_KEY?.trim()) return 'OLLAMA_API_KEY';
-  return ollamaCloudKey(env) ? 'providers.json' : null;
+  const k = (() => { try { return keyInUse('ollama-cloud', env); } catch { return null; } })();
+  return k ? (k.from === 'environment' ? 'OLLAMA_API_KEY' : 'providers.json') : null;
 }
 
 const CONTROL = /[\x00-\x1f\x7f-\x9f]/;

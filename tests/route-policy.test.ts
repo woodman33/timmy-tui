@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import {
-  checkRoute, inferenceAt, localOnlyOn, permits, policyRefusalLines, policyTools, routePolicyNow, routeWords, saveRoutePolicy, type RoutePolicy,
+  checkRoute, checkRouteWith, inferenceAt, localOnlyOn, permits, policyRefusalLines, policyTools, routePolicyNow, routeWords, saveRoutePolicy, type RoutePolicy,
 } from '../src/agent/route-policy.js';
 import { chatRouteNow } from '../src/agent/chat-route.js';
 import { pageRoute } from '../src/companion/chat-route.js';
@@ -109,6 +109,24 @@ describe('checkRoute', () => {
       'Nothing was sent to any model.',
     ]);
     expect(policyRefusalLines(c, true)[2]).toBe('Try: choose a model on this computer\'s Ollama: /model in the REPL lists them, or timmy init --chat local --model <name> (local-only stays on)');
+  });
+
+  it('is the pure rule (src/agent/route-check.ts checkRouteWith) with this computer\'s prices: the same answer for the same facts, and with no price known, never free', () => {
+    const routes = [
+      { source: 'openrouter' as const, model: 'recursive/flint-v1.0:free' },
+      { source: 'openrouter' as const, model: 'minimax/minimax-m3.1-flash' },
+      { source: 'openrouter' as const, model: 'fake-maker/not-in-the-catalog' },
+      { source: 'ollama-local' as const, model: 'fake-qwen3:8b', host: '127.0.0.1:11434' },
+      { source: 'ollama-local' as const, model: 'kimi-k2:cloud', host: '127.0.0.1:11434' },
+      { source: 'ollama-cloud' as const, model: 'gpt-oss:120b' },
+    ];
+    for (const p of [FREE_ONLY, LOCAL_ONLY, BOTH, OFF]) for (const r of routes) expect(checkRouteWith(r, p, price), `${r.model} ${JSON.stringify(p)}`).toEqual(checkRoute(r, p, { price }));
+    // the rule alone reads no catalog: an OpenRouter model whose price the facts do not give is not known, so free-only refuses it
+    expect(checkRouteWith({ source: 'openrouter', model: 'recursive/flint-v1.0:free' }, FREE_ONLY)).toMatchObject({ ok: false, reason: 'price-unknown-under-free-only', cause: 'recursive/flint-v1.0:free\'s price is not known (its price is not known here), and unknown is never free' });
+    // given the price, it is the catalog's answer
+    expect(checkRouteWith({ source: 'openrouter', model: 'recursive/flint-v1.0:free', free: true }, FREE_ONLY)).toEqual({ ok: true });
+    // a local model with local weights costs nothing without any lookup
+    expect(checkRouteWith({ source: 'ollama-local', model: 'fake-qwen3:8b' }, BOTH)).toEqual({ ok: true });
   });
 });
 

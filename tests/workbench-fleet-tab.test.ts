@@ -251,8 +251,11 @@ describe('tab 8: Cloudflare and the services', () => {
       expect(rolesOf(v.lines, /○ configured/).every((x) => x === 'text')).toBe(true);
     }
     // beside the fleet at 160 (the whole width: src/workbench/layout.ts OWN_COLUMNS): the mark and the name on a row, the
-    // frame's words under the name
-    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +answered (just now|\d+ min ago)/);
+    // frame's words under the name, where the column has the rows. R10 (H169): with Ollama Cloud's row (the lead's decision of
+    // 2026-10-22) the frame has ten connections, one more than the column holds with their words at 160x45; there each is its
+    // mark and name on one row (serviceRows' "short of rows"), and from 160x46 the words are under the names again
+    expect(text(fleetView(ctxAt(160, 46), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +answered (just now|\d+ min ago)/);
+    expect(text(fleetView(ctxAt(160, 45), d, frame).lines)).toMatch(/│ +● live +Browser companion +\n[^\n]*│ +○ configured +Timmy Studio/);
     // beside an open drawer (i at 120 columns: 78 cells), with rows to spare: the name on its row, the mark and the words
     // under it; short of rows, the name and the mark on one row
     expect(text(fleetView({ ...ctxAt(120, 60), width: 78 }, d, frame).lines)).toMatch(/│ +Browser companion +\n[^\n]*│ +● live · answered (just now|\d+ min ago)/);
