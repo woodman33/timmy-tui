@@ -107,6 +107,15 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
       return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · its Ollama address is not usable · Send is off',
         words: `Send is off: the setup chose the local model for chat, and its Ollama address (${r.host}) is not one Timmy uses: ${r.at.error}. In the REPL, /setup chat asks again. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
     }
+    // R10 (H169): a model is chosen and the route policy refuses it (local-only: a cloud model, or another computer's Ollama;
+    // free-only: a price this computer cannot know): Send is off in the policy's own words, never "no model chosen"
+    const rule = /^Error: (local-only|free-only) is on/.exec(refusal[0] ?? '')?.[1];
+    if (r.model && !now.state.ready && rule) {
+      const lines = refusal.map((l) => l.trim()).filter(Boolean);
+      const said = [lines.find((l) => /^Cause:/.test(l)), lines.find((l) => /^Try:/.test(l))].filter(Boolean).join(' ');
+      return { kind: 'none', ready: false, chat: 'local', refusal, label: `${rule} · Send is off`,
+        words: `Send is off: ${rule} is on, and this page would ask ${r.model} on ${atWords(r.at)}. ${said} Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
+    }
     if (!r.model || !now.state.ready) {
       return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · no model chosen · Send is off',
         words: `Send is off: the setup chose the local model for chat, and no model is chosen${r.note ? ` (${r.note})` : ''}. In the REPL, /model lists what ${atWords(r.at)} has and /setup chat keeps one. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
@@ -127,7 +136,9 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
     const lines = refusal.map((l) => l.trim()).filter(Boolean);
     const first = (lines.find((l) => /^Error:/.test(l)) ?? lines[0] ?? 'free-only is on, and this model is not known to be free.').replace(/^Error:\s*/, '');
     const said = [first, lines.find((l) => /^Cause:/.test(l)), lines.find((l) => /^Try:/.test(l))].filter(Boolean).join(' ');
-    return { kind: 'none', ready: false, chat: 'openrouter', refusal, label: 'free-only · Send is off',
+    // R10 (H169): local-only refuses OpenRouter whatever it costs; its label names it
+    const rule = /^local-only is on/.test(first) ? 'local-only' : 'free-only';
+    return { kind: 'none', ready: false, chat: 'openrouter', refusal, label: `${rule} · Send is off`,
       words: `Send is off: ${said} Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
   }
   // the page's own request needs the key itself (where it was found is said, never the key); the one route found it where
