@@ -14,7 +14,7 @@
 // logs stay on this computer (journey-2: nothing to ask), and an existing identity is never replaced (applySetup keeps
 // identity.json and identity.seed).
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve, relative, isAbsolute } from 'node:path';
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { identityPath as identityPathOf, isBlankSlate as blankSlate, privateDir as privateDirOf, prettyPath, settingsFile, setupPath, timmyHome as homeOf, workspaceRoot as workspaceOf } from '../setup/home.js';
 import { OLLAMA_DEFAULT, PROJECT_DEFAULT, OPERATOR_DEFAULT, pendingQuestions, readSetupState, setupSummary, type Answers, type Chat, type QuestionId, type SetupState } from '../setup/questions.js';
 import { askSetup, terminalIO, wrap, type SetupIO } from '../setup/terminal.js';
@@ -62,6 +62,9 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('    --ollama <host>  --chat local|openrouter  --model <name>');
   log('    --openrouter -  --project <name>  --edge-host <host>');
   log('    --json');
+  log('  --model names the local model Ollama lists; with --chat');
+  log('  openrouter, the OpenRouter model (id as timmy models');
+  log('  lists it). No model is chosen until you choose one.');
   log('  - reads the key from stdin: a key in a command\'s');
   log('  arguments is visible to other processes and kept in');
   log('  your shell history. With questions, a key is hidden.');
@@ -83,6 +86,12 @@ export interface InitOptions {
   chat?: Chat;
   /** R4 (H103): `--model <name>`: the local chat's model, checked against what the Ollama lists (never downloaded) */
   model?: string;
+  /**
+   * R11 (H169, Phase 0 item 1): `--model <id>` with `--chat openrouter`: the OpenRouter model chosen for the next turn, checked
+   * against the catalog this computer keeps (its price shown), saved in the settings as a choice. Without it, OpenRouter's
+   * route is recorded and no model is chosen: nothing is sent until one is (there is no shipped default).
+   */
+  openRouterModel?: string;
   /** a flag with a value it cannot take, in words */
   error?: string;
 }
@@ -100,8 +109,11 @@ export function parseInitArgs(args: string[]): InitOptions {
   // R4 (H103): the local chat's model, by the name Ollama lists it under (checked against that list before anything is written)
   const model = v('--model');
   if (model !== undefined) {
-    if (!validOllamaModelName(model)) o.error = `--model takes a model's name as Ollama lists it (ollama list shows them), not ${JSON.stringify(model)}.`;
-    else if (o.chat === 'openrouter') o.error = '--model names the local chat\'s model: it goes with --chat local (OpenRouter\'s model is OPENROUTER_MODEL).';
+    // R11 (H169): with --chat openrouter, the OpenRouter model (an id as the catalog names it: maker/name, maybe :variant)
+    if (o.chat === 'openrouter') {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(model) || model.length > 200) o.error = `--model with --chat openrouter takes a model's id as the catalog names it (maker/name, like the rows of timmy models), not ${JSON.stringify(model)}.`;
+      else o.openRouterModel = model;
+    } else if (!validOllamaModelName(model)) o.error = `--model takes a model's name as Ollama lists it (ollama list shows them), not ${JSON.stringify(model)}.`;
     else o.model = model;
   }
   const logs = v('--logs');
@@ -318,7 +330,7 @@ function writesFor(state: SetupState, repoRoot: string, newKey = false): string[
  * answer (flags answer too), writes after a yes, prints one line of what the setup chose, then `next` (where to go from
  * here; the REPL prints its own). 0 set up (or nothing to ask), 1 declined, 130 stopped (Ctrl+C), 2 a refused flag.
  */
-export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string; next?: readonly string[]; force?: readonly QuestionId[] } = {}): Promise<number> {
+export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO = terminalIO(), o: { json?: boolean; title?: string; next?: readonly string[]; force?: readonly QuestionId[]; notes?: () => Promise<string[]> } = {}): Promise<number> {
   const repoRoot = workspaceRoot();
   const state = readSetupState(process.env, repoRoot);
   const force = o.force ?? [];
@@ -339,7 +351,7 @@ export async function guidedSetup(by: string, given: Answers = {}, io: SetupIO =
   // terminal, the monitor's FIRST RUN) may have answered meanwhile; its answers are the base, these go over them, and an
   // identity made meanwhile is kept (never replaced)
   const fresh = readSetupState(process.env, repoRoot);
-  return applyAndReport(mergeFresh(asked.answers, fresh), { by, repoRoot, state: fresh }, io, o.json === true, o.next);
+  return applyAndReport(mergeFresh(asked.answers, fresh), { by, repoRoot, state: fresh }, io, o.json === true, o.next, o.notes);
 }
 
 /** The answers to write over what the home holds now: an identity that appeared meanwhile (or a seed left there) is kept. */
@@ -383,12 +395,14 @@ export async function setupBeforeMonitor(args: readonly string[], o: { env?: Nod
 }
 
 /** Writes and reports; a refusal (an unreadable seed, a seed that is not one) in words within 60 columns, exit 1. */
-function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean, next?: readonly string[]): number {
+async function applyAndReport(answers: Answers, w: { by: string; repoRoot?: string; state: SetupState }, io: Pick<SetupIO, 'log'>, json: boolean, next?: readonly string[], notes?: () => Promise<string[]>): Promise<number> {
   let r: InitResult;
   try { r = applySetup(answers, w); } catch (e) {
     say(io.log, e instanceof Error ? e.message : String(e));
     return 1;
   }
+  // R11 (H169): what the setup says once the answers are written (the OpenRouter model chosen, or that none is yet)
+  if (notes) { try { const more = await notes(); if (more.length) r = { ...r, notes: [...(r.notes ?? []), ...more] }; } catch { /* the setup stands; the note is help */ } }
   return report(r, io, json, next);
 }
 
@@ -440,6 +454,40 @@ async function modelRefusal(model: string, o: InitOptions): Promise<{ words: str
   return null;
 }
 
+/**
+ * R11 (H169, Phase 0 item 1): `--model <id>` with `--chat openrouter`: the id must be in the catalog this computer keeps (the
+ * copy fetched, else the one shipped: no request is made here), and its price is said. Words and an exit status (2 a model
+ * the kept catalog does not list), or the price words: it may be chosen.
+ */
+async function openRouterModelCheck(id: string): Promise<{ words: string; code: number } | { price: string }> {
+  const { readCatalogCache } = await import('../models/catalog.js');
+  const { modelPrice } = await import('../agent/model-price.js');
+  const kept = readCatalogCache();
+  if (!kept) return { words: `Nothing was chosen: this computer keeps no OpenRouter catalog yet, so Timmy cannot check that it lists ${id}. timmy models --refresh fetches it (free), then run this again.`, code: 2 };
+  if (!kept.cache.models.some((m) => m.id === id)) return { words: `Nothing was chosen: the OpenRouter catalog this computer keeps (${kept.kind === 'shipped' ? 'shipped with Timmy' : 'fetched'}, of ${kept.cache.fetchedAt.slice(0, 10)}) lists no model ${id}. timmy models lists them; timmy models --refresh fetches the current catalog (free). Then run this again.`, code: 2 };
+  return { price: modelPrice(id, kept.cache).words };
+}
+
+/**
+ * R11 (H169): what the setup says of the OpenRouter model: the one chosen now (saved as a choice: src/utils/config.ts
+ * saveConfig), or that none is chosen yet and nothing is sent until one is. Never a default.
+ */
+async function openRouterModelNotes(o: InitOptions, chat: Chat | undefined, price?: string): Promise<string[]> {
+  if (chat !== 'openrouter') return [];
+  if (o.openRouterModel) {
+    // saved as the choice through the settings store (as the Workbench's Models saves it): the one write of that file here
+    const { saveConfig } = await import('./config.js');
+    saveConfig({ model: o.openRouterModel });
+    return [`Chosen for the next turn: ${o.openRouterModel} on OpenRouter (${price ?? 'price not known'}).`];
+  }
+  // read by path, as the key is above: building the settings store would write its file
+  const { chosenModel } = await import('./model-choice.js');
+  const file = settingsFile();
+  const chosen = chosenModel({ settings: readObject(file), workbench: readObject(join(dirname(file), 'workbench.json')), env: process.env });
+  if (chosen) return [`The next turn's OpenRouter model: ${chosen}${process.env.OPENROUTER_MODEL ? ' (OPENROUTER_MODEL)' : ''}.`];
+  return ['No model is chosen for OpenRouter yet, so nothing is sent until one is: timmy init --chat openrouter --model <id> (timmy models lists the catalog), /model <id> in the REPL, or Models (M) in timmy workbench.'];
+}
+
 /** The wizard. Returns the process exit code. */
 export async function runInit(args: string[], io: { isTTY: boolean; log: (s: string) => void; question?: (q: string) => Promise<string> } = { isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY), log: console.log }): Promise<number> {
   const o = parseInitArgs(args);
@@ -462,12 +510,21 @@ export async function runInit(args: string[], io: { isTTY: boolean; log: (s: str
     if (refused) { say(io.log, refused.words); return refused.code; }
     if (cloudModelTag(o.model)) say(io.log, `${o.model} is cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).`);
   }
+  // R11 (H169): the OpenRouter model given is checked against the kept catalog before anything is written
+  let price: string | undefined;
+  if (o.openRouterModel !== undefined) {
+    const checked = await openRouterModelCheck(o.openRouterModel);
+    if ('code' in checked) { say(io.log, checked.words); return checked.code; }
+    price = checked.price;
+  }
+  // (the notes are made after the answers are written: a key given now makes the chat OpenRouter's)
+  const notes = async (): Promise<string[]> => openRouterModelNotes(o, readSetupState().recorded?.answers.chat, price);
   if (o.yes) {
     const state = readSetupState();
     const refused = identityRefusal(state, given);
     if (refused) { say(io.log, refused.words); return refused.code; }
-    return applyAndReport(withDefaults(state, given), { by: 'timmy init', state }, { log: io.log }, o.json);
+    return applyAndReport(withDefaults(state, given), { by: 'timmy init', state }, { log: io.log }, o.json, undefined, notes);
   }
   const term = terminalIO(io.log);
-  return guidedSetup('timmy init', given, io.question ? { ...term, question: io.question, hidden: io.question } : term, { json: o.json });
+  return guidedSetup('timmy init', given, io.question ? { ...term, question: io.question, hidden: io.question } : term, { json: o.json, notes });
 }

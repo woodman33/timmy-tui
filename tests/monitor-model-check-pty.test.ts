@@ -29,7 +29,9 @@ async function fakeUpstream(): Promise<{ server: Server; url: string; seen: Arra
   return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/chat/completions`, seen };
 }
 
-async function monitor(kind: HomeKind, key: string) {
+// R11 (H169, Phase 0 item 1): there is no shipped default model: a check of the OpenRouter route needs a chosen model
+// (OPENROUTER_MODEL here, as a person's choice for one process); with none, the chat refuses and `/model test` sends nothing
+async function monitor(kind: HomeKind, key: string, model = '') {
   const up = await fakeUpstream();
   const h = monitorHome(kind, { git: true });
   // R4 (H103): the monitor's chat follows the setup's chat answer (`timmy init --yes` preselects the local model, which has
@@ -39,7 +41,7 @@ async function monitor(kind: HomeKind, key: string) {
     const s = JSON.parse(readFileSync(setup, 'utf8'));
     writeFileSync(setup, JSON.stringify({ ...s, answers: { ...s.answers, chat: 'openrouter' } }));
   }
-  const env = `OPENROUTER_API_KEY='${key}' TIMMY_MODEL_CHECK_URL='${up.url}'`;
+  const env = `OPENROUTER_API_KEY='${key}' TIMMY_MODEL_CHECK_URL='${up.url}'${model ? ` OPENROUTER_MODEL='${model}'` : ''}`;
   h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '140', '-y', '40', '-c', h.repo, 'bash', '--norc', '-c',
     `${env} ${process.execPath} --import ${LOADER} ${MONITOR} --no-companion; echo EXIT=$?; sleep 60`);
   return {
@@ -59,7 +61,7 @@ async function monitor(kind: HomeKind, key: string) {
 describe('the monitor and the model, in a PTY (R4 H87)', () => {
   it('starting, the first-run screen and the shell send nothing to the model; the chat says the provider is not checked', async () => {
     for (const kind of ['first-run', 'initialized'] as const) {
-      const m = await monitor(kind, 'sk-or-FAKE-key');
+      const m = await monitor(kind, 'sk-or-FAKE-key', 'fake/chosen-model');
       try {
         await m.h.waitFor(kind === 'first-run' ? /TIMMY · FIRST RUN/ : /YOUR JOURNEY/);
         await sleep(3000);
@@ -75,14 +77,31 @@ describe('the monitor and the model, in a PTY (R4 H87)', () => {
     }
   }, 180_000);
 
-  it('`/model test` in the chat sends exactly one request (to the FAKE, with the key) and shows what came back', async () => {
-    const m = await monitor('initialized', 'sk-or-FAKE-key');
+  it('`/model test` in the chat sends exactly one request (to the FAKE, with the key, naming the chosen model) and shows what came back', async () => {
+    const m = await monitor('initialized', 'sk-or-FAKE-key', 'fake/chosen-model');
     try {
       await m.h.waitFor(/YOUR JOURNEY/);
       await m.chat('/model test');
       await m.h.waitFor(/Model check: FAKE-upstream answered/, 30_000);
       await sleep(500);
       expect(m.up.seen).toEqual([{ method: 'POST', path: '/v1/chat/completions', key: true }]);
+    } finally {
+      await m.close();
+    }
+  }, 120_000);
+
+  it('R11 (H169): with a key and no model chosen, the chat says so and `/model test` sends nothing', async () => {
+    const m = await monitor('initialized', 'sk-or-FAKE-key');
+    try {
+      await m.h.waitFor(/YOUR JOURNEY/);
+      m.h.tmux('send-keys', '-t', 't', 'c');
+      await m.h.waitFor(/No model chosen\. \/model <id> chooses one/, 10_000);
+      m.h.tmux('send-keys', '-t', 't', '-l', '/model test');
+      await sleep(300);
+      m.h.tmux('send-keys', '-t', 't', 'Enter');
+      await m.h.waitFor(/Model check failed: No model chosen, so nothing was sent/, 30_000);
+      await sleep(500);
+      expect(m.up.seen).toEqual([]);
     } finally {
       await m.close();
     }

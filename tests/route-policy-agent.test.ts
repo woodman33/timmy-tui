@@ -2,7 +2,9 @@
  * R10 (H169; the lead's ask of 2026-10-22, 16:5x): the route policy at the agent, for every model call a turn can make: the
  * turn's own request, the paid fallback models (src/agent/core.ts FALLBACK_ORDER), the last-resort local answer, and the tools
  * that ask a model of their own (describe_image; a code agent, whose route Timmy cannot see). Written first and run against
- * fa45040's code, where it failed (the counts are in the handoff), then against the fix.
+ * fa45040's code, where it failed (the counts are in the handoff), then against the fix. R11 (H169, Phase 0 item 1; the
+ * lead's rule of 2026-10-23): the paid FALLBACK_ORDER is gone altogether: a failed model is never followed by a paid one,
+ * with the policy on or off (tests/no-default-model.test.ts has the policy-off case).
  *
  * Every model the agent asks is a FAKE: OpenRouter is a FAKE server on 127.0.0.1 behind the real @openrouter/sdk (it counts
  * each request by the model it names and refuses each one with HTTP 400, so the agent tries what it would try next); Ollama
@@ -113,17 +115,18 @@ describe('free-only: no paid model is tried in place of a free one (the billing 
     // fallback model (fa45040: anthropic/claude-opus-4.7 was asked once)
     expect({ failed: err !== null, requests: Object.fromEntries(or.byModel) }).toEqual({ failed: true, requests: { [FREE]: 1 } });
     expect(Object.fromEntries(PAID_FALLBACKS.map((m) => [m, or.count(m)]))).toEqual(Object.fromEntries(PAID_FALLBACKS.map((m) => [m, 0])));
-    expect(err!.message).toMatch(/No fallback model was tried: Free-only is on, so the fallback model anthropic\/claude-opus-4\.7 was not tried: anthropic\/claude-opus-4\.7 costs \$5 in \/ \$25 out per 1M tokens/);
+    expect(err!.message).toMatch(/No fallback model was tried on OpenRouter, and no local model on this computer could answer\.$/);
     // the model the agent names is still the one chosen (a fallback never replaced it)
     expect(agent.getModel()).toBe(FREE);
   });
 
-  it('with the policy off, the fallback is as before (one request to the first fallback model)', async () => {
+  it('with the policy off, no fallback model is tried either (R11: the paid fallback list is gone; one request, the chosen model\'s)', async () => {
     const or = await fakeOpenRouter();
     const agent = agentOn(or.serverURL);
     await agent.send('hello').catch(() => undefined);
     expect(or.count(FREE)).toBe(1);
-    expect(or.count('anthropic/claude-opus-4.7')).toBe(1);
+    expect(Object.fromEntries(PAID_FALLBACKS.map((m) => [m, or.count(m)]))).toEqual(Object.fromEntries(PAID_FALLBACKS.map((m) => [m, 0])));
+    expect(or.total()).toBe(1);
   });
 });
 
