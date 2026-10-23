@@ -12,6 +12,7 @@ import { frameOf } from '../src/workbench/screen.js';
 import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, type CatalogRow } from '../src/workbench/chat-shell.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { plain } from '../src/workbench/text.js';
+import { UNANSWERED } from '../src/agent/core.js';
 
 const g = glyphsFor(true);
 const NOW = Date.parse('2026-10-22T23:40:00Z');
@@ -295,12 +296,56 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(c[4]).toBe('CHAT / tray');
     expect(c[7]).toBe('A model is optional until you need an answer.');
     expect(c.slice(8, 10)).toEqual(['Project files, logs and records work without one; what you write is', 'kept as a draft until a model is chosen.']);
-    expect(c.slice(11, 13)).toEqual(['> [ Choose a model ]', '  [ Review setup choices ]']);
+    expect(c.slice(11, 14)).toEqual(['> [ Choose a model ]', '  [ Review setup choices ]', '  [ Write a draft ]']);
     expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: a draft']);
     // with a conversation kept, the conversation (the header and the composer say what is missing)
     const kept = center(text(frame(data({ ...NONE, chat: data().chat }), ui({ firstRunDone: true }))));
     expect(kept[7]).toBe('Not ready  timmy init (in a shell) sets up a route');
     expect(kept[9]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(kept[29]).toBe('Connect a model to chat (a draft is kept)');
+  });
+});
+
+describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs drawer keeps the draft and gives the keyboard back to its opener)', () => {
+  it('Logs: over the conversation, where logs are kept, the recent turns (no receipt id), Open Logs & records; the composer and its draft in sight', () => {
+    const f = frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 6 }, shellDrawer: 'logs', draft: 'kept words' }));
+    const t = text(f);
+    const c = center(t);
+    expect(c[4]).toMatch(/^LOGS \/ this computer +\[ Close \]$/);
+    expect(c[5]).toBe('─'.repeat(69));
+    expect(c[7]).toMatch(/^Logs and records stay on this computer; cloud sync is off\./);
+    expect(c[10]).toBe('RECENT TURNS');
+    expect(c[11]).toMatch(/^\d\d:\d\d  answered  FAKE fake-qwen3:8b  here$/);
+    expect(c[25]).toBe('> [ Open Logs & records ]  every receipt, run and log');
+    expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: kept words']);
+    expect(f.screen[35].find((s) => s.text === '[Logs]')?.role).toBe('accent');
+    expect(t.join('\n')).not.toMatch(/d2d756db|oc372c7b3/);
+  });
+
+  it('Budget: the next turn\'s model and price, free-only, Open settings; More at 80x24: the controls the row leaves out, each as its button acts or what it needs', () => {
+    const b = center(text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 4 }, shellDrawer: 'budget' }))));
+    expect(b[4]).toMatch(/^BUDGET \/ the next turn +\[ Close \]$/);
+    expect(b[7]).toMatch(/^Next turn  FAKE fake-qwen3:8b \/ /);
+    expect(b[8]).toBe('Free-only  off');
+    expect(b[25]).toBe('> [ Open settings ]');
+    const m = text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 3, shellDrawer: 1 }, shellDrawer: 'more' }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(m[4]).toMatch(/^THIS CONVERSATION +\[ Close \]$/);
+    expect(m[7]).toMatch(/^  \[ Attach \]  needs the companion/);
+    expect(m.slice(8, 12)).toEqual(['> [ Plan / Run ]', '  [ Permissions ]', '  [ Stop ]  needs a turn being answered here', '  [ Cloudflare ]']);
+    expect(m[20]).toMatch(/^\[ Send \]/);
+  });
+});
+
+describe('an unanswered message after a relaunch (R10 CHAT H167; H168\'s R3 at pass 2c)', () => {
+  const asked = { role: 'user', text: 'Say one line about the tray project.', at: at(9) };
+  const record = { role: 'assistant', text: UNANSWERED, at: at(4) };
+  const said = (d: Partial<Data>) => center(text(frame(data(d), ui()))).join(' ').replace(/\s+/g, ' ');
+  it('is said from its turn\'s record when one was sealed (failed, at its receipt\'s time); with none, the general words; never the stop\'s mark', () => {
+    const failed = said({ chat: { session: 's1', total: 2, messages: [asked, record] }, turns: [{ receipt: 'aaaa1111', surface: 'workbench', state: 'failed', model: 'fake-qwen3:8b', at: new Date(at(9) + 3000).toISOString(), operation: null }] } as unknown as Partial<Data>);
+    expect(failed).toMatch(/✕ failed: the turn ended without an answer · \d\d:\d\d:\d\d \(its receipt: Logs & records\)/);
+    expect(failed).not.toMatch(/■|interrupted before Timmy could/);
+    const none = said({ chat: { session: 's1', total: 2, messages: [asked, record] }, turns: [] } as unknown as Partial<Data>);
+    expect(none).toMatch(/not answered: it was interrupted before Timmy could \(the program ended, or the request failed\)/);
+    expect(none).not.toMatch(/■/);
   });
 });

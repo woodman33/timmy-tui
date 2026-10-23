@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { modelRows, ollamaRows, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
@@ -232,6 +232,9 @@ export class Controller {
       if (this.disposed) return;
       this.readAll();
       this.refreshFrame();
+      // R10 CHAT (H167): opened on Chat, Models' lists are read now (the catalog from files; what the local Ollama lists, one
+      // request), not once the producers have loaded: the first seconds showed "NOT READ YET"
+      if (this.ui.workspace === 'chat' && !this.ui.chatClassic) void this.loadModels();
       // the screen drawn again with the reading: the app subscribed as its first frame was drawn (React runs the effects of
       // Ink's first render before render() returns, so before this immediate)
       this.emit();
@@ -911,6 +914,8 @@ export class Controller {
     if (this.ui.focus === 'center' && !f.regions.center) this.ui.focus = f.regions.right ? 'right' : 'top';
     // R10 CHAT (H167): the Chat screen's shell has no workflow actions row: the keyboard is on the conversation there
     if (f.layout.shell === 'chat' && this.ui.focus === 'top') this.ui.focus = 'center';
+    // (a drawer of the bottom belongs to its control: the keyboard moved elsewhere, it is closed)
+    if (this.ui.shellDrawer && (f.layout.shell !== 'chat' || this.ui.focus !== 'bottom')) delete this.ui.shellDrawer;
     this.last = f;
     return f;
   }
@@ -1081,6 +1086,13 @@ export class Controller {
   }
 
   private escape(): void {
+    // R10 CHAT (H167): Esc closes the bottom's drawer, the keyboard staying on the control that opened it
+    if (!this.ui.overlay && this.chatShell() && this.ui.shellDrawer) {
+      delete this.ui.shellDrawer;
+      this.ui.focus = 'bottom';
+      this.emit();
+      return;
+    }
     // R10 CHAT (H167): Esc on Models gives the keyboard back to where it was (and closes its drawer)
     if (!this.ui.overlay && this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen) {
       const from = this.ui.modelsFrom;
@@ -1131,6 +1143,12 @@ export class Controller {
     // R10 CHAT (H167): the rail's cursor moves without opening anything (Enter opens); the controls row moves along its controls
     if (this.chatShell() && region === 'nav') {
       this.ui.cursor.rail = Math.max(0, Math.min(RAIL_ITEMS.length - 1, (this.ui.cursor.rail ?? RAIL_ITEMS.indexOf('chat')) + delta));
+      this.emit();
+      return;
+    }
+    if (this.chatShell() && region === 'bottom' && this.ui.shellDrawer) {
+      const n = this.ui.shellDrawer === 'more' ? moreControls({ data: this.data }).length : 1;
+      this.ui.cursor.shellDrawer = Math.max(0, Math.min(n - 1, (this.ui.cursor.shellDrawer ?? 0) + delta));
       this.emit();
       return;
     }
@@ -1205,7 +1223,7 @@ export class Controller {
       this.emit();
       return;
     }
-    if (this.chatShell() && this.ui.focus === 'bottom') { this.move(dir); return; }
+    if (this.chatShell() && this.ui.focus === 'bottom') { delete this.ui.shellDrawer; this.move(dir); return; }
     if (this.chatShell() && this.ui.focus === 'nav') { if (dir === 1) { this.ui.focus = 'center'; this.emit(); } return; }
     // R5 (H131): Home's preview and Chat's event log have no tabs
     if (this.ui.focus === 'right' && this.hubColumn()) return;
@@ -1297,6 +1315,8 @@ export class Controller {
       case 'guide': this.ui.guide = !this.ui.guide; this.emit(); return;
       case 'models': toModels(railProvider({ ui: this.ui, data: this.data })); return;
       case 'review': this.ui.firstRunDone = false; delete this.ui.cursor['center:first']; this.ui.focus = 'center'; this.emit(); return;
+      // (the composer, with the draft kept when it was left: a draft waits for a model)
+      case 'draft': this.ui.input = { field: 'composer', text: this.ui.draft ?? '' }; delete this.ui.draft; this.emit(); return;
       default: return;
     }
   }
@@ -1324,6 +1344,9 @@ export class Controller {
     if (!r) { this.say('No model is listed here to choose.', 'secondary'); return; }
     if (source === 'ollama-local') { await this.chooseLocal(r.id); return; }
     if (this.data.route.kind !== 'openrouter') { this.say(`${r.name} runs on OpenRouter: Connect OpenRouter first (its key); the next turn stays on the route it has.`, 'secondary'); return; }
+    // R10 CHAT (H167; the target's check "free-only blocks a priced selection without sending"): under free-only a model the
+    // catalog does not price at 0 (unknown is not free) is not chosen; nothing is saved or sent
+    if (/\bfree-only\b/.test(this.data.route.words) && r.price.free !== true) { this.say(`${r.name} is not chosen: free-only is on, and the catalog does not price it at 0 (${priceWords(r.price)}); the next turn keeps its model.`, 'secondary'); return; }
     try { await this.setup.saveModel(r.id); this.data.route = readRoute(this.d.env); this.say(`The next turn goes to ${r.id} on OpenRouter (${r.price.free === true ? 'free' : 'its price as the catalog says'}); a turn being answered keeps its route.`, 'secondary'); } catch (e) { this.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`, 'failure'); }
     this.emit();
   }
@@ -1336,14 +1359,25 @@ export class Controller {
       case 'tools': this.selectPage('tools'); this.ui.focus = 'center'; break;
       case 'plan': this.selectPage('workflows'); this.ui.focus = 'center'; break;
       case 'permissions': this.selectPage('control'); this.ui.focus = 'center'; break;
-      case 'more': this.open({ kind: 'message', title: 'This conversation', lines: shellControls({ data: this.data }).map((x): Line => [{ text: `[${x.label}]`, role: x.on ? 'text' : 'secondary' }, { text: x.on ? '' : `  needs ${x.needs ?? ''}`, role: 'secondary' }]) }); return;
-      case 'logs': this.selectPage('logs'); this.ui.focus = 'center'; break;
+      // (R10 CHAT H167: Logs, Budget and More open their drawer over the conversation; the draft and the keyboard stay)
+      case 'more': case 'logs': case 'budget': this.ui.shellDrawer = id as 'logs' | 'budget' | 'more'; this.ui.cursor.shellDrawer = 0; this.ui.focus = 'bottom'; break;
       case 'stop': await this.stop(); return;
       case 'cloudflare': this.ui.modelsProvider = 'cloudflare'; this.focusModels(); return;
-      case 'budget': this.open({ kind: 'settings' }); return;
       default: return;
     }
     this.emit();
+  }
+
+  /** Enter in a drawer of the bottom: Logs' Open Logs & records (the Logs & records workspace), Budget's Open settings, or the
+   *  control More lists (as its button acts); the drawer closes first. */
+  private async drawerChoice(): Promise<void> {
+    const which = this.ui.shellDrawer;
+    const cur = this.ui.cursor.shellDrawer ?? 0;
+    delete this.ui.shellDrawer;
+    if (which === 'logs') { this.selectPage('logs'); this.ui.focus = 'center'; this.emit(); return; }
+    if (which === 'budget') { this.open({ kind: 'settings' }); return; }
+    const k = moreControls({ data: this.data })[cur];
+    if (k) await this.shellControl(k.id); else this.emit();
   }
 
   selectWorkspace(ws: WorkspaceId): void {
@@ -1583,6 +1617,9 @@ export class Controller {
       // R10 (H167): while the session is still opening (Home's next step opens the composer at once), what was typed stays in
       // the composer, and Enter sends it once the session is open: nothing is lost and nothing is sent before then
       if (why && text.trim() && this.chatOpening()) { this.say(`Not sent yet: ${why}. What you typed stays here; Enter sends it once it is open.`, 'secondary'); this.emit(); return; }
+      // R10 CHAT (H167; the target's check: no model refuses a send, and the draft stays): on the Chat screen what was typed stays
+      // in the composer, and the notice says what the send needs
+      if (why && text.trim() && this.chatShell()) { this.say(`Not sent: ${why}. What you typed stays here; Esc keeps it as a draft, and Models (M) chooses a model.`, 'secondary'); this.emit(); return; }
       if (why || !text.trim()) { this.ui.input = { field: null, text: '' }; if (why) this.say(`Not sent: ${why}`, 'secondary'); this.emit(); return; }
       if (this.data.turn?.state === 'sending') { this.say('One turn at a time: the chat turn is still being answered. Esc stops it, or wait for its answer.', 'secondary'); return; }
       // R7 (H150; H148's N3): one turn at a time per project, by the one answer RUNNING NOW and the run line read (the holds
@@ -2199,6 +2236,7 @@ export class Controller {
     if (this.chatShell() && !this.ui.overlay) {
       if (region === 'nav') { this.openRail(RAIL_ITEMS[this.ui.cursor.rail ?? RAIL_ITEMS.indexOf('chat')] ?? 'chat'); return; }
       if (region === 'right' && !this.ui.rightOpen) { await this.chooseFromRail(); return; }
+      if (region === 'bottom' && this.ui.shellDrawer) { await this.drawerChoice(); return; }
       if (region === 'bottom') { await this.shellControl(shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS)[this.ui.cursor.shellBottom ?? 0]?.id ?? 'tools'); return; }
       if (region === 'center' && this.listOf('center') === 'center:first') {
         const items = this.itemsNow('center') ?? [];
@@ -2429,6 +2467,23 @@ export class Controller {
       return;
     }
     if (o) { if (hint === 'Esc') this.escape(); return; }
+    // R10 CHAT (H167): on the Chat screen the zone under the pointer has the keyboard and the rail item, row or control under
+    // it is selected (only selected: Enter, the key, opens or acts); a [key] hint clicked acts as its key
+    if (this.chatShell()) {
+      const z = this.shellAt(f, x, y);
+      if (!z) return;
+      this.ui.focus = z.region;
+      if (z.at >= 0) {
+        const it = z.d.items[z.at].item;
+        if (z.region === 'nav') this.ui.cursor.rail = Math.max(0, RAIL_ITEMS.indexOf(it.kind === 'action' ? it.action : ''));
+        else if (z.region === 'bottom') { delete this.ui.shellDrawer; this.ui.cursor.shellBottom = z.at; }
+        else select(this.ui, z.d.list, z.d.items, z.at);
+      }
+      if (hint === 'Esc') { this.escape(); return; }
+      if (hint === 'Enter') { void this.enter(); return; }
+      this.emit();
+      return;
+    }
     if (!hit) return;
     // a tab of the right dock
     for (const t of f.tabs) if (y === t.y && x >= t.x0 && x <= t.x1) { this.ui.tab = t.tab; this.ui.focus = 'right'; this.remember(); this.emit(); return; }
@@ -2453,6 +2508,21 @@ export class Controller {
     if (hint === 'Enter') { void this.enter(); return; }
     if (hint && [...hint].length === 1) { this.key(hint, {}); return; }
     this.emit();
+  }
+
+  /** R10 CHAT (H167): the Chat screen's zone at a cell (0-based) and the item drawn there (-1: none). Its zones are drawn with
+   *  no box (src/workbench/chat-shell.ts chatScreen's regions: their rects are their cells, `fixed` the rows before their
+   *  list); Models' drawer, over the center, is looked at first. */
+  private shellAt(f: Frame, x: number, y: number): { region: Region; d: NonNullable<Frame['regions'][Region]>; at: number } | null {
+    for (const region of ['nav', 'right', 'bottom', 'center'] as const) {
+      const d = f.regions[region];
+      if (!d || x < d.rect.x || x >= d.rect.x + d.rect.w || y < d.rect.y || y >= d.rect.y + d.rect.h) continue;
+      const line = y - d.rect.y - d.fixed + d.scroll;
+      const cx = x - d.rect.x;
+      const at = d.items.findIndex((it) => line >= it.line && line < it.line + (it.rows ?? 1) && (!it.x || (cx >= it.x.from && cx <= it.x.to)));
+      return { region, d, at };
+    }
+    return null;
   }
 
   /** R4 (H112): the item a click at (x, y) lands on in a drawn region, or -1 (a border, a heading, the air). `rows`: an item
