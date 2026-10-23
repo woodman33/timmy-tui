@@ -43,7 +43,8 @@ describe('openhands docker engine: the runner image is inventoried, never built'
     // the receipt says so, and no workspace was made (the adapter makes one in the OS temp folder, timmy-oh-*, once past this)
     const last = readChain('runs', dir).at(-1) as { status: string; error_class: string; subject: string; discrepancies: string[] };
     expect(last).toMatchObject({ status: 'failed', error_class: 'not_configured', subject: 'openhands runner image not built', discrepancies: [OH_RUNNER_NOT_BUILT] });
-    expect(readdirSync(tmpdir()).filter((n) => /^timmy-oh-(?!image-)/.test(n) && statSync(join(tmpdir(), n)).mtimeMs >= started)).toEqual([]);
+    // the adapter's workspace is timmy-oh-<6 random characters> exactly (other openhands tests make timmy-oh-test-*, timmy-oh-image-*)
+    expect(readdirSync(tmpdir()).filter((n) => /^timmy-oh-[A-Za-z0-9]{6}$/.test(n) && statSync(join(tmpdir(), n)).mtimeMs >= started)).toEqual([]);
     expect(existsSync(join(dir, 'scripts'))).toBe(false);
   });
 });
