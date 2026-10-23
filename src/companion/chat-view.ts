@@ -35,6 +35,7 @@
 import type express from 'express';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { runningTurns } from '../agent/chat-turn.js';
 import { ConversationManager } from '../agent/conversation.js';
 import { modelPrice } from '../agent/model-price.js';
 import { permits, policyFrom, policyRefusalLines, routePolicyNow } from '../agent/route-policy.js';
@@ -47,7 +48,7 @@ import { installSteps, ollamaInstalled, STARTER_MODELS } from '../setup/ollama-l
 import { providerStates, type ProviderState as SetupState } from '../setup/providers-state.js';
 import { readSetupState } from '../setup/questions.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
-import { readChain, type Receipt } from '../utils/receipts.js';
+import { readChain, verifyReceiptIn, type Receipt } from '../utils/receipts.js';
 import { readSettings, saveSettings } from '../workbench/settings.js';
 import { PAGE_SCOPE, pageRoute, type PageRoute } from './chat-route.js';
 
@@ -345,8 +346,14 @@ export interface ConvTurn {
    * receipt of this project matches the answer
    */
   model?: string | null;
-  /** the receipt that sealed the turn: its id (the hash's first 8), how it ended, the surface that sent it */
-  receipt?: { id: string; status: string; surface: string };
+  /**
+   * the receipt that sealed the turn: its id (the hash's first 8), how it ended, the surface that sent it. R11 step 2 (H171;
+   * the plan's section 2, the evidence line "<model> · <where> · <seconds> · receipt <id> ✓"): its facts for the line and the
+   * expandable activity: `verified` only when src/utils/receipts.ts verifyReceiptIn passed on this read (every link and body
+   * hash up to it, and its signature), else `why`; `where` the inference ran as the receipt names it; `ms`; the tools it ran
+   * (tool_outcomes) in order; what it spent (cost_measured says whether the number is the whole charge); the files it wrote
+   */
+  receipt?: ReceiptFacts;
   /**
    * R10 (H171; H168's pass 3b R19): a turn stopped before its answer ended. The conversation keeps Timmy's record of the stop
    * (src/agent/core.ts cancelRecord) where its answer would be: `text` is the answer written before the stop (none: ''), and
@@ -354,9 +361,55 @@ export interface ConvTurn {
    */
   stopped?: { record: string; by?: string };
 }
-export interface SavedConversation { session: string | null; total: number; turns: ConvTurn[]; error?: string }
+export interface ReceiptFacts {
+  id: string;
+  status: string;
+  surface: string;
+  verified: boolean;
+  /** why it does not verify (verified false) */
+  why?: string;
+  /** where the inference ran, in words: 'this computer', 'another computer', 'Ollama Cloud', 'OpenRouter', 'not recorded' */
+  where: string;
+  ms?: number;
+  tools: Array<{ name: string; outcome: string; receipt?: string }>;
+  cost?: { usd: number; measured: boolean };
+  files?: number;
+  /** the turn's steps as the subject counts them, when it says */
+  steps?: number;
+}
+export interface SavedConversation {
+  session: string | null;
+  total: number;
+  turns: ConvTurn[];
+  error?: string;
+  /**
+   * R11 step 2 (H171): a turn of this project being answered now by another surface (src/agent/chat-turn.ts runningTurns,
+   * read only: its hold is live), so the page shows an indicator while it runs; its receipt comes when it ends
+   */
+  running?: Array<{ surface: string; since: string }>;
+}
 
 const chainOf = (root: string, env: Env): readonly Receipt[] => { try { return env.TIMMY_STORE ? readChain('runs') : readChain('runs', root); } catch { return []; } };
+
+/** A chat turn's receipt, read for the evidence line: verified on this read (never assumed), where it ran, its tools, time and spend. */
+function receiptFacts(rr: Receipt & Record<string, unknown>, chain: readonly Receipt[]): ReceiptFacts {
+  const v = verifyReceiptIn(chain, String(rr.hash));
+  const sources = Array.isArray(rr.sources) ? rr.sources as Array<Record<string, unknown>> : [];
+  const ollama = sources.find((x) => x.kind === 'ollama');
+  const where = ollama
+    ? (ollama.endpoint === 'remote' ? 'Ollama Cloud' : /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(String(ollama.host ?? '')) ? 'this computer' : 'another computer')
+    : rr.via === 'ollama' ? 'this computer' : typeof rr.model_requested === 'string' && /\//.test(rr.model_requested) ? 'OpenRouter' : 'not recorded';
+  const tools = Array.isArray(rr.tool_outcomes) ? (rr.tool_outcomes as Array<Record<string, unknown>>).map((t) => ({ name: String(t.name ?? 'a tool'), outcome: String(t.outcome ?? 'unknown'), ...(typeof t.receipt === 'string' ? { receipt: t.receipt.slice(0, 15) } : {}) })) : [];
+  const steps = /· (\d+) steps? ·/.exec(String(rr.subject ?? ''));
+  return {
+    id: String(rr.hash).slice(7, 15), status: typeof rr.status === 'string' ? rr.status : 'ok', surface: chatTurnOf(rr)?.surface ?? 'unknown',
+    verified: v.ok, ...(v.ok ? {} : { why: v.reason }), where,
+    ...(typeof rr.ms === 'number' && Number.isFinite(rr.ms) ? { ms: rr.ms } : {}), tools,
+    ...(typeof rr.cost_usd === 'number' && Number.isFinite(rr.cost_usd) ? { cost: { usd: rr.cost_usd, measured: rr.cost_measured === true } } : {}),
+    ...(Array.isArray(rr.files) ? { files: rr.files.length } : {}),
+    ...(steps ? { steps: Number(steps[1]) } : {}),
+  };
+}
 
 /** Timmy's record of a stopped turn, as src/agent/core.ts cancelRecord writes it into the conversation. */
 const STOP_RECORD = /^\[Cancelled by the user before I (?:finished answering|answered)\./;
@@ -383,10 +436,13 @@ export function stoppedAnswerOf(record: string): string {
  */
 export function savedConversation(root: string, env: Env = process.env): SavedConversation {
   let session: string | null = null;
+  // R11 step 2: a turn of this project being answered by another surface now (its hold live), with or without a conversation yet
+  const running = (() => { try { return runningTurns(root, undefined, { readOnly: true }).filter((t) => !t.mine).map((t) => ({ surface: t.surface, since: t.taken })); } catch { return []; } })();
+  const withRunning = (c: SavedConversation): SavedConversation => (running.length ? { ...c, running } : c);
   try {
     const conv = new ConversationManager(join(root, '.sessions'));
     const sessions = conv.listSessions();
-    if (!sessions.length) return { session: null, total: 0, turns: [] };
+    if (!sessions.length) return withRunning({ session: null, total: 0, turns: [] });
     session = sessions[0];
     const all = conv.load(session);
     // each turn's receipt: by its answer's hash (response_hash); else, as the page's turn list knows a turn, by the person's
@@ -395,7 +451,8 @@ export function savedConversation(root: string, env: Env = process.env): SavedCo
     type TurnReceipt = Receipt & { response_hash?: unknown; prompt_hash?: unknown; model_resolved?: unknown; model_requested?: unknown; status?: unknown; stopped_by?: unknown; ts?: unknown };
     const byAnswer = new Map<string, TurnReceipt>();
     const byPrompt = new Map<string, TurnReceipt[]>();
-    for (const r of chainOf(root, env) as readonly TurnReceipt[]) {
+    const chain = chainOf(root, env);
+    for (const r of chain as readonly TurnReceipt[]) {
       if (!chatTurnOf(r)) continue;
       if (typeof r.response_hash === 'string') byAnswer.set(r.response_hash, r);
       if (typeof r.prompt_hash === 'string') byPrompt.set(r.prompt_hash, [...(byPrompt.get(r.prompt_hash) ?? []), r]);
@@ -421,13 +478,13 @@ export function savedConversation(root: string, env: Env = process.env): SavedCo
       const stop = STOP_RECORD.test(full);
       return {
         kind: 'timmy', ...said(stop ? stoppedAnswerOf(full) : full), model,
-        ...(rr ? { receipt: { id: String(rr.hash).slice(7, 15), status: typeof rr.status === 'string' ? rr.status : 'ok', surface: chatTurnOf(rr)?.surface ?? 'unknown' } } : {}),
+        ...(rr ? { receipt: receiptFacts(rr as Receipt & Record<string, unknown>, chain) } : {}),
         ...(stop ? { stopped: { record: full.length > TEXT_MAX ? full.slice(0, TEXT_MAX) : full, ...(rr && typeof rr.stopped_by === 'string' ? { by: rr.stopped_by } : {}) } } : {}),
       };
     });
-    return { session, total: all.length, turns: turnsAll.slice(-TURNS_MAX) };
+    return withRunning({ session, total: all.length, turns: turnsAll.slice(-TURNS_MAX) });
   } catch (e) {
-    return { session, total: 0, turns: [], error: e instanceof Error ? e.message : String(e) };
+    return withRunning({ session, total: 0, turns: [], error: e instanceof Error ? e.message : String(e) });
   }
 }
 

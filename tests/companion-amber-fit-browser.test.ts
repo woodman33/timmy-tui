@@ -42,7 +42,7 @@ const ambers = (page: Page): Promise<Amber[]> => page.evaluate(() => {
     ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active, .cm-providers [role="tab"][aria-selected="true"]')],
     ['.intent or .predict', (el) => within(el, '.is-intent, .is-predict, .rd-before, [data-stage="predict"], [data-stage="intent"], .tone-intent, .log-msg.user, .sd-user')],
     // R11 (H171): the model chip's dot while this page checks a model (amber, with its word "checking…")
-    ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup, .cx-dot[data-state="checking"]')],
+    ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup, .cx-dot[data-state="checking"], .cx-spin')],
     ['a failure, with ✕ and its word', (el) => within(el, '.tone-failed, .is-failed, .run-error, .canvas-fail, .conn-state.is-failed, [data-state="failed"], .tools-attn, .tools-refused, .tools-fielderr, .is-invalid, .log-level.error, .sb-thumb-failed, .st-failed, .tone-failure')],
   ];
   const out: Array<{ role: string; tag: string; cls: string; text: string; how: string[] }> = [];
