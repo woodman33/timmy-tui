@@ -246,7 +246,8 @@ export function railProvider(c: Pick<ShellCtx, 'ui' | 'data'>): NonNullable<Ui['
 
 /** Models' Cost filter now: the person's choice, else free where the next turn's route is free-only, else all. */
 export function railCost(c: Pick<ShellCtx, 'ui' | 'data'>): 'free' | 'all' | 'paid' {
-  return c.ui.modelsCost ?? (/\bfree-only\b/.test(c.data.route.words) ? 'free' : 'all');
+  // (R10 CHAT H167; H168's pass 3c, R17b: and while no OpenRouter model is chosen, the free ones to start with, every launch)
+  return c.ui.modelsCost ?? (/\bfree-only\b/.test(c.data.route.words) || c.data.route.unchosen ? 'free' : 'all');
 }
 
 const makerWords = (makers: readonly MakerOption[], id: string): string => {
@@ -266,7 +267,7 @@ export function controlWords(c: Pick<ShellCtx, 'ui' | 'data'>, makers: readonly 
     maker: ui.modelsMaker ? makerWords(makers, ui.modelsMaker) : 'All',
     capability: ui.modelsCap ?? 'All',
     // (R10 CHAT H167; H168's pass 3b, R17: after a key is saved Models starts on the free ones: "Free (start)")
-    cost: cost === 'free' ? (ui.modelsCostStart ? 'Free (start)' : set ? 'Free only' : 'Free (route)') : cost === 'paid' ? 'Paid' : set ? 'All' : 'All (default)',
+    cost: cost === 'free' ? (ui.modelsCostStart ? 'Free (start)' : set ? 'Free only' : /\bfree-only\b/.test(c.data.route.words) ? 'Free (route)' : 'Free (start)') : cost === 'paid' ? 'Paid' : set ? 'All' : 'All (default)',
     context: ui.modelsContext ? `${contextShort(ui.modelsContext)} or more` : 'All',
   };
 }
@@ -291,7 +292,8 @@ export function modelRows(c: Pick<ShellCtx, 'ui' | 'data'>): { rows: CatalogRow[
   const or = source === 'openrouter';
   const cost = or ? railCost(c) : 'all';
   const q = queryRows(all, {
-    source, sort: or ? (c.ui.modelsSort ?? 'recent') : 'name', ...(c.ui.modelsSearch ? { search: c.ui.modelsSearch } : {}),
+    // (H168's pass 3c, R23: Search is OpenRouter's, as its row is: the local list is never filtered by a search it does not show)
+    source, sort: or ? (c.ui.modelsSort ?? 'recent') : 'name', ...(or && c.ui.modelsSearch ? { search: c.ui.modelsSearch } : {}),
     ...(or && c.ui.modelsMaker ? { maker: c.ui.modelsMaker } : {}), ...(or && c.ui.modelsCap ? { capability: c.ui.modelsCap } : {}),
     ...(or && c.ui.modelsContext ? { minContext: c.ui.modelsContext } : {}), ...(cost !== 'all' ? { cost } : {}),
   });

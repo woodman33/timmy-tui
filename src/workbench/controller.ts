@@ -1413,8 +1413,11 @@ export class Controller {
       // (R10 CHAT H167; H168's pass 3b, R17: chosen here, so the next turn's even where it is the settings' shipped default)
       this.recordOpenRouterChoice(r.id);
       this.data.route = readRoute(this.d.env);
-      const paid = r.price.free === true ? 'free' : r.price.inPerM === undefined || r.price.outPerM === undefined ? 'its price unknown in the catalog' : `paid: ${priceWords(r.price).replace(' / ', ' in, ')} out per 1M tokens`;
-      this.say(`The next turn goes to ${r.id} on OpenRouter (${paid}); a turn being answered keeps its route.`, 'secondary');
+      // (H168's pass 3c, R24: the open session's next turn takes it, so its route is read again, and the journey's)
+      this.routesAgain();
+      // (R26: words that fit the status row)
+      const paid = r.price.free === true ? 'free' : r.price.inPerM === undefined || r.price.outPerM === undefined ? 'price unknown' : `paid: ${priceWords(r.price).replace(' / ', '/')} per 1M`;
+      this.say(`Next turn: ${r.id} on OpenRouter (${paid}).`, 'secondary');
     } catch (e) { this.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`, 'failure'); }
     this.emit();
   }
@@ -1639,7 +1642,7 @@ export class Controller {
     const cap = f === 'secret' ? 4096 : f === 'composer' ? COMPOSER_MAX : 300;
     const joined = this.ui.input.text + text;
     this.ui.input.text = joined.slice(0, cap);
-    if (f === 'composer' && joined.length > cap) this.say(`The message holds ${cap.toLocaleString('en-US')} characters: the rest was not typed in. Enter sends what is there.`, 'attention');
+    if (f === 'composer' && joined.length > cap) this.say(`The message holds ${cap.toLocaleString('en-US')} characters; the rest was not typed in.`, 'attention');
     if (f === 'picker') this.ui.cursor.overlay = 0;
     if (f === 'tools') this.toolsTop();
     if (f === 'msearch') this.modelsSearchNow();
@@ -1753,6 +1756,19 @@ export class Controller {
     const chat = this.chat;
     if (!chat || chat.root !== this.data.project.root || chat.state !== 'open') return;
     const session = chat.session;
+    // R10 CHAT (H167; the lead's 00:13 addition to H168's pass 3c, R24): on a route that is not local, the model the open
+    // session would ask is the one the screen shows as the next turn's, or nothing is sent; what was typed stays
+    try {
+      const sr = session.route();
+      const asks = sr.kind === 'openrouter' ? /^chat:\s*(\S+)\s+·\s+OpenRouter/.exec(sr.words)?.[1] ?? null : null;
+      const shows = routeLine(this.data).model;
+      if (asks && shows && asks !== shows) {
+        this.ui.input = { field: 'composer', text };
+        this.say(`Not sent: the chat would ask ${asks}, not ${shows} as shown. What you typed stays.`, 'attention');
+        this.emit();
+        return;
+      }
+    } catch { /* its route not read: the session's own checks stand */ }
     const ws = this.d.workspace;
     const h = ws.ops.begin({ request: text, via: 'workbench', root: ws.root, project: ws.project.name });
     const turn: NonNullable<Data['turn']> = { text, answer: '', state: 'sending', lines: [], sent: null, tools: [], at: this.now(), operation: h.id, route: routeShown(this.data).words };
@@ -1914,19 +1930,19 @@ export class Controller {
       return;
     }
     this.data.route = readRoute(this.d.env);
-    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+    this.routesAgain();
     this.refreshFrame();
     const lines: Line[] = [
       [S('Saved '), S(id, 'strong'), S(` as the chat's OpenRouter model, in Timmy's settings (${tildePath(saved.path)}).`)],
       [],
       [S('WHAT CHANGED', 'secondary')],
-      [S('A chat started after this takes it: a REPL (timmy) opened from now on, and this Workbench when it starts again.')],
+      // (R10 CHAT H167; H168's pass 3c, R24: the open session reads the settings' model at every message now)
+      [S('This Workbench\'s next turn takes it (a turn being answered keeps its own), and so does a REPL (timmy) opened from now on.')],
       [S(`The route the settings give now: ${this.data.route.words}${this.data.route.ready ? ' (ready)' : ' (not ready)'}.`)],
       [],
       [S('WHAT DID NOT', 'secondary')],
       [S('Free-only is as it was: it is never turned off from here.')],
       [S(`A REPL already running keeps its model until /model ${id} there.`)],
-      [S('This Workbench\'s chat keeps the model its session was made with until the Workbench starts again: a session\'s model is not changed from here.')],
       ...(this.d.env.OPENROUTER_MODEL?.trim() ? [[S('OPENROUTER_MODEL is set in this environment, and it wins over this setting wherever it is set.', 'attention')]] : []),
       [S('Nothing was sent to any model.', 'secondary')],
     ];
@@ -2127,18 +2143,21 @@ export class Controller {
     this.emit();
   }
 
+  /** R10 CHAT (H167; H168's pass 3c, R24): the open session's route and the journey's, read again (a model chosen, a key saved). */
+  private routesAgain(): void {
+    try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
+    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+  }
+
   /** A key saved: the route and the journey's route read again, Models' states and lists; the first run is answered. */
   private connected(): void {
     this.ui.firstRunDone = true;
     // (R10 CHAT H167; H168's pass 3b, R17: Models starts on OpenRouter, Cost Free only, said as the starting filter)
     this.ui.modelsProvider = 'openrouter';
-    this.ui.modelsCost = 'free';
-    this.ui.modelsCostStart = true;
     delete this.ui.cursor['right:models'];
     delete this.ui.modelsControl;
     this.data.route = readRoute(this.d.env);
-    try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
-    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+    this.routesAgain();
     this.refreshFrame();
     void this.loadModels();
   }

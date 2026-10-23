@@ -60,7 +60,7 @@ type Env = Record<string, string | undefined>;
 /** What the session needs of an agent: src/agent/core.ts Agent has all of it. */
 export type SessionAgent = Pick<Agent,
   'send' | 'on' | 'off' | 'getModel' | 'setTools' | 'setInstructions' | 'useLocalChat' | 'localChatRoute' | 'lastLocalTurn'
-  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions'>;
+  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions' | 'setModel'>;
 
 /** R4 (H113): seals a turn from its facts (src/repl/seal.ts sealTurn's shape); `dir`: the project's store when it is not this process's */
 export type TurnSealer = (facts: TurnFacts & { model: string }, dir?: string) => SealedTurn;
@@ -141,6 +141,8 @@ interface AgentContext {
   current: ChatTurnHooks | null;
   /** the files the running turn wrote, for its receipt */
   touched: ProjectTurnFiles;
+  /** R10 CHAT (H167; H168's pass 3c, R24): the settings' OpenRouter model this agent last took (unset: none read yet) */
+  modelSeen?: string | null;
 }
 const contexts = new WeakMap<object, AgentContext>();
 
@@ -186,7 +188,14 @@ export async function openChatSession(o: { project: { name: string; root: string
   agent.setInstructions(chatInstructions(o.surface));
 
   const keyFound = (): boolean => agent.hasModelKey() || modelKeySource(env) !== null;
-  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: agent.openRouterModel(), surface: o.surface });
+  // R10 CHAT (H167; H168's pass 3c, R24): the OpenRouter model the settings name, read at every message as the route and the key
+  // are: one chosen since this agent last took it (the Workbench's Models writes the settings) is the next turn's, said by
+  // route() at once and given to the agent as that turn starts; a turn under way keeps its own. A session given its own config
+  // (the monitor's) follows that, not the settings; a model the agent was given otherwise stays until the settings name another.
+  const settingsModel = (): string | null => { try { return loadConfig().model || null; } catch { return null; } };
+  if (ctx.modelSeen === undefined) ctx.modelSeen = deps.config ? null : settingsModel();
+  const modelChosen = (): string | null => { if (deps.config) return null; const m = settingsModel(); return m && m !== ctx.modelSeen ? m : null; };
+  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: modelChosen() ?? agent.openRouterModel(), surface: o.surface });
   /** a key the setup stored since the agent started (the route is read at every message, the key with it) */
   const refreshKey = (): void => {
     if (agent.hasModelKey()) return;
@@ -215,6 +224,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     gateAgent(agent, ctx, o.project.root, deps.tools);
     agent.setInstructions(chatInstructions(o.surface));
     agent.useLocalChat(now.local ?? null);
+    // (R24: the model chosen since the last message is this turn's: given to the agent now, as no turn runs on it)
+    if (!now.local) { const chosen = modelChosen(); if (chosen) { agent.setModel(chosen); ctx.modelSeen = chosen; } }
     const requested = now.local ? now.local.model : agent.openRouterModel();
     // R10 (H169): the turn's route, snapshotted as it starts: a model chosen while it runs changes only the next turn, and its
     // receipt is never relabelled (src/agent/chat-turn.ts keeps it beside the turn's hold, under the turn's id)

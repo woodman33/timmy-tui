@@ -570,6 +570,20 @@ describe('H168\'s pass 3b on the Chat screen\'s frames (R10 CHAT H167): R17, R5b
     expect(row).not.toMatch(/FAKE… /);
   });
 
+  it('R17b and R23: with no OpenRouter model chosen Models starts on the free ones at every launch (no Cost set); Search filters OpenRouter\'s list only', () => {
+    // a relaunch: the key kept, no model chosen, no Cost set by anyone
+    const relaunch = models(text(frame(data({ ...UNCHOSEN, ...EMPTY }), ui({ modelsProvider: 'openrouter' }))));
+    expect(relaunch[16]).toBe('Cost       Free (start)');
+    expect(relaunch[20]).toBe('> FIXTURE: Newest (free)');
+    // once a model is chosen, All is the default again
+    expect(models(text(frame(data(OPENROUTER), ui({ modelsProvider: 'openrouter', modelsCost: undefined }))))[16]).toBe('Cost       Free (route)');
+    expect(models(text(frame(data(), ui({ modelsProvider: 'openrouter' }))))[16]).toBe('Cost       All (default)');
+    // a search typed on OpenRouter's list does not empty the local one (it draws no Search row)
+    const local = models(text(frame(data(), ui({ focus: 'right', modelsProvider: 'ollama-local', modelsSearch: 'flash' }))));
+    expect(local).toContain('> FAKE fake-qwen3:8b');
+    expect(local).not.toContain('Ollama lists no model.');
+  });
+
   it('R17: a priced model the next turn uses says so, with its price per 1M tokens, before the first send; a free one as before', () => {
     const priced = models(text(frame(data({ route: { kind: 'openrouter', words: 'chat: fixture-maker/older-model · OpenRouter', ready: true } } as unknown as Partial<Data>), ui({ focus: 'right', modelsProvider: 'openrouter', modelsCost: 'all' }))));
     expect(priced.slice(28, 34)).toEqual(['SELECTED', 'FIXTURE: Older model', 'A FIXTURE model added first.', 'The next turn uses it, paid:', '$0.50 in / $1.50 out per 1M', 'Catalog snapshot: Sep 7']);
