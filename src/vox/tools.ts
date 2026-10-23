@@ -105,15 +105,20 @@ export function geoReady(t: ToolEnv): Readiness {
 /** The project's Roboflow venv, as src/utils/roboflow-adapter.ts finds it. */
 export function roboflowReady(t: ToolEnv): Readiness {
   if (!t.env.ROBOFLOW_API_KEY) return { ready: false, why: 'needs ROBOFLOW_API_KEY', setup: SETUP.roboflowKey };
+  // The project's venv (made for Roboflow) wins; TIMMY_VISION_PYTHON (the OpenCV Python, by this file's own setup words)
+  // stands in only when the project has no venv. (R11 lead, after the vision integration: the override first sent a
+  // project's Roboflow runs to its OpenCV Python; tests/vox-words.test.ts caught it. The adapter resolves the same way.)
+  const modern = join(t.root, '.timmy', 'venv-vision', 'bin', 'python');
+  const legacy = join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python');
+  const venv = existsSync(modern) ? modern : existsSync(legacy) ? legacy : undefined;
   const override = t.env.TIMMY_VISION_PYTHON;
-  if (override !== undefined && (!isAbsolute(override) || !runnable(override))) {
+  if (!venv && override !== undefined && (!isAbsolute(override) || !runnable(override))) {
     return { ready: false, why: 'TIMMY_VISION_PYTHON must name an existing absolute Python executable', setup: SETUP.roboflowVenv };
   }
-  const modern = join(t.root, '.timmy', 'venv-vision', 'bin', 'python');
-  const venv = override ?? (existsSync(modern) ? modern : join(t.root, '.timmy', 'venv-roboflow', 'bin', 'python'));
-  if (!existsSync(venv)) return { ready: false, why: "the project's Roboflow venv is missing (.timmy/venv-roboflow)", setup: SETUP.roboflowVenv };
+  const python = venv ?? override;
+  if (!python) return { ready: false, why: "the project's Roboflow venv is missing (.timmy/venv-roboflow)", setup: SETUP.roboflowVenv };
   if (!existsSync(ROBOFLOW_BRIDGE)) return { ready: false, why: 'the Roboflow bridge (scripts/roboflow-bridge.py) is not in this Timmy', setup: SETUP.roboflowBridge };
-  return { ready: true, command: venv, via: override ? 'set by TIMMY_VISION_PYTHON; SDK and endpoint not checked' : "the project's venv" };
+  return { ready: true, command: python, via: venv ? "the project's venv" : 'set by TIMMY_VISION_PYTHON (no project venv); SDK and endpoint not checked' };
 }
 
 /** What the board's tools panel says of each tool: built in, found (not run until an action uses it), or needs setup. */

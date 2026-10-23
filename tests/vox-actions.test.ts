@@ -337,8 +337,8 @@ describe('refusals, stops and a tampered highlight', () => {
     mkdirSync(join(root, '.timmy/venv-roboflow/bin'), { recursive: true });
     copyFileSync(fake.roboflow, join(root, '.timmy/venv-roboflow/bin/python'));
     chmodSync(join(root, '.timmy/venv-roboflow/bin/python'), 0o755);
-    // Use the project's explicit SDK double. TIMMY_VISION_PYTHON, when present,
-    // intentionally governs Roboflow too and must not point at the Look double.
+    // The project's venv wins over TIMMY_VISION_PYTHON (the OpenCV Python), so the Look double never answers for Roboflow;
+    // tests/vox-words.test.ts sets both and expects the same. Here only the key is set.
     const { ws } = workspace(root, kit, { env: { ROBOFLOW_API_KEY: 'fake-key' } });
     await ws.detect('refs/photo.png roboflow cards/3');
     await settled(ws);

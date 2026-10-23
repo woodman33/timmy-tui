@@ -36,12 +36,15 @@ export function roboflowRun(req: RoboflowReq, dir?: string): RoboflowResult {
   if (!isFile(bridge)) return refuse('not_available', 'The Roboflow bridge is missing from this Timmy installation. Install a build that includes scripts/roboflow-bridge.py.');
   if (!env.ROBOFLOW_API_KEY) return refuse('not_configured', 'ROBOFLOW_API_KEY is missing. Configure your Roboflow workspace key.');
 
+  // The project's venv wins; TIMMY_VISION_PYTHON (the OpenCV Python, by VoxVision's setup words) stands in only when the
+  // project has no venv: the same order as roboflowReady in src/vox/tools.ts (R11 lead).
+  const candidates = [join(cwd, '.timmy', 'venv-vision', 'bin', 'python'), join(cwd, '.timmy', 'venv-roboflow', 'bin', 'python')];
+  const venv = candidates.find(isFile);
   const override = env.TIMMY_VISION_PYTHON;
-  if (override !== undefined && (!isAbsolute(override) || !isFile(override))) {
+  if (!venv && override !== undefined && (!isAbsolute(override) || !isFile(override))) {
     return refuse('not_configured', 'TIMMY_VISION_PYTHON must name an existing absolute Python executable.');
   }
-  const candidates = [join(cwd, '.timmy', 'venv-vision', 'bin', 'python'), join(cwd, '.timmy', 'venv-roboflow', 'bin', 'python')];
-  const python = override ?? candidates.find(isFile);
+  const python = venv ?? override;
   if (!python) return refuse('not_configured', 'Choose a vision Python environment with TIMMY_VISION_PYTHON, or configure the project vision environment.');
 
   const child = spawnSync(python, [bridge], {
