@@ -391,10 +391,11 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(t.join('\n')).not.toMatch(/Message TIMMY|\[ Send \]/);
     // the rail, Models and the bottom as on every Chat screen
     expect(cols(t[9], 0, 17)).toBe('> Chat');
+    // (the time is the product's own clock() of the listing's instant: CI runs in UTC, the dev box in PT; R11 lead)
     // (R11 step 2; H168's pass 4a R30: before a choice the right pane lists the four providers' states only: no catalog rows,
     // no cursor on a priced model, no [ Details ]; the local Ollama's state is its own answer to the listing)
     expect(models(t)[4]).toBe('MODELS [M]');
-    expect(models(t).slice(6, 14)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', '    Ollama answered 16:39', '  Ollama cloud', '    not set up', '  Cloudflare (optional)', '    not set up']);
+    expect(models(t).slice(6, 14)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', `    Ollama answered ${clock(iso(1)).slice(0, 5)}`, '  Ollama cloud', '    not set up', '  Cloudflare (optional)', '    not set up']);
     expect(models(t).slice(15, 20).join(' ').replace(/\s+/g, ' ').trim()).toBe('Choose how chat runs: the question in the center (Enter on a choice) reads that provider\'s models here.');
     expect(f.screen[9].find((s) => s.text.startsWith('Ollama answered'))?.role).toBe('live');
     expect(f.regions.right?.items).toEqual([]);
@@ -404,7 +405,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(chosen[4]).toBe('MODELS [M]       [ Details ]');
     // (the drawer at 80x24, M on the first run: the states on their rows)
     const d = text(frame(data(NONE), ui({ modelsOpen: true, focus: 'right' }), 80, 24)).map((r) => cols(r, 16, 79));
-    expect(d.slice(6, 10)).toEqual(['  OpenRouter  not set up', '  Ollama local  Ollama answered 16:39', '  Ollama cloud  not set up', '  Cloudflare (optional)  not set up']);
+    expect(d.slice(6, 10)).toEqual(['  OpenRouter  not set up', `  Ollama local  Ollama answered ${clock(iso(1)).slice(0, 5)}`, '  Ollama cloud  not set up', '  Cloudflare (optional)  not set up']);
     expect(cols(t[35], 20, 121)).toMatch(/^\[Attach\]  \[Tools\]/);
     // the guide shown: its text after its row (the rows between the choices go to make it room), deterministic: the official
     // pages, what is set up here
@@ -589,7 +590,7 @@ describe('the local list as the probe checks it; no SELECTED claim without a rou
 
   it('with no route chosen (the first run, Ollama / this computer chosen) the cursor\'s model is MODEL, never SELECTED, and nothing says the next turn uses it; a non-chat one says so', () => {
     // (R11 step 2, R30: before a choice the first run's pane lists the providers' states; the list is read for the choice)
-    expect(models(text(frame(local(NONE), ui()))).slice(6, 10)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', '    Ollama answered 16:39']);
+    expect(models(text(frame(local(NONE), ui()))).slice(6, 10)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', `    Ollama answered ${clock(iso(1)).slice(0, 5)}`]);
     const first = models(text(frame(local(NONE), ui({ modelsProvider: 'ollama-local', firstRunDone: true }))));
     expect(first[28]).toBe('MODEL / clef-flash:latest');
     expect(first.join('\n')).not.toMatch(/SELECTED|next turn uses it/);
