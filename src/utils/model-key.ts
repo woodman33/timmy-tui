@@ -54,6 +54,15 @@ export function modelKeySource(env: Env = process.env, cwd: string = process.cwd
 }
 
 /**
+ * R10 (H170): the key the REPL would use and where it is, for the one caller that must send it: a check of the key itself
+ * (src/setup/providers-state.ts, OpenRouter's key endpoint, no model called) and the sign-in that replaces it. Never printed,
+ * logged or returned in words; everything shown names its source and fingerprint only. Read only, as the two functions here.
+ */
+export function modelKeyInUse(env: Env = process.env, cwd: string = process.cwd(), home: string = homedir(), platform: string = process.platform): { source: KeySource; key: string } | null {
+  return keyLookup(env, cwd, home, platform);
+}
+
+/**
  * R5 lead (the operator's 22:32 order, item 1): which key the REPL would use, as a fingerprint that is not the key: "key "
  * and the first 12 hex digits of its sha256, or null when there is none. An observation of the key (a check that OpenRouter
  * took or refused it) names this, so a key changed since (timmy init --openrouter -) is not said refused or live for it.
