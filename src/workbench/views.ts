@@ -1121,7 +1121,9 @@ const CHAT_HELP: ReadonlyArray<[string, string]> = [
   ['Tab', 'the next pane: the left menu, the conversation, Models (where it shows), the bottom; Shift+Tab the one before. Tab from the composer keeps what is typed as a draft'],
   ['↑ ↓', 'move in the pane\'s list (k j too). In Models, ↑ above the first model reaches Search and the five filters; ↓ goes back to the list'],
   ['← →', 'in Models, the provider (OpenRouter, Ollama local, Ollama cloud, Cloudflare); on a filter, its value'],
-  ['Enter', 'opens or acts: the left menu\'s item; the composer (a draft given back), and in it, sends; in Models, the model under the cursor for the next turn, or a filter\'s next value; a bottom control'],
+  ['Enter', 'opens or acts: the left menu\'s item; the composer (a draft given back), and in it, sends; on an answer you selected, its activity (the tools, the receipt); in Models, the model under the cursor for the next turn, or a filter\'s next value; a bottom control'],
+  // (R11 H167, step 2; H168's pass 4a R29: in the conversation a letter starts a message; the keys below act from the other panes)
+  ['a letter', 'in the conversation, opens the composer with it typed (after the draft); the keys below act from the left menu, Models or the bottom'],
   ['Esc', 'closes a drawer or a box, the keyboard back where it was; leaves the composer with the draft kept, or, while this Workbench\'s turn is answered, stops it'],
   ['M', 'Models: beside the conversation, or a drawer below 110 columns ([M] on the screen); Esc gives the keyboard back'],
   ['/', 'in Models (OpenRouter), its Search: each key filters, Enter keeps the matches, Esc clears it; elsewhere the finder'],

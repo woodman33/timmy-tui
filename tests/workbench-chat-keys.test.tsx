@@ -236,8 +236,8 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     expect(c.ui.focus).toBe('right');
     expect(c.ui.chip).toBeUndefined();
     press(c, '', ESC);
-    // a click on the chip (the mouse on, as m switches it): Models
-    press(c, 'm');
+    // a click on the chip (the mouse on; R11 step 2, R29: m from the conversation would type, so the setting is switched here): Models
+    c.ui.mouse = true;
     const f = c.frame(122, 37);
     expect(f.chip).toBeDefined();
     c.mouse({ x: f.chip!.x0 + 1, y: f.chip!.y + 1, button: 0, press: true });
@@ -764,8 +764,8 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     for (const end = Date.now() + 5_000; Date.now() < end && calls < 4; await sleep(20)) shown(c);
     expect(calls).toBe(4);
     await listed();
-    // r: asked again
-    press(c, '', ESC);
+    // r (Models has the keyboard; R11 step 2, R29: from the conversation a letter starts a message): asked again
+    expect(c.ui.focus).toBe('right');
     press(c, 'r');
     for (const end = Date.now() + 5_000; Date.now() < end && calls < 5; await sleep(20)) shown(c);
     expect(calls).toBe(5);
@@ -1058,5 +1058,104 @@ describe('R11 step 2 through the Controller (H167): the welcome\'s starter actio
     c.say('FIXTURE: a newer notice.', 'secondary');
     await sleep(6200);
     expect(c.ui.flash?.text).toBe('FIXTURE: a newer notice.');
+  });
+});
+
+describe('R11 step 2 through the Controller (H167): H168\'s pass 4a Medium findings R29, R30, R33', { timeout: 60_000 }, () => {
+  it('R29: in the conversation a printable key opens the composer with it typed (after the draft); M and ? keep their work; the Send row says how the composer opens, and with it open, the way to Models', () => {
+    const c = workbench(homeWithModel('r29'));
+    let t = shown(c);
+    expect(cols(t[30], 20, 89)).toBe('[ Send ]  Enter or a letter opens the composer');
+    // x: not Stop; the composer opens with "x"
+    t = press(c, 'x');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'x' });
+    expect(cols(t[28], 20, 89)).toBe('› x');
+    expect(cols(t[30], 20, 89)).toBe('[ Send ]  Enter sends · Ctrl+J newline · Tab then Enter: Models');
+    expect(c.ui.flash?.text ?? '').not.toMatch(/Stop current/);
+    // Esc keeps it as the draft; a letter opens the composer again after the draft
+    press(c, '', ESC);
+    expect(c.ui.draft).toBe('x');
+    press(c, 'y');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'xy' });
+    expect(c.ui.draft).toBeUndefined();
+    press(c, '', ESC);
+    // M: Models; ?: the Keys (named on the screen); Esc back
+    press(c, 'M');
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.input.field).toBeNull();
+    press(c, '', ESC);
+    press(c, '?');
+    expect(c.ui.overlay).toMatchObject({ kind: 'help' });
+    press(c, '', ESC);
+    expect(c.ui.overlay).toBeNull();
+    // in the composer, M is a letter (the row says the way to Models: Tab then Enter)
+    press(c, '\r', ENTER);
+    press(c, 'M');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'xyM' });
+    press(c, '', TAB);
+    expect(c.ui.chip).toBe(true);
+    press(c, '\r', ENTER);
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.modelsOpen).toBe(true);
+    // on the rail a letter is still a key (s: Studio · Show, FAKE: not started)
+    press(c, '', ESC);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    expect(c.ui.focus).toBe('nav');
+    press(c, 'x');
+    expect(c.ui.input.field).toBeNull();
+  });
+
+  it('R29 on the first run: no composer, so a letter does nothing there; the choices keep Enter', () => {
+    const c = workbench(homeWithModel('r29first', false));
+    let t = shown(c);
+    expect(cols(t[4], 20, 89)).toBe('WELCOME TO TIMMY');
+    t = press(c, 'x');
+    expect(c.ui.input.field).toBeNull();
+    expect(cols(t[4], 20, 89)).toBe('WELCOME TO TIMMY');
+  });
+
+  it('R30: on the first run the right pane lists the providers\' states only, with no [ Details ] and no cursor; Enter there says the center chooses; a choice lists that provider', async () => {
+    const c = workbench(homeWithModel('r30', false));
+    let t = shown(c);
+    const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
+    for (const end = Date.now() + 5_000; Date.now() < end && !/Ollama answered \d\d:\d\d/.test(rail(t).join('\n')); await sleep(20)) t = shown(c);
+    expect(rail(t)[4]).toBe('MODELS [M]');
+    expect(rail(t).slice(6, 14)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', expect.stringMatching(/^    Ollama answered \d\d:\d\d$/), '  Ollama cloud', '    not set up', '  Cloudflare (optional)', '    not set up']);
+    expect(t.join('\n')).not.toMatch(/> FAKE fake-qwen3:8b|\$\d+ \/ \$\d+|MODEL \//);
+    // Tab to Models, Enter: nothing to choose there yet, said
+    press(c, '', TAB);
+    expect(c.ui.focus).toBe('right');
+    press(c, '\r', ENTER);
+    expect(c.ui.flash?.text).toBe('Choose how chat runs first: the question in the center (Enter on a choice) lists that provider\'s models here.');
+    expect(c.ui.firstRunDone).toBeUndefined();
+    // the choice in the center (Ollama / this computer): its list, with the cursor
+    press(c, '', ESC);
+    expect(c.ui.focus).toBe('center');
+    press(c, '', { downArrow: true });
+    t = press(c, '\r', ENTER);
+    expect(c.ui.modelsProvider).toBe('ollama-local');
+    for (const end = Date.now() + 5_000; Date.now() < end && !rail(t).includes('> FAKE fake-qwen3:8b'); await sleep(20)) t = shown(c);
+    expect(rail(t)[4]).toBe('MODELS [M]       [ Details ]');
+  });
+
+  it('R33: Ollama not answering the listing: the next step under NO ANSWER, and in Enter\'s notice on Models', async () => {
+    const c = workbench(homeWithModel('r33'), {
+      ollama: async () => ({ where: 'FAKE Ollama', answered: false, models: [], listed: 0, cloud: 0, why: 'FAKE Ollama at 127.0.0.1:9 did not answer (the connection was refused)' }),
+    });
+    let t = shown(c);
+    const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
+    for (const end = Date.now() + 5_000; Date.now() < end && !rail(t).some((r) => /^NO ANSWER \/ asked \d\d:\d\d$/.test(r)); await sleep(20)) t = shown(c);
+    const i = rail(t).findIndex((r) => /^NO ANSWER/.test(r));
+    expect(rail(t).slice(i + 1, i + 6).join(' ').replace(/\s+/g, ' ')).toMatch(/did not answer \(the connection was refused\) Start Ollama \(ollama serve\), then r asks again\./);
+    // (M asks Ollama again while its last answer failed, R1: Enter during that asking says so; once the FAKE refused again,
+    // the next step)
+    press(c, 'M');
+    press(c, '\r', ENTER);
+    expect(c.ui.flash?.text).toMatch(/^No model is listed here (yet: Ollama is being asked\.|to choose: Ollama did not answer\. Start Ollama \(ollama serve\), then r asks again\.)$/);
+    for (const end = Date.now() + 5_000; Date.now() < end && c.data.models?.ollama?.state !== 'failed'; await sleep(20)) shown(c);
+    press(c, '\r', ENTER);
+    expect(c.ui.flash?.text).toBe('No model is listed here to choose: Ollama did not answer. Start Ollama (ollama serve), then r asks again.');
   });
 });

@@ -164,8 +164,9 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
   it('a fresh home (no key, no model): the first frame is Chat with the first run\'s question in its center, the menu, Models and the bottom in place; not the tabbed Home', async () => {
     const first = await launch('fresh', /How would you like to run chat\?[\s\S]*Continue without a model/, 'the first run\'s question on the Chat screen');
     const pane = first.pane;
-    // (Models beside it lists what the FAKE Ollama lists, once each model's /api/show has answered)
-    const screen = await waitScreen(pane, { what: 'the first run with Models listing the local models', re: /How would you like to run chat\?[\s\S]*not a chat model/, ms: 30_000 });
+    // (R11 step 2; H168's pass 4a R30: before a choice Models beside it lists the providers' states only; the local Ollama's
+    // is its own answer to the listing, once the FAKE answered)
+    const screen = await waitScreen(pane, { what: 'the first run with Models listing the providers\' states', re: /How would you like to run chat\?[\s\S]*Ollama answered \d\d:\d\d/, ms: 30_000 });
     keepScreen(pane, CAPTURES, 'chat-landing-122x37-01-first-run', { foot: 'drawn' });
     const rows = screen.split('\n');
     expect(cols(rows[0], 0, 6)).toBe('  TIMMY');
@@ -179,18 +180,16 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(center.find((r) => r.includes('[ OpenRouter / cloud ]'))).toBe('> [ OpenRouter / cloud ]');
     // the menu with Chat selected, Models beside, the bottom: the same screen as with a model
     expect(rows.map((r) => cols(r, 0, 17))[10]).toBe(' > Chat');
-    expect(cols(rows[4], 92, 121)).toMatch(/^MODELS \[M\] +\[ Details \]$/);
+    expect(cols(rows[4], 92, 121)).toBe('MODELS [M]');
     expect(cols(rows[35], 20, 121)).toBe('[Attach]  [Tools]  [Plan / Run]  [Permissions]  [Budget]  [Stop]  [Logs]  [Cloudflare]');
     expect(cols(rows[36], 20, 121)).toMatch(/^Logs: this computer \/ idle .* 122 x 37$/);
     // never the tabbed Home
     expect(screen).not.toMatch(/\[1 Home\]|\/ Home · recent work|Workflow actions/);
-    // Models (the lead's Mac check of 50237ef): each local model as its /api/show answer establishes it, by name; the two that
-    // are not chat models say so; the long name is cut where its row ends, its facts below it; with no route chosen the mark is
-    // the cursor and nothing is SELECTED or "the next turn's"
+    // Models: the four providers and their states, no list, no cursor, nothing SELECTED or "the next turn's" (R30; the local
+    // list with each model as its /api/show answer establishes it is shown once Ollama / this computer is chosen: the keys test)
     const rail = rows.map((r) => cols(r, 92, 121));
-    expect(rail.slice(14, 22)).toEqual(['> FAKE fake-decision:latest', '  not a chat model', '  FAKE fake-embed:latest', '  not a chat model', '  FAKE fake-qwen3:8b', '  8B · Q4_K_M · 5.2 GB', '  FAKE hf.co/fake-maker/a-v…', '  27.3B · Q4_K_M · 18.5 GB']);
-    expect(rail.join('\n')).toMatch(/Not a chat model \(checked\)\./);
-    expect(screen).not.toMatch(/SELECTED|next turn uses it/);
+    expect(rail.slice(6, 14)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', expect.stringMatching(/^    Ollama answered \d\d:\d\d$/), '  Ollama cloud', '    not set up', '  Cloudflare (optional)', '    not set up']);
+    expect(screen).not.toMatch(/SELECTED|next turn uses it|not a chat model|\$\d+ \/ \$\d+/);
     // OpenRouter / cloud (the cursor's): Connect OpenRouter. Sign in starts H170's flow: its address shown whole; Open hands it
     // to the opener (the FAKE xdg-open logs it) only on that Enter; Esc cancels it, nothing saved, the question again
     await sendKeys(pane, ['Enter']);
@@ -265,7 +264,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     // (R11 H167, step 1b/1c: the tinted composer with its placeholder; [ Send ] with the chord hint; the chip: green only once
     // the listing's /api/show answered for the route's model, grey "not checked" before)
     expect(center.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
-    expect(center[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(center[30]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(center[31]).toMatch(/^[●○] FAKE fake-qwen3:8b · this computer · (ready \d\d:\d\d|not checked|checking…)$/);
     expect(screen).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat|\[1 Home\]|\/ Home · recent work/);
     // (R11 H167, step 2a: the welcome in the conversation's place: the three lines, START WITH and the four starter actions,
