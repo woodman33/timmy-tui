@@ -438,6 +438,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           expect(await page.$eval('#cx-scroll', (e) => e.scrollTop)).toBe(0);
           expect(await page.$eval('#cx-empty .cx-title', (e) => e.getBoundingClientRect().top >= 0)).toBe(true);
           expect(await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
+          // the head above it reads in full width: its title is one line, never a thin column beside the FAKE tag
+          expect(await page.$eval('#cx-title', (e) => {
+            const t = e.getBoundingClientRect(); const head = e.closest('.cx-head')!.getBoundingClientRect(); const tag = document.getElementById('cx-tag')!;
+            // (at the desk the FAKE tag sits beside the words; on the phone, under them: the title takes the rest either way)
+            const beside = !tag.hidden && tag.getBoundingClientRect().top < t.top + t.height;
+            return t.width >= head.width - (beside ? tag.getBoundingClientRect().width + 16 : 0) - 1 && t.height < 60;
+          })).toBe(true);
           expect(await text(page, '#cx-empty .cx-title')).toBe('TIMMY runs tools and workflows on your machine and keeps a receipt for every step.');
           const welcome = await page.$$eval('#cx-empty .cx-welcome-line', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
           expect(welcome).toEqual([

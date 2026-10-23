@@ -364,6 +364,10 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-socket { display: none; }
   .cx-center { padding: 0 12px 8px; }
   .cx-turn { grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; }
+  /* (R11 step 2: the head's tag under its words, never beside them: a tag that wide left the title a thin column) */
+  .cx-head { flex-wrap: wrap; gap: 8px 16px; }
+  .cx-head-words { flex: 1 1 100%; }
+  .cx-tag { white-space: normal; }
   .cx-ways { grid-template-columns: minmax(0, 1fr); }
   .cx-controls { padding: 0 10px; }
   .cx-hint { flex-direction: column; gap: 2px; }
