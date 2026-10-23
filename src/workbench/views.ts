@@ -29,7 +29,7 @@ import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { MANUAL_WORDS } from '../setup/openrouter-signin.js';
 import { KEY_PAGE } from '../setup/provider-keys.js';
 import { describeCheck } from '../setup/providers-state.js';
-import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
+import { KIND_ORDER, KIND_TITLE, KIND_WORD, noModelChosen, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
 import { blockKey, runDetailRows, selectedBlock, stateMark, workflowsTabView } from './workflows-tab.js';
@@ -622,7 +622,7 @@ function chatView(c: ViewCtx): View {
   const noModelHere = shell && !rt.model;
   const notReady = noModelHere ? 'not ready: no model for the next turn: Models (M) chooses one' : fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (the next step above, Enter)` : 'not ready: timmy init (in a shell) sets up a route';
   // (R10 CHAT H167; H168's pass 3b, R17: a key with no OpenRouter model chosen is not ready on the Chat screen either)
-  const notReadyNow = !route.ready || (shell && !!data.route.unchosen && !rt.model);
+  const notReadyNow = !route.ready || (shell && noModelChosen(data.route) && !rt.model);
   if (notReadyNow) lines.push(...fieldRows(shell ? 'Not ready' : 'Ready', shell ? notReady.replace(/^not ready: /, '') : notReady, c.width, 'attention', shell ? 10 : 8));
   if (!route.ready && route.refusal?.length && !noModelHere) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
