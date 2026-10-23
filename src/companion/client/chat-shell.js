@@ -787,7 +787,7 @@ function setQuery(name, value) {
 
 // ── the bottom: the conversation's controls, the drawer, the status line ──
 
-/** The conversation's controls, the lead's order; `minor` ones move into More under 1120 px (the terminal target's 80 x 24 does so). */
+/** The conversation's controls, the lead's order; `minor` ones move into More from 1180 px, where Models becomes a drawer (the terminal target's 80 x 24 does so). */
 const CONTROLS = [
   ['attachments', '⎘', 'Attach', true], ['tools', '⚒', 'Tools', false], ['plan', '☰', 'Plan / Run', true], ['approvals', '✓', 'Permissions', true], ['budget', '$', 'Budget', false],
 ];

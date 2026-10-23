@@ -296,10 +296,10 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
    over the conversation under 1180 px, and the menu one under 760 px (Menu opens it); Esc closes either and focus returns */
 .cx-menu { display: none; }
 .cx-body { position: relative; }
-/* the controls' row: its label goes under 1440 px, the minor controls move into More under 1120 px (the terminal target's
+/* the controls' row: its label goes under 1440 px, the minor controls move into More from 1180 px (the terminal target's
    80 x 24 has [Tools] [Budget] [Logs] [More]), and the counts under 520 px; a row still too wide scrolls */
 @media (max-width: 1439px) { .cx-controls-label { display: none; } }
-@media (max-width: 1119px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
+@media (max-width: 1180px) { .cx-controls .cx-ctl.is-minor { display: none; } .cx-more { display: inline-flex; } }
 @media (max-width: 520px) { .cx-controls .cx-ctl-n { display: none; } .cx-controls { gap: 2px; } .cx-ctl, .cx-more { padding: 4px 8px; } }
 @media (max-width: 1180px) {
   .cx-body, .cx-body.models-closed { grid-template-columns: minmax(0, 1fr); }
