@@ -534,13 +534,16 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const key = `FAKE-or-${randomBytes(12).toString('hex')}`;
       use({ chat: 'openrouter' }, { openrouter_api_key: key });
       const or = await route();
+      // (GET /api/chat/route is pageRoute's own answer, which still names the page's fixed model until H169's contract lands;
+      // the page's Send asks the CHOSEN model: with the setup's OpenRouter answer, the settings' model, the REPL's default,
+      // as the Workbench's rule has it (R11 H171, step 1); GET /api/chat/view's route and choice say so)
       expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' });
       expect(JSON.stringify(or)).not.toContain(key);
       const answered = await chat(own, 'FAKE: for OpenRouter');
       expect(answered.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE OpenRouter answer');
       expect(openrouter.seen).toHaveLength(1);
       expect(openrouter.seen[0].auth).toBe(`Bearer ${key}`);
-      expect(JSON.parse(openrouter.seen[0].body)).toMatchObject({ model: 'qwen/qwen3.8-max', stream: true });
+      expect(JSON.parse(openrouter.seen[0].body)).toMatchObject({ model: 'anthropic/claude-opus-4.7', stream: true });
       // OpenRouter chosen, no key anywhere: off, saying so
       use({ chat: 'openrouter' }, null);
       expect(await route()).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', words: expect.stringMatching(/^Send is off: the setup chose OpenRouter for chat, and no OpenRouter key is set/) });

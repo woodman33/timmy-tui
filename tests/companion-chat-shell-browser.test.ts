@@ -71,20 +71,30 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
   let origin = '';
   let token = '';
 
+  // the FAKE's list, by reference: a test changes a model's answer after the page listed it (a stale list)
+  const models = [
+    { name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] as string[] | null },
+    { name: 'fake-llama:1b', capabilities: ['completion'] as string[] | null },
+    { name: 'fake-embed:1', capabilities: ['embedding'] as string[] | null },
+  ];
+
   beforeAll(async () => {
     browser = await launchBrowser();
     box = mkdtempSync(join(tmpdir(), 'h171-chat-shell-'));
-    const home = join(box, 'home');
+    // R11 step 1: this file's own Timmy home and settings folder (tests/isolation-setup.ts), so what a choice made on the
+    // page writes through the Workbench's paths (the setup's files, the process's settings store) is what the companion
+    // reads back, as in production where both are the process's environment
+    const home = process.env.TIMMY_HOME!;
     const root = join(box, 'tray');
     project(root);
     ollama = await startFakeOllama({
-      models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] }, { name: 'fake-embed:1', capabilities: ['embedding'] }],
+      models,
       chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from the test\'s stand-in.']), delayMs: 40 })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
     writeFileSync(join(home, 'models', 'openrouter-catalog.json'), JSON.stringify({ fetchedAt: '2026-10-22T16:00:00.000Z', models: MODELS }));
     writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'local', ollama: ollama.host, model: 'fake-qwen3:8b' } }));
-    const env = { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: join(box, 'settings') };
+    const env = { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
     process.env.TIMMY_REPO = root;
     companion = await startCompanionServer(0, { chatEnv: env, workspace: { env } });
     if (kept.TIMMY_REPO === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept.TIMMY_REPO;
@@ -142,9 +152,26 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '.cm-detail')).toContain('✓ The next turn of this page uses this model.');
       expect(await text(page, '.cm-detail-k')).toBe('Selected');
       // (H168's pass 3b R20) the chat models of what Ollama lists, and why the other is not a row
-      expect(await text(page, '.cm-list-head span:last-child')).toBe('1 chat model · 2 listed');
+      expect(await text(page, '.cm-list-head span:last-child')).toBe('2 chat models · 3 listed');
       expect(await text(page, '#cm-list .cm-left')).toBe('Not shown as local chat models: 1 did not pass Ollama\'s /api/show check as local weights.');
-      expect(await text(page, '.cm-state')).toMatch(/· Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 2, 1 of them a local chat model \(no model ran, no charge\)\.$/);
+      expect(await text(page, '.cm-state')).toMatch(/· Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 3, 2 of them local chat models \(no model ran, no charge\)\.$/);
+      // R11 step 1: the composer nobody can miss, and its model chip: green only because Ollama answered /api/show for the model
+      expect(await text(page, '.cx-prompt')).toBe('›');
+      expect(await page.getAttribute('#cx-input', 'placeholder')).toBe('Message TIMMY…');
+      expect(await text(page, '#cx-hint-keys')).toBe('Enter sends · Ctrl+J newline');
+      expect(await page.getAttribute('#cx-dot', 'data-state')).toBe('ready');
+      expect(await text(page, '#cx-chip-words')).toMatch(/^fake-qwen3:8b · this computer · \d\d:\d\d$/);
+      expect(await page.isDisabled('#cx-send')).toBe(true);
+      expect(await text(page, '#cx-send-why')).toBe('');
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 176, 0)');
+      await page.fill('#cx-input', 'a');
+      expect(await page.isDisabled('#cx-send')).toBe(false);
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
+      await page.focus('#cx-input');
+      await page.keyboard.press('Control+j');
+      await page.keyboard.type('b');
+      expect(await page.inputValue('#cx-input')).toBe('a\nb');
+      await page.fill('#cx-input', '');
       // the selected model's detail sits right below its row (a one-row list leaves no gap before it)
       const gap = await page.$eval('#cm-list li.is-selected', (li) => {
         const row = li.querySelector('.cm-row')!.getBoundingClientRect();
@@ -176,10 +203,15 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const detail = await text(page, '.cm-detail');
       expect(detail).toContain('Anthropic: Claude Haiku 5.5');
       expect(detail).toContain('Model idanthropic/claude-haiku-5.5');
-      expect(await page.isDisabled('.cm-detail .cx-btn')).toBe(true);
-      expect(detail).toContain('Not available on this page yet: its Send asks fake-qwen3:8b');
+      // (R11 step 1) a row can be chosen from here; this one needs the OpenRouter route, said when tried
+      expect(await page.isDisabled('.cm-detail [data-cm-use]')).toBe(false);
+      expect(detail).toContain('Kept in the settings and as Models’ record, as the Workbench keeps a choice');
       // a row the person opened that is not the next turn's model: MODEL, not SELECTED
       expect(await text(page, '.cm-detail-k')).toBe('Model');
+      await page.click('.cm-detail [data-cm-use]');
+      await page.waitForSelector('.cm-use-state[data-state="failed"]', { timeout: 15_000 });
+      expect(await text(page, '.cm-use-state[data-state="failed"]')).toMatch(/^✕ anthropic\/claude-haiku-5\.5 runs on OpenRouter, and the chat's route is local/);
+      expect(await text(page, '#cx-route-words')).toBe('Next turn fake-qwen3:8b / Ollama on this computer · this page’s own chat · no tools');
       // ArrowDown moves along the list, the detail with it
       await page.focus('#cm-list .cm-row[aria-current="true"]');
       const before = await page.evaluate(() => document.activeElement?.getAttribute('data-model'));
@@ -203,6 +235,45 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.$eval('#cx-own .cx-turn.is-answered .cx-who', (e) => [...e.children].map((c) => (c.textContent ?? '').trim()).slice(0, 3))).toEqual(['TIMMY', 'fake-qwen3:8b', 'FAKE model']);
       expect(await page.inputValue('#cx-input')).toBe('');
       expect(ollama.chats().at(-1)?.messages?.at(-1)).toMatchObject({ role: 'user', content: 'Sketch the first screen.' });
+      // R11 step 1 (the operator's first-use failure): a local model chosen on the page. Enter on its row: Ollama is asked
+      // for that exact name (/api/show, no model run), the setup's answer is written, the draft is kept, the composer has
+      // the keyboard, the route line, the chip and the status row say the next turn's model
+      await page.fill('#cx-input', 'a draft kept through the choice');
+      await page.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
+      await page.waitForSelector('#cm-list .cm-row[data-model="fake-llama:1b"]', { timeout: 20_000 });
+      const shows = () => ollama.requests.filter((r) => r.path === '/api/show').map((r) => r.body?.model as string);
+      const shown = shows().length;
+      await page.focus('#cm-list .cm-row[data-model="fake-llama:1b"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn fake-llama:1b'), null, { timeout: 20_000 });
+      expect(shows().slice(shown)).toContain('fake-llama:1b');
+      expect(JSON.parse(readFileSync(join(process.env.TIMMY_HOME!, 'setup.json'), 'utf8')).answers.model).toBe('fake-llama:1b');
+      expect(await page.inputValue('#cx-input')).toBe('a draft kept through the choice');
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
+      expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
+      expect(await text(page, '#cx-note')).toBe('Next turn: fake-llama:1b on this computer.');
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready' && /^fake-llama:1b · this computer · \d\d:\d\d$/.test(document.getElementById('cx-chip-words')?.textContent ?? ''), null, { timeout: 20_000 });
+      expect(await text(page, '#cm-list .cm-row[data-model="fake-llama:1b"] .cm-inuse')).toBe('✓ in use');
+      // a row Ollama no longer establishes as a chat model (its list is stale): the row says why, nothing changed
+      const qwen = models.find((m) => m.name === 'fake-qwen3:8b')!;
+      qwen.capabilities = ['embedding'];
+      try {
+        await page.focus('#cm-list .cm-row[data-model="fake-qwen3:8b"]');
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('.cm-use-state[data-state="failed"]', { timeout: 15_000 });
+        expect(await text(page, '.cm-use-state[data-state="failed"]')).toBe('✕ fake-qwen3:8b is not chosen: Ollama\'s /api/show answer does not establish it as a chat model (no completion capability). Nothing was changed.');
+        expect(await text(page, '#cx-route-words')).toMatch(/^Next turn fake-llama:1b /);
+        expect(await page.evaluate(() => document.activeElement?.getAttribute('data-model'))).toBe('fake-qwen3:8b');
+        // the state beside the row itself, and the row in view (the rail scrolled to it)
+        expect(await text(page, '#cm-list .cm-row[data-model="fake-qwen3:8b"] .cm-row-state')).toBe('✕ not a chat model');
+        expect(await page.evaluate(() => { const r = document.querySelector('#cm-list .cm-row[data-model="fake-qwen3:8b"]')!.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })).toBe(true);
+      } finally { qwen.capabilities = ['completion', 'tools']; }
+      // back to the first model for the cases below
+      await page.focus('#cm-list .cm-row[data-model="fake-qwen3:8b"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn fake-qwen3:8b'), null, { timeout: 20_000 });
+      await page.fill('#cx-input', '');
+      expect(ollama.chats()).toHaveLength(1);
       // a bottom control opens its drawer; Esc closes it and gives focus back
       const controls = await page.$$eval('#cx-controls .cx-ctl', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Attach', 'Tools', 'Plan / Run', 'Permissions', 'Budget', 'Stop', 'Logs', 'Cloudflare']);
@@ -256,6 +327,23 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     }
   }, 180_000);
 
+  it('at 1280 × 720 the composer, its chip and Send read as at 1440 (the rail beside them)', async () => {
+    const { context, page, errors } = await openPage(browser, { origin }, { width: 1280, height: 720 });
+    try {
+      await page.goto(`${origin}/#t=${token}`);
+      await page.waitForSelector('#cx-turns .cx-turn.is-timmy', { timeout: 30_000 });
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 20_000 });
+      expect(await page.isVisible('#cx-models')).toBe(true);
+      expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · \d\d:\d\d$/);
+      expect(await page.isDisabled('#cx-send')).toBe(true);
+      await page.fill('#cx-input', 'x');
+      expect(await page.isDisabled('#cx-send')).toBe(false);
+      expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).toBe('rgb(255, 176, 0)');
+      expect(await page.$eval('#cx-composer', (f) => { const r = f.getBoundingClientRect(); return r.bottom <= window.innerHeight && r.width > 500; })).toBe(true);
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  }, 120_000);
+
   it('at 390 × 844 the controls fit with More, its controls open their drawers (Esc back to More), FAKE stays named; a home with no route opens its first run at the top, and a setup too', async () => {
     const { context, page, errors } = await openPage(browser, { origin }, { width: 390, height: 844 });
     try {
@@ -276,7 +364,22 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-more');
       // the status keeps each word with its value, and FAKE is named on it
       expect(await text(page, '#cx-status')).toContain('FAKE model');
-      expect(await page.$eval('#cx-status .is-inference', (e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim())).toMatch(/^INFERENCE: Ollama on this computer/i);
+      expect(await page.$eval('#cx-status .is-inference', (e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim())).toMatch(/^NEXT TURN: fake-(?:qwen3:8b|llama:1b) on this computer/i);
+      // R11 step 1 on a phone: the chip, and a model chosen from the Models drawer closes it and gives the composer the keyboard
+      await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 20_000 });
+      expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · \d\d:\d\d$/);
+      await page.fill('#cx-input', 'phone draft');
+      await page.click('#cx-chip');
+      expect(await page.isVisible('#cx-models')).toBe(true);
+      await page.click('[data-cm-provider="ollama"][data-cm-sub="local"]');
+      await page.waitForSelector('#cm-list .cm-row[data-model="fake-llama:1b"]', { timeout: 20_000 });
+      await page.focus('#cm-list .cm-row[data-model="fake-llama:1b"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.getElementById('cx-route-words')?.textContent?.startsWith('Next turn fake-llama:1b'), null, { timeout: 20_000 });
+      expect(await page.isVisible('#cx-models')).toBe(false);
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
+      expect(await page.inputValue('#cx-input')).toBe('phone draft');
+      expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
       expect(errors).toEqual([]);
     } finally {
       await context.close();
@@ -326,6 +429,22 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.waitForFunction(() => document.body.dataset.chatState === 'first-run', null, { timeout: 10_000 });
         expect(await p2.evaluate(() => document.activeElement?.getAttribute('data-cx-way'))).toBe('openrouter');
         expect(await p2.$eval('#cx-scroll', (s) => s.scrollTop)).toBe(0);
+        // R11 step 1: Send is DISABLED until a model is chosen, saying so; the chip says no model (Esc first closes the
+        // Models drawer the setup opened over this narrow center)
+        await p2.keyboard.press('Escape');
+        await p2.waitForFunction(() => !document.getElementById('cx-body')?.classList.contains('models-open'), null, { timeout: 5_000 });
+        await p2.click('[data-cx-way="explore"]');
+        await p2.waitForFunction(() => document.body.dataset.chatState === 'no-model', null, { timeout: 10_000 });
+        await p2.fill('#cx-input', 'a draft with no model');
+        expect(await p2.isDisabled('#cx-send')).toBe(true);
+        expect(await text(p2, '#cx-send-why')).toBe('No model chosen: choose one in Models');
+        expect(await p2.getAttribute('#cx-dot', 'data-state')).toBe('unknown');
+        expect(await text(p2, '#cx-chip-words')).toBe('no model · choose one');
+        expect(await text(p2, '#cx-status .is-inference .cx-st-v')).toBe('none (no model chosen: choose one in Models)');
+        await p2.focus('#cx-input');
+        await p2.keyboard.press('Enter');
+        expect(none.chats()).toEqual([]);
+        expect(await p2.inputValue('#cx-input')).toBe('a draft with no model');
         expect(none.chats()).toEqual([]);
         expect(e2).toEqual([]);
       } finally {

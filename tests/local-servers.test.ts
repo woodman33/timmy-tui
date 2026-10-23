@@ -106,7 +106,8 @@ const DOC = {
 };
 
 const saved: Record<string, string | undefined> = {};
-const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
+// R11 (H171, step 1): the page's chat sends only to a model somebody chose; OPENROUTER_MODEL names this test's
+const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME', 'TIMMY_LOGS_PORT', 'TIMMY_TUI_ACTIVE'];
 const originalCwd = process.cwd();
 let work = '';
 let root = '';
@@ -128,6 +129,7 @@ beforeAll(async () => {
   writeFileSync(busFile(), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.seeded', payload: { note: 'SYNTHETIC bus event' } })}\n`);
   process.env.TIMMY_REPO = root;
   process.env.OPENROUTER_API_KEY = FAKE_KEY;
+  process.env.OPENROUTER_MODEL = 'fake/page-test:free';
   process.env.TIMMY_HOME = home;
   delete process.env.TIMMY_TUI_ACTIVE;
   process.chdir(work);

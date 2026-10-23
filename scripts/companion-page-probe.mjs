@@ -75,7 +75,8 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
   let upstream;
   let browser;
   const made = [];
-  const saved = { TIMMY_REPO: process.env.TIMMY_REPO, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, cwd: process.cwd() };
+  // R11 (H171, step 1): the page's chat sends only to a model somebody chose; OPENROUTER_MODEL names the probe's
+  const saved = { TIMMY_REPO: process.env.TIMMY_REPO, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, OPENROUTER_MODEL: process.env.OPENROUTER_MODEL, cwd: process.cwd() };
   try {
     // the check's own workspace: the bus the companion tails, a session the log companion's chat mirror reads
     const work = workDir ?? mkdtempSync(join(tmpdir(), 'timmy-page-probe-'));
@@ -90,6 +91,7 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     ].map((m) => JSON.stringify(m)).join('\n') + '\n');
     process.env.TIMMY_REPO = work;
     process.env.OPENROUTER_API_KEY = 'FAKE-key-for-the-page-probe';
+    process.env.OPENROUTER_MODEL = 'fake/page-probe:free';
     process.chdir(work);
     upstream = await fakeUpstream();
     server = await startCompanionServer(0, { upstream: `http://127.0.0.1:${upstream.address().port}/chat/completions` });
@@ -301,7 +303,7 @@ export async function probeCompanionPage({ startCompanionServer, startManagedLog
     if (logs) await logs.stop().catch(() => undefined);
     if (upstream) await new Promise((r) => { upstream.close(() => r()); upstream.closeAllConnections?.(); });
     try { process.chdir(saved.cwd); } catch { /* the folder it started in is gone */ }
-    for (const [k, v] of [['TIMMY_REPO', saved.TIMMY_REPO], ['OPENROUTER_API_KEY', saved.OPENROUTER_API_KEY]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const [k, v] of [['TIMMY_REPO', saved.TIMMY_REPO], ['OPENROUTER_API_KEY', saved.OPENROUTER_API_KEY], ['OPENROUTER_MODEL', saved.OPENROUTER_MODEL]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     for (const d of made) rmSync(d, { recursive: true, force: true });
   }
   return out;

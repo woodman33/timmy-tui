@@ -38,7 +38,8 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
   const dirs: string[] = [];
   const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
   const saved: Record<string, string | undefined> = {};
-  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME', 'TIMMY_LOGS_OPEN'];
+  // R11 (H171, step 1): the page's chat sends only to a model somebody chose; OPENROUTER_MODEL names this test's
+  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME', 'TIMMY_LOGS_OPEN'];
   const originalCwd = process.cwd();
   let browser: Browser;
   let fake: Server;
@@ -54,6 +55,7 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
     writeFileSync(join(root, '.timmy', 'runs', 'timmy-events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.browser-seeded', payload: { note: 'SYNTHETIC' } })}\n`);
     process.env.TIMMY_REPO = root;
     process.env.OPENROUTER_API_KEY = FAKE_KEY;
+    process.env.OPENROUTER_MODEL = 'fake/page-test:free';
     process.env.TIMMY_HOME = temp('h84b-home-');
     process.env.TIMMY_LOGS_OPEN = '0';
     process.chdir(temp('h84b-work-'));

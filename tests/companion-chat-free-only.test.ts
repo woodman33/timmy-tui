@@ -58,7 +58,8 @@ describe('the companion\'s chat under free-only: refused in the policy\'s words 
     mkdirSync(join(box, 'project'), { recursive: true });
     // the catalog is read from this process's Timmy home (src/models/registry.ts catalogPath): this test's own
     process.env.TIMMY_HOME = home;
-    Object.assign(env, { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: join(box, 'settings'), OPENROUTER_API_KEY: KEY, TIMMY_CHAT_FREE_ONLY: '1' });
+    // R11 (H171, step 1): the page sends only to a model somebody chose: this test names the page's own (OPENROUTER_MODEL)
+    Object.assign(env, { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: join(box, 'settings'), OPENROUTER_API_KEY: KEY, TIMMY_CHAT_FREE_ONLY: '1', OPENROUTER_MODEL });
     upstream = createServer((req, res) => {
       let body = '';
       req.on('data', (c) => { body += String(c); });

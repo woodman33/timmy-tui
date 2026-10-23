@@ -130,7 +130,7 @@ import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
 import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
-import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
+import { openRouterKey, pageRoute, streamLocalChat } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
 // R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
 import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
@@ -138,12 +138,11 @@ import { mountPanels } from './panels.js';
 // R10 (H164): the journey's read-only routes (src/journey/routes.ts)
 import { mountJourneyRoutes } from '../journey/routes.js';
 // R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
-import { mountChatView } from './chat-view.js';
+import { companionCatalog, companionProviders, mountChatView, pageChoice } from './chat-view.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Model used by the /chat streaming proxy on the OpenRouter route (the page's model chat, the Streamdown island, TMX P3). */
-const CHAT_MODEL = OPENROUTER_MODEL;
+// (R11 H171: /chat's OpenRouter model is the one chosen for the next turn, never a fixed one: pageChoice above)
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -648,7 +647,11 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
    */
   app.post('/chat', withToken, express.json(), async (req, res) => {
     const env = chatEnv();
-    const route = pageRoute(env, process.cwd());
+    // R11 (H171, step 1; the operator's order: "disable an unsafe Send path rather than using an unchosen model"): the page's
+    // choice decides the route: an unchosen OpenRouter default is no route (nothing is sent), and a chosen OpenRouter model is
+    // the one asked (src/companion/chat-view.ts pageChoice, the Workbench's rule, until H169's pageRoute carries it)
+    const local = await companionCatalog('ollama-local', env);
+    const { route } = pageChoice(env, pageRoute(env, process.cwd()), local, companionProviders(env, process.cwd(), local.observed));
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -724,14 +727,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model: CHAT_MODEL, messages: chatMessages, stream: true }),
+        body: JSON.stringify({ model: route.model, messages: chatMessages, stream: true }),
         signal: controller.signal,
       });
 
       if (!upstream.ok || !upstream.body) {
         const details = await upstream.text().catch(() => '');
         sendSse('error', {
-          error: `OpenRouter responded ${upstream.status} for model ${CHAT_MODEL}`,
+          error: `OpenRouter responded ${upstream.status} for model ${route.model}`,
           details: details.slice(0, 2000),
         });
         res.end();
@@ -858,7 +861,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // read from the environment its /chat reads
   mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
   // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models)
-  mountChatView(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
+  mountChatView(app, { withToken, json: express.json({ limit: '2kb' }), projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)

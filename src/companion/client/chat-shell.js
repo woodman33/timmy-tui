@@ -38,6 +38,9 @@ const cx = {
   /** the saved conversation as last drawn, and the center's state as last shown (a panel opens at its top) */
   convKey: '',
   shownKey: '',
+  /** R11 step 1: a choice of model under way on this page ({ model, source }), and the last choice's outcome for the rail's row */
+  choosing: null,
+  chose: null,
 };
 
 const CX_VIEW_EVERY_MS = 4000;
@@ -213,7 +216,7 @@ function readView(force = false, fresh = false) {
     .then(({ r, body }) => {
       if (!r.ok || !body || body.ok !== true) { cx.viewFailed = (body && body.error) || `The companion answered HTTP ${r.status}.`; return; }
       cx.viewFailed = '';
-      const key = JSON.stringify([body.conversation, body.route, body.providers, body.policy]);
+      const key = JSON.stringify([body.conversation, body.route, body.choice, body.providers, body.policy]);
       const changed = force || key !== cx.lastKey;
       cx.lastKey = key;
       const first = !cx.view;
@@ -419,7 +422,7 @@ function setupBody(id) {
     h('li', null, 'Install Ollama yourself if it is not here: ', link('ollama-local', 0), '. Timmy installs nothing.'),
     h('li', null, 'Start it (the app, or ', h('code', null, 'ollama serve'), '), then Refresh below: this page asks it for its list of models, which runs no model.'),
     h('li', null, 'Install a model yourself, for example ', h('code', null, 'ollama pull qwen3:0.6b'), ' (', link('ollama-local', 1), ': a 523 MB download, not the memory it needs to run, and not benchmarked for Timmy). This page downloads nothing.'),
-    h('li', null, 'Choose it for chat in the terminal: ', cmd('timmy init --chat local --model <model>'), ' (or /setup chat in the REPL).')),
+    h('li', null, 'Choose it in Models (Enter on its row, or Use for the next turn): this page asks Ollama for that exact name first (no model runs), then keeps it as the setup’s answer, as ', cmd('timmy init --chat local --model <model>'), ' would in a terminal.')),
     h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'refresh' }, 'Refresh'))]];
   if (id === 'ollama-cloud') return ['Remote inference', 'Use Ollama Cloud', [state, h('ol', { class: 'cx-steps' },
     h('li', null, 'Sign in to (or create) your Ollama account and make a key: ', link('ollama-cloud', 0), '. Its plans and usage: ', link('ollama-cloud', 1), '.'),
@@ -492,15 +495,22 @@ function drawEmpty() {
     h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'focus-composer' }, 'Write a message'))]);
 }
 
+/** The page's choice of model, as the companion read it (GET /api/chat/view's `choice`; see src/companion/chat-view.ts pageChoice). */
+function choiceOf(v) { return (v && v.choice) || null; }
+
 function drawRoute() {
   const line = $('cx-route');
   const words = $('cx-route-words');
   if (!line || !words) return;
   const r = routeOf(cx.view);
+  const c = choiceOf(cx.view);
   line.classList.toggle('is-off', Boolean(r && !r.ready));
   if (!r) { words.textContent = cx.view ? 'The companion said no route.' : 'Asking the companion which route the next turn takes…'; return; }
   if (r.ready) {
     words.replaceChildren('Next turn ', h('strong', null, r.model), ` / ${routeWhere(r)} · this page’s own chat · no tools`);
+    words.title = r.words || '';
+  } else if (c && !c.chosen) {
+    words.replaceChildren('Next turn ', h('strong', null, 'none'), ' / no model chosen: choose one in Models');
     words.title = r.words || '';
   } else {
     words.replaceChildren('Next turn ', h('strong', null, 'Send is off'), ` / ${r.label || 'no route'}`);
@@ -508,26 +518,57 @@ function drawRoute() {
   }
 }
 
+/**
+ * R11 step 1: the composer and its model chip. Send is amber only when a model is chosen and its route is ready; with no
+ * choice it is DISABLED and says why ("No model chosen: choose one in Models"); during a turn it is Stop. The chip names
+ * the next turn's model and where it runs, its dot by the honesty rule: amber while this page checks, green only after an
+ * answer (Ollama's /api/show for a local model, the key's check for OpenRouter), grey when nothing has answered, ✕ with the
+ * word on a failure. The chip opens Models.
+ */
 function drawComposer() {
   const input = $('cx-input');
   const send = $('cx-send');
+  const why = $('cx-send-why');
   if (!input || !send) return;
   const r = routeOf(cx.view);
+  const c = choiceOf(cx.view);
+  drawChip();
   if (cx.running) {
     send.disabled = false;
     send.classList.add('is-stop');
+    send.classList.remove('is-muted');
     send.textContent = 'Stop';
     send.title = 'Stops this page’s turn; the answer so far is kept here';
+    if (why) why.textContent = '';
     return;
   }
-  send.classList.remove('is-stop');
+  send.classList.remove('is-stop', 'is-muted');
+  send.textContent = 'Send ↑';
   const ready = Boolean(r && r.ready);
-  send.textContent = ready || !r ? 'Send ↑' : 'Choose a model ↑';
-  send.disabled = ready ? !input.value.trim() : !r;
-  // with no route the panel's "Choose a model" is the one primary step; this one is a plain control
-  send.classList.toggle('is-muted', Boolean(r && !ready));
+  send.disabled = !ready || !input.value.trim();
+  const reason = !cx.view ? 'Reading the next turn’s route…' : !r ? 'The companion said no route.' : !ready ? (c && !c.chosen ? 'No model chosen: choose one in Models' : (r.label || 'Send is off')) : '';
+  if (why) { why.textContent = reason; why.title = r && r.words ? r.words : ''; }
   send.title = !ready ? (r ? r.words || 'Send is off' : 'The route is not known yet') : !input.value.trim() ? 'Write a message first' : `Sends to ${r.model}: ${r.words || ''}`;
-  input.placeholder = ready ? 'Ask a question, describe an idea, or make a plan…' : 'You can write a draft. Choose a model when you are ready.';
+  input.placeholder = 'Message TIMMY…';
+}
+
+/** The chip's words and dot (see drawComposer). */
+function drawChip() {
+  const chip = $('cx-chip');
+  const dot = $('cx-dot');
+  const words = $('cx-chip-words');
+  if (!chip || !dot || !words) return;
+  const r = routeOf(cx.view);
+  const c = choiceOf(cx.view);
+  const set = (state, text, title) => { dot.dataset.state = state; dot.textContent = state === 'failed' ? '✕' : state === 'unknown' && !(c && c.chosen) ? '○' : '●'; words.textContent = text; chip.title = title || ''; };
+  if (cx.choosing) { set('checking', `${cx.choosing.model} · checking…`, 'Asking Ollama for this model (its /api/show; no model runs)'); return; }
+  if (!cx.view) { set('unknown', 'reading…', 'The companion has not answered the Chat’s read yet'); return; }
+  if (!c || !c.chosen) { set('unknown', 'no model · choose one', (c && c.words) || (r && r.words) || ''); return; }
+  const where = c.source === 'ollama-local' ? 'this computer' : r && r.kind === 'openrouter' && r.price ? `OpenRouter · ${r.price}` : 'OpenRouter';
+  const k = c.check || { state: 'unknown', words: '' };
+  if (k.state === 'failed') set('failed', `${c.model} · ${c.source === 'ollama-local' ? (/did not answer/.test(k.words) ? 'Ollama did not answer' : 'not listed') : (r && !r.ready ? 'Send is off' : 'key not usable')}`, k.words);
+  else set(k.state === 'ready' ? 'ready' : 'unknown', `${c.model} · ${where}${k.state === 'ready' && k.at ? ` · ${clock(k.at)}` : k.state === 'unknown' ? ' · not checked' : ''}`, k.words);
+  chip.setAttribute('aria-expanded', modelsShown() ? 'true' : 'false');
 }
 
 // ── sending: POST /chat, this page's own chat, streamed ──
@@ -586,6 +627,54 @@ async function sendNow() {
 }
 
 function stopNow() { if (cx.running) cx.running.abort(); }
+
+/**
+ * R11 step 1: a model chosen on this page (a row's Enter, or Use for the next turn): POST /api/chat/choose, the companion's
+ * token-checked route (src/companion/chat-view.ts chooseModel). While it runs, the chip and the row say "checking…"; ready
+ * closes Models where it is a drawer, keeps the draft, gives the composer the keyboard and says the next turn's model on the
+ * status row; a failure stays on the row with its reason, nothing changed.
+ */
+async function chooseRow(id) {
+  if (!id || cx.choosing) return;
+  const m = cx.models;
+  const row = ((m.answer && m.answer.ok && m.answer.rows) || []).find((r) => r.id === id);
+  if (!row) return;
+  const source = row.source === 'openrouter' ? 'openrouter' : row.source === 'ollama-local' ? 'ollama-local' : null;
+  if (!source) { cx.chose = { ok: false, model: id, words: 'Ollama Cloud is not a route this page can choose in this checkpoint.' }; drawModelsRail(); return; }
+  cx.choosing = { model: id, source };
+  cx.chose = null;
+  m.selected = id;
+  drawModelsRail();
+  drawChip();
+  let body = null;
+  try {
+    const r = await companion.fetch(`/api/chat/choose${projectQuery()}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, model: id }) });
+    body = await r.json().catch(() => null);
+    if (!body || typeof body.words !== 'string') body = { ok: false, state: 'not kept', model: id, words: `The companion answered HTTP ${r.status}; nothing was changed.` };
+  } catch (err) {
+    body = { ok: false, state: 'unreachable', model: id, words: `The companion could not be reached (${err && err.message ? err.message : String(err)}); nothing was changed.` };
+  }
+  cx.choosing = null;
+  cx.chose = body;
+  if (body.ok) {
+    chatNote(body.words, null);
+    // a setup panel of the first run gives way to the conversation and the composer
+    cx.setup = ''; cx.forceChoices = false;
+    // the view read again now: the route, the choice and its readiness as the companion holds them after the write
+    await readView(true, true);
+    drawChat();
+    readModels();
+    if (narrow()) toggleModels(false);
+    const input = $('cx-input');
+    if (input) input.focus({ preventScroll: true });
+  } else {
+    // the selector stays open on that row, its state beside the row and the words in its detail; the row scrolls into view
+    drawModelsRail();
+    drawChip();
+    const back = document.querySelector(`.cm-row[data-model="${CSS.escape(id)}"]`);
+    if (back) { back.scrollIntoView({ block: 'nearest' }); back.focus({ preventScroll: true }); }
+  }
+}
 
 /** What the Chat says for a moment (a Stop asked of another surface's turn, and its answer), in words. */
 function chatNote(words, state) {
@@ -656,13 +745,20 @@ function inUse(row) {
   return row.source === 'openrouter' && row.id === r.model;
 }
 
+/** R11 step 1: the choice's state beside the row itself (as the terminal's selector shows it): "● checking…" while Ollama is asked, "✕ <state>" when it failed; the full words stay in the detail. */
+function rowState(row) {
+  if (cx.choosing && cx.choosing.model === row.id) return h('span', { class: 'cm-row-state', 'data-state': 'checking' }, h('span', { class: 'cx-dot', 'data-state': 'checking', 'aria-hidden': 'true' }, '●'), ' checking…');
+  if (cx.chose && !cx.chose.ok && cx.chose.model === row.id) return h('span', { class: 'cm-row-state', 'data-state': 'failed' }, `✕ ${cx.chose.state || 'not kept'}`);
+  return null;
+}
+
 /** A model's row; the selected one carries its detail right below it (SELECTED), so a short list has no gap and a long one scrolls. */
 function modelRow(row, first = false) {
   const sel = row.id === cx.models.selected;
   const btn = h('button', {
     type: 'button', class: 'cm-row', 'aria-current': sel ? 'true' : 'false', 'data-model': row.id, tabindex: sel || (first && !cx.models.selected) ? '0' : '-1', ...(sel ? { 'aria-describedby': 'cm-detail' } : {}),
   },
-  h('span', { class: 'cm-row-name' }, h('span', { class: 'cm-name' }, row.name), inUse(row) ? h('span', { class: 'cm-inuse' }, '✓ in use') : null),
+  h('span', { class: 'cm-row-name' }, h('span', { class: 'cm-name' }, row.name), inUse(row) ? h('span', { class: 'cm-inuse' }, '✓ in use') : rowState(row)),
   row.name !== row.id ? h('span', { class: 'cm-row-id' }, row.id) : null,
   row.description ? h('span', { class: 'cm-row-desc' }, row.description) : null,
   h('span', { class: 'cm-row-facts' }, h('span', null, row.source === 'openrouter' ? ctxWords(row.contextLength) : row.installed ? `installed${typeof row.sizeBytes === 'number' ? ` · ${(row.sizeBytes / 1e9).toFixed(1)} GB` : ''}` : 'cloud-backed'), h('span', null, row.source === 'ollama-local' ? 'no charge' : priceWords(row.price))));
@@ -691,13 +787,24 @@ function modelDetail(row) {
     if (typeof row.running === 'boolean') add('Loaded now', row.running ? 'yes' : 'no');
     add('Tools · Vision', `${capWord(row.caps.tools)} · ${capWord(row.caps.vision)}`, true);
   }
-  const r = routeOf(cx.view);
+  // R11 step 1: a row is chosen for the next turn from here (the Workbench's own write path, through the companion), with
+  // the terminal's feedback: checking… → ready, or not a chat model / unreachable, said beside the row, nothing changed
   const use = h('div', { class: 'cm-use' });
+  const chosen = cx.chose && cx.chose.model === row.id ? cx.chose : null;
+  const busy = cx.choosing && cx.choosing.model === row.id;
   if (inUse(row)) use.append(h('p', null, '✓ The next turn of this page uses this model.'));
+  else if (busy) use.append(h('p', { class: 'cm-use-state', 'data-state': 'checking' }, h('span', { class: 'cx-dot', 'data-state': 'checking', 'aria-hidden': 'true' }, '●'), ` checking… Ollama is asked for ${row.id} (its /api/show; no model runs)`));
   else {
-    use.append(h('button', { type: 'button', class: 'cx-btn', disabled: true, 'aria-describedby': 'cm-use-why' }, 'Use for the next turn'),
-      h('p', { id: 'cm-use-why' }, `Not available on this page yet: its Send asks ${r && r.model ? r.model : 'the setup’s model'}, the setup’s choice. In the REPL, /setup chat keeps the model every surface uses.`));
+    const can = row.source !== 'ollama-cloud';
+    // (the one amber primary: this button while no model is chosen and the center shows no other step; Send once one is)
+    const c = choiceOf(cx.view);
+    const primary = !(c && c.chosen) && !['first-run', 'setup'].includes(document.body.dataset.chatState || '');
+    use.append(h('button', { type: 'button', class: `cx-btn${primary ? ' is-primary' : ''}`, 'data-cm-use': row.id, disabled: !can, 'aria-describedby': 'cm-use-why' }, 'Use for the next turn'),
+      h('p', { id: 'cm-use-why' }, row.source === 'ollama-cloud' ? 'Ollama Cloud is not a route this page can choose in this checkpoint (its setup, key and list are; the lead’s decision).'
+        : row.source === 'ollama-local' ? 'Ollama is asked for this exact name first (its /api/show; no model runs); then it is kept as the setup’s answer, as timmy init --chat local --model keeps it, for every surface’s next turn.'
+          : 'Kept in the settings and as Models’ record, as the Workbench keeps a choice: the next turn of every surface takes it (a turn being answered keeps its own).'));
   }
+  if (chosen && !chosen.ok) use.append(h('p', { class: 'cm-use-state', 'data-state': 'failed' }, h('span', { class: 'cx-dot', 'data-state': 'failed', 'aria-hidden': 'true' }, '✕'), ` ${chosen.words}`));
   return h('div', { class: 'cm-detail', id: 'cm-detail' },
     // R10 (H171; H168's pass 3b R18): SELECTED only for the next turn's model; a row the person opened is MODEL / its name
     h('div', { class: 'cm-detail-top' }, h('p', { class: 'cm-detail-k' }, inUse(row) ? 'Selected' : 'Model'), h('p', { class: 'cm-detail-id' }, row.source === 'openrouter' ? `${row.makerLabel || row.maker} · OpenRouter` : row.source === 'ollama-local' ? 'Ollama · this computer' : 'Ollama Cloud')),
@@ -905,6 +1012,16 @@ function closeDrawer() {
   return true;
 }
 
+/** "granite4.2:latest on this computer", "none (no model chosen)", or why Send is off. */
+function nextTurnWords() {
+  const r = routeOf(cx.view);
+  const c = choiceOf(cx.view);
+  if (!cx.view || !r) return 'not known yet';
+  if (r.ready) return `${r.model} on ${r.kind === 'local' ? (r.cloud ? 'Ollama Cloud through this computer’s Ollama' : r.loopback ? 'this computer' : 'another computer’s Ollama') : 'OpenRouter'}`;
+  if (c && !c.chosen) return 'none (no model chosen: choose one in Models)';
+  return `none (${r.label || 'Send is off'})`;
+}
+
 function drawStatus() {
   const bar = $('cx-status');
   if (!bar) return;
@@ -914,7 +1031,8 @@ function drawStatus() {
   bar.replaceChildren(
     h('span', { class: 'cx-st-pair is-logs' }, h('span', { class: 'cx-st-k' }, 'Logs:'), h('span', { class: 'cx-st-v' }, `this computer / ${cx.running ? 'answering' : 'idle'}`)),
     h('span', { class: 'cx-st-sep', 'aria-hidden': 'true' }, '|'),
-    h('span', { class: 'cx-st-pair is-inference' }, h('span', { class: 'cx-st-k' }, 'Inference:'), h('span', { class: 'cx-st-v' }, r ? `${routeWhere(r)}${r.ready ? ` / ${r.model}` : ''}` : 'not known yet')),
+    // (R11 step 1: the next turn's model, as the terminal's status row says it)
+    h('span', { class: 'cx-st-pair is-inference' }, h('span', { class: 'cx-st-k' }, 'Next turn:'), h('span', { class: 'cx-st-v' }, nextTurnWords())),
     h('span', { class: 'cx-st-right' }, h('span', { class: 'cx-st-sync' }, 'Cloud sync off'), fake ? h('span', null, 'FAKE model') : null));
 }
 
@@ -945,6 +1063,9 @@ document.addEventListener('click', (event) => {
   if (ctl) { openDrawer(ctl.dataset.cxCtl, ctl.closest('#cx-drawer') ? $('cx-more') : ctl); return; }
   if (at.closest('#cx-keys')) { openDrawer('keys', $('cx-keys')); return; }
   if (at.closest('#cx-models-toggle')) { toggleModels(); return; }
+  if (at.closest('#cx-chip')) { toggleModels(true); $('cm-search')?.focus(); return; }
+  const use = at.closest('[data-cm-use]');
+  if (use) { chooseRow(use.dataset.cmUse); return; }
   if (at.closest('#cx-menu, #ws-menu')) { toggleRail(); return; }
   if (at.closest('#cx-change')) { toggleModels(true); $('cm-search')?.focus(); return; }
   const prov = at.closest('[data-cm-provider]');
@@ -1059,17 +1180,25 @@ document.addEventListener('input', (event) => {
 document.addEventListener('submit', (event) => {
   if (event.target instanceof HTMLFormElement && event.target.id === 'cx-composer') {
     event.preventDefault();
-    const r = routeOf(cx.view);
-    if (cx.running) stopNow(); else if (r && !r.ready) { toggleModels(true); $('cm-search')?.focus(); } else sendNow();
+    if (cx.running) stopNow(); else sendNow();
   }
 });
 document.addEventListener('keydown', (event) => {
   const at = event.target;
-  if (at instanceof HTMLTextAreaElement && at.id === 'cx-input' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    if (!cx.running) sendNow();
-    return;
+  if (at instanceof HTMLTextAreaElement && at.id === 'cx-input' && !event.isComposing) {
+    // Enter sends; Ctrl+J (the chord the hint names; Shift+Enter too) a new line
+    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) { event.preventDefault(); if (!cx.running) sendNow(); return; }
+    if ((event.key === 'j' || event.key === 'J') && event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      const a = at.selectionStart, b = at.selectionEnd;
+      at.value = `${at.value.slice(0, a)}\n${at.value.slice(b)}`;
+      at.selectionStart = at.selectionEnd = a + 1;
+      saveDraft(); drawComposer();
+      return;
+    }
   }
+  // Enter on a row of Models chooses it for the next turn (the terminal's Enter); the arrows move along the list
+  if (at instanceof Element && at.classList.contains('cm-row') && event.key === 'Enter') { event.preventDefault(); chooseRow(at.dataset.model); return; }
   if (event.key === 'Escape') {
     if (closeDrawer()) { event.preventDefault(); return; }
     if (closeNarrowDrawers()) { event.preventDefault(); return; }

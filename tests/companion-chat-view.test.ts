@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { companionCatalog, companionProviders, catalogQueryOf, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
+import { companionCatalog, companionProviders, catalogQueryOf, openRouterChoice, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
@@ -219,6 +219,10 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(body.route).toMatchObject({ kind: 'local', ready: true, model: 'fake-qwen3:8b', loopback: true, cloud: false });
     expect(body.scope).toMatchObject({ conversation: 'this page', tools: 'none', receipt: false });
     expect(body.policy).toEqual({ freeOnly: false, localOnly: false, from: { freeOnly: 'settings', localOnly: 'settings' } });
+    // (R11 step 1) the choice: the setup's local model, ready only because Ollama listed it at this read (its /api/show passed)
+    expect(body.choice).toMatchObject({ chosen: true, source: 'ollama-local', model: 'fake-qwen3:8b', from: 'the setup', check: { state: 'ready' }, words: 'Next turn: fake-qwen3:8b on this computer.' });
+    expect(body.choice.check.words).toMatch(/^Ollama answered at 127\.0\.0\.1:\d+: fake-qwen3:8b is listed as a local chat model \(its \/api\/show check passed; no model ran\)\.$/);
+    expect(Date.parse(body.choice.check.at)).toBeGreaterThan(Date.now() - 60_000);
     const local = body.providers.find((p: { id: string }) => p.id === 'ollama-local');
     expect(local).toMatchObject({ state: 'checked', models: 1 });
     // (H168's pass 3b R20: the FAKE lists two, its cloud model not a local one)
@@ -257,5 +261,181 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(cloud).toMatchObject({ ok: true, rows: [], from: 'none', matched: 0 });
     expect(cloud.words).toMatch(/^Ollama Cloud is not set up: no key/);
     expect(ollama.chats()).toHaveLength(0);
+  });
+});
+
+describe('the page\'s choice of model (R11 step 1): nothing is sent to a model nobody chose; a choice made on the page is kept where the Workbench keeps it', () => {
+  it('the OpenRouter choice by the Workbench\'s rule: a key alone chooses nothing; OPENROUTER_MODEL, the setup\'s OpenRouter answer, another settings model or Models\' record choose', () => {
+    const box = mkdtempSync(join(tmpdir(), 'h171-choice-'));
+    try {
+      const settings = join(box, 'settings');
+      mkdirSync(settings, { recursive: true });
+      const env = { TIMMY_HOME: join(box, 'home'), TIMMY_SETTINGS_DIR: settings };
+      expect(openRouterChoice(env)).toEqual({ chosen: false, model: 'anthropic/claude-opus-4.7', from: 'the shipped default, which nobody chose' });
+      expect(openRouterChoice({ ...env, OPENROUTER_MODEL: 'fake/chosen:free' })).toMatchObject({ chosen: true, model: 'fake/chosen:free' });
+      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: 'anthropic/claude-haiku-5.5' }));
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-haiku-5.5', from: 'the settings (chosen in Models, or /model)' });
+      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: 'anthropic/claude-opus-4.7' }));
+      expect(openRouterChoice(env).chosen).toBe(false);
+      writeFileSync(join(settings, 'workbench.json'), JSON.stringify({ schema: 'timmy.workbench-settings/1', openRouterModel: 'anthropic/claude-opus-4.7' }));
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-opus-4.7', from: 'Models (recorded by the Workbench)' });
+      rmSync(join(settings, 'workbench.json'));
+      mkdirSync(join(box, 'home'), { recursive: true });
+      writeFileSync(join(box, 'home', 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'openrouter' } }));
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-opus-4.7', from: 'the setup (timmy init --chat openrouter) and the settings' });
+    } finally { rmSync(box, { recursive: true, force: true }); }
+  });
+});
+
+describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the companion with its token', () => {
+  // this file's own Timmy home and settings folder (tests/isolation-setup.ts), so what the choice writes through the
+  // Workbench's paths (the process's settings store, the setup's files) is what the companion reads back, as in production
+  const env: Record<string, string | undefined> = { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR };
+  const kept = { TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let ollama: FakeOllama;
+  let companion: CompanionServer;
+  let base = '';
+  let token = '';
+  const upstream: Array<{ auth: string; body: any }> = [];
+  let fake: import('node:http').Server;
+  const models = [
+    { name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] as string[] | null },
+    { name: 'fake-llama:1b', capabilities: ['completion'] as string[] | null },
+    { name: 'fake-embed:1', capabilities: ['embedding'] as string[] | null },
+  ];
+  const post = async (path: string, body: unknown, auth = true): Promise<{ status: number; body: any }> => {
+    const r = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  const view = async (): Promise<any> => (await (await fetch(`${base}/api/chat/view`, { headers: { Authorization: `Bearer ${token}` } })).json());
+  const chat = async (message: string): Promise<string> => (await (await fetch(`${base}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ message }) })).text());
+  const setupAnswers = (): any => JSON.parse(readFileSync(join(env.TIMMY_HOME!, 'setup.json'), 'utf8')).answers;
+
+  beforeAll(async () => {
+    box = mkdtempSync(join(tmpdir(), 'h171-choose-'));
+    const root = join(box, 'project');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'README.md'), '# project\n');
+    ollama = await startFakeOllama({ models });
+    keepCatalog(env.TIMMY_HOME!);
+    mkdirSync(env.TIMMY_HOME!, { recursive: true });
+    writeFileSync(join(env.TIMMY_HOME!, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'local', ollama: ollama.host, model: 'fake-qwen3:8b' } }));
+    // a FAKE OpenRouter: records what /chat sends it, streams one word
+    const { createServer } = await import('node:http');
+    fake = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += String(c); });
+      req.on('end', () => {
+        upstream.push({ auth: String(req.headers.authorization ?? ''), body });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'FAKE answer' } }] })}\n\n`);
+        res.end('data: [DONE]\n\n');
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, '127.0.0.1', () => r()));
+    const { port } = fake.address() as import('node:net').AddressInfo;
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { chatEnv: env, workspace: { env }, upstream: `http://127.0.0.1:${port}/chat/completions` });
+    if (kept.TIMMY_REPO === undefined) delete process.env.TIMMY_REPO; else process.env.TIMMY_REPO = kept.TIMMY_REPO;
+    base = `http://127.0.0.1:${companion.port}`;
+    token = /#t=([0-9a-f]{64})$/.exec(companion.url)![1];
+  });
+  afterAll(async () => {
+    await companion?.shutdown();
+    await ollama?.close();
+    await new Promise<void>((r) => (fake ? fake.close(() => r()) : r()));
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+
+  it('a local model chosen on the page: Ollama asked for that exact name (/api/show, no model run), then kept as the setup\'s answer; the view says the next turn is it, ready only after Ollama answered', async () => {
+    expect((await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-llama:1b' }, false)).status).toBe(401);
+    const shows = () => ollama.requests.filter((r) => r.path === '/api/show').map((r) => r.body?.model);
+    const before = shows().length;
+    const r = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-llama:1b' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, state: 'ready', source: 'ollama-local', model: 'fake-llama:1b', words: 'Next turn: fake-llama:1b on this computer.' });
+    expect(shows().slice(before)).toContain('fake-llama:1b');
+    expect(setupAnswers()).toMatchObject({ chat: 'local', model: 'fake-llama:1b', ollama: ollama.host });
+    expect(JSON.stringify(r.body)).not.toContain(env.TIMMY_HOME);
+    expect(r.body.written).toContain('<Timmy home>/setup.json');
+    // the Ollama address the chat asks is kept (the recorded one, never the default written over it)
+    expect(JSON.parse(readFileSync(join(env.TIMMY_HOME!, 'providers.json'), 'utf8')).ollama_host).toBe(ollama.host);
+    const v = await view();
+    expect(v.route).toMatchObject({ kind: 'local', ready: true, model: 'fake-llama:1b' });
+    expect(v.choice).toMatchObject({ chosen: true, model: 'fake-llama:1b', check: { state: 'ready' } });
+    expect(ollama.chats()).toHaveLength(0);
+  });
+
+  it('a row Ollama does not establish as a chat model, a name it does not list, an Ollama that does not answer: each said, nothing changed', async () => {
+    const embed = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-embed:1' });
+    expect(embed.status).toBe(409);
+    expect(embed.body).toMatchObject({ ok: false, state: 'not a chat model', words: 'fake-embed:1 is not chosen: Ollama\'s /api/show answer does not establish it as a chat model (no completion capability). Nothing was changed.' });
+    const none = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-nope:1' });
+    expect(none.status).toBe(409);
+    expect(none.body).toMatchObject({ ok: false, state: 'not listed' });
+    expect(none.body.words).toMatch(/^fake-nope:1 is not chosen: Ollama at 127\.0\.0\.1:\d+ does not list it\. Nothing was changed\.$/);
+    expect(setupAnswers().model).toBe('fake-llama:1b');
+    // a stale list: the model Ollama listed a moment ago is not a chat model when asked now
+    const llama = models.find((m) => m.name === 'fake-llama:1b')!;
+    llama.capabilities = ['embedding'];
+    try {
+      const stale = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-llama:1b' });
+      expect(stale.body).toMatchObject({ ok: false, state: 'not a chat model' });
+    } finally { llama.capabilities = ['completion']; }
+    // nothing answering: the address the chat asks, moved to a closed port for this one read
+    const closed = await startFakeOllama({ models: [] });
+    const host = closed.host;
+    await closed.close();
+    // (the address the chat asks is providers.json's ollama_host, which the first choice wrote, else the setup's answer)
+    const providers = join(env.TIMMY_HOME!, 'providers.json');
+    const kept = readFileSync(providers, 'utf8');
+    writeFileSync(providers, JSON.stringify({ ...JSON.parse(kept), ollama_host: host }));
+    try {
+      const dead = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-llama:1b' });
+      expect(dead.status).toBe(409);
+      expect(dead.body).toMatchObject({ ok: false, state: 'unreachable' });
+      expect(dead.body.words).toMatch(/^fake-llama:1b is not chosen: Ollama did not answer at 127\.0\.0\.1:\d+ \(.+\)\. Nothing was changed\.$/);
+    } finally { writeFileSync(providers, kept); }
+    // an OpenRouter model while the route is local: refused, as the Workbench refuses it
+    const or = await post('/api/chat/choose', { source: 'openrouter', model: 'anthropic/claude-haiku-5.5' });
+    expect(or.status).toBe(409);
+    expect(or.body.words).toMatch(/^anthropic\/claude-haiku-5\.5 runs on OpenRouter, and the chat's route is local/);
+    expect(ollama.chats()).toHaveLength(0);
+  });
+
+  it('a key with no chat answer: the shipped default is NO model (Send is off, nothing sent to it); an OpenRouter model chosen on the page is kept and is what /chat asks', async () => {
+    // the setup's local answer gone: a home with a key and no chat answer
+    writeFileSync(join(env.TIMMY_HOME!, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { ollama: ollama.host } }));
+    env.OPENROUTER_API_KEY = 'FAKE-key-never-sent';
+    let v = await view();
+    expect(v.route).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', label: 'no model chosen · Send is off' });
+    expect(v.choice).toMatchObject({ chosen: false, words: 'No model chosen: choose one in Models.' });
+    expect(v.route.words).toMatch(/^No model chosen: choose one in Models\. The settings name anthropic\/claude-opus-4\.7 \(.+\), the shipped default, which nobody chose: nothing is sent to it from this page\.$/);
+    const refused = await chat('hello');
+    expect(refused).toContain('event: error');
+    expect(refused).toContain('No model chosen: choose one in Models.');
+    expect(upstream).toHaveLength(0);
+    // the choice: a free row of the kept catalog
+    const r = await post('/api/chat/choose', { source: 'openrouter', model: 'recursive/flint-v1.0:free' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, state: 'ready', source: 'openrouter', model: 'recursive/flint-v1.0:free', words: 'Next turn: recursive/flint-v1.0:free on OpenRouter (free).' });
+    expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'config.json'), 'utf8')).model).toBe('recursive/flint-v1.0:free');
+    expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'workbench.json'), 'utf8')).openRouterModel).toBe('recursive/flint-v1.0:free');
+    v = await view();
+    expect(v.route).toMatchObject({ kind: 'openrouter', ready: true, model: 'recursive/flint-v1.0:free' });
+    expect(v.route.label).toMatch(/^recursive\/flint-v1\.0:free · OpenRouter · this page's own chat/);
+    // the key is saved, not checked: the chip's dot stays grey (unknown), never green without an answer
+    expect(v.choice).toMatchObject({ chosen: true, source: 'openrouter', model: 'recursive/flint-v1.0:free', check: { state: 'unknown' } });
+    const sent = await chat('hello');
+    expect(sent).toContain('FAKE answer');
+    expect(upstream).toHaveLength(1);
+    expect(JSON.parse(upstream[0].body).model).toBe('recursive/flint-v1.0:free');
+    expect(upstream[0].auth).toBe('Bearer FAKE-key-never-sent');
+    expect(JSON.stringify(v)).not.toContain('FAKE-key-never-sent');
+    // a model not in the kept catalog is not chosen
+    expect((await post('/api/chat/choose', { source: 'openrouter', model: 'nobody/made-this' })).body).toMatchObject({ ok: false, state: 'not listed' });
+    delete env.OPENROUTER_API_KEY;
   });
 });
