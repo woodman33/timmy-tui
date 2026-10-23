@@ -4,7 +4,8 @@
  *   Rerun     `/vox view <record id> [rerun]` (and the live board's View in Rerun) opens a record's inputs and highlights
  *             in Rerun's own viewer, the `rerun` program found by TIMMY_RERUN or on the PATH: `rerun <files…>`. Its
  *             built-in loaders read images, meshes (.stl, .obj, .glb, .gltf), point clouds (.ply) and video (.mp4), and
- *             pick a loader by a file's name; so each file is checked by its bytes and its name before it is passed, and
+ *             it opens its own recordings (.rrd; R6 H143); it picks a loader by a file's name, so each file is checked by
+ *             its bytes and its name before it is passed, and
  *             every file not passed is said with why. Only files whose bytes now are the bytes the record names are
  *             passed. Two meshes or point clouds are shown together (a 3D overlay) only when they share a known frame
  *             and unit (src/vox/frames.ts): an STL or a PLY declares no unit, so a record of two shows the first alone.
@@ -21,6 +22,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { extname, isAbsolute } from 'node:path';
 import type { VoxKind } from './kinds.js';
+import { isRecording } from './recording.js';
 import type { Readiness, ToolEnv, ToolStatus } from './tools.js';
 import { together, type VoxFrame } from './frames.js';
 
@@ -70,7 +72,7 @@ export function rerunTakesBind(o: { command: string; env: NodeJS.ProcessEnv; cwd
   });
 }
 /** What Rerun's built-in loaders read, as the rows and /vox say it. */
-export const RERUN_READS = 'images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4)';
+export const RERUN_READS = 'images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4), its own recordings (.rrd)';
 
 /** The layers VoxVision does not use yet: their install step and what each would add, one line each. */
 export const LATER_LAYERS = [
@@ -115,7 +117,7 @@ export function layerStatuses(t: ToolEnv): ToolStatus[] {
 
 // ── which files Rerun's loaders read ───────────────────────────────────────────
 
-export type RerunLoader = 'image' | 'mesh' | 'point cloud' | 'video';
+export type RerunLoader = 'image' | 'mesh' | 'point cloud' | 'video' | 'recording';
 
 const MP4_BRANDS = new Set(['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'dash', 'mp71']);
 /** What a file's first bytes say, as far as a viewer's loader cares. */
@@ -137,11 +139,12 @@ function bytesSay(head: Buffer): string | undefined {
   if (at('ISO-10303-21;')) return 'step';
   if (at('BLENDER')) return 'blend';
   if (at('<svg') || (at('<?xml') && head.toString('latin1').includes('<svg'))) return 'svg';
+  if (isRecording(head)) return 'rrd';
   return undefined;
 }
 const WORDS: Record<string, string> = {
   png: 'a PNG', jpeg: 'a JPEG', gif: 'a GIF', webp: 'a WebP image', mp4: 'an MP4', quicktime: 'a QuickTime movie', webm: 'a WebM video',
-  ply: 'a PLY', glb: 'a binary glTF (GLB)', step: 'a STEP', blend: 'a .blend', svg: 'an SVG drawing',
+  ply: 'a PLY', glb: 'a binary glTF (GLB)', step: 'a STEP', blend: 'a .blend', svg: 'an SVG drawing', rrd: 'a Rerun recording',
 };
 const IMAGE_EXT: Record<string, string> = { '.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.gif': 'gif', '.webp': 'webp' };
 
@@ -159,6 +162,9 @@ export function rerunLoaderFor(rel: string, head: Buffer): { loader: RerunLoader
   if (ext === '.gltf') return !said && head.toString('latin1').trimStart().startsWith('{') ? { loader: 'mesh', format: 'gltf' } : disagree();
   if (ext === '.ply') return said === 'ply' ? { loader: 'point cloud', format: 'ply' } : disagree();
   if (ext === '.mp4') return said === 'mp4' ? { loader: 'video', format: 'mp4' } : disagree();
+  // R6 (H143): Rerun's own format, which its viewer opens (`rerun <file>.rrd`); its header names the writer's version
+  if (ext === '.rrd') return said === 'rrd' ? { loader: 'recording', format: 'rrd' } : disagree();
+  if (said === 'rrd') return { why: 'a Rerun recording by its bytes, but its name is not .rrd: Rerun picks a loader by the name, so it is not passed' };
   if (said === 'quicktime' || said === 'webm') return { why: `${WORDS[said]} by its bytes: Rerun's video loader reads MP4 only` };
   if (ext === '.step' || ext === '.stp' || said === 'step') return { why: "Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh): /measure reads it with OCP" };
   if (ext === '.blend' || said === 'blend') return { why: "Rerun's viewer has no .blend loader: Blender opens it" };

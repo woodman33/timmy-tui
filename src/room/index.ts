@@ -53,6 +53,7 @@ import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import { nativeHandoff } from './native-handoff.js';
 import { unrealRunOutcome } from '../native/unreal-readback.js';
 import { START_SLACK_MS, THIS_PROCESS, withProcessTable, writerState } from '../ops/process-proof.js';
+import { JOB_CANCELLED, jobStateWords, turnStopStage, turnStoppedWords } from '../contracts/stop-words.js'; // R6 (H140)
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -448,7 +449,8 @@ function jobOf(c: Ctx, id: string | undefined): JobRecord | undefined { return i
 /** Why a running run with neither a Stop nor a hint is not stopped here: it runs only when its job is live, and this REPL did not start it. */
 export const NOT_OURS = 'Another Timmy session started it, so this REPL does not stop it.';
 const liveJob = (j: JobRecord | undefined): boolean => !!j && LIVE.has(j.state) && !j.stale;
-const jobWords = (j: JobRecord): string => (j.stale ? `${j.state}; its process is gone (from an earlier session)` : j.state === 'cancelled' ? 'stopped' : j.state);
+// R6 (H140): a job a cancel ended is "cancelled" (src/contracts/stop-words.ts), never a chat turn's "stopped"
+const jobWords = (j: JobRecord): string => (j.stale ? `${j.state}; its process is gone (from an earlier session)` : jobStateWords(j.state));
 const stopFor = (c: Ctx, j: JobRecord | undefined): RoomRun['stop'] => (j && liveJob(j) && c.mine(j.id) ? { kind: 'job', id: j.id } : undefined);
 
 /**
@@ -493,7 +495,8 @@ function chatRuns(c: Ctx): RoomRun[] {
     const start = ms !== undefined && end ? end - ms : 0;
     const tools = Array.isArray(r.tool_outcomes) ? r.tool_outcomes : [];
     const status = r.status ?? 'ok';
-    const state = status === 'ok' ? 'answered' : status === 'cancelled' ? `cancelled${r.cancelled_at ? ` (${r.cancelled_at.replace(/-/g, ' ')})` : ''}` : String(status);
+    // R6 (H140): a stopped turn in the one table's words (src/contracts/stop-words.ts): who asked, and where its stop came
+    const state = status === 'ok' ? 'answered' : status === 'cancelled' ? `${turnStoppedWords({ surface: from, ...(typeof r.stopped_by === 'string' && r.stopped_by ? { stoppedBy: r.stopped_by } : {}) })}${r.cancelled_at ? `, ${turnStopStage(r.cancelled_at)}` : ''}` : String(status);
     const said = tools.slice(0, 4).map((t) => `${t.name} ${t.outcome}`).join(', ') + (tools.length > 4 ? ` and ${tools.length - 4} more` : '');
     // R4 (H73): its handoffs: each tool it called, how the tool ended and the tool's own receipt (describe_image's, which seals
     // that request's own cost), as its receipt sealed them
@@ -539,7 +542,7 @@ function agentRuns(c: Ctx, flowOfRun: ReadonlyMap<string, string>): RoomRun[] {
     // R4 (H59): a run whose REPL ended first, its record ended by recovery: interrupted, in its record's words (never a result).
     const interrupted = !ended && r.state === 'interrupted';
     const running = !ended && !interrupted && liveJob(job);
-    const state = r.outcome === 'cancelled' ? 'stopped' : r.outcome
+    const state = r.outcome === 'cancelled' ? JOB_CANCELLED : r.outcome // R6 (H140): a code agent's job a cancel ended, as /stop's reply says it
       ?? (interrupted ? `interrupted: ${cleanLine(r.why ?? 'its REPL ended first; no result was written', c.scrub, 240)}`
         : running ? (job!.state === 'queued' ? 'starting' : 'running') : job ? `${jobWords(job)}; no result was written` : 'not finished here: no result was written (its REPL ended first)');
     // Its process found gone by recovery: when it ended is not recorded, so no end time or duration is shown.
@@ -740,7 +743,7 @@ function nativeRuns(c: Ctx, flowOfJob: ReadonlyMap<string, string>): RoomRun[] {
     const stopped = last?.exit?.state === 'cancelled';
     const unreal = n.app === 'unreal' && last?.outcome === 'ok' && !stopped && rec ? unrealRunOutcome(rec.dir, last, rec.result, []) : undefined;
     const differs = last?.outcome === 'ok' && (last as { readback?: { verdict?: unknown } }).readback?.verdict === 'differs';
-    const state = stopped ? `stopped: ${cleanLine(last!.why, c.scrub, 120)}`
+    const state = stopped ? `${JOB_CANCELLED}: ${cleanLine(last!.why, c.scrub, 120)}` // R6 (H140): its job was cancelled; its verdict's own words follow
       : unreal ? cleanLine(unreal.words, c.scrub, 160)
         : differs ? 'ok (judged by its result file), but Timmy\'s own reading of its export differs'
           : last ? (last.outcome === 'ok' ? 'ok (judged by its result file)' : `${last.outcome}: ${cleanLine(last.why, c.scrub, 120)}`)
@@ -887,7 +890,7 @@ function lookRuns(c: Ctx): RoomRun[] {
       kind: 'look', id: job ?? shortReceipt(r), owner: 'Look (OpenCV, on this machine)', harness: str(o?.worker) ? cleanLine(o!.worker, c.scrub, 60) : 'workers/look (version not recorded)',
       ...(model ? { model } : {}), endpoint: asked ? 'remote' : 'local',
       route: asked ? `paid: a request sent to ${model ?? 'the model'}` : 'this machine: Look measures; no model asked',
-      state: status === 'ok' ? (spent ? `observed; ${String(spent.status ?? 'model asked')}` : 'observed') : status === 'cancelled' ? 'stopped' : `failed${str(o?.error) ? `: ${cleanLine(o!.error, c.scrub, 100)}` : ''}`,
+      state: status === 'ok' ? (spent ? `observed; ${String(spent.status ?? 'model asked')}` : 'observed') : status === 'cancelled' ? JOB_CANCELLED : `failed${str(o?.error) ? `: ${cleanLine(o!.error, c.scrub, 100)}` : ''}`,
       tone: status === 'ok' ? 'ok' : status === 'cancelled' ? 'stopped' : 'failed', running: false,
       ...(source ? { step: `observed ${source}` } : {}),
       ...(end ? { endedAt: r.ts } : {}), ...(ms !== undefined ? { elapsed: elapsedWords(ms, false) } : {}),

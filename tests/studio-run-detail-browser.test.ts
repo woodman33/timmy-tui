@@ -22,6 +22,7 @@ import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 import { addOperation, type Operation } from './helpers/canvas-operation.js';
 import { grant } from './helpers/canvas-auth.js';
+import { groupBy } from './helpers/studio-steady.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -87,8 +88,9 @@ describe.skipIf(!browserPath)("Timmy Canvas: an operation's run detail in the si
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot, runDetail: producer });
-    serverB = await startStudioServer(0, { env: { TIMMY_HOME: homeB }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot, runDetail: producer });
+    serverB = await startStudioServer(0, { env: { TIMMY_HOME: homeB, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     baseB = `http://127.0.0.1:${(serverB.address() as AddressInfo).port}`;
     for (const [b, s] of [[base, server], [baseB, serverB]] as const) {
@@ -121,7 +123,8 @@ describe.skipIf(!browserPath)("Timmy Canvas: an operation's run detail in the si
     await page.goto(`${at}/#code=${await grant(Number(new URL(at).port), s.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
-    await page.click('#project-by button[data-by="operation"]');
+    // R10 (H172): the first press after the page's first cards, once the panel stands still (./helpers/studio-steady.ts)
+    await groupBy(page, 'operation');
     await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-rd`, { timeout: 15_000 });
     return { page, origins, errors };
   }

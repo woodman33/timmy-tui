@@ -11,12 +11,15 @@
  *   <canvas folder>/project-token-<port> (mode 0600), so another REPL of the same user and Timmy home can name its project
  *   there, and another user of the machine cannot; a file whose process is gone is not used;
  * - JSON only, at most 4 KB, these keys only: root, name, jobs, receipts, board and (R4 H75) holder: a random id the REPL
- *   names itself with when it takes the actions of Timmy Canvas's drawn cards (src/studio/card-relay.ts).
+ *   names itself with when it takes the actions of Timmy Canvas's drawn cards (src/studio/card-relay.ts); and (R7 H149) follow:
+ *   true when the naming is a REPL's switch (its /project, or its follow of the active project), passed on only while the canvas
+ *   is that REPL's (it holds what is shown, or the canvas followed the active project itself since that REPL last named one).
  *
  * The server reads only what the REPL named: the project's folder, its jobs folder and its receipts store. It never answers
  * with a path it was given: the project's name, its id (a hash of its folder, as receipts name it) and project-relative
  * paths only. R4 (H81): the cards' detail (?detail=1: every block's command, every parameter file's values) only with the
- * server's token or a canvas page's session that counts now (src/studio/card-relay.ts), else 401. R4 (H83): the card list
+ * server's token or a canvas page's session that counts now (src/studio/card-relay.ts), else 401 (R5 H137: to a page's session
+ * paused now, a plain 200 that says why, with nothing of the project: src/studio/session-pause.ts). R4 (H83): the card list
  * (GET /api/project) and the named project's name and id (GET /api/project/active) likewise: they are the project's content;
  * without a credential, /api/project/active says only whether a project is named and whether a page is open. The live
  * board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas links to it and keeps it
@@ -29,6 +32,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type express from 'express';
 import { projectId } from '../project/index.js';
 import { projectCards, type CardSource, type ProjectCards } from './project-cards.js';
+import { pausedRefusal } from './session-pause.js';
 
 export const PROJECT_TOKEN = /^[0-9a-f]{64}$/;
 /** The live board's address as /board live prints it, without its token: nothing after the slash. */
@@ -36,7 +40,12 @@ export const BOARD_ADDRESS = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/$/;
 export const HANDOFF_LIMIT = 4096;
 const NAME_MAX = 120;
 const PATH_MAX = 4096;
-const KEYS = new Set(['root', 'name', 'jobs', 'receipts', 'board', 'holder']);
+const KEYS = new Set(['root', 'name', 'jobs', 'receipts', 'board', 'holder', 'follow']);
+/**
+ * R7 (H149): what a REPL's switch passed on (`follow: true`: its /project, or its follow of the active project) is told when the
+ * canvas is another REPL's: the switch is not passed on, and the canvas keeps what it shows.
+ */
+export const FOLLOW_REFUSED = (shown: string): string => `Not passed on: another Timmy REPL holds the canvas now (it shows ${shown} for it), so this REPL's switch is not shown there. In this REPL: /canvas open names its project to the canvas and opens it.`;
 /** R4 (H75): the id a REPL that takes the drawn cards' actions names itself with (32 hex). */
 export const HOLDER_ID = /^[0-9a-f]{32}$/;
 
@@ -113,6 +122,9 @@ export class ProjectLink {
   private readonly known = new Map<string, NamedProject>();
   /** R4 (H109): the last project a REPL named (its jobs folder and receipts store are this Timmy home's) */
   private lastRepl: NamedProject | null = null;
+  /** R7 (H149): each REPL holder's last naming (what restore gives back), and the holder of each project's last naming by a REPL */
+  private readonly byHolder = new Map<string, NamedProject>();
+  private readonly namer = new Map<string, string | null>();
 
   constructor(token?: string) {
     this.token = token && PROJECT_TOKEN.test(token) ? token : randomBytes(32).toString('hex');
@@ -158,12 +170,20 @@ export class ProjectLink {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return bad(400, 'Send JSON: {"root": "<the project folder>", "name": "<its name>", "jobs": …, "receipts": …, "board": …}.');
     const o = body as Record<string, unknown>;
     const extra = Object.keys(o).filter((k) => !KEYS.has(k));
-    if (extra.length) return bad(400, `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are root, name, jobs, receipts, board and holder.`);
+    if (extra.length) return bad(400, `Unknown field${extra.length > 1 ? 's' : ''}: ${extra.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 40)).join(', ')}. The fields are root, name, jobs, receipts, board, holder and follow.`);
     if (!pathOk(o.root)) return bad(400, 'root must be the project folder, an absolute path.');
     if (typeof o.name !== 'string' || !o.name.trim() || o.name.length > NAME_MAX || /[\u0000-\u001f\u007f]/.test(o.name)) return bad(400, `name must be the project's name: 1 to ${NAME_MAX} characters, no control characters.`);
     for (const k of ['jobs', 'receipts'] as const) if (o[k] !== undefined && o[k] !== null && !pathOk(o[k])) return bad(400, `${k} must be an absolute path, or null.`);
     if (o.board !== undefined && o.board !== null && (typeof o.board !== 'string' || !BOARD_ADDRESS.test(o.board))) return bad(400, 'board must be the live board\'s address as /board live prints it (http://127.0.0.1:<port>/, nothing after it), or null.');
     if (o.holder !== undefined && o.holder !== null && (typeof o.holder !== 'string' || !HOLDER_ID.test(o.holder))) return bad(400, 'holder must be the 32 hex characters the REPL names itself with, or null.');
+    if (o.follow !== undefined && typeof o.follow !== 'boolean') return bad(400, 'follow is true (a REPL\'s switch, passed on only while the canvas is that REPL\'s) or false.');
+    // R7 (H149): a REPL's switch is passed on while the canvas is that REPL's: it holds the project shown, or the canvas followed
+    // the active project itself since that REPL was the last to name one (a follow takes the canvas from no REPL); else refused
+    if (o.follow === true && this.named) {
+      const holder = typeof o.holder === 'string' ? o.holder : null;
+      const claim = (this.named.via ?? 'repl') === 'active' ? this.lastRepl?.holder ?? null : this.named.holder;
+      if (holder === null || claim !== holder) return bad(409, FOLLOW_REFUSED(this.named.name));
+    }
     let dir = false;
     try { dir = statSync(o.root as string).isDirectory(); } catch { dir = false; }
     // The folder is not named back: the answer says only that it is not one.
@@ -179,7 +199,29 @@ export class ProjectLink {
     // R4 (H109): kept, so a board pinned to it keeps reading it; and this Timmy home's jobs folder and store, for a follow
     this.keep(this.named);
     this.lastRepl = this.named;
+    // R7 (H149): what this REPL named last, and who named this project last
+    this.namer.set(this.named.id, this.named.holder);
+    if (this.named.holder) this.byHolder.set(this.named.holder, this.named);
+    while (this.byHolder.size > KNOWN_MAX) this.byHolder.delete(this.byHolder.keys().next().value!);
+    while (this.namer.size > KNOWN_MAX * 4) this.namer.delete(this.namer.keys().next().value!);
     return { ok: true, project: this.named };
+  }
+
+  /**
+   * R7 (H149; R6 defect N1): the canvas followed the active project back to a project a REPL still holds. A REPL whose last naming
+   * was project `id`, that was the last REPL to name it, and that still names it now (`holder` asks for actions for it: src/studio/
+   * card-relay.ts, its standby) is its holder again, by its own naming (its folder, jobs folder, receipts store and board), as
+   * though it had named it now. Only while the canvas shows `id` as followed (`via: 'active'`, no holder); null otherwise.
+   */
+  restore(holder: string, id: string, now = new Date()): NamedProject | null {
+    const shown = this.named;
+    if (!shown || shown.id !== id || (shown.via ?? 'repl') !== 'active' || shown.holder !== null) return null;
+    const last = this.byHolder.get(holder);
+    if (!last || last.id !== id || this.namer.get(id) !== holder) return null;
+    this.named = { ...last, since: now.toISOString(), via: 'repl' };
+    this.keep(this.named);
+    this.lastRepl = this.named;
+    return this.named;
   }
 }
 
@@ -229,6 +271,11 @@ export interface ProjectRoutes {
   reach?: (authorization: unknown, id: string) => { ok: true } | { ok: false; why: string; words: string };
   /** R4 (H109): the active project of this Timmy home, as its file names it now (src/studio/active-follow.ts); absent: not said */
   active?: () => { name: string; id: string; at: string | null } | null;
+  /**
+   * R7 (H149, the shape agreed with H151): a switch this canvas is about to make (src/studio/active-follow.ts ActiveFollower.pending:
+   * the active-project file names another project than the one shown, and no REPL has named it yet), or null; absent: not said
+   */
+  pending?: () => { id: string; name: string; since: string } | null;
 }
 
 /** R4 (H109): what a page is told of a project this server never named (or named too long ago to keep). */
@@ -284,6 +331,11 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     if (!o.active) return undefined;
     try { const a = o.active(); return a ? { name: a.name, id: a.id, at: a.at } : null; } catch { return null; }
   };
+  // R7 (H149, with H151): the switch pending now, as { project: { id, name }, since } or null; absent from a server that does not follow
+  const pendingNow = (): { project: { id: string; name: string }; since: string } | null | undefined => {
+    if (!o.pending) return undefined;
+    try { const s = o.pending(); return s ? { project: { id: s.id, name: s.name }, since: s.since } : null; } catch { return null; }
+  };
   app.get('/api/project/active', (req, res) => {
     const p = o.link.project;
     res.set('Cache-Control', 'no-store');
@@ -294,8 +346,8 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     }
     res.json({
       ok: true, app: 'timmy-canvas', project: p ? { name: p.name, id: p.id } : null, named: Boolean(p), since: p?.since ?? null, board: Boolean(p?.board), pageConnected: o.pageOpen(),
-      // R4 (H109): how it came to be shown, and the active project of this Timmy home
-      via: p ? p.via ?? 'repl' : null, active: activeNow(),
+      // R4 (H109): how it came to be shown, and the active project of this Timmy home; R7 (H149): a switch pending now
+      via: p ? p.via ?? 'repl' : null, active: activeNow(), pending: pendingNow(),
     });
   });
   app.get('/api/project', (req, res) => {
@@ -309,10 +361,13 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     const asked = typeof req.query.project === 'string' ? req.query.project : null;
     if (asked !== null && !/^[0-9a-f]{16}$/.test(asked)) { res.status(400).json({ ok: false, error: 'project is a project\'s id: 16 hex characters.' }); return; }
     const pinned = asked !== null && asked !== (named?.id ?? null);
+    // R5 (H137): a paused session's refusal is a plain 200 with nothing of the project (src/studio/session-pause.ts): the panel
+    // reads the cards every few seconds by itself, and a REPL's /canvas open may have taken the canvas since its last reading
+    const refusing = (why: string): express.Response => (pausedRefusal(why) ? res.status(200) : res.status(401).set('WWW-Authenticate', 'Bearer'));
     if (pinned) {
       const r = o.link.authorized(req.headers.authorization) ? { ok: true as const } : o.reach?.(req.headers.authorization, asked) ?? { ok: false as const, why: 'none', words: CARDS_REFUSED };
       if (!r.ok) {
-        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: r.why === 'none' ? (detail ? DETAIL_REFUSED : CARDS_REFUSED) : r.words, session: r.why, pinned: true });
+        refusing(r.why).json({ ok: false, error: r.why === 'none' ? (detail ? DETAIL_REFUSED : CARDS_REFUSED) : r.words, session: r.why, pinned: true });
         return;
       }
     }
@@ -325,7 +380,7 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
       const s = credited(req, p);
       if (!s.ok) {
         const refused = detail ? DETAIL_REFUSED : CARDS_REFUSED;
-        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
+        refusing(s.why).json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
         return;
       }
     }

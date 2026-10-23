@@ -1,0 +1,13 @@
+{
+  "model": "clef-omni",
+  "answers": {
+    "human_review": {
+      "type": "noul",
+      "noul": 0.12
+    }
+  },
+  "usage": {
+    "input_tokens": 812,
+    "output_tokens": 0
+  }
+}

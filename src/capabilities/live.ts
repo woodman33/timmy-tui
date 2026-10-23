@@ -1,12 +1,16 @@
 /**
  * The capability checks against this machine (round R1). Each is free and quick: PATH lookups, file
  * checks, and local requests with short timeouts; the one network call is OpenRouter's key endpoint,
- * which costs nothing. Nothing here writes a file or a receipt, starts a server, or prints a key.
+ * which costs nothing. Nothing here writes a receipt, starts a server, or prints a key. R6 (H140): the
+ * one file written is the record of what the check found (src/capabilities/tools-record.ts:
+ * <TIMMY_HOME>/state/tools.json, 0600, no secret), so every process counts the same items waiting on you.
  */
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { getLocalOllamaBaseUrl, probeOllama } from '../agent/providers.js';
+import { ollamaRoute } from './ollama-route.js'; // R6 (H140)
+import { writeToolsCheck } from './tools-record.js'; // R6 (H140)
 import { resolveChatRoute } from '../agent/chat-route.js'; // R4 (H103): the REPL row's chat route
 import { studioBaseUrl } from '../studio/config.js';
 import { studioHealth } from '../studio/health.js';
@@ -94,6 +98,13 @@ export interface LiveOptions {
 
 export function liveDeps(o: LiveOptions): ProbeDeps {
   const env = o.env ?? process.env;
+  // R6 (H140; the R5 interaction review, defect 2): Ollama is asked at the address the chat asks (the chat setup's record when
+  // the chat is set to the local model, else OLLAMA_HOST, else the default), read from the same homes as the chat's route below
+  // and this process's Ollama variables where the environment given names none (as the probe read them before)
+  const ollama = ollamaRoute({
+    ...env, TIMMY_HOME: env.TIMMY_HOME || process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: env.TIMMY_SETTINGS_DIR || process.env.TIMMY_SETTINGS_DIR,
+    OLLAMA_HOST: env.OLLAMA_HOST ?? process.env.OLLAMA_HOST, OLLAMA_BASE_URL: env.OLLAMA_BASE_URL ?? process.env.OLLAMA_BASE_URL,
+  });
   let chain: Array<Record<string, unknown>> | null = null;
   const receipts = (): Array<Record<string, unknown>> => (chain ??= readChain('runs', o.storeDir) as unknown as Array<Record<string, unknown>>);
   let verified: ReturnType<typeof verifyChain> | null = null;
@@ -117,7 +128,10 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     canvasBuilt: () => existsSync(join(studioRoot(), 'dist', 'canvas.js')),
     studio: () => studioHealth(studioBaseUrl(env), 800),
     studioBase: studioBaseUrl(env),
-    ollama: () => probeOllama(1500),
+    ollama: () => probeOllama(1500, ollama.origin),
+    ollamaFrom: ollama.from,
+    // R6 (H140): what this check found, kept in the Timmy home the chat's route is read from (this process's where none is named)
+    record: (rows) => { writeToolsCheck(rows, { ...env, TIMMY_HOME: env.TIMMY_HOME || process.env.TIMMY_HOME }); },
     openrouter: () => (o.key ? openRouterProbe(o.key()) : Promise.resolve<OpenRouterAnswer>('not-asked')),
     // R4 (H97): the key's sources as this environment's own homes have them: its TIMMY_HOME and HOME, this process's where it
     // names none (as the overview resolves Timmy's home: src/overview/sources.ts), never ~/timmy behind a TIMMY_HOME
@@ -153,7 +167,7 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     recipeMark: () => recipeMark(project()),
     // Its qualification records live in Timmy's repository (docs/orders), which the npm package does not carry.
     qualificationRoot: () => packageRoot(import.meta.url),
-    ...((): { ollamaBase?: string } => { try { return { ollamaBase: getLocalOllamaBaseUrl() }; } catch { return {}; } })(),
+    ...((): { ollamaBase?: string } => { try { return { ollamaBase: getLocalOllamaBaseUrl(ollama.origin) }; } catch { return {}; } })(),
     // Round R3 (/agent): an agent's row is exercised by a sealed, completed run of that agent alone.
     agentRuns: () => agentExercisedIndex(verify().ok ? receipts() : []),
     // Round R4 (H52): OpenHands: docker info and docker image inspect (read-only: nothing is built, pulled or started).

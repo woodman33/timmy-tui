@@ -1,0 +1,26 @@
+{
+  "label": "CAPTURED: the real outputs of the installed rerun-cli 0.38.1 (its version line below), byte for byte, on the files below, each file given on the program's standard input as Timmy gives it (src/vox/rrd-cli.ts). Replayed by the FAKE rerun (tests/fixtures/fake-rerun.mjs); never edited by hand.",
+  "captured": "2026-10-20",
+  "by": "R9 H159",
+  "version_line": "rerun-cli 0.38.1 (base lance map_view nasm native_viewer oss_server perf_telemetry re_server release_full release_no_web_viewer web_viewer) [rustc 1.96.0 (ac68faa20 2026-05-25), LLVM 22.1.2] x86_64-unknown-linux-gnu prepare-release-0.38.1 b08c599, built 2026-09-16T15:21:04.99782142Z",
+  "files": {
+    "probe.rrd": { "sha256": "eb14505df657c8b7395243ec7e329d6124e61aad616fdaf48bd41db0dc8d75f4", "bytes": 11816, "made": "by the installed rerun-sdk 0.38.1 (Python) running mk-probe.py: 4 entities (/__properties, /notes, /world/box, /world/points), the timelines frame (0 to 7), t (0 s to 1 s) and log_time" },
+    "probe-cut.rrd": { "sha256": "ee267d011af07ba3f2c506e3bfcba4cfd5c41905104fae368533be02e1daae3c", "bytes": 6000, "made": "probe.rrd's first 6000 bytes: a recording cut short, with no footer" },
+    "context.rrd": { "sha256": "8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f", "bytes": 78010, "made": "the repository's own studio/ctx-c3w8/checkpoints/C5/exports/context.rrd (read, never changed; not copied here): a recording store and a blueprint store. Only rrd verify and rrd stats were captured" },
+    "edge.rrd": { "sha256": "807df4c8afee08787853fc0d1bcfd87e1bfa4be41cf8366aff24e631d1eff8e2", "bytes": 13281, "made": "by the installed rerun-sdk 0.38.1 (Python) running mk-edge.py: a negative frame and one past 2^53, a negative duration and one of an hour, a timestamp at the epoch, a text over two lines holding the table's own bars, an entity path with a space" }
+  },
+  "calls": [
+    { "command": "rerun --version", "input": null, "exit": 0, "stdout": "captured/version.stdout", "stderr": null },
+    { "command": "rerun rrd verify", "input": "probe.rrd", "exit": 0, "stdout": null, "stderr": "captured/verify.stderr" },
+    { "command": "rerun rrd stats", "input": "probe.rrd", "exit": 0, "stdout": "captured/stats.stdout", "stderr": "captured/stats.stderr" },
+    { "command": "rerun rrd print -vv", "input": "probe.rrd", "exit": 0, "stdout": "captured/print-vv.stdout", "stderr": null },
+    { "command": "rerun rrd print -vvv", "input": "probe.rrd", "exit": 0, "stdout": "captured/print-vvv.stdout", "stderr": null },
+    { "command": "rerun rrd verify", "input": "probe-cut.rrd", "exit": 1, "stdout": null, "stderr": "captured/verify-cut.stderr" },
+    { "command": "rerun rrd verify", "input": "edge.rrd", "exit": 0, "stdout": null, "stderr": "captured/edge-verify.stderr" },
+    { "command": "rerun rrd stats", "input": "edge.rrd", "exit": 0, "stdout": "captured/edge-stats.stdout", "stderr": "captured/edge-stats.stderr" },
+    { "command": "rerun rrd print -vv", "input": "edge.rrd", "exit": 0, "stdout": "captured/edge-print-vv.stdout", "stderr": null },
+    { "command": "rerun rrd print -vvv", "input": "edge.rrd", "exit": 0, "stdout": "captured/edge-print-vvv.stdout", "stderr": null },
+    { "command": "rerun rrd verify", "input": "context.rrd", "exit": 0, "stdout": null, "stderr": "captured/ctx-verify.stderr" },
+    { "command": "rerun rrd stats", "input": "context.rrd", "exit": 0, "stdout": "captured/ctx-stats.stdout", "stderr": "captured/ctx-stats.stderr" }
+  ]
+}

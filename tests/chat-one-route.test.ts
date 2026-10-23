@@ -77,9 +77,9 @@ async function surfaces() {
 
 const EXPECTED: Record<Setup, { kind: 'none' | 'local' | 'openrouter'; ready: boolean; repl: (m: string) => string; monitor: (m: string) => string; page: string }> = {
   'no key': { kind: 'none', ready: false, repl: () => 'chat: no model key · /setup', monitor: () => 'chat: no model key · /setup', page: 'no chat route here · Send is off' },
-  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · no tools here' },
-  'OpenRouter key': { kind: 'openrouter', ready: true, repl: (m) => `chat: ${m} · OpenRouter`, monitor: (m) => `chat: ${m.split('/').pop()} · OpenRouter`, page: 'qwen/qwen3.8-max · OpenRouter · each message spends credits' },
-  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · no tools here' },
+  'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
+  'OpenRouter key': { kind: 'openrouter', ready: true, repl: (m) => `chat: ${m} · OpenRouter`, monitor: (m) => `chat: ${m.split('/').pop()} · OpenRouter`, page: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' },
+  both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
 };
 
 describe('one route for every surface (R4 H113, part 4)', () => {

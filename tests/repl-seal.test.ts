@@ -135,7 +135,7 @@ describe('a cancelled turn in the REPL', () => {
       await sleep(500);
       tmux('send-keys', '-t', 'c', 'C-c');
       if (stuck) { await waitFor(/Press Ctrl\+C again to quit/); tmux('send-keys', '-t', 'c', 'C-c'); }
-      const screen = await waitFor(stuck ? /EXIT=\d+/ : /cancelled\n[\s\S]*Enter to send/);
+      const screen = await waitFor(stuck ? /EXIT=\d+/ : /stopped\n[\s\S]*Enter to send/);
       // TIMMY_STORE is the receipts folder itself; the bus shares runs.jsonl, so receipts are the lines with prev_hash.
       const p = join(dir, 'store', 'runs.jsonl');
       const chain = existsSync(p) ? readFileSync(p, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => typeof r.prev_hash === 'string') : [];
@@ -146,7 +146,7 @@ describe('a cancelled turn in the REPL', () => {
   };
   it('Ctrl+C while the tool runs: the receipt has the tool\'s outcome unknown, and says nothing was rolled back', async () => {
     const { screen, chain } = await run(false);
-    expect(screen).toContain('Cancelled. shell was running: outcome unknown. Nothing was rolled back.');
+    expect(screen).toContain('Stopped by you. shell was running: outcome unknown. Nothing was rolled back.');
     expect(screen).toMatch(/✓ RECEIPT [0-9a-f]{8} signed and verified/);
     expect(chain.map((r) => [r.status, r.cancelled_at, r.rollback, r.tool_outcomes])).toEqual([['cancelled', 'during-tool', 'none', [{ name: 'shell', outcome: 'unknown' }]]]);
   }, 30_000);

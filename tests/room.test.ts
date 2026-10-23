@@ -155,7 +155,8 @@ describe('the Control Room: grouping and ordering', () => {
     const agents = view.groups.find((g) => g.kind === 'agent')!;
     expect(agents.running.map((r) => r.id)).toEqual(['a0000a004']);
     expect(agents.recent.map((r) => r.id)).toEqual(['a0000a003', 'a0000a002', 'a0000a001']);
-    expect(view.groups.find((g) => g.kind === 'chat')!.recent.map((r) => r.state)).toEqual(['cancelled (during tool)', 'answered']);
+    // R6 (H140): a stopped turn in the one table's words: who asked, and where its stop came
+    expect(view.groups.find((g) => g.kind === 'chat')!.recent.map((r) => r.state)).toEqual(['stopped (asked from the REPL), while a tool ran', 'answered']);
     expect(view.groups.find((g) => g.kind === 'flow')!.recent.map((r) => r.id)).toEqual(['f0000a001']);
     expect(view.groups.find((g) => g.kind === 'native')!.recent.map((r) => r.owner)).toEqual(['Blender (Python, headless)']);
     expect(view.groups.find((g) => g.kind === 'mcp')!.recent).toHaveLength(1);
@@ -299,7 +300,7 @@ describe('the Control Room: costs, as recorded', () => {
     expect(all.find((r) => r.id === 'a0000a001')!.cost.kind).toBe('free');
     expect(all.find((r) => r.id === 'a0000a004')!.cost.words).toBe('free: its recorded route is a local endpoint; its cost is recorded when it ends');
     expect(all.find((r) => r.id === 'f0000a001')!.cost.kind).toBe('free');
-    expect(all.find((r) => r.kind === 'chat' && r.state.startsWith('cancelled'))!.cost).toMatchObject({ kind: 'unknown', atLeast: 0.001 });
+    expect(all.find((r) => r.kind === 'chat' && r.state.startsWith('stopped'))!.cost).toMatchObject({ kind: 'unknown', atLeast: 0.001 });
     expect(all.find((r) => r.id === 'j0c0001')!.cost).toEqual({ kind: 'known', usd: 0.0021, words: '$0.0021, as the response reported it, sealed on its receipt' });
     expect(all.find((r) => r.id === 'j0c0009')!.cost.kind).toBe('unknown');
     for (const r of all.filter((x) => x.kind === 'native' || x.kind === 'job')) expect(r.cost.kind).toBe('none');

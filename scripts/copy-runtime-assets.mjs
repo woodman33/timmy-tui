@@ -28,7 +28,24 @@ export const RUNTIME_ASSETS = Object.freeze([
   // markdown.js and chat.js, which H95's page replaced, are no longer shipped.
   'src/companion/client/companion.css',
   'src/companion/client/companion.js',
+  // R6 lead: the tab panels' page code (the registry and each panel's own file; src/companion/panels.ts serves their data)
+  'src/companion/client/panels.js',
+  'src/companion/client/panel-studio.js',
+  'src/companion/client/panel-vox.js',
+  'src/companion/client/panel-tools.js',
+  // R6 (H144): the Workflows tab's run detail (its source, changes, outputs and receipts)
+  'src/companion/client/panel-run.js',
+  // R7 (H153): tab 6's meshes and the view you can turn
+  'src/companion/client/panel-create.js',
+  // R8 (H155): tab 7's panes, read-only
+  'src/companion/client/panel-control.js',
+  // R10 CHAT (H171): the shell's left menu and the Chat composition
+  'src/companion/client/chat-shell.js',
+  'src/companion/client/chat-shell.css',
   'src/utils/chatpage.html',
+  // R5: the OpenRouter catalog snapshot (dated), so an installed Timmy can say what a chat model costs before any
+  // `timmy models --refresh` (src/models/registry.ts reads the Timmy home's fetched catalog first).
+  'src/models/cache.json',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));
 

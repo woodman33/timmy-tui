@@ -1,0 +1,632 @@
+/**
+ * R7 (H153): the companion's tab 6 (src/companion/client/panel-create.js over src/companion/panels/create.ts) in a real
+ * headless Chromium against the real companion server on 127.0.0.1 and its token, reading what the page shows: the demo mesh
+ * drawn on the canvas (it holds drawn pixels, every one a neutral grey: the mesh is content); a drag turns it (other pixels,
+ * "turned by hand"); F, T and S show the front, top and side views, each with its name on screen, R the first view again (the
+ * same pixels), + and the wheel zoom; the measurements on screen are those of Timmy's own STL reader over the whole file; a
+ * mesh above the cap draws an even pick and says "showing N of M"; the recordings with their header facts and what stays
+ * unknown; another project's mesh refused from the page; the panel under the tab's Unfinished place; text of 11 px or more,
+ * the B10 palette, and the panel at 800 × 600.
+ *
+ * R8 (H154): OBJ and PLY meshes beside STL, each listed with its kind, drawn in the same view from the triangles its own reader
+ * reads (the same cube as OBJ and as PLY draws the same pixels), measured by its own reader with its faces and what it ignored;
+ * a point cloud (a PLY with no faces) says why it is not drawn.
+ *
+ * FAKE, labelled: the projects (written by the test), a large flat mesh (scans/strip.stl, a strip of triangles written by
+ * the test), and a cube as OBJ and PLY and a point cloud (tray/…, tests/helpers/mesh-fakes.ts). Real: the server, its token, Timmy's STL reader, the demo mesh as its script generated it
+ * (examples/visual-tools/demo-tray.stl), the Rerun header reader over the repository's own recording
+ * (studio/ctx-c3w8/…/context.rrd, read, never changed), the page's code. Captures are written only where H153_CAPS names a
+ * folder. Skipped, saying so, where no Chromium or Chrome is found.
+ */
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { chromium, type Browser, type Page } from 'playwright';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { DOCTRINE_15, num, readStlFile, topologyWords, volumeWords } from '../src/native/stl-readback.js';
+import { projectId } from '../src/project/index.js';
+import { appendReceipt } from '../src/utils/receipts.js';
+import { VIEW_MAX_TRIANGLES, VIEW_WORDS } from '../src/vox/meshes.js';
+import { forgetRrdReadings, readRrdWithCli, rrdReadingsIdle, type RrdReading } from '../src/vox/rrd-cli.js';
+import { DEMO_HEADER, DEMO_MESH } from '../scripts/demo-mesh.mjs';
+import { cubeObj, cubePly, pointCloudPly } from './helpers/mesh-fakes.js';
+import { cubeStl } from './helpers/vox-fakes.js';
+
+const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+  .find((p): p is string => Boolean(p) && existsSync(p!));
+if (!browserPath) console.warn('companion-create-panel-browser: no Chromium or Chrome found, so the real-browser checks are skipped here');
+
+const RRD = resolve('studio/ctx-c3w8/checkpoints/C5/exports/context.rrd');
+const CAPS = process.env.H153_CAPS ?? '';
+const CAPS154 = process.env.H154_CAPS ?? '';
+/** FAKE: a wavy sheet of `cells` × `cells` squares, two triangles each, written by the test (more triangles than the cap). */
+const CELLS = 142;
+const STRIP = CELLS * CELLS * 2;
+function stripStl(cells: number): Buffer {
+  const n = cells * cells * 2;
+  const b = Buffer.alloc(84 + 50 * n);
+  b.writeUInt32LE(n, 80);
+  const at = (x: number, y: number): number[] => [x, y, 6 * Math.sin(x / 9) * Math.cos(y / 11)];
+  let i = 0;
+  for (let y = 0; y < cells; y += 1) {
+    for (let x = 0; x < cells; x += 1) {
+      for (const c of [[at(x, y), at(x + 1, y), at(x + 1, y + 1)], [at(x, y), at(x + 1, y + 1), at(x, y + 1)]]) {
+        c.forEach((p, k) => p.forEach((v, j) => b.writeFloatLE(v, 84 + i * 50 + 12 + k * 12 + j * 4)));
+        i += 1;
+      }
+    }
+  }
+  return b;
+}
+
+describe.skipIf(!browserPath)('the companion\'s tab 6: the project\'s meshes in a view you can turn (R7 H153)', () => {
+  const kept = { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let root = '';
+  let other = '';
+  let browser: Browser;
+  let companion: CompanionServer;
+
+  beforeAll(async () => {
+    box = mkdtempSync(join(tmpdir(), 'r7-create-browser-'));
+    root = join(box, 'home', 'projects', 'FAKE-tray');
+    other = join(box, 'home', 'projects', 'FAKE-other');
+    const put = (at: string, rel: string, body: Buffer): void => { mkdirSync(dirname(join(at, rel)), { recursive: true }); writeFileSync(join(at, rel), body); };
+    mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
+    mkdirSync(join(root, 'refs'), { recursive: true });
+    copyFileSync(resolve(DEMO_MESH), join(root, 'refs', 'demo-tray.stl'));
+    put(root, 'scans/strip.stl', stripStl(CELLS));
+    put(root, 'tray/cube.obj', Buffer.from(cubeObj(10)));
+    put(root, 'tray/cube.ply', cubePly(10));
+    put(root, 'tray/cloud.ply', pointCloudPly(3));
+    mkdirSync(join(root, 'rec'), { recursive: true });
+    copyFileSync(RRD, join(root, 'rec', 'context.rrd'));
+    put(other, 'refs/theirs.stl', cubeStl(5));
+    process.env.TIMMY_HOME = join(box, 'home');
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { workspace: { env: { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: join(box, 'settings') }, shareMs: 0 } });
+    browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+    if (CAPS) mkdirSync(CAPS, { recursive: true });
+    if (CAPS154) mkdirSync(CAPS154, { recursive: true });
+  }, 120_000);
+  afterAll(async () => {
+    await browser?.close();
+    await companion?.shutdown();
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+
+  async function open(viewport = { width: 1376, height: 768 }): Promise<{ page: Page; errors: string[]; bad: string[] }> {
+    const page = await browser.newPage({ viewport });
+    const errors: string[] = [];
+    const bad: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+    await page.goto(companion.url);
+    await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+    await page.keyboard.press('6');
+    await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
+    return { page, errors, bad };
+  }
+  const text = (page: Page, sel: string): Promise<string> => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+  const settled = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  /** The canvas's pixels: a hash of them all, how many differ from the stage's ground, and whether every one is a neutral grey. */
+  const pixels = (page: Page) => page.$eval('[data-create="canvas"]', (c) => {
+    const cv = c as HTMLCanvasElement;
+    const d = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data;
+    let hash = 2166136261;
+    let drawn = 0;
+    let neutral = true;
+    for (let i = 0; i < d.length; i += 4) {
+      hash = Math.imul(hash ^ (d[i] | (d[i + 1] << 8) | (d[i + 2] << 16)), 16777619) >>> 0;
+      if (d[i] !== 7 || d[i + 1] !== 7 || d[i + 2] !== 7) drawn += 1;
+      if (d[i] !== d[i + 1] || d[i + 1] !== d[i + 2]) neutral = false;
+    }
+    return { hash, drawn, neutral, w: cv.width, h: cv.height, triangles: Number(cv.dataset.drawn ?? 0) };
+  });
+  const viewName = (page: Page): Promise<string> => text(page, '[data-create="view-name"]');
+  const shot = async (page: Page, name: string): Promise<void> => { if (CAPS) await page.screenshot({ path: join(CAPS, `${name}.png`) }); };
+
+  it('draws the demo mesh; a drag turns it; F, T and S show the front, top and side with their names; R the first view; the measurements are the file\'s', async () => {
+    const { page, errors, bad } = await open();
+    try {
+      // the list: the project's meshes, the demo tray first chosen (the first measured, by path)
+      expect(await page.$$eval('.create-mesh', (bs) => bs.map((b) => [(b as HTMLElement).dataset.createMesh, b.getAttribute('aria-current')]))).toEqual([
+        ['refs/demo-tray.stl', 'true'], ['scans/strip.stl', 'false'], ['tray/cloud.ply', 'false'], ['tray/cube.obj', 'false'], ['tray/cube.ply', 'false']]);
+      expect(await text(page, '[data-create="meshes-title"]')).toBe('Meshes in this project (5)');
+      await page.waitForFunction(() => Number((document.querySelector('[data-create="canvas"]') as HTMLElement | null)?.dataset.drawn ?? 0) > 0, null, { timeout: 15_000 });
+      await settled(page);
+      const first = await pixels(page);
+      expect(first.drawn).toBeGreaterThan(2000);
+      expect(first.neutral).toBe(true); // the mesh is content: neutral greys, never amber or green
+      expect(await viewName(page)).toBe('isometric · seen from +x, −y and +z at equal angles');
+      expect(await text(page, '[data-create="count"]')).toBe('all 28 triangles');
+      expect(await text(page, '[data-create="label"]')).toBe(VIEW_WORDS);
+      expect(await text(page, '[data-create="view-title"]')).toBe('The view you can turn · refs/demo-tray.stl');
+      await shot(page, 'h153-01-tab6-demo-tray-isometric');
+
+      // the measurements on screen are Timmy's own STL reader's, of the whole file
+      const r = readStlFile(join(root, 'refs', 'demo-tray.stl'), 'refs/demo-tray.stl');
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const m = r.readback;
+      const shown = Object.fromEntries(await page.$$eval('[data-measure]', (ds) => ds.map((d) => [(d as HTMLElement).dataset.measure, (d.textContent ?? '').replace(/\s+/g, ' ').trim()])));
+      expect(shown).toMatchObject({
+        triangles: String(m.triangles), corners: String(m.corners),
+        'box-min': m.bbox!.min.map(num).join(', '), 'box-max': m.bbox!.max.map(num).join(', '), 'box-size': m.bbox!.size.map(num).join(' × '),
+        area: num(m.area), volume: volumeWords(m), topology: topologyWords(m), units: m.units, declared: DEMO_HEADER,
+        format: `binary STL · 1.4 KB · sha256 ${m.sha256.slice(0, 12)}…`,
+      });
+      expect(shown.triangles).toBe('28');
+      expect(shown['box-size']).toBe('80 × 50 × 20');
+      expect(shown.volume).toBe('21392 (enclosed; normals outward)');
+      expect(await text(page, '[data-create="doctrine"]')).toBe(DOCTRINE_15);
+      expect(await text(page, '[data-create="reader"]')).toBe("Timmy's own STL reader (timmy-stl-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units");
+
+      // a drag turns it
+      const c = (await page.$('[data-create="canvas"]'))!;
+      const b = (await c.boundingBox())!;
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width / 2 + 120, b.y + b.height / 2 + 40, { steps: 6 });
+      await page.mouse.up();
+      await settled(page);
+      const dragged = await pixels(page);
+      expect(dragged.hash).not.toBe(first.hash);
+      expect(dragged.drawn).toBeGreaterThan(2000);
+      expect(await viewName(page)).toBe('turned by hand: -15° around z from the front, 55° above it');
+      await shot(page, 'h153-02-tab6-dragged');
+
+      // the keys (the canvas has the focus after the drag): F, T, S, each its own view and name
+      const seen = new Set([first.hash, dragged.hash]);
+      for (const [key, name, file] of [
+        ['f', 'front · seen from −y: x to the right, z up', 'h153-03-tab6-front'],
+        ['t', 'top · seen from +z: x to the right, y up', 'h153-04-tab6-top'],
+        ['s', 'side · seen from +x: y to the right, z up', 'h153-05-tab6-side'],
+      ] as const) {
+        await page.keyboard.press(key);
+        await settled(page);
+        expect(await viewName(page)).toBe(name);
+        const p = await pixels(page);
+        expect(p.drawn, key).toBeGreaterThan(1000);
+        expect(seen.has(p.hash), `${key} draws a view of its own`).toBe(false);
+        seen.add(p.hash);
+        expect(await page.$eval(`[data-create-key="${key}"]`, (k) => k.getAttribute('aria-pressed'))).toBe('true');
+        await shot(page, file);
+      }
+      // R: the first view again, the same pixels
+      await page.keyboard.press('r');
+      await settled(page);
+      expect(await viewName(page)).toBe('isometric · seen from +x, −y and +z at equal angles');
+      expect((await pixels(page)).hash).toBe(first.hash);
+      // + zooms in, and so does the wheel; the arrow keys turn it
+      await page.keyboard.press('+');
+      await settled(page);
+      expect(await viewName(page)).toBe('isometric · seen from +x, −y and +z at equal angles · zoom 1.25×');
+      const zoomed = await pixels(page);
+      expect(zoomed.drawn).toBeGreaterThan(first.drawn);
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await page.mouse.wheel(0, -200);
+      await settled(page);
+      expect(await viewName(page)).toMatch(/· zoom 1\.6[0-9]?×$/);
+      await page.keyboard.press('ArrowLeft');
+      await settled(page);
+      expect(await viewName(page)).toMatch(/^turned by hand: 60° around z from the front, 35° above it · zoom /);
+      // the buttons do what the keys do
+      await page.click('[data-create-key="t"]');
+      await settled(page);
+      expect(await viewName(page)).toMatch(/^top · seen from \+z: x to the right, y up/);
+
+      // the page's tab 6: the frame's Unfinished words are drawn above the panel (H152's box, prepended to the tab's page):
+      // nothing of the panel is above them, and the panel's view stays in sight under them. Where this branch draws no box,
+      // a FAKE stand-in of its shape is prepended the same way (labelled FAKE), so the panel's side of it is still checked.
+      const order = await page.evaluate(() => {
+        const page6 = document.getElementById('ws-create')!;
+        const host = page6.querySelector('[data-panel-host="create"]')!;
+        let box = page6.querySelector(':scope > .unfinished, :scope > [data-unfinished]');
+        const real = Boolean(box);
+        if (!box) {
+          box = document.createElement('section');
+          box.className = 'unfinished';
+          box.setAttribute('data-unfinished', 'create');
+          for (const t of ['◌ Unfinished · 3D & Motion (FAKE stand-in: the test drew it)', 'Works now: FAKE words the frame would give', 'Not yet: FAKE words the frame would give']) { const p = document.createElement('p'); p.textContent = t; box.append(p); }
+          page6.prepend(box);
+        }
+        const kids = [...page6.children];
+        const at = (e: Element) => e.getBoundingClientRect();
+        const view = page6.querySelector('[data-create="stage"]')!;
+        return { real, before: kids.slice(0, kids.indexOf(host)).map((e) => e.className), above: at(box).bottom <= at(host).top + 1, viewInSight: at(view).bottom <= at(page6).bottom + 1 && at(view).height > 150 };
+      });
+      await settled(page);
+      await shot(page, order.real ? 'h153-09-tab6-under-the-unfinished-box' : 'h153-09-tab6-under-a-FAKE-stand-in-unfinished-box');
+      expect(order.before).toEqual(['unfinished']);
+      expect(order.above).toBe(true);
+      expect(order.viewInSight).toBe(true);
+      if (!order.real) console.warn('companion-create-panel-browser: no Unfinished box is drawn on this branch (H152 draws it), so a FAKE stand-in of its shape was checked');
+
+      // another project's mesh, asked from this page with its token, is refused; the list holds only this project's
+      const token = /t=([0-9a-f]{64})/.exec(new URL(companion.url).hash)?.[1] ?? '';
+      const refused = await page.evaluate(async ({ t, id }) => {
+        const r = await fetch(`/api/panel/create/mesh?path=${encodeURIComponent('refs/theirs.stl')}&project=${id}`, { headers: { Authorization: `Bearer ${t}` } });
+        return [r.status, (await r.json()).error];
+      }, { t: token, id: projectId(root) });
+      expect(refused).toEqual([404, 'Refused: refs/theirs.stl is not a mesh of this project (tab 6 lists its STL, OBJ and PLY files and its tessellations), so it is not served.']);
+      expect(await page.$$eval('.create-mesh', (bs) => bs.map((x) => (x as HTMLElement).dataset.createMesh))).not.toContain('refs/theirs.stl');
+
+      // every text of the tab at 11 px or more; the palette: no blue, purple or cyan, no green (nothing live or sealed here)
+      const look = await page.evaluate(() => {
+        const parse = (v: string): number[] | null => { const mm = /^rgba?\(([^)]+)\)$/.exec(v.trim()); if (!mm) return null; const p = mm[1].split(/[\s,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; };
+        const hsl = ([rr, gg, bb]: number[]) => { const [R, G, B] = [rr / 255, gg / 255, bb / 255]; const max = Math.max(R, G, B); const min = Math.min(R, G, B); const l = (max + min) / 2; const d = max - min; if (d === 0) return { h: 0, s: 0, l }; const h = max === R ? 60 * (((G - B) / d) % 6) : max === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); return { h: (h + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
+        const out = { small: [] as string[], hue: [] as string[], green: [] as string[], amber: [] as string[] };
+        for (const el of document.querySelectorAll('#ws-create [data-panel-host="create"], #ws-create [data-panel-host="create"] *')) {
+          if (el.closest('[hidden]')) continue;
+          const cs = getComputedStyle(el);
+          if (cs.display === 'none' || el.getBoundingClientRect().width === 0) continue;
+          if ([...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) && parseFloat(cs.fontSize) < 11) out.small.push(`${el.tagName}.${el.className} ${cs.fontSize}`);
+          for (const prop of ['color', 'background-color', 'border-top-color', 'border-left-color']) {
+            const c = parse(cs.getPropertyValue(prop)); if (!c || c[3] === 0) continue;
+            const { h, s, l } = hsl(c); if (s < 0.2 || l < 0.08 || l > 0.92) continue;
+            if (h >= 150 && h <= 320) out.hue.push(`${el.tagName} ${prop}`);
+            else if (h >= 75 && h < 150) out.green.push(`${el.tagName}.${el.className} ${prop}`);
+            else if (c[0] === 255 && c[1] === 176 && c[2] === 0) out.amber.push(`${el.tagName}.${el.className}`);
+          }
+        }
+        return out;
+      });
+      expect(look.small).toEqual([]);
+      expect(look.hue).toEqual([]);
+      expect(look.green).toEqual([]);
+      // amber only where the selection is (the chosen mesh, the pressed view's key)
+      for (const a of look.amber) expect(a).toMatch(/create-mesh|create-key/);
+      expect(bad.filter((x) => !x.startsWith('404 /api/panel/create/mesh'))).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('a mesh above the cap draws an even pick and says "showing N of M"; the recordings say what Timmy read and what it does not know', async () => {
+    const { page, errors, bad } = await open();
+    try {
+      await page.click('.create-mesh[data-create-mesh="scans/strip.stl"]');
+      await page.waitForFunction(() => /^showing /.test(document.querySelector('[data-create="count"]')?.textContent ?? ''), null, { timeout: 30_000 });
+      expect(await text(page, '[data-create="count"]')).toBe(`showing ${VIEW_MAX_TRIANGLES} of ${STRIP} triangles: an even pick through the file's order (triangle ⌊k × ${STRIP} / ${VIEW_MAX_TRIANGLES}⌋ for k = 0 … ${VIEW_MAX_TRIANGLES - 1}); the measurements are of all ${STRIP}`);
+      expect(await text(page, '[data-measure="triangles"]')).toBe(String(STRIP));
+      await page.waitForFunction(() => Number((document.querySelector('[data-create="canvas"]') as HTMLElement | null)?.dataset.drawn ?? 0) > 0, null, { timeout: 30_000 });
+      await settled(page);
+      const p = await pixels(page);
+      expect(p.triangles).toBeGreaterThan(0);
+      expect(p.triangles).toBeLessThanOrEqual(VIEW_MAX_TRIANGLES);
+      expect(p.drawn).toBeGreaterThan(100);
+      expect(p.neutral).toBe(true);
+      await shot(page, 'h153-06-tab6-above-the-cap');
+
+      // the recordings: the header's facts; entities, frames and time range unknown, with why; Rerun's viewer as it is here
+      const rec = '[data-create-recording="rec/context.rrd"]';
+      expect(await text(page, `${rec} [data-rec="header"]`)).toMatch(/^written by Rerun \d+\.\d+\.\d+ · compression (?:off|LZ4) · (?:Protobuf|MsgPack) · \d+(?:\.\d)? (?:B|KB|MB)$/);
+      expect(await text(page, `${rec} [data-rec="messages"]`)).toMatch(/^\d+ store info · \d+ data chunks · \d+ blueprint/);
+      expect(await text(page, `${rec} [data-rec="unknown"]`)).toBe("inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it");
+      // R9 (H159): the Rerun CLI's reading beside the header: here no rerun at all, so each fact is unknown, with why
+      expect(await text(page, `${rec} [data-rec="cli"]`)).toBe('not read by the Rerun CLI: rerun is not on the PATH and TIMMY_RERUN is not set');
+      expect(await text(page, `${rec} [data-rec="entities"]`)).toBe('unknown: rerun is not on the PATH and TIMMY_RERUN is not set');
+      expect(await page.$$eval(`${rec} dt`, (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
+        'header (read by Timmy from the file)', 'messages', 'stores', 'read by the Rerun CLI', 'entities and timelines', 'written by', "not decoded by Timmy's own reader"]);
+      expect(await text(page, `${rec} [data-rec="origin"]`)).toBe('not recorded: no receipt of this project names this file');
+      expect(await page.$eval('[data-create-viewer]', (v) => v.getAttribute('data-create-viewer'))).toBe('needs setup');
+      expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: needs setup");
+      await page.$eval('[data-create-box="recordings"]', (e) => e.scrollIntoView());
+      await shot(page, 'h153-07-tab6-recordings');
+      expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('OBJ and PLY: each listed with its kind, drawn in the same view, measured by its own reader with its faces and what it ignored; a point cloud says why it is not drawn (R8 H154)', async () => {
+    const { page, errors, bad } = await open();
+    try {
+      const sub = (p: string): Promise<string> => text(page, `.create-mesh[data-create-mesh="${p}"] .create-mesh-sub`);
+      expect(await sub('tray/cube.obj')).toBe(`OBJ · 12 triangles · ${Buffer.byteLength(cubeObj(10))} B`);
+      expect(await sub('tray/cube.ply')).toBe(`PLY · 12 triangles · ${cubePly(10).length} B`);
+      expect(await sub('tray/cloud.ply')).toBe(`PLY · not measured · ${pointCloudPly(3).length} B`);
+      expect(await sub('refs/demo-tray.stl')).toBe('STL · 28 triangles · 1.4 KB');
+      const hashes: number[] = [];
+      for (const [p, file, words] of [
+        ['tray/cube.obj', 'h154-01-tab6-cube-obj', {
+          format: 'Wavefront OBJ (text)', faces: '6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all',
+          ignored: 'ignored: 1 comment, 1 o lines', declared: 'FAKE: a cube written by a test', units: "the file's own: OBJ records no unit",
+          precision: "each coordinate read as a 32-bit float (Math.fround), as Timmy's STL reader reads an ASCII STL, so one mesh written as STL and as OBJ measures the same",
+          reader: "Timmy's own OBJ reader (timmy-obj-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units",
+        }],
+        ['tray/cube.ply', 'h154-02-tab6-cube-ply', {
+          format: 'PLY (binary little-endian)', faces: '6 faces: 6 with four or more corners, each split as a fan from its first corner (exact for a flat, convex polygon); 12 triangles in all',
+          ignored: 'ignored: 1 comment line', declared: 'FAKE: a cube written by a test', units: "the file's own: PLY records no unit",
+          precision: 'x, y and z stored as 32-bit floats, read as they are', stored: 'x, y and z as float; corners as list uchar int vertex_indices',
+          reader: "Timmy's own PLY reader (timmy-ply-readback/1), from the whole file: a deterministic computation on its bytes, in the file's own units",
+        }],
+      ] as const) {
+        await page.click(`.create-mesh[data-create-mesh="${p}"]`);
+        await page.waitForFunction((want) => document.querySelector('[data-create="view-title"]')?.textContent === `The view you can turn · ${want}` && document.querySelector('[data-create="count"]')?.textContent === 'all 12 triangles', p, { timeout: 15_000 });
+        await settled(page);
+        await settled(page);
+        const px = await pixels(page);
+        expect(px.triangles, p).toBeGreaterThan(0);
+        expect(px.drawn, p).toBeGreaterThan(1000);
+        expect(px.neutral, p).toBe(true);
+        hashes.push(px.hash);
+        expect(await viewName(page)).toBe('isometric · seen from +x, −y and +z at equal angles');
+        const shown = Object.fromEntries(await page.$$eval('[data-measure]', (ds) => ds.map((d) => [(d as HTMLElement).dataset.measure, (d.textContent ?? '').replace(/\s+/g, ' ').trim()])));
+        const { format, reader, ...rows } = words;
+        expect(shown, p).toMatchObject({
+          triangles: '12', corners: '8', 'box-size': '10 × 10 × 10', area: '600', volume: '1000 (enclosed; normals outward)',
+          topology: 'edge-manifold: every edge shared by exactly two triangles, consistently oriented', ...rows,
+        });
+        expect(shown.format, p).toMatch(new RegExp(`^${format.replace(/[()]/g, '\\$&')} · \\d+ B · sha256 [0-9a-f]{12}…$`));
+        expect(await text(page, '[data-create="reader"]'), p).toBe(reader);
+        expect(await text(page, '[data-create="doctrine"]')).toBe(DOCTRINE_15);
+        if (CAPS154) await page.screenshot({ path: join(CAPS154, `${file}.png`) });
+      }
+      // the same cube read from the OBJ and from the PLY: the same triangles, so the same pixels
+      expect(hashes[0]).toBe(hashes[1]);
+      // a point cloud: listed, not measured, not drawn, with why
+      await page.click('.create-mesh[data-create-mesh="tray/cloud.ply"]');
+      await page.waitForFunction(() => /^Not drawn: tray\/cloud\.ply/.test(document.querySelector('[data-create="note"]')?.textContent ?? ''), null, { timeout: 15_000 });
+      expect(await text(page, '[data-create="note"]')).toBe('Not drawn: tray/cloud.ply was not measured (not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)).');
+      expect(await text(page, '[data-measure="why"]')).toBe('not measured: no face element in its header, so no triangles to measure (a point cloud of 3 vertices; its data is not read)');
+      expect(await page.$eval('[data-create="canvas"]', (c) => (c as HTMLElement).hidden)).toBe(true);
+      if (CAPS154) await page.screenshot({ path: join(CAPS154, 'h154-03-tab6-point-cloud.png') });
+      expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('a mesh still being measured says so, and the page asks again until the list holds its measurements', async () => {
+    const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    // FAKE: the page's first list answer is the server's own with the demo tray marked as not measured yet (as a reading
+    // whose time budget ran out leaves a large mesh); every later answer is the server's, untouched, and held until the test
+    // has read the pending state (R9 H159, the lead's race: it cannot be drawn over before it is read). Every list request is
+    // matched, the first too, which the page may ask before it knows its project (so without ?project=)
+    let asked = 0;
+    let release!: () => void;
+    const seen = new Promise<void>((r) => { release = r; });
+    await page.route((url) => url.pathname === '/api/panel/create/meshes', async (route) => {
+      asked += 1;
+      if (asked > 1) { await seen; await route.continue(); return; }
+      const res = await route.fetch();
+      const body = await res.json() as { meshes: Array<Record<string, unknown>>; pending: number };
+      body.meshes = body.meshes.map((m) => (m.path === 'refs/demo-tray.stl' ? { path: m.path, kind: 'stl', bytes: m.bytes, origin: { provenance: 'not recorded', words: 'not read yet' }, pending: true, why: "being measured: Timmy's own STL reader reads it next (the list is read again in a moment)" } : m));
+      body.pending = 1;
+      await route.fulfill({ response: res, json: body });
+    });
+    try {
+      await page.goto(companion.url);
+      await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+      await page.keyboard.press('6');
+      const sub = '.create-mesh[data-create-mesh="refs/demo-tray.stl"] .create-mesh-sub';
+      await page.waitForSelector(sub, { timeout: 15_000 });
+      expect(await text(page, sub)).toBe('STL · being measured… · 1.4 KB');
+      release();
+      await page.waitForFunction((sel) => /28 triangles/.test(document.querySelector(sel)?.textContent ?? ''), sub, { timeout: 15_000 });
+      expect(await text(page, sub)).toBe('STL · 28 triangles · 1.4 KB');
+      expect(asked).toBeGreaterThanOrEqual(2);
+      expect(errors).toEqual([]);
+    } finally { release(); await page.close(); }
+  });
+
+  it('at 800 × 600 the panel fits: nothing scrolls sideways, the view is drawn, every text 11 px or more', async () => {
+    const { page, errors } = await open({ width: 800, height: 600 });
+    try {
+      await page.waitForFunction(() => Number((document.querySelector('[data-create="canvas"]') as HTMLElement | null)?.dataset.drawn ?? 0) > 0, null, { timeout: 15_000 });
+      await settled(page);
+      const m = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: window.innerWidth, tab: document.getElementById('ws-create')!.scrollWidth, tabInner: document.getElementById('ws-create')!.clientWidth }));
+      expect(Math.max(m.page, m.body)).toBeLessThanOrEqual(m.inner);
+      expect(m.tab).toBeLessThanOrEqual(m.tabInner);
+      const p = await pixels(page);
+      expect(p.w).toBeGreaterThan(200);
+      expect(p.h).toBeGreaterThan(150);
+      expect(p.drawn).toBeGreaterThan(1000);
+      const small = await page.evaluate(() => [...document.querySelectorAll('[data-panel-host="create"] *')].filter((el) => !el.closest('[hidden]') && el.getBoundingClientRect().width > 0
+        && [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) && parseFloat(getComputedStyle(el).fontSize) < 11).map((el) => el.className));
+      expect(small).toEqual([]);
+      await page.$eval('[data-create-box="view"]', (e) => e.scrollIntoView());
+      await settled(page);
+      await shot(page, 'h153-08-tab6-800x600');
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+});
+
+// R9 (H159): a recording read through the Rerun CLI in the background, as the page shows it, and a mesh the page's address
+// names. FAKE, labelled: `rerun` is tests/fixtures/fake-rerun.mjs (a TEST DOUBLE replaying outputs CAPTURED from the real
+// rerun-cli 0.38.1 on tests/fixtures/rrd-cli/probe.rrd and probe-cut.rrd), first on the companion's PATH, each rrd command
+// held 400 ms (FAKE_RERUN_DELAY_MS) so the page is seen while it reads; the project, its two cubes and a file named .rrd that
+// is not a recording are written by the test. Real: the server, its token, the page, src/vox/rrd-cli.ts. Captures are written
+// only where H159_CAPS names a folder.
+const CAPS159 = process.env.H159_CAPS ?? '';
+describe.skipIf(!browserPath)('the companion\'s tab 6: recordings read through the Rerun CLI, and a mesh the address names (R9 H159)', () => {
+  const kept = { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_REPO: process.env.TIMMY_REPO };
+  let box = '';
+  let browser: Browser;
+  let companion: CompanionServer;
+
+  beforeAll(async () => {
+    forgetRrdReadings();
+    box = mkdtempSync(join(tmpdir(), 'r9-create-rrd-browser-'));
+    const root = join(box, 'home', 'projects', 'FAKE-rec');
+    const put = (rel: string, body: Buffer | string): void => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), body); };
+    put('rec/probe.rrd', readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd')));
+    put('rec/cut.rrd', readFileSync(resolve('tests/fixtures/rrd-cli/probe-cut.rrd')));
+    put('rec/not-one.rrd', 'FAKE: a file named .rrd that is not a recording\n');
+    put('refs/a.stl', cubeStl(2));
+    put('refs/b.stl', cubeStl(4));
+    const bin = join(box, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'rerun'), `#!/bin/sh\nexec "${process.execPath}" "${resolve('tests/fixtures/fake-rerun.mjs')}" "$@"\n`);
+    chmodSync(join(bin, 'rerun'), 0o755);
+    process.env.TIMMY_HOME = join(box, 'home');
+    process.env.TIMMY_REPO = root;
+    companion = await startCompanionServer(0, { workspace: { env: { TIMMY_HOME: process.env.TIMMY_HOME, TIMMY_SETTINGS_DIR: join(box, 'settings'), PATH: `${bin}:/usr/bin:/bin`, FAKE_RERUN_DELAY_MS: '400' }, shareMs: 0 } });
+    browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+    if (CAPS159) mkdirSync(CAPS159, { recursive: true });
+  }, 120_000);
+  afterAll(async () => {
+    await browser?.close();
+    await companion?.shutdown();
+    await rrdReadingsIdle();
+    forgetRrdReadings();
+    for (const [k, v] of Object.entries(kept)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    if (box) rmSync(box, { recursive: true, force: true });
+  });
+
+  /** The page on tab 6, its address carrying `query` before the token (as the Workbench's c gives it: src/workbench/servers.ts withQuery). */
+  async function openAt(query: string, viewport = { width: 1376, height: 1600 }, before?: (page: Page) => Promise<void>): Promise<{ page: Page; errors: string[]; bad: string[] }> {
+    const page = await browser.newPage({ viewport });
+    if (before) await before(page);
+    const errors: string[] = [];
+    const bad: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+    const at = companion.url.indexOf('#');
+    const [base, hash] = at < 0 ? [companion.url, ''] : [companion.url.slice(0, at), companion.url.slice(at)];
+    await page.goto(`${base}${base.includes('?') ? '&' : '?'}${query}${hash}`);
+    await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
+    await page.waitForSelector('[data-panel-host="create"] .create-mesh', { timeout: 15_000 });
+    return { page, errors, bad };
+  }
+  const text = (page: Page, sel: string): Promise<string> => page.$eval(sel, (e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+  /** A capture of the recordings box with `row` in view (the box scrolls inside), and the box's whole text, row by row. */
+  const shot = async (page: Page, name: string, row: string): Promise<void> => {
+    if (!CAPS159) return;
+    await page.$eval(row, (e) => e.scrollIntoView({ block: 'start' }));
+    await (await page.$('[data-create-box="recordings"]'))!.screenshot({ path: join(CAPS159, `${name}.png`) });
+    const lines = await page.$$eval('[data-create-box="recordings"] .box-title, [data-create-box="recordings"] .create-rec-path, [data-create-box="recordings"] .create-note, [data-create-box="recordings"] dt, [data-create-box="recordings"] dd, [data-create-box="recordings"] .create-viewer-state',
+      (es) => es.map((e) => `${e.tagName === 'DT' ? '  ' : e.tagName === 'DD' ? '      ' : ''}${(e.textContent ?? '').replace(/\s+/g, ' ').trim()}`));
+    writeFileSync(join(CAPS159, `${name}.txt`), `${lines.join('\n')}\n`);
+  };
+
+  it('a recording says "being read", then its entities and time ranges with who read them; each unknown says why', async () => {
+    // FAKE, labelled: a receipt on the per-test chain saying a job of this project wrote rec/probe.rrd with these bytes
+    const probeBytes = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
+    const sealed = appendReceipt('runs', {
+      kind: 'run', subject: 'FAKE: python mk-probe.py', policy: 'human-gated', status: 'ok', project: 'FAKE-rec', project_id: projectId(join(box, 'home', 'projects', 'FAKE-rec')),
+      job: { id: 'jFAKE01', kind: 'shell', label: 'FAKE mk-probe.py', state: 'done' },
+      outputs: [{ path: 'rec/probe.rrd', sha256: createHash('sha256').update(probeBytes).digest('hex'), bytes: probeBytes.length }],
+    } as Parameters<typeof appendReceipt>[1]);
+    const short = sealed.hash.replace(/^sha256[:_]/, '').slice(0, 8);
+    const { page, errors, bad } = await openAt('tab=create');
+    try {
+      const probe = '[data-create-recording="rec/probe.rrd"]';
+      await page.waitForSelector(`${probe} [data-rec="cli"]`, { timeout: 15_000 });
+      expect(await text(page, `${probe} [data-rec="cli"]`)).toBe('being read by the Rerun CLI, in the background');
+      expect(await text(page, `${probe} [data-rec="entities"]`)).toBe('being read by the Rerun CLI, in the background');
+      await shot(page, 'h159-01-tab6-being-read', probe);
+      // the page asks again while a recording is being read, and draws the reading once it is done
+      await page.waitForFunction((sel) => /^read by rerun-cli/.test(document.querySelector(sel)?.textContent ?? ''), `${probe} [data-rec="cli"]`, { timeout: 30_000 });
+      const rows = await page.$$eval(`${probe} dt, ${probe} dd`, (es) => es.map((e) => `${e.tagName === 'DT' ? '# ' : ''}${(e.textContent ?? '').replace(/\s+/g, ' ').trim()}`));
+      expect(rows).toEqual([
+        '# header (read by Timmy from the file)', 'written by Rerun 0.38.1 · compression LZ4 · Protobuf · 11.5 KB',
+        '# messages', '2 store info · 4 data chunks · 0 blueprint · ends with its end marker and a footer',
+        '# stores', 'recording · application timmy-r9-probe · recording probe-1',
+        '# read by the Rerun CLI', 'read by rerun-cli 0.38.1: rrd stats and rrd print',
+        "# Rerun's own check", 'rrd verify: 1 file verified without error.',
+        '# entities (4)', '/__properties · /notes · /world/box · /world/points',
+        '# static (logged on no timeline)', '/__properties · /notes',
+        '# timelines (3)', 'frame · sequence · 0 to 7',
+        'log_time · timestamp · 2026-10-20T12:53:49.704175155 to 2026-10-20T12:53:49.706428498 (2.253343 ms)',
+        't · duration · 0 s to 1 s',
+        '# written by', `written by job jFAKE01 (FAKE mk-probe.py) · receipt ${short} sealed these bytes`,
+        "# not decoded by Timmy's own reader", "inside the recording's data chunks (compressed Arrow), which Timmy does not decode; Rerun's viewer shows it",
+      ]);
+      // a recording cut short: Rerun's own check failed, with its words, and nothing more was read
+      const cut = '[data-create-recording="rec/cut.rrd"]';
+      expect(await text(page, `${cut} [data-rec="cli"]`)).toBe('rerun-cli 0.38.1 could not verify it (rrd verify failed), so nothing more was read');
+      expect(await text(page, `${cut} [data-rec="verify"]`)).toBe('✕ failed: rrd verify ended with exit 1: stdin: Missing RRD footer / no RRD manifests · Error: Verification failed with 1 errors (the recording was given on its standard input)');
+      expect(await text(page, `${cut} [data-rec="entities"]`)).toBe("unknown: not read: Rerun's own check of the file failed (rrd verify), so its stats and print were not run");
+      // a file named .rrd that is not a recording: never given to the CLI
+      const notOne = '[data-create-recording="rec/not-one.rrd"]';
+      expect(await text(page, `${notOne} .create-note`)).toMatch(/^\d+ B · not read: its first bytes are not a Rerun recording's \(RRF2\)$/);
+      expect(await text(page, `${notOne} [data-rec="cli"]`)).toBe("not given to the Rerun CLI: Timmy's own header reader says its first bytes are not a Rerun recording's (RRF2)");
+      expect(await text(page, '.create-viewer-state')).toBe("Rerun's viewer: found (installed here, not run)");
+      await shot(page, 'h159-02-tab6-read', probe);
+      expect(bad).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('every other state the reader gives is drawn with its why: a version not checked, a timeout, kinds or ranges not read, the edge sample', async () => {
+    // FAKE, labelled: the list's recordings are replaced (page.route) by rows whose readings are the real outputs of
+    // src/vox/rrd-cli.ts readRrdWithCli over the FAKE rerun in its other modes, and over the edge sample; the page draws them
+    const bin = join(box, 'bin');
+    const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}:/usr/bin:/bin`, ...extra });
+    const probeBytes = readFileSync(resolve('tests/fixtures/rrd-cli/probe.rrd'));
+    const readings: Record<string, RrdReading> = {
+      'rec/a-version.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'version=0.37.1' }) }),
+      // R10 lead: the time limit applies to every call, and the FAKE `rerun` is a Node program that took over 0.4 s just to
+      // start on a loaded 2-CPU machine (seen beside six busy loops: rerun --version timed out, so verify was never run and
+      // no verify row was drawn): 3 s for each call, far under the 30 s the FAKE's stats sleeps, so only stats times out, as
+      // this case means
+      'rec/b-slow.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'sleep:stats' }), timeoutMs: 3000 }),
+      'rec/c-kinds.rrd': await readRrdWithCli(probeBytes, { env: env({ FAKE_RERUN_MODE: 'garbage:print-vv' }) }),
+      'rec/d-ranges.rrd': await readRrdWithCli(probeBytes, { env: env(), dataMax: 1024 }),
+      'rec/e-edge.rrd': await readRrdWithCli(readFileSync(resolve('tests/fixtures/rrd-cli/edge.rrd')), { env: env() }),
+      // the repository's own recording, a recording store and a blueprint store: the FAKE holds its verify and stats only
+      'rec/f-stores.rrd': await readRrdWithCli(readFileSync(RRD), { env: env() }),
+    };
+    // every list answer, the page's first too (asked before the page knows its project, so without ?project=)
+    const { page, errors } = await openAt('tab=create', undefined, (p) => p.route((url) => url.pathname === '/api/panel/create/meshes', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json() as { recordings: Array<{ path: string }>; recordingsPending: number };
+      const row = body.recordings.find((r) => r.path === 'rec/probe.rrd')!;
+      body.recordings = Object.entries(readings).map(([path, cli]) => ({ ...row, path, cli }));
+      body.recordingsPending = 0;
+      await route.fulfill({ response: res, json: body });
+    }));
+    try {
+      const at = (rel: string, sel: string): Promise<string> => text(page, `[data-create-recording="${rel}"] ${sel}`);
+      await page.waitForSelector('[data-create-recording="rec/e-edge.rrd"] [data-rec="cli"]', { timeout: 15_000 });
+      const unchecked = 'rerun-cli 0.37.1 is installed here, and Timmy reads only the output of rerun-cli 0.38.1 (the version its reading was checked against), so it ran nothing more';
+      expect(await at('rec/a-version.rrd', '[data-rec="cli"]')).toBe(`not read by the Rerun CLI: ${unchecked}`);
+      expect(await at('rec/a-version.rrd', '[data-rec="entities"]')).toBe(`unknown: ${unchecked}`);
+      expect(await at('rec/b-slow.rrd', '[data-rec="verify"]')).toBe('rrd verify: 1 file verified without error.');
+      expect(await at('rec/b-slow.rrd', '[data-rec="entities"]')).toBe('unknown: rrd stats gave no answer in 3 s, so it was stopped (its process group was killed)');
+      const vv = "unknown: rrd print -vv's output does not parse as rerun-cli 0.38.1's: it printed 0 chunks, and rrd stats counted 4";
+      expect(await at('rec/c-kinds.rrd', '[data-rec="entities"]')).toBe('/__properties · /notes · /world/box · /world/points');
+      expect(await at('rec/c-kinds.rrd', '[data-rec="static"]')).toBe(vv);
+      expect(await at('rec/c-kinds.rrd', '[data-rec-timeline="frame"]')).toBe(`frame · ${vv}`);
+      expect(await at('rec/d-ranges.rrd', '[data-rec-timeline="t"]')).toBe('t · duration · range unknown: not read: rrd print -vvv prints the data itself, and is run here only on a recording of at most 1.0 KB (this one is 11.5 KB)');
+      expect(await at('rec/e-edge.rrd', '[data-rec="entities"]')).toBe('/__properties · /a/b · /space\\ name/é · /text');
+      // one store in it: its timelines are its recording's (with a blueprint store too, the label says they are counted across stores)
+      expect(await page.$$eval('[data-create-recording="rec/e-edge.rrd"] dt', (ds) => ds.map((d) => (d.textContent ?? '').trim()).filter((t) => t.startsWith('timelines')))).toEqual(['timelines (4)']);
+      expect(await page.$$eval('[data-create-recording="rec/e-edge.rrd"] [data-rec-timeline]', (ds) => ds.map((d) => (d.textContent ?? '').trim()))).toEqual([
+        'frame · sequence · -5 to 9007199254740993',
+        'log_time · timestamp · 2026-10-20T13:10:10.483927785 to 2026-10-20T13:10:10.487049994 (3.122209 ms)',
+        't · duration · -1.25 s to 3725.000000001 s',
+        'wall · timestamp · 1970-01-01T00:00:00 to 2026-10-20T12:53:45.500 (1792500825.5 s)',
+      ]);
+      // two stores in one file: rrd stats counts their entities and timelines together, and the page says so
+      const stores = '[data-create-recording="rec/f-stores.rrd"]';
+      expect(await at('rec/f-stores.rrd', '[data-rec="cli"]')).toBe('read by rerun-cli 0.38.1: rrd stats');
+      expect(await at('rec/f-stores.rrd', '[data-rec="stores-cli"]')).toBe('recording timmy-context-evidence (7) · blueprint timmy-context-evidence (6)');
+      expect(await page.$$eval(`${stores} dt`, (ds) => ds.map((d) => (d.textContent ?? '').trim()).filter((t) => /^(entities|timelines|counted)/.test(t)))).toEqual(['entities (13)', 'counted together, across', "timelines (3, across the file's stores)"]);
+      const noCapture = 'unknown: rrd print -vv ended with exit 3: FAKE rerun (tests/fixtures/fake-rerun.mjs): no capture of `rerun rrd print -vv` for these bytes (sha256 8304232f8a69)';
+      expect(await at('rec/f-stores.rrd', '[data-rec-timeline="blueprint"]')).toBe(`blueprint · ${noCapture}`);
+      await shot(page, 'h159-03-tab6-other-states', '[data-create-recording="rec/a-version.rrd"]');
+      expect(errors).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  it('the address names a mesh (mesh=<its path as lowercase hex of its UTF-8 bytes>): it is selected on the first list; else the first measured one', async () => {
+    const hex = (p: string): string => Buffer.from(p, 'utf8').toString('hex');
+    const selected = (page: Page): Promise<string[]> => page.$$eval('.create-mesh[aria-current="true"]', (bs) => bs.map((b) => (b as HTMLElement).dataset.createMesh ?? ''));
+    for (const [query, want] of [[`tab=create&mesh=${hex('refs/b.stl')}`, 'refs/b.stl'], ['tab=create', 'refs/a.stl'], [`tab=create&mesh=${hex('refs/none.stl')}`, 'refs/a.stl'], ['tab=create&mesh=zz', 'refs/a.stl']] as const) {
+      const { page, errors } = await openAt(query);
+      try {
+        await page.waitForFunction((w) => document.querySelector('[data-create="view-title"]')?.textContent === `The view you can turn · ${w}`, want, { timeout: 15_000 });
+        expect(await selected(page), query).toEqual([want]);
+        expect(await text(page, '[data-create="measure-title"]'), query).toBe(`Measured from the file · ${want}`);
+        expect(errors).toEqual([]);
+      } finally { await page.close(); }
+    }
+  });
+});

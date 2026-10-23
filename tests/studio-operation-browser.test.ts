@@ -20,6 +20,7 @@ import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 import { addOperation, writeVox, type Operation } from './helpers/canvas-operation.js';
 import { bearer, grant } from './helpers/canvas-auth.js';
+import { groupBy } from './helpers/studio-steady.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -63,7 +64,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const named = await fetch(`${base}/api/project/active`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` },
@@ -142,8 +144,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       expect(await text(page, `#project-groups li.pcard[data-card="flow:${o.flowId}"] .pcard-op`)).toBe(`operation ${o.op}`);
       expect(await text(page, '#project-groups li.pcard[data-card="workflow:BUILD.md"] .pcard-op')).toBe('no operation: not run yet');
       expect(await text(page, `#project-groups li.pcard[data-card="flow:${p.flow}"] .pcard-op`)).toBe('no operation: its flow record names none');
-      // By operation
-      await page.click('#project-by button[data-by="operation"]');
+      // By operation (R10 H172: pressed once the side panel stands still, ./helpers/studio-steady.ts; each By operation below too)
+      await groupBy(page, 'operation');
       const group = `#project-groups section.pop[data-op="${o.op}"]`;
       await page.waitForSelector(group);
       expect(await page.getAttribute('#project-by button[data-by="operation"]', 'aria-pressed')).toBe('true');
@@ -171,7 +173,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     try {
       const { page, origins, errors } = await open(context);
-      await page.click('#project-by button[data-by="operation"]');
+      await groupBy(page, 'operation');
       await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-place`);
       // R4 (H109; r25 D9): a person's own selection before the press: a rectangle of theirs (made with the editor's own call,
       // as tldraw's rectangle tool makes one), selected
@@ -207,7 +209,11 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
       expect(pairs(chain)).toEqual([`${first[0].id} → ${first[1].id}`, `${first[1].id} → ${first[2].id}`, `${first[2].id} → ${first[3].id}`].sort());
       // each card names the operation on its face, as Timmy read it from its record now
       await page.waitForFunction((ids) => ids.every((id) => document.querySelector(`[data-timmy-card="${id}"] .tc-op`)), first.map((d) => d.id));
-      for (const d of first) expect(await text(page, `[data-timmy-card="${d.id}"] .tc-op`)).toBe(`operation ${o.op}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      for (const d of first) {
+        expect(await text(page, `[data-timmy-card="${d.id}"] .tc-op`)).toMatch(/^its operation /);
+        expect(await page.getAttribute(`[data-timmy-card="${d.id}"] .tc-op`, 'title')).toBe(`operation ${o.op}`);
+      }
       // the row is in view with the cards' heights: each card's last line (Details) is under nothing, neither the panel nor
       // tldraw's toolbar
       for (const d of first) {
@@ -306,7 +312,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: operations in a real browser', () =
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     try {
       const { page, origins, errors } = await open(context);
-      await page.click('#project-by button[data-by="operation"]');
+      await groupBy(page, 'operation');
       await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-place`);
       // a new blank board (New board → Open, as a person opens one): the operation is placed on it for the first time
       await page.click('#board-open');

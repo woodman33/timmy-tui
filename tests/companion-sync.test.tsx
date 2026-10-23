@@ -179,7 +179,8 @@ describe('companion synchronization lifecycle', () => {
     expect(snapshots.length).toBeGreaterThan(0);
     expect(snapshots.every((messages: Message[]) => messages[0]?.content === 'Synthetic local question')).toBe(true);
     expect(createAgent).toHaveBeenCalledTimes(1);
-    expect(server.agent.send).toHaveBeenCalledExactlyOnceWith('Synthetic first request');
+    // R5 lead: every turn carries a stop signal (src/agent/chat-turn.ts projectTurn), so any surface can stop it
+    expect(server.agent.send).toHaveBeenCalledExactlyOnceWith('Synthetic first request', { signal: expect.any(AbortSignal) });
     expect(server.sendUpdate).toHaveBeenCalledWith('agent:delta', { delta: 'reply', fullText: 'Synthetic first reply' });
     view.unmount();
     await tick();

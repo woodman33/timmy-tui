@@ -34,9 +34,12 @@ export interface WorkbenchSettings {
   reducedMotion: boolean;
   /** per project id, when rememberLayout is on */
   layouts: Record<string, SavedLayout>;
+  /** R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model chosen in Models (the settings' model is the next turn's
+   *  then, even where it is the shipped default: src/workbench/state.ts unchosenOpenRouterModel); absent: none chosen here */
+  openRouterModel?: string;
 }
 
-export type SettingKey = Exclude<keyof WorkbenchSettings, 'layouts'>;
+export type SettingKey = Exclude<keyof WorkbenchSettings, 'layouts' | 'openRouterModel'>;
 
 export const SETTING_LABELS: ReadonlyArray<{ key: SettingKey; label: string; about: string }> = [
   { key: 'openCompanionAtStart', label: 'Open Companion at startup', about: 'when timmy workbench starts at a terminal; Show acts now and does not change this' },
@@ -94,6 +97,7 @@ export function readSettings(env: Env = process.env): SettingsRead {
         openCompanionAtStart: bool(v.openCompanionAtStart, d.openCompanionAtStart), openStudioAtStart: bool(v.openStudioAtStart, d.openStudioAtStart),
         followActiveProject: bool(v.followActiveProject, d.followActiveProject), followSelectedArtifact: bool(v.followSelectedArtifact, d.followSelectedArtifact),
         rememberLayout: bool(v.rememberLayout, d.rememberLayout), reducedMotion: bool(v.reducedMotion, d.reducedMotion), layouts,
+        ...(typeof v.openRouterModel === 'string' && /^[^\s\x00-\x1f\x7f]{1,512}$/.test(v.openRouterModel) ? { openRouterModel: v.openRouterModel } : {}),
       },
     };
   } catch (e) {

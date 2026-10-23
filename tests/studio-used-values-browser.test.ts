@@ -66,7 +66,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(pageRoot, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, out: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(pageRoot, 'dist'), { licenses: pageRoot });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root: pageRoot });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root: pageRoot });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const named = await fetch(`${base}/api/project/active`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` },
@@ -82,13 +83,54 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
   });
 
   const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
+  /**
+   * R10 (H172; 052fbde8's final check): a press in the side panel is made once the panel stands still: the workspace strip has
+   * drawn its first frame and the panel sits under it (#side's top is the strip's height + 52 px), the lists above the Project
+   * panel have read their project, and the button's box has not moved for 5 frames in a row. The strip draws its first frame
+   * when its reading comes back, which can be after the Project panel's first cards: the panel then moves down under a press.
+   * Playwright checks a click's target only as the button goes down, so a release that misses the button still counts as a click
+   * made, and nothing was pressed.
+   */
+  let calls = 0;
+  const steady = async (page: Page, sel: string): Promise<void> => {
+    const call = ++calls;
+    await page.waitForFunction(([s, c]) => {
+      const w = window as unknown as { __steady?: { key: string; n: number; why?: string } };
+      const not = (why: string) => { w.__steady = { key: '', n: 0, why }; return false; };
+      const strip = document.getElementById('frame');
+      const side = document.getElementById('side');
+      const b = document.querySelector(s);
+      if (!strip || strip.hidden || !strip.dataset.revision) return not('the workspace strip has drawn no frame yet');
+      if (!side || !b) return not(`no ${s}`);
+      const fh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--frame-h')) || 0;
+      if (Math.abs(fh - Math.ceil(strip.getBoundingClientRect().height)) > 1 || Math.abs(side.getBoundingClientRect().top - (fh + 52)) > 1) return not('the panel is not under the strip yet');
+      for (const id of ['artifacts-name', 'references-name', 'nodes-name']) if (/reading…$/.test(document.getElementById(id)?.textContent ?? '')) return not(`#${id} is still reading`);
+      const r = b.getBoundingClientRect();
+      // (this call's own count: the frames counted for an earlier press never count for this one)
+      const key = `${c}|${[r.top, r.left, r.width, r.height, document.getElementById('side-scroll')?.scrollTop ?? 0].map((v) => Math.round(v * 10)).join(',')}`;
+      if (!w.__steady || w.__steady.key !== key) { w.__steady = { key, n: 1 }; return false; }
+      w.__steady.n += 1;
+      return w.__steady.n >= 5;
+    }, [sel, call] as const, { polling: 'raf', timeout: 20_000 }).catch(async (e: unknown) => {
+      const why = await page.evaluate(() => (window as unknown as { __steady?: { why?: string } }).__steady?.why ?? 'its box kept moving').catch(() => 'not read');
+      throw new Error(`${String(e).split('\n')[0]}: the panel did not stand still before ${sel} was pressed (${why})`);
+    });
+  };
+  const press = async (page: Page, sel: string): Promise<void> => { await steady(page, sel); await page.click(sel); };
+  /** By kind or By operation, pressed once the panel stands still; the page's own aria-pressed says the press took. */
+  const groupBy = async (page: Page, by: 'kind' | 'operation'): Promise<void> => {
+    const sel = `#project-by button[data-by="${by}"]`;
+    await press(page, sel);
+    await page.waitForFunction((s) => document.querySelector(s)?.getAttribute('aria-pressed') === 'true', sel, { timeout: 5_000 })
+      .catch((e: unknown) => { throw new Error(`${String(e).split('\n')[0]}: the By ${by} press did not take (its aria-pressed stayed false)`); });
+  };
   /** The drawn parameter card placed for operation `op`. */
   const paramsFor = (page: Page, op: string): Promise<string | undefined> => page.evaluate((id) => (window as never as Win).timmyCanvas.editor.store.allRecords()
     .find((r) => r.typeName === 'shape' && r.type === 'timmy-params' && r.meta?.timmyOperation === id)?.id, op);
   const placeOp = async (page: Page, op: string): Promise<string> => {
     await page.waitForSelector(`#project-groups section.pop[data-op="${op}"] .pop-place`, { timeout: 20_000 });
     await page.evaluate(() => { document.getElementById('project-said')!.textContent = ''; });
-    await page.click(`#project-groups section.pop[data-op="${op}"] .pop-place`);
+    await press(page, `#project-groups section.pop[data-op="${op}"] .pop-place`);
     await page.waitForFunction(() => /^Operation /.test(document.getElementById('project-said')?.textContent ?? ''), null, { timeout: 15_000 });
     return text(page, '#project-said');
   };
@@ -110,7 +152,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
       await page.goto(`${base}/#code=${await grant(Number(new URL(base).port), server.projectToken)}`);
       await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
       await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
-      await page.click('#project-by button[data-by="operation"]');
+      await groupBy(page, 'operation');
       // operation X's group holds the parameter card (the newest receipt naming the file is X's) and its flow
       await page.waitForSelector(`#project-groups section.pop[data-op="${X}"] li.pcard[data-card="params:${FILE}"]`, { timeout: 15_000 });
       expect(await placeOp(page, X)).toMatch(new RegExp(`^Operation ${X}: 2 cards placed left to right`));
@@ -130,11 +172,13 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
       expect(await text(page, `${at} .tc-build`)).toBe('Its build: recipe job abcd1234 succeeded, predicted 150 x 80 x 30 mm, its readback matches');
       // a record: no Save, no Rebuild, no field to type in
       expect(await page.locator(`${at} [data-tc-act], ${at} input, ${at} select`).count()).toBe(0);
-      expect(await text(page, `${at} .tc-op`)).toBe(`operation ${X}`);
+      // (R10 H167: the operation in words on the card's face, its id the line's tip and in the card's Details)
+      expect(await text(page, `${at} .tc-op`)).toMatch(/^its operation /);
+      expect(await page.getAttribute(`${at} .tc-op`, 'title')).toBe(`operation ${X}`);
 
       // the file's own card (Place card in the list) shows today's 160
-      await page.click('#project-by button[data-by="kind"]');
-      await page.click(`#project-groups li.pcard[data-card="params:${FILE}"] .pcard-drawn`);
+      await groupBy(page, 'kind');
+      await press(page, `#project-groups li.pcard[data-card="params:${FILE}"] .pcard-drawn`);
       await page.waitForFunction(() => /^Placed card/.test(document.getElementById('project-said')?.textContent ?? ''));
       const own = await page.evaluate((f) => (window as never as Win).timmyCanvas.editor.store.allRecords()
         .find((r) => r.typeName === 'shape' && r.type === 'timmy-params' && r.props.card === `params:${f}` && !r.meta?.timmyOperation)?.id, FILE);
@@ -144,7 +188,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: a parameter card placed for an oper
       // Operation Y: a save whose receipt names bytes that no copy holds (sealed now: the newest naming the file, so the file's
       // card is Y's from the next reading); placed for Y, its parameter card says unknown, and why, each value beside the file now
       p.seal({ kind: 'edit', subject: 'edit · recipes/tray.params.json', operation_id: Y, files: [{ path: FILE, sha256: 'cd'.repeat(32) }] });
-      await page.click('#project-by button[data-by="operation"]');
+      await groupBy(page, 'operation');
       expect(await placeOp(page, Y)).toMatch(new RegExp(`^Operation ${Y}: 1 card placed`));
       const yid = (await paramsFor(page, Y))!;
       const yat = `[data-timmy-card="${yid}"]`;

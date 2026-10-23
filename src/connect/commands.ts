@@ -1,7 +1,7 @@
 /**
  * Round R4 (helper H90): Timmy Connect's verbs, once, for both surfaces: `timmy connect …` (src/connect/cli.ts) and the
  * REPL's `/connect …` (src/connect/repl.ts). Each verb returns lines to print (Timmy Homebrew roles: labels secondary,
- * commands green, outcome words in the text colour), one JSON object (`--json`), and an exit code: 0 done, 1 refused or
+ * commands amber (B10), outcome words in the text colour), one JSON object (`--json`), and an exit code: 0 done, 1 refused or
  * not answered, 2 usage, 130 a Ctrl-C during a wait. The JSON's device and job objects are readConnect's own (read.ts),
  * so a job's state reads the same in the CLI's JSON, the REPL's words and God's Eye View.
  */

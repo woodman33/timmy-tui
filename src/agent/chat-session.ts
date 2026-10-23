@@ -48,7 +48,9 @@ import { projectId } from '../project/index.js';
 import { loadConfig } from '../utils/config.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { chatRouteNow, fallbackRoute, sealedRoute, type RouteNow } from './chat-route.js';
-import { keyDecision, noteTurnKey, projectTurn, surfaceWords, type Continued } from './chat-turn.js';
+import { keyDecision, noteTurnKey, projectTurn, surfaceWords, type Continued, type TurnRouteStart } from './chat-turn.js';
+import { inferenceAt, routePolicyNow } from './route-policy.js';
+import { ollamaAt } from '../setup/ollama-models.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
 import { defaultTools, neverSent } from './tools.js';
@@ -58,7 +60,7 @@ type Env = Record<string, string | undefined>;
 /** What the session needs of an agent: src/agent/core.ts Agent has all of it. */
 export type SessionAgent = Pick<Agent,
   'send' | 'on' | 'off' | 'getModel' | 'setTools' | 'setInstructions' | 'useLocalChat' | 'localChatRoute' | 'lastLocalTurn'
-  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions'>;
+  | 'lastFallback' | 'hasModelKey' | 'isRunning' | 'openRouterModel' | 'updateApiKey' | 'useSessions' | 'setModel'>;
 
 /** R4 (H113): seals a turn from its facts (src/repl/seal.ts sealTurn's shape); `dir`: the project's store when it is not this process's */
 export type TurnSealer = (facts: TurnFacts & { model: string }, dir?: string) => SealedTurn;
@@ -139,6 +141,8 @@ interface AgentContext {
   current: ChatTurnHooks | null;
   /** the files the running turn wrote, for its receipt */
   touched: ProjectTurnFiles;
+  /** R10 CHAT (H167; H168's pass 3c, R24): the settings' OpenRouter model this agent last took (unset: none read yet) */
+  modelSeen?: string | null;
 }
 const contexts = new WeakMap<object, AgentContext>();
 
@@ -184,7 +188,14 @@ export async function openChatSession(o: { project: { name: string; root: string
   agent.setInstructions(chatInstructions(o.surface));
 
   const keyFound = (): boolean => agent.hasModelKey() || modelKeySource(env) !== null;
-  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: agent.openRouterModel(), surface: o.surface });
+  // R10 CHAT (H167; H168's pass 3c, R24): the OpenRouter model the settings name, read at every message as the route and the key
+  // are: one chosen since this agent last took it (the Workbench's Models writes the settings) is the next turn's, said by
+  // route() at once and given to the agent as that turn starts; a turn under way keeps its own. A session given its own config
+  // (the monitor's) follows that, not the settings; a model the agent was given otherwise stays until the settings name another.
+  const settingsModel = (): string | null => { try { return loadConfig().model || null; } catch { return null; } };
+  if (ctx.modelSeen === undefined) ctx.modelSeen = deps.config ? null : settingsModel();
+  const modelChosen = (): string | null => { if (deps.config) return null; const m = settingsModel(); return m && m !== ctx.modelSeen ? m : null; };
+  const routeNow = (): RouteNow => chatRouteNow({ env, key: keyFound(), openRouterModel: modelChosen() ?? agent.openRouterModel(), surface: o.surface });
   /** a key the setup stored since the agent started (the route is read at every message, the key with it) */
   const refreshKey = (): void => {
     if (agent.hasModelKey()) return;
@@ -202,7 +213,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     if (key !== undefined) { const d = keyDecision(o.project.root, key); if (!d.send) return refused(d.lines); }
     if (!typed) return refused(['Not sent: the message is empty.']);
     if (typed.startsWith('/')) return refused(slashRefusal(typed, o.surface));
-    if (hooks.signal?.aborted) return { status: 'cancelled', text: '', lines: ['Cancelled before anything was sent.'], sent: false, costWords: NO_REQUEST_COST };
+    // R7 lead (H148's N5; src/contracts/stop-words.ts: a chat turn a person stopped is stopped, never cancelled)
+    if (hooks.signal?.aborted) return { status: 'cancelled', text: '', lines: ['Stopped before anything was sent.'], sent: false, costWords: NO_REQUEST_COST };
     refreshKey();
     const now = routeNow();
     if (!now.state.ready) return refused(now.state.refusal?.length ? [...now.state.refusal] : ['Not sent: the chat has no route to a model.', 'Nothing was sent to any model.']);
@@ -212,7 +224,14 @@ export async function openChatSession(o: { project: { name: string; root: string
     gateAgent(agent, ctx, o.project.root, deps.tools);
     agent.setInstructions(chatInstructions(o.surface));
     agent.useLocalChat(now.local ?? null);
+    // (R24: the model chosen since the last message is this turn's: given to the agent now, as no turn runs on it)
+    if (!now.local) { const chosen = modelChosen(); if (chosen) { agent.setModel(chosen); ctx.modelSeen = chosen; } }
     const requested = now.local ? now.local.model : agent.openRouterModel();
+    // R10 (H169): the turn's route, snapshotted as it starts: a model chosen while it runs changes only the next turn, and its
+    // receipt is never relabelled (src/agent/chat-turn.ts keeps it beside the turn's hold, under the turn's id)
+    const snapshot: TurnRouteStart = now.local
+      ? (() => { const at = ollamaAt(now.local.host); return { source: 'ollama-local' as const, model: requested, inference: inferenceAt({ source: 'ollama-local', model: requested, host: now.local.host }), endpoint: 'error' in at ? now.local.host : at.host, gateway: 'none' as const, policy: routePolicyNow(env) }; })()
+      : { source: 'openrouter', model: requested, inference: 'cloud', endpoint: 'openrouter.ai', gateway: 'none', policy: routePolicyNow(env) };
 
     // R4 (H113): the turn is the REPL's own (src/repl/turn.ts runTurn): the surface is told the answer so far (the agent's
     // stream) and each tool as it starts and ends (the turn's own events), and gets what the turn did from its summary
@@ -234,7 +253,7 @@ export async function openChatSession(o: { project: { name: string; root: string
     let turn: Awaited<ReturnType<typeof projectTurn>>;
     try {
       turn = await projectTurn({
-        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}),
+        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}), route: snapshot,
         more: {
           summary: (s) => { summary = s; }, retry: deps.retry ?? false,
           // a failure that never left this computer (no connection, no address) sent nothing
@@ -263,7 +282,10 @@ export async function openChatSession(o: { project: { name: string; root: string
     const local = agent.localChatRoute();
     const localTurn = local ? agent.lastLocalTurn() : null;
     const route = local ? sealedRoute(local, localTurn) : fb ? fallbackRoute(fb) : undefined;
-    const model = fb ? `ollama/${fb.model}` : local ? (localTurn?.actualModel || local.model) : agent.getModel();
+    // R10 (H169): the model that answered, as the turn knows it: the one the provider named, else the one the turn used (a
+    // fallback's included), never the model chosen since the turn started (agent.getModel() then)
+    const told = agent as { lastReturnedModel?: () => string | null; lastTurnModel?: () => string | null };
+    const model = fb ? `ollama/${fb.model}` : local ? (localTurn?.actualModel || local.model) : (told.lastReturnedModel?.() || told.lastTurnModel?.() || t.requested);
     // the cost: on the local route, no charge only when every report says this computer's endpoint; on OpenRouter's, what it
     // reported when it reported all of it; after the last-resort fallback, unknown (OpenRouter failed, and no charge came
     // back for its requests); otherwise unknown, with what was reported as a lower bound
@@ -293,7 +315,8 @@ export async function openChatSession(o: { project: { name: string; root: string
     const base = { sent, ...(receipt ? { receipt } : {}), costWords, ...(sent || status === 'answered' ? { model } : {}) };
     if (status === 'answered') return { status, text: s.answer, ...(notices.length ? { lines: notices } : {}), ...base };
     if (status === 'cancelled') {
-      return { status, text: s.streamed, lines: [`Cancelled${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
+      // R7 lead (H148's N5: the Workbench's notice read "Stopped: Cancelled after the request went out"): the turn's words
+      return { status, text: s.streamed, lines: [`Stopped${sent ? ' after the request went out: what it did stands, and nothing was rolled back' : ': nothing was sent to any model'}.`, ...notices], ...base };
     }
     const lines = errorLines(s.error);
     if (!sent && !lines.some((l) => /nothing was sent/i.test(l))) lines.push('Nothing was sent to any model.');

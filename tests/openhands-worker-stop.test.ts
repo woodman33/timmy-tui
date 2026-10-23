@@ -41,7 +41,10 @@ const actions = (out: string): number => (out.match(/"type": "action"/g) ?? []).
 describe('the OpenHands worker, stopped by a signal (python3, a FAKE SDK)', () => {
   it('SIGTERM: its result line (status stopped, its token, its steps and tokens so far, the signal), flushed, exit 143; Timmy reads it', async () => {
     const w = runWorker('HANG a long task');
-    await until(() => actions(w.out()) >= 2);
+    // R6 lead (CI at 54c5534): the stop comes once step 2 has ended, its observation printed too. Signalled on its action
+    // line alone, the stop could land between the action and its observation (as it did once on a loaded runner), and the
+    // lines are then rightly started, action, observation, action, result: a race in this test, not in the worker.
+    await until(() => (w.out().match(/"type": "observation"/g) ?? []).length >= 2);
     w.child.kill('SIGTERM');
     expect(await w.exited).toEqual({ code: 143, signal: null });
     const lines = parsed(w.out());

@@ -4,16 +4,24 @@
  * (H113): on or off, and why, from the one route every surface reads (src/agent/chat-route.ts chatRouteNow).
  *
  *   the setup's chat answer   the page's Send                                                     its label
- *   local, a model chosen     streams that model's answer from the recorded Ollama's /api/chat   "local <model> · Ollama · no tools here"
+ *   local, a model chosen     streams that model's answer from the recorded Ollama's /api/chat   "local <model> · Ollama · this page's own
+ *                                                                                                 chat · no tools"
  *                             (src/agent/local-chat.ts runLocalTurn), offering no tools; never
  *                             OpenRouter; a cloud-backed model only when its name says cloud
  *                             (the model was chosen by that name), and the label says so
  *   local, no model or no     off, saying why and where to fix it (the REPL's /model, /setup chat)
  *   usable Ollama address
- *   OpenRouter (or none),     as before: qwen/qwen3.8-max through OpenRouter with this computer's  "qwen/qwen3.8-max · OpenRouter · each
- *   with a key                key (each message spends credits)                                  message spends credits"
+ *   OpenRouter (or none),     as before: qwen/qwen3.8-max through OpenRouter with this computer's  "qwen/qwen3.8-max · OpenRouter · this
+ *   with a key                key (each message spends credits)                                  page's own chat · each message spends
+ *                                                                                                 credits"
  *   OpenRouter (or none),     off, saying where chat happens (the REPL and the monitor) and how
  *   no key                    to give the chat a route (`timmy init`)
+ *
+ * R10 (H164; the lead's call (b) of 2026-10-22): the page's Send is this page's own chat, not the project's conversation (the one
+ * the Workbench, the REPL and the monitor continue, src/agent/chat-session.ts): its request carries the page's own messages, it
+ * offers no tools and it seals no receipt. Its label says "this page's own chat", its words begin with PAGE_SCOPE.words, and the
+ * route's `scope` says it as data, so no screen shows it as the project's chat (src/journey/route.ts routeNow({ surface:
+ * 'companion' }) takes its words from here).
  *
  * The OpenRouter key is looked for where the REPL looks (src/utils/config.ts loadConfig's order, as src/utils/model-key.ts
  * modelKeySource reads it): the environment (with the .env files the companion always read), a local timmy-tui.config.json,
@@ -24,6 +32,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chatRouteNow, localRouteWords } from '../agent/chat-route.js';
+import { modelPrice } from '../agent/model-price.js';
 import { LocalChatError, runLocalTurn } from '../agent/local-chat.js';
 import { atWords } from '../setup/ollama-models.js';
 import { knownAnswers, readSetupState } from '../setup/questions.js';
@@ -42,9 +51,19 @@ export type KeyFrom = 'environment' | 'timmy-tui.config.json' | 'providers.json'
  * one route's own lines (src/agent/chat-route.ts chatRouteNow, the companion's), the same why every surface gives.
  */
 export type PageRoute =
-  | { kind: 'local'; ready: true; label: string; words: string; model: string; host: string; cloud: boolean; loopback: boolean; numCtx?: number }
-  | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom }
+  | { kind: 'local'; ready: true; label: string; words: string; model: string; host: string; cloud: boolean; loopback: boolean; numCtx?: number; scope: typeof PAGE_SCOPE }
+  /** R5 (H132): `price`, what this computer knows of the model's price (src/agent/model-price.ts, never a guess); `freeOnly`,
+   *  the free-only policy is on and passed (the model is known to be free) */
+  | { kind: 'openrouter'; ready: true; label: string; words: string; model: string; keyFrom: KeyFrom; price: string; freeOnly: boolean; scope: typeof PAGE_SCOPE }
   | { kind: 'none'; ready: false; label: string; words: string; chat: 'local' | 'openrouter' | null; refusal: string[] };
+
+/** R10 (H164): what the page's Send is, as data and in plain words: this page's own chat, not the project's conversation. */
+export const PAGE_SCOPE = Object.freeze({
+  conversation: 'this page' as const, tools: 'none' as const, receipt: false as const,
+  words: 'This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.',
+});
+/** R10 (H164): the label's part that says so (beside the model and where it runs). */
+export const PAGE_OWN = 'this page\'s own chat';
 
 /** Where chat with Timmy happens, whatever this page can do (the end of every "Send is off" sentence). */
 export const CHAT_HAPPENS = 'Chat with Timmy happens in its terminal: the REPL (timmy) and this monitor (timmy watch); the CHAT MIRROR tab shows it.';
@@ -78,13 +97,24 @@ export function openRouterKey(env: Env, cwd: string): { key: string; from: KeyFr
  * the page's own, about what its Send does.
  */
 export function pageRoute(env: Env, cwd: string): PageRoute {
-  const now = chatRouteNow({ env, cwd, surface: 'companion' });
+  // R5 (H132, the lead's free-only policy, 39d21ec): the page's own model is named, so its price can be known; without one,
+  // free-only refuses (unknown is never free)
+  const now = chatRouteNow({ env, cwd, surface: 'companion', openRouterModel: OPENROUTER_MODEL });
   const r = now.route;
   const refusal = [...(now.state.refusal ?? [])];
   if (r.kind === 'local') {
     if ('error' in r.at) {
       return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · its Ollama address is not usable · Send is off',
         words: `Send is off: the setup chose the local model for chat, and its Ollama address (${r.host}) is not one Timmy uses: ${r.at.error}. In the REPL, /setup chat asks again. Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
+    }
+    // R10 (H169): a model is chosen and the route policy refuses it (local-only: a cloud model, or another computer's Ollama;
+    // free-only: a price this computer cannot know): Send is off in the policy's own words, never "no model chosen"
+    const rule = /^Error: (local-only|free-only) is on/.exec(refusal[0] ?? '')?.[1];
+    if (r.model && !now.state.ready && rule) {
+      const lines = refusal.map((l) => l.trim()).filter(Boolean);
+      const said = [lines.find((l) => /^Cause:/.test(l)), lines.find((l) => /^Try:/.test(l))].filter(Boolean).join(' ');
+      return { kind: 'none', ready: false, chat: 'local', refusal, label: `${rule} · Send is off`,
+        words: `Send is off: ${rule} is on, and this page would ask ${r.model} on ${atWords(r.at)}. ${said} Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
     }
     if (!r.model || !now.state.ready) {
       return { kind: 'none', ready: false, chat: 'local', refusal, label: 'chat: local · no model chosen · Send is off',
@@ -96,9 +126,20 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
         : 'The chat leaves this computer for that one, and no cost comes back (unknown).';
     return {
       kind: 'local', ready: true, model: r.model, host: r.host, cloud: r.cloud, loopback: r.at.loopback, ...(r.numCtx ? { numCtx: r.numCtx } : {}),
-      label: `${localRouteWords(r).replace(/^chat: /, '')} · no tools here`,
-      words: `Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
+      label: `${localRouteWords(r).replace(/^chat: /, '')} · ${PAGE_OWN} · no tools`, scope: PAGE_SCOPE,
+      words: `${PAGE_SCOPE.words} Send asks ${r.model} (chosen by name in ${r.from === 'TIMMY_CHAT_MODEL' ? 'TIMMY_CHAT_MODEL' : 'the setup'}) on ${atWords(r.at)}, through its /api/chat, offering no tools: it cannot read or change files or run anything from here. Never OpenRouter. ${where}`,
     };
+  }
+  // R5 (H132): free-only is on and the page's model is not known to be free: Send is off, in the policy's own words (its
+  // refusal: what, Cause, Try), never "no key" (the key is there; the policy refuses)
+  if (now.state.kind === 'openrouter' && !now.state.ready) {
+    const lines = refusal.map((l) => l.trim()).filter(Boolean);
+    const first = (lines.find((l) => /^Error:/.test(l)) ?? lines[0] ?? 'free-only is on, and this model is not known to be free.').replace(/^Error:\s*/, '');
+    const said = [first, lines.find((l) => /^Cause:/.test(l)), lines.find((l) => /^Try:/.test(l))].filter(Boolean).join(' ');
+    // R10 (H169): local-only refuses OpenRouter whatever it costs; its label names it
+    const rule = /^local-only is on/.test(first) ? 'local-only' : 'free-only';
+    return { kind: 'none', ready: false, chat: 'openrouter', refusal, label: `${rule} · Send is off`,
+      words: `Send is off: ${said} Nothing is sent from this page until then. ${CHAT_HAPPENS}` };
   }
   // the page's own request needs the key itself (where it was found is said, never the key); the one route found it where
   // this does (src/utils/model-key.ts and openRouterKey look in the same places, in the same order)
@@ -109,10 +150,17 @@ export function pageRoute(env: Env, cwd: string): PageRoute {
     return { kind: 'none', ready: false, chat: chat === 'openrouter' ? 'openrouter' : null, refusal, label: 'no chat route here · Send is off',
       words: `Send is off: ${chose}, and no OpenRouter key is set (not in this companion's environment or .env, a timmy-tui.config.json, the Timmy home's providers.json or the monitor's settings), so this page asks no model. \`timmy init\` keeps a key, or chooses the local model. ${CHAT_HAPPENS}` };
   }
+  // R5 (H132): the model's price as this computer knows it (src/agent/model-price.ts); free-only passed says so (the one
+  // route's words end in "· free-only" when it did)
+  const price = modelPrice(OPENROUTER_MODEL);
+  const freeOnly = /· free-only$/.test(now.state.words);
+  const found = key.from === 'environment' ? 'the environment' : key.from;
   return {
-    kind: 'openrouter', ready: true, model: OPENROUTER_MODEL, keyFrom: key.from,
-    label: `${OPENROUTER_MODEL} · OpenRouter · each message spends credits`,
-    words: `Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${key.from === 'environment' ? 'the environment' : key.from}): each message spends its credits.`,
+    kind: 'openrouter', ready: true, model: OPENROUTER_MODEL, keyFrom: key.from, price: price.words, freeOnly,
+    label: freeOnly ? `${OPENROUTER_MODEL} · OpenRouter · ${PAGE_OWN} · free-only: free` : `${OPENROUTER_MODEL} · OpenRouter · ${PAGE_OWN} · each message spends credits`, scope: PAGE_SCOPE,
+    words: freeOnly
+      ? `${PAGE_SCOPE.words} Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}). Free-only is on, and this model is free: ${price.words}.`
+      : `${PAGE_SCOPE.words} Send asks ${OPENROUTER_MODEL} through OpenRouter with this computer's key (found in ${found}): each message spends its credits. Its price: ${price.words}.`,
   };
 }
 

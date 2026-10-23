@@ -35,17 +35,37 @@ function tmux(args: string[], allowFailure = false): string {
   return r.stdout ?? '';
 }
 function capture(): string { return tmux(['capture-pane', '-p', '-t', `=${session}:0.0`]); }
+/**
+ * R8 (H156; R7's open item B): what a failed wait saw besides the screen, so a failure explains itself (R7 saw one readiness
+ * failure with a blank screen and nothing else): the pane's own state (its process gone, and how; or what runs in it), how far
+ * the fixture's start got (its milestones in progress.jsonl, each with its time; none when it had not started), and whether
+ * it recorded a forbidden attempt.
+ */
+function waitState(): string {
+  const pane = tmux(['display-message', '-p', '-t', `=${session}:0.0`, 'pane dead: #{pane_dead}, its exit status: #{pane_dead_status}, its process: #{pane_pid} (#{pane_current_command})'], true).trim();
+  const read = (name: string): string => { try { return readFileSync(join(root, name), 'utf8').trim(); } catch { return ''; } };
+  const progress = read('progress.jsonl').split('\n').filter(Boolean).map((l) => { try { const m = JSON.parse(l) as { phase: string; elapsed_ms: number }; return `${m.phase} +${Math.round(m.elapsed_ms)} ms`; } catch { return l; } });
+  const violation = read('violations.jsonl').split('\n')[0] ?? '';
+  return [
+    `the pane: ${pane || 'not readable (its tmux server answered nothing)'}`,
+    `the fixture's start: ${progress.length ? progress.join(', ') : 'no milestone written (its process had not reached its first line)'}${existsSync(join(root, 'child.json')) ? '' : '; no child.json'}`,
+    ...(violation ? [`a forbidden attempt: ${violation.slice(0, 300)}`] : []),
+  ].join('\n');
+}
 async function observe(label: string, check: (text: string) => boolean): Promise<string> {
-  const until = performance.now() + 8000;
+  const began = performance.now();
+  const until = began + 8000;
   let text = '';
+  let reads = 0;
   do {
     text = capture();
+    reads += 1;
     if (check(text)) { captures.push({ label, text }); return text; }
     if (existsSync(join(root, 'violations.jsonl'))) break;
     await pause(80);
   } while (performance.now() < until);
   captures.push({ label: `FAILED: ${label}`, text });
-  throw new Error(`PTY did not reach ${label}:\n${text}`);
+  throw new Error(`PTY did not reach ${label} in ${Math.round(performance.now() - began)} ms of waiting (the limit 8000 ms; ${reads} screen reads)\n${waitState()}\nthe last screen read${text.trim() ? '' : ' (blank: nothing drawn)'}:\n${text}`);
 }
 const key = (value: string) => tmux(['send-keys', '-t', `=${session}:0.0`, value]);
 const type = (value: string) => tmux(['send-keys', '-l', '-t', `=${session}:0.0`, '--', value]);

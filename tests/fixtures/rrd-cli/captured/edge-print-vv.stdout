@@ -1,0 +1,113 @@
+Showing data after migration to latest Rerun version
+StoreInfo {
+    store_id: StoreId(
+        Recording,
+        "timmy-r9-edge",
+        "edge-1",
+    ),
+    store_source: PythonSdk(
+        3.13.15,
+    ),
+    store_version: Some(
+        CrateVersion {
+            major: 0,
+            minor: 38,
+            patch: 1,
+            meta: None,
+        },
+    ),
+}
+StoreInfo {
+    store_id: StoreId(
+        Recording,
+        "timmy-r9-edge",
+        "edge-1",
+    ),
+    store_source: PythonSdk(
+        3.13.15,
+    ),
+    store_version: Some(
+        CrateVersion {
+            major: 0,
+            minor: 38,
+            patch: 1,
+            meta: None,
+        },
+    ),
+}
+Chunk(chunk_18E03EE62EF6DDF06ef93fffa21cc184) with 1 rows (632 B) - /__properties - 
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ METADATA:                                                                               │
+│ * entity_path: /__properties                                                            │
+│ * id: chunk_18E03EE62EF6DDF06ef93fffa21cc184                                            │
+│ * version: 0.1.3                                                                        │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ ┌───────────────────────────────────────────────┬─────────────────────────────────────┐ │
+│ │ RowId                                         ┆ RecordingInfo:start_time            │ │
+│ │ ---                                           ┆ ---                                 │ │
+│ │ type: non-null FixedSizeBinary(16)            ┆ type: List(Int64)                   │ │
+│ │ ARROW:extension:metadata: {"namespace":"row"} ┆ archetype: RecordingInfo            │ │
+│ │ ARROW:extension:name: TUID                    ┆ component: RecordingInfo:start_time │ │
+│ │ is_sorted: true                               ┆ component_type: Timestamp           │ │
+│ │ kind: control                                 ┆ kind: data                          │ │
+│ ╞═══════════════════════════════════════════════╪═════════════════════════════════════╡ │
+│ └───────────────────────────────────────────────┴─────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
+Chunk(chunk_18E03EE649597DA41fa3a4143c21a99f) with 1 rows (1.1 KiB) - /text - 
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ METADATA:                                                                                                                                                         │
+│ * entity_path: /text                                                                                                                                              │
+│ * id: chunk_18E03EE649597DA41fa3a4143c21a99f                                                                                                                      │
+│ * version: 0.1.3                                                                                                                                                  │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ ┌───────────────────────────────────────────────┬───────────────────┬──────────────────────┬────────────────────┬─────────────────────┬─────────────────────────┐ │
+│ │ RowId                                         ┆ frame             ┆ log_time             ┆ t                  ┆ wall                ┆ TextLog:text            │ │
+│ │ ---                                           ┆ ---               ┆ ---                  ┆ ---                ┆ ---                 ┆ ---                     │ │
+│ │ type: non-null FixedSizeBinary(16)            ┆ type: Int64       ┆ type: Timestamp(ns)  ┆ type: Duration(ns) ┆ type: Timestamp(ns) ┆ type: List(Utf8)        │ │
+│ │ ARROW:extension:metadata: {"namespace":"row"} ┆ index_name: frame ┆ index_name: log_time ┆ index_name: t      ┆ index_name: wall    ┆ archetype: TextLog      │ │
+│ │ ARROW:extension:name: TUID                    ┆ is_sorted: true   ┆ is_sorted: true      ┆ is_sorted: true    ┆ is_sorted: true     ┆ component: TextLog:text │ │
+│ │ is_sorted: true                               ┆ kind: index       ┆ kind: index          ┆ kind: index        ┆ kind: index         ┆ component_type: Text    │ │
+│ │ kind: control                                 ┆                   ┆                      ┆                    ┆                     ┆ kind: data              │ │
+│ ╞═══════════════════════════════════════════════╪═══════════════════╪══════════════════════╪════════════════════╪═════════════════════╪═════════════════════════╡ │
+│ └───────────────────────────────────────────────┴───────────────────┴──────────────────────┴────────────────────┴─────────────────────┴─────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Chunk(chunk_18E03EE6495AAF3B1fa3a4143c21a9a0) with 2 rows (1.1 KiB) - /a/b - 
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ METADATA:                                                                                                                                                                                 │
+│ * entity_path: /a/b                                                                                                                                                                       │
+│ * id: chunk_18E03EE6495AAF3B1fa3a4143c21a9a0                                                                                                                                              │
+│ * version: 0.1.3                                                                                                                                                                          │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ ┌───────────────────────────────────────────────┬───────────────────┬──────────────────────┬────────────────────┬─────────────────────┬─────────────────────────────────────────────────┐ │
+│ │ RowId                                         ┆ frame             ┆ log_time             ┆ t                  ┆ wall                ┆ Points3D:positions                              │ │
+│ │ ---                                           ┆ ---               ┆ ---                  ┆ ---                ┆ ---                 ┆ ---                                             │ │
+│ │ type: non-null FixedSizeBinary(16)            ┆ type: Int64       ┆ type: Timestamp(ns)  ┆ type: Duration(ns) ┆ type: Timestamp(ns) ┆ type: List(FixedSizeList(3 x non-null Float32)) │ │
+│ │ ARROW:extension:metadata: {"namespace":"row"} ┆ index_name: frame ┆ index_name: log_time ┆ index_name: t      ┆ index_name: wall    ┆ archetype: Points3D                             │ │
+│ │ ARROW:extension:name: TUID                    ┆ is_sorted: true   ┆ is_sorted: true      ┆ is_sorted: true    ┆ is_sorted: true     ┆ component: Points3D:positions                   │ │
+│ │ is_sorted: true                               ┆ kind: index       ┆ kind: index          ┆ kind: index        ┆ kind: index         ┆ component_type: Position3D                      │ │
+│ │ kind: control                                 ┆                   ┆                      ┆                    ┆                     ┆ kind: data                                      │ │
+│ ╞═══════════════════════════════════════════════╪═══════════════════╪══════════════════════╪════════════════════╪═════════════════════╪═════════════════════════════════════════════════╡ │
+│ └───────────────────────────────────────────────┴───────────────────┴──────────────────────┴────────────────────┴─────────────────────┴─────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Chunk(chunk_18E03EE64961D99C1fa3a4143c21a9a1) with 1 rows (1.1 KiB) - /space\ name/é - 
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ METADATA:                                                                                                                                                                                 │
+│ * entity_path: /space\ name/é                                                                                                                                                             │
+│ * id: chunk_18E03EE64961D99C1fa3a4143c21a9a1                                                                                                                                              │
+│ * version: 0.1.3                                                                                                                                                                          │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤
+│ ┌───────────────────────────────────────────────┬───────────────────┬──────────────────────┬────────────────────┬─────────────────────┬─────────────────────────────────────────────────┐ │
+│ │ RowId                                         ┆ frame             ┆ log_time             ┆ t                  ┆ wall                ┆ Points3D:positions                              │ │
+│ │ ---                                           ┆ ---               ┆ ---                  ┆ ---                ┆ ---                 ┆ ---                                             │ │
+│ │ type: non-null FixedSizeBinary(16)            ┆ type: Int64       ┆ type: Timestamp(ns)  ┆ type: Duration(ns) ┆ type: Timestamp(ns) ┆ type: List(FixedSizeList(3 x non-null Float32)) │ │
+│ │ ARROW:extension:metadata: {"namespace":"row"} ┆ index_name: frame ┆ index_name: log_time ┆ index_name: t      ┆ index_name: wall    ┆ archetype: Points3D                             │ │
+│ │ ARROW:extension:name: TUID                    ┆ is_sorted: true   ┆ is_sorted: true      ┆ is_sorted: true    ┆ is_sorted: true     ┆ component: Points3D:positions                   │ │
+│ │ is_sorted: true                               ┆ kind: index       ┆ kind: index          ┆ kind: index        ┆ kind: index         ┆ component_type: Position3D                      │ │
+│ │ kind: control                                 ┆                   ┆                      ┆                    ┆                     ┆ kind: data                                      │ │
+│ ╞═══════════════════════════════════════════════╪═══════════════════╪══════════════════════╪════════════════════╪═════════════════════╪═════════════════════════════════════════════════╡ │
+│ └───────────────────────────────────────────────┴───────────────────┴──────────────────────┴────────────────────┴─────────────────────┴─────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+

@@ -68,7 +68,7 @@ describe('a cancelled request is closed in the conversation', () => {
     expect(history.map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(history[0].content).toBe(REQUEST);
     const record = history[1].content;
-    expect(record).toMatch(/^\[Cancelled by the user before I answered\./);
+    expect(record).toMatch(/^\[Cancelled by the user before I finished answering\./);
     expect(record).toContain('Finished before the cancel: calculate {"expression":"1234*5678"}, which returned "{\\"expression\\":\\"1234*5678\\",\\"result\\":7006652}".');
     // The SDK finishes a round of tool calls even when the stream is cancelled: what finished while the
     // cancel took hold is a real effect, and continuing must not redo it (review finding 2).
@@ -114,7 +114,7 @@ describe('a cancelled request is closed in the conversation', () => {
     expect(await send('What is the capital of France?')).toBe('Paris.');
     const sent = inputs[1];
     expect(sent.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
-    expect(sent[1].content).toMatch(/^\[Cancelled by the user before I answered\./);
+    expect(sent[1].content).toMatch(/^\[Cancelled by the user before I finished answering\./);
     expect(sent[2].content).toBe('What is the capital of France?');
     expect(agent.getHistory().map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   });

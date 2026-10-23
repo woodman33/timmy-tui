@@ -29,6 +29,7 @@ import { RUN_NO_PRODUCER, runDetailAnswer, type RunDetailProducer } from '../src
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId, saveActiveProject, type ActiveProject } from '../src/project/index.js';
 import { tildePath } from '../src/utils/home-scrub.js';
+import { openWorkspaceTab } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -247,7 +248,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     page.on('response', (r) => { if (r.status() >= 400) seen.bad.push(`${r.status()} ${r.url()}`); });
     page.on('console', (m) => { if (m.type() === 'error') seen.consoleErrors.push(`${m.text()} ${m.location().url ?? ''}`.trim()); });
     page.on('pageerror', (e) => seen.errors.push(e.message));
-    await page.goto(`${origin}${o.path ?? '/'}#t=${tokenOf(target)}`);
+    // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases read the header and Home, as before
+    await page.goto(`${origin}${o.path ?? '/?tab=home'}#t=${tokenOf(target)}`);
     return { page, context, seen };
   }
   const clean = (seen: Seen): void => {
@@ -262,7 +264,14 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
   const turns = (page: Page): Promise<string[]> => page.$$eval('#console-logs [data-mirror="repl-turn"]', (rows) => rows.map((r) => (r.textContent ?? '').replace(/\s+/g, ' ')));
   const turnShown = (page: Page, receipt: string): Promise<unknown> => page.waitForFunction((r) => [...document.querySelectorAll('#console-logs [data-mirror="repl-turn"]')].some((row) => (row.textContent ?? '').includes(r)), receipt, { timeout: 15_000 });
   const tab = async (page: Page, name: string): Promise<void> => {
-    await page.click(`[data-tab="${name}"]`);
+    // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
+    // switch where it shares its place (the Chat tab's two views)
+    const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
+    // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
+    // the page opens on it
+    if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
+    if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
+    else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
   };
   const record = (): string => tildePath(join(home, 'state', 'active-project.json'));
@@ -278,10 +287,11 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await shows(page, 'alpha');
       expect(await text(page, '#project-mode')).toBe('following the active project');
       expect(await page.isHidden('#project-pin-mark')).toBe(true);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on alpha');
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on alpha');
       expect(await page.isEnabled('#project-pin')).toBe(true);
       expect(await page.getAttribute('#project', 'data-project')).toBe(projectId(alpha.root));
-      expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(alpha.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Following the active project, which Timmy records in ${record()}.`);
       // the mirror's words name where a REPL turn must happen to be seen here
       const empty = await text(page, '#console-logs');
       expect(empty).toContain(`A REPL turn is seen here when the REPL works in the project this page shows, alpha (${tildePath(alpha.root)}) (in the REPL, /project chooses one): Timmy keeps an event bus in each project's folder, and this page reads that project's.`);
@@ -296,8 +306,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const followedIn = Date.now() - t0;
       expect(followedIn).toBeLessThan(2_500);
       expect(await text(page, '#project-mode')).toBe('following the active project');
-      expect(await text(page, '#project-folder')).toContain(`Project folder: ${tildePath(beta.root)}:`);
-      expect(await text(page, '#project-pin')).toBe('📌 Pin: keep this page on beta');
+      expect(await text(page, '#project-folder .folder-whole')).toContain(`Project folder: ${tildePath(beta.root)}:`);
+      expect(await text(page, '#project-pin')).toBe('Pin: keep this page on beta');
       // alpha's turn is not shown with beta; a turn in alpha now is not shown, one in beta is
       expect(await turns(page)).toEqual([]);
       const lateAlpha = fakeTurn(alpha.bus, 'repl · 2 steps');
@@ -328,7 +338,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       // Pin: this page keeps beta
       await pinned.page.click('#project-pin');
       await pinned.page.waitForFunction(() => !document.getElementById('project-pin-mark')?.hidden, null, { timeout: 5_000 });
-      expect(await text(pinned.page, '#project-pin-mark')).toBe('📌 PINNED');
+      expect(await text(pinned.page, '#project-pin-mark')).toBe('PINNED');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned on this page');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project');
       expect(await pinned.page.getAttribute('#project', 'data-mode')).toBe('pinned');
@@ -340,7 +350,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(pinned.page, '#project-name')).toBe('beta');
       expect(await text(pinned.page, '#project-mode')).toBe('pinned · the active project is gamma');
       expect(await text(pinned.page, '#project-pin')).toBe('Unpin: follow the active project (gamma)');
-      expect(await text(pinned.page, '#project-folder')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(pinned.page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(beta.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. Pinned on this page; the active project is now gamma (${tildePath(gamma.root)}).`);
       expect(await pinned.page.isHidden('#project-pin-mark')).toBe(false);
       expect(await following.page.isHidden('#project-pin-mark')).toBe(true);
       // each page's mirror shows its own project's REPL turns
@@ -352,7 +363,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
 
       // the companion's address opened again in this tab (a reload alone has no token: the page keeps it in memory only)
       // keeps the pin, this tab's own; a new page follows
-      await pinned.page.goto(`http://127.0.0.1:${own.port}/#t=${tokenOf(own)}`);
+      await pinned.page.goto(`http://127.0.0.1:${own.port}/?tab=home#t=${tokenOf(own)}`);
       await connected(pinned.page);
       await shows(pinned.page, 'beta');
       await pinned.page.waitForFunction(() => document.getElementById('project')?.dataset.mode === 'pinned', null, { timeout: 5_000 });
@@ -390,7 +401,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await text(page, '#project-mode')).toBe('fixed by TIMMY_REPO');
       expect(await page.isDisabled('#project-pin')).toBe(true);
       expect(await text(page, '#project-pin')).toBe('Pin: off (TIMMY_REPO fixed this companion’s folder)');
-      expect(await text(page, '#project-folder')).toBe(`Project folder: ${tildePath(fixed.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. TIMMY_REPO fixed this folder: this companion follows no project.`);
+      // (R10 H167: said in words on the line; the folder whole under its Details)
+      expect(await text(page, '#project-folder .folder-whole')).toBe(`Project folder: ${tildePath(fixed.root)}: this page reads its event bus and receipts (.timmy), for the Chat Mirror's REPL turns and the Logs tab. TIMMY_REPO fixed this folder: this companion follows no project.`);
       choose(project('elsewhere'));
       await page.waitForTimeout(PROJECT_POLL_MS + 500);
       expect(await text(page, '#project-name')).toBe('fixed-folder');
@@ -398,7 +410,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     } finally { await context.close(); }
   });
 
-  it('on the local route, Send streams the answer of the model the setup chose from the recorded Ollama (FAKE), with no tools, labelled "local <model> · Ollama · no tools here"; nothing reaches OpenRouter', async () => {
+  it('on the local route, Send streams the answer of the model the setup chose from the recorded Ollama (FAKE), with no tools, labelled "local <model> · Ollama · this page\'s own chat · no tools"; nothing reaches OpenRouter', async () => {
     const ollama = await startFakeOllama({
       models: [{ name: 'fake-chat:8b', capabilities: ['completion', 'tools'] }],
       chat: [() => ({ chunks: textChunks('fake-chat:8b', ['FAKE local ', 'answer: **streamed** ', 'from the FAKE Ollama.']), delayMs: 150 })],
@@ -410,10 +422,11 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       try {
         await connected(page);
         await tab(page, 'streamdown');
-        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · no tools here', null, { timeout: 15_000 });
+        await page.waitForFunction(() => document.getElementById('sd-route-chip')?.textContent === 'local fake-chat:8b · Ollama · this page\'s own chat · no tools', null, { timeout: 15_000 });
         expect(await page.getAttribute('#sd-route-chip', 'data-route')).toBe('local');
-        expect(await text(page, '#sd-route')).toBe('POST /chat → local fake-chat:8b · Ollama · no tools here → SSE → live React components');
-        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b … (Ollama, no tools here)');
+        // (R10 H167; H164's scope: whose chat this is, in words, not the request's path)
+        expect(await text(page, '#sd-route')).toBe('This page\'s own chat, not the project\'s conversation (the Workbench\'s and the REPL\'s): no tools, no receipt.');
+        expect(await page.getAttribute('#sd-input', 'placeholder')).toBe('Message fake-chat:8b here: this page’s own chat (no tools, no receipt)');
         expect(await page.locator('#sd-route-off').count()).toBe(0);
         await page.fill('#sd-input', 'FAKE: a question for the local model');
         expect(await page.isEnabled('#sd-send')).toBe(true);
@@ -433,7 +446,11 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
         expect(chats[0].tools).toBeUndefined();
         expect(chats[0].messages.at(-1)).toEqual({ role: 'user', content: 'FAKE: a question for the local model' });
         expect(chats[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('No tools are available in this conversation') });
-        expect(ollama.requests.map((r) => r.path)).toEqual(['/api/show', '/api/chat']);
+        // R10 CHAT (H171): the Chat's Models rail lists the local models first (GET /api/tags, /api/show, /api/ps: no model
+        // runs); this page's Send then asks its model's facts and the chat
+        const paths = ollama.requests.map((r) => r.path);
+        expect(paths.slice(-2)).toEqual(['/api/show', '/api/chat']);
+        for (const p of paths.slice(0, -2)) expect(['/api/tags', '/api/show', '/api/ps']).toContain(p);
         expect(openrouter.seen).toEqual([]);
         clean(seen);
       } finally { await context.close(); }
@@ -494,7 +511,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     try {
       // a cloud-backed model, chosen by its name (which says cloud): the label says so; the turn says the chat leaves this computer
       use({ chat: 'local', model: 'fake-big:70b-cloud' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'fake-big:70b-cloud · Ollama, cloud-backed · no tools here' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: true, label: 'fake-big:70b-cloud · Ollama, cloud-backed · this page\'s own chat · no tools' });
       const cloud = await chat(own, 'FAKE: for the cloud model');
       expect(cloud.find((e) => e.event === 'notice')?.data.text).toBe('fake-big:70b-cloud is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).');
       expect(cloud.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE cloud answer');
@@ -502,7 +519,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(cloud.at(-1)?.event).toBe('done');
       // a model Ollama sends elsewhere though its name does not say cloud: refused, nothing sent to /api/chat
       use({ chat: 'local', model: 'sneaky:8b' }, { ollama_host: ollama.url });
-      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · no tools here' });
+      expect(await route()).toMatchObject({ kind: 'local', ready: true, cloud: false, label: 'local sneaky:8b · Ollama · this page\'s own chat · no tools' });
       const before = ollama.chats().length;
       const sneaky = await chat(own, 'FAKE: for the sneaky model');
       expect(sneaky.map((e) => e.event)).toEqual(['route', 'cost', 'error']);
@@ -517,7 +534,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const key = `FAKE-or-${randomBytes(12).toString('hex')}`;
       use({ chat: 'openrouter' }, { openrouter_api_key: key });
       const or = await route();
-      expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · each message spends credits' });
+      expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' });
       expect(JSON.stringify(or)).not.toContain(key);
       const answered = await chat(own, 'FAKE: for OpenRouter');
       expect(answered.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE OpenRouter answer');
@@ -554,26 +571,43 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       expect(await page.evaluate(() => location.href)).toBe(`http://127.0.0.1:${own.port}/run/o1a2b3c4d`);
       expect(asked).toEqual([{ op: 'o1a2b3c4d', project: alpha.root }]);
       const field = (f: string): Promise<string> => text(page, `#run-detail .run-row[data-field="${f}"] dd`);
-      expect(await text(page, '#run-detail .run-title')).toBe('Run o1a2b3c4d · alpha-runs');
-      expect(await field('verdict')).toBe('no change · FIXTURE: the run changed nothing; its result was already current from receipt FIXTURE-rc-1');
-      expect(await field('stage')).toBe('inspect · 2 of 3 steps done from .timmy/jobs/FIXTURE-job.json');
-      expect(await field('exits')).toBe('upmd: exit 4 (stale build) from .timmy/jobs/FIXTURE-job.log runner: exit 0 from .timmy/jobs/FIXTURE-job.json');
-      expect(await field('freshness')).toBe('stale · FIXTURE: its input changed after the result was made from .timmy/operations/o1a2b3c4d.json');
+      // (R10 H167: the run named in words, its request as Home lists it; its operation's id is the title's tip)
+      expect(await text(page, '#run-detail .run-title')).toMatch(/ · alpha-runs$/);
+      expect(await page.getAttribute('#run-detail .run-title', 'title')).toBe('operation o1a2b3c4d');
+      // (R10 H167, H168's F3 as on Home: each value on the face; where it came from, the project's folder and id and a next
+      // step's command in its column's Details)
+      expect(await field('verdict')).toBe('no change · FIXTURE: the run changed nothing; its result was already current');
+      expect(await field('stage')).toBe('inspect · 2 of 3 steps done');
+      expect(await field('exits')).toBe('upmd: exit 4 (stale build) runner: exit 0');
+      expect(await field('freshness')).toBe('stale · FIXTURE: its input changed after the result was made');
       expect(await field('acceptance')).toBe('not reviewed');
-      expect(await field('objective')).toBe('FIXTURE: tidy the tray inbox from .timmy/operations/o1a2b3c4d.json');
-      expect(await field('project')).toBe(`alpha-runs ${tildePath(alpha.root)} · id ${projectId(alpha.root)}`);
-      expect(await field('worker')).toBe('model FIXTURE-model from receipt FIXTURE-rc-1');
+      expect(await field('objective')).toBe('FIXTURE: tidy the tray inbox');
+      expect(await field('project')).toBe('alpha-runs');
+      expect(await field('worker')).toBe('model FIXTURE-model');
       expect(await field('time')).toMatch(/^started .+ · ended .+ · elapsed 1 min 12 s$/);
       expect(await field('cost')).toBe('unknown: FIXTURE: no model was asked in this run');
-      expect(await field('next')).toBe('FIXTURE: run it again once its input settles /run APPROVAL.md tidy');
+      expect(await field('next')).toBe('FIXTURE: run it again once its input settles');
       expect(await field('summary')).toBe('none saved');
+      const more = (col: string): Promise<string> => text(page, `#run-detail .${col} .run-facts + .rv-more`);
+      expect(await more('rd-before')).toBe('Details Objective from .timmy/operations/o1a2b3c4d.json');
+      expect(await more('rd-run')).toBe(`Details Workflow stage from .timmy/jobs/FIXTURE-job.json Process exits upmd from .timmy/jobs/FIXTURE-job.log; runner from .timmy/jobs/FIXTURE-job.json Artifact freshness from .timmy/operations/o1a2b3c4d.json Project ${tildePath(alpha.root)} · id ${projectId(alpha.root)} Source revision from .timmy/operations/o1a2b3c4d.json Worker model from receipt FIXTURE-rc-1`);
+      expect(await more('rd-after')).toBe('Details Timmy’s verdict from receipt FIXTURE-rc-1 Parent · children parent o0a0b0c0d; children o5e6f7a8b Next its command: /run APPROVAL.md tidy');
+      expect(await field('related')).toBe('its parent run · child run 1');
       const view = await text(page, '#run-detail .run-view');
-      expect(view).toContain('Prediction (frozen before the result; not an observed receipt) FIXTURE: Predicted change, then inspect, then result, each exits 0 receipt FIXTURE-rc-0');
-      expect(view).toContain('inspect exits 0 exited 4 from .timmy/jobs/FIXTURE-job.log differs');
-      expect(view).toContain('result none not run from .timmy/jobs/FIXTURE-job.json not compared');
-      expect(view).toContain('inbox/FIXTURE-note.txt from .timmy/operations/o1a2b3c4d.json input abababababab');
-      expect(view).toContain('FIXTURE-rc-0 · predict · workflow · predict');
+      expect(view).toMatch(/Prediction \(frozen before the result; not an observed receipt\) FIXTURE: Predicted change, then inspect, then result, each exits 0(?: · frozen .+?)? Details its receipt FIXTURE-rc-0/);
+      expect(view).toContain('inspect exits 0 exited 4 differs');
+      expect(view).toContain('result none not run not compared');
+      expect(view).toContain('Details inspect its actual from .timmy/jobs/FIXTURE-job.log result its actual from .timmy/jobs/FIXTURE-job.json');
+      expect(view).toContain('inbox/FIXTURE-note.txt input Timmy’s record log');
+      expect(view).toContain('Details inbox/FIXTURE-note.txt sha256 abababababab · from .timmy/operations/o1a2b3c4d.json Timmy’s record (log) .timmy/jobs/FIXTURE-job.log · no sha256 recorded · from .timmy/jobs/FIXTURE-job.json');
+      expect(view).toContain('Receipts predict · workflow · predict');
+      expect(view).toContain('Details predict receipt FIXTURE-rc-0');
       expect(view).toContain('Not known (no record says) acceptance: FIXTURE: no person has reviewed this result');
+      // what a person sees (a closed Details shows its summary only) names no operation and no place under .timmy
+      const face = await page.$eval('#run-detail .run-view', (e) => (e as HTMLElement).innerText);
+      expect(face).not.toContain('o1a2b3c4d');
+      expect(face).not.toContain('.timmy/');
+      expect(face).not.toContain('FIXTURE-rc-');
       // never a percentage
       expect(view).not.toContain('%');
 
@@ -581,12 +615,16 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       await page.click('#run-detail [data-op="o5e6f7a8b"]');
       await page.waitForSelector('#run-detail .run-view[data-operation="o5e6f7a8b"]', { timeout: 10_000 });
       expect(await page.evaluate(() => location.pathname)).toBe('/run/o5e6f7a8b');
-      expect(await field('verdict')).toBe('completed · FIXTURE: the run made its result from receipt FIXTURE-rc-9');
-      expect(await field('cost')).toBe('$0.0123 (reported) from receipt FIXTURE-rc-9');
-      expect(await field('acceptance')).toMatch(/^accepted by FIXTURE-operator, .+ from receipt FIXTURE-rc-10$/);
-      expect(await field('related')).toBe('o1a2b3c4d · no children');
+      expect(await field('verdict')).toBe('completed · FIXTURE: the run made its result');
+      expect(await field('cost')).toBe('$0.0123 (reported)');
+      expect(await field('acceptance')).toMatch(/^accepted by FIXTURE-operator, \S.*$/);
+      expect(await field('related')).toBe('its parent run · no children');
+      expect(await page.getAttribute('#run-detail .run-row[data-field="related"] [data-op="o1a2b3c4d"]', 'title')).toBe('operation o1a2b3c4d');
+      expect(await text(page, '#run-detail .rd-after .run-facts + .rv-more')).toMatch(/^Details Timmy’s verdict from receipt FIXTURE-rc-9 A person’s acceptance from receipt FIXTURE-rc-10 Parent · children parent o1a2b3c4d Next its command: \/run APPROVAL\.md tidy$/);
+      expect(await text(page, '#run-detail .rd-run .run-facts + .rv-more')).toContain('Cost from receipt FIXTURE-rc-9');
 
-      // an id this project has no record of: the producer's words
+      // an id this project has no record of: the producer's words (the Operation id box is behind its Details control)
+      await page.click('#run-by-id > summary');
       await page.fill('#run-op', 'o99999999');
       await page.click('#run-open');
       await page.waitForSelector('#run-detail .run-error[data-run="refused"]', { timeout: 10_000 });

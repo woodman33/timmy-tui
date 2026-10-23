@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { contrastRatio, rgbToHex } from '../src/term/color.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { bearer, grant, nameProject } from './helpers/canvas-auth.js';
+import { projectId } from '../src/project/index.js';
 
 // Fourth order, step 5, the acceptance pass: Timmy Canvas in a real browser, against the real
 // server and the real bundle. Every request goes to 127.0.0.1; Timmy's own panel stays on screen and
@@ -44,7 +45,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     copyFileSync(join(repo, 'companion', 'studio-canvas', 'index.html'), join(root, 'index.html'));
     const { buildCanvas } = (await import('../scripts/canvas/build.mjs')) as { buildCanvas: (r: string, o: string, x: { licenses: string }) => Promise<unknown> };
     await buildCanvas(repo, join(root, 'dist'), { licenses: root });
-    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root });
+    // R5 (H133): the page's workspace strip asks the server for the frame, which reads Timmy's settings: this file's own folder
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: process.env.TIMMY_SETTINGS_DIR }, root });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     // the project the canvas shows, named as the REPL names it (no holder: no REPL takes card actions here)
     const project = join(home, 'project');
@@ -79,7 +81,22 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it('loads nothing from any host but 127.0.0.1, and says it is ready, saved', async () => {
     const { page, context, origins, errors } = await open();
     expect([...origins]).toEqual([base]);
-    expect(await page.textContent('#status')).toMatch(/^Canvas ready · tldraw 5\.5\.2 · .+ · Timmy connected · revision 0, saved$/);
+    // R10 (H167; the round's rule: diagnostics in a details control): the line says the canvas's state; tldraw's version and its
+    // license's verdict are the canvas's Details, under the save line (closed at first), beside the folder Timmy saves the board in
+    expect(await page.textContent('#status')).toBe('Canvas ready · ● Timmy connected · revision 0, saved');
+    expect(await page.textContent('#side-about-canvas')).toMatch(/^tldraw 5\.5\.2 · .+$/);
+    expect(await page.$eval('#side-about', (d) => (d as HTMLDetailsElement).open)).toBe(false);
+    // R5 (H137; QA defect 26): the bar beside the line is neutral (its facts are not live observations); only "● Timmy connected",
+    // the bridge's socket open now, is green, and only that part
+    const look = await page.evaluate(() => {
+      const st = document.getElementById('status')!;
+      const parts = [...st.querySelectorAll('*')].map((e) => ({ text: e.textContent, color: getComputedStyle(e).color }));
+      return { bar: getComputedStyle(st).borderLeftColor, line: getComputedStyle(st).color, parts };
+    });
+    const greens = ['rgb(40, 254, 20)', 'rgb(0, 215, 0)'];
+    expect(greens).not.toContain(look.bar);
+    expect(greens).not.toContain(look.line);
+    expect(look.parts).toEqual([{ text: '● Timmy connected', color: expect.stringMatching(/^rgb\((40, 254, 20|0, 215, 0)\)$/) }]);
     expect(errors).toEqual([]);
     await context.close();
   }, 60_000);
@@ -88,8 +105,21 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     const { page, context } = await open();
     try {
       await page.waitForSelector('#guide:not([hidden])');
-      expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas'));
+      // R6 (H139): the project's own board, in its own folder of the canvas folder. R10 (H167; the round's rule: no path on the
+      // face outside the inspector): the guide says where in words, and the folder itself is in the panel's Details
+      expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas', 'projects', projectId(join(home, 'project'))));
+      expect(await page.$eval('#guide-dir', (e) => !!e.closest('#side-about'))).toBe(true);
+      expect(await page.locator('#guide').textContent()).toContain('Timmy saves it for this project, in its home (the panel\'s Details say where), so it reopens where you left it.');
       expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
+      expect(await page.locator('#guide').textContent()).not.toContain(home);
+      // R5 (H137; QA defect 13): its heading is off-white (amber is focus and the one next step), and New board's Open is outlined:
+      // no fill of the page's own is amber (tldraw's own chrome, its selected tool, is tldraw's selection)
+      const look = await page.evaluate(() => ({
+        heading: getComputedStyle(document.querySelector('#guide strong')!).color, text: getComputedStyle(document.getElementById('side')!).color,
+        fills: [...document.querySelectorAll('body *')].filter((e) => !e.closest('.tlui-layout') && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').map((e) => e.id || e.tagName),
+      }));
+      expect(look.heading).toBe(look.text);
+      expect(look.fills).toEqual([]);
     } finally {
       await context.close();
     }
@@ -103,7 +133,9 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       await page.waitForTimeout(300);
       // Timmy's own elements: the status and the panel. tldraw's zones present at this size (no waiting for absent ones).
       const zones: Array<[string, Box]> = [];
-      for (const zone of ['.tlui-menu-zone', '.tlui-style-panel__wrapper', '.tlui-main-toolbar', '.tlui-navigation-panel']) {
+      // R6 (H145): the toolbar as drawn (.tlui-main-toolbar__inner), as R5 (H137) ruled in tests/studio-panel-layout-browser.test.ts:
+      // .tlui-main-toolbar is a full-width row that draws nothing at the left, where the panel may reach down to the navigation panel
+      for (const zone of ['.tlui-menu-zone', '.tlui-style-panel__wrapper', '.tlui-main-toolbar__inner', '.tlui-navigation-panel']) {
         const box = await (await page.$(zone))?.boundingBox();
         if (box) zones.push([zone, box]);
       }
@@ -128,10 +160,21 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         const bad = await post('/api/canvas/exec', { code: "throw new Error('on purpose');", jobId: `${tag}-b` });
         expect(good.ok, good.error).toBe(true);
         expect(bad.ok).toBe(false);
-        expect(await post(`/api/canvas/jobs/${tag}-a/receipt`, { receipt: 'a1b2c3d4' })).toEqual({ ok: true, job: `${tag}-a`, receipt: 'a1b2c3d4' });
+        expect(await post(`/api/canvas/jobs/${tag}-a/receipt`, { receipt: 'a1b2c3d4' })).toEqual({ ok: true, job: `${tag}-a`, receipt: 'a1b2c3d4', project: { id: projectId(join(home, 'project')), name: 'canvas-browser' } });
         // On a phone the jobs start folded: they are in the page before they are on screen.
         await page.waitForSelector(`#job-list li[data-job="${tag}-a"]`, { state: 'attached', timeout: 10_000 });
         await page.waitForSelector(`#job-list li[data-job="${tag}-b"]`, { state: 'attached', timeout: 10_000 });
+        // R6 lead (CI on #99 at 1165cbd): since H139 a job this page answered is listed at once with the page's own time, marked
+        // "answered here; Timmy records it next" (data-waiting), until the page reads Timmy's ledger. The rows compared with the
+        // ledger below are the recorded ones: wait for them (and for a's receipt), not for the first row drawn.
+        await page.waitForFunction((t) => {
+          const row = (id: string) => document.querySelector<HTMLElement>(`#job-list li[data-job="${id}"]`);
+          const a = row(`${t}-a`);
+          const b = row(`${t}-b`);
+          return !!a && !a.dataset.waiting && !!a.querySelector('.job-row[data-row="Receipt"] a') && !!b && !b.dataset.waiting;
+        }, tag, { timeout: 15_000 });
+        // R7 (H151): below 1100 px the panel's lists start folded behind #side-fold (the board keeps most of the window): opened first
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
         if (!(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open))) await page.click('#jobs > summary');
         const api = await getJson<Array<{ id: string; revision: number; at: string; ok: boolean }>>('/api/canvas/jobs');
         const read = (id: string) => page.$eval(`#job-list li[data-job="${id}"]`, (li) => ({
@@ -148,25 +191,33 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         expect(ra.state).toBe('✓ done');
         expect(rb.state).toBe('✖ failed');
         expect(ra.time.datetime).toBe(a.at);
-        expect(ra.time.text).toMatch(/^(\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?|.+ \d{1,2}:\d{2})/i);
-        expect(ra.canvas).toBe(`Canvas job ${tag}-a, rev ${a.revision}`);
-        expect(rb.canvas).toBe(`Canvas job ${tag}-b, rev ${b.revision}`);
-        expect(ra.receipt).toBe('Receipt a1b2c3d4');
+        // R5 (H137; the QA round, defect 6): the one time format, this computer's 24-hour clock (the date too on another day)
+        expect(ra.time.text).toMatch(/^(\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d$/);
+        // R10 (H167; the round's rule: ids behind a details control): the job by the revision it left and what it drew, its
+        // receipt by its page; the job's id and its receipt's are under the row's Details (closed at first)
+        expect(ra.canvas).toBe(`Canvas revision ${a.revision}: select what it drew`);
+        expect(rb.canvas).toBe(`Canvas revision ${b.revision}: select what it drew`);
+        expect(ra.receipt).toBe('Receipt open its page');
         expect(ra.receiptHref).toBe('/receipts/a1b2c3d4');
         expect(rb.receipt).toBe('Receipt not linked yet');
         expect(rb.receiptHref).toBeNull();
+        const more = (id: string) => page.$eval(`#job-list li[data-job="${id}"] .job-more`, (d) => ({ open: (d as HTMLDetailsElement).open, words: d.textContent }));
+        expect(await more(`${tag}-a`)).toEqual({ open: false, words: `Details job ${tag}-a · receipt a1b2c3d4` });
+        expect(await more(`${tag}-b`)).toEqual({ open: false, words: `Details job ${tag}-b` });
         // Readable: nothing clipped or sideways, the panel inside the screen and clear of tldraw's toolbar, text at 12px or more.
+        // R5 (H137): the toolbar as drawn (its inner part: .tlui-main-toolbar is a full-width container that draws nothing at the
+        // left), and the navigation panel at the bottom left: the panel now reaches down to whichever is under it, never over it
         const fit = await page.evaluate(() => {
           const side = document.getElementById('side')!;
           const sideBox = side.getBoundingClientRect();
-          const toolbar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+          const parts = [...document.querySelectorAll('.tlui-main-toolbar__inner, .tlui-navigation-panel')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
           const rows = [...document.querySelectorAll('#job-list li *')].filter((el) => el.children.length === 0 && el.textContent);
           return {
             sideway: side.scrollWidth > side.clientWidth + 1,
             clipped: rows.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
             smallest: Math.min(...rows.map((el) => parseFloat(getComputedStyle(el).fontSize))),
             inside: sideBox.left >= 0 && sideBox.right <= innerWidth && sideBox.bottom <= innerHeight,
-            overToolbar: toolbar ? sideBox.bottom > toolbar.top && sideBox.top < toolbar.bottom && sideBox.right > toolbar.left && sideBox.left < toolbar.right : false,
+            overToolbar: parts.some((b) => sideBox.bottom > b.top && sideBox.top < b.bottom && sideBox.right > b.left && sideBox.left < b.right),
           };
         });
         expect(fit, `${size.width}px`).toEqual({ sideway: false, clipped: [], smallest: expect.any(Number), inside: true, overToolbar: false });
@@ -193,7 +244,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       expect((await post('/api/canvas/exec', { code: 'return 1;', jobId: 'draws-nothing' })).ok).toBe(true);
       await page.waitForSelector('#job-list li[data-job="draws-nothing"]', { timeout: 10_000 });
       await page.click('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"] button');
-      await page.waitForFunction(() => /draws-nothing[\s\S]*no shapes of this job on this page/i.test(document.getElementById('job-list')!.textContent ?? ''));
+      await page.waitForFunction(() => /no shapes of this job on this page/i.test(document.querySelector('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"]')?.textContent ?? ''));
     } finally {
       await context.close();
     }
@@ -207,13 +258,19 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await page.keyboard.press('Enter');
     expect(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open)).toBe(true);
     await page.focus('#board-pick');
-    await page.keyboard.press('ArrowDown'); // the first template, after "Blank board"
+    await page.keyboard.press('ArrowDown'); // the first template, after "Blank board": R5 (H133) the first guided blank board
     await page.keyboard.press('Tab');
     expect(await page.evaluate(() => document.activeElement?.id)).toBe('board-open');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(400);
     const board = await page.evaluate(() => { const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => Array<{ type: string }> } } }).timmyCanvas.editor; return { page: e.getCurrentPage().name, frames: e.getCurrentPageShapes().filter((s) => s.type === 'frame').length }; });
-    expect(board).toEqual({ page: 'Prompt Lab', frames: 4 });
+    expect(board).toEqual({ page: 'Workflow: intent → predict → sandbox → review → receipt', frames: 5 });
+    // and a seed, further down the list, still opens as its title and an empty frame per capability
+    await page.selectOption('#board-pick', 'P63');
+    await page.click('#board-open');
+    await page.waitForTimeout(400);
+    const seed = await page.evaluate(() => { const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => Array<{ type: string }> } } }).timmyCanvas.editor; return { page: e.getCurrentPage().name, frames: e.getCurrentPageShapes().filter((s) => s.type === 'frame').length }; });
+    expect(seed).toEqual({ page: 'Prompt Lab', frames: 4 });
     // tldraw's own keys, once the canvas has focus: r picks the rectangle (geo) tool, Escape goes back.
     await page.mouse.click(700, 500);
     await page.keyboard.press('r');
@@ -222,6 +279,47 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     expect(await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getCurrentToolId: () => string } } }).timmyCanvas.editor.getCurrentToolId())).toBe('select');
     await context.close();
   }, 60_000);
+
+  // R5 (H133): "Templates shipped publicly start blank and guided, without private creative assets."
+  it('opens each guided blank board as its title, what it is for, and empty frames that say what goes where: text only, no image or asset', async () => {
+    const { guidedTemplates } = await import('../src/studio/templates.js');
+    const { page, context, errors } = await open();
+    try {
+      for (const t of guidedTemplates()) {
+        await page.selectOption('#board-pick', t.id);
+        await page.click('#board-open');
+        await page.waitForTimeout(300);
+        type S = { id: string; type: string; parentId: string; props: Record<string, unknown>; meta: Record<string, unknown> };
+        const board = await page.evaluate(() => {
+          const e = (window as never as { timmyCanvas: { editor: { getCurrentPage: () => { name: string }; getCurrentPageShapes: () => S[]; getBindingsFromShape: (id: string, t: string) => Array<{ toId: string }>; store: { allRecords: () => Array<{ typeName: string }> } } } }).timmyCanvas.editor;
+          const plain = (rich: unknown): string => { const out: string[] = []; const walk = (n: { text?: string; content?: unknown[] } | undefined) => { if (!n) return; if (typeof n.text === 'string') out.push(n.text); for (const c of n.content ?? []) walk(c as never); }; walk(rich as never); return out.join(''); };
+          const shapes = e.getCurrentPageShapes();
+          const frames = shapes.filter((s) => s.type === 'frame');
+          return {
+            page: e.getCurrentPage().name,
+            types: [...new Set(shapes.map((s) => s.type))].sort(),
+            frames: frames.map((f) => ({ name: f.props.name, hints: shapes.filter((s) => s.parentId === f.id).map((s) => ({ type: s.type, text: plain(s.props.richText), part: s.meta.timmyGuide })) })),
+            texts: shapes.filter((s) => s.type === 'text' && !frames.some((f) => f.id === s.parentId)).map((s) => plain(s.props.richText)),
+            arrows: shapes.filter((s) => s.type === 'arrow').map((a) => e.getBindingsFromShape(a.id, 'arrow').length),
+            template: [...new Set(shapes.map((s) => s.meta.timmyTemplate))],
+            assets: e.store.allRecords().filter((r) => r.typeName === 'asset').length,
+          };
+        });
+        // (a board opened again gets a number: the keyboard test above opened the first one already)
+        expect(board.page, t.id).toMatch(new RegExp(`^${t.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\d+)?$`));
+        expect(board.frames, t.id).toEqual(t.frames.map((f) => ({ name: f.name, hints: [{ type: 'text', text: f.guide, part: 'hint' }] })));
+        expect(board.texts, t.id).toEqual([t.title, t.intro]);
+        expect(board.template, t.id).toEqual([t.id]);
+        expect(board.types, t.id).toEqual(t.flow ? ['arrow', 'frame', 'text'] : ['frame', 'text']);
+        // the workflow's stages are joined left to right, each arrow bound at both ends
+        expect(board.arrows, t.id).toEqual(t.flow ? Array(t.frames.length - 1).fill(2) : []);
+        expect(board.assets, t.id).toBe(0);
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
 
   it("its own text clears 4.5:1 on what is behind it: the panel, the job marks, links, controls, the guide", async () => {
     const { page, context } = await open();
@@ -239,7 +337,8 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       const link = document.createElement('a'); link.href = '#'; link.textContent = 'receipt';
       const list = document.getElementById('job-list')!;
       list.append(ok, bad, link);
-      const els: Array<[string, Element, string?]> = [['status', document.getElementById('status')!], ['jobs', document.querySelector('#jobs summary')!], ['done', ok], ['failed', bad], ['link', link],
+      // R5 (H133): and the save line
+      const els: Array<[string, Element, string?]> = [['status', document.getElementById('status')!], ['save', document.getElementById('save-words')!], ['jobs', document.querySelector('#jobs summary')!], ['done', ok], ['failed', bad], ['link', link],
         ['label', document.querySelector('label[for="board-pick"]')!], ['select', document.getElementById('board-pick')!], ['button', document.getElementById('board-open')!], ['guide', document.getElementById('guide')!, canvasBg]];
       return els.map(([name, el, behind]) => ({ name, fg: getComputedStyle(el).color, bg: behind ?? bgOf(el) }));
     });
