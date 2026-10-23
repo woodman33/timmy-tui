@@ -277,7 +277,16 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
   const scroll = follow
     ? scrollFor(ui, list, [], { at: Math.max(0, view.lines.length - 1), height: at.rows, total: view.lines.length })
     : scrollFor(ui, list, view.items, { ...(i >= 0 ? { at: view.items[i].line, ...(span > 1 ? { end: view.items[i].line + span - 1 } : {}) } : {}), height: at.rows, total: view.lines.length, first: i === 0 });
-  const shown = view.lines.slice(scroll, scroll + at.rows);
+  let shown = view.lines.slice(scroll, scroll + at.rows);
+  // R11 (H167; step 2, H168's pass 4a R32): rows above the view (the person's own message after the first answer at 80x24)
+  // are said on the first row: how many earlier messages, and that ↑ moves to them
+  // (not over the selected message's own first row: a message moved to sits at the top with its YOU / TIMMY row whole)
+  if (scroll > 0 && !ui.overlay && at.rows > 1 && !(i >= 0 && !follow && view.items[i].line === scroll)) {
+    const above = view.items.filter((it) => it.item.kind === 'message' && it.line < scroll).length;
+    const up = g.unicode ? '↑' : '^';
+    const cue = above ? `${up} ${above} earlier ${above === 1 ? 'message' : 'messages'} ${g.sep} ${up} moves to ${above === 1 ? 'it' : 'them'}` : `${up} more above ${g.sep} ${up} moves up`;
+    shown = [[{ text: cue, role: 'secondary' }], ...view.lines.slice(scroll + 1, scroll + at.rows)];
+  }
   const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, full, focus: ui.focus });
   const regions: Frame['regions'] = { ...out.regions };
   return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };

@@ -368,6 +368,31 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   if (word && !drawer) put(2, [word]);
   const rule: Line = [S((g.unicode ? '─' : '-').repeat(w), 'border')];
   const mark = (on: boolean): Seg => S(on ? '> ' : '  ', 'accent');
+  // R11 (H167; step 2; H168's pass 4a R30): on the first run, before a choice, the four providers and their states only: no
+  // catalog rows and no cursor on a priced model; the center's question chooses, and that choice reads its list here
+  if (isFirstRun(c) && ui.modelsProvider === undefined) {
+    // (no [ Details ]: there is no list; the drawer keeps its [ Close ])
+    put(1, drawer ? [...head, S(' '.repeat(Math.max(1, w - lineCells(head) - button.length))), S(button, 'accent')] : head);
+    const stateOf = (id: string): Seg => {
+      const st = data.models?.providers?.find((x) => x.id === id);
+      if (id === 'ollama-local') {
+        const h = data.models?.ollama;
+        if (h?.state === 'listed') return S(`Ollama answered ${clock(h.at ?? new Date(c.now).toISOString()).slice(0, 5)}`, 'live');
+        if (h?.state === 'failed') return S(`Ollama did not answer${h.at ? ` ${clock(h.at).slice(0, 5)}` : ''}`, 'failure');
+        if (h?.state === 'reading') return S('asking Ollama…', 'attention');
+      }
+      if (!st) return S(id === 'ollama-local' ? 'not read yet' : 'not set up', 'secondary');
+      return S(st.state === 'checked' && st.at ? `${id === 'ollama-local' ? 'Ollama' : 'key'} checked ${clock(st.at).slice(0, 5)}` : st.state, st.state === 'checked' ? 'live' : st.state === 'refused' || st.state === 'unreachable' ? 'failure' : 'secondary');
+    };
+    let row = drawer ? 3 : 3;
+    if (drawer) put(2, rule);
+    PROVIDERS.forEach((x) => {
+      if (drawer) { put(row, [S('  '), S(x.label, 'text'), S('  '), stateOf(x.id)]); row += 1; }
+      else { put(row, [S('  '), S(x.label, 'text')]); put(row + 1, [S('    '), stateOf(x.id)]); row += 2; }
+    });
+    wrapText('Choose how chat runs: the question in the center (Enter on a choice) reads that provider\'s models here.', w).forEach((t, k) => put(row + 1 + k, [S(t, 'secondary')]));
+    return { lines, items: [], listFrom: n, listRows: 0, perItem: drawer ? 1 : 2 };
+  }
   if (drawer) {
     put(2, rule);
     const provs: Line = [];
@@ -427,8 +452,14 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   } else {
     const o = m?.ollama;
     put(at + 1, [S(o?.state === 'listed' ? `INSTALLED / read ${clock(o.at ?? new Date(c.now).toISOString()).slice(0, 5)}` : o?.state === 'reading' ? 'ASKING THE LOCAL OLLAMA' : o?.state === 'failed' ? `NO ANSWER${o.at ? ` / asked ${clock(o.at).slice(0, 5)}` : ''}` : 'NOT READ YET', 'secondary', { bold: true })]);
-    if (o?.state === 'failed' && o.why) wrapText(inWords(o.why), w).slice(0, 3).forEach((t, k) => put(at + 2 + k, [S(t, 'failure')]));
-    at += o?.state === 'failed' ? 6 : 3;
+    // (R11 H167, step 2; H168's pass 4a R33: the next step under the failure's words: start Ollama, then r asks again)
+    if (o?.state === 'failed') {
+      const why = o.why ? wrapText(inWords(o.why), w).slice(0, 3) : [];
+      why.forEach((t, k) => put(at + 2 + k, [S(t, 'failure')]));
+      const next = wrapText(NO_ANSWER_NEXT, w).slice(0, 2);
+      next.forEach((t, k) => put(at + 2 + why.length + k, [S(t, 'text')]));
+      at += 3 + why.length + next.length;
+    } else at += 3;
   }
   // the list, between `at` and the selected block (two rows a model; one in the drawer), scrolled so the cursor's rows show
   const listFrom = at;
@@ -677,8 +708,13 @@ export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Li
 
 /** The composer's placeholder while nothing is typed. */
 export const COMPOSER_PLACEHOLDER = 'Message TIMMY…';
-/** The chord hint beside [ Send ] (the playbook §17.2: Enter submits, Ctrl+J inserts a newline). */
-export const SEND_HINT = 'Enter sends · Ctrl+J newline';
+/** The chord hint beside [ Send ] while the composer has the keyboard (the playbook §17.2: Enter submits, Ctrl+J inserts a
+ *  newline; R11 step 2, the lead's Mac run: the way to Models from the composer, Tab to the chip and Enter there). */
+export const SEND_HINT = 'Enter sends · Ctrl+J newline · Tab then Enter: Models';
+/** Under NO ANSWER on Models' local list, and in Enter's notice there (R11 step 2; H168's pass 4a R33): the next step. */
+export const NO_ANSWER_NEXT = 'Start Ollama (ollama serve), then r asks again.';
+/** Beside [ Send ] while the composer lacks the keyboard (R11 step 2; H168's pass 4a R29): how it is opened. */
+export const OPEN_HINT = 'Enter or a letter opens the composer';
 
 /** A text as the composer's rows: each newline a row, a long row cut into pieces of `room` cells. */
 function textRows(text: string, room: number): string[] {
@@ -799,7 +835,7 @@ function composerRows(c: ShellCtx, w: number, wide: boolean): { lines: Line[]; c
   const on = rt.ready && !!rt.model && !data.route.unchosen;
   const send: Line = answering
     ? [S('[ Stop ]', 'accent', { bold: true }), S('  Esc stops the turn being answered', 'secondary')]
-    : [S('[ Send ]', on ? 'accent' : 'secondary', on ? { bold: true } : {}), S(on ? `  ${SEND_HINT}` : rt.model ? '  not sent: the route is not ready' : data.route.unchosen ? '  no model chosen: M chooses one' : '  no model: M chooses one', 'secondary')];
+    : [S('[ Send ]', on ? 'accent' : 'secondary', on ? { bold: true } : {}), S(on ? `  ${typing ? SEND_HINT : OPEN_HINT}` : rt.model ? '  not sent: the route is not ready' : data.route.unchosen ? '  no model chosen: M chooses one' : '  no model: M chooses one', 'secondary')];
   const chipFocus = ui.chip === true && ui.focus === 'center' && !typing;
   // (the chip whole: at the Send row's right where both fit (a terminal wider than the target's: at 122x37 the center's 69
   // cells hold the hint or the chip, not both), else on the row under it, flush left)

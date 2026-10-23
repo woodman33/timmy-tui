@@ -116,7 +116,8 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     // right, green with the time Ollama's listing answered /api/show for the route's model)
     expect(c.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
     // (the center's 69 cells hold the Send row's hint or the chip, not both: the chip on the row under it)
-    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    // (R11 step 2; H168's pass 4a R29: while the conversation has the keyboard, the row says how the composer opens)
+    expect(c[30]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     expect(c.slice(32, 34)).toEqual(['', '']);
     expect(f.screen[28].filter((s) => s.block).map((s) => s.text).join('')).toMatch(/^› Message TIMMY… +$/);
@@ -138,7 +139,8 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const cursor = typing.screen[28].find((s) => s.inverse);
     expect(cursor).toMatchObject({ text: ' ', block: true });
     expect(typing.screen[28].indexOf(cursor!)).toBe(typing.screen[28].findIndex((s) => s.text === 'Plan the next step.') + 1);
-    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    // (the lead's Mac run, R11 step 2: the way to Models from the composer, said beside Send)
+    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline · Tab then Enter: Models');
     expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b/);
     expect(typing.screen[30].find((s) => s.text === '[ Send ]')?.role).toBe('accent');
     // empty with the keyboard: the cursor, then the placeholder
@@ -196,7 +198,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     // at 80x24 the chip has its own row under [ Send ]; the header's row 1 is blank there (the chip says the next turn's model)
     const narrow = text(frame(local, ui(), 80, 24));
     expect(cols(narrow[1], 16, 79)).toBe('');
-    expect(narrow.map((r) => cols(r, 16, 79)).slice(16, 19)).toEqual(['› Message TIMMY…', '[ Send ]  Enter sends · Ctrl+J newline', expect.stringMatching(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/)]);
+    expect(narrow.map((r) => cols(r, 16, 79)).slice(16, 19)).toEqual(['› Message TIMMY…', '[ Send ]  Enter or a letter opens the composer', expect.stringMatching(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/)]);
     expect(frame(local, ui(), 80, 24).chip).toEqual({ x0: 16, x1: 16 + 50 - 1, y: 18 });
     // a long name is cut to the room, the state kept whole
     const longName = data({ route: { kind: 'local', words: 'chat: local fake-qwen3-coder-30b-a3b-instruct-with-a-very-long-tag:latest · Ollama', ready: true }, models: { ollama: { state: 'listed', where: 'Ollama', rows: ollamaRows([{ name: 'fake-qwen3-coder-30b-a3b-instruct-with-a-very-long-tag:latest', facts: 'x', chat: true }]), at: iso(1) } } } as unknown as Partial<Data>);
@@ -275,7 +277,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     // (R11 H167, step 1b/1c: one tinted row, [ Send ] with the chord hint, the chip on its own row; the header's row 1 blank)
     expect(cols(t[1], 16, 79)).toBe('');
     expect(c[16]).toBe('› Message TIMMY…');
-    expect(c[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[17]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     expect(c[22]).toBe('[Tools]  [Budget]  [Logs]  [More]');
     expect(c[23]).toMatch(/^Logs: this computer \/ idle +cloud sync off \/ 80 x 24$/);
@@ -290,7 +292,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(c[8]).toMatch(/^INSTALLED \/ read \d\d:\d\d$/);
     expect(c[10]).toBe('> FAKE fake-qwen3:8b / 8B · Q4_K_M');
     // (R11 H167: the drawer stops above the Send row: it and the chip stay in sight under it, the chip a click's target)
-    expect(c[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[17]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     expect(frame(data(), ui({ modelsOpen: true, focus: 'right', draft: 'kept words' }), 80, 24).chip).toEqual({ x0: 16, x1: 65, y: 18 });
     expect(t.map((r) => cols(r, 0, 13))[10]).toBe(' > Chat');
@@ -301,7 +303,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(or.slice(9, 13)).toEqual([expect.stringMatching(/^Sort: recent +Maker: All$/), expect.stringMatching(/^Capability: All +Cost: All$/), 'Context: All', '─'.repeat(62)]);
     // (R11: three rows of the list under the controls; the Send row and the chip below the drawer)
     expect(or.slice(14, 17)).toEqual(['> FIXTURE: Newest (free) / 262k context / Free', '  FIXTURE: Middle model / 1M context / price unknown', '  FIXTURE: Older model / 32k context / $0.50 / $1.50']);
-    expect(or[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(or[17]).toBe('[ Send ]  Enter or a letter opens the composer');
   });
 
   it('100x30 and 160x45 keep the grid: the compact rail and the drawer at 100, the wide grid with a taller conversation at 160', () => {
@@ -367,7 +369,20 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(t.join('\n')).not.toMatch(/Message TIMMY|\[ Send \]/);
     // the rail, Models and the bottom as on every Chat screen
     expect(cols(t[10], 0, 17)).toBe(' > Chat');
-    expect(models(t)[4]).toBe('MODELS [M]       [ Details ]');
+    // (R11 step 2; H168's pass 4a R30: before a choice the right pane lists the four providers' states only: no catalog rows,
+    // no cursor on a priced model, no [ Details ]; the local Ollama's state is its own answer to the listing)
+    expect(models(t)[4]).toBe('MODELS [M]');
+    expect(models(t).slice(6, 14)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', '    Ollama answered 16:39', '  Ollama cloud', '    not set up', '  Cloudflare (optional)', '    not set up']);
+    expect(models(t).slice(15, 20).join(' ').replace(/\s+/g, ' ').trim()).toBe('Choose how chat runs: the question in the center (Enter on a choice) reads that provider\'s models here.');
+    expect(f.screen[9].find((s) => s.text.startsWith('Ollama answered'))?.role).toBe('live');
+    expect(f.regions.right?.items).toEqual([]);
+    expect(t.join('\n')).not.toMatch(/FIXTURE: Newest|\$0\.50|> FAKE fake-qwen3:8b/);
+    // (a provider chosen in the center: its list, as before)
+    const chosen = models(text(frame(data(NONE), ui({ modelsProvider: 'ollama-local', firstRunDone: true }))));
+    expect(chosen[4]).toBe('MODELS [M]       [ Details ]');
+    // (the drawer at 80x24, M on the first run: the states on their rows)
+    const d = text(frame(data(NONE), ui({ modelsOpen: true, focus: 'right' }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(d.slice(6, 10)).toEqual(['  OpenRouter  not set up', '  Ollama local  Ollama answered 16:39', '  Ollama cloud  not set up', '  Cloudflare (optional)  not set up']);
     expect(cols(t[35], 20, 121)).toMatch(/^\[Attach\]  \[Tools\]/);
     // the guide shown: its text after its row (the rows between the choices go to make it room), deterministic: the official
     // pages, what is set up here
@@ -522,8 +537,10 @@ describe('the local list as the probe checks it; no SELECTED claim without a rou
     expect(m.slice(22, 26)).toEqual(['', 'Runs on this computer. A', 'local model does not require', 'a cloud account.']);
   });
 
-  it('with no route chosen (the first run) the cursor\'s model is MODEL, never SELECTED, and nothing says the next turn uses it; a non-chat one says so', () => {
-    const first = models(text(frame(local(NONE), ui())));
+  it('with no route chosen (the first run, Ollama / this computer chosen) the cursor\'s model is MODEL, never SELECTED, and nothing says the next turn uses it; a non-chat one says so', () => {
+    // (R11 step 2, R30: before a choice the first run's pane lists the providers' states; the list is read for the choice)
+    expect(models(text(frame(local(NONE), ui()))).slice(6, 10)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', '    Ollama answered 16:39']);
+    const first = models(text(frame(local(NONE), ui({ modelsProvider: 'ollama-local', firstRunDone: true }))));
     expect(first[28]).toBe('MODEL / clef-flash:latest');
     expect(first.join('\n')).not.toMatch(/SELECTED|next turn uses it/);
     expect(first[31]).toBe('Not a chat model (checked).');
@@ -716,6 +733,9 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
   it('R1: a failed listing is dated, and the footer says the route\'s model is not listed because Ollama did not answer', () => {
     const f = models(text(frame(data({ models: { ...data().models, ollama: { state: 'failed', where: 'Ollama', rows: [], at: iso(2), why: 'FIXTURE: refused' } } } as unknown as Partial<Data>), ui())));
     expect(f[12]).toMatch(/^NO ANSWER \/ asked \d\d:\d\d$/);
+    // (R11 step 2; H168's pass 4a R33: the failure's words, then the next step)
+    expect(f[13]).toBe('FIXTURE: refused');
+    expect(f.slice(14, 16).join(' ')).toBe('Start Ollama (ollama serve), then r asks again.');
     expect(f.slice(28, 31)).toEqual(['SELECTED', 'FAKE fake-qwen3:8b', 'Not listed: no answer.']);
   });
 
@@ -776,7 +796,7 @@ describe('R11 step 2a: the welcome of an empty conversation with a model on the 
     expect(f.regions.center?.items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line, x.rows])).toEqual([['ask', 7, 3], ['inspect', 10, 3], ['run', 13, 3], ['canvas', 16, 3]]);
     expect(t.join('\n')).not.toMatch(/No conversation here yet/);
     expect(c.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
-    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[30]).toBe('[ Send ]  Enter or a letter opens the composer');
     expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
   });
 
@@ -928,5 +948,24 @@ describe('R11 step 2b: the evidence line under each answer, and its activity (sr
     expect(turnWhere({ via: 'ollama', local: false })).toBe('another computer');
     expect(turnWhere({ via: 'openrouter' })).toBe('OpenRouter');
     expect(turnWhere({})).toBe('where not recorded');
+  });
+});
+
+describe('R11 step 2: H168\'s pass 4a R32: rows above the view are said on the conversation\'s first row', () => {
+  const long = (): Data => data({ chat: { session: 's1', total: 2, messages: [{ role: 'user', text: 'Summarise the newest run in one line.', at: at(3) }, { role: 'assistant', text: 'FAKE answer from a stand-in: the run wrote two files, read three, and the report block ended with its receipt sealed; the second line of the answer goes on about the files it read.', at: at(3) }] } } as unknown as Partial<Data>);
+  it('80x24, the conversation following its newest rows: "↑ 1 earlier message · ↑ moves to it" on the first row; 122x37 holds it whole, no cue', () => {
+    const c = text(frame(long(), ui(), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(c[7]).toBe('↑ 1 earlier message · ↑ moves to it');
+    expect(c.slice(8, 15).join('\n')).toMatch(/TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d[\s\S]*receipt d2d756db ✓/);
+    expect(c.slice(7, 15).join('\n')).not.toMatch(/YOU \//);
+    const wide = center(text(frame(long(), ui())));
+    expect(wide[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
+    expect(wide.join('\n')).not.toMatch(/earlier message/);
+    // the person moved to the earlier message (↑): its YOU row is the first row, whole, no cue over it
+    const up = text(frame(long(), ui({ chosen: { 'center:chat': true }, cursor: { 'center:chat': 0 }, sel: { 'center:chat': 'msg:0' } }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(up[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
+    // without Unicode a caret says it
+    const ascii = frameOf({ ui: ui(), data: long(), g: glyphsFor(false), columns: 80, rows: 24, now: NOW, can }).screen.map(plain).map((r) => cols(r, 16, 79));
+    expect(ascii[7]).toBe('^ 1 earlier message - ^ moves to it');
   });
 });

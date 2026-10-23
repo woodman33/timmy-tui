@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { ASK_DRAFT, CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, isWelcome, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, statusRoom, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { ASK_DRAFT, CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, isFirstRun, isWelcome, MODEL_CONTROLS, modelRows, moreControls, NO_ANSWER_NEXT, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, statusRoom, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { checkProvider, describeCheck, providerStates, type ProviderState } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -1091,6 +1091,15 @@ export class Controller {
     if (o && this.overlayKey(o, input, k)) return `the box ${o.kind}`;
     if (k.escape) { this.escape(); return 'Esc'; }
     if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return 'Tab'; }
+    // R11 (H167; step 2, H168's pass 4a R29): on the Chat screen the conversation's zone takes a printable key as the start of a
+    // message: the composer opens with it typed after the draft. The two keys the screen names keep their work (M: Models, ?:
+    // Help, "[M] Models" and "? Help" on screen); the first run's question has no composer (its choices take Enter)
+    if (this.chatShell() && !o && this.ui.focus === 'center' && !this.ui.input.field && !k.ctrl && !k.meta && [...input].length === 1 && !/[\x00-\x20\x7f]/.test(input) && input !== 'M' && input !== '?' && !isFirstRun({ ui: this.ui, data: this.data })) {
+      this.ui.input = { field: 'composer', text: `${this.ui.draft ?? ''}${input}` };
+      delete this.ui.draft;
+      this.emit();
+      return 'a letter: the composer opens with it typed';
+    }
     if (k.upArrow || (!k.ctrl && input === 'k')) { this.move(-1); return 'up'; }
     if (k.downArrow || (!k.ctrl && input === 'j')) { this.move(1); return 'down'; }
     if (k.pageUp) { this.move(-this.page()); return 'PgUp'; }
@@ -1486,10 +1495,17 @@ export class Controller {
       if (MODEL_CONTROLS[ctl] === 'search') this.openModelsSearch(); else this.cycleControl(1);
       return;
     }
+    // (R11 H167, step 2; H168's pass 4a R30: on the first run no list is drawn before a choice: nothing to choose here)
+    if (isFirstRun({ ui: this.ui, data: this.data }) && this.ui.modelsProvider === undefined) { this.say('Choose how chat runs first: the question in the center (Enter on a choice) lists that provider\'s models here.', 'secondary'); return; }
     const { rows, source } = modelRows({ ui: this.ui, data: this.data });
     // (the row drawn under the cursor: the person's, else the next turn's model's)
     const r = rows[Math.max(0, railCursor({ ui: this.ui, data: this.data }))];
-    if (!r) { this.say('No model is listed here to choose.', 'secondary'); return; }
+    // (R11 H167, step 2; H168's pass 4a, R33: the next step named: the local Ollama that did not answer is started, then r)
+    if (!r) {
+      const o = this.data.models?.ollama;
+      this.say(source === 'ollama-local' && o?.state === 'failed' ? `No model is listed here to choose: Ollama did not answer. ${NO_ANSWER_NEXT}` : source === 'ollama-local' && o?.state === 'reading' ? 'No model is listed here yet: Ollama is being asked.' : 'No model is listed here to choose.', 'secondary');
+      return;
+    }
     // R10 CHAT (H167; the lead's Mac check of 50237ef): a local model the probe's /api/show check does not establish as a chat
     // model (an embedding or a decision model) is never chosen for chat. R11 (step 1a): Enter on one asks Ollama once more and
     // says its answer beside the row (chooseLocal), so every outcome of a choice is one path and one set of words
