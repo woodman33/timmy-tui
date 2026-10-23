@@ -55,6 +55,9 @@ export const openHandsPlanHash = (o: OpenHandsOpts): string =>
 // Pinned runner image (scripts/oh-runner.Dockerfile); versions mirror the host
 // uv tool environment so local and containerized runs are comparable.
 export const OH_RUNNER_IMAGE = 'timmy-oh-runner:1.21.0';
+/** R11 (H170; Phase 0 item 4): the build is the operator's, run once in the repository root; Timmy never builds or pulls it. */
+export const OH_RUNNER_BUILD = `docker build -f scripts/oh-runner.Dockerfile -t ${OH_RUNNER_IMAGE} .`;
+export const OH_RUNNER_NOT_BUILT = `the image ${OH_RUNNER_IMAGE} is not built; build it yourself, in the repository root: ${OH_RUNNER_BUILD} (Timmy never builds or pulls it by itself; nothing was started)`;
 
 const HOST_PATH_RE = /\/Users\/|\/home\/|C:\\/;
 
@@ -98,6 +101,15 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
       appendEvent('openhands.not_configured', { plan_hash: planHash }, dir);
       return { ok: false, state: 'not_configured', note: 'docker daemon unavailable — isolation fails closed', plan_hash: planHash, receipt: rec.hash };
     }
+    // R11 (H170; Phase 0 item 4): inventory before install. The runner image is looked for and never built here (the auto-build
+    // ran a 600 s `docker build` with network when it was missing, against the inventory-before-install rule; the R4 route's
+    // --pull never is the model): absent, the run is refused before any workspace is made, with the one command that builds it.
+    const img = spawnSync('docker', ['image', 'inspect', OH_RUNNER_IMAGE], { encoding: 'utf8', timeout: 15000 });
+    if (img.status !== 0) {
+      const rec = appendReceipt('runs', { kind: 'run', subject: 'openhands runner image not built', policy: 'human-gated', status: 'failed', error_class: 'not_configured', plan_hash: planHash, discrepancies: [OH_RUNNER_NOT_BUILT], spans: [], artifacts: [] }, dir);
+      appendEvent('openhands.not_configured', { plan_hash: planHash, image: OH_RUNNER_IMAGE }, dir);
+      return { ok: false, state: 'not_configured', note: OH_RUNNER_NOT_BUILT, plan_hash: planHash, receipt: rec.hash };
+    }
   } else {
     const bin = spawnSync('openhands', ['--version'], { encoding: 'utf8', timeout: 15000 });
     if (bin.status !== 0) {
@@ -134,14 +146,7 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
   let child: ReturnType<typeof spawn>;
   let canaryAuthoritative = false;
   if (engine === 'docker') {
-    const img = spawnSync('docker', ['image', 'inspect', OH_RUNNER_IMAGE], { encoding: 'utf8', timeout: 15000 });
-    if (img.status !== 0) {
-      const b = spawnSync('docker', ['build', '-f', join(dir, 'scripts', 'oh-runner.Dockerfile'), '-t', OH_RUNNER_IMAGE, dir], { encoding: 'utf8', timeout: 600000 });
-      if (b.status !== 0) {
-        const rec = appendReceipt('runs', { kind: 'run', subject: 'openhands runner image build failed', policy: 'human-gated', status: 'failed', error_class: 'blocked', plan_hash: planHash, discrepancies: ['docker build failed'], spans: [], artifacts: [] }, dir);
-        return { ok: false, state: 'blocked', note: `runner image build failed: ${(b.stderr ?? b.stdout ?? '').slice(-300)}`, plan_hash: planHash, receipt: rec.hash };
-      }
-    }
+    // R11 (H170; Phase 0 item 4): the image was inventoried above; it is never built here (see OH_RUNNER_NOT_BUILT)
     child = spawn('docker', ['run', '--rm', '-i',
       '--cap-drop=ALL', '--security-opt', 'no-new-privileges',
       '--pids-limit', '256', '--memory', '2g', '--cpus', '2',
