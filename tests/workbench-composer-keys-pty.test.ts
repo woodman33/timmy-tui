@@ -56,7 +56,8 @@ describe('keys meant for the Workbench are never sent as a message (R10 H167, H1
     delete base.NODE_PATH;
     const env: NodeJS.ProcessEnv = {
       ...base, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'), XDG_STATE_HOME: join(home, '.local', 'state'),
-      XDG_CACHE_HOME: join(home, '.cache'), TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
+      // R10 CHAT (H167): this file checks the classic Chat tab; the Chat screen's shell that replaces it is tests/workbench-chat-shell.test.ts's
+      XDG_CACHE_HOME: join(home, '.cache'), TIMMY_WORKBENCH_CHAT: 'classic', TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'),
       TIMMY_SETTINGS_DIR: join(box, 'settings'), TMPDIR: join(box, 'tmp'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor', TIMMY_PALETTE: 'night',
       TMUX: '', TMUX_TMPDIR: box, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', PATH: `${bin}:${process.env.PATH ?? ''}`,
     };

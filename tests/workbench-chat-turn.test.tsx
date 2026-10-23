@@ -68,6 +68,9 @@ afterEach(async () => {
 
 function sandbox(): void {
   vi.stubEnv('TIMMY_HOME', home);
+  // R10 CHAT (H167): this file checks the classic Chat tab (row 2's actions, the pipeline, the event log); the Chat screen's
+  // shell that replaces it is tests/workbench-chat-shell.test.ts's
+  vi.stubEnv('TIMMY_WORKBENCH_CHAT', 'classic');
   vi.stubEnv('TIMMY_SETTINGS_DIR', join(box, 'settings'));
   vi.stubEnv('OPENROUTER_API_KEY', '');
 }
