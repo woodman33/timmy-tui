@@ -20,7 +20,6 @@ import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fle
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
-import { nextTurnLine } from './chat-shell.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -684,11 +683,13 @@ function chatView(c: ViewCtx): View {
     if (shell) {
       // R10 CHAT (H167): who spoke on a row of its own (YOU, TIMMY with the model the turn used, as its receipt names it), the
       // words under it, a blank row between messages
+      // (the operator's terminal target, 2026-10-22: YOU grey, TIMMY bold, the words under each at the same column)
       const used = m.role === 'assistant' ? turnModel(data, m.at) : null;
-      const body = messageRows(m.text, Math.max(8, c.width - 4));
+      const body = messageRows(m.text, Math.max(8, c.width));
       const at = lines.length;
-      lines.push(row([S(who.toUpperCase(), m.role === 'user' ? 'strong' : 'ai', { bold: true }), ...(used ? [S(` ${g.sep} ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary')] : []), ...(m.at !== undefined ? [S(` ${g.sep} ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary')] : [])], sel, g));
-      for (const b of body) lines.push([S('  ', 'text', sel ? { selected: true } : {}), S(`  ${b}`, 'text', sel ? { selected: true } : {})]);
+      const on = sel ? { selected: true } : {};
+      lines.push([S(who.toUpperCase(), m.role === 'user' ? 'secondary' : 'strong', { ...(m.role === 'user' ? {} : { bold: true }), ...on }), ...(used ? [S(` / ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary', on)] : []), ...(m.at !== undefined ? [S(` / ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary', on)] : [])]);
+      for (const b of body) lines.push([S(b, 'text', on)]);
       items.push({ line: at, item, rows: lines.length - at });
       lines.push(blank);
       return;
@@ -736,10 +737,10 @@ function chatView(c: ViewCtx): View {
       else lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     }
   }
-  if (!shell) lines.push(blank);
+  // R10 CHAT (H167): in the shell the conversation ends here; the shell draws MESSAGE, the composer and its action row
+  if (shell) return { lines, items };
+  lines.push(blank);
   const footFrom = lines.length;
-  // R10 CHAT (H167): the next turn's line above the composer (its model, provider and where it runs; Change model is [M])
-  if (shell) lines.push(nextTurnLine(c, c.width));
   // R10 (H167): the composer, a box of its own at the conversation's end (references 02 and 11: the prompt row under the
   // stream), amber while it has the keyboard; its foot says where the message goes
   // (R10 CHAT H167: in the shell the next turn's line above the composer says where it goes)

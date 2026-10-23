@@ -11,11 +11,11 @@ import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, ta
 import type { WorkspaceConnection } from '../contracts/workspace.js';
 import { headerRows, homeSideView, selectedHome } from './home-journey.js';
 import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
-import { headerLine, modelsRailView, railScreen, railView, shellBottomView } from './chat-shell.js';
+import { chatScreen, convoRowsAt } from './chat-shell.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
-import { clock, count, fit, type Line } from './text.js';
+import { fit, type Line } from './text.js';
 import { bottomView, centerView, chatFollows, cursorOf, navView, rightView, runWords, selectedItem, stopWords, topLines, type ViewCtx } from './views.js';
 
 export interface RegionDraw {
@@ -241,101 +241,27 @@ export function frameOf(a: FrameAsk): Frame {
 }
 
 /**
- * R10 CHAT (H167): the Chat screen's frame: the rail (region nav), the header, the conversation and its composer (center),
- * Models or, with [i], the Inspector (right), this conversation's controls and the status line (bottom). Each list scrolled so
- * its selected row shows; every row exactly the terminal's width.
+ * R10 CHAT (H167): the Chat screen's frame (src/workbench/chat-shell.ts chatScreen, the operator's terminal target's grid):
+ * the rail (region nav), the header, the conversation and the composer (center), Models (right; a drawer below 110 columns),
+ * this conversation's actions and the status row (bottom). A box opened over the conversation (the Keys, a NEEDS YOU box, a
+ * setup box) is drawn in the conversation's place. Every row exactly the terminal's width.
  */
 function chatFrame(a: FrameAsk, layout: Layout): Frame {
   const { ui, data, g } = a;
-  const placed: Placed[] = [];
-  const regions: Frame['regions'] = {};
-  const ctx = (r: Rect): ViewCtx => ({ ui, data, g, width: Math.max(1, innerWidth(r.w)), height: Math.max(1, r.h - 2), now: a.now, can: a.can, columns: a.columns, shell: true });
-  const sep = ` ${g.sep} `;
-
-  // the rail, the whole height at the left
-  const rail = layout.nav!;
-  const rv = railView({ ui, data, g, width: rail.w - 1, height: rail.h, now: a.now }, ui.focus === 'nav');
-  placed.push({ rect: rail, rows: railScreen(rv, rail.w, rail.h, g, ui.focus === 'nav') });
-  regions.nav = { rect: rail, list: 'rail', items: rv.items, scroll: 0, fixed: 0, height: rail.h, total: rv.lines.length };
-
-  // the header: the project / Chat, saved, the next turn's route, Models and Keys; then the conversation's facts; a rule
-  {
-    const h = layout.tabs;
-    const w = Math.max(1, h.w - 2);
-    const newest = data.turns?.[0];
-    const facts: Line = [{ text: ' ' }, { text: data.chat.session ? `Saved locally${sep}${count(data.chat.total, 'message')} kept in this project` : data.chat.error ? 'The conversation could not be read' : 'Not saved yet: no conversation is kept in this project', role: 'secondary' },
-      ...(newest ? [{ text: `${sep}last turn ${newest.state} ${clock(newest.at).slice(0, 5)}${newest.receipt ? `${sep}its receipt sealed` : ''}`, role: 'secondary' as const }] : [])];
-    const rule: Line = [{ text: (g.unicode ? '─' : '-').repeat(h.w), role: 'border' }];
-    placed.push({ rect: h, rows: [fit([{ text: ' ' }, ...headerLine({ ui, data, g, width: w, height: 1, now: a.now }, w)], h.w, g.ellipsis), fit(facts, h.w, g.ellipsis), rule] });
-  }
-
-  // the conversation and its composer (src/workbench/views.ts chatView in the shell's form), or a box opened over it
-  if (layout.center) {
-    const c = ctx(layout.center);
-    const view = centerView(c);
-    const bodyH = Math.max(1, c.height);
-    const foot = Math.min(view.footRows ?? 0, view.lines.length);
-    const v: View = foot && view.lines.length < bodyH
-      ? { ...view, lines: [...view.lines.slice(0, view.lines.length - foot), ...Array.from({ length: bodyH - view.lines.length }, (): Line => []), ...view.lines.slice(view.lines.length - foot)] }
-      : view;
-    const list = ui.overlay ? 'overlay' : 'center:chat';
-    const i = v.items.length ? cursorOf(ui, list, v.items.length) : -1;
-    const span = i >= 0 ? v.items[i].rows ?? 1 : 1;
-    const follow = list === 'center:chat' && chatFollows(ui);
-    const scroll = follow
-      ? scrollFor(ui, list, [], { at: Math.max(0, v.lines.length - 1), height: bodyH, total: v.lines.length })
-      : scrollFor(ui, list, v.items, { ...(i >= 0 ? { at: v.items[i].line, ...(span > 1 ? { end: v.items[i].line + span - 1 } : {}) } : {}), height: bodyH, total: v.lines.length, first: i === 0 });
-    const title = ui.overlay ? overlayTitle(ui) : 'Conversation';
-    const note = rangeNote(scroll, bodyH, v.lines.length);
-    placed.push({ rect: layout.center, rows: panel({ title, lines: v.lines.slice(scroll, scroll + bodyH), focused: ui.focus === 'center', ...(note ? { note } : {}) }, layout.center, g) });
-    regions.center = { rect: layout.center, list, items: v.items, scroll, fixed: 0, height: bodyH, total: v.lines.length };
-  }
-
-  // Models (or, with [i], the Inspector): its choices and filters stay at the top, the selected model's detail at the foot,
-  // and the rows between scroll to the selected one
-  if (layout.right && ui.rightOpen) {
-    const c = ctx(layout.right);
-    const v = rightView(c);
-    const list = `right:${ui.tab}`;
-    const fixed = 2;
-    const body = Math.max(1, c.height - fixed);
-    const rest = v.lines.slice(fixed);
-    const items = v.items.map((x) => ({ ...x, line: x.line - fixed }));
-    const i = items.length ? cursorOf(ui, list, items.length) : -1;
-    const scroll = scrollFor(ui, list, items, { ...(i >= 0 ? { at: items[i].line } : {}), height: body, total: rest.length, first: i === 0 });
-    placed.push({ rect: layout.right, rows: panel({ title: 'Context', lines: [...v.lines.slice(0, fixed), ...rest.slice(scroll, scroll + body)], focused: ui.focus === 'right', footer: 'Esc closes' }, layout.right, g) });
-    regions.right = { rect: layout.right, list, items, scroll, fixed, height: body, total: rest.length };
-  } else if (layout.right) {
-    const r = layout.right;
-    const width = Math.max(1, innerWidth(r.w));
-    const height = Math.max(1, r.h - 2);
-    const mv = modelsRailView({ ui, data, g, width, height, now: a.now }, ui.focus === 'right');
-    const footN = Math.min(mv.footRows ?? 0, mv.lines.length);
-    const top = mv.items.length ? mv.items[0].line : mv.lines.length - footN;
-    const head = mv.lines.slice(0, top);
-    const rest = mv.lines.slice(top, mv.lines.length - footN);
-    const det = mv.lines.slice(mv.lines.length - footN);
-    const body = Math.max(1, height - head.length - det.length);
-    const items = mv.items.map((x) => ({ ...x, line: x.line - top }));
-    const i = items.length ? cursorOf(ui, 'right:models', items.length) : -1;
-    const scroll = scrollFor(ui, 'right:models', items, { ...(i >= 0 ? { at: items[i].line, end: items[i].line + 1 } : {}), height: body, total: rest.length, first: i === 0 });
-    const shown = rest.slice(scroll, scroll + body);
-    const lines = [...head, ...shown, ...Array.from({ length: Math.max(0, body - shown.length) }, (): Line => []), ...det];
-    const note = rest.length > body ? `${scroll + 1}–${Math.min(rest.length, scroll + body)} of ${rest.length} rows` : mv.note;
-    placed.push({ rect: r, rows: panel({ title: mv.title, lines, focused: ui.focus === 'right', note, ...(layout.modelsDrawer ? { footer: 'Esc closes' } : {}) }, r, g) });
-    regions.right = { rect: r, list: 'right:models', items, scroll, fixed: head.length, height: body, total: rest.length };
-  }
-
-  // this conversation's controls, the status line and the keys
-  {
-    const b = layout.bottom;
-    const c = ctx(b);
-    const bv = shellBottomView({ ui, data, g, width: c.width, height: c.height, now: a.now }, ui.focus === 'bottom');
-    placed.push({ rect: b, rows: panel({ title: 'This conversation', lines: bv.lines, focused: ui.focus === 'bottom' }, b, g) });
-    regions.bottom = { rect: b, list: 'shellBottom', items: bv.items, scroll: 0, fixed: 0, height: Math.max(1, c.height), total: bv.lines.length };
-  }
-
-  return { screen: compose(layout, placed), layout, regions, tabs: [], pages: [], actions: [] };
+  const at = convoRowsAt(a.columns, a.rows);
+  const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, shell: true };
+  const view = centerView(c);
+  const list = ui.overlay ? 'overlay' : 'center:chat';
+  const i = view.items.length ? cursorOf(ui, list, view.items.length) : -1;
+  const span = i >= 0 ? view.items[i].rows ?? 1 : 1;
+  const follow = list === 'center:chat' && chatFollows(ui);
+  const scroll = follow
+    ? scrollFor(ui, list, [], { at: Math.max(0, view.lines.length - 1), height: at.rows, total: view.lines.length })
+    : scrollFor(ui, list, view.items, { ...(i >= 0 ? { at: view.items[i].line, ...(span > 1 ? { end: view.items[i].line + span - 1 } : {}) } : {}), height: at.rows, total: view.lines.length, first: i === 0 });
+  const shown = view.lines.slice(scroll, scroll + at.rows);
+  const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, focus: ui.focus });
+  const regions: Frame['regions'] = { ...out.regions };
+  return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [] };
 }
 
 /** R10 (H167): what Enter does on a connection of Home's list, in words (the controller's activate does it): the companion's and
