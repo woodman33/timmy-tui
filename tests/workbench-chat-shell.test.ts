@@ -125,7 +125,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
   it('Models for the local route: MODELS [ Details ] (amber with the keyboard), the four providers, INSTALLED, the list, SELECTED / the model', () => {
     const f = frame(data(), ui({ focus: 'right' }));
     const m = models(text(f));
-    expect(m[4]).toBe('MODELS           [ Details ]');
+    expect(m[4]).toBe('MODELS [M]       [ Details ]');
     expect(f.screen[4].find((s) => s.text === 'MODELS')?.role).toBe('accent');
     expect(m.slice(6, 10)).toEqual(['  OpenRouter', '> Ollama local', '  Ollama cloud', '  Cloudflare (optional)']);
     expect(m[12]).toMatch(/^INSTALLED \/ read \d\d:\d\d$/);
@@ -140,7 +140,8 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const m = models(text(frame(data(OPENROUTER), ui({ focus: 'right' }))));
     expect(m.slice(6, 10)).toEqual(['> OpenRouter', '  Ollama local', '  Ollama cloud', '  Cloudflare (optional)']);
     expect(m[11]).toBe('Search name or model id');
-    expect(m.slice(13, 19)).toEqual(['Sort       recent', 'Maker      All', 'Capability All', 'Cost       Free only', 'Context    All', '─'.repeat(28)]);
+    // (H168's pass 3a, R3: Cost says whether its value is the person's or the route's: free-only here, so Free (route))
+    expect(m.slice(13, 19)).toEqual(['Sort       recent', 'Maker      All', 'Capability All', 'Cost       Free (route)', 'Context    All', '─'.repeat(28)]);
     expect(m.slice(20, 23)).toEqual(['> FIXTURE: Newest (free)', '  262k context / Free', '']);
     expect(m.slice(28, 34)).toEqual(['SELECTED', 'FIXTURE: Newest (free)', 'A FIXTURE model added last…', 'The next turn uses it.', '$0 in / $0 out / 1M tokens', 'Catalog snapshot: Sep 7']);
     // Cost All: every model, Recently added (the catalog's added date) first; a priced one is not the free-only route's
@@ -169,7 +170,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
 });
 
 describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-chat-80x24, 06-models-drawer-80x24)', () => {
-  it('the rail 0-13, the separator at 14, the center 15-79; [ Models ] on the title row; [Tools] [Budget] [Logs] [More]', () => {
+  it('the rail 0-13, the separator at 14, the center 15-79; [M] Models on the title row (its key; H168\'s pass 3a R7); [Tools] [Budget] [Logs] [More]', () => {
     expect(chatGrid(80, 24)).toMatchObject({ railW: 14, centerX: 15, centerW: 65, cx: 16, cw: 62, sepR: null, contentH: 18 });
     const t = text(frame(data(), ui(), 80, 24));
     expect(t).toHaveLength(24);
@@ -177,7 +178,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     for (let y = 3; y < 24; y++) expect([...t[y]][14]).toBe('│');
     expect(cols(t[0], 16, 26)).toBe('tray / Chat');
     expect(cols(t[0], 64, 79)).toBe('LOCAL RECORDS');
-    expect(cols(t[4], 16, 79)).toMatch(/^CHAT \/ tray +\[ Models \]$/);
+    expect(cols(t[4], 16, 79)).toMatch(/^CHAT \/ tray +\[M\] Models$/);
     const rail = t.map((r) => cols(r, 0, 13));
     expect(rail.slice(4, 8)).toEqual(['  PROJECT', '  tray', '', '  + New']);
     expect(rail.slice(10, 19)).toEqual([' > Chat', '   Studio', '   Workflows', '   VoxVision', '   Motion', '   Control', '   Files', '   Logs', '   Connections']);
@@ -213,7 +214,7 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     const m = text(frame(data(), ui(), 100, 30));
     for (const r of m) expect([...r].length).toBe(100);
     expect([...m[10]][14]).toBe('│');
-    expect(cols(m[4], 16, 99)).toMatch(/^CHAT \/ tray +\[ Models \]$/);
+    expect(cols(m[4], 16, 99)).toMatch(/^CHAT \/ tray +\[M\] Models$/);
     const w = text(frame(data(), ui(), 160, 45));
     for (const r of w) expect([...r].length).toBe(160);
     expect([...w[10]][18]).toBe('│');
@@ -246,7 +247,8 @@ describe('Models\' query (H169\'s queryCatalog shape, drawn here until the switc
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent', cost: 'paid' }).rows.map((r) => r.id)).toEqual(['fixture-maker/older-model']);
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent', minContext: 200_000 }).rows.map((r) => r.id)).toEqual(['fixture-maker/newest-model:free', 'other-maker/middle-model']);
     expect(queryRows(rows, { source: 'openrouter', sort: 'recent', search: 'MIDDLE' }).rows.map((r) => r.id)).toEqual(['other-maker/middle-model']);
-    expect(queryRows(rows, { source: 'openrouter', sort: 'recent' })).toMatchObject({ total: 3, makers: ['fixture-maker', 'other-maker'] });
+    // (the source's makers as H169's query gives them, for the Maker control: H168's pass 3a, R3)
+    expect(queryRows(rows, { source: 'openrouter', sort: 'recent' })).toMatchObject({ total: 3, makers: [{ id: 'fixture-maker', count: 2 }, { id: 'other-maker', count: 1 }] });
   });
 });
 
@@ -271,7 +273,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(t.join('\n')).not.toMatch(/MESSAGE|\[ Send \]/);
     // the rail, Models and the bottom as on every Chat screen
     expect(cols(t[10], 0, 17)).toBe(' > Chat');
-    expect(models(t)[4]).toBe('MODELS           [ Details ]');
+    expect(models(t)[4]).toBe('MODELS [M]       [ Details ]');
     expect(cols(t[35], 20, 121)).toMatch(/^\[Attach\]  \[Tools\]/);
     // the guide shown: its text after its row (the rows between the choices go to make it room), deterministic: the official
     // pages, what is set up here
@@ -284,7 +286,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
   it('at 80x24 the choices without the rows between them, as the target; the advanced choice and the guide below them', () => {
     const t = text(frame(data(NONE), ui(), 80, 24));
     const c = t.map((r) => cols(r, 16, 79));
-    expect(c[4]).toMatch(/^WELCOME TO TIMMY +\[ Models \]$/);
+    expect(c[4]).toMatch(/^WELCOME TO TIMMY +\[M\] Models$/);
     expect(c.slice(7, 9)).toEqual(['How would you like to run chat?', 'Choose one. You can add the others later.']);
     expect(c.slice(10, 20)).toEqual([
       '> [ OpenRouter / cloud ]', '  Sign in with OpenRouter in your browser, or paste a key.',
@@ -307,7 +309,8 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: a draft']);
     // with a conversation kept, the conversation (the header and the composer say what is missing)
     const kept = center(text(frame(data({ ...NONE, chat: data().chat }), ui({ firstRunDone: true }))));
-    expect(kept[7]).toBe('Not ready  timmy init (in a shell) sets up a route');
+    // (H168's pass 3a, R4: in the Chat screen's words, Models chooses the model)
+    expect(kept[7]).toBe('Not ready  no model for the next turn: Models (M) chooses one');
     expect(kept[9]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(kept[29]).toBe('Connect a model to chat (a draft is kept)');
   });
@@ -521,5 +524,53 @@ describe('Connect OpenRouter\'s box (R10 CHAT H167; the lead\'s Mac check of 502
     expect(no).toContain('OpenRouter: nothing was saved');
     expect(no).toContain('> [ Sign in again ]');
     expect(no).toContain('  [ Paste a key ]');
+  });
+});
+
+describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, R4, R7, R10', () => {
+  it('R3: the control the keyboard is on says so, its value between < >; Cost says whether its value is the person\'s, the default or the route\'s; the query keeps what the filters say', () => {
+    const cost = models(text(frame(data(OPENROUTER), ui({ focus: 'right', modelsControl: 4 }))));
+    expect(cost[16]).toBe('Cost       < Free (route) >');
+    expect(models(text(frame(data(), ui({ focus: 'right', modelsProvider: 'openrouter' }))))[16]).toBe('Cost       All (default)');
+    expect(models(text(frame(data(), ui({ focus: 'right', modelsProvider: 'openrouter', modelsCost: 'all' }))))[16]).toBe('Cost       All');
+    // Maker and Context set (H169's query: maker, minContext): only what both keep
+    const maker = models(text(frame(data(OPENROUTER), ui({ focus: 'right', modelsControl: 2, modelsMaker: 'other-maker', modelsContext: 128_000, modelsCost: 'all' }))));
+    // (both FIXTURE makers' labels are "FIXTURE": the id says which, never the same word for two makers)
+    expect(maker[14]).toBe('Maker      < other-maker >');
+    expect(maker[17]).toBe('Context    128k or more');
+    expect(maker.slice(20, 23)).toEqual(['> FIXTURE: Middle model', '  1M context / price unknown', '']);
+    // Search typed into: each key filters
+    const search = models(text(frame(data(OPENROUTER), ui({ focus: 'right', modelsControl: 0, modelsCost: 'all', modelsSearch: 'older', input: { field: 'msearch', text: 'older' } }))));
+    expect(search[11]).toBe('Search older');
+    expect(search.slice(20, 23)).toEqual(['> FIXTURE: Older model', '  32k context / $0.50/$1.50', '']);
+    // the drawer at 80x24: the pair under the keyboard
+    const d = text(frame(data(OPENROUTER), ui({ modelsOpen: true, focus: 'right', modelsControl: 4 }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(d[10]).toMatch(/^Capability: All +Cost: < Free \(route\) >$/);
+  });
+
+  it('R1: a failed listing is dated, and the footer says the route\'s model is not listed because Ollama did not answer', () => {
+    const f = models(text(frame(data({ models: { ...data().models, ollama: { state: 'failed', where: 'Ollama', rows: [], at: iso(2), why: 'FIXTURE: refused' } } } as unknown as Partial<Data>), ui())));
+    expect(f[12]).toMatch(/^NO ANSWER \/ asked \d\d:\d\d$/);
+    expect(f.slice(28, 31)).toEqual(['SELECTED', 'FAKE fake-qwen3:8b', 'Not listed: no answer.']);
+  });
+
+  it('R4: a kept conversation with no model says so in the Chat screen\'s words, with no garbled cause', () => {
+    const refusal = ['Error: no model key, and the chat is not set to the local model, so this message was not sent.', 'Cause: no OPENROUTER_API_KEY, and the setup stored no key; its chat answer is OpenRouter, or none yet.', 'Try: timmy init --chat openrouter (it asks for the key, hidden)'];
+    const t = center(text(frame(data({ route: { kind: 'none', words: 'chat: no model key · /setup', ready: false, refusal } } as unknown as Partial<Data>), ui())));
+    expect(t.join('\n')).toMatch(/Not ready +no model for the next turn: Models \(M\) chooses one/);
+    expect(t.join('\n')).not.toMatch(/Cause|a setting \(\[i\]\)/);
+  });
+
+  it('R7: Models\' key on the screen: [M] beside MODELS, [M] Models on the compact title row', () => {
+    expect(models(text(frame(data(), ui())))[4]).toMatch(/^MODELS \[M\] +\[ Details \]$/);
+    expect(cols(text(frame(data(), ui(), 80, 24))[4], 16, 79)).toMatch(/^CHAT \/ tray +\[M\] Models$/);
+  });
+
+  it('R10: Help (?) on the Chat screen lists its own keys (the pane order, M, /, i, the drawers), not the tabbed layout\'s', () => {
+    const h = center(text(frame(data(), ui({ overlay: { kind: 'help' } } as Partial<Ui>))));
+    const all = h.join('\n');
+    expect(all).toMatch(/Tab +the next pane: the left menu, the conversation,/);
+    expect(all).toMatch(/M +Models: beside the conversation, or a drawer below/);
+    expect(all).not.toMatch(/row 1|row 2|◆|the ten tabs/);
   });
 });

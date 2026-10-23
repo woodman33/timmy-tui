@@ -18,6 +18,8 @@ import { Workspace } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { Controller, type ControllerDeps } from '../src/workbench/controller.js';
 import type { SignIn, SignInResult } from '../src/setup/openrouter-signin.js';
+import type { ChatRouteState, ChatSession, ChatTurnResult } from '../src/contracts/chat-session.js';
+import type { Producers } from '../src/workbench/producers.js';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
 import type { SetupDeps } from '../src/workbench/setup-paths.js';
@@ -90,6 +92,28 @@ function workbench(p: { name: string; root: string; chosen: boolean }, setup: Pa
   opened.push(c);
   return c;
 }
+
+/** FAKE: a chat session in the contract's shape that asks no model: its route the test's, each message answered by `answer`
+ *  (by default at once, a FAKE answer); how many messages it was given. */
+function fakeSession(o: { route?: ChatRouteState; answer?: (text: string, signal?: AbortSignal) => Promise<ChatTurnResult> } = {}): { producers: Producers; sends: () => number } {
+  let sends = 0;
+  const session: ChatSession = {
+    route: () => o.route ?? { kind: 'local', words: 'chat: local fake-qwen3:8b · Ollama', ready: true },
+    send: async (text, hooks) => {
+      sends++;
+      return o.answer ? o.answer(text, hooks.signal) : { status: 'answered', text: 'FAKE answer (no model behind it).', sent: true, costWords: 'no charge (FAKE)' };
+    },
+    sendOnce: async (_key, text, hooks) => session.send(text, hooks),
+  };
+  return { producers: { runDetail: async () => ({ ok: false, why: 'FIXTURE: none' }), openChat: async () => ({ ok: true, value: async () => session }) }, sends: () => sends };
+}
+
+/** FIXTURE: three models of a catalog "shipped" on a FIXTURE day (one free, one priced, one with no price) */
+const FIXTURE_CATALOG = [
+  { id: 'fixture-maker/older-model', name: 'FIXTURE: Older model', created: 1_700_000_000, context_length: 32_000, pricing: { prompt: '0.0000005', completion: '0.0000015' } },
+  { id: 'fixture-maker/newest-model:free', name: 'FIXTURE: Newest (free)', created: 1_790_000_000, context_length: 262_144, pricing: { prompt: '0', completion: '0' } },
+  { id: 'other-maker/middle-model', name: 'FIXTURE: Middle model', created: 1_750_000_000, context_length: 1_000_000 },
+];
 
 /** The frame at 122x37 (drawn, so the next key meets the screen as shown), its rows as text. */
 const shown = (c: Controller): string[] => c.frame(122, 37).screen.map(rowText);
@@ -327,5 +351,199 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     // what was typed was never on the screen, at any step
     for (const f of frames) { expect(f).not.toContain(KEY); expect(f).not.toContain('FIXTURE-short'); }
     expect(c.ui.input).toEqual({ field: null, text: '' });
+  });
+});
+
+describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7, R8, R9', { timeout: 60_000 }, () => {
+  const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
+  const mid = (rows: string[]) => rows.map((r) => cols(r, 20, 89));
+
+  it('R4: a fresh home\'s message with no model is not sent, as the route says, even with its session open: the no-model view and its choices stay; no garbled cause', async () => {
+    const p = homeWithModel('r4fresh', false);
+    // a fresh home's setup: no chat answer at all (no key, no local model: the route is none)
+    writeFileSync(join(process.env.TIMMY_HOME ?? '', 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'Sample', ollama: 'http://127.0.0.1:9', project: 'r4fresh' } }));
+    const fake = fakeSession({ route: { kind: 'none', words: 'chat: no model key · /setup', ready: false } });
+    const c = workbench(p, {}, { producers: fake.producers });
+    // (the producers load at start, as `timmy workbench` starts it: the FAKE session opens then)
+    c.start();
+    for (const end = Date.now() + 5_000; Date.now() < end && !c.can().chat; await sleep(20)) shown(c);
+    expect(c.can().chat, 'the session opened: it would take a message').toBe(true);
+    let t = shown(c);
+    expect(cols(t[4], 20, 89)).toBe('WELCOME TO TIMMY');
+    for (let i = 0; i < 3; i++) press(c, '', { downArrow: true });
+    press(c, '\r', ENTER);
+    press(c, '', { downArrow: true });
+    press(c, '', { downArrow: true });
+    t = press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('composer');
+    press(c, 'FIXTURE: a message with no model');
+    t = press(c, '\r', ENTER);
+    expect(fake.sends()).toBe(0);
+    expect(c.ui.flash?.text).toBe('Not sent: no model for the next turn, so nothing was sent. What you typed stays here; Esc keeps it as a draft, and Models (M) chooses a model.');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'FIXTURE: a message with no model' });
+    expect(mid(t)[7]).toBe('A model is optional until you need an answer.');
+    expect(mid(t)).toContain('  [ Review setup choices ]');
+    expect(t.join('\n')).not.toMatch(/Cause|a setting \(\[i\]\)|YOUR LAST MESSAGE/);
+  });
+
+  it('R1: Models asks the local Ollama again after a turn\'s end and when shown, while its last answer failed or is older than 30 s, and on r (never twice at once); a failure is dated', async () => {
+    let calls = 0;
+    let up = false;
+    let skew = 0;
+    const fake = fakeSession();
+    const c = workbench(homeWithModel('r1'), {
+      // FAKE: the local Ollama as the setup's deps ask it: refused until `up`
+      ollama: async () => { calls++; return up ? { where: 'FAKE Ollama', answered: true, models: [{ name: 'fake-qwen3:8b', facts: 'local weights · 8B · Q4_K_M', chat: true }], listed: 1, cloud: 0 } : { where: 'FAKE Ollama', answered: false, models: [], listed: 0, cloud: 0, why: 'FAKE: the connection was refused' }; },
+    }, { producers: fake.producers, now: () => Date.now() + skew });
+    c.start();
+    const listed = async (): Promise<void> => { for (const end = Date.now() + 5_000; Date.now() < end && c.data.models?.ollama?.state !== 'listed'; await sleep(20)) shown(c); };
+    // the read at launch (the route is local): refused, and dated; once (the producers' load asks nothing more)
+    for (const end = Date.now() + 5_000; Date.now() < end && !rail(shown(c)).some((r) => /^NO ANSWER \/ asked \d\d:\d\d$/.test(r)); await sleep(20)) { /* the first read */ }
+    expect(rail(shown(c)).some((r) => /^NO ANSWER \/ asked \d\d:\d\d$/.test(r))).toBe(true);
+    expect(calls).toBe(1);
+    // a turn (the FAKE session answers): its end asks again, the last answer having failed
+    for (const end = Date.now() + 5_000; Date.now() < end && !c.can().chat; await sleep(20)) shown(c);
+    press(c, '\r', ENTER);
+    press(c, 'FIXTURE: a question');
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5_000; Date.now() < end && calls < 2; await sleep(20)) shown(c);
+    expect(fake.sends()).toBe(1);
+    expect(calls).toBe(2);
+    // Ollama answers now; M shows Models, its last answer failed: asked again, listed
+    up = true;
+    press(c, '', ESC);
+    press(c, 'M');
+    for (const end = Date.now() + 5_000; Date.now() < end && !rail(shown(c)).some((r) => /^INSTALLED \/ read/.test(r)); await sleep(20)) { /* read again */ }
+    expect(calls).toBe(3);
+    await listed();
+    // shown again within 30 s: not asked; 31 s later: asked
+    press(c, '', ESC);
+    press(c, 'M');
+    await sleep(50);
+    expect(calls).toBe(3);
+    skew = 31_000;
+    press(c, '', ESC);
+    press(c, 'M');
+    for (const end = Date.now() + 5_000; Date.now() < end && calls < 4; await sleep(20)) shown(c);
+    expect(calls).toBe(4);
+    await listed();
+    // r: asked again
+    press(c, '', ESC);
+    press(c, 'r');
+    for (const end = Date.now() + 5_000; Date.now() < end && calls < 5; await sleep(20)) shown(c);
+    expect(calls).toBe(5);
+  });
+
+  it('R3: Models\' controls from the keyboard: ↑ above the first model reaches them, ← → and Enter change them over H169\'s query, / and Enter on Search type into it, Enter keeps the matches, Esc clears them', async () => {
+    const c = workbench(homeWithModel('r3'), { catalog: async () => ({ from: 'shipped', at: '2026-09-07', models: FIXTURE_CATALOG }) });
+    shown(c);
+    press(c, 'M');
+    press(c, '', { leftArrow: true });
+    for (const end = Date.now() + 5_000; Date.now() < end && !rail(shown(c)).some((r) => /FIXTURE: Newest/.test(r)); await sleep(20)) { /* the catalog read */ }
+    let r = rail(shown(c));
+    expect(r[6]).toBe('> OpenRouter');
+    expect(r[16]).toBe('Cost       All (default)');
+    // ↑ from the first model: Context; ↑ again: Cost
+    press(c, '', { upArrow: true });
+    expect(c.ui.modelsControl).toBe(5);
+    r = rail(press(c, '', { upArrow: true }));
+    expect(r[16]).toBe('Cost       < All (default) >');
+    // →: Free only, and the list is what the query keeps
+    r = rail(press(c, '', { rightArrow: true }));
+    expect(r[16]).toBe('Cost       < Free only >');
+    expect(r.slice(20, 23)).toEqual(['> FIXTURE: Newest (free)', '  262k context / Free', '']);
+    // Enter: its next value
+    r = rail(press(c, '\r', ENTER));
+    expect(r[16]).toBe('Cost       < Paid >');
+    expect(r.slice(20, 23)).toEqual(['> FIXTURE: Older model', '  32k context / $0.50/$1.50', '']);
+    // up to Search; Enter types into it, each key filters
+    for (let i = 0; i < 4; i++) press(c, '', { upArrow: true });
+    expect(c.ui.modelsControl).toBe(0);
+    press(c, '', { rightArrow: true });
+    expect(c.ui.input.field).toBeNull();
+    press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('msearch');
+    press(c, '', { leftArrow: true });
+    press(c, 'All');
+    r = rail(shown(c));
+    expect(r[11]).toBe('Search All');
+    expect(r[20]).toBe('No model matches.');
+    for (let i = 0; i < 3; i++) press(c, '', { backspace: true });
+    r = rail(press(c, 'older'));
+    expect(r[11]).toBe('Search older');
+    expect(r[20]).toBe('> FIXTURE: Older model');
+    // Enter keeps the matches, the keyboard on the first; / types into Search again; Esc clears it
+    press(c, '\r', ENTER);
+    expect(c.ui.modelsControl).toBeUndefined();
+    expect(c.ui.modelsSearch).toBe('older');
+    expect(c.ui.cursor['right:models']).toBe(0);
+    press(c, '/');
+    expect(c.ui.input).toEqual({ field: 'msearch', text: 'older' });
+    press(c, '', ESC);
+    expect(c.ui.modelsSearch).toBeUndefined();
+    expect(c.ui.flash?.text).toBe('Search cleared: Models lists every model the filters keep.');
+    // a control left from OpenRouter never takes ← → on another provider's list: → changes the provider there, Cost stays
+    c.ui.modelsControl = 4;
+    c.ui.modelsProvider = 'ollama-local';
+    press(c, '', { rightArrow: true });
+    expect(c.ui.modelsProvider).toBe('ollama-cloud');
+    expect(c.ui.modelsControl).toBeUndefined();
+    expect(c.ui.modelsCost).toBe('paid');
+  });
+
+  it('R7: [M] Models, [ Details ] and [ Close ] are targets: a click acts as their key', () => {
+    const c = workbench(homeWithModel('r7'));
+    c.ui.mouse = true;
+    const at80 = (): string[] => c.frame(80, 24).screen.map(rowText);
+    let t = at80();
+    const m = t[4].indexOf('[M] Models');
+    expect(m).toBeGreaterThan(0);
+    c.mouse({ button: 0, x: m + 5, y: 5, press: true });
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.modelsOpen).toBe(true);
+    t = at80();
+    const close = t[4].indexOf('[ Close ]');
+    expect(close).toBeGreaterThan(0);
+    c.mouse({ button: 0, x: close + 3, y: 5, press: true });
+    expect(c.ui.modelsOpen).toBe(false);
+    // 122x37: [ Details ], and [M] beside MODELS
+    t = shown(c);
+    const d = t[4].indexOf('[ Details ]');
+    c.mouse({ button: 0, x: d + 3, y: 5, press: true });
+    expect(c.ui.modelsDetails).toBe(true);
+    expect(c.ui.focus).toBe('right');
+    c.key('', ESC);
+    t = shown(c);
+    c.mouse({ button: 0, x: t[4].indexOf('[M]') + 2, y: 5, press: true });
+    expect(c.ui.focus).toBe('right');
+  });
+
+  it('R8: a click while this Workbench\'s turn is answered says Tab leaves the composer, the text kept (Esc would stop the turn)', async () => {
+    let release: () => void = () => undefined;
+    const fake = fakeSession({ answer: () => new Promise<ChatTurnResult>((done) => { release = () => done({ status: 'answered', text: 'FAKE answer (no model behind it).', sent: true, costWords: 'no charge (FAKE)' }); }) });
+    const c = workbench(homeWithModel('r8'), {}, { producers: fake.producers });
+    c.start();
+    c.ui.mouse = true;
+    for (const end = Date.now() + 5_000; Date.now() < end && !c.can().chat; await sleep(20)) shown(c);
+    press(c, '\r', ENTER);
+    press(c, 'FIXTURE: a question');
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5_000; Date.now() < end && c.data.turn?.state !== 'sending'; await sleep(20)) shown(c);
+    expect(c.data.turn?.state).toBe('sending');
+    expect(c.ui.input.field).toBe('composer');
+    const t = shown(c);
+    c.mouse({ button: 0, x: t[4].indexOf('MODELS') + 2, y: 5, press: true });
+    expect(c.ui.flash?.text).toBe('A field has the keyboard: Tab leaves it, the text kept as a draft (Esc would stop the turn being answered).');
+    release();
+    for (const end = Date.now() + 5_000; Date.now() < end && c.data.turn?.state === 'sending'; await sleep(20)) shown(c);
+  });
+
+  it('R9: the composer holds 4,000 characters and says so when it is full', () => {
+    const c = workbench(homeWithModel('r9'));
+    press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('composer');
+    c.paste('a'.repeat(4005));
+    expect(c.ui.input.text).toHaveLength(4000);
+    expect(c.ui.flash?.text).toBe('The message holds 4,000 characters: the rest was not typed in. Enter sends what is there.');
   });
 });

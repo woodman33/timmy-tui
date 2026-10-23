@@ -178,7 +178,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(center.find((r) => r.includes('[ OpenRouter / cloud ]'))).toBe('> [ OpenRouter / cloud ]');
     // the menu with Chat selected, Models beside, the bottom: the same screen as with a model
     expect(rows.map((r) => cols(r, 0, 17))[10]).toBe(' > Chat');
-    expect(cols(rows[4], 92, 121)).toMatch(/^MODELS +\[ Details \]$/);
+    expect(cols(rows[4], 92, 121)).toMatch(/^MODELS \[M\] +\[ Details \]$/);
     expect(cols(rows[35], 20, 121)).toBe('[Attach]  [Tools]  [Plan / Run]  [Permissions]  [Budget]  [Stop]  [Logs]  [Cloudflare]');
     expect(cols(rows[36], 20, 121)).toMatch(/^Logs: this computer \/ idle .* 122 x 37$/);
     // never the tabbed Home
@@ -233,6 +233,14 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(none).toMatch(/Connect a model to chat \(a draft is kept\)/);
     expect(none.split('\n').map((r) => cols(r, 20, 121))[1]).toBe('NEXT / Connect a model to chat');
     keepScreen(pane, CAPTURES, 'chat-landing-122x37-02-no-model', { foot: 'drawn' });
+    // (H168's pass 3a, R4, its keys: Write a draft, a message, Enter: not sent, as the route has no model; the no-model view
+    // and its choices stay, the message kept in the composer; no refusal of the REPL's drawn in their place)
+    await sendKeys(pane, ['Down', 'Down', 'Enter']);
+    await sendKeys(pane, ['FIXTURE: a message with no model'], { literal: true });
+    await sendKeys(pane, ['Enter']);
+    const kept = await waitScreen(pane, { what: 'the no-model view kept, the message not sent', re: /A model is optional until you need an answer\.[\s\S]*Review setup choices[\s\S]*FIXTURE: a message with no model/, ms: 20_000 });
+    expect(kept).not.toMatch(/Cause|YOUR LAST MESSAGE|a setting \(\[i\]\)/);
+    keepScreen(pane, CAPTURES, 'chat-landing-122x37-02b-no-model-send', { foot: 'drawn' });
     // nothing but what Ollama lists and each model's facts was asked of it (no chat turn: there is no model)
     expect(asked).toContain('POST /api/show');
     expect(asked.filter((a) => !LISTING.test(a))).toEqual([]);
