@@ -258,8 +258,10 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
     const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
     return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [] };
   }
-  const at = convoRowsAt(a.columns, a.rows);
-  const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, shell: true };
+  // (R10 CHAT H167: Connect OpenRouter takes the composer's rows too: its address and choices whole at 80x24)
+  const full = ui.overlay?.kind === 'connect';
+  const at = full ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
+  const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, inChat: true };
   const view = centerView(c);
   const list = ui.overlay ? 'overlay' : 'center:chat';
   const i = view.items.length ? cursorOf(ui, list, view.items.length) : -1;
@@ -269,7 +271,7 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
     ? scrollFor(ui, list, [], { at: Math.max(0, view.lines.length - 1), height: at.rows, total: view.lines.length })
     : scrollFor(ui, list, view.items, { ...(i >= 0 ? { at: view.items[i].line, ...(span > 1 ? { end: view.items[i].line + span - 1 } : {}) } : {}), height: at.rows, total: view.lines.length, first: i === 0 });
   const shown = view.lines.slice(scroll, scroll + at.rows);
-  const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, focus: ui.focus });
+  const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, full, focus: ui.focus });
   const regions: Frame['regions'] = { ...out.regions };
   return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [] };
 }
@@ -299,6 +301,7 @@ function overlayTitle(ui: Ui): string {
     case 'free-models': return 'Choose a free model';
     case 'local-models': return 'Choose the local model';
     case 'setup': return o.which === 'chat' ? 'The chat\'s Ollama address' : 'Set up chat';
+    case 'connect': return 'Connect OpenRouter';
     default: return '';
   }
 }

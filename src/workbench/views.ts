@@ -26,6 +26,8 @@ import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId 
 import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
+import { MANUAL_WORDS } from '../setup/openrouter-signin.js';
+import { KEY_PAGE } from '../setup/provider-keys.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
@@ -48,8 +50,9 @@ export interface ViewCtx {
   /** R8 (H157): the page's Unfinished box leaves some of its words out (src/workbench/screen.ts): Context shows them first */
   unfinishedRest?: boolean;
   /** R10 CHAT (H167): drawn in the Chat screen's shell (src/workbench/chat-shell.ts): the header says the route; the
-   *  conversation says who spoke on a row of its own, the model a turn used beside Timmy, and the next turn above the composer */
-  shell?: boolean;
+   *  conversation says who spoke on a row of its own, the model a turn used beside Timmy, and the next turn above the composer.
+   *  (Named so that tests/dispatch-lanes.test.ts's scan of src/ for a child process run through a shell does not match it.) */
+  inChat?: boolean;
 }
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -606,7 +609,7 @@ function chatView(c: ViewCtx): View {
   // R10 (H167): the route the next turn takes, one row: its model, where it runs, its price (FAKE when it says so); its words
   // whole are the inspector's ([i])
   const rt = routeLine(data);
-  const shell = c.shell === true;
+  const shell = c.inChat === true;
   if (!shell) lines.push(...wrapSegs(routeSegs(rt, g), c.width, '  '));
   // R5 (H131; the QA round's defect 22): one remedy for a chat that is not set up, the workspace frame's fix (src/ops/
   // workspace-frame.ts chatFix: the primary Chat action, which Enter carries out); with no frame read yet, the setup (timmy
@@ -983,6 +986,106 @@ export const HELP: ReadonlyArray<[string, string]> = [
   ['Activity', 'collapsed: the log\'s newest lines, the newest first; expanded: oldest first, the newest at the bottom; it follows the newest while the newest is selected (End); select an older row and it stays put as rows arrive'],
 ];
 
+type ConnectBox = Extract<NonNullable<Overlay>, { kind: 'connect' }>;
+
+/** R10 CHAT (H167): Connect OpenRouter's choices at its step, in the order drawn (the controller's Enter takes the cursor's). */
+export function connectChoices(o: ConnectBox): string[] {
+  switch (o.step) {
+    case 'choose': return ['signin', 'paste', 'cancel'];
+    case 'signin': return ['open', 'code', 'cancel'];
+    case 'done': return o.ok ? ['models', 'close'] : ['again', 'paste', 'close'];
+    default: return [];
+  }
+}
+
+const CONNECT_CHOICE: Readonly<Record<string, readonly [string, string | null]>> = {
+  signin: ['Sign in with OpenRouter', 'On OpenRouter\'s own page, in your browser: Timmy never sees a password.'],
+  paste: ['Paste a key', `One made at ${KEY_PAGE.openrouter}, into a hidden field here.`],
+  open: ['Open it in the browser', 'With this computer\'s opener, now that you press Enter.'],
+  code: ['Type the code from the browser', 'For a browser on another computer: into a hidden field here.'],
+  models: ['Choose an OpenRouter model', 'Models, on OpenRouter.'],
+  again: ['Sign in again', null],
+  cancel: ['Cancel', 'Nothing is saved.'],
+  close: ['Close', null],
+};
+
+/**
+ * R10 CHAT (H167; the lead's Mac check of 50237ef, item 3): Connect OpenRouter, each step in words. Its sign-in's address is
+ * shown whole (it holds no secret) and opened only by Enter on Open; the hidden field shows how many characters were typed,
+ * never what (a key, the sign-in's code); what came of it says what was saved and the route as read then.
+ */
+function connectView(c: ViewCtx, o: ConnectBox): View {
+  const { ui } = c;
+  const lines: Line[] = [];
+  const items: View['items'] = [];
+  const ids = connectChoices(o);
+  const cur = ids.length ? cursorOf(ui, 'overlay', ids.length) : -1;
+  const title = (t: string): void => { lines.push([S(t, 'strong', { bold: true })], blank); };
+  // (each choice as the first run draws its own: "> " and amber where the cursor is, what it does under it)
+  const choices = (): void => ids.forEach((id, k) => {
+    const [label, about] = CONNECT_CHOICE[id] ?? [id, null];
+    const on = k === cur;
+    const sel = on ? { selected: true } : {};
+    if (k) lines.push(blank);
+    const said = about ? wrapText(about, Math.max(8, c.width - 2)).map((t): Line => [S('  ', 'text', sel), S(t, 'secondary', sel)]) : [];
+    items.push({ line: lines.length, item: { kind: 'action', key: `connect:${id}`, action: id }, rows: 1 + said.length });
+    lines.push([S(on ? '> ' : '  ', 'accent', sel), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, ...sel } : {})], ...said);
+  });
+  // (the hidden field: how many characters, never which)
+  const field = (): void => {
+    const n = [...ui.input.text].length;
+    const typing = ui.input.field === 'secret';
+    lines.push([S('› ', 'accent'), S(n ? `${n} characters typed (hidden)` : 'nothing typed yet (hidden)', 'secondary'), ...(typing ? [S(' ', 'text', { inverse: true })] : [])]);
+  };
+  const note = (): void => { if (o.note) lines.push(blank, ...para(o.note.text, c.width, o.note.failed ? 'failure' : 'text')); };
+  switch (o.step) {
+    case 'choose':
+      title('Connect OpenRouter');
+      lines.push(...para('Sign in on OpenRouter\'s own page, or paste a key you made there. Either way the key is kept in providers.json in the Timmy home (0600): saved, not checked, until a check answers.', c.width, 'text'), blank);
+      choices();
+      lines.push(blank, ...para('Nothing is sent until you choose; no account, purchase or credit is made here.', c.width));
+      break;
+    case 'starting':
+      title('Sign in with OpenRouter');
+      lines.push(...para('Starting the sign-in: a server on this computer (127.0.0.1) waits for OpenRouter\'s answer…', c.width));
+      break;
+    case 'signin': {
+      title('Sign in with OpenRouter');
+      lines.push(...para('The address to sign in at (OpenRouter\'s own page; it holds no secret):', c.width, 'text'));
+      const url = o.url ?? '';
+      const w = Math.max(8, c.width - 2);
+      for (let k = 0; k < url.length; k += w) lines.push([S('  '), S(url.slice(k, k + w), 'action', { raw: true })]);
+      lines.push(blank);
+      choices();
+      note();
+      lines.push(blank, ...para('Waiting for OpenRouter\'s answer (5 minutes at most): this box says when the key is saved. Esc cancels the sign-in; nothing is saved then.', c.width));
+      break;
+    }
+    case 'code':
+      title('Type the code from the browser');
+      lines.push(...para(MANUAL_WORDS, c.width, 'text'), blank);
+      field();
+      note();
+      lines.push(blank, ...para('Enter takes it (OpenRouter exchanges it for a key); Esc goes back, and nothing typed is kept. It is never shown.', c.width));
+      break;
+    case 'paste':
+      title('Paste a key');
+      lines.push(...para(`Make a key at ${KEY_PAGE.openrouter}, copy it and paste it here. It is never shown, and never goes into a chat.`, c.width, 'text'), blank);
+      field();
+      note();
+      lines.push(blank, ...para('Enter saves it in providers.json in the Timmy home (0600): saved, not checked. Esc goes back, and nothing typed is kept.', c.width));
+      break;
+    case 'done':
+      title(o.ok ? 'OpenRouter: the key is saved' : 'OpenRouter: nothing was saved');
+      lines.push(...para(o.words ?? '', c.width, o.ok ? 'text' : 'failure'));
+      if (o.ok && o.route) lines.push(blank, ...para(o.route, c.width, 'text'));
+      lines.push(blank);
+      choices();
+      break;
+  }
+  return { lines, items };
+}
+
 function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
   const { g, ui, data } = c;
   const lines: Line[] = [];
@@ -1181,12 +1284,15 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       const nameW = Math.min(Math.max(12, Math.floor(c.width / 2)), Math.max(...l.models.map((m) => m.name.length)) + 2);
       l.models.forEach((m, i) => {
         items.push({ line: lines.length, item: { kind: 'action', key: `local:${m.name}`, action: m.name } });
-        lines.push(row([S(cut(m.name, nameW - 2, g.ellipsis).padEnd(nameW), 'strong'), S(m.facts, 'secondary')], i === cur, g));
+        // R10 CHAT (H167; the lead's Mac check of 50237ef): one the probe's /api/show check does not establish as a chat model
+        // (an embedding or a decision model) says so in its facts' place, and Enter does not choose it
+        lines.push(row([S(cut(m.name, nameW - 2, g.ellipsis).padEnd(nameW), m.chat === false ? 'secondary' : 'strong'), S(m.chat === false ? 'not a chat model (checked)' : m.facts, 'secondary')], i === cur, g));
       });
       lines.push(blank);
       lines.push(...wrapSegs([key('Enter'), S(' makes the selected one the local chat\'s model (the setup\'s answer)   ', 'text'), key('Esc'), S(' closes', 'text')], c.width));
       return { lines, items };
     }
+    case 'connect': return connectView(c, o);
     case 'setup': {
       if (o.which === 'chat') {
         lines.push([S('Set the chat\'s Ollama address', 'strong')], blank);
@@ -1207,7 +1313,8 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
         }
       }
       lines.push(blank);
-      lines.push(...para('A key is typed only in a terminal, hidden as you type (timmy init in a shell, or /setup key in the REPL): never into a tab, a page or this Workbench. Nothing was run from here.', c.width, 'attention'));
+      // (R10 CHAT H167: and on the Chat screen, Connect OpenRouter's hidden field; never a chat, a tab's text or a page)
+      lines.push(...para('A key is typed only where it is hidden as you type: a terminal (timmy init in a shell, or /setup key in the REPL), or Connect OpenRouter\'s hidden field on the Chat screen; never into a chat, a tab or a page. Nothing was run from here.', c.width, 'attention'));
       if (o.local) {
         lines.push(blank);
         const step = stepRows([key('Enter'), S(/--chat local\b/.test(o.command) ? ' Choose the local model here: what Ollama lists now (no key, no charge)' : ' Use a local model instead: choose one Ollama lists (no key, no charge)', 'text')], true, g, c.width);

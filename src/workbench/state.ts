@@ -18,6 +18,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { chatRouteNow } from '../agent/chat-route.js';
+import { freeOnlyOn } from '../agent/model-price.js';
+import { localOnlyOn } from '../agent/route-policy.js';
 import { ConversationManager } from '../agent/conversation.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns } from '../native/index.js';
@@ -399,6 +401,9 @@ export interface RouteView {
   ready: boolean;
   /** R4 lead: why a message would not be sent on it (the one route's own lines), when it is not ready */
   refusal?: string[];
+  /** R10 CHAT (H167): the route's policy as read with it (TIMMY_CHAT_FREE_ONLY / TIMMY_CHAT_LOCAL_ONLY, else the settings'
+   *  freeOnly / localOnly: what /model free-only and /model local-only keep), for Budget's rows; absent: not read */
+  policy?: { freeOnly: boolean; localOnly: boolean };
 }
 
 /**
@@ -411,7 +416,8 @@ export function readRoute(env: Env = process.env, cwd: string = process.cwd()): 
   try {
     const model = (() => { try { return loadConfig().model || null; } catch { return null; } })();
     const now = chatRouteNow({ env, cwd, openRouterModel: model, surface: 'workbench' });
-    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}) };
+    const policy = (() => { try { return { freeOnly: freeOnlyOn(env), localOnly: localOnlyOn(env) }; } catch { return undefined; } })();
+    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}), ...(policy ? { policy } : {}) };
   } catch (e) {
     return { kind: 'none', words: `chat: unknown (${e instanceof Error ? e.message : String(e)})`, ready: false };
   }

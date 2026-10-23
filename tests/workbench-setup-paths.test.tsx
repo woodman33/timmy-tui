@@ -344,6 +344,8 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     expect(said).toContain('Timmy Studio  not running');
     expect(said).toContain('Browser companion  not running');
     expect(said).toContain('Cloudflare edge  not asked: none is set up');
+    // (R10 CHAT H167: H169's Ollama Cloud, asked only with its key)
+    expect(said).toContain('Ollama Cloud (its model list, with the key; no model run)  not asked: no Ollama Cloud key is set up');
     // (R10 H167; H168's F3: where it is recorded is the details', [i])
     expect(said).toContain('Recorded. Home\'s connection rows say these now');
     await until('the Ollama card live', () => c.data.frame?.connections.find((x) => x.id === 'ollama')?.state === 'live', 10_000, () => screen(c));
@@ -388,7 +390,8 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     expect(text).toContain('Set up chat, in a shell timmy init --chat openrouter');
     expect(text).toContain('Timmy is not set up on this computer yet, so it asks each question in turn: Operator name (your receipts show it);');
     expect(text).toContain('OpenRouter key (hidden as you type; blank: no key)');
-    expect(text).toContain('A key is typed only in a terminal, hidden as you type (timmy init in a shell, or /setup key in the REPL): never into a tab, a page or this Workbench. Nothing was run from here.');
+    // (R10 CHAT H167: the Chat screen's Connect OpenRouter takes a key too, in a hidden field: said, deliberately)
+    expect(text).toContain('A key is typed only where it is hidden as you type: a terminal (timmy init in a shell, or /setup key in the REPL), or Connect OpenRouter\'s hidden field on the Chat screen; never into a chat, a tab or a page. Nothing was run from here.');
     expect(text).not.toContain('Use a local model instead');
     expect(c.ui.input.field).toBeFalsy();
     c.key('\r', ENTER);

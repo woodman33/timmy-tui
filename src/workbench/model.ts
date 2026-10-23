@@ -261,7 +261,14 @@ export type Overlay =
   | { kind: 'local-models'; state: 'failed'; list: OllamaList }
   // the setup's own path (a shell's): the command, what it asks now, where the key in use comes from; `local`: a local model
   // can be chosen here instead; `blank`: the setup has not run on this computer
-  | { kind: 'setup'; which: 'init' | 'chat'; command: string; asks: string[] | null; keyFrom: SetupPlan['keyFrom']; local: boolean; blank: boolean };
+  | { kind: 'setup'; which: 'init' | 'chat'; command: string; asks: string[] | null; keyFrom: SetupPlan['keyFrom']; local: boolean; blank: boolean }
+  /** R10 CHAT (H167; the lead's Mac check of 50237ef, item 3): OpenRouter connected here, by its sign-in (H170's PKCE flow,
+   *  src/setup/openrouter-signin.ts: the address shown, opened only on the person's Enter, the manual code typed into Timmy's
+   *  own hidden field) or a key pasted into a hidden field (src/setup/provider-keys.ts saveKey). `step`: the choice; the
+   *  sign-in starting; its address shown while OpenRouter's answer is awaited; the code's field; the key's field; what came
+   *  of it (`ok`, its words, the route as read then). `note`: the newest answer to a step (an opened page, a code taken, a
+   *  key refused), never what was typed */
+  | { kind: 'connect'; provider: 'openrouter'; step: 'choose' | 'starting' | 'signin' | 'code' | 'paste' | 'done'; url?: string; note?: { text: string; failed?: boolean }; ok?: boolean; words?: string; route?: string };
 
 export interface Ui {
   /** R5 (H131): the active tab of the ten (src/contracts/workspace.ts TABS), the frame's own ids */
@@ -281,7 +288,7 @@ export interface Ui {
   activityAll: boolean;
   overlay: Overlay;
   /** the text being typed, where a field has the keyboard (search, the picker, a name, the composer) */
-  input: { field: 'search' | 'picker' | 'new' | 'composer' | 'tools' | null; text: string };
+  input: { field: 'search' | 'picker' | 'new' | 'composer' | 'tools' | 'secret' | null; text: string };
   /** each list's selected row, by list ("center:files", "right:files", "nav", "top", "bottom", "overlay") */
   cursor: Record<string, number>;
   /** each list's first shown row */
