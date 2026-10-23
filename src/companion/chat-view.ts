@@ -26,19 +26,24 @@
  *
  * The shared contract of the slice (the lead's CHAT-COMMON brief): the rows, their query and their load are H169's
  * (src/models/catalog.ts loadCatalog and queryCatalog, merged in from r10/review-build), read here with refresh 'never': the
- * rail shows what this computer keeps, and asks no one for a catalog. Each provider's state is read behind this file's own
- * function in H170's shape (companionProviders, ProviderState) until src/setup/providers-state.ts is switched in.
+ * rail shows what this computer keeps, and asks no one for a catalog. Each provider's state is H170's (src/setup/
+ * providers-state.ts providerStates: files and the PATH, no request), with two things of this page's own: the local Ollama's
+ * state rests on the list this page just asked for, when it asked (an observed answer, with its time), and each next step
+ * says where it happens (this page signs in, keeps a key, checks and downloads nothing in this revision: the terminal does).
+ * The policy is H169's (src/agent/route-policy.ts routePolicyNow: free-only and local-only, and where each is set).
  */
 import type express from 'express';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { ConversationManager } from '../agent/conversation.js';
-import { freeOnlyOn } from '../agent/model-price.js';
+import { policyFrom, routePolicyNow } from '../agent/route-policy.js';
+import { ollamaAddress } from '../capabilities/ollama-route.js';
 import { loadCatalog, queryCatalog, type CatalogLoad, type CatalogQuery, type CatalogRow, type ModelSource } from '../models/catalog.js';
 import type { ActiveProject } from '../project/index.js';
 import { chatTurnOf } from '../repl/seal.js';
+import { installSteps, ollamaInstalled, STARTER_MODELS } from '../setup/ollama-local.js';
+import { providerStates, type ProviderState as SetupState } from '../setup/providers-state.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
-import { modelKeySource } from '../utils/model-key.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
 import { PAGE_SCOPE, pageRoute } from './chat-route.js';
 
@@ -54,27 +59,22 @@ export const TEXT_MAX = 16_000;
 
 export type { CatalogQuery, CatalogRow, ModelSource };
 
-// ── H170's ProviderState (src/setup/providers-state.ts; switched at the merge) ──
+// ── each provider's state: H170's ProviderState, and how many models this page's own read found (the local Ollama) ──
 
-export interface ProviderState {
-  id: 'openrouter' | 'ollama-local' | 'ollama-cloud' | 'cloudflare';
-  state: 'not set up' | 'pending' | 'saved, not checked' | 'checked' | 'refused' | 'unreachable' | 'not installed' | 'installed, stopped';
-  /** when observed */
-  at?: string;
-  words: string;
-  next?: string;
-}
+export type ProviderState = SetupState & { models?: number };
+
+/** What the local Ollama answered this page's read of its list of models (GET /api/tags; no model runs). */
+export interface LocalAnswer { answered: boolean; models: number; at: string; error?: string }
 
 const SOURCES: readonly ModelSource[] = ['openrouter', 'ollama-local', 'ollama-cloud'];
 const SORTS: ReadonlyArray<CatalogQuery['sort']> = ['recent', 'name', 'price', 'context'];
 const CAPS: ReadonlyArray<NonNullable<CatalogQuery['capability']>> = ['tools', 'vision', 'reasoning'];
 
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 const day = (iso?: string): string => (iso ? iso.slice(0, 10) : 'an unknown date');
 
 /** A source's rows as this computer keeps them (H169's loadCatalog, refresh never: nothing is asked for a catalog), in words. */
-export interface CatalogRead extends CatalogLoad { words: string; observed?: ProviderState }
+export interface CatalogRead extends CatalogLoad { words: string; observed?: LocalAnswer }
 
 /** The local Ollama's last answer, kept a moment so the Chat's every-few-seconds read does not list Ollama each time. */
 const LOCAL_KEEP_MS = 15_000;
@@ -95,8 +95,8 @@ export async function companionCatalog(source: ModelSource, env: Env, o: { now?:
     const at = load.fetchedAt ?? new Date(now).toISOString();
     const n = load.rows.length;
     const read: CatalogRead = load.from === 'live'
-      ? { ...load, words: `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`, observed: { id: 'ollama-local', state: 'checked', at, words: `${n} installed on this computer (its list of models; no model ran).` } }
-      : { ...load, words: `Ollama on this computer did not answer: ${load.error ?? 'no answer'}.`, observed: { id: 'ollama-local', state: 'unreachable', at, words: `Ollama on this computer did not answer its list of models (${load.error ?? 'no answer'}).`, next: 'Start Ollama (the app, or ollama serve), then Refresh.' } };
+      ? { ...load, words: `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`, observed: { answered: true, models: n, at } }
+      : { ...load, words: `Ollama on this computer did not answer: ${load.error ?? 'no answer'}.`, observed: { answered: false, models: 0, at, ...(load.error ? { error: load.error } : {}) } };
     localKept = { at: now, key, read };
     return read;
   }
@@ -130,33 +130,58 @@ export function catalogQueryOf(q: Record<string, unknown>): CatalogQuery {
   };
 }
 
+/** Where each next step happens, for the states whose own step (sign in, paste a key, check, download) this page cannot take. */
+const PAGE_NEXT: Readonly<Record<string, string>> = Object.freeze({
+  'openrouter:not set up': 'In a terminal: timmy init --openrouter - keeps a key (it reads it from the keyboard); signing in from this page is not in this revision.',
+  'openrouter:saved, not checked': 'In a terminal: timmy workspace check asks OpenRouter\'s key endpoint once (a free request; no model is run); this page then shows what answered.',
+  'openrouter:refused': 'In a terminal: timmy init --openrouter - keeps a new key.',
+  'openrouter:unreachable': 'In a terminal: timmy workspace check asks again when the network is back.',
+  'ollama-cloud:not set up': 'Its key is read from OLLAMA_API_KEY or the Timmy home\'s providers.json; this page keeps no key and asks nothing.',
+  'ollama-cloud:saved, not checked': 'In a terminal: timmy workspace check asks Ollama Cloud\'s model list once with the key (no model is run).',
+  'ollama-cloud:refused': 'A new key from ollama.com/settings/keys, kept in OLLAMA_API_KEY or the Timmy home\'s providers.json; this page keeps no key.',
+  'ollama-cloud:unreachable': 'In a terminal: timmy workspace check asks again when the network is back.',
+  'ollama-local:installed, not checked': 'Refresh, in its setup, asks it for its list of models (no model runs, no charge).',
+});
+
 /**
- * Each provider's state as this computer holds it, without asking anything (the stand-in for H170's providerStates): a saved
- * key is "saved, not checked" (Timmy has not asked the provider whether it takes it); Cloudflare is never asked from here.
- * The local Ollama's state is the one the catalog read just observed, when one did.
+ * Each provider's state as this computer holds it (H170's providerStates: files and the PATH, nothing asked), as this page
+ * shows it: the local Ollama's rests on the answer this page's read just had (an observed answer, with its time), and a next
+ * step this page cannot take says where it happens. A key never enters them (H170's words name its fingerprint and place).
+ * `o` (tests): the platform and the file check H170's Ollama install reading uses.
  */
-export function companionProviders(env: Env, cwd: string, observed?: ProviderState): ProviderState[] {
-  const key = modelKeySource(env, cwd);
-  const keyAt = key === 'environment' ? 'in this companion\'s environment' : key === 'providers.json' ? 'in the Timmy home (providers.json)' : key ? `in ${key}` : '';
-  const ollamaKey = Boolean(str(env.OLLAMA_API_KEY));
-  const cf = Boolean(str(env.CLOUDFLARE_ACCOUNT_ID) || str(env.CF_ACCOUNT_ID));
-  return [
-    key
-      ? { id: 'openrouter', state: 'saved, not checked', words: `A key is saved ${keyAt}; Timmy has not asked OpenRouter whether it takes it.`, next: 'In the REPL: /setup key checks it (a free request; no model call, no charge).' }
-      : { id: 'openrouter', state: 'not set up', words: 'No OpenRouter key on this computer.', next: 'timmy init --openrouter - keeps a key (sign-in from this page is not in this revision).' },
-    observed ?? { id: 'ollama-local', state: 'saved, not checked', words: 'Not asked yet from this page.' },
-    ollamaKey
-      ? { id: 'ollama-cloud', state: 'saved, not checked', words: 'An Ollama key is set in this companion\'s environment; Timmy has not asked Ollama\'s cloud whether it takes it.' }
-      : { id: 'ollama-cloud', state: 'not set up', words: 'No Ollama Cloud key on this computer. Local weights are not needed for it.', next: 'Its sign-in and key are set up in the terminal (not in this revision of this page).' },
-    cf
-      ? { id: 'cloudflare', state: 'saved, not checked', words: 'A Cloudflare account is named in this companion\'s environment. Timmy never checks it from here: a request can create a gateway and bill.' }
-      : { id: 'cloudflare', state: 'not set up', words: 'Optional. Not set up: chat and logs work without it. Timmy never checks it from here: a request can create a gateway and bill.' },
-  ];
+export function companionProviders(env: Env, cwd: string, local?: LocalAnswer, o: { platform?: NodeJS.Platform; exists?: (p: string) => boolean } = {}): ProviderState[] {
+  const states = providerStates({ env, cwd, ...(o.platform ? { platform: o.platform } : {}), ...(o.exists ? { exists: o.exists } : {}) });
+  return states.map((st): ProviderState => {
+    if (st.id === 'ollama-local' && local) return { ...localState(env, local, o), ...(st.links ? { links: st.links } : {}) };
+    const next = PAGE_NEXT[`${st.id}:${st.state}`];
+    if (next) return { ...st, next };
+    // the local Ollama's own steps (start it, install it) are the person's, outside Timmy, and stay as H170 says them
+    if (st.id === 'ollama-local' && st.state === 'checked' && st.next) return { ...st, next: `Install a model yourself (ollama pull ${starter().model}, ${starter().size}); this page downloads nothing.` };
+    return st;
+  });
+}
+
+const starter = (): { model: string; size: string } => STARTER_MODELS.find((m) => m.default) ?? STARTER_MODELS[0];
+
+/** The local Ollama's state from this page's read: answered (checked, with how many models), or not (installed or not). */
+function localState(env: Env, local: LocalAnswer, o: { platform?: NodeJS.Platform; exists?: (p: string) => boolean }): ProviderState {
+  const host = (() => { try { return ollamaAddress(env).replace(/^https?:\/\//, '').replace(/\/+$/, ''); } catch { return '127.0.0.1:11434'; } })();
+  if (local.answered) {
+    return { id: 'ollama-local', state: 'checked', at: local.at, models: local.models,
+      words: `Ollama answered its list of models at ${host}: ${local.models} installed here (no model ran, no charge).`,
+      ...(local.models === 0 ? { next: `Install a model yourself (ollama pull ${starter().model}, ${starter().size}); this page downloads nothing.` } : {}) };
+  }
+  const inst = ollamaInstalled({ env, ...(o.platform ? { platform: o.platform } : {}), ...(o.exists ? { exists: o.exists } : {}) });
+  const steps = installSteps(o.platform ?? process.platform);
+  const why = local.error ? ` (${local.error})` : '';
+  return inst.installed
+    ? { id: 'ollama-local', state: 'installed, stopped', at: local.at, models: 0, words: `Ollama is ${inst.words}; it did not answer its list of models at ${host} just now${why}.`, next: `Start it (${steps.start}), then Refresh in its setup.` }
+    : { id: 'ollama-local', state: 'not installed', at: local.at, models: 0, words: `Ollama is ${inst.words}, and nothing answered at ${host} just now${why}.`, next: `Install it yourself (${steps.install}), then start it (${steps.start}); Timmy installs nothing.` };
 }
 
 /**
- * The official pages each provider's setup links to (the handoff's PROVIDER_SETUP_GUIDE, checked on 2026-10-22; H170's
- * ProviderState.links replaces these at the merge). The page shows them as links and loads none of them.
+ * The official pages this page's setup steps name (the handoff's PROVIDER_SETUP_GUIDE, checked on 2026-10-22; each provider's
+ * state also carries H170's own links). The page shows them as links and loads none of them.
  */
 export const SETUP_LINKS: Readonly<Record<ProviderState['id'], ReadonlyArray<{ label: string; url: string }>>> = Object.freeze({
   'openrouter': [{ label: 'openrouter.ai/keys', url: 'https://openrouter.ai/keys' }, { label: 'OpenRouter’s sign-in for apps (PKCE)', url: 'https://openrouter.ai/docs/guides/overview/auth/oauth' }],
@@ -261,7 +286,7 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
         conversation: savedConversation(project.root, ctx.env),
         route,
         scope: PAGE_SCOPE,
-        policy: { freeOnly: freeOnlyOn(env), localOnly: null, localOnlyWords: 'Local-only is not in this revision (it comes with the route policy).' },
+        policy: { ...routePolicyNow(env), from: policyFrom(env) },
         providers: companionProviders(env, process.cwd(), local.observed),
         links: SETUP_LINKS,
         logs: { words: 'Logs and receipts stay on this computer: the project\'s .timmy folder and its conversation in .sessions.', cloud: 'Cloud copies: off (not set up).' },

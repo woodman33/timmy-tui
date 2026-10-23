@@ -387,7 +387,7 @@ const WAYS = [
 /** The way the first run suggests: Ollama here when it answered with a model installed, else OpenRouter (said why, in words). */
 function suggestedWay() {
   const local = providerState('ollama-local');
-  const installed = local && local.state === 'checked' && !/^0 installed/.test(local.words);
+  const installed = Boolean(local && local.state === 'checked' && local.models > 0);
   return installed ? { id: 'ollama-local', why: 'Ollama on this computer answered with a model installed, so it can answer here with no account.' }
     : { id: 'openrouter', why: 'Nothing on this computer answered with a model installed, so a hosted provider is the shortest way to an answer.' };
 }
@@ -638,6 +638,8 @@ function priceWords(p) {
   return 'price unknown';
 }
 const capWord = (v) => (v === true ? 'yes' : v === false ? 'no' : 'unknown');
+/** Cloudflare's parts as H170's state says them ("Worker: not set up (…)"), each as [part, its state]. */
+const cfLines = (cf) => ((cf && cf.lines) || []).map((l) => { const i = String(l).indexOf(': '); return i > 0 ? [l.slice(0, i), l.slice(i + 2)] : ['', String(l)]; });
 const providerState = (id) => ((cx.view && cx.view.providers) || []).find((p) => p.id === id) || null;
 
 function inUse(row) {
@@ -718,9 +720,9 @@ function drawModelsRail(o = {}) {
     kids.push(h('div', { class: 'cm-panel' },
       h('h3', null, 'Optional service'), h('p', { class: 'cm-panel-title' }, 'Cloudflare connection'),
       h('p', null, 'Cloudflare can route model requests through an AI Gateway and host Timmy’s worker. It is separate from your model account and from the logs on this computer, which work without it.'),
-      h('dl', { class: 'cm-kv' }, h('dt', null, 'This computer holds'), h('dd', null, cf ? cf.state : 'not known yet'), h('dt', null, 'AI Gateway'), h('dd', null, 'not configured'), h('dt', null, 'Cloud log sync'), h('dd', null, 'off')),
-      h('p', null, cf ? cf.words : 'Reading the providers’ states…'),
-      h('p', null, 'Its setup is in the terminal; Timmy never checks it from here (a request can create a gateway and bill).')));
+      h('p', null, h('span', { class: 'cm-word' }, cf ? cf.state : 'not known yet'), ` · ${cf ? cf.words : 'Reading the providers’ states…'}`),
+      h('ul', { class: 'cm-parts' }, ...cfLines(cf).map(([k, v]) => h('li', null, h('strong', null, k), h('span', null, v)))),
+      h('p', null, 'Its setup is in the terminal.')));
     rail.replaceChildren(...kids);
     return;
   }
@@ -832,17 +834,17 @@ function drawerBody(id) {
       h('section', null, h('h4', null, 'Free-only'), h('p', { class: 'cx-d-state' }, v && v.policy ? (v.policy.freeOnly ? 'on: a model not known to be free is not sent' : 'off') : 'not known yet'), h('p', null, 'Set in the REPL with /model free-only on or off (or TIMMY_CHAT_FREE_ONLY). Unknown pricing is never free.')),
       h('section', null, h('h4', null, 'This page’s route'), h('p', { class: 'cx-d-state' }, r && r.ready ? `${r.model}` : 'Send is off'), h('p', null, r ? (r.kind === 'openrouter' ? r.price : r.kind === 'local' ? (r.cloud ? 'cost unknown: Ollama reports none for a cloud-backed model' : 'no charge: Ollama on this computer, local weights') : (r.label || '')) : '')),
       h('section', null, h('h4', null, 'A spending cap'), h('p', { class: 'cx-d-state' }, 'none in this revision'), h('p', null, 'OpenRouter’s maxCost stops a request; it is not a guaranteed cap on billing.')),
-      h('section', null, h('h4', null, 'Local-only'), h('p', { class: 'cx-d-state' }, 'not in this revision'), h('p', null, (v && v.policy && v.policy.localOnlyWords) || '')))]];
+      h('section', null, h('h4', null, 'Local-only'), h('p', { class: 'cx-d-state' }, v && v.policy ? (v.policy.localOnly ? 'on: only a model with local weights on this computer is sent' : 'off') : 'not known yet'),
+        h('p', null, v && v.policy && v.policy.from ? `${v.policy.from.localOnly === 'environment' ? 'Set by TIMMY_CHAT_LOCAL_ONLY for this companion.' : 'From the settings (localOnly).'} TIMMY_CHAT_LOCAL_ONLY=1 sets it for a process; a cloud model through this computer’s Ollama is still cloud.` : '')))]];
     case 'approvals': {
       const n = f && f.activity ? f.activity.waitingOnYou : null;
       return ['Permissions', [h('p', null, `${n === null ? 'Not known yet' : `${n} waiting on you`}. A tool that needs you waits in the surface running the turn (the Workbench, the REPL); this page’s Send runs no tool, so it asks for none. Control Room lists what waits.`), h('div', { class: 'cx-empty-actions' }, h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'control' }, 'Open Control Room'))]];
     }
     case 'cloudflare': {
       const cf = p('cloudflare');
-      return ['Optional Cloudflare settings', [h('p', null, 'Chat history and logs stay usable on this computer without a Cloudflare account. Each service has its own state, and Timmy never checks one from here: a request can create a gateway and bill.'), h('div', { class: 'cx-drawer-grid' },
-        h('section', null, h('h4', null, 'Worker / Commander'), h('p', { class: 'cx-d-state' }, cf && cf.state === 'saved, not checked' ? 'saved, not checked' : 'not connected'), h('p', null, 'Durable application service and agent route.')),
-        h('section', null, h('h4', null, 'AI Gateway'), h('p', { class: 'cx-d-state' }, 'not configured'), h('p', null, 'Optional routing and observability for model requests.')),
-        h('section', null, h('h4', null, 'Cloud log sync'), h('p', { class: 'cx-d-state' }, 'off · logs stay local'), h('p', null, 'Turning it on needs a configured destination and your clear consent.')))]];
+      const parts = cfLines(cf);
+      return ['Optional Cloudflare settings', [h('p', null, cf ? cf.words : 'Chat history and logs stay usable on this computer without a Cloudflare account; Timmy never checks Cloudflare from here (a request can create a gateway and bill).'), h('div', { class: 'cx-drawer-grid' },
+        ...(parts.length ? parts : [['Its parts', 'not known yet']]).map(([k, v]) => h('section', null, h('h4', null, k), h('p', { class: 'cx-d-state' }, v))))]];
     }
     case 'logs': return ['Logs on this computer', [h('p', null, (v && v.logs && v.logs.words) || 'Logs and receipts stay on this computer.'), h('p', null, (v && v.logs && v.logs.cloud) || ''), h('div', { class: 'cx-empty-actions' },
       h('button', { type: 'button', class: 'cx-btn', 'data-cx-dest': 'logs' }, 'Open Logs & receipts'), h('button', { type: 'button', class: 'cx-btn', 'data-cx': 'older' }, 'Show the turn mirror'))]];

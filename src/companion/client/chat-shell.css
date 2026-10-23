@@ -220,6 +220,10 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cm-panel h3 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); font-weight: var(--timmy-weight-body); }
 .cm-panel .cm-panel-title { font-size: 15px; color: var(--timmy-text); text-transform: none; letter-spacing: 0; font-weight: var(--timmy-weight-strong); }
 .cm-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
+.cm-parts { list-style: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--timmy-line); }
+.cm-parts strong { display: block; font-weight: var(--timmy-weight-body); color: var(--timmy-text); }
+.cm-parts span { overflow-wrap: anywhere; }
+.cm-panel .cm-word { color: var(--timmy-text); }
 .cm-kv dt { color: var(--timmy-text-secondary); }
 .cm-kv dd { color: var(--timmy-text); text-align: right; }
 

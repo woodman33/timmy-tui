@@ -97,12 +97,38 @@ describe('the Chat\'s data: the saved conversation, the catalog rows and the pro
     expect(catalogQueryOf({ source: 'openrouter', sort: 'price', capability: 'vision', cost: 'paid', context: '128000', maker: 'anthropic' })).toEqual({ source: 'openrouter', sort: 'price', capability: 'vision', cost: 'paid', minContext: 128000, maker: 'anthropic' });
   });
 
-  it('the providers\' states without asking anything: a saved key is "saved, not checked", none is "not set up", Cloudflare is never checked from here', () => {
-    const none = companionProviders({ TIMMY_HOME: join(box, 'empty-home'), TIMMY_SETTINGS_DIR: join(box, 'empty-settings') }, join(box, 'cwd'));
-    expect(none.map((p) => [p.id, p.state])).toEqual([['openrouter', 'not set up'], ['ollama-local', 'saved, not checked'], ['ollama-cloud', 'not set up'], ['cloudflare', 'not set up']]);
-    expect(none.find((p) => p.id === 'cloudflare')!.words).toContain('never checks it from here');
-    const keyed = companionProviders({ OPENROUTER_API_KEY: 'FAKE-key-never-sent', TIMMY_HOME: join(box, 'empty-home'), TIMMY_SETTINGS_DIR: join(box, 'empty-settings') }, join(box, 'cwd'));
+  it('the providers\' states, H170\'s (nothing asked), as this page shows them: the local Ollama\'s from this page\'s own read, each next step where it happens; a key never in them', () => {
+    // a home with nothing set up, on a computer with no ollama program on its PATH (linux: no app is looked for)
+    const env = { TIMMY_HOME: join(box, 'empty-home'), TIMMY_SETTINGS_DIR: join(box, 'empty-settings'), TIMMY_REPO_ROOT: join(box, 'cwd'), PATH: '' };
+    const linux = { platform: 'linux' as const };
+    const none = companionProviders(env, join(box, 'cwd'), undefined, linux);
+    expect(none.map((p) => [p.id, p.state])).toEqual([['openrouter', 'not set up'], ['ollama-local', 'not installed'], ['ollama-cloud', 'not set up'], ['cloudflare', 'not set up']]);
+    expect(none[0].next).toMatch(/^In a terminal: timmy init --openrouter - keeps a key .*signing in from this page is not in this revision\.$/);
+    expect(none[2].next).toBe('Its key is read from OLLAMA_API_KEY or the Timmy home\'s providers.json; this page keeps no key and asks nothing.');
+    expect(none[3].words).toContain('Timmy never sends Cloudflare a request to check it');
+    // this page's read of the local Ollama: answered (checked, its time, how many models), or not (not installed here)
+    const at = '2026-10-22T23:40:00.000Z';
+    const answered = companionProviders(env, join(box, 'cwd'), { answered: true, models: 1, at }, linux)[1];
+    expect(answered).toMatchObject({ id: 'ollama-local', state: 'checked', at, models: 1 });
+    expect(answered.words).toBe('Ollama answered its list of models at 127.0.0.1:11434: 1 installed here (no model ran, no charge).');
+    expect(answered.next).toBeUndefined();
+    const empty = companionProviders(env, join(box, 'cwd'), { answered: true, models: 0, at }, linux)[1];
+    expect(empty).toMatchObject({ state: 'checked', models: 0 });
+    expect(empty.next).toMatch(/^Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/);
+    const silent = companionProviders(env, join(box, 'cwd'), { answered: false, models: 0, at, error: 'the connection failed (ECONNREFUSED)' }, linux)[1];
+    expect(silent).toMatchObject({ id: 'ollama-local', state: 'not installed', at, models: 0 });
+    expect(silent.words).toContain('nothing answered at 127.0.0.1:11434 just now (the connection failed (ECONNREFUSED))');
+    expect(silent.next).toMatch(/Timmy installs nothing\.$/);
+    // installed here and silent: installed, stopped (installed is not running); the program a FAKE on the PATH, never run
+    mkdirSync(join(box, 'bin'), { recursive: true });
+    writeFileSync(join(box, 'bin', 'ollama'), '#!/bin/sh\n# FAKE: an ollama program on the PATH for this test (never run)\nexit 1\n', { mode: 0o755 });
+    const stopped =companionProviders({ ...env, PATH: join(box, 'bin') }, join(box, 'cwd'), { answered: false, models: 0, at }, linux)[1];
+    expect(stopped).toMatchObject({ state: 'installed, stopped' });
+    expect(stopped.next).toMatch(/^Start it \(.+\), then Refresh in its setup\.$/);
+    // a saved key: "saved, not checked", where a check happens; the key itself never in the states
+    const keyed = companionProviders({ ...env, OPENROUTER_API_KEY: 'FAKE-key-never-sent' }, join(box, 'cwd'), undefined, linux);
     expect(keyed[0]).toMatchObject({ id: 'openrouter', state: 'saved, not checked' });
+    expect(keyed[0].next).toMatch(/^In a terminal: timmy workspace check asks OpenRouter's key endpoint once/);
     expect(JSON.stringify(keyed)).not.toContain('FAKE-key-never-sent');
   });
 });
@@ -154,9 +180,11 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
     expect(body.conversation.turns[1].model).toBe('fake-qwen3:8b');
     expect(body.route).toMatchObject({ kind: 'local', ready: true, model: 'fake-qwen3:8b', loopback: true, cloud: false });
     expect(body.scope).toMatchObject({ conversation: 'this page', tools: 'none', receipt: false });
-    expect(body.policy).toMatchObject({ freeOnly: false, localOnly: null });
+    expect(body.policy).toEqual({ freeOnly: false, localOnly: false, from: { freeOnly: 'settings', localOnly: 'settings' } });
     const local = body.providers.find((p: { id: string }) => p.id === 'ollama-local');
-    expect(local).toMatchObject({ state: 'checked', words: '1 installed on this computer (its list of models; no model ran).' });
+    expect(local).toMatchObject({ state: 'checked', models: 1 });
+    expect(local.words).toMatch(/^Ollama answered its list of models at 127\.0\.0\.1:\d+: 1 installed here \(no model ran, no charge\)\.$/);
+    expect(body.providers.map((p: { id: string }) => p.id)).toEqual(['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare']);
     expect(Date.parse(local.at)).toBeGreaterThan(Date.now() - 60_000);
     // the requests off this process: the local Ollama's list of models and their facts; no model asked
     const asked = new Set(ollama.requests.map((r) => `${r.method} ${r.path}`));

@@ -290,7 +290,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await p2.waitForFunction(() => document.body.dataset.chatState === 'setup', null, { timeout: 10_000 });
         expect(await p2.$eval('#cx-scroll', (s) => s.scrollTop)).toBe(0);
         await p2.waitForSelector('#cm-list .cm-empty', { timeout: 20_000 });
-        expect(await text(p2, '.cm-state')).toMatch(/^● answered \d\d:\d\d · 0 installed on this computer \(its list of models; no model ran\)\./);
+        expect(await text(p2, '.cm-state')).toMatch(/^● answered \d\d:\d\d · Ollama answered its list of models at 127\.0\.0\.1:\d+: 0 installed here \(no model ran, no charge\)\. Install a model yourself \(ollama pull .+\); this page downloads nothing\.$/);
         expect(await text(p2, '#cm-list .cm-empty')).toBe('None listed: the line above says why.');
         expect(await p2.$('#cm-foot')).toBeNull();
         // Back to the choices: focus on the first way, the panel at its top again
