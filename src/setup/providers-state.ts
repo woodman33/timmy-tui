@@ -28,9 +28,9 @@ import { probeOllama } from '../agent/providers.js';
 import { readClefConfig } from '../decision/config.js';
 import { ollamaAddress } from '../capabilities/ollama-route.js';
 
-export { startOpenRouterSignIn, startOpenRouterSignIn as openRouterSignIn, type SignIn, type SignInResult } from './openrouter-signin.js';
+export { startOpenRouterSignIn, startOpenRouterSignIn as openRouterSignIn, MANUAL_WORDS, type SignIn, type SignInResult } from './openrouter-signin.js';
 export { saveKey, forgetKey, keyWhere, checkKeyShape, KEY_PAGE } from './provider-keys.js';
-export { confirmPull, ollamaPull, STARTER_MODELS, SIZE_NOTE, type PullConfirmation, type PullProgress, type PullResult } from './ollama-local.js';
+export { confirmPull, localHardware, ollamaPull, STARTER_MODELS, SIZE_NOTE, type PullConfirmation, type PullProgress, type PullResult } from './ollama-local.js';
 
 export type ProviderId = 'openrouter' | 'ollama-local' | 'ollama-cloud' | 'cloudflare';
 export const PROVIDERS: readonly ProviderId[] = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];

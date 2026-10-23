@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkProvider, providerState } from '../src/setup/providers-state.js';
-import { confirmPull, freeBytes, installSteps, ollamaInstalled, ollamaPull, pullErrorWords, STARTER_MODELS, type PullProgress } from '../src/setup/ollama-local.js';
+import { confirmPull, freeBytes, installSteps, localHardware, ollamaInstalled, ollamaPull, pullErrorWords, STARTER_MODELS, type PullProgress } from '../src/setup/ollama-local.js';
 
 const trap = vi.hoisted(() => ({ calls: [] as string[] }));
 vi.mock('node:child_process', async (orig) => {
@@ -151,6 +151,15 @@ describe('Ollama on this computer: installed, answering, models held and loaded,
 });
 
 describe('the starter download: sizes as the library shows them, the free-disk check, the confirmation, the streamed pull', () => {
+  it('measured memory and free disk, said beside the downloads, and nothing claimed from them', () => {
+    expect(localHardware({ memory: 16e9, free: 40e9 }).words).toBe('This computer: 16.0 GB of memory; 40.0 GB free where Ollama keeps its models (measured now).');
+    expect(localHardware({ memory: null, free: null }).words).toBe('This computer: memory not measured; free disk not measured.');
+    // the real readers (os.totalmem, statfs): a positive number, or null where the system cannot say
+    const real = localHardware({ env: { OLLAMA_MODELS: join(root, 'home', 'models') } });
+    expect(real.memoryBytes === null || real.memoryBytes > 0).toBe(true);
+    expect(real.freeDiskBytes === null || real.freeDiskBytes >= 0).toBe(true);
+  });
+
   it('the three starter models and their artifact sizes', () => {
     expect(STARTER_MODELS.map((s) => [s.model, s.size])).toEqual([
       ['qwen3:0.6b', '523 MB'], ['qwen3.5:0.8b', '1.2 GB (MLX) / 1.3 GB (llama.cpp)'], ['smollm2:135m-instruct-q4_0', '92 MB'],

@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  checkProvider, CONNECTIONS_SCHEMA, describeCheck, forgetKey, keyWhere, providerState, providerStates, readObservations, saveKey, startOpenRouterSignIn,
+  checkProvider, CONNECTIONS_SCHEMA, describeCheck, forgetKey, keyWhere, MANUAL_WORDS, providerState, providerStates, readObservations, saveKey, startOpenRouterSignIn,
 } from '../src/setup/providers-state.js';
 import { checkKeyShape, keyInUse } from '../src/setup/provider-keys.js';
 import { authorizationUrl, pkcePair } from '../src/setup/openrouter-signin.js';
@@ -246,6 +246,28 @@ describe('OpenRouter: the key check without a model call, and the PKCE sign-in (
     expect(await x.done).toMatchObject({ ok: false, reason: 'refused', words: expect.stringContaining('OpenRouter refused the exchange (HTTP 403: the code or its verifier is not valid, or the sign-in expired): nothing was saved.') });
     expect(existsSync(join(root, 'home', 'providers.json'))).toBe(false);
     for (const s of [fake.server, declined.server, refusing.server]) await close(s);
+  });
+
+  it('the manual way: the address a browser on another computer ended on, typed into Timmy\'s field, is exchanged', async () => {
+    const fake = fakeOpenRouter();
+    routes['https://openrouter.ai'] = await listen(fake.server);
+    const flow = await startOpenRouterSignIn({ env, cwd: join(root, 'work'), fetch: routed });
+    // the other computer's browser: OpenRouter sends it to a 127.0.0.1 address it cannot load, which stays in its address bar
+    const away = await routed(flow.url, { redirect: 'manual' });
+    expect(away.status).toBe(302);
+    const ended = away.headers.get('location')!;
+    expect(ended.startsWith(`${flow.callback}?code=`)).toBe(true);
+    expect(flow.submit('not a code')).toEqual({ ok: false, words: 'That holds no code from OpenRouter: paste the whole address the browser ended on (it holds code=…), or the code alone.' });
+    expect(flow.submit(ended.replace(/\/callback\/[^?]+/, '/callback/another'))).toMatchObject({ ok: false, words: expect.stringContaining('from another sign-in') });
+    expect(flow.submit(ended)).toEqual({ ok: true, words: 'Taken: the code is being exchanged for a key; nothing is saved until OpenRouter answers.' });
+    expect(flow.submit(ended)).toEqual({ ok: false, words: 'This sign-in has its code already: it is being exchanged.' });
+    const r = await flow.done;
+    expect(r).toMatchObject({ ok: true, words: expect.stringMatching(/^Signed in: Saved, not checked:/) });
+    expect(fake.keys.has(providers().openrouter_api_key as string)).toBe(true);
+    expect(fake.seen).toEqual(['GET /auth', 'POST /api/v1/auth/keys']);
+    expect(flow.submit(ended)).toEqual({ ok: false, words: 'This sign-in has ended: start it again.' });
+    expect(MANUAL_WORDS).toMatch(/never into the chat\.$/);
+    await close(fake.server);
   });
 
   it('a request to the callback that is not OpenRouter\'s answer (another path) is refused, and the sign-in still waits', async () => {

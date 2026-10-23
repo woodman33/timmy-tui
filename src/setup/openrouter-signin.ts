@@ -13,6 +13,9 @@
  *   4. OpenRouter sends the browser back to the callback with ?code=…; the code and the verifier are exchanged for a key:
  *      POST https://openrouter.ai/api/v1/auth/keys {code, code_verifier, code_challenge_method: "S256"} answers {key, user_id}
  *   5. the key is saved as a pasted one is (./provider-keys.ts saveKey: providers.json, 0600): saved, not checked
+ * The manual way (the spec's "manual-code fallback"; MANUAL_WORDS): a browser on another computer cannot reach this one's
+ * 127.0.0.1, so it ends on a page that does not load; its address holds the code, and the person types it into Timmy's own
+ * field (submit), never into the conversation. It is exchanged as the callback's would be.
  * Cancel, a timeout (5 minutes unless the caller sets another), a declined sign-in and a refused exchange each end it with
  * nothing saved, in words; the server stops in every case. Nothing here touches a project, a conversation or a draft, so
  * cancelling keeps them as they are. The code, the verifier and the key never enter a word, a log or an error.
@@ -62,7 +65,16 @@ export interface SignIn {
   done: Promise<SignInResult>;
   /** Cancel: nothing is saved, and the server stops. */
   cancel: () => void;
+  /**
+   * The manual way, for a browser on another computer (MANUAL_WORDS): the address that browser ended on, or the code alone,
+   * typed into Timmy's own field (never the conversation). Exchanged as the callback's would be; the answer says whether it
+   * was taken, and `done` says what came of it.
+   */
+  submit: (pasted: string) => { ok: boolean; words: string };
 }
+
+/** The manual way, in words a surface shows beside the address (a headless terminal, or a browser on another computer). */
+export const MANUAL_WORDS = 'If the browser is on another computer: open the address there and sign in. It ends on a page that does not load (an address on 127.0.0.1): copy that whole address into the field here, never into the chat.';
 
 export interface SignInOptions {
   env?: Env;
@@ -176,5 +188,23 @@ export async function startOpenRouterSignIn(o: SignInOptions = {}): Promise<Sign
     if (o.signal.aborted) cancel();
     else o.signal.addEventListener('abort', cancel, { once: true });
   }
-  return { url: authorizationUrl(callback, challenge, o.limit), callback, port, done, cancel };
+  const submit = (pasted: string): { ok: boolean; words: string } => {
+    if (settled) return { ok: false, words: 'This sign-in has ended: start it again.' };
+    if (received) return { ok: false, words: 'This sign-in has its code already: it is being exchanged.' };
+    const raw = typeof pasted === 'string' ? pasted.trim() : '';
+    let code: string | null = raw;
+    if (/^https?:\/\//i.test(raw)) {
+      let u: URL | null = null;
+      try { u = new URL(raw); } catch { u = null; }
+      if (!u) return { ok: false, words: 'That is not an address: paste the whole address the browser ended on, or the code alone.' };
+      // another sign-in's address holds another sign-in's code: its exchange could only fail
+      if (u.pathname !== path) return { ok: false, words: 'That address is from another sign-in (its path differs): open this sign-in\'s address, then paste where it ends.' };
+      code = u.searchParams.get('code');
+    } else if (/^[?&]?code=/i.test(raw)) code = new URLSearchParams(raw.replace(/^[?&]/, '')).get('code');
+    if (!codeShape(code)) return { ok: false, words: 'That holds no code from OpenRouter: paste the whole address the browser ended on (it holds code=…), or the code alone.' };
+    received = true;
+    void redeem(code);
+    return { ok: true, words: 'Taken: the code is being exchanged for a key; nothing is saved until OpenRouter answers.' };
+  };
+  return { url: authorizationUrl(callback, challenge, o.limit), callback, port, done, cancel, submit };
 }
