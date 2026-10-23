@@ -125,7 +125,8 @@ describe('the companion\'s built web code at /web/, from both local servers (R4 
       await page.goto(companion.url);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
       // R5 (H132): the model chat is the Chat tab's (2) second view
-      await page.click('#ws-tabs [data-ws-tab="chat"]');
+      // R10 CHAT (H171): the shell's left menu opens Chat, whose older views keep this page's Streamdown chat
+      await page.click('#rail-menu .rail-item[data-dest="chat"]');
       await page.click('[data-tab="streamdown"]');
       await page.waitForFunction(() => document.getElementById('streamdown-root')?.dataset.island === 'absent', null, { timeout: 10_000 });
       expect(await page.textContent('#streamdown-root .sd-absent')).toBe(WEB_ABSENT_SOURCE);

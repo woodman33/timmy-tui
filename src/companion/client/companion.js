@@ -2599,11 +2599,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) read
 
 (() => {
   // the tab the address asks for (R6 lead: ?tab=<id>, or tab=<id> beside the token), else the one this browser tab showed
-  // last (a run's address opens Workflows instead)
-  let tab = 'home';
-  try { tab = sessionStorage.getItem(WS_TAB_KEY) || 'home'; } catch (e) { tab = 'home'; }
+  // last (a run's address opens Workflows instead). R10 CHAT (H171; the operator's order of 2026-10-22: "Chat is selected
+  // after setup and on subsequent launches"): Chat, when neither names one.
+  let tab = 'chat';
+  try { tab = sessionStorage.getItem(WS_TAB_KEY) || 'chat'; } catch (e) { tab = 'chat'; }
   if (companion.askedTab && document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(companion.askedTab)}"]`)) tab = companion.askedTab;
-  if (!/^\/run\//.test(location.pathname) && !companion.askedRun) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'home');
+  if (!/^\/run\//.test(location.pathname) && !companion.askedRun) showWorkspaceTab(document.querySelector(`#ws-tabs [data-ws-tab="${CSS.escape(tab)}"]`) ? tab : 'chat');
   let folded = false;
   try { folded = localStorage.getItem('timmy.companion.activity') === 'folded'; } catch (e) { folded = false; }
   if (folded) foldActivity(true);

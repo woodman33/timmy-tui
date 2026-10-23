@@ -154,7 +154,8 @@ describe.skipIf(!browserPath)('Ollama answering through a FAKE after a stopped c
       const body = await page.evaluate(() => document.body.innerText);
       expect(body).not.toMatch(/needs setup|brew install/i);
       if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: join(process.env.TIMMY_CAPTURE_DIR, 'companion-ollama-fake-after-stop-home.png'), fullPage: false });
-      await page.click('#ws-tab-control');
+      // R10 CHAT (H171): the shell's left menu opens Control Room (the old tab row is not drawn on Chat, where the page opens)
+      await page.click('#rail-menu .rail-item[data-dest="control"]');
       const list = '#control-now [data-control="chat-turn-list"]';
       await page.waitForSelector(list, { timeout: 10_000 });
       expect(await page.textContent(list)).toContain(`turn stopped (asked from the companion) in the Workbench · ${MODEL} · receipt ${turn.id}`);
@@ -162,7 +163,8 @@ describe.skipIf(!browserPath)('Ollama answering through a FAKE after a stopped c
       if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: join(process.env.TIMMY_CAPTURE_DIR, 'companion-ollama-fake-after-stop-control.png'), fullPage: false });
       expect(errors).toEqual([]);
     } finally { await context.close(); }
-    // nothing was asked of the FAKE but its list and its model check: no chat request was ever sent
-    expect(ollama.requests.every((r) => r.path === '/api/tags' || r.path === '/api/show')).toBe(true);
+    // nothing was asked of the FAKE but its list and its model check (R10 CHAT H171: and the Chat's Models rail's which models
+    // are loaded, /api/ps): no chat request was ever sent
+    expect(ollama.requests.every((r) => r.path === '/api/tags' || r.path === '/api/show' || r.path === '/api/ps')).toBe(true);
   }, 240_000);
 });

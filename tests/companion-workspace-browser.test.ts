@@ -19,6 +19,7 @@ import { CONNECTIONS_SCHEMA, buildWorkspaceFrame, writeConnections, type Connect
 import { startCompanionServer, type CompanionOptions, type CompanionServer } from '../src/companion/server.js';
 import { takeTurnHold } from '../src/agent/chat-turn.js';
 import { DEFAULT_SETTINGS, readSettings, saveSettings, settingsPath } from '../src/workbench/settings.js';
+import { openWorkspaceTab } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -102,7 +103,8 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(s.url);
+    // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases start where they did, on Home
+    await page.goto(s.url.replace('/#t=', '/?tab=home#t='));
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('#home-connections .conn-card', { timeout: 15_000 });
     return { page, context, posts, errors, outside };
@@ -275,11 +277,12 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
   const shown = (page: Page): Promise<{ selected: string[]; visible: string[]; focused: string | null }> => page.evaluate(() => ({
     selected: [...document.querySelectorAll('#ws-tabs [aria-selected="true"]')].map((b) => (b as HTMLElement).dataset.wsTab ?? ''),
     visible: [...document.querySelectorAll('.ws-page')].filter((p) => !(p as HTMLElement).hidden).map((p) => (p as HTMLElement).dataset.wsPage ?? ''),
-    focused: (document.activeElement as HTMLElement | null)?.dataset?.wsTab ?? null,
+    // R10 CHAT (H171): on Chat the old tab row is not drawn: focus goes to the menu's Chat (its data-dest)
+    focused: (document.activeElement as HTMLElement | null)?.dataset?.wsTab ?? (document.activeElement as HTMLElement | null)?.dataset?.dest ?? null,
   }));
-  /** A tab opened by its button, its fade ended. */
+  /** A tab opened by its button, its fade ended. R10 CHAT (H171): the control drawn for it (the tab row, or on Chat the menu). */
   const openTab = async (page: Page, id: string): Promise<void> => {
-    await page.click(`#ws-tab-${id}`);
+    await openWorkspaceTab(page, id);
     await page.waitForFunction((t) => !(document.getElementById(`ws-${t}`) as HTMLElement).hidden && document.getAnimations().every((a) => a.playState !== 'running'), id, { timeout: 10_000 });
   };
 
@@ -514,7 +517,11 @@ describe.skipIf(!browserPath)('the companion\'s page draws the workspace frame a
     const { page, context, errors, outside } = await open();
     try {
       await openTab(page, 'chat');
-      const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      // R10 CHAT (H171): on Chat the strip is drawn behind the composition (its words checked below), whose own control offers
+      // the same Stop, in words
+      const btn = await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
+      const own = await page.waitForSelector(`#cx-controls [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      expect(await own.textContent()).toBe('■ Stop the turn in the Workbench');
       // (R10 H167: where its own key is, in words beside the label, not a command chip)
       expect(await btn.textContent()).toMatch(/^3\.Stop the turn· from this page, or Esc in the composer that sent it \(the Workbench\)$/);
       expect(await btn.getAttribute('class')).toContain('is-primary');

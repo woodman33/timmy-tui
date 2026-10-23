@@ -115,6 +115,22 @@ export async function openPage(browser: Browser, p: Pick<PageProject, 'origin'>,
 /** The ten tabs, by their keys and ids (src/contracts/workspace.ts TABS). */
 export const TAB_KEYS: ReadonlyArray<[string, string]> = [['1', 'home'], ['2', 'chat'], ['3', 'workflows'], ['4', 'studio'], ['5', 'voxvision'], ['6', 'create'], ['7', 'control'], ['8', 'fleet'], ['9', 'tools'], ['0', 'logs']];
 
+/**
+ * R10 CHAT (H171): opens workspace tab `id` as a person does, by the control drawn for it: the tab row where it is drawn (every
+ * destination but Chat), else the shell's left menu (on Chat), opening Menu first where the menu is a drawer (a phone).
+ */
+export async function openWorkspaceTab(page: Page, id: string): Promise<void> {
+  const row = page.locator(`#ws-tab-${id}`);
+  if (await row.isVisible()) { await row.click(); return; }
+  const item = page.locator(`#rail-menu .rail-item[data-dest="${id}"]`);
+  if (!(await item.isVisible())) {
+    for (const menu of ['#cx-menu', '#ws-menu']) {
+      if (await page.locator(menu).isVisible()) { await page.click(menu); break; }
+    }
+  }
+  await item.click();
+}
+
 /** Opens tab `id` with its key and waits until its page has drawn what it reads (no "Reading…" left on it), at most 20 s. */
 export async function showTab(page: Page, key: string, id: string): Promise<void> {
   await page.keyboard.press(key);

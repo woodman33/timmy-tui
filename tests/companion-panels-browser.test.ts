@@ -49,7 +49,8 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
     const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(companion.url);
+    // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases start on Home, as they did
+    await page.goto(companion.url.replace('/#t=', '/?tab=home#t='));
     await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
     await page.waitForSelector('#home-connections .conn-card', { timeout: 15_000 });
     return { page, errors };
@@ -98,7 +99,8 @@ describe.skipIf(!browserPath)('the companion page\'s tab panels draw where their
     const cases: Array<[string, string]> = [
       [`${u.origin}/?tab=voxvision#t=${token}`, 'voxvision'],
       [`${u.origin}/#t=${token}&tab=tools`, 'tools'],
-      [`${u.origin}/?tab=nonesuch#t=${token}`, 'home'],
+      // R10 CHAT (H171): a tab the page does not have opens Chat, the page's default destination
+      [`${u.origin}/?tab=nonesuch#t=${token}`, 'chat'],
     ];
     for (const [address, want] of cases) {
       const page = await browser.newPage({ viewport: { width: 1376, height: 768 } });

@@ -31,11 +31,14 @@ const ambers = (page: Page): Promise<Amber[]> => page.evaluate(() => {
   const ownText = (el: Element): string => [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent ?? '').join('').replace(/\s+/g, ' ').trim();
   const within = (el: Element, sel: string): boolean => el.closest(sel) !== null;
   const roles: Array<[string, (el: Element) => boolean]> = [
-    ['the active tab', (el) => within(el, '#ws-tabs [role="tab"][aria-selected="true"]') && !within(el, '.tab-waiting')],
-    ['focus', (el) => el.matches(':focus-visible')],
-    // the strip's primary; on tab 9, where the strip gives none, the inspector's own one primary action (H142)
-    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary')],
-    ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active')],
+    // R10 CHAT (H171): the shell's left menu marks the destination shown (the old tab row is not drawn on Chat)
+    ['the active tab', (el) => (within(el, '#ws-tabs [role="tab"][aria-selected="true"]') && !within(el, '.tab-waiting')) || within(el, '#rail-menu .rail-item[aria-current="page"]')],
+    // R10 CHAT (H171): the Models rail's search and filters draw their focus on their box
+    ['focus', (el) => el.matches(':focus-visible') || el.matches('.cm-search:focus-within, .cm-filter:focus-within')],
+    // the strip's primary; on tab 9, where the strip gives none, the inspector's own one primary action (H142). R10 CHAT (H171):
+    // on Chat, the composition's: Send, the first run's suggested way, or the no-model state's Choose a model
+    ['the one primary next step', (el) => within(el, '#ws-actions .act.is-primary, #ws-tools .tools-go.is-primary, .cx-send:not(.is-muted):not(:disabled), .cx-btn.is-primary, .cx-way.is-suggested')],
+    ['the selection', (el) => within(el, '[aria-current="true"], [aria-pressed="true"], [aria-selected="true"]:not([role="tab"]), .is-selected, .is-picked, .is-shown, .view-btn.active, .cm-providers [role="tab"][aria-selected="true"]')],
     ['.intent or .predict', (el) => within(el, '.is-intent, .is-predict, .rd-before, [data-stage="predict"], [data-stage="intent"], .tone-intent, .log-msg.user, .sd-user')],
     ['what waits for you', (el) => within(el, '.tab-waiting, .waits, #token-note, .tools-needs, .sd-approval, .tools-rule.is-waiting, #mirror-status[data-state="reconnecting"], #mirror-status[data-state="restored"], .mirror-note, .saved-banner, .sb-draft, .tone-setup, .st-needs-setup')],
     ['a failure, with ✕ and its word', (el) => within(el, '.tone-failed, .is-failed, .run-error, .canvas-fail, .conn-state.is-failed, [data-state="failed"], .tools-attn, .tools-refused, .tools-fielderr, .is-invalid, .log-level.error, .sb-thumb-failed, .st-failed, .tone-failure')],
@@ -122,7 +125,8 @@ describe.skipIf(!browserPath)('amber is exact and every tab fits, at 1376×768 a
             // the keyboard's place: off the page, so focus draws no ring here (focus is read on its own below)
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
             const list = await ambers(page);
-            const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
+            // R10 CHAT (H171): on Chat the strip is behind the composition, whose one primary is its own (an amber fill too)
+            const primaries = await page.$$eval('#ws-actions .act.is-primary, .act.is-primary, .tools-go.is-primary, .cx-send, .cx-btn.is-primary, .cx-way-act', (els) => els.filter((e) => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).backgroundColor === 'rgb(255, 176, 0)').length);
             report[`${at} tab ${key} ${id}`] = { ambers: list, primaries, fit: size.width === 800 ? await fit(page) : [], words: await amberWords(page) };
             // with TIMMY_CAPTURE_DIR, each tab as measured (the window's view; at 800x600 the page's top, it scrolls on)
             if (process.env.TIMMY_CAPTURE_DIR) await page.screenshot({ path: `${process.env.TIMMY_CAPTURE_DIR}/tab${key}-${id}-${at}.png` });

@@ -29,6 +29,7 @@ import { RUN_NO_PRODUCER, runDetailAnswer, type RunDetailProducer } from '../src
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { projectId, saveActiveProject, type ActiveProject } from '../src/project/index.js';
 import { tildePath } from '../src/utils/home-scrub.js';
+import { openWorkspaceTab } from './helpers/companion-page-kit.js';
 import { startFakeOllama, textChunks } from './fixtures/fake-ollama-chat.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -247,7 +248,8 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     page.on('response', (r) => { if (r.status() >= 400) seen.bad.push(`${r.status()} ${r.url()}`); });
     page.on('console', (m) => { if (m.type() === 'error') seen.consoleErrors.push(`${m.text()} ${m.location().url ?? ''}`.trim()); });
     page.on('pageerror', (e) => seen.errors.push(e.message));
-    await page.goto(`${origin}${o.path ?? '/'}#t=${tokenOf(target)}`);
+    // R10 CHAT (H171): the page opens on Chat unless its address names a tab; these cases read the header and Home, as before
+    await page.goto(`${origin}${o.path ?? '/?tab=home'}#t=${tokenOf(target)}`);
     return { page, context, seen };
   }
   const clean = (seen: Seen): void => {
@@ -265,7 +267,9 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
     // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
     // switch where it shares its place (the Chat tab's two views)
     const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
-    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
+    // the page opens on it
+    if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
     if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
     else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
@@ -359,7 +363,7 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
 
       // the companion's address opened again in this tab (a reload alone has no token: the page keeps it in memory only)
       // keeps the pin, this tab's own; a new page follows
-      await pinned.page.goto(`http://127.0.0.1:${own.port}/#t=${tokenOf(own)}`);
+      await pinned.page.goto(`http://127.0.0.1:${own.port}/?tab=home#t=${tokenOf(own)}`);
       await connected(pinned.page);
       await shows(pinned.page, 'beta');
       await pinned.page.waitForFunction(() => document.getElementById('project')?.dataset.mode === 'pinned', null, { timeout: 5_000 });
@@ -442,7 +446,11 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
         expect(chats[0].tools).toBeUndefined();
         expect(chats[0].messages.at(-1)).toEqual({ role: 'user', content: 'FAKE: a question for the local model' });
         expect(chats[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('No tools are available in this conversation') });
-        expect(ollama.requests.map((r) => r.path)).toEqual(['/api/show', '/api/chat']);
+        // R10 CHAT (H171): the Chat's Models rail lists the local models first (GET /api/tags, /api/show, /api/ps: no model
+        // runs); this page's Send then asks its model's facts and the chat
+        const paths = ollama.requests.map((r) => r.path);
+        expect(paths.slice(-2)).toEqual(['/api/show', '/api/chat']);
+        for (const p of paths.slice(0, -2)) expect(['/api/tags', '/api/show', '/api/ps']).toContain(p);
         expect(openrouter.seen).toEqual([]);
         clean(seen);
       } finally { await context.close(); }

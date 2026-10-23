@@ -96,6 +96,15 @@
  *                                                                            for it, and a notice when that differs
  *   GET /api/journey/file                  the token                         a project file for the preview: an image (data URL,
  *                                                                            its size in pixels) or a text's first 64 KB
+ *
+ * R10 CHAT (H171; the operator's order of 2026-10-22: ONE main Chat screen): the Chat composition's data, read only, for the
+ * shown project (src/companion/chat-view.ts):
+ *
+ *   route                                  requires                          why
+ *   GET /api/chat/view                     the token                         the project's saved conversation, each answer's
+ *                                                                            model from its receipt; this page's route; the
+ *                                                                            providers' states; where the logs are
+ *   GET /api/chat/models                   the token                         one source's model rows, sorted and filtered
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -128,6 +137,8 @@ import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
 import { mountPanels } from './panels.js';
 // R10 (H164): the journey's read-only routes (src/journey/routes.ts)
 import { mountJourneyRoutes } from '../journey/routes.js';
+// R10 CHAT (H171): the Chat composition's read-only routes (src/companion/chat-view.ts)
+import { mountChatView } from './chat-view.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -148,7 +159,8 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  */
 // R6 lead: the tab panels' page code (panels.js, the registry; panel-studio.js, panel-vox.js and panel-tools.js, each panel's own drawing)
 // R6 (H144): panel-run.js, the Workflows tab's run detail
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js'] as const;
+// R10 CHAT (H171): chat-shell.js and chat-shell.css, the shell's left menu and the Chat composition
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'panels.js', 'panel-studio.js', 'panel-vox.js', 'panel-tools.js', 'panel-run.js', 'panel-create.js', 'panel-control.js', 'chat-shell.js', 'chat-shell.css'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -845,6 +857,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // R10 (H164): the journey's routes (/api/journey/…), token-checked, for the shown project; the route of the page's own Send
   // read from the environment its /chat reads
   mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
+  // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models)
+  mountChatView(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
