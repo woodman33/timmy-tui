@@ -31,6 +31,7 @@ import { ollamaAddress } from '../capabilities/ollama-route.js';
 export { startOpenRouterSignIn, startOpenRouterSignIn as openRouterSignIn, MANUAL_WORDS, type SignIn, type SignInResult } from './openrouter-signin.js';
 export { saveKey, forgetKey, keyWhere, checkKeyShape, KEY_PAGE } from './provider-keys.js';
 export { confirmPull, localHardware, ollamaPull, STARTER_MODELS, SIZE_NOTE, type PullConfirmation, type PullProgress, type PullResult } from './ollama-local.js';
+export { checkLocalModel, localModelGlyph, type LocalModelCheck, type LocalModelState, type LocalModelWhy } from './local-model-check.js';
 
 export type ProviderId = 'openrouter' | 'ollama-local' | 'ollama-cloud' | 'cloudflare';
 export const PROVIDERS: readonly ProviderId[] = ['openrouter', 'ollama-local', 'ollama-cloud', 'cloudflare'];
