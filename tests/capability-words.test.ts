@@ -6,11 +6,13 @@
  * runs chain AND that chain verifies here (a chain changed on disk takes the word away on both surfaces); and no key's value is
  * anywhere in either surface's text or DOM (only its fingerprint and where it is kept).
  *
- * Written to FAIL until all three land (as tests/no-unchosen-paid-model.test.ts was for Phase 0): H170's inventory
- * (src/capabilities/inventory.ts capabilityInventory; inventory-words.ts standingWord), H167's screen (its header "what this installation has"
- * and "nothing here was run to make this list"; one block per row that starts with the row's name) and H171's page (one card
- * per row carrying data-inventory-row="<id>" and data-state="<word>", its next step inside it; the inventory itself in
- * GET /api/panel/tools/state under its schema timmy.capability-inventory/1).
+ * Written to FAIL until all three landed (as tests/no-unchosen-paid-model.test.ts was for Phase 0): H170's inventory
+ * (src/capabilities/inventory.ts capabilityInventory; inventory-words.ts standingWord), H167's screen (its header "what this
+ * installation has" and "nothing here was run to make this list"; one line per row: the name, the chip, what was found, the
+ * next step in inventoryNext's words) and H171's page (one card per row carrying data-inventory-row="<id>" and
+ * data-state="<word>", its next step inside it; the inventory itself in GET /api/panel/tools/state under its schema
+ * timmy.capability-inventory/1). The next step's words are the terminal's (H167's inventoryNext: the step and where it is
+ * set), on both surfaces.
  *
  * The homes are FAKE and real at once: real files under a temporary Timmy home, written as `timmy init` writes them
  * (applySetup), a real project with a real receipts chain (appendReceipt; its words say FAKE), a FAKE `ollama` on the PATH that
@@ -25,6 +27,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { capabilityInventory, inventory, type InventoryRow } from '../src/capabilities/inventory.js';
+import { standingWord } from '../src/capabilities/inventory-words.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { createProject, projectId, saveActiveProject } from '../src/project/index.js';
 import { Workspace } from '../src/repl/workspace.js';
@@ -34,28 +38,23 @@ import { applySetup } from '../src/utils/init.js';
 import { appendReceipt, receiptsPath, type ReceiptInput } from '../src/utils/receipts.js';
 import { Controller } from '../src/workbench/controller.js';
 import { glyphsFor, screenText } from '../src/workbench/frame.js';
+import { inventoryNext } from '../src/workbench/inventory-tab.js';
 import type { Frame } from '../src/workbench/screen.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
 
-// ── H170's inventory, as its interface was posted (handoff 13:52 PT): read by path so this file compiles before it lands ──
+// ── H170's inventory (src/capabilities/inventory.ts), H167's screen words (src/workbench/inventory-tab.ts) ──
 
 type Word = 'available' | 'configured' | 'exercised';
 const WORDS: readonly Word[] = ['available', 'configured', 'exercised'];
-interface Fact { ok: boolean; found: string; source: string; words: string }
-type Exercised = ({ ok: true; receipt: string; hash: string; when: string; what: string } | { ok: false; found: string }) & { source: string; words: string };
-interface InventoryRow { id: string; name: string; group: string; available: Fact; configured: Fact; exercised: Exercised; next?: string }
-interface InventoryContext { env?: Record<string, string | undefined>; cwd?: string; home?: string; platform?: NodeJS.Platform; packaged?: (rel: string) => boolean }
-interface InventoryModule { capabilityInventory: (ctx?: InventoryContext) => InventoryRow[] }
-interface WordsModule { standingWord: (r: InventoryRow) => Word | 'none' }
-
-const INVENTORY_PATH = '../src/capabilities/inventory.js';
-const WORDS_PATH = '../src/capabilities/inventory-words.js';
-let inventoryModule: InventoryModule | null = null;
-let wordsModule: WordsModule | null = null;
-let inventoryMissing = '';
 
 /** The one word a row stands at: exercised when its receipt counts, else configured, else available, else none (H170's standingWord). */
-const standing = (r: InventoryRow): Word | 'none' => (wordsModule?.standingWord ? wordsModule.standingWord(r) : r.exercised.ok ? 'exercised' : r.configured.ok ? 'configured' : r.available.ok ? 'available' : 'none');
+const standing = (r: InventoryRow): Word | 'none' => standingWord(r);
+/** The next step as the terminal words it (H167's inventoryNext: the step with where it is set; its short forms): the forms a row may show. */
+const nextForms = (r: InventoryRow): string[] => {
+  const nx = inventoryNext(r.next);
+  if (!nx.next) return [];
+  return [nx.where ? `${nx.next}: ${nx.where}` : nx.next, ...(nx.short ? [nx.where ? `${nx.short}: ${nx.where}` : nx.short] : []), ...(nx.where ? [nx.where] : [])];
+};
 const okWords = (r: InventoryRow): Word[] => WORDS.filter((w) => r[w].ok);
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -87,10 +86,12 @@ beforeAll(async () => {
   await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
   closedPort = (s.address() as { port: number }).port;
   await new Promise<void>((r) => s.close(() => r()));
-  try { inventoryModule = await import(INVENTORY_PATH) as InventoryModule; wordsModule = await import(WORDS_PATH) as WordsModule; } catch (e) { inventoryMissing = e instanceof Error ? e.message : String(e); }
   browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/chromium', '/usr/bin/google-chrome'].find((p): p is string => Boolean(p) && existsSync(p!));
   if (!browserPath) console.warn('capability-words: no Chromium found, so the DOM checks are skipped here (the route checks still run)');
-}, 30_000);
+  // (launched once here, with this process's own environment, before a FAKE home's HOME, PATH and TMPDIR stand in it: launched
+  // under a FAKE home the browser died at start, SIGTRAP, in the complete run of 16:42)
+  if (browserPath) browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
+}, 60_000);
 
 afterAll(() => {
   for (const k of ENV_KEYS) { if (kept[k] === undefined) delete process.env[k]; else process.env[k] = kept[k]; }
@@ -163,8 +164,8 @@ function workbench(h: Home): Controller {
     env: process.env, jobsDir, onPath: () => null, glyphs: glyphsFor(true), workspace: ws,
     companion: new CompanionControl({ opener: FAKE_OPENER, start: async () => { throw new Error('FAKE: no server is started by the Workbench in this test'); } }),
     studio: new StudioControl({ env: process.env, opener: FAKE_OPENER, project: () => ws.project, projectId, jobsDir, receipts: () => join(h.box, 'studio-store'), ensure: async () => ({ state: 'failed', error: 'FAKE: no Studio in this test' }) as never }),
-    // FAKE: the ladder's rows (tab 9's old TOOLS list) come from no machine probe here; the inventory is read from the home's files
-    capabilities: async () => [], tickMs: 100, slowMs: 400,
+    // FAKE: the ladder's rows come from no machine probe here; the inventory is read from the home's files, as run.ts wires it
+    capabilities: async () => [], inventory: async () => inventory({ env: process.env, cwd: h.project.root }), tickMs: 100, slowMs: 400,
   });
   opened.push(c);
   return c;
@@ -187,42 +188,85 @@ function regionRows(f: Frame, region: 'center' | 'right'): string[] {
 
 interface SurfaceRow { word: Word | 'none'; claimed: Word[]; next: string | null; text: string }
 
-/** The row's block on the screen: from the line that starts with its name to the next row's line; the chip word it shows. */
-function terminalRow(lines: string[], row: InventoryRow, names: string[]): string | null {
-  const starts = (line: string, name: string): boolean => new RegExp(`^\\W{0,4}${esc(name)}(?!\\w)`).test(line.trimStart());
-  const at = lines.findIndex((l) => starts(l, row.name));
-  if (at < 0) return null;
-  const block: string[] = [lines[at]];
-  for (let i = at + 1; i < lines.length && block.length < 8; i++) {
-    if (names.some((n) => n !== row.name && starts(lines[i], n))) break;
-    block.push(lines[i]);
-  }
-  return collapse(block.join(' '));
+/**
+ * The row's line on the screen (H167's inventoryRow: the mark, the name in its column (26 cells at 122 wide, 20 at 80: cut at
+ * a word with an ellipsis, text.ts cut()), the chip, what was found, the next step): the line whose name column holds the row's
+ * name whole (two spaces follow it), or cut at one of its words, or cut through its first word.
+ */
+function terminalRow(lines: string[], row: InventoryRow, taken: Set<string>): string | null {
+  const words = row.name.split(' ');
+  const cuts = words.slice(1).map((_, k) => `${words.slice(0, k + 1).join(' ').replace(/[\s,;:·-]+$/, '')}…`);
+  const forms = [`${esc(row.name)}(?:\\s{2,}|$)`, ...cuts.map((c) => esc(c)), ...(row.name.length > 12 ? [`${esc(row.name.slice(0, 12))}\\S*…`] : [])];
+  const re = new RegExp(`^\\W{0,2}(?:${forms.join('|')})`);
+  // (two rows whose names are cut alike at a narrow width, "MCP to CLI…" twice: each takes the next such line, in the screen's order)
+  const at = lines.findIndex((l) => re.test(l.trimStart()) && !taken.has(sansMark(l)));
+  return at < 0 ? null : lines[at];
+}
+/** A line without its selection mark: the same text whether or not the selection is on it. */
+const sansMark = (line: string): string => collapse(line.replace(/^(\s*)\S\s/, '$1'));
+
+/**
+ * A row's line read: the chip is its own column (H167's columnsAt: the mark 2, the name 26 cells at 110 columns and more, 22
+ * at 90, else 20, two spaces, the chip 10), one of the three words or blank; the next step as one of H167's forms (whole, or
+ * its start where the column cut it). `claimed` keeps every bare word on the line (a next step may say "when available").
+ */
+function readRow(raw: string, r: InventoryRow, w: number): SurfaceRow {
+  const nameCol = w >= 110 ? 26 : w >= 90 ? 22 : 20;
+  // (the name starts after the region's pad and the two-cell mark, "▸ " or "  ": the first letter of the line)
+  const nameStart = [...raw].findIndex((ch) => /[\p{L}\p{N}]/u.test(ch));
+  const chip = [...raw].slice(nameStart + nameCol + 2, nameStart + nameCol + 2 + 10).join('').trim();
+  const word: Word | 'none' = (WORDS as readonly string[]).includes(chip) ? chip as Word : 'none';
+  const line = collapse(raw);
+  const forms = nextForms(r).map(collapse);
+  const next = forms.find((t) => line.includes(t)) ?? forms.find((t) => line.includes(t.slice(0, 10))) ?? null;
+  return { word, claimed: claimed(line), next, text: `${line}${chip ? '' : ' (no chip)'}` };
 }
 
-/** Tab 9 at the size given: every inventory row read as the screen shows it (Down scrolls the list to the rows below). */
-function terminalRows(c: Controller, w: number, h: number, ref: InventoryRow[]): { header: string; rows: Map<string, SurfaceRow>; screens: string[] } {
-  // 9 opens tab 9 (the same key again would show the tab's next workspace, so it is pressed only from another tab)
+/**
+ * Tab 9 at the size given: every inventory row as the screen shows it. 9 opens the tab (the same key again would show its
+ * next workspace, so it is pressed only from another tab); the inventory is read lazily once the tab shows; Tab moves the
+ * keyboard to the list (the header says so: "Tab to this list"); Down walks the selection down the list, which scrolls to it,
+ * and every row is read the first time its line is in view.
+ */
+async function terminalRows(c: Controller, w: number, h: number, ref: InventoryRow[]): Promise<{ header: string; rows: Map<string, SurfaceRow>; screens: string[] }> {
   if (c.ui.page !== 'tools') c.key('9', {});
+  for (const end = Date.now() + 15_000; c.data.inventory?.state !== 'ready' && c.data.inventory?.state !== 'failed' && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+  expect(c.data.inventory?.state, `the Workbench read the inventory (${JSON.stringify(c.data.inventory)})`).toBe('ready');
   let f = c.frame(w, h);
-  const screens = [screenText(f.screen).join('\n')];
-  const header = collapse(regionRows(f, 'center').slice(0, 4).join(' '));
-  const names = ref.map((r) => r.name);
-  const rows = new Map<string, SurfaceRow>();
-  for (const r of ref) {
-    let block: string | null = null;
-    for (let presses = 0; presses < 120 && !block; presses++) {
-      block = terminalRow(regionRows(f, 'center'), r, names);
-      if (block) break;
-      c.key('Down', {});
-      f = c.frame(w, h);
-      screens.push(screenText(f.screen).join('\n'));
-    }
-    if (!block) continue;
-    const words = claimed(block);
-    const word = words.includes('exercised') ? 'exercised' : words.includes('configured') ? 'configured' : words.includes('available') ? 'available' : 'none';
-    rows.set(r.id, { word, claimed: words, next: r.next && block.includes(collapse(r.next)) ? collapse(r.next) : null, text: block });
+  for (let i = 0; i < 6 && c.ui.focus !== 'center'; i++) { c.key('', { tab: true }); f = c.frame(w, h); }
+  expect(c.ui.focus, 'the keyboard on the list').toBe('center');
+  // (back to the list's top first: a walk at another size left the selection, and the view, at the bottom)
+  for (let presses = 0, last = ''; presses < 200; presses++) {
+    c.key('', { upArrow: true });
+    f = c.frame(w, h);
+    const text = screenText(f.screen).join('\n');
+    if (text === last) break;
+    last = text;
   }
+  const screens = [screenText(f.screen).join('\n')];
+  const header = collapse(regionRows(f, 'center').slice(0, 6).join(' '));
+  const rows = new Map<string, SurfaceRow>();
+  const taken = new Set<string>();
+  const seen = (frame: Frame): void => {
+    const lines = regionRows(frame, 'center');
+    for (const r of ref) {
+      if (rows.has(r.id)) continue;
+      const line = terminalRow(lines, r, taken);
+      if (line) { rows.set(r.id, readRow(line, r, w)); taken.add(sansMark(line)); }
+    }
+  };
+  seen(f);
+  let prev = screens[0];
+  for (let presses = 0; presses < 200 && rows.size < ref.length && c.ui.focus === 'center'; presses++) {
+    c.key('', { downArrow: true });
+    f = c.frame(w, h);
+    const text = screenText(f.screen).join('\n');
+    screens.push(text);
+    if (text === prev) break;
+    prev = text;
+    seen(f);
+  }
+  if (rows.size < ref.length && process.env.H172_EXPLORE) writeFileSync(join(process.env.H172_EXPLORE, `terminal-${w}x${h}.txt`), screens.join('\n\n======\n\n'));
   return { header, rows, screens };
 }
 
@@ -252,18 +296,24 @@ function inventoryIn(value: unknown): { rows: InventoryRow[] } | null {
   return walk(value);
 }
 
+/** GET …/state (the inventory rides with it), else GET …/inventory (where the state answered before the reading ended). */
 async function pageState(h: Home): Promise<{ text: string; inventory: { rows: InventoryRow[] } | null }> {
-  const res = await fetch(new URL(`/api/panel/tools/state?project=${encodeURIComponent(h.project.id)}`, companion!.address), { headers: { Authorization: `Bearer ${TOKEN}` } });
-  const text = await res.text();
-  let parsed: unknown = null;
-  try { parsed = JSON.parse(text); } catch { /* not JSON: said below */ }
-  return { text, inventory: inventoryIn(parsed) };
+  const get = async (path: string): Promise<{ text: string; inventory: { rows: InventoryRow[] } | null }> => {
+    const res = await fetch(new URL(`${path}?project=${encodeURIComponent(h.project.id)}`, companion!.address), { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const text = await res.text();
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(text); } catch { /* not JSON: said below */ }
+    return { text, inventory: inventoryIn(parsed) };
+  };
+  const state = await get('/api/panel/tools/state');
+  if (state.inventory) return state;
+  const inv = await get('/api/panel/tools/inventory');
+  return { text: `${state.text}\n${inv.text}`, inventory: inv.inventory };
 }
 
 /** The page's cards in a real Chromium: data-inventory-row, data-state and the card's text (its next step inside it). */
 async function pageCards(h: Home): Promise<{ html: string; cards: Map<string, { state: string; text: string }> }> {
-  browser ??= await chromium.launch({ headless: true, executablePath: browserPath, args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'] });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const page = await browser!.newPage({ viewport: { width: 1280, height: 720 } });
   try {
     await page.goto(companion!.url.replace('/#t=', `/?tab=tools&project=${encodeURIComponent(h.project.id)}#t=`));
     await page.waitForSelector('[data-inventory-row]', { timeout: 15_000 }).catch(() => undefined);
@@ -280,14 +330,13 @@ const STATES: StateId[] = ['nothing', 'available', 'configured', 'exercised', 't
 
 describe('the three capability words, the same on the terminal and the page (R11 Phase 2, H172)', { timeout: 120_000 }, () => {
   it('H170\'s inventory is here: capabilityInventory (src/capabilities/inventory.ts) and standingWord (inventory-words.ts)', () => {
-    expect(inventoryModule, `the inventory module could not be read: ${inventoryMissing}`).not.toBeNull();
-    expect(typeof inventoryModule?.capabilityInventory).toBe('function');
-    expect(typeof wordsModule?.standingWord).toBe('function');
+    expect(typeof capabilityInventory).toBe('function');
+    expect(typeof standingWord).toBe('function');
   });
 
   it('a key present but no model: the inventory names the key by its fingerprint and place, never its value; no row stands exercised', () => {
     const h = makeHome('key-no-model');
-    const rows = inventoryModule?.capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home }) ?? [];
+    const rows = capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home });
     expect(rows.length, 'the inventory read rows').toBeGreaterThan(0);
     expect(JSON.stringify(rows)).not.toContain(FAKE_KEY);
     const or = rows.find((r) => r.id === 'model:openrouter');
@@ -298,7 +347,7 @@ describe('the three capability words, the same on the terminal and the page (R11
 
   it('the bridge absent: the inventory\'s own seam (the real build carries it, so no FAKE home can lack it): the words say missing, next says reinstall', () => {
     const h = makeHome('nothing');
-    const rows = inventoryModule?.capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home, packaged: () => false }) ?? [];
+    const rows = capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home, packaged: () => false });
     const bridge = rows.find((r) => r.id === 'vision:bridge');
     expect(bridge, 'the vision bridge row').toBeTruthy();
     expect(bridge?.available.ok).toBe(false);
@@ -310,7 +359,7 @@ describe('the three capability words, the same on the terminal and the page (R11
   for (const id of STATES) {
     it(`FAKE home "${id}": the same standing word and next step for every row on the terminal (122x37, 80x24) and on the page; exercised only on a chain that verifies; the FAKE key's value nowhere`, async () => {
       const h = makeHome(id);
-      const ref = inventoryModule?.capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home }) ?? [];
+      const ref = capabilityInventory({ env: h.env, cwd: h.project.root, home: h.home });
       expect(ref.length, 'the inventory read rows for this home').toBeGreaterThan(0);
       // the reference itself: the chain's word, and never the key
       if (id === 'exercised') expect(ref.find((r) => r.id === 'model:ollama-local')?.exercised.ok, 'the sealed local turn counts').toBe(true);
@@ -324,19 +373,19 @@ describe('the three capability words, the same on the terminal and the page (R11
       // the terminal, at the target's size and at the small one
       const c = workbench(h);
       for (const [w, hh] of [[122, 37], [80, 24]] as const) {
-        const t = terminalRows(c, w, hh, ref);
+        const t = await terminalRows(c, w, hh, ref);
         expect(t.header, `tab 9's header at ${w}x${hh}`).toMatch(/what this installation has/i);
         expect(t.header).toMatch(/nothing here was run to make this list/i);
         for (const r of ref) {
           const shown = t.rows.get(r.id);
-          expect(shown, `the terminal's row for ${r.name} (${r.id}) at ${w}x${hh}`).toBeTruthy();
+          expect(shown, `the terminal's row for ${r.name} (${r.id}) at ${w}x${hh}; the last screen:\n${t.screens[t.screens.length - 1]}`).toBeTruthy();
+          // the chip is the standing word (one word a row; the row's three facts are the Inspector's), never a higher one
           expect(shown!.word, `the terminal's standing word for ${r.name} at ${w}x${hh}: ${shown!.text}`).toBe(standing(r));
-          expect(shown!.claimed, `the words the terminal claims for ${r.name} at ${w}x${hh}`).toEqual(okWords(r));
-          if (r.next) expect(shown!.next, `the terminal's next step for ${r.name} at ${w}x${hh}: ${shown!.text}`).toBe(collapse(r.next));
+          if (r.next) expect(shown!.next, `the terminal's next step for ${r.name} at ${w}x${hh} (H167's forms ${JSON.stringify(nextForms(r))}): ${shown!.text}`).toBeTruthy();
         }
         for (const s of t.screens) expect(s).not.toContain(FAKE_KEY);
       }
-      const terminal = terminalRows(c, 122, 37, ref).rows;
+      const terminal = (await terminalRows(c, 122, 37, ref)).rows;
 
       // the page's route: the inventory under its schema, the same rows and words
       await startPage(h);
@@ -362,10 +411,10 @@ describe('the three capability words, the same on the terminal and the page (R11
         expect(card, `the page's card for ${r.name} (${r.id})`).toBeTruthy();
         expect(card!.state, `the page's state word for ${r.name}`).toBe(standing(r));
         expect(card!.state).toBe(terminal.get(r.id)?.word);
-        if (r.next) {
-          expect(card!.text, `the page's next step for ${r.name}`).toContain(collapse(r.next));
-          expect(terminal.get(r.id)?.next).toBe(collapse(r.next));
-        }
+        // the card's words claim what the row's facts hold (its three sentences say "not …" for the rest), never more
+        expect(claimed(card!.text), `the words the page's card claims for ${r.name}: ${card!.text}`).toEqual(okWords(r));
+        // the next step in the terminal's words (H167's inventoryNext: the step, where it is set; the terminal's words win)
+        if (r.next) expect(card!.text, `the page's next step for ${r.name}: the terminal says ${JSON.stringify(nextForms(r)[0])}, the inventory's sentence is ${JSON.stringify(r.next)}`).toContain(collapse(nextForms(r)[0]));
       }
     });
   }
