@@ -53,7 +53,7 @@ import { inferenceAt, routePolicyNow } from './route-policy.js';
 import { ollamaAt } from '../setup/ollama-models.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
-import { defaultTools, neverSent } from './tools.js';
+import { defaultTools, neverSent, optedInTools } from './tools.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -158,7 +158,7 @@ function contextFor(agent: SessionAgent): AgentContext {
  * project, or a surface's own tools set on a shared agent).
  */
 function gateAgent(agent: SessionAgent, ctx: AgentContext, root: string, given: readonly unknown[] | undefined): void {
-  const offered = given ?? [...defaultTools, ...createProjectTools({ root: () => root, touched: ctx.touched })];
+  const offered = given ?? [...defaultTools, ...optedInTools(), ...createProjectTools({ root: () => root, touched: ctx.touched })];
   const ask = (req: ApprovalRequest): Promise<Decision> => (ctx.current ? ctx.current.askPerson(req) : Promise.resolve<Decision>('deny'));
   agent.setTools(gateTools(offered, ask) as Parameters<Agent['setTools']>[0]);
 }

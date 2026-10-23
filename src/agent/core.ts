@@ -7,7 +7,7 @@ import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
 import { redactString } from '../utils/redact.js';
-import { defaultTools } from './tools.js';
+import { defaultTools, optedInTools } from './tools.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { execSync, execFileSync } from 'child_process';
 import { classifyCommand } from '../utils/safety.js';
@@ -409,7 +409,8 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.client = new OpenRouter({ apiKey: config.apiKey });
     this.conversation = new ConversationManager();
     this.config = config;
-    this.tools = [...defaultTools];
+    // R11 (H169, Phase 0 item 4): the default tools, and the opt-in ones only when TIMMY_TOOLS_OPT_IN names them
+    this.tools = [...defaultTools, ...optedInTools()];
 
     // Initialize multiplexer background manager (tmux, zellij, or rmux). R4 (H87): 'none' unless the caller passes the
     // operator's choice (`timmy watch --lanes`): no lane session and no lane program for anyone who did not ask.

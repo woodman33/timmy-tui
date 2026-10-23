@@ -11,8 +11,7 @@ import {
   daytonaWorkspaceTool,
   triggerJobTool,
   composioIntegrationTool,
-  cloudflareGetFeatureFlagTool,
-  cloudflareSendDurablePulseTool
+  cloudflareGetFeatureFlagTool
 } from '../agent/tools.js';
 import { summarizeTool } from './chat/tools.js';
 import {
@@ -51,7 +50,7 @@ export const BUILT_IN_MODES: Record<string, Mode> = {
     tools: [
       'get_current_time', 'calculate', 'get_system_info', 'get_env', 'summarize',
       'run_in_daytona_workspace', 'trigger_background_workflow', 'manage_composio_integrations',
-      'cloudflare_get_feature_flag', 'cloudflare_send_durable_pulse'
+      'cloudflare_get_feature_flag'
     ],
     riveStates: {
       idle: 'idle', thinking: 'thinking', streaming: 'talking',
@@ -129,8 +128,8 @@ export function resolveToolsForMode(modeId: string): any[] {
         daytonaWorkspaceTool,
         triggerJobTool,
         composioIntegrationTool,
-        cloudflareGetFeatureFlagTool,
-        cloudflareSendDurablePulseTool
+        cloudflareGetFeatureFlagTool
+        // R11 (H169, Phase 0 item 4): cloudflare_send_durable_pulse is opt-in (TIMMY_TOOLS_OPT_IN), in no mode's default list
       ];
     case 'code-review':
       return [
