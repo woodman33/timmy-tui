@@ -23,7 +23,7 @@
  * src/agent/model-price.ts read OpenRouter's models through this module's fetch, cache and price rule.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timmyHome } from '../setup/home.js';
 // R10 (H169; the lead's note of 2026-10-22): the Ollama lists below both this data module and the agent; nothing of the agent,
@@ -166,6 +166,12 @@ export function cachePath(): string { return join(here, 'cache.json'); }
 export function catalogPath(env: Env = process.env, output: 'text' | 'all' = 'text'): string {
   return join(timmyHome(env), 'models', output === 'all' ? 'openrouter-catalog-all.json' : 'openrouter-catalog.json');
 }
+
+/**
+ * R10 (H169; CI at 704d8510, where a write kept after a promise read the Timmy home from the environment as it was by then):
+ * the environment with its Timmy home resolved now, so what is kept after a request lands in the home the call was made under.
+ */
+export const homePinned = (env: Env = process.env): Env => ({ ...env, TIMMY_HOME: resolve(timmyHome(env)) });
 
 export interface ModelCache { fetchedAt: string; models: OpenRouterCatalogModel[] }
 
@@ -472,7 +478,8 @@ const shortAt = (at: string): string => at.replace('T', ' ').slice(0, 16);
 
 /** OpenRouter's rows: fetched now, else the last good copy (dated), else none. The selected model is never touched here. */
 async function loadOpenRouter(ctx: CatalogCtx): Promise<CatalogLoad> {
-  const env = ctx.env ?? process.env;
+  // the home resolved before the request: the copy fetched is kept where the call was made (homePinned)
+  const env = homePinned(ctx.env ?? process.env);
   const output = ctx.output ?? 'text';
   const now = (ctx.now ?? Date.now)();
   const kept = readCatalogCache(env, output);

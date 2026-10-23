@@ -3,7 +3,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readChain, measuredCostUsd } from '../utils/receipts.js';
 // R10 (H169): one data path for OpenRouter's models: the catalog's raw model, its fetch and its kept copies (src/models/catalog.ts)
-import { cachePath, catalogPath, fetchOpenRouterCatalog, readCache, writeCatalogCache, type ModelCache, type OpenRouterCatalogModel } from './catalog.js';
+import { cachePath, catalogPath, fetchOpenRouterCatalog, homePinned, readCache, writeCatalogCache, type ModelCache, type OpenRouterCatalogModel } from './catalog.js';
 
 export { cachePath, catalogPath, readCache, type ModelCache };
 
@@ -60,9 +60,11 @@ export async function fetchOpenRouterModels(): Promise<ORModel[]> {
 }
 
 export async function refreshModels(): Promise<{ ok: boolean; count: number; fetchedAt: string }> {
+  // R10 (H169): the Timmy home resolved before the request, so the catalog is kept where the call was made (catalog.ts homePinned)
+  const env = homePinned();
   const got = await fetchOpenRouterCatalog();
-  if (!got.ok) return { ok: false, count: 0, fetchedAt: readCache()?.fetchedAt ?? '' };
-  writeCatalogCache({ fetchedAt: got.fetchedAt, models: got.models });
+  if (!got.ok) return { ok: false, count: 0, fetchedAt: readCache(env)?.fetchedAt ?? '' };
+  writeCatalogCache({ fetchedAt: got.fetchedAt, models: got.models }, env);
   return { ok: true, count: got.models.length, fetchedAt: got.fetchedAt };
 }
 
