@@ -14,7 +14,7 @@
  * such model). Tests use a FAKE Ollama on 127.0.0.1 only; nothing here ever downloads in a test.
  */
 import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, totalmem } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import type { Env } from './home.js';
 import { listOllamaModels, type ListedModel } from './ollama-models.js';
@@ -127,6 +127,20 @@ export function freeBytes(dir: string, statfs: (p: string) => { bavail: number |
 
 /** Bytes in the library's decimal units: 523 MB, 1.3 GB (a layer under a megabyte in KB or B, never rounded up to 1 MB). */
 export const units = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`);
+
+/**
+ * This computer's memory and the free disk where Ollama keeps its models, as measured now (the spec: "show memory/disk
+ * information when measured"): beside the starter sizes, which are downloads, not the memory a model needs. Nothing is
+ * inferred from them: no model is called suitable because of them.
+ */
+export function localHardware(o: { env?: Env; home?: string; free?: number | null; memory?: number | null } = {}): { memoryBytes: number | null; freeDiskBytes: number | null; words: string } {
+  const memoryBytes = o.memory !== undefined ? o.memory : (() => { try { const m = totalmem(); return Number.isFinite(m) && m > 0 ? m : null; } catch { return null; } })();
+  const freeDiskBytes = o.free !== undefined ? o.free : freeBytes(modelsDir(o.env, o.home));
+  const mem = memoryBytes === null ? 'memory not measured' : `${units(memoryBytes)} of memory`;
+  const disk = freeDiskBytes === null ? 'free disk not measured' : `${units(freeDiskBytes)} free where Ollama keeps its models`;
+  const measured = memoryBytes !== null || freeDiskBytes !== null;
+  return { memoryBytes, freeDiskBytes, words: `This computer: ${mem}; ${disk}${measured ? ' (measured now)' : ''}.` };
+}
 
 /** A confirmation that the person chose this download, made only by confirmPull: ollamaPull takes nothing else. */
 export interface PullConfirmation { readonly model: string; readonly size: string; readonly free: string; readonly at: string }
