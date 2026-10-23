@@ -42,7 +42,7 @@ import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { CAP_VALUES, chatModel, CONTEXT_VALUES, COST_VALUES, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
-import { providerStates } from '../setup/providers-state.js';
+import { checkProvider, describeCheck, providerStates, type ProviderState } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
@@ -131,6 +131,9 @@ export interface ControllerDeps {
    *  and the opener of its page (absent: this computer's, src/workbench/servers.ts systemOpener; used only on Enter on Open) */
   signIn?: (o: SignInOptions) => Promise<SignIn>;
   opener?: Opener;
+  /** R10 CHAT (H167; H168's pass 3b, R17): Check the key (absent: H170's checkProvider: OpenRouter's key endpoint, no model
+   *  called, nothing charged; a test gives a FAKE that asks nothing) */
+  checkKey?: (id: 'openrouter') => Promise<ProviderState>;
 }
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
@@ -1405,7 +1408,14 @@ export class Controller {
     // R10 CHAT (H167; the target's check "free-only blocks a priced selection without sending"): under free-only a model the
     // catalog does not price at 0 (unknown is not free) is not chosen; nothing is saved or sent
     if (/\bfree-only\b/.test(this.data.route.words) && r.price.free !== true) { this.say(`${r.name} is not chosen: free-only is on, and the catalog does not price it at 0 (${priceWords(r.price)}); the next turn keeps its model.`, 'secondary'); return; }
-    try { await this.setup.saveModel(r.id); this.data.route = readRoute(this.d.env); this.say(`The next turn goes to ${r.id} on OpenRouter (${r.price.free === true ? 'free' : 'its price as the catalog says'}); a turn being answered keeps its route.`, 'secondary'); } catch (e) { this.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`, 'failure'); }
+    try {
+      await this.setup.saveModel(r.id);
+      // (R10 CHAT H167; H168's pass 3b, R17: chosen here, so the next turn's even where it is the settings' shipped default)
+      this.recordOpenRouterChoice(r.id);
+      this.data.route = readRoute(this.d.env);
+      const paid = r.price.free === true ? 'free' : r.price.inPerM === undefined || r.price.outPerM === undefined ? 'its price unknown in the catalog' : `paid: ${priceWords(r.price).replace(' / ', ' in, ')} out per 1M tokens`;
+      this.say(`The next turn goes to ${r.id} on OpenRouter (${paid}); a turn being answered keeps its route.`, 'secondary');
+    } catch (e) { this.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`, 'failure'); }
     this.emit();
   }
 
@@ -1701,8 +1711,16 @@ export class Controller {
       // R10 CHAT (H167; H168's pass 3a, R4): on the Chat screen a message with no model for the next turn is not sent, as decided
       // here from the route: a fresh home's session opens, and its refusal (made for the REPL) would leave the no-model view
       // for the old one. What was typed stays; the no-model view and its choices stay
+      // (H168's pass 3b, R17: and with a key but no OpenRouter model chosen, the shipped default nobody chose: in either layout)
+      const unchosen = !!this.data.route.unchosen && !routeLine(this.data).model;
+      if (unchosen && text.trim()) {
+        this.say('Not sent: no OpenRouter model chosen yet. What you typed stays; M chooses one.', 'secondary');
+        this.emit();
+        return;
+      }
       if (this.chatShell() && text.trim() && !this.data.route.ready && !routeLine(this.data).model) {
-        this.say('Not sent: no model for the next turn, so nothing was sent. What you typed stays here; Esc keeps it as a draft, and Models (M) chooses a model.', 'secondary');
+        // (its words fit the status row at 122x37: the first sentence at 80x24)
+        this.say('Not sent: no model for the next turn. What you typed stays; M chooses a model.', 'secondary');
         this.emit();
         return;
       }
@@ -1962,7 +1980,7 @@ export class Controller {
     } else if (k === 'capability') {
       const v = next(CAP_VALUES, this.ui.modelsCap ?? '');
       if (v) this.ui.modelsCap = v; else delete this.ui.modelsCap;
-    } else if (k === 'cost') this.ui.modelsCost = next(COST_VALUES, railCost(c));
+    } else if (k === 'cost') { this.ui.modelsCost = next(COST_VALUES, railCost(c)); delete this.ui.modelsCostStart; }
     else if (k === 'context') {
       const v = next(CONTEXT_VALUES, this.ui.modelsContext ?? 0);
       if (v) this.ui.modelsContext = v; else delete this.ui.modelsContext;
@@ -2022,6 +2040,7 @@ export class Controller {
         return;
       }
       case 'models': this.ui.overlay = null; this.ui.modelsProvider = 'openrouter'; delete this.ui.cursor['right:models']; this.ui.modelsDetails = false; this.focusModels(); return;
+      case 'check': await this.checkKey(o); return;
       default: this.closeConnect(); return;
     }
   }
@@ -2089,9 +2108,34 @@ export class Controller {
     this.say(`OpenRouter: ${r.words}`, 'secondary');
   }
 
+  /** R10 CHAT (H167; H168's pass 3b, R17): Check the key: H170's checkProvider asks OpenRouter's key endpoint (no model is
+   *  called, nothing is charged) and records what it answered; the box says it, with its time; Models' state reads it. */
+  private async checkKey(o: Extract<Overlay, { kind: 'connect' }>): Promise<void> {
+    const d = describeCheck('openrouter');
+    o.note = { text: `Asking OpenRouter's key endpoint (${d.sends}): no model is called, nothing is charged…` };
+    this.emit();
+    let st: ProviderState;
+    try { st = await (this.d.checkKey ?? ((id: 'openrouter') => checkProvider(id, { env: this.d.env })))('openrouter'); } catch (e) {
+      if (this.connectBox() === o) { o.note = { text: `The check did not finish: ${e instanceof Error ? e.message : String(e)}. Nothing was recorded.`, failed: true }; this.emit(); }
+      return;
+    }
+    const when = st.at ? ` (${clock(st.at).slice(0, 5)})` : '';
+    const text = st.state === 'checked' ? `Checked${when}: ${st.words}` : st.state === 'refused' ? `Refused${when}: ${st.words}` : st.state === 'unreachable' ? `No answer${when}: ${st.words}` : st.words;
+    if (this.connectBox() === o) { o.note = { text, ...(st.state === 'checked' ? {} : { failed: true }) }; this.ui.cursor.overlay = 0; }
+    else this.say(text, st.state === 'checked' ? 'secondary' : 'attention');
+    void this.loadModels();
+    this.emit();
+  }
+
   /** A key saved: the route and the journey's route read again, Models' states and lists; the first run is answered. */
   private connected(): void {
     this.ui.firstRunDone = true;
+    // (R10 CHAT H167; H168's pass 3b, R17: Models starts on OpenRouter, Cost Free only, said as the starting filter)
+    this.ui.modelsProvider = 'openrouter';
+    this.ui.modelsCost = 'free';
+    this.ui.modelsCostStart = true;
+    delete this.ui.cursor['right:models'];
+    delete this.ui.modelsControl;
     this.data.route = readRoute(this.d.env);
     try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
     try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
@@ -2102,8 +2146,10 @@ export class Controller {
   /** What the route is once a key is saved, in words: OpenRouter's (a key is there, not checked), or the setup's local one. */
   private routeAfterKey(): string {
     const r = this.data.route;
+    // (R10 CHAT H167; H168's pass 3b, R17: a key chooses no model; the REPL's and timmy init's default is said, not taken)
+    if (r.kind === 'openrouter' && r.unchosen) return `No model is chosen for the next turn yet, and nothing is sent from here until one is: Choose an OpenRouter model opens Models on OpenRouter, Cost Free only to start with. The key is not checked yet: Check the key asks OpenRouter's key endpoint, which runs no model. (Without a choice, the REPL and timmy init would take the settings' default, ${r.unchosen}, which is priced.)`;
     return r.kind === 'openrouter'
-      ? `The route as read now: ${r.words}${r.ready ? '' : ' (not ready)'}. The key is not checked yet: OpenRouter's first answer says whether it takes it.`
+      ? `The route as read now: ${r.words}${r.ready ? '' : ' (not ready)'}. The key is not checked yet: Check the key asks OpenRouter's key endpoint, which runs no model.`
       : `The route as read now: ${r.words}. The setup's answer keeps the chat local; timmy init --chat openrouter, in a shell, makes OpenRouter the route (the key is kept either way).`;
   }
 
@@ -2282,6 +2328,14 @@ export class Controller {
     const s: WorkbenchSettings = { ...this.ui.settings.settings, layouts: { ...this.ui.settings.settings.layouts } };
     if (i < SETTING_LABELS.length) { const k = SETTING_LABELS[i].key; s[k] = !s[k]; } else Object.assign(s, PRESETS[i - SETTING_LABELS.length].set);
     this.saveSettingsNow(s);
+  }
+
+  /** R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model chosen in Models, kept in the Workbench's settings (workbench.json):
+   *  the settings' model counts as chosen then, even the shipped default (src/workbench/state.ts unchosenOpenRouterModel). */
+  private recordOpenRouterChoice(id: string): void {
+    const s: WorkbenchSettings = { ...this.ui.settings.settings, layouts: { ...this.ui.settings.settings.layouts }, openRouterModel: id };
+    const r = (this.d.settings?.save ?? ((x: WorkbenchSettings) => saveSettings(x, this.d.env)))(s);
+    if (r.ok) this.ui.settings = { settings: s, path: r.path, state: 'saved' };
   }
 
   private saveSettingsNow(s: WorkbenchSettings): void {

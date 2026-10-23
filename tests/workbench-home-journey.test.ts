@@ -289,7 +289,9 @@ describe('words on Home and Chat (R10 H167; H168\'s F3): no address, port, path,
     expect(companionWhat(`tab=create&mesh=${hex}`)).toBe('demo-tray.stl in 3D & Motion');
     expect(companionWhat('tab=workflows&run=o92079bb4', 'for Workflow run: report in REPORT.md')).toBe('Workflow run: report in REPORT.md in Workflows');
     expect(companionWhat('tab=voxvision&vox=v8764e36c')).toBe('the observation chosen in VoxVision');
-    expect(companionWhat('tab=chat')).toBe('its Chat & Intent tab');
+    // (the companion's page opens on its Chat now: its Chat, not a tab of that name)
+    expect(companionWhat('tab=chat')).toBe('its Chat');
+    expect(companionWhat('tab=chat&receipt=d2d756db')).toBe('the receipt chosen in Chat');
     expect(handoffWords('companion', `The Companion opened in your browser (http://127.0.0.1:4472/?tab=create&mesh=${hex}), through a private page that carries its key`, 'demo-tray.stl in 3D & Motion'))
       .toBe('Opened in the companion: demo-tray.stl in 3D & Motion.');
     expect(handoffWords('studio', 'Studio opened in your browser (http://127.0.0.1:4470/), through a private page that carries its key. It shows tray.', '')).toBe('Opened Studio: it shows tray.');

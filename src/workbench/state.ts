@@ -20,6 +20,9 @@ import { join } from 'node:path';
 import { chatRouteNow } from '../agent/chat-route.js';
 import { freeOnlyOn } from '../agent/model-price.js';
 import { localOnlyOn } from '../agent/route-policy.js';
+import { getProviderById } from '../agent/provider-registry.js';
+import { readSetupState } from '../setup/questions.js';
+import { readSettings } from './settings.js';
 import { ConversationManager } from '../agent/conversation.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns } from '../native/index.js';
@@ -404,6 +407,26 @@ export interface RouteView {
   /** R10 CHAT (H167): the route's policy as read with it (TIMMY_CHAT_FREE_ONLY / TIMMY_CHAT_LOCAL_ONLY, else the settings'
    *  freeOnly / localOnly: what /model free-only and /model local-only keep), for Budget's rows; absent: not read */
   policy?: { freeOnly: boolean; localOnly: boolean };
+  /** R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model this route would take though nobody chose it (the settings'
+   *  shipped default, a priced model; unchosenOpenRouterModel): the Workbench sends no turn on it, Models chooses one */
+  unchosen?: string;
+}
+
+/**
+ * R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model the next turn would take when nobody chose one, else undefined.
+ * The settings hold the shipped default (the registry's defaultModel, src/agent/provider-registry.ts; the settings' own
+ * default is the same id) whether or not anyone chose it, so a key saved in a home with no chat answer would send the next
+ * turn to that priced model. Chosen: OPENROUTER_MODEL in the environment; the setup's recorded OpenRouter answer (timmy init
+ * --chat openrouter: the REPL's and timmy init's default stands there, unchanged); another model in the settings; or the
+ * model chosen in Models (the Workbench's settings record it, workbench.json openRouterModel). A key alone chooses nothing.
+ */
+export function unchosenOpenRouterModel(env: Env, model: string | null): string | undefined {
+  const def = getProviderById('openrouter')?.defaultModel;
+  if (!def || env.OPENROUTER_MODEL?.trim()) return undefined;
+  if (model && model !== def) return undefined;
+  try { if (readSetupState(env).recorded?.answers.chat === 'openrouter') return undefined; } catch { /* no setup record: no answer */ }
+  try { if (readSettings(env).settings.openRouterModel === def) return undefined; } catch { /* none recorded */ }
+  return def;
 }
 
 /**
@@ -417,7 +440,9 @@ export function readRoute(env: Env = process.env, cwd: string = process.cwd()): 
     const model = (() => { try { return loadConfig().model || null; } catch { return null; } })();
     const now = chatRouteNow({ env, cwd, openRouterModel: model, surface: 'workbench' });
     const policy = (() => { try { return { freeOnly: freeOnlyOn(env), localOnly: localOnlyOn(env) }; } catch { return undefined; } })();
-    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}), ...(policy ? { policy } : {}) };
+    // (R10 CHAT H167; H168's pass 3b, R17: the shipped default nobody chose is no model for the Workbench's next turn)
+    const unchosen = now.state.kind === 'openrouter' ? unchosenOpenRouterModel(env, model) : undefined;
+    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}), ...(policy ? { policy } : {}), ...(unchosen ? { unchosen } : {}) };
   } catch (e) {
     return { kind: 'none', words: `chat: unknown (${e instanceof Error ? e.message : String(e)})`, ready: false };
   }

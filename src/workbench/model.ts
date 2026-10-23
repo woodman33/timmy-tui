@@ -339,6 +339,9 @@ export interface Ui {
   /** R10 CHAT (H167): Models' Cost filter (free: only the ones the catalog prices at 0; paid: only priced ones; all); unset:
    *  free where the route is free-only, else all */
   modelsCost?: 'free' | 'all' | 'paid';
+  /** R10 CHAT (H167; H168's pass 3b, R17): Cost is Free only as Models' starting filter after a key was saved (said "Free
+   *  (start)"), not the person's choice; a change of Cost ends it */
+  modelsCostStart?: boolean;
   /** R10 CHAT (H167; H168's pass 3a, R3): Models' Maker, Capability and Context filters (H169's CatalogQuery maker, capability
    *  and minContext); unset: All */
   modelsMaker?: string;
