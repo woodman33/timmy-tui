@@ -748,7 +748,7 @@ function inUse(row) {
 /** R11 step 1: the choice's state beside the row itself (as the terminal's selector shows it): "● checking…" while Ollama is asked, "✕ <state>" when it failed; the full words stay in the detail. */
 function rowState(row) {
   if (cx.choosing && cx.choosing.model === row.id) return h('span', { class: 'cm-row-state', 'data-state': 'checking' }, h('span', { class: 'cx-dot', 'data-state': 'checking', 'aria-hidden': 'true' }, '●'), ' checking…');
-  if (cx.chose && !cx.chose.ok && cx.chose.model === row.id) return h('span', { class: 'cm-row-state', 'data-state': 'failed' }, `✕ ${cx.chose.state || 'not kept'}`);
+  if (cx.chose && !cx.chose.ok && cx.chose.model === row.id) return h('span', { class: 'cm-row-state', 'data-state': 'failed' }, `✕ ${cx.chose.state === 'unreachable' ? 'no answer from Ollama' : cx.chose.state || 'not kept'}`);
   return null;
 }
 

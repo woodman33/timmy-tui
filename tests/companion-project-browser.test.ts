@@ -534,16 +534,21 @@ describe.skipIf(!browserPath)('the browser companion follows the active project,
       const key = `FAKE-or-${randomBytes(12).toString('hex')}`;
       use({ chat: 'openrouter' }, { openrouter_api_key: key });
       const or = await route();
-      // (GET /api/chat/route is pageRoute's own answer, which still names the page's fixed model until H169's contract lands;
-      // the page's Send asks the CHOSEN model: with the setup's OpenRouter answer, the settings' model, the REPL's default,
-      // as the Workbench's rule has it (R11 H171, step 1); GET /api/chat/view's route and choice say so)
+      // (GET /api/chat/route is pageRoute's own answer, which still names the page's fixed model until H169's item 2 lands;
+      // the page's Send asks only a CHOSEN model (R11 H171, step 1; H169's rule, src/utils/model-choice.ts): a key and the
+      // setup's OpenRouter answer choose nothing, so POST /chat is refused with the words and nothing reaches OpenRouter)
       expect(or).toMatchObject({ kind: 'openrouter', ready: true, keyFrom: 'providers.json', label: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' });
       expect(JSON.stringify(or)).not.toContain(key);
+      const refused = await chat(own, 'FAKE: for OpenRouter, no model chosen');
+      expect(refused.find((e) => e.event === 'error')?.data.error).toMatch(/^No model chosen: choose one in Models\./);
+      expect(openrouter.seen).toHaveLength(0);
+      // a model saved as a choice in the settings (as Models in the Workbench, /model or timmy init --chat openrouter --model keep it): sent to
+      writeFileSync(join(env.TIMMY_SETTINGS_DIR!, 'config.json'), JSON.stringify({ model: 'fake/page-test:free', modelChosen: 'fake/page-test:free' }));
       const answered = await chat(own, 'FAKE: for OpenRouter');
       expect(answered.filter((e) => e.event === 'delta').map((e) => e.data).join('')).toBe('FAKE OpenRouter answer');
       expect(openrouter.seen).toHaveLength(1);
       expect(openrouter.seen[0].auth).toBe(`Bearer ${key}`);
-      expect(JSON.parse(openrouter.seen[0].body)).toMatchObject({ model: 'anthropic/claude-opus-4.7', stream: true });
+      expect(JSON.parse(openrouter.seen[0].body)).toMatchObject({ model: 'fake/page-test:free', stream: true });
       // OpenRouter chosen, no key anywhere: off, saying so
       use({ chat: 'openrouter' }, null);
       expect(await route()).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', words: expect.stringMatching(/^Send is off: the setup chose OpenRouter for chat, and no OpenRouter key is set/) });

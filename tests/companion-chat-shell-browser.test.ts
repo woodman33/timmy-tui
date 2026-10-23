@@ -261,7 +261,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         await page.focus('#cm-list .cm-row[data-model="fake-qwen3:8b"]');
         await page.keyboard.press('Enter');
         await page.waitForSelector('.cm-use-state[data-state="failed"]', { timeout: 15_000 });
-        expect(await text(page, '.cm-use-state[data-state="failed"]')).toBe('✕ fake-qwen3:8b is not chosen: Ollama\'s /api/show answer does not establish it as a chat model (no completion capability). Nothing was changed.');
+        // (H170's checkLocalModel's words, shared with the terminal, after "Not chosen:")
+        expect(await text(page, '.cm-use-state[data-state="failed"]')).toMatch(/^✕ Not chosen: fake-qwen3:8b is not a chat model: Ollama at 127\.0\.0\.1:\d+ lists it without the completion capability \(an embedding model, or weights in a form it cannot run\)\. Choose a chat model\. Nothing was changed\.$/);
         expect(await text(page, '#cx-route-words')).toMatch(/^Next turn fake-llama:1b /);
         expect(await page.evaluate(() => document.activeElement?.getAttribute('data-model'))).toBe('fake-qwen3:8b');
         // the state beside the row itself, and the row in view (the rail scrolled to it)

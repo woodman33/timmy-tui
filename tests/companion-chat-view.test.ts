@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { companionCatalog, companionProviders, catalogQueryOf, openRouterChoice, savedConversation, stoppedAnswerOf } from '../src/companion/chat-view.js';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
+import { LEGACY_DEFAULT_MODEL } from '../src/utils/model-choice.js';
 import { startFakeOllama, type FakeOllama } from './fixtures/fake-ollama-chat.js';
 
 const FIXTURE = join(__dirname, 'fixtures', 'openrouter-public-catalog-2026-10-22.json');
@@ -265,24 +266,31 @@ describe('GET /api/chat/view and /api/chat/models on the companion, with its tok
 });
 
 describe('the page\'s choice of model (R11 step 1): nothing is sent to a model nobody chose; a choice made on the page is kept where the Workbench keeps it', () => {
-  it('the OpenRouter choice by the Workbench\'s rule: a key alone chooses nothing; OPENROUTER_MODEL, the setup\'s OpenRouter answer, another settings model or Models\' record choose', () => {
+  it('the OpenRouter choice by H169\'s one rule (src/utils/model-choice.ts): a key alone chooses nothing; OPENROUTER_MODEL, a model saved as a choice, Models\' record choose; an older file\'s shipped default, which nobody chose, is no model', () => {
     const box = mkdtempSync(join(tmpdir(), 'h171-choice-'));
     try {
       const settings = join(box, 'settings');
       mkdirSync(settings, { recursive: true });
       const env = { TIMMY_HOME: join(box, 'home'), TIMMY_SETTINGS_DIR: settings };
-      expect(openRouterChoice(env)).toEqual({ chosen: false, model: 'anthropic/claude-opus-4.7', from: 'the shipped default, which nobody chose' });
+      expect(openRouterChoice(env)).toEqual({ chosen: false, model: '', from: 'nobody: no model is chosen' });
       expect(openRouterChoice({ ...env, OPENROUTER_MODEL: 'fake/chosen:free' })).toMatchObject({ chosen: true, model: 'fake/chosen:free' });
+      // a model the settings name that is not the legacy default: a person's entry (as timmy-tui.config.json's model is)
       writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: 'anthropic/claude-haiku-5.5' }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-haiku-5.5', from: 'the settings (chosen in Models, or /model)' });
-      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: 'anthropic/claude-opus-4.7' }));
-      expect(openRouterChoice(env).chosen).toBe(false);
-      writeFileSync(join(settings, 'workbench.json'), JSON.stringify({ schema: 'timmy.workbench-settings/1', openRouterModel: 'anthropic/claude-opus-4.7' }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-opus-4.7', from: 'Models (recorded by the Workbench)' });
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-haiku-5.5', from: 'the settings' });
+      // the legacy default an older version wrote into the file, nobody chose: no model (said)
+      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL }));
+      expect(openRouterChoice(env)).toEqual({ chosen: false, model: '', from: 'nobody: no model is chosen', legacy: true });
+      // ... unless saved as a choice (saveConfig records modelChosen), or recorded by the Workbench's Models
+      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL, modelChosen: LEGACY_DEFAULT_MODEL }));
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: LEGACY_DEFAULT_MODEL, from: 'the settings (chosen in Models, /model or timmy init --chat openrouter --model)' });
+      writeFileSync(join(settings, 'config.json'), JSON.stringify({ model: LEGACY_DEFAULT_MODEL }));
+      writeFileSync(join(settings, 'workbench.json'), JSON.stringify({ schema: 'timmy.workbench-settings/1', openRouterModel: LEGACY_DEFAULT_MODEL }));
+      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: LEGACY_DEFAULT_MODEL, from: 'Models (recorded by the Workbench)' });
       rmSync(join(settings, 'workbench.json'));
+      // the setup's OpenRouter answer alone chooses no model either (timmy init --chat openrouter without --model says so)
       mkdirSync(join(box, 'home'), { recursive: true });
       writeFileSync(join(box, 'home', 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { chat: 'openrouter' } }));
-      expect(openRouterChoice(env)).toMatchObject({ chosen: true, model: 'anthropic/claude-opus-4.7', from: 'the setup (timmy init --chat openrouter) and the settings' });
+      expect(openRouterChoice(env).chosen).toBe(false);
     } finally { rmSync(box, { recursive: true, force: true }); }
   });
 });
@@ -371,11 +379,13 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
   it('a row Ollama does not establish as a chat model, a name it does not list, an Ollama that does not answer: each said, nothing changed', async () => {
     const embed = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-embed:1' });
     expect(embed.status).toBe(409);
-    expect(embed.body).toMatchObject({ ok: false, state: 'not a chat model', words: 'fake-embed:1 is not chosen: Ollama\'s /api/show answer does not establish it as a chat model (no completion capability). Nothing was changed.' });
+    // (the words are H170's checkLocalModel's, shared with the terminal, after "Not chosen:")
+    expect(embed.body).toMatchObject({ ok: false, state: 'not a chat model' });
+    expect(embed.body.words).toMatch(/^Not chosen: fake-embed:1 is not a chat model: Ollama at 127\.0\.0\.1:\d+ lists it without the completion capability \(an embedding model, or weights in a form it cannot run\)\. Choose a chat model\. Nothing was changed\.$/);
     const none = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-nope:1' });
     expect(none.status).toBe(409);
-    expect(none.body).toMatchObject({ ok: false, state: 'not listed' });
-    expect(none.body.words).toMatch(/^fake-nope:1 is not chosen: Ollama at 127\.0\.0\.1:\d+ does not list it\. Nothing was changed\.$/);
+    expect(none.body).toMatchObject({ ok: false, state: 'not installed' });
+    expect(none.body.words).toMatch(/^Not chosen: Ollama at 127\.0\.0\.1:\d+ does not have fake-nope:1: ollama pull fake-nope:1 downloads it \(its size shows first\), then choose it again\. Nothing was changed\.$/);
     expect(setupAnswers().model).toBe('fake-llama:1b');
     // a stale list: the model Ollama listed a moment ago is not a chat model when asked now
     const llama = models.find((m) => m.name === 'fake-llama:1b')!;
@@ -396,7 +406,7 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
       const dead = await post('/api/chat/choose', { source: 'ollama-local', model: 'fake-llama:1b' });
       expect(dead.status).toBe(409);
       expect(dead.body).toMatchObject({ ok: false, state: 'unreachable' });
-      expect(dead.body.words).toMatch(/^fake-llama:1b is not chosen: Ollama did not answer at 127\.0\.0\.1:\d+ \(.+\)\. Nothing was changed\.$/);
+      expect(dead.body.words).toMatch(/^Not chosen: Ollama (is not running|at 127\.0\.0\.1:\d+ did not answer)[^]*start it \(ollama serve\), then choose the model again\. Nothing was changed\.$/);
     } finally { writeFileSync(providers, kept); }
     // an OpenRouter model while the route is local: refused, as the Workbench refuses it
     const or = await post('/api/chat/choose', { source: 'openrouter', model: 'anthropic/claude-haiku-5.5' });
@@ -405,14 +415,14 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     expect(ollama.chats()).toHaveLength(0);
   });
 
-  it('a key with no chat answer: the shipped default is NO model (Send is off, nothing sent to it); an OpenRouter model chosen on the page is kept and is what /chat asks', async () => {
+  it('a key with no chat answer: no model is chosen (Send is off, nothing sent); an OpenRouter model chosen on the page is kept as a choice and is what /chat asks', async () => {
     // the setup's local answer gone: a home with a key and no chat answer
     writeFileSync(join(env.TIMMY_HOME!, 'setup.json'), JSON.stringify({ version: 1, by: 'test', answers: { ollama: ollama.host } }));
     env.OPENROUTER_API_KEY = 'FAKE-key-never-sent';
     let v = await view();
     expect(v.route).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', label: 'no model chosen · Send is off' });
     expect(v.choice).toMatchObject({ chosen: false, words: 'No model chosen: choose one in Models.' });
-    expect(v.route.words).toMatch(/^No model chosen: choose one in Models\. The settings name anthropic\/claude-opus-4\.7 \(.+\), the shipped default, which nobody chose: nothing is sent to it from this page\.$/);
+    expect(v.route.words).toBe('No model chosen: choose one in Models. An OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.');
     const refused = await chat('hello');
     expect(refused).toContain('event: error');
     expect(refused).toContain('No model chosen: choose one in Models.');
@@ -421,7 +431,7 @@ describe('POST /api/chat/choose and the guarded POST /chat (R11 step 1), on the 
     const r = await post('/api/chat/choose', { source: 'openrouter', model: 'recursive/flint-v1.0:free' });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, state: 'ready', source: 'openrouter', model: 'recursive/flint-v1.0:free', words: 'Next turn: recursive/flint-v1.0:free on OpenRouter (free).' });
-    expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'config.json'), 'utf8')).model).toBe('recursive/flint-v1.0:free');
+    expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'config.json'), 'utf8'))).toMatchObject({ model: 'recursive/flint-v1.0:free', modelChosen: 'recursive/flint-v1.0:free' });
     expect(JSON.parse(readFileSync(join(env.TIMMY_SETTINGS_DIR!, 'workbench.json'), 'utf8')).openRouterModel).toBe('recursive/flint-v1.0:free');
     v = await view();
     expect(v.route).toMatchObject({ kind: 'openrouter', ready: true, model: 'recursive/flint-v1.0:free' });

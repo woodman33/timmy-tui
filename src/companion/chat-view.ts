@@ -38,18 +38,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConversationManager } from '../agent/conversation.js';
 import { modelPrice } from '../agent/model-price.js';
-import { getProviderById } from '../agent/provider-registry.js';
 import { permits, policyFrom, policyRefusalLines, routePolicyNow } from '../agent/route-policy.js';
 import { ollamaAddress } from '../capabilities/ollama-route.js';
 import { loadCatalog, queryCatalog, type CatalogLoad, type CatalogQuery, type CatalogRow, type ModelSource } from '../models/catalog.js';
-import { assertLocalOllamaModel, ollamaAddressNow } from '../models/ollama-list.js';
 import type { ActiveProject } from '../project/index.js';
 import { chatTurnOf } from '../repl/seal.js';
+import { checkLocalModel } from '../setup/local-model-check.js';
 import { installSteps, ollamaInstalled, STARTER_MODELS } from '../setup/ollama-local.js';
-import { validOllamaModelName } from '../setup/ollama-models.js';
 import { providerStates, type ProviderState as SetupState } from '../setup/providers-state.js';
 import { readSetupState } from '../setup/questions.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
+import { chosenModel, LEGACY_DEFAULT_MODEL } from '../utils/model-choice.js';
 import { settingsFile } from '../utils/model-key.js';
 import { readChain, type Receipt } from '../utils/receipts.js';
 import { readSettings, saveSettings } from '../workbench/settings.js';
@@ -243,24 +242,30 @@ export interface PageChoice {
 
 const NO_MODEL_WORDS = 'No model chosen: choose one in Models.';
 
-/** The settings' OpenRouter model as the file holds it (the shipped default when it names none), read from `env`'s settings file. */
-function settingsModel(env: Env): { model: string; def: string } {
-  const def = getProviderById('openrouter')?.defaultModel ?? 'anthropic/claude-opus-4.7';
-  try {
-    const j = JSON.parse(readFileSync(settingsFile(env), 'utf8')) as { model?: unknown };
-    return { model: typeof j.model === 'string' && j.model.trim() ? j.model.trim() : def, def };
-  } catch { return { model: def, def }; }
+/** The settings file's fields a choice is read from (model, modelChosen), by path from `env`'s settings folder; none when absent. */
+function settingsFields(env: Env): { model?: unknown; modelChosen?: unknown } | null {
+  try { return JSON.parse(readFileSync(settingsFile(env), 'utf8')) as { model?: unknown; modelChosen?: unknown }; } catch { return null; }
 }
 
-/** The OpenRouter model chosen for the next turn, by the Workbench's rule (see PageChoice); `chosen` false names the default nobody chose. */
-export function openRouterChoice(env: Env): { chosen: boolean; model: string; from: string } {
+/**
+ * The OpenRouter model chosen for the next turn, by H169's one rule (src/utils/model-choice.ts chosenModel: OPENROUTER_MODEL
+ * for this process; else the settings' model, unless it is the default an older version wrote there and nobody chose; the
+ * Workbench's own record counts). `chosen` false: no model is chosen, and `model` is ''. (Until H169's pageRoute says it.)
+ */
+export function openRouterChoice(env: Env): { chosen: boolean; model: string; from: string; legacy?: boolean } {
   const fromEnv = env.OPENROUTER_MODEL?.trim();
   if (fromEnv) return { chosen: true, model: fromEnv, from: 'OPENROUTER_MODEL in this companion\'s environment' };
-  const { model, def } = settingsModel(env);
-  try { if (readSetupState(env).recorded?.answers.chat === 'openrouter') return { chosen: true, model, from: 'the setup (timmy init --chat openrouter) and the settings' }; } catch { /* no setup record */ }
-  if (model !== def) return { chosen: true, model, from: 'the settings (chosen in Models, or /model)' };
-  try { if (readSettings(env).settings.openRouterModel === def) return { chosen: true, model, from: 'Models (recorded by the Workbench)' }; } catch { /* no record */ }
-  return { chosen: false, model: def, from: 'the shipped default, which nobody chose' };
+  const settings = settingsFields(env);
+  let workbench: { openRouterModel?: unknown } | null = null;
+  try { workbench = readSettings(env).settings; } catch { workbench = null; }
+  const model = chosenModel({ settings, workbench, env: {} });
+  if (model) {
+    const from = typeof settings?.modelChosen === 'string' && settings.modelChosen.trim() === model ? 'the settings (chosen in Models, /model or timmy init --chat openrouter --model)'
+      : typeof workbench?.openRouterModel === 'string' && workbench.openRouterModel.trim() === model ? 'Models (recorded by the Workbench)' : 'the settings';
+    return { chosen: true, model, from };
+  }
+  const legacy = typeof settings?.model === 'string' && settings.model.trim() === LEGACY_DEFAULT_MODEL;
+  return { chosen: false, model: '', from: 'nobody: no model is chosen', ...(legacy ? { legacy: true } : {}) };
 }
 
 /**
@@ -286,7 +291,7 @@ export function pageChoice(env: Env, route: PageRoute, local: { rows: CatalogRow
   }
   const c = openRouterChoice(env);
   if (!c.chosen) {
-    const words = `${NO_MODEL_WORDS} The settings name ${c.model} (${modelPrice(c.model).words}), the shipped default, which nobody chose: nothing is sent to it from this page.`;
+    const words = `${NO_MODEL_WORDS} An OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.${c.legacy ? ` (The settings file names ${LEGACY_DEFAULT_MODEL}, the default an older version wrote there, which nobody chose: it is not sent to.)` : ''}`;
     return { route: { kind: 'none', ready: false, chat: 'openrouter', refusal: [], label: 'no model chosen · Send is off', words }, choice: { chosen: false, check: { state: 'failed', words }, words: NO_MODEL_WORDS } };
   }
   // the chosen model in the route's place, with its own price; the route policy's word on it (free-only: unknown is not free)
@@ -317,7 +322,7 @@ function writtenWords(files: readonly string[], env: Env, root: string): string[
 
 /** The settings' writer (src/utils/config.ts saveConfig: the process's own store), imported when a choice is made. */
 type ChooseResult = { ok: true; state: 'ready'; source: 'ollama-local' | 'openrouter'; model: string; at: string; words: string; written: string[] }
-  | { ok: false; state: 'not a chat model' | 'unreachable' | 'not listed' | 'refused' | 'not kept'; model: string; words: string };
+  | { ok: false; state: 'not a chat model' | 'not installed' | 'unreachable' | 'not listed' | 'refused' | 'not kept'; model: string; words: string };
 
 /**
  * A model chosen on this page for the next turn, written through the same paths the terminal Workbench writes (never a setting
@@ -333,15 +338,12 @@ export async function chooseModel(env: Env, root: string, body: unknown): Promis
   const source = b.source === 'ollama-local' || b.source === 'openrouter' ? b.source : null;
   if (!source || !model || model.length > 512) return { ok: false, state: 'not kept', model, words: 'Not chosen: the request names no model ({ source: "ollama-local" | "openrouter", model: <its id> }). Nothing was changed.' };
   if (source === 'ollama-local') {
-    if (!validOllamaModelName(model)) return { ok: false, state: 'not a chat model', model, words: `${model} is not a model name Ollama lists. Nothing was changed.` };
-    const base = ollamaAddressNow(env);
-    const host = base.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    try { await assertLocalOllamaModel(model, 4000, { baseUrl: base }); } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      if (/does not establish/.test(why)) return { ok: false, state: 'not a chat model', model, words: `${model} is not chosen: Ollama's /api/show answer does not establish it as a chat model (no completion capability). Nothing was changed.` };
-      if (/cloud-backed/.test(why)) return { ok: false, state: 'not a chat model', model, words: `${model} is not chosen: Ollama says it is cloud-backed, not local weights. Nothing was changed.` };
-      if (/HTTP 404/.test(why)) return { ok: false, state: 'not listed', model, words: `${model} is not chosen: Ollama at ${host} does not list it. Nothing was changed.` };
-      return { ok: false, state: 'unreachable', model, words: `${model} is not chosen: Ollama did not answer at ${host} (${why}). Nothing was changed.` };
+    // H170's one readiness check, shared with the terminal (src/setup/local-model-check.ts): one /api/show by the exact name,
+    // no model run, loopback only; its states and words are the terminal's ("Not chosen: …" on its status row)
+    const check = await checkLocalModel(model, { env, timeoutMs: 4000 });
+    if (check.state !== 'ready') {
+      const state = check.state === 'not-a-chat-model' ? 'not a chat model' : check.state === 'not-installed' ? 'not installed' : 'unreachable';
+      return { ok: false, state, model, words: `Not chosen: ${check.words} Nothing was changed.` };
     }
     const { applySetup } = await import('../utils/init.js');
     try {
