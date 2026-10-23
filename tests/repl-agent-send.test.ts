@@ -1,11 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import { createAgent } from '../src/agent/core.js';
+
+// (the agents' conversations in a temporary folder of this file's, never the working folder's .sessions)
+const box = mkdtempSync(join(tmpdir(), 'repl-agent-send-'));
+let made = 0;
+const sessionsDir = (): string => join(box, `agent-${++made}`);
+afterAll(() => { rmSync(box, { recursive: true, force: true }); });
 
 // The additive send options for the REPL (plan C-9, playbook §17.8): an AbortSignal cancels the turn
 // without trying fallback models, and `retry` asks the SDK to retry 429 and 5xx with backoff.
 // The OpenRouter client is replaced by a stub that records what send() asks of it.
 function stubbed(items: unknown[], { delayMs = 0, fail = false, failFirst = false } = {}) {
   const agent = createAgent({ apiKey: 'x', model: 'm', instructions: '', maxSteps: 1, maxCost: 1 }, { multiplexer: 'none' });
+  agent.useSessions(sessionsDir());
   const calls: Array<{ model: string; options: any }> = [];
   let cancelled = 0;
   (agent as any).client = {
@@ -55,15 +65,18 @@ describe('agent.send options', () => {
     expect(errors).toEqual([]);
     expect(agent.isRunning()).toBe(false);
   });
-  it('cancels during the fallback model without trying another provider or reporting an error', async () => {
-    const { agent, calls } = stubbed([msg('a'), msg('ab'), msg('abc'), msg('abcd')], { delayMs: 30, failFirst: true });
-    const controller = new AbortController();
+  // R11 (H169, Phase 0 item 1; the lead's rule of 2026-10-23): a failed model tries no fallback model (the shipped paid
+  // FALLBACK_ORDER is gone): the turn ends with the reason and the next step, one request made
+  it('a failed model tries no fallback model: one request, the failure with its reason and next step', async () => {
+    const { agent, calls } = stubbed([msg('a')], { failFirst: true });
     const errors: Error[] = [];
     agent.on('error', (e) => errors.push(e));
-    setTimeout(() => controller.abort(), 45);
-    await expect(agent.send('long answer', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
-    expect(calls.map((c) => c.model)).toEqual(['m', 'anthropic/claude-opus-4.7']);
-    expect(errors).toEqual([]);
+    await expect(agent.send('hello')).rejects.toThrow(/^OpenRouter request failed for m\.\nReason: 503 Service Unavailable\.\nNext: choose another model/);
+    expect(calls.map((c) => c.model)).toEqual(['m']);
+    // (the failure is emitted where it is made and again as the turn ends: as every failed turn was)
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors.every((e) => /^OpenRouter request failed for m\./.test(e.message))).toBe(true);
+    expect(agent.isRunning()).toBe(false);
   });
 });
 
@@ -73,6 +86,7 @@ describe('agent.send options', () => {
 // once; a cancel, or a response with no charge reported, makes the figure a lower bound, said so.
 function priced(responses: Array<{ id: string; cost?: number }>, opts: { final?: { id: string; cost?: number }; hang?: number } = {}) {
   const agent = createAgent({ apiKey: 'x', model: 'm', instructions: '', maxSteps: 3, maxCost: 1 }, { multiplexer: 'none' });
+  agent.useSessions(sessionsDir());
   const usage = (cost?: number) => ({ inputTokens: 4000, outputTokens: 150, ...(cost === undefined ? {} : { cost }) });
   (agent as any).client = {
     callModel: () => ({
@@ -130,6 +144,7 @@ describe("the turn's cost", () => {
 // `costDetails.upstreamInferenceCost`. Without BYOK that figure is already inside `cost`.
 function withUsage(responses: Array<{ id: string; usage: Record<string, unknown> }>) {
   const agent = createAgent({ apiKey: 'x', model: 'm', instructions: '', maxSteps: 3, maxCost: 1 }, { multiplexer: 'none' });
+  agent.useSessions(sessionsDir());
   (agent as any).client = {
     callModel: () => ({
       async *getItemsStream() { yield msg('done'); },

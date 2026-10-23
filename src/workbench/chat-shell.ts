@@ -22,6 +22,7 @@ import type { Glyphs } from './frame.js';
 import { chatTurnNow } from './hub.js';
 import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
+import { noModelChosen } from './state.js';
 import type { WorkspaceId } from './nav.js';
 import { clock, cut, fit, lineCells, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
 import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type MakerOption, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
@@ -164,7 +165,7 @@ function headerRows(c: ShellCtx, grid: ChatGrid, first: boolean): Line[] {
     : rt.model
       ? [S(`NEXT / ${nextProvider(data)} / `, 'secondary'), ...(rt.fake ? [S('FAKE ', 'attention')] : []), S(rt.model, 'text')]
       // (R10 CHAT H167; H168's pass 3b, R17: a key and no model chosen: none is the next turn's)
-      : data.route.unchosen ? [S('NEXT / OpenRouter / ', 'secondary'), S('no model chosen: Models (M)', 'attention')]
+      : noModelChosen(data.route) ? [S('NEXT / OpenRouter / ', 'secondary'), S('no model chosen: Models (M)', 'attention')]
         : [S('NEXT / ', 'secondary'), S('Connect a model to chat', 'attention')];
   const row1: Line = [S(' '.repeat(at)), ...trimTo(next, Math.max(4, grid.W - at - margin), g.ellipsis)];
   return [fit(row0, grid.W, g.ellipsis), fit(row1, grid.W, g.ellipsis), [S((g.unicode ? '─' : '-').repeat(grid.W), 'border')]];
@@ -201,6 +202,25 @@ export const chatModel = (r: CatalogRow): boolean => (r as CatalogRow & { chat?:
 
 /** A local row's facts as the setup's list words them (absent on a catalog row). */
 const factsOf = (r: CatalogRow): string | undefined => (r as CatalogRow & { facts?: string }).facts;
+
+/** The host of an Ollama address, as the words say it ("127.0.0.1:11434"). */
+const hostOf = (origin: string | undefined): string => (origin ?? 'Ollama').replace(/^https?:\/\//, '').replace(/\/+$/, '');
+
+/**
+ * R11 (H167; step 1a): what the row of the local model last chosen says beside its name, from its readiness check (H170's
+ * checkLocalModel, asked on Enter): checking while Ollama is asked; the reason when it was not chosen (nothing saved); nothing
+ * once it is ready (the row's facts stand, and the chip says ready). Words with every state (B10), ✕ with a refusal: `long`
+ * with the cause or the address, `short` where a row has no room for it (H170's whole words stand under the row then).
+ */
+export function checkRowWords(ck: NonNullable<Ui['modelCheck']>): { long: string; short: string; role: Role } | null {
+  switch (ck.state) {
+    case 'checking': return { long: 'checking with Ollama…', short: 'checking…', role: 'attention' };
+    case 'not-a-chat-model': return { long: `✕ not a chat model: ${ck.why === 'cloud-tag' || ck.why === 'remote' ? 'cloud-backed' : ck.why === 'invalid-name' ? 'not a name Ollama lists' : 'no completion capability'}`, short: '✕ not a chat model', role: 'failure' };
+    case 'not-installed': return { long: `✕ not installed: ollama pull ${ck.model}`, short: '✕ not installed', role: 'failure' };
+    case 'unreachable': return { long: `✕ Ollama did not answer at ${hostOf(ck.origin)}`, short: '✕ no answer from Ollama', role: 'failure' };
+    default: return null;
+  }
+}
 
 /** H169's queryCatalog: the rows that match, sorted; the source's makers (for the Maker control). */
 export function queryRows(rows: readonly CatalogRow[], q: CatalogQuery): { rows: CatalogRow[]; total: number; makers: MakerOption[] } {
@@ -247,7 +267,7 @@ export function railProvider(c: Pick<ShellCtx, 'ui' | 'data'>): NonNullable<Ui['
 /** Models' Cost filter now: the person's choice, else free where the next turn's route is free-only, else all. */
 export function railCost(c: Pick<ShellCtx, 'ui' | 'data'>): 'free' | 'all' | 'paid' {
   // (R10 CHAT H167; H168's pass 3c, R17b: and while no OpenRouter model is chosen, the free ones to start with, every launch)
-  return c.ui.modelsCost ?? (/\bfree-only\b/.test(c.data.route.words) || c.data.route.unchosen ? 'free' : 'all');
+  return c.ui.modelsCost ?? (/\bfree-only\b/.test(c.data.route.words) || noModelChosen(c.data.route) ? 'free' : 'all');
 }
 
 const makerWords = (makers: readonly MakerOption[], id: string): string => {
@@ -426,7 +446,10 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     const price = priceWords(r.price);
     const room = drawer ? w - lineCells(nameRow) - 3 : w - 2;
     const forms = [`${ctxWords(r.contextLength)} / ${price}`, `${ctxWords(r.contextLength)} / ${price.replace(/ \/ /g, '/')}`, `${ctxWords(r.contextLength).replace(/ context$/, '')} / ${price.replace(/ \/ /g, '/')}`];
-    const sub = r.source === 'ollama-local' ? facts : forms.find((t) => t.length <= room) ?? (drawer ? forms[forms.length - 1] : forms[0]);
+    // (R11 H167, step 1a: the row of the local model last chosen says its check: checking, or why it was not chosen)
+    const ck = r.source === 'ollama-local' && ui.modelCheck?.model === r.id ? checkRowWords(ui.modelCheck) : null;
+    const subRole: Role = ck ? ck.role : 'secondary';
+    const sub = ck ? ([...ck.long].length <= room ? ck.long : ck.short) : r.source === 'ollama-local' ? facts : forms.find((t) => t.length <= room) ?? (drawer ? forms[forms.length - 1] : forms[0]);
     if (drawer) {
       // (one row: where the facts do not fit beside the whole name, the name is cut so that they do; never one without the other)
       const nameRoom = Math.max(8, w - 2 - 3 - [...sub].length);
@@ -434,8 +457,8 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
       // characters: "FAKE…" alone, a long id after a short word dropped, is never the name)
       const byWords = cut(name, nameRoom, g.ellipsis);
       const shown = [...name].length <= nameRoom ? name : [...byWords].length >= nameRoom - 6 ? byWords : `${[...name].slice(0, nameRoom - 1).join('')}${g.ellipsis}`;
-      list.push([nameRow[0], { ...nameRow[1], text: shown }, S(` / ${sub}`, 'secondary', on)]);
-    } else list.push(nameRow, [S('  ', 'text', on), S(sub, 'secondary', on)]);
+      list.push([nameRow[0], { ...nameRow[1], text: shown }, S(` / ${sub}`, subRole, on)]);
+    } else list.push(nameRow, [S('  ', 'text', on), S(sub, subRole, on)]);
   });
   if (!rows.length) list.push([S(source === 'openrouter' ? (m?.openrouter ? (ui.modelsSearch ? 'No model matches.' : 'No catalog on this computer.') : 'Reading the catalog...') : m?.ollama?.state === 'listed' ? 'Ollama lists no model.' : '', 'secondary')]);
   // (under the local list, where it runs: drawn whole below the models shown, or not at all)
@@ -470,7 +493,7 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   put(footAt, rule);
   // (R10 CHAT H167; H168's pass 3b, R17: with a key and no OpenRouter model chosen, MODEL / none while Models does not have the
   // keyboard: the cursor's row is not a choice)
-  const noneChosen = !!data.route.unchosen && !focused && source === 'openrouter';
+  const noneChosen = noModelChosen(data.route) && !focused && source === 'openrouter';
   if (picked && !noneChosen) {
     // SELECTED / <model> only for the next turn's model (the lead's Mac check of 50237ef: with no route chosen the cursor's
     // model is not "selected"); any other the cursor is on is MODEL / <model>. One row when it fits, else the name below
@@ -481,17 +504,23 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     const oneRow = `${head} / `.length + [...shownName].length <= w;
     put(footAt + 1, oneRow ? [S(`${head} / `, 'strong', { bold: true }), S(shownName, 'strong', { bold: true, raw: true })] : [S(head, 'strong', { bold: true })]);
     if (!oneRow) put(footAt + 2, [S(shownName, 'strong', { bold: true, raw: true })]);
-    const about = picked.description ?? (picked.source === 'ollama-local' ? factsOf(picked) ?? 'Installed; Ollama gives no description.' : 'No description in the catalog.');
+    // (R11 H167, step 1a: the local model last chosen says its check here in full: H170's words, with the next step)
+    const pk = picked.source === 'ollama-local' && ui.modelCheck?.model === picked.id && ui.modelCheck.state !== 'ready' ? ui.modelCheck : null;
+    const about = pk ? pk.words : picked.description ?? (picked.source === 'ollama-local' ? factsOf(picked) ?? 'Installed; Ollama gives no description.' : 'No description in the catalog.');
     const aboutRows = wrapText(about.replace(/\s+/g, ' '), w);
-    const room = oneRow ? 2 : 1;
-    aboutRows.slice(0, room).forEach((t, k) => put(footAt + (oneRow ? 2 : 3) + k, [S(k === room - 1 && aboutRows.length > room ? cut(`${t} ${aboutRows[room]}`, w, g.ellipsis) : t, 'secondary')]));
+    // (R11 H167, step 1a: a check that refused the model takes the rows the prices and the listing's time take otherwise:
+    // H170's words whole where they fit, the last row cut)
+    const room = pk ? (oneRow ? 5 : 4) : oneRow ? 2 : 1;
+    const aboutRole: Role = pk ? (pk.state === 'checking' ? 'attention' : 'failure') : 'secondary';
+    aboutRows.slice(0, room).forEach((t, k) => put(footAt + (oneRow ? 2 : 3) + k, [S(k === room - 1 && aboutRows.length > room ? cut(`${t} ${aboutRows[room]}`, w, g.ellipsis) : t, aboutRole)]));
+    if (pk) return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
     // whether the next turn uses it, or what keeps it from that (words, never colour alone)
     // (R10 CHAT H167; H168's pass 3b, R17: a priced model the next turn uses says so, with its price, before the first send;
     // with no OpenRouter model chosen, the cursor's is the one Enter would choose)
     const priced = picked.source === 'openrouter' && picked.price.free !== true && picked.price.inPerM !== undefined && picked.price.outPerM !== undefined;
     const note = !chatModel(picked) ? 'Not a chat model (checked).'
       : isNext ? (priced ? 'The next turn uses it, paid:' : 'The next turn uses it.')
-      : data.route.unchosen && picked.source === 'openrouter' ? 'None chosen: Enter picks it.'
+      : noModelChosen(data.route) && picked.source === 'openrouter' ? 'None chosen: Enter picks it.'
       : picked.source === 'openrouter' && data.route.kind !== 'openrouter' ? 'Route is not OpenRouter yet.'
         : freeOnly && picked.price.free !== true ? 'Priced: not under free-only.'
           : focused ? 'Enter: next turn uses it.' : '';
@@ -656,7 +685,7 @@ function composerRows(c: ShellCtx, w: number): Line[] {
     ];
   } else {
     const draft = ui.draft?.trim();
-    box = [draft ? [S('draft: ', 'secondary'), S(cut(draft.replace(/\s+/g, ' '), w - 7, g.ellipsis), 'text')] : [S(rt.model ? 'Enter writes a message' : data.route.unchosen ? 'Choose a model in Models, M (a draft is kept)' : 'Connect a model to chat (a draft is kept)', 'secondary')], blank, blank];
+    box = [draft ? [S('draft: ', 'secondary'), S(cut(draft.replace(/\s+/g, ' '), w - 7, g.ellipsis), 'text')] : [S(rt.model ? 'Enter writes a message' : noModelChosen(data.route) ? 'Choose a model in Models, M (a draft is kept)' : 'Connect a model to chat (a draft is kept)', 'secondary')], blank, blank];
   }
   const ready = rt.ready && !!rt.model;
   const send: Line = answering
@@ -674,7 +703,7 @@ function composerRows(c: ShellCtx, w: number): Line[] {
 export function isFirstRun(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
   // (R10 CHAT H167, the lead's ask for the Mac: a relaunch after an answered turn shows that conversation, model or not)
   // (R10 CHAT H167; H168's pass 3b, R17: with a key and no model chosen, the next step is a model, not how chat runs)
-  return !routeLine(c.data).model && !c.data.route.unchosen && c.ui.firstRunDone !== true && !c.data.chat.messages.length && !c.data.turn;
+  return !routeLine(c.data).model && !noModelChosen(c.data.route) && c.ui.firstRunDone !== true && !c.data.chat.messages.length && !c.data.turn;
 }
 
 /** Chat with no model and nothing in its conversation yet (after the first run's question): what it needs, said once. */
@@ -760,7 +789,7 @@ export function noModelLines(c: ShellCtx, w: number, focused: boolean): { lines:
     ...wrapText('Project files, logs and records work without one; what you write is kept as a draft until a model is chosen.', w).map((t): Line => [S(t, 'secondary')]),
     blank,
     // (R10 CHAT H167; H168's pass 3b, R17: a key saved chooses no model; Models starts on OpenRouter's free ones)
-    ...(c.data.route.unchosen ? [...wrapText('OpenRouter\'s key is saved, and no model is chosen for the next turn: Choose a model opens Models on OpenRouter, Cost Free only to start with.', w).map((t): Line => [S(t, 'text')]), blank] : []),
+    ...(noModelChosen(c.data.route) ? [...wrapText('OpenRouter\'s key is saved, and no model is chosen for the next turn: Choose a model opens Models on OpenRouter, Cost Free only to start with.', w).map((t): Line => [S(t, 'text')]), blank] : []),
   ];
   const items: View['items'] = [];
   [['models', 'Choose a model'], ['review', 'Review setup choices'], ['draft', 'Write a draft']].forEach(([id, label]) => {
@@ -794,7 +823,8 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const sep = S(g.unicode ? '│' : '|', 'border');
   const head = headerRows(c, grid, a.first === true);
   const rail = railLines(c, grid, a.focus === 'nav');
-  const drawer = grid.sepR === null && ui.modelsOpen === true;
+  // (R11 H167, step 1a: never over a box: a box has every key, so a drawer drawn over it hid what the keys did)
+  const drawer = grid.sepR === null && ui.modelsOpen === true && !ui.overlay;
   const ruleAt = ruleRow(contentH);
   const center: Line[] = Array.from({ length: contentH }, (): Line => []);
   // the first run's question takes the composer's rows too (the target's first run), and so does a box that has every key

@@ -143,7 +143,7 @@ export function DashboardPanel({ agent: _agent, setInspector }: DashboardPanelPr
       details: [
         '• Gathers workspace blueprint rules',
         '• Packages swarm security bounds',
-        '• Tamper-proof context hashes',
+        '• Tamper-evident context hashes',
         '• Enrollable via Porter URLs'
       ]
     },

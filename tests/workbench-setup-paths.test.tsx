@@ -56,6 +56,8 @@ const FAKE_OLLAMA: OllamaList = {
   where: 'Ollama at 127.0.0.1:11434', answered: true, listed: 3, cloud: 1,
   models: [{ name: 'fake-llama:8b', facts: 'local weights · 8B · Q4_K_M · 4.9 GB' }, { name: 'fake-qwen:4b', facts: 'local weights · 4B' }],
 };
+/** FAKE (R11 H167, step 1a): the readiness check a choice asks (H170's checkLocalModel's shape), ready for every name; no request */
+const readyCheck: SetupDeps['checkLocal'] = async (model) => ({ state: 'ready', why: 'completion', words: `ready: ${model} is installed on this computer's Ollama (FAKE); checked just now, no model run.`, at: new Date().toISOString(), name: model, origin: 'http://127.0.0.1:9', latencyMs: 1 });
 /** FAKE probes for the real check: nothing is asked over the network */
 const probes = (ollamaOk: boolean): CheckDeps => ({
   openRouter: async () => 'not-asked',
@@ -265,7 +267,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
   it('/model on the local route with no model chosen: what the FAKE Ollama lists (a cloud-backed one not offered); Enter sets it through the setup\'s writer, in this test\'s home and workspace only', async () => {
     const { home, repo } = sandbox();
     setUp(repo, { chat: 'local' });
-    const c = workbench({ ollama: async () => FAKE_OLLAMA });
+    const c = workbench({ ollama: async () => FAKE_OLLAMA, checkLocal: readyCheck });
     c.start();
     const fix = (await chatActions(c)).find((a) => a.primary);
     expect(fix).toMatchObject({ n: 2, label: 'Choose the local model (from what Ollama lists)', command: '/model' });
@@ -279,16 +281,17 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     expect(listed).toContain('LOCAL MODELS (2)');
     expect(listed).toMatch(/fake-llama:8b\s+local weights · 8B · Q4_K_M · 4\.9 GB/);
     c.key('\r', ENTER);
-    await until('the words of what changed', () => message(c));
-    const said = message(c);
-    expect(said).toContain('The chat is set to the local model fake-llama:8b, as the setup\'s answer (written as timmy init --chat local --model writes it).');
-    expect(said).toContain('WHAT DID NOT');
-    expect(said).toContain('A REPL whose /model chose a model for its session keeps that one there.');
-    expect(said).toContain('Nothing was downloaded and nothing was sent to any model');
+    // R11 (H167; step 1a): the choice is checked (FAKE: ready), written, and said on the status row; the box closes and the
+    // composer has the keyboard; no box of what changed
+    await until('the choice made', () => c.ui.modelCheck?.state === 'ready');
+    expect(c.ui.flash?.text).toBe('Next turn: fake-llama:8b on this computer.');
+    expect(c.ui.overlay).toBeNull();
+    expect(c.ui.input.field).toBe('composer');
+    expect(message(c)).toBe('');
     // the setup's answer, written by its own writer: in this test's home; every file written is in its home or workspace
     const setupJson = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8')) as { by: string; answers: { chat?: string; model?: string } };
     expect(setupJson).toMatchObject({ by: 'timmy workbench', answers: { chat: 'local', model: 'fake-llama:8b' } });
-    const written = /Written: (.+)\.\n/.exec(said)?.[1].split(', ') ?? [];
+    const written = (await realSetupDeps(process.env).setLocal('fake-llama:8b')).written;
     expect(written.length).toBeGreaterThan(0);
     for (const w of written) expect([home, repo].some((root) => resolve(w).startsWith(root + sep))).toBe(true);
     // the route read again: ready on the model chosen, and the frame's fix is gone (Send is the next step again)
@@ -297,29 +300,42 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     await until('the frame read again', () => pageActions(c).acts.find((a) => a.primary)?.n === 1, 10_000, () => screen(c));
   }, 30_000);
 
-  it('a local model is never chosen before the setup ran: nothing is written, and the setup\'s box offers none', async () => {
+  it('R11 step 1a: a local model chosen before the setup ran sets the home up (the identity made by the setup\'s writer, recorded as made by timmy workbench), said on the status row; the setup\'s box still offers no local model before that', async () => {
     const { home } = sandbox();
     // the chat answered local, and no identity: as a home is between a hand-written setup.json and `timmy init`
     writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'FAKE', at: new Date().toISOString(), answers: { chat: 'local' } }));
     const set: string[] = [];
-    const c = workbench({ ollama: async () => FAKE_OLLAMA, setLocal: async (m) => { set.push(m); return { written: [] }; } });
+    const c = workbench({ ollama: async () => FAKE_OLLAMA, checkLocal: readyCheck, setLocal: async (m) => { set.push(m); return { written: [join(home, 'identity.json'), join(home, 'identity.seed'), join(home, 'setup.json')], identity: true }; } });
     c.start();
-    const fix = (await chatActions(c)).find((a) => a.primary);
-    expect(fix?.command).toBe('/model');
-    await c.runAction(fix);
-    await until('the list', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'listed');
-    c.key('\r', ENTER);
-    await until('the refusal', () => message(c));
-    expect(message(c)).toContain('Timmy is not set up on this computer yet (it has no identity): timmy init, in a shell, sets it up first; then choose the local model here. Nothing was written.');
-    expect(set).toEqual([]);
-    // the setup's box for the Ollama card's step says the setup runs first, and offers no local model here
+    // the setup's box for the Ollama card's step says the setup runs first, and offers no local model there
     await c.runAction(action('timmy init --chat local --model <name>'));
     await until('the setup box', () => c.ui.overlay?.kind === 'setup');
     const text = region(c, 'center');
     expect(text).toContain('Timmy is not set up on this computer yet, so it asks each question in turn');
     expect(text).not.toContain('Choose the local model here');
-    // the real writer refuses as well (it would make an identity: the setup's to do)
-    await expect(realSetupDeps(process.env).setLocal('fake-llama:8b')).rejects.toThrow(/not set up on this computer yet/);
+    c.key('', { escape: true });
+    const fix = (await chatActions(c)).find((a) => a.primary);
+    expect(fix?.command).toBe('/model');
+    await c.runAction(fix);
+    await until('the list', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'listed');
+    c.key('\r', ENTER);
+    await until('the choice made', () => set.length > 0);
+    expect(set).toEqual(['fake-llama:8b']);
+    await until('said', () => c.ui.modelCheck?.state === 'ready');
+    // (the folder as tildePath says it: from ~ when it is under the person's home; this sandbox's is not)
+    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-llama:8b on this computer\. Set up now: identity and setup written in \S+\/timmy\.$/);
+    expect(message(c)).not.toContain('timmy init, in a shell');
+    // the real writer makes the identity (as timmy init --yes --chat local --model would), recorded as made by timmy workbench
+    const r = await realSetupDeps(process.env).setLocal('fake-llama:8b');
+    expect(r.identity).toBe(true);
+    expect(r.written).toContain(join(home, 'identity.json'));
+    expect(JSON.parse(readFileSync(join(home, 'identity.json'), 'utf8'))).toMatchObject({ version: 1, seed_source: 'generated' });
+    const setupJson = JSON.parse(readFileSync(join(home, 'setup.json'), 'utf8')) as { by: string; answers: { chat?: string; model?: string; identity?: string } };
+    expect(setupJson).toMatchObject({ by: 'timmy workbench', answers: { chat: 'local', model: 'fake-llama:8b', identity: 'generated' } });
+    // chosen again on the set-up home: the identity is kept (never replaced), and the choice is written as before
+    const again = await realSetupDeps(process.env).setLocal('fake-qwen:4b');
+    expect(again.identity).toBeUndefined();
+    expect(again.written).not.toContain(join(home, 'identity.json'));
   }, 30_000);
 
   it('Ollama does not answer: the box says so in its words and offers the check; Enter runs it here (FAKE probes) and the frame is read again', async () => {
@@ -434,7 +450,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     const { repo } = sandbox();
     setUp(repo, { openrouter: 'sk-or-FAKE-not-a-key' });
     const set: string[] = [];
-    const c = workbench({ ollama: async () => FAKE_OLLAMA, setLocal: async (m) => { set.push(m); return { written: [] }; } });
+    const c = workbench({ ollama: async () => FAKE_OLLAMA, checkLocal: readyCheck, setLocal: async (m) => { set.push(m); return { written: [] }; } });
     c.start();
     c.selectPage('home');
     await until('the cards', () => c.data.frame?.connections.find((x) => x.id === 'ollama'), 10_000, () => screen(c));
@@ -453,9 +469,11 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     await until('the list', () => c.ui.overlay?.kind === 'local-models' && c.ui.overlay.state === 'listed');
     c.key('', DOWN);
     c.key('\r', ENTER);
-    await until('the words of what changed', () => message(c));
+    await until('the choice made', () => set.length > 0);
     expect(set).toEqual(['fake-qwen:4b']);
-    // FAKE writer: nothing was written, and the words say the route as read (still OpenRouter)
-    expect(message(c)).toContain('The route as read now:');
+    // (R11 H167, step 1a: said on the status row; FAKE writer: nothing was written)
+    await until('said', () => c.ui.modelCheck?.state === 'ready');
+    expect(c.ui.flash?.text).toBe('Next turn: fake-qwen:4b on this computer.');
+    expect(c.ui.overlay).toBeNull();
   }, 30_000);
 });

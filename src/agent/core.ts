@@ -51,6 +51,23 @@ export class NoModelKeyError extends Error {
   }
 }
 
+/**
+ * R11 (H169, Phase 0 item 1): a key, and no OpenRouter model chosen: nothing is sent, before the conversation takes the message
+ * and before any request. There is no shipped default any more (src/utils/config.ts): a surface's own check says it first
+ * (src/agent/chat-route.ts NO_MODEL_CHOSEN_REFUSAL); this one holds for any caller that has none.
+ */
+export class NoModelChosenError extends Error {
+  readonly sent = false as const;
+  constructor() {
+    super([
+      'No model chosen. /model <id> chooses one (/model free lists free ones).',
+      'Reason: an OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.',
+      'Next: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>. Nothing was sent to any model.',
+    ].join('\n'));
+    this.name = 'NoModelChosenError';
+  }
+}
+
 /** R4 (H103, D1c): a turn the last-resort fallback answered: this computer's Ollama, its model, and why OpenRouter did not. */
 export interface LastResortAnswer {
   /** the Ollama model that answered (local weights: pickOllamaModel never picks a cloud-backed one) */
@@ -652,6 +669,23 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.logModelEvent('model.test.failed', { modelId, error: 'no model key; nothing sent' });
       return { ok: false, error };
     }
+    // R11 (H169, Phase 0 item 1): the check is a model call (one small request): never to a model nobody chose, and never to
+    // one the route policy refuses (free-only, local-only)
+    if (!String(modelId ?? '').trim()) {
+      const error = 'No model chosen, so nothing was sent: choose a model first (/model <id> in the REPL, Models (M) in timmy workbench)';
+      this.lastHealthError = error;
+      this.logModelEvent('model.test.failed', { modelId, error: 'no model chosen; nothing sent' });
+      return { ok: false, error };
+    }
+    const policy = this.routePolicy();
+    if (policy.freeOnly || policy.localOnly) {
+      const c = checkRoute({ source: 'openrouter', model: modelId, role: 'turn' }, policy);
+      if (!c.ok) {
+        this.lastHealthError = c.words;
+        this.logModelEvent('model.test.failed', { modelId, error: `refused by the route policy (${c.reason}); nothing sent` });
+        return { ok: false, error: c.words };
+      }
+    }
     const start = Date.now();
     try {
       this.logModelEvent('model.test.started', { modelId });
@@ -853,6 +887,12 @@ export class Agent extends EventEmitter<AgentEvents> {
       this.emit('error', refused);
       throw refused;
     }
+    // R11 (H169, Phase 0 item 1): a key and no chosen model: refused the same way (no default is ever taken in its place)
+    if (!this.localChat && !String(this.config.model ?? '').trim()) {
+      const refused = new NoModelChosenError();
+      this.emit('error', refused);
+      throw refused;
+    }
     // R10 (H169): the route policy, read once for the turn: the turn's own request first, refused before the conversation
     // takes the message and before any request (every surface's own check comes first; this one holds for any caller)
     const policy = this.routePolicy();
@@ -902,13 +942,6 @@ export class Agent extends EventEmitter<AgentEvents> {
     }
     this.emit('message:user', userMessage);
     this.emit('thinking:start');
-
-    const FALLBACK_ORDER = [
-      'anthropic/claude-opus-4.7',
-      'google/gemini-3.5-flash',
-      'openai/gpt-5.5',
-      'minimax/minimax-m3'
-    ];
 
     // What this request did, as the user saw it: each tool call with its result once that arrived, and
     // the text streamed so far. A cancel closes the request in the conversation with this record, so an
@@ -1118,61 +1151,19 @@ export class Agent extends EventEmitter<AgentEvents> {
         this.emit('model:health', 'ERROR');
         const sanitizedErr = err.message || 'Unknown provider error';
         this.logModelEvent('openrouter.request.failed', { model: activeModel, error: sanitizedErr });
-
-        let fallbackModel = '';
-        // R10 (H169): a fallback model the route policy refuses is never tried (free-only: no paid model in place of a free
-        // one; local-only: no cloud model at all); the refusal is said with the failure
-        const notTried: string[] = [];
-        for (const candidate of FALLBACK_ORDER) {
-          if (candidate !== activeModel) {
-            if (guarded) {
-              const c = checkRoute({ source: 'openrouter', model: candidate, role: 'fallback' }, policy);
-              if (!c.ok) { notTried.push(c.words); continue; }
-            }
-            fallbackModel = candidate;
-            break;
-          }
-        }
-        if (notTried.length) this.logModelEvent('model.fallback.refused', { selectedModel: activeModel, refused: notTried.length });
-        const policyNote = notTried.length ? `\n\nNo fallback model was tried: ${notTried[0]}${notTried.length > 1 ? ` (and ${notTried.length - 1} more)` : ''}` : '';
-
-        if (fallbackModel) {
-          this.logModelEvent('model.fallback.used', { selectedModel: activeModel, fallbackModel });
-          
-          try {
-            executionResult = await runCompletionWithModel(fallbackModel, true);
-            
-            this.emit('message:user', {
-              role: 'assistant',
-              content: `⚙️ **[SYSTEM]** Selected model \`${activeModel}\` failed (Reason: ${sanitizedErr}).\nRetried and succeeded with fallback model \`${fallbackModel}\`.`,
-              timestamp: Date.now()
-            });
-
-            this.config.model = fallbackModel;
-            this.emit('model:switch', fallbackModel);
-          } catch (fallbackErr: any) {
-            if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
-            // R4 (H103, D1c): the notice is the fallback's own, said before its answer (tryOllamaLastResort)
-            const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 100)}; then ${fallbackModel}: ${oneLine(fallbackErr?.message, 100)}`, guarded ? policy : null);
-            if (ollamaResult) {
-              executionResult = ollamaResult;
-            } else {
-              const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.\n\nFallback failed for ${fallbackModel} too: ${fallbackErr.message}`;
-              const error = new Error(finalErr);
-              this.emit('error', error);
-              throw error;
-            }
-          }
+        // R11 (H169, Phase 0 item 1; the lead's rule of 2026-10-23 09:04, from the operator's order: never a paid model in
+        // place of one the person chose): no paid fallback model is ever tried (the shipped FALLBACK_ORDER is gone). A fallback
+        // is taken only under free-only or local-only, to the local model on this computer's Ollama that the policy allows
+        // (R4 H103 D1c's last resort, said beside its answer and named in the receipt); with the policy off the turn ends with
+        // the reason and the next step, and nothing else is asked.
+        const ollamaResult = guarded ? await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`, policy) : null;
+        if (ollamaResult) {
+          executionResult = ollamaResult;
         } else {
-          const ollamaResult = await this.tryOllamaLastResort(history, `${activeModel}: ${oneLine(sanitizedErr, 160)}`, guarded ? policy : null);
-          if (ollamaResult) {
-            executionResult = ollamaResult;
-          } else {
-            const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model or run /model fallback.${policyNote}`;
-            const error = new Error(finalErr);
-            this.emit('error', error);
-            throw error;
-          }
+          const finalErr = `OpenRouter request failed for ${activeModel}.\nReason: ${sanitizedErr}.\nNext: choose another model (Models (M) in timmy workbench, or /model <id> in the REPL) or try again. No fallback model was tried${guarded ? ' on OpenRouter, and no local model on this computer could answer' : ': a model nobody chose is never asked in its place'}.`;
+          const error = new Error(finalErr);
+          this.emit('error', error);
+          throw error;
         }
       }
 

@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { CAP_VALUES, chatModel, CONTEXT_VALUES, COST_VALUES, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { checkProvider, describeCheck, providerStates, type ProviderState } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -62,7 +62,7 @@ import { saveKey } from '../setup/provider-keys.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
-  activityOf, chainOf, jobRow, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readPipeline, readRoute, readTurns, readVoxRecords,
+  activityOf, chainOf, jobRow, noModelChosen, outputEvents, projectChoices, projectView, readChatTail, readDecisions, readFiles, readJobs, readNativeRows, readPipeline, readRoute, readTurns, readVoxRecords,
   readWorkflows, FILES_BEING_READ, WORKFLOWS_BEING_READ, type ActivityEvent,
 } from './state.js';
 import { releaseEndedCopies } from '../utils/dispatch.js';
@@ -765,6 +765,8 @@ export class Controller {
     // a box nobody can answer any more is denied (deny is the default); a message being sent is stopped
     if (this.ui.overlay?.kind === 'needs-you') this.ui.overlay.answer('deny');
     this.turnAbort?.abort();
+    // R11 (H167; step 1a): a local model's check under way is cancelled (nothing is saved for it)
+    this.checkAbort?.abort();
     // R10 CHAT (H167): a sign-in under way ends with nothing saved; what was typed into the hidden field is dropped
     this.cancelFlow();
     if (this.ui.input.field === 'secret') this.ui.input = { field: null, text: '' };
@@ -1104,6 +1106,12 @@ export class Controller {
     // a box is drawn in the body's left column: the drawers close (R5, H131: the navigation is a drawer at every size)
     this.ui.rightOpen = false;
     this.ui.navOpen = false;
+    // R11 (H167; step 1a, inventory D's likeliest cause of the operator's failure): the Models drawer too. It was left open
+    // under 110 columns, and chat-shell drew it over the box that had every key: "nothing clearly happened, I had to press
+    // Escape", and after Esc the drawer still covered the composer: "I did not know where to type"
+    this.ui.modelsOpen = false;
+    delete this.ui.modelsFrom;
+    delete this.ui.modelsControl;
     this.ui.focus = 'center';
     this.emit();
   }
@@ -1401,9 +1409,10 @@ export class Controller {
     const r = rows[Math.max(0, railCursor({ ui: this.ui, data: this.data }))];
     if (!r) { this.say('No model is listed here to choose.', 'secondary'); return; }
     // R10 CHAT (H167; the lead's Mac check of 50237ef): a local model the probe's /api/show check does not establish as a chat
-    // model (an embedding or a decision model) is never chosen for chat
-    if (!chatModel(r)) { this.say(`${r.name} is not chosen: Ollama's /api/show answer does not establish it as a chat model (no completion). Nothing was changed.`, 'secondary'); return; }
+    // model (an embedding or a decision model) is never chosen for chat. R11 (step 1a): Enter on one asks Ollama once more and
+    // says its answer beside the row (chooseLocal), so every outcome of a choice is one path and one set of words
     if (source === 'ollama-local') { await this.chooseLocal(r.id); return; }
+    if (!chatModel(r)) { this.say(`${r.name} is not chosen: Ollama's /api/show answer does not establish it as a chat model (no completion). Nothing was changed.`, 'secondary'); return; }
     if (this.data.route.kind !== 'openrouter') { this.say(`${r.name} runs on OpenRouter: Connect OpenRouter first (its key); the next turn stays on the route it has.`, 'secondary'); return; }
     // R10 CHAT (H167; the target's check "free-only blocks a priced selection without sending"): under free-only a model the
     // catalog does not price at 0 (unknown is not free) is not chosen; nothing is saved or sent
@@ -1715,7 +1724,7 @@ export class Controller {
       // here from the route: a fresh home's session opens, and its refusal (made for the REPL) would leave the no-model view
       // for the old one. What was typed stays; the no-model view and its choices stay
       // (H168's pass 3b, R17: and with a key but no OpenRouter model chosen, the shipped default nobody chose: in either layout)
-      const unchosen = !!this.data.route.unchosen && !routeLine(this.data).model;
+      const unchosen = noModelChosen(this.data.route) && !routeLine(this.data).model;
       if (unchosen && text.trim()) {
         this.say('Not sent: no OpenRouter model chosen yet. What you typed stays; M chooses one.', 'secondary');
         this.emit();
@@ -2166,44 +2175,76 @@ export class Controller {
   private routeAfterKey(): string {
     const r = this.data.route;
     // (R10 CHAT H167; H168's pass 3b, R17: a key chooses no model; the REPL's and timmy init's default is said, not taken)
-    if (r.kind === 'openrouter' && r.unchosen) return `No model is chosen for the next turn yet, and nothing is sent from here until one is: Choose an OpenRouter model opens Models on OpenRouter, Cost Free only to start with. The key is not checked yet: Check the key asks OpenRouter's key endpoint, which runs no model. (Without a choice, the REPL and timmy init would take the settings' default, ${r.unchosen}, which is priced.)`;
+    // (R11 H167; H169's Phase 0 item 1: no shipped default: no surface sends a turn until one is chosen)
+    if (r.kind === 'openrouter' && noModelChosen(r)) return `No model is chosen for the next turn yet, and nothing is sent from here until one is: Choose an OpenRouter model opens Models on OpenRouter, Cost Free only to start with. The key is not checked yet: Check the key asks OpenRouter's key endpoint, which runs no model.${r.unchosen ? ` (Without a choice, the REPL and timmy init would take the settings' default, ${r.unchosen}, which is priced.)` : ' No surface sends a turn until one is chosen.'}`;
     return r.kind === 'openrouter'
       ? `The route as read now: ${r.words}${r.ready ? '' : ' (not ready)'}. The key is not checked yet: Check the key asks OpenRouter's key endpoint, which runs no model.`
       : `The route as read now: ${r.words}. The setup's answer keeps the chat local; timmy init --chat openrouter, in a shell, makes OpenRouter the route (the key is kept either way).`;
   }
 
-  /** Makes `model` the local chat's model through the setup's writer, and says what that changed and what it did not. */
+  /** R11 (H167; step 1a): the check of the local model being chosen, cancelled when the Workbench ends. */
+  private checkAbort: AbortController | null = null;
+
+  /**
+   * R11 (H167; step 1a, the operator's first-use failure: "after selecting Ollama → This computer → granite 4.2 latest, nothing
+   * clearly happened, I had to press Escape, and I did not know where to type"): Enter on a local model asks the Ollama the
+   * setup names whether it holds that exact name as a chat model (H170's checkLocalModel: one POST /api/show, no model run;
+   * the chip says "checking" in amber meanwhile), then one of:
+   *   ready             the setup's writer makes it the local chat's model (on a home with no identity yet, the identity first,
+   *                     as timmy init would: never a shell); the route is read again; the selector closes at every width; the
+   *                     composer takes the keyboard with the draft intact; the status row says "Next turn: <model> on this
+   *                     computer."; the chip's dot is green with Ollama's answer's time
+   *   not a chat model, not installed, unreachable
+   *                     nothing is saved; the selector stays open on that row with the reason beside it, and the status row
+   *                     says it in H170's words
+   * No message box, and no outcome said by a six-second flash alone (R10's "The local chat's model" box is gone: its facts are
+   * the status row's and the chip's).
+   */
   private async chooseLocal(model: string): Promise<void> {
-    const S = (text: string, role: Role = 'text'): Line[number] => ({ text, role });
-    const title = 'The local chat\'s model';
-    if (await this.setup.blank().catch(() => false)) {
-      this.open({ kind: 'message', title, lines: [[S('Timmy is not set up on this computer yet (it has no identity): timmy init, in a shell, sets it up first; then choose the local model here. Nothing was written.', 'attention')]] });
+    if (this.ui.modelCheck?.state === 'checking') { this.say(`Still checking ${this.ui.modelCheck.model} with Ollama…`, 'secondary'); return; }
+    const abort = new AbortController();
+    this.checkAbort = abort;
+    this.ui.modelCheck = { model, state: 'checking', at: this.now(), words: `checking: asking Ollama whether it holds ${model} (/api/show, no model run)…` };
+    this.emit();
+    const check = await this.setup.checkLocal(model, abort.signal).catch((e): Awaited<ReturnType<SetupDeps['checkLocal']>> => ({ state: 'unreachable', why: 'no-answer', words: `The check of ${model} did not finish: ${e instanceof Error ? e.message : String(e)}.`, at: new Date(this.now()).toISOString(), name: model, origin: '', latencyMs: 0 }));
+    if (this.checkAbort === abort) this.checkAbort = null;
+    if (this.disposed || abort.signal.aborted) return;
+    if (check.state !== 'ready') {
+      // nothing saved: the row says why, the status row too; the selector stays open on it
+      this.ui.modelCheck = { model, state: check.state, at: this.now(), words: check.words, why: check.why, origin: check.origin };
+      // (the status row holds a sentence: the row's short words; H170's whole words stand under SELECTED / MODEL)
+      this.say(`Not chosen: ${(checkRowWords(this.ui.modelCheck)?.long ?? check.words).replace(/^✕ /, '')}.`, 'failure');
+      this.emit();
       return;
     }
-    let written: string[];
-    try { written = (await this.setup.setLocal(model)).written; } catch (e) {
-      this.open({ kind: 'message', title, lines: [[S(`Nothing was written: ${e instanceof Error ? e.message : String(e)}.`, 'failure')]] });
+    let wrote: { written: string[]; identity?: boolean };
+    try { wrote = await this.setup.setLocal(model); } catch (e) {
+      const why = `Not saved: ${e instanceof Error ? e.message : String(e)}`;
+      this.ui.modelCheck = { model, state: 'unreachable', at: this.now(), words: why, why: 'no-answer', origin: check.origin };
+      this.say(why, 'failure');
+      this.emit();
       return;
     }
     this.data.route = readRoute(this.d.env);
-    try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
-    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+    this.routesAgain();
     this.refreshFrame();
-    const lines: Line[] = [
-      [S('The chat is set to the local model '), S(model, 'strong'), S(', as the setup\'s answer (written as timmy init --chat local --model writes it).')],
-      ...(written.length ? [[S(`Written: ${written.map((w) => tildePath(w)).join(', ')}.`, 'secondary')]] : []),
-      [],
-      [S('WHAT CHANGED', 'secondary')],
-      [S('The chat reads its route at each message, so its next one takes it: here, and in a REPL already running.')],
-      [S(`The route as read now: ${this.data.route.words}${this.data.route.ready ? ' (ready)' : ' (not ready)'}.`)],
-      [],
-      [S('WHAT DID NOT', 'secondary')],
-      [S('A REPL whose /model chose a model for its session keeps that one there.')],
-      ...(this.d.env.TIMMY_CHAT_MODEL?.trim() ? [[S('TIMMY_CHAT_MODEL is set in this environment, and it wins over the setup\'s answer wherever it is set.', 'attention')]] : []),
-      [S('Nothing was downloaded and nothing was sent to any model: Ollama was asked only for its list and each model\'s facts (/api/show), which run no model.', 'secondary')],
-    ];
-    this.open({ kind: 'message', title, lines });
-    this.say(`The local chat's model is now ${model} (the setup's answer).`, 'secondary');
+    this.ui.modelCheck = { model, state: 'ready', at: Date.parse(check.at) || this.now(), words: check.words, why: check.why, origin: check.origin, ...(wrote.identity ? { setUp: true } : {}) };
+    // the selector closes at every width (the classic layout's box too), and the composer takes the keyboard with the draft kept
+    if (this.ui.overlay?.kind === 'local-models') this.ui.overlay = null;
+    this.ui.modelsOpen = false;
+    this.ui.modelsDetails = false;
+    delete this.ui.modelsFrom;
+    delete this.ui.modelsControl;
+    this.ui.firstRunDone = true;
+    delete this.ui.cursor['center:first'];
+    this.ui.focus = 'center';
+    this.ui.input = { field: 'composer', text: this.ui.draft ?? '' };
+    delete this.ui.draft;
+    // (R11 H167: the identity made on this choice is said with the next turn, the files by their folder: the setup's record
+    // says it was made by timmy workbench)
+    const home = wrote.identity ? wrote.written.find((w) => /identity\.json$/.test(w)) : undefined;
+    this.say(`Next turn: ${model} on this computer.${wrote.identity ? ` Set up now: identity and setup written in ${home ? tildePath(home).replace(/\/identity\.json$/, '') : 'the Timmy home'}.` : ''}`, 'text');
+    this.emit();
   }
 
   /** timmy workspace check, in this process: free requests only; what it asked and what answered, then the frame again. */

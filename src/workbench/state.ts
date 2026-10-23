@@ -410,7 +410,13 @@ export interface RouteView {
   /** R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model this route would take though nobody chose it (the settings'
    *  shipped default, a priced model; unchosenOpenRouterModel): the Workbench sends no turn on it, Models chooses one */
   unchosen?: string;
+  /** R11 (H167; H169's Phase 0 item 1, no shipped default model): a key, and no OpenRouter model chosen for the next turn:
+   *  the route refuses every send (src/agent/chat-route.ts NO_MODEL_CHOSEN_WORDS) until Models chooses one */
+  noneChosen?: boolean;
 }
+
+/** Whether no OpenRouter model is chosen for the next turn (R10's shipped default nobody chose, or R11's none at all). */
+export const noModelChosen = (r: Pick<RouteView, 'unchosen' | 'noneChosen'>): boolean => !!r.unchosen || r.noneChosen === true;
 
 /**
  * R10 CHAT (H167; H168's pass 3b, R17): the OpenRouter model the next turn would take when nobody chose one, else undefined.
@@ -442,7 +448,9 @@ export function readRoute(env: Env = process.env, cwd: string = process.cwd()): 
     const policy = (() => { try { return { freeOnly: freeOnlyOn(env), localOnly: localOnlyOn(env) }; } catch { return undefined; } })();
     // (R10 CHAT H167; H168's pass 3b, R17: the shipped default nobody chose is no model for the Workbench's next turn)
     const unchosen = now.state.kind === 'openrouter' ? unchosenOpenRouterModel(env, model) : undefined;
-    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}), ...(policy ? { policy } : {}), ...(unchosen ? { unchosen } : {}) };
+    // (R11 H167; H169's Phase 0 item 1: with no shipped default, a key and no model is the route's own refusal)
+    const noneChosen = now.state.kind === 'openrouter' && !String(model ?? '').trim();
+    return { kind: now.state.kind, words: now.state.words, ready: now.state.ready, ...(now.state.refusal?.length ? { refusal: [...now.state.refusal] } : {}), ...(policy ? { policy } : {}), ...(unchosen ? { unchosen } : {}), ...(noneChosen ? { noneChosen: true } : {}) };
   } catch (e) {
     return { kind: 'none', words: `chat: unknown (${e instanceof Error ? e.message : String(e)})`, ready: false };
   }

@@ -807,7 +807,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true, intr
   // R4 (H103, D1a): the chat's route now (read again every 2 s and after each message): the top line and the drawer say it.
   // R4 (H98, journey-2): with the commander connected and an operator token present, chat-send sends the turn there.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const routeState = useMemo(() => routeNow(String(replModel)), [routeTick, replModel, effectiveAgent, config]);
+  // R11 (H169, Phase 0 item 1): no model chosen ('—' above) is no model: the route says so and refuses, never a default
+  const routeState = useMemo(() => routeNow(replModel === '—' ? '' : String(replModel)), [routeTick, replModel, effectiveAgent, config]);
   const commanderModel = commanderOnline && edgeToken() ? String(profile.commander.model) : null;
   const policyModel = policy.default ?? 'unset';
   const harness = lanes.find(l => l.available)?.id ?? '—';

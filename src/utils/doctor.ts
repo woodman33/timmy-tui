@@ -10,6 +10,7 @@ import { homedir } from 'os';
 import { createConnection } from 'net';
 import { openscadBin } from './usd-compiler.js';
 import { probeDockerServerVersion } from './docker-server.js';
+import { packagedPath } from './asset-dirs.js';
 
 export interface DoctorCheck {
   name: string;
@@ -79,8 +80,30 @@ export const probePort = (port: number, ms = 750): Promise<boolean> => new Promi
   setTimeout(() => done(false), ms);
 });
 
+/**
+ * R11 (H170; Phase 0 item 5): what this build carries, and what it does not. The npm package (and so the review package,
+ * scripts/review/build-review.sh) ships neither scripts/roboflow-bridge.py nor lanes/*; the vision bridge
+ * (scripts/vision-bridge.py) is in no build at all. Each is a row that names the capability it lacks and the one step that
+ * would supply it, never a required check: a package without them is complete for chat, VoxVision's measurements and the
+ * native apps, and the doctor never fails for them. Files only; nothing is run.
+ */
+export const BUILD_CONTENTS: ReadonlyArray<{ name: string; rel: string; absent: string; present: string }> = [
+  { name: 'Roboflow bridge', rel: 'scripts/roboflow-bridge.py', absent: 'needs setup (the bridge is missing from this installation; the npm package carries it): reinstall Timmy, or run it from a checkout of its repository; a hosted detection also needs ROBOFLOW_API_KEY and the venv (.timmy/venv-roboflow). VoxVision\'s /observe, /detect (QR, ArUco, colour) and /measure do not need it', present: 'in this build; a hosted detection also needs ROBOFLOW_API_KEY and the venv (.timmy/venv-roboflow)' },
+  { name: 'geo lane (voxel scorer)', rel: 'lanes/geo/voxel_score.py', absent: 'needs setup (the lane is missing from this installation; the npm package carries it): reinstall Timmy, or run it from a checkout of its repository; it also needs python3 with numpy and scipy', present: 'in this build; it needs python3 with numpy and scipy' },
+  { name: 'engine shelf (timmy engine run)', rel: 'lanes/engines/engines.json', absent: 'needs setup (lanes/engines is not in this package): run Timmy from a checkout of its repository', present: 'in this build; each engine needs its own program' },
+  { name: 'vision bridge (timmy vision run, timmy_vision_* tools)', rel: 'scripts/vision-bridge.py', absent: 'not available in this build: the vision bridge is not included (no Timmy build ships it; this tree and its history hold none). VoxVision\'s /observe, /detect and /measure do not need it', present: 'in this build (a bridge is here; it is not Timmy\'s own)' },
+];
+
+/** The rows for what this build carries (BUILD_CONTENTS); `probe` answers whether a packaged file is here (a test's FAKE). */
+export function checkBuildContents(probe: (rel: string) => boolean = (rel) => packagedPath(rel, import.meta.url, { kind: 'file' }) !== undefined): DoctorCheck[] {
+  return BUILD_CONTENTS.map((c) => {
+    const here = probe(c.rel);
+    return { name: c.name, required: false, state: here ? 'ok' : 'not_configured', note: here ? c.present : c.absent };
+  });
+}
+
 export async function runDoctor(): Promise<DoctorReport> {
-  const checks: DoctorCheck[] = [checkDocker(), checkComfyCli(), checkComfyVenv(), checkCue(), checkOpenscad(), checkTmux()];
+  const checks: DoctorCheck[] = [checkDocker(), checkComfyCli(), checkComfyVenv(), checkCue(), checkOpenscad(), checkTmux(), ...checkBuildContents()];
   const comfyUp = await probePort(8188);
   checks.push({ name: 'port 8188 (ComfyUI)', required: false, state: comfyUp ? 'ok' : 'warn', note: comfyUp ? 'listener up' : 'no listener — comfy launch --background' });
   const logsUp = await probePort(Number(process.env.TIMMY_LOGS_PORT ?? 4310));
