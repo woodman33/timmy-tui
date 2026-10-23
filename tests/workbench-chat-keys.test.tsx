@@ -155,12 +155,12 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = press(c, '\r', ENTER);
     expect(c.ui.input.field).toBe('composer');
     t = press(c, 'kept words');
-    expect(cols(t[30], 20, 89)).toMatch(/^┃ kept words +┃$/);
+    expect(cols(t[28], 20, 89)).toBe('› kept words');
     t = press(c, '', ESC);
     expect(c.ui.input.field).toBeNull();
     expect(c.ui.draft).toBe('kept words');
     expect(c.ui.focus).toBe('center');
-    expect(cols(t[29], 20, 89)).toBe('draft: kept words');
+    expect(cols(t[28], 20, 89)).toBe('› kept words');
     // Tab: Models, then the bottom; → to Logs (the seventh control); Enter opens its drawer over the conversation
     press(c, '', TAB);
     expect(c.ui.focus).toBe('right');
@@ -171,7 +171,7 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = press(c, '\r', ENTER);
     expect(c.ui.shellDrawer).toBe('logs');
     expect(cols(t[4], 20, 89)).toMatch(/^LOGS \/ this computer +\[ Close \]$/);
-    expect(cols(t[29], 20, 89)).toBe('draft: kept words');
+    expect(cols(t[28], 20, 89)).toBe('› kept words');
     // Esc closes it: the keyboard stays on Logs, the draft kept
     t = press(c, '', ESC);
     expect(c.ui.shellDrawer).toBeUndefined();
@@ -197,6 +197,52 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     press(c, '', ESC);
     expect(c.ui.focus).toBe('center');
     expect(c.ui.draft).toBe('kept words M');
+  });
+
+  it('R11 step 1b/1c: Ctrl+J puts a newline into the message (Enter still sends); Tab from the composer gives the chip the keyboard: Enter on it opens Models, Esc goes back to the composer with the draft, Tab moves on; a click on the chip opens Models', () => {
+    const c = workbench(homeWithModel('chip'));
+    shown(c);
+    press(c, '\r', ENTER);
+    press(c, 'first line');
+    // Ctrl+J: Ink hands the linefeed on as the text "\n" (its name "enter", not "return")
+    let t = press(c, '\n', {});
+    press(c, 'second line');
+    t = shown(c);
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'first line\nsecond line' });
+    expect(cols(t[28], 20, 89)).toBe('› first line');
+    expect(cols(t[29], 20, 89)).toBe('  second line');
+    // Tab: the chip has the keyboard (amber), the words kept as the draft; Esc: the composer again with them
+    t = press(c, '', TAB);
+    expect(c.ui.chip).toBe(true);
+    expect(c.ui.focus).toBe('center');
+    expect(c.ui.input.field).toBeNull();
+    expect(c.ui.draft).toBe('first line\nsecond line');
+    expect(c.frame(122, 37).screen[31].find((s) => s.text.startsWith('FAKE fake-qwen3:8b'))?.role).toBe('accent');
+    press(c, '', ESC);
+    expect(c.ui.chip).toBeUndefined();
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'first line\nsecond line' });
+    // Tab, Enter: Models has the keyboard; Esc gives it back to the conversation
+    press(c, '', TAB);
+    press(c, '\r', ENTER);
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.modelsOpen).toBe(true);
+    expect(c.ui.chip).toBeUndefined();
+    press(c, '', ESC);
+    expect(c.ui.focus).toBe('center');
+    // Tab, Tab: on to the next zone (Models)
+    press(c, '\r', ENTER);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.chip).toBeUndefined();
+    press(c, '', ESC);
+    // a click on the chip (the mouse on, as m switches it): Models
+    press(c, 'm');
+    const f = c.frame(122, 37);
+    expect(f.chip).toBeDefined();
+    c.mouse({ x: f.chip!.x0 + 1, y: f.chip!.y + 1, button: 0, press: true });
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.modelsOpen).toBe(true);
   });
 
   it('no model: the first run\'s question, Continue without a model; a send that cannot go keeps what was typed and says what it needs', () => {
@@ -315,6 +361,9 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     press(c, '\r', ENTER);
     expect(c.ui.input.field).toBe('composer');
     press(c, 'FIXTURE: a draft kept across the choice');
+    // (R11 step 1c: Tab goes to the model chip first, then on to Models)
+    press(c, '', TAB);
+    expect(c.ui.chip).toBe(true);
     press(c, '', TAB);
     expect(c.ui.draft).toBe('FIXTURE: a draft kept across the choice');
     expect(c.ui.focus).toBe('right');
@@ -395,7 +444,7 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     for (const end = Date.now() + 10_000; Date.now() < end && c.ui.modelCheck?.state !== 'ready'; await sleep(20)) shown(c);
     t = shown(c);
     expect(c.ui.modelCheck).toMatchObject({ model: 'fake-qwen3:8b', state: 'ready', setUp: true });
-    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-qwen3:8b on this computer\. Set up now: identity and setup written in \S*blankhome\.$/);
+    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-qwen3:8b on this computer\. Set up now \(identity made in \S*blankhome\)\.$/);
     expect(c.ui.input.field).toBe('composer');
     expect(t.join('\n')).not.toMatch(/timmy init, in a shell|not set up on this computer/);
   });

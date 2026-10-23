@@ -20,7 +20,7 @@ import { measuredFromPalette, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors }
 import { parseColorReplies } from '../src/term/probe.js';
 import { HOMEBREW } from '../src/theme/tokens.js';
 import type { Role, Seg } from '../src/workbench/text.js';
-import { isHomebrewProfile, nearest256, styleOf, workbenchPalette, type WorkbenchPalette } from '../src/workbench/theme.js';
+import { inputGround, isHomebrewProfile, nearest256, styleOf, workbenchPalette, type WorkbenchPalette } from '../src/workbench/theme.js';
 
 const level = chalk.level;
 afterEach(() => { chalk.level = level; cleanup(); });
@@ -109,6 +109,34 @@ describe('the Workbench\'s colours without truecolor (R7 H150; H147\'s R6 findin
     // a terminal that shows no colour: no colour (the selection inverted, its marker says it too)
     expect(styleOf(sel, false)).toEqual({ inverse: true });
     expect(styleOf({ text: 'X', role: 'live' }, false)).toEqual({ bold: true });
+  });
+
+  it('R11 step 1b (H167): the composer\'s tint (inputGround): the measured background lightened by the playbook\'s blend, a light one darkened, B10\'s canvas when nothing answered; the grey ramp on 256 colours; none on 16 colours or without colour; a block segment carries it, a plain one does not', () => {
+    // 24-bit: white at 12% over the measured black (#000000 → #1F1F1F); over the Night profile's own background; black at 4%
+    // over a light one; the canvas when the terminal did not answer
+    expect(inputGround('truecolor', measuredFromPalette(TIMMY_HOMEBREW))).toBe('#1F1F1F');
+    expect(inputGround('truecolor', { background: '#FFFFFF', slots: {} })).toBe('#F5F5F5');
+    expect(inputGround('truecolor')).toBe('#1F1F1F');
+    expect(inputGround('truecolor', { background: '#1A2233', slots: {} })).toBe('#353D4B');
+    // 256 colours: a near-neutral tint takes the grey ramp (232 #080808 … 255 #EEEEEE: #1F1F1F → 234)
+    expect(inputGround('ansi256', measuredFromPalette(TIMMY_HOMEBREW))).toBe('ansi256(234)');
+    expect(inputGround('homebrew-slots')).toBe('ansi256(234)');
+    // 16 colours and no colour: no tint (the playbook's 100m slot is the profile's secondary grey, #8E8E93: off-white on it
+    // is under the contrast floor, so it is not used; "› " and the cursor mark the composer)
+    expect(inputGround('basic')).toBeNull();
+    expect(inputGround('homebrew-basic')).toBeNull();
+    expect(inputGround('none')).toBeNull();
+    // a block segment is drawn on it (its own role's colour kept), a plain one is not; without colour nothing
+    expect(styleOf({ text: '› ', role: 'accent', block: true }, true, 'truecolor', '#1F1F1F')).toEqual({ color: HOMEBREW.accent, backgroundColor: '#1F1F1F' });
+    expect(styleOf({ text: 'x', role: 'text', block: true }, true, 'truecolor')).toEqual({ color: HOMEBREW.text, backgroundColor: '#1F1F1F' });
+    expect(styleOf({ text: 'x', role: 'text' }, true, 'truecolor', '#1F1F1F')).toEqual({ color: HOMEBREW.text });
+    expect(styleOf({ text: 'x', role: 'text', block: true }, true, 'none')).toEqual({});
+    expect(styleOf({ text: 'x', role: 'text', block: true }, false)).toEqual({});
+    // the bytes Ink writes for a tinted cell at 24-bit: the background's RGB
+    chalk.level = 3;
+    const { lastFrame, unmount } = render(<Text {...styleOf({ text: 'X', role: 'text', block: true }, true, 'truecolor', '#1F1F1F')}>X</Text>);
+    expect(sgr(lastFrame() ?? '')).toContain('48;2;31;31;31');
+    unmount();
   });
 
   it('the hex the 24-bit mode writes is B10\'s tokens (src/theme/tokens.ts), never chosen here', () => {
