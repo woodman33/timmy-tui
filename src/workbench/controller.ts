@@ -41,13 +41,13 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { chatModel, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { CAP_VALUES, chatModel, CONTEXT_VALUES, COST_VALUES, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { providerStates } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
 import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
-import { companionWhat, handoffWords, homeDefault, inWords, turnEndNotice, type WorkItem } from './home-journey.js';
+import { companionWhat, handoffWords, homeDefault, inWords, routeLine, turnEndNotice, type WorkItem } from './home-journey.js';
 import { openTarget, recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
@@ -72,6 +72,12 @@ import { clock, type Line, type Role } from './text.js';
 import { HoldWatch, type HoldsReading } from './turn-holds.js';
 import { actionsOf, bottomView, centerView, connectChoices, cursorOf, pageActions, rightView, routeShown, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
 import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
+
+/** R10 CHAT (H167; H168's pass 3a, R1): how long Models keeps the local Ollama's answer before asking again when it is shown. */
+export const OLLAMA_FRESH_MS = 30_000;
+
+/** R10 CHAT (H167; H168's pass 3a, R9): how many characters the composer holds (a message; it says so when it is full). */
+export const COMPOSER_MAX = 4000;
 
 /** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
 export const FRAME_EVERY_MS = 1000;
@@ -1062,7 +1068,8 @@ export class Controller {
       case '?': this.open({ kind: 'help' }); break;
       case 'p': this.openPicker(); break;
       case 'n': this.openNew(); break;
-      case '/': this.search(); break;
+      // (R10 CHAT H167; H168's pass 3a, R3: on Models' OpenRouter list, / types into its Search)
+      case '/': if (this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen && railProvider({ ui: this.ui, data: this.data }) === 'openrouter') this.openModelsSearch(); else this.search(); break;
       case 'c': void this.showCompanion(); break;
       case 's': void this.showStudio(); break;
       case 'C': void this.d.companion.stopServing().then((w) => this.say(inWords(w))); break;
@@ -1110,6 +1117,7 @@ export class Controller {
     if (!this.ui.overlay && this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen) {
       const from = this.ui.modelsFrom;
       delete this.ui.modelsFrom;
+      delete this.ui.modelsControl;
       this.ui.modelsOpen = false;
       this.ui.focus = from && from !== 'right' ? from : 'center';
       this.emit();
@@ -1158,6 +1166,21 @@ export class Controller {
       this.ui.cursor.rail = Math.max(0, Math.min(RAIL_ITEMS.length - 1, (this.ui.cursor.rail ?? RAIL_ITEMS.indexOf('chat')) + delta));
       this.emit();
       return;
+    }
+    // R10 CHAT (H167; H168's pass 3a, R3): on Models' OpenRouter list, ↑ from its first row reaches its controls (Search and the
+    // five filters), ↓ from the last of them goes back to the list; on the list, the arrows move from the row drawn
+    if (this.chatShell() && region === 'right' && !this.ui.rightOpen && !this.ui.modelsDetails) {
+      const or = railProvider({ ui: this.ui, data: this.data }) === 'openrouter';
+      const ctl = this.ui.modelsControl;
+      if (or && ctl !== undefined) {
+        if (ctl + delta > MODEL_CONTROLS.length - 1) { delete this.ui.modelsControl; this.ui.cursor['right:models'] = 0; }
+        else this.ui.modelsControl = Math.max(0, ctl + delta);
+        this.emit();
+        return;
+      }
+      const at = railCursor({ ui: this.ui, data: this.data });
+      if (or && delta < 0 && at <= 0) { this.ui.modelsControl = MODEL_CONTROLS.length - 1; this.emit(); return; }
+      if (at >= 0 && this.ui.cursor['right:models'] === undefined) this.ui.cursor['right:models'] = at;
     }
     if (this.chatShell() && region === 'bottom' && this.ui.shellDrawer) {
       const n = this.ui.shellDrawer === 'more' ? moreControls({ data: this.data }).length : 1;
@@ -1228,11 +1251,15 @@ export class Controller {
   private side(dir: 1 | -1): void {
     // R10 CHAT (H167): on Models, ← → choose the provider (OpenRouter, Ollama, Cloudflare); on the controls row, the control
     if (this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen) {
+      // (R10 CHAT H167; H168's pass 3a, R3: on a control, ← → change its value)
+      const ctl = this.modelsCtl();
+      if (ctl !== undefined) { if (MODEL_CONTROLS[ctl] !== 'search') this.cycleControl(dir); return; }
       const at = PROVIDERS.findIndex((x) => x.id === railProvider({ ui: this.ui, data: this.data }));
       this.ui.modelsProvider = PROVIDERS[Math.max(0, Math.min(PROVIDERS.length - 1, at + dir))].id;
       delete this.ui.cursor['right:models'];
+      delete this.ui.modelsControl;
       this.ui.modelsDetails = false;
-      if (this.ui.modelsProvider === 'ollama-local') void this.loadModels();
+      if (this.ui.modelsProvider === 'ollama-local') void this.loadModels(false, true);
       this.emit();
       return;
     }
@@ -1269,14 +1296,14 @@ export class Controller {
     this.ui.rightOpen = false;
     this.ui.modelsOpen = true;
     this.ui.focus = 'right';
-    void this.loadModels();
+    void this.loadModels(false, true);
     this.emit();
   }
 
   /** What Models lists: OpenRouter's catalog from files (the one this computer fetched, else the snapshot shipped with Timmy:
    *  no request), once; what the local Ollama lists (one request to it, no model run), when its section is shown. */
   private modelsAsked = { catalog: false, ollama: false };
-  async loadModels(force = false): Promise<void> {
+  async loadModels(force = false, again = false): Promise<void> {
     const m: RailModels = (this.data.models ??= {});
     // R10 CHAT (H167; H170's contract): each provider's state, read from files and observations (nothing is asked)
     try { m.providers = providerStates({ env: this.d.env }); } catch { /* as before: Models says what it has */ }
@@ -1286,7 +1313,11 @@ export class Controller {
       this.emit();
     }
     const wantsOllama = railProvider({ ui: this.ui, data: this.data }) === 'ollama-local' || this.data.route.kind === 'local';
-    if (wantsOllama && (force || !this.modelsAsked.ollama)) {
+    // R10 CHAT (H167; H168's pass 3a, R1 and R15): asked again (`again`: Models shown, a turn's end) when its last answer failed
+    // or is older than OLLAMA_FRESH_MS, and on r (`force`); never twice at once, and once at launch
+    const o = m.ollama;
+    const stale = again && (!o || o.state === 'failed' || (o.state === 'listed' && (!o.at || this.now() - Date.parse(o.at) > OLLAMA_FRESH_MS)));
+    if (wantsOllama && o?.state !== 'reading' && (force || !this.modelsAsked.ollama || stale)) {
       this.modelsAsked.ollama = true;
       m.ollama = { state: 'reading', where: m.ollama?.where ?? 'Ollama', rows: m.ollama?.rows ?? [] };
       this.emit();
@@ -1295,7 +1326,7 @@ export class Controller {
         m.ollama = list.answered
           ? { state: 'listed', where: list.where, rows: ollamaRows(list.models), at: new Date(this.now()).toISOString(), cloud: list.cloud }
           : { state: 'failed', where: list.where, rows: [], at: new Date(this.now()).toISOString(), ...(list.why ? { why: list.why } : {}) };
-      } catch (e) { m.ollama = { state: 'failed', where: 'Ollama', rows: [], why: e instanceof Error ? e.message : String(e) }; }
+      } catch (e) { m.ollama = { state: 'failed', where: 'Ollama', rows: [], at: new Date(this.now()).toISOString(), why: e instanceof Error ? e.message : String(e) }; }
       this.emit();
     }
   }
@@ -1356,8 +1387,15 @@ export class Controller {
    *  does, saying what changed); an OpenRouter one needs the OpenRouter route (its key), said so; the turn in flight keeps its
    *  route either way, and the draft stays. */
   private async chooseFromRail(): Promise<void> {
+    // (R10 CHAT H167; H168's pass 3a, R3: on a control, Enter types into Search or gives the control its next value)
+    const ctl = this.modelsCtl();
+    if (ctl !== undefined) {
+      if (MODEL_CONTROLS[ctl] === 'search') this.openModelsSearch(); else this.cycleControl(1);
+      return;
+    }
     const { rows, source } = modelRows({ ui: this.ui, data: this.data });
-    const r = rows[this.ui.cursor['right:models'] ?? 0];
+    // (the row drawn under the cursor: the person's, else the next turn's model's)
+    const r = rows[Math.max(0, railCursor({ ui: this.ui, data: this.data }))];
     if (!r) { this.say('No model is listed here to choose.', 'secondary'); return; }
     // R10 CHAT (H167; the lead's Mac check of 50237ef): a local model the probe's /api/show check does not establish as a chat
     // model (an embedding or a decision model) is never chosen for chat
@@ -1417,7 +1455,7 @@ export class Controller {
     // the navigation shows the workspace chosen, wherever the wheel had scrolled it
     delete this.ui.wheel.nav;
     this.loadFor(ws);
-    if (ws === 'chat') { void this.openChat(); void this.loadModels(); }
+    if (ws === 'chat') { void this.openChat(); void this.loadModels(false, true); }
     this.emit();
   }
 
@@ -1497,6 +1535,8 @@ export class Controller {
     // R5 (H131): and the workspace frame (at most once a second)
     this.refreshFrame();
     this.loadFor(this.ui.workspace, true);
+    // R10 CHAT (H167; H168's pass 3a, R1): and on the Chat screen, what the local Ollama lists
+    if (this.chatShell()) void this.loadModels(true);
     this.say(`Read ${this.data.project.name}'s records again at ${clock(new Date(this.now()).toISOString())}.`, 'secondary');
   }
 
@@ -1505,6 +1545,14 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
+      // R10 CHAT (H167; H168's pass 3a, R3): Models' Search: Esc clears it, the keyboard on Search
+      if (f === 'msearch') {
+        this.ui.input = { field: null, text: '' };
+        delete this.ui.modelsSearch;
+        delete this.ui.cursor['right:models'];
+        this.say('Search cleared: Models lists every model the filters keep.', 'secondary');
+        return;
+      }
       // R10 CHAT (H167): the hidden field (a key, the sign-in's code): what was typed is dropped, and the box goes back a step
       if (f === 'secret') {
         this.ui.input = { field: null, text: '' };
@@ -1564,7 +1612,7 @@ export class Controller {
       if (f === 'picker') { this.ui.cursor.overlay = Math.max(0, (this.ui.cursor.overlay ?? 0) + (k.upArrow ? -1 : 1)); this.emit(); }
       return;
     }
-    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); this.emit(); return; }
+    if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); if (f === 'msearch') this.modelsSearchNow(); this.emit(); return; }
     // R10 CHAT (H167): Tab from the composer, in the shell, moves to the next pane with the words typed kept as the draft
     if (k.tab && f === 'composer' && this.chatShell()) {
       if (this.ui.input.text.trim()) this.ui.draft = this.ui.input.text;
@@ -1576,10 +1624,15 @@ export class Controller {
     // printable text only (a paste arrives as one string)
     const text = input.replace(/[\x00-\x1f\x7f]/g, '');
     if (!text) return;
-    // (R10 CHAT H167: the hidden field holds a key or a sign-in's whole address: longer than a name or a search)
-    this.ui.input.text = (this.ui.input.text + text).slice(0, f === 'secret' ? 4096 : 300);
+    // (R10 CHAT H167: the hidden field holds a key or a sign-in's whole address: longer than a name or a search; H168's pass 3a,
+    // R9: the composer holds a message of 4,000 characters, and says so when it is full)
+    const cap = f === 'secret' ? 4096 : f === 'composer' ? COMPOSER_MAX : 300;
+    const joined = this.ui.input.text + text;
+    this.ui.input.text = joined.slice(0, cap);
+    if (f === 'composer' && joined.length > cap) this.say(`The message holds ${cap.toLocaleString('en-US')} characters: the rest was not typed in. Enter sends what is there.`, 'attention');
     if (f === 'picker') this.ui.cursor.overlay = 0;
     if (f === 'tools') this.toolsTop();
+    if (f === 'msearch') this.modelsSearchNow();
     this.emit();
   }
 
@@ -1634,6 +1687,8 @@ export class Controller {
       return;
     }
     if (field === 'secret') { this.connectSubmit(text); return; }
+    // (R10 CHAT H167; H168's pass 3a, R3: Enter keeps the search and gives the keyboard to its first match)
+    if (field === 'msearch') { this.ui.input = { field: null, text: '' }; delete this.ui.modelsControl; this.ui.cursor['right:models'] = 0; this.ui.focus = 'right'; this.emit(); return; }
     if (field === 'new') {
       const o = this.ui.overlay;
       const from = o?.kind === 'new' ? o.from : undefined;
@@ -1643,6 +1698,14 @@ export class Controller {
       return;
     }
     if (field === 'composer') {
+      // R10 CHAT (H167; H168's pass 3a, R4): on the Chat screen a message with no model for the next turn is not sent, as decided
+      // here from the route: a fresh home's session opens, and its refusal (made for the REPL) would leave the no-model view
+      // for the old one. What was typed stays; the no-model view and its choices stay
+      if (this.chatShell() && text.trim() && !this.data.route.ready && !routeLine(this.data).model) {
+        this.say('Not sent: no model for the next turn, so nothing was sent. What you typed stays here; Esc keeps it as a draft, and Models (M) chooses a model.', 'secondary');
+        this.emit();
+        return;
+      }
       const why = this.can().chatWhy;
       // R10 (H167): while the session is still opening (Home's next step opens the composer at once), what was typed stays in
       // the composer, and Enter sends it once the session is open: nothing is lost and nothing is sent before then
@@ -1735,6 +1798,9 @@ export class Controller {
       // R10 (H167): and Home's recent work lists it at once (it was the list's first item only at the next reading, so Enter on
       // Home acted on the row under it)
       this.readJourney(this.chain());
+      // R10 CHAT (H167; H168's pass 3a, R1): a turn's end is news of the route: Models asks the local Ollama again when its last
+      // answer failed or is old (a turn it answered while Models said "did not answer")
+      if (this.chatShell()) void this.loadModels(false, true);
       this.emit();
     }
   }
@@ -1858,6 +1924,50 @@ export class Controller {
     if (this.ui.overlay?.kind !== 'local-models') return;
     this.ui.overlay = list.answered && list.models.length ? { kind: 'local-models', state: 'listed', list } : { kind: 'local-models', state: 'failed', list };
     this.ui.cursor.overlay = 0;
+    this.emit();
+  }
+
+  // ── Models' controls (R10 CHAT H167; H168's pass 3a, R3) ─────────────────────────────────────────────────────────
+
+  /** The control of Models the keyboard is on, while Models shows OpenRouter's list (not a model's Details): one left from an
+   *  earlier look at OpenRouter never takes ← → or Enter on another provider's list. */
+  private modelsCtl(): number | undefined {
+    return !this.ui.modelsDetails && railProvider({ ui: this.ui, data: this.data }) === 'openrouter' ? this.ui.modelsControl : undefined;
+  }
+
+  /** Models' Search takes the keyboard: each key filters the list (H169's query), Enter keeps it, Esc clears it. */
+  private openModelsSearch(): void {
+    this.ui.focus = 'right';
+    this.ui.modelsControl = 0;
+    this.ui.input = { field: 'msearch', text: this.ui.modelsSearch ?? '' };
+    this.emit();
+  }
+
+  /** What is typed into Models' Search is its search now (the list from its first row). */
+  private modelsSearchNow(): void {
+    const t = this.ui.input.text.trim();
+    if (t) this.ui.modelsSearch = t; else delete this.ui.modelsSearch;
+    delete this.ui.cursor['right:models'];
+  }
+
+  /** The control the keyboard is on, to its next (`dir` 1) or its previous value; the list from its first row. */
+  private cycleControl(dir: 1 | -1): void {
+    const k = MODEL_CONTROLS[this.ui.modelsControl ?? 1];
+    const next = <T,>(list: readonly T[], now: T): T => list[(Math.max(0, list.indexOf(now)) + dir + list.length) % list.length];
+    const c = { ui: this.ui, data: this.data };
+    if (k === 'sort') this.ui.modelsSort = next(SORT_VALUES, this.ui.modelsSort ?? 'recent');
+    else if (k === 'maker') {
+      const v = next(['', ...modelRows(c).makers.map((m) => m.id)], this.ui.modelsMaker ?? '');
+      if (v) this.ui.modelsMaker = v; else delete this.ui.modelsMaker;
+    } else if (k === 'capability') {
+      const v = next(CAP_VALUES, this.ui.modelsCap ?? '');
+      if (v) this.ui.modelsCap = v; else delete this.ui.modelsCap;
+    } else if (k === 'cost') this.ui.modelsCost = next(COST_VALUES, railCost(c));
+    else if (k === 'context') {
+      const v = next(CONTEXT_VALUES, this.ui.modelsContext ?? 0);
+      if (v) this.ui.modelsContext = v; else delete this.ui.modelsContext;
+    }
+    delete this.ui.cursor['right:models'];
     this.emit();
   }
 
@@ -2619,7 +2729,11 @@ export class Controller {
       return;
     }
     if (this.ui.input.field) {
+      // (R10 CHAT H167; H168's pass 3a, R8: while this Workbench's turn is answered, Esc in the composer stops it: a click says
+      // so, and on the Chat screen Tab leaves the composer with the text kept)
+      const answering = this.ui.input.field === 'composer' && (this.turnAbort !== null || chatTurnNow(this.data)?.mine === true);
       if (hint === 'Esc') this.key('', { escape: true });
+      else if (answering) this.say(this.chatShell() ? 'A field has the keyboard: Tab leaves it, the text kept as a draft (Esc would stop the turn being answered).' : 'A field has the keyboard: Esc stops the turn being answered and leaves it.', 'secondary');
       else this.say('A field has the keyboard: Esc leaves it (a click on a key\'s hint is never typed into it).', 'secondary');
       return;
     }
@@ -2650,6 +2764,13 @@ export class Controller {
     // R10 CHAT (H167): on the Chat screen the zone under the pointer has the keyboard and the rail item, row or control under
     // it is selected (only selected: Enter, the key, opens or acts); a [key] hint clicked acts as its key
     if (this.chatShell()) {
+      // (H168's pass 3a, R7: the drawn buttons act as their keys: [M] and [ Models ] give Models the keyboard, [ Details ] and
+      // [ List ] are i on Models, [ Close ] is Esc)
+      const row = f.screen[y]?.map((s) => s.text).join('') ?? '';
+      const button = [...row.matchAll(/\[ (Models|Details|List|Close) \]/g)].find((b) => x >= (b.index ?? 0) && x < (b.index ?? 0) + b[0].length)?.[1];
+      if (hint === 'M' || button === 'Models') { this.focusModels(); return; }
+      if (button === 'Details' || button === 'List') { this.ui.focus = 'right'; this.ui.modelsDetails = !this.ui.modelsDetails; this.emit(); return; }
+      if (button === 'Close') { this.escape(); return; }
       const z = this.shellAt(f, x, y);
       if (!z) return;
       this.ui.focus = z.region;

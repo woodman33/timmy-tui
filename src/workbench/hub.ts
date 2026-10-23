@@ -914,6 +914,8 @@ export function fieldHintLine(width: number, field: NonNullable<Ui['input']['fie
         : field === 'picker' ? [h('↑↓', 'choose', 2), h('Enter', 'opens it', 0), h('Esc', 'closes', 1)]
           // (R10 CHAT H167: the hidden field of Connect OpenRouter: a key or the sign-in's code, never shown)
           : field === 'secret' ? [h('Enter', 'takes it', 0), h('Esc', 'goes back, nothing typed kept', 1)]
+            // (R10 CHAT H167; H168's pass 3a, R3: Models' Search, each key filters)
+            : field === 'msearch' ? [h('Enter', 'keeps these matches', 0), h('Esc', 'clears the search', 1)]
           : [h('Enter', 'makes it', 0), h('Esc', 'closes', 1)];
   return pickRanked([...hints, { line: [S('other keys type into it', 'secondary')], rank: 3 }], width, S('  '));
 }

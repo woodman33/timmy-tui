@@ -24,7 +24,7 @@ import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
 import type { WorkspaceId } from './nav.js';
 import { clock, cut, fit, lineCells, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
-import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
+import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type MakerOption, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
 import type { ProviderState } from '../setup/providers-state.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -200,11 +200,20 @@ export const chatModel = (r: CatalogRow): boolean => (r as CatalogRow & { chat?:
 /** A local row's facts as the setup's list words them (absent on a catalog row). */
 const factsOf = (r: CatalogRow): string | undefined => (r as CatalogRow & { facts?: string }).facts;
 
-/** H169's queryCatalog: the rows that match, sorted; the makers by their ids. */
-export function queryRows(rows: readonly CatalogRow[], q: CatalogQuery): { rows: CatalogRow[]; total: number; makers: string[] } {
+/** H169's queryCatalog: the rows that match, sorted; the source's makers (for the Maker control). */
+export function queryRows(rows: readonly CatalogRow[], q: CatalogQuery): { rows: CatalogRow[]; total: number; makers: MakerOption[] } {
   const r = queryCatalog(rows, q);
-  return { rows: r.rows, total: r.total, makers: r.makers.map((m) => m.id) };
+  return { rows: r.rows, total: r.total, makers: r.makers };
 }
+
+/** R10 CHAT (H167; H168's pass 3a, R3): the controls above Models' OpenRouter list, in their order (ui.modelsControl), and the
+ *  values ← → and Enter go through. */
+export const MODEL_CONTROLS = ['search', 'sort', 'maker', 'capability', 'cost', 'context'] as const;
+export const SORT_VALUES: ReadonlyArray<NonNullable<Ui['modelsSort']>> = ['recent', 'name', 'price', 'context'];
+export const CAP_VALUES: ReadonlyArray<NonNullable<Ui['modelsCap']> | ''> = ['', 'tools', 'vision', 'reasoning'];
+export const COST_VALUES: ReadonlyArray<'all' | 'free' | 'paid'> = ['all', 'free', 'paid'];
+export const CONTEXT_VALUES: readonly number[] = [0, 32_000, 128_000, 256_000, 1_000_000];
+const contextShort = (n: number): string => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`);
 
 /** A context length in words ("262k context", "1M context"); unknown when the list does not say. */
 export const ctxWords = (n?: number): string => (n === undefined ? 'context unknown' : n >= 1e6 ? `${+(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M context` : n >= 1e3 ? `${Math.round(n / 1e3)}k context` : `${n} context`);
@@ -234,19 +243,56 @@ export function railProvider(c: Pick<ShellCtx, 'ui' | 'data'>): NonNullable<Ui['
 }
 
 /** Models' Cost filter now: the person's choice, else free where the next turn's route is free-only, else all. */
-export function railCost(c: Pick<ShellCtx, 'ui' | 'data'>): 'free' | 'all' {
+export function railCost(c: Pick<ShellCtx, 'ui' | 'data'>): 'free' | 'all' | 'paid' {
   return c.ui.modelsCost ?? (/\bfree-only\b/.test(c.data.route.words) ? 'free' : 'all');
 }
 
+const makerWords = (makers: readonly MakerOption[], id: string): string => {
+  const m = makers.find((x) => x.id === id);
+  return m && makers.filter((x) => x.label === m.label).length === 1 ? m.label : id;
+};
+
+/** R10 CHAT (H167; H168's pass 3a, R3): each control's value in words: Cost says whether it is the default or the route's. */
+export function controlWords(c: Pick<ShellCtx, 'ui' | 'data'>, makers: readonly MakerOption[]): Record<(typeof MODEL_CONTROLS)[number], string> {
+  const { ui } = c;
+  const cost = railCost(c);
+  const set = ui.modelsCost !== undefined;
+  return {
+    search: ui.modelsSearch ?? '',
+    sort: ui.modelsSort ?? 'recent',
+    // (a maker's label, or its id where another maker has the same label: two makers never read the same)
+    maker: ui.modelsMaker ? makerWords(makers, ui.modelsMaker) : 'All',
+    capability: ui.modelsCap ?? 'All',
+    cost: cost === 'free' ? (set ? 'Free only' : 'Free (route)') : cost === 'paid' ? 'Paid' : set ? 'All' : 'All (default)',
+    context: ui.modelsContext ? `${contextShort(ui.modelsContext)} or more` : 'All',
+  };
+}
+
+/** R10 CHAT (H167): the row of Models' list the cursor is on, as drawn: the person's, else the next turn's model's, else the first
+ *  (Enter and the arrows use this one: the one the person sees). -1: none listed. */
+export function railCursor(c: Pick<ShellCtx, 'ui' | 'data'>): number {
+  const { rows } = modelRows(c);
+  if (!rows.length) return -1;
+  const model = routeLine(c.data).model;
+  return Math.max(0, Math.min(rows.length - 1, c.ui.cursor['right:models'] ?? Math.max(0, rows.findIndex((r) => r.id === model))));
+}
+
 /** The rows Models lists now (the provider's, as its query asks: the sort, the search and the Cost filter its rows say). */
-export function modelRows(c: Pick<ShellCtx, 'ui' | 'data'>): { rows: CatalogRow[]; total: number; source: ModelSource | null } {
+export function modelRows(c: Pick<ShellCtx, 'ui' | 'data'>): { rows: CatalogRow[]; total: number; source: ModelSource | null; makers: MakerOption[] } {
   const p = railProvider(c);
   const m = c.data.models;
-  if (p === 'cloudflare') return { rows: [], total: 0, source: null };
+  if (p === 'cloudflare') return { rows: [], total: 0, source: null, makers: [] };
   const source: ModelSource = p;
   const all = source === 'openrouter' ? m?.openrouter?.rows ?? [] : source === 'ollama-local' ? m?.ollama?.rows ?? [] : [];
-  const q = queryRows(all, { source, sort: source === 'openrouter' ? (c.ui.modelsSort ?? 'recent') : 'name', ...(c.ui.modelsSearch ? { search: c.ui.modelsSearch } : {}), ...(source === 'openrouter' && railCost(c) === 'free' ? { cost: 'free' as const } : {}) });
-  return { rows: q.rows, total: q.total, source };
+  // (R10 CHAT H167; H168's pass 3a, R3: OpenRouter's controls are H169's query: the sort, the search and the four filters)
+  const or = source === 'openrouter';
+  const cost = or ? railCost(c) : 'all';
+  const q = queryRows(all, {
+    source, sort: or ? (c.ui.modelsSort ?? 'recent') : 'name', ...(c.ui.modelsSearch ? { search: c.ui.modelsSearch } : {}),
+    ...(or && c.ui.modelsMaker ? { maker: c.ui.modelsMaker } : {}), ...(or && c.ui.modelsCap ? { capability: c.ui.modelsCap } : {}),
+    ...(or && c.ui.modelsContext ? { minContext: c.ui.modelsContext } : {}), ...(cost !== 'all' ? { cost } : {}),
+  });
+  return { rows: q.rows, total: q.total, source, makers: q.makers };
 }
 
 /** The catalog's date, as the target says it ("Sep 7"). */
@@ -275,7 +321,8 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   const lines: Line[] = Array.from({ length: n }, (): Line => []);
   const put = (row: number, line: Line): void => { if (row >= 0 && row < n) lines[row] = trimTo(line, w, g.ellipsis); };
   const p = railProvider(c);
-  const head: Line = [S('MODELS', focused ? 'accent' : 'strong', { bold: true })];
+  // (R10 CHAT H167; H168's pass 3a, R7: its key on screen, [M], a target the mouse presses too)
+  const head: Line = [S('MODELS', focused ? 'accent' : 'strong', { bold: true }), ...(drawer ? [] : [S(' [M]', 'secondary')])];
   const button = drawer ? '[ Close ]' : ui.modelsDetails ? '[ List ]' : '[ Details ]';
   put(1, [...head, S(' '.repeat(Math.max(1, w - lineCells(head) - button.length))), S(button, drawer ? 'accent' : 'secondary')]);
   // the shown provider's state (H170's providerStates: files and observations only, nothing asked), its word on the row under
@@ -316,37 +363,46 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     }
     return { lines, items: [], listFrom: n, listRows: 0, perItem: per };
   }
-  const sortV = ui.modelsSort ?? 'recent';
-  const costV = railCost(c) === 'free' ? 'Free only' : 'All';
+  // (R10 CHAT H167; H168's pass 3a, R3: the controls: the one the keyboard is on says so, its value between < >, in amber;
+  // Search shows what is typed into it)
+  const vals = controlWords(c, modelRows(c).makers);
+  const onCtl = (k: (typeof MODEL_CONTROLS)[number]): boolean => focused && ui.modelsControl === MODEL_CONTROLS.indexOf(k);
+  const typingSearch = ui.input.field === 'msearch';
+  const searchRow: Line = typingSearch ? [S('Search ', 'accent', { bold: true }), S(ui.input.text, 'accent', { raw: true }), S(' ', 'text', { inverse: true })]
+    : onCtl('search') ? [S('> ', 'accent'), S('Search ', 'accent', { bold: true }), S(vals.search || 'name or model id', vals.search ? 'accent' : 'secondary', { raw: true })]
+      : vals.search ? [S('Search ', 'secondary'), S(vals.search, 'text', { raw: true })] : [S('Search name or model id', 'secondary')];
+  const shown = (k: (typeof MODEL_CONTROLS)[number]): string => (onCtl(k) ? `< ${vals[k]} >` : vals[k]);
+  const ctlSeg = (k: (typeof MODEL_CONTROLS)[number]): Seg => S(shown(k), onCtl(k) ? 'accent' : 'text', onCtl(k) ? { bold: true } : {});
+  const ctlLabel = (name: string, k: (typeof MODEL_CONTROLS)[number]): Line => [S(name.padEnd(11), onCtl(k) ? 'accent' : 'secondary', onCtl(k) ? { bold: true } : {}), ctlSeg(k)];
   if (source === 'openrouter' && drawer) {
     // the drawer's pairs, two a row ("Sort: recent   Maker: All")
     const half = Math.max(18, Math.floor(w / 2) - 6);
-    const pair = (a: [string, string], b?: [string, string]): Line => [S(`${a[0]}: `, 'secondary'), S(a[1], 'text'), ...(b ? [S(' '.repeat(Math.max(2, half - a[0].length - 2 - a[1].length))), S(`${b[0]}: `, 'secondary'), S(b[1], 'text')] : [])];
-    put(at, ui.modelsSearch ? [S('Search ', 'secondary'), S(ui.modelsSearch, 'text')] : [S('Search name or model id', 'secondary')]);
-    put(at + 2, pair(['Sort', sortV], ['Maker', 'All']));
-    put(at + 3, pair(['Capability', 'All'], ['Cost', costV]));
-    put(at + 4, pair(['Context', 'All']));
+    const pair = (a: [string, (typeof MODEL_CONTROLS)[number]], b?: [string, (typeof MODEL_CONTROLS)[number]]): Line => [S(`${a[0]}: `, onCtl(a[1]) ? 'accent' : 'secondary'), ctlSeg(a[1]), ...(b ? [S(' '.repeat(Math.max(2, half - a[0].length - 2 - shown(a[1]).length))), S(`${b[0]}: `, onCtl(b[1]) ? 'accent' : 'secondary'), ctlSeg(b[1])] : [])];
+    put(at, searchRow);
+    put(at + 2, pair(['Sort', 'sort'], ['Maker', 'maker']));
+    put(at + 3, pair(['Capability', 'capability'], ['Cost', 'cost']));
+    put(at + 4, pair(['Context', 'context']));
     put(at + 5, rule);
     at += 7;
   } else if (source === 'openrouter') {
-    put(at, ui.modelsSearch ? [S('Search ', 'secondary'), S(ui.modelsSearch, 'text')] : [S('Search name or model id', 'secondary')]);
-    put(at + 2, label('Sort', sortV));
-    put(at + 3, label('Maker', 'All'));
-    put(at + 4, label('Capability', 'All'));
-    put(at + 5, label('Cost', costV));
-    put(at + 6, label('Context', 'All'));
+    put(at, searchRow);
+    put(at + 2, ctlLabel('Sort', 'sort'));
+    put(at + 3, ctlLabel('Maker', 'maker'));
+    put(at + 4, ctlLabel('Capability', 'capability'));
+    put(at + 5, ctlLabel('Cost', 'cost'));
+    put(at + 6, ctlLabel('Context', 'context'));
     put(at + 7, rule);
     at += 9;
   } else {
     const o = m?.ollama;
-    put(at + 1, [S(o?.state === 'listed' ? `INSTALLED / read ${clock(o.at ?? new Date(c.now).toISOString()).slice(0, 5)}` : o?.state === 'reading' ? 'ASKING THE LOCAL OLLAMA' : o?.state === 'failed' ? 'THE LOCAL OLLAMA DID NOT ANSWER' : 'NOT READ YET', 'secondary', { bold: true })]);
+    put(at + 1, [S(o?.state === 'listed' ? `INSTALLED / read ${clock(o.at ?? new Date(c.now).toISOString()).slice(0, 5)}` : o?.state === 'reading' ? 'ASKING THE LOCAL OLLAMA' : o?.state === 'failed' ? `NO ANSWER${o.at ? ` / asked ${clock(o.at).slice(0, 5)}` : ''}` : 'NOT READ YET', 'secondary', { bold: true })]);
     if (o?.state === 'failed' && o.why) wrapText(inWords(o.why), w).slice(0, 3).forEach((t, k) => put(at + 2 + k, [S(t, 'failure')]));
     at += o?.state === 'failed' ? 6 : 3;
   }
   // the list, between `at` and the selected block (two rows a model; one in the drawer), scrolled so the cursor's rows show
   const listFrom = at;
   const listRows = Math.max(0, drawer ? n - at : footAt - 1 - at);
-  const cur = rows.length ? Math.max(0, Math.min(rows.length - 1, ui.cursor['right:models'] ?? Math.max(0, rows.findIndex((r) => r.id === rt.model)))) : -1;
+  const cur = railCursor(c);
   const list: Line[] = [];
   const items: View['items'] = [];
   rows.forEach((r, i) => {
@@ -429,7 +485,7 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     // model is still the next turn's, said so; never "none")
     put(footAt + 1, [S('SELECTED', 'strong', { bold: true })]);
     put(footAt + 2, [S(`${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'strong', { bold: true, raw: true })]);
-    put(footAt + 3, [S(source === 'ollama-local' && m?.ollama?.state !== 'listed' ? 'Not listed here yet.' : 'Not in this list: the route names it.', 'secondary')]);
+    put(footAt + 3, [S(source === 'ollama-local' && m?.ollama?.state === 'failed' ? 'Not listed: no answer.' : source === 'ollama-local' && m?.ollama?.state !== 'listed' ? 'Not listed here yet.' : 'Not in this list: the route names it.', 'secondary')]);
   } else put(footAt + 1, [S('MODEL / ', 'strong', { bold: true }), S('none', 'secondary')]);
   return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
 }
@@ -718,7 +774,8 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const ruleAt = ruleRow(contentH);
   const center: Line[] = Array.from({ length: contentH }, (): Line => []);
   const title: Line = [S(a.first ? 'WELCOME TO TIMMY' : `CHAT / ${data.project.name}`, a.focus === 'center' && ui.input.field !== 'composer' ? 'accent' : 'strong', { bold: true })];
-  const modelsKey: Line = grid.sepR === null && !drawer ? [S('[ Models ]', 'secondary')] : [];
+  // (R10 CHAT H167; H168's pass 3a, R7: the button says its key, [M], and the mouse presses it)
+  const modelsKey: Line = grid.sepR === null && !drawer ? [S('[M] Models', 'secondary')] : [];
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(modelsKey) - 3))), ...modelsKey];
   // the first run's question takes the composer's rows too (the target's first run), and so does a box that has every key
   // until it closes (`full`: Connect OpenRouter); else the rule, MESSAGE and the composer

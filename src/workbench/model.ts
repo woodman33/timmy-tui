@@ -288,7 +288,7 @@ export interface Ui {
   activityAll: boolean;
   overlay: Overlay;
   /** the text being typed, where a field has the keyboard (search, the picker, a name, the composer) */
-  input: { field: 'search' | 'picker' | 'new' | 'composer' | 'tools' | 'secret' | null; text: string };
+  input: { field: 'search' | 'picker' | 'new' | 'composer' | 'tools' | 'secret' | 'msearch' | null; text: string };
   /** each list's selected row, by list ("center:files", "right:files", "nav", "top", "bottom", "overlay") */
   cursor: Record<string, number>;
   /** each list's first shown row */
@@ -336,9 +336,17 @@ export interface Ui {
   modelsProvider?: 'openrouter' | 'ollama-local' | 'ollama-cloud' | 'cloudflare';
   modelsSort?: 'recent' | 'name' | 'price' | 'context';
   modelsSearch?: string;
-  /** R10 CHAT (H167): Models' Cost filter (free: only the ones the catalog prices at 0; all); unset: free where the route is
-   *  free-only, else all */
-  modelsCost?: 'free' | 'all';
+  /** R10 CHAT (H167): Models' Cost filter (free: only the ones the catalog prices at 0; paid: only priced ones; all); unset:
+   *  free where the route is free-only, else all */
+  modelsCost?: 'free' | 'all' | 'paid';
+  /** R10 CHAT (H167; H168's pass 3a, R3): Models' Maker, Capability and Context filters (H169's CatalogQuery maker, capability
+   *  and minContext); unset: All */
+  modelsMaker?: string;
+  modelsCap?: 'tools' | 'vision' | 'reasoning';
+  modelsContext?: number;
+  /** R10 CHAT (H167; H168's pass 3a, R3): the control of Models' OpenRouter list the keyboard is on (MODEL_CONTROLS: 0 Search,
+   *  1 Sort, 2 Maker, 3 Capability, 4 Cost, 5 Context); unset: its list */
+  modelsControl?: number;
   modelsOpen?: boolean;
   /** R10 CHAT (H167): Models shows the selected model's every field in place of its list ([ Details ], i) */
   modelsDetails?: boolean;
