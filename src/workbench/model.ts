@@ -344,6 +344,9 @@ export interface Ui {
   firstRunDone?: boolean;
   /** R10 CHAT (H167): the first run's Timmy guide shown (Show / Hide) */
   guide?: boolean;
+  /** R10 CHAT (H167): the drawer a control of the Chat screen's bottom opened (Logs, Budget; More below WIDE_COLUMNS): over
+   *  the conversation, the keyboard staying on that control (↑ ↓ in the drawer, Enter acts, Esc closes it) */
+  shellDrawer?: 'logs' | 'budget' | 'more';
   /** R10 CHAT (H167): the Chat tab as it was before the shell (row 2's actions, the pipeline, the event log), where this
    *  Workbench was started with TIMMY_WORKBENCH_CHAT=classic (the tests that check that layout); else the shell */
   chatClassic?: boolean;

@@ -761,9 +761,14 @@ export function representation(w: WorkItem, c: JourneyCtx, room = 0): Line[] {
   } else if (w.kind === 'turn') {
     const msgs = data.chat?.messages ?? [];
     const norm = (t: string): string => t.replace(/\s+/g, ' ').trim();
-    const at = msgs.findIndex((m) => m.role === 'user' && norm(m.text) === norm(w.title));
+    // R10 CHAT (H167; H168's R1 at pass 2c): the conversation row's title carries the turn count since 7df15a9b ("… · 13 turns in
+    // this conversation", src/journey/recent.ts) and is cut to make it room: the turn's own words are the title without that
+    // tail and its cut's ellipsis, and its message the newest of the conversation that begins with them, said whole after You
+    const words = norm(w.title.replace(/ · (?:at least )?\d+ turns in this conversation$/, '')).replace(/…$/, '').trim();
+    let at = -1;
+    for (let k = msgs.length - 1; k >= 0 && at < 0; k--) if (words && msgs[k].role === 'user' && norm(msgs[k].text).startsWith(words)) at = k;
     const answer = at >= 0 ? msgs.slice(at + 1).find((m) => m.role === 'assistant') : undefined;
-    out.push(...wrapSegs([S('You    ', 'secondary'), S(w.title, 'strong')], width, ' '.repeat(7)).slice(0, 2));
+    out.push(...wrapSegs([S('You    ', 'secondary'), S(at >= 0 ? norm(msgs[at].text) : words, 'strong')], width, ' '.repeat(7)).slice(0, 2));
     // (R10 H167; H168's F10 at pass 2a: the column's empty rows): its answer's first lines, as many as the column has room for
     if (answer) out.push(...wrapSegs([S('Timmy  ', 'ai'), S(answer.text.replace(/\s+/g, ' ').trim(), 'text')], width, ' '.repeat(7)).slice(0, 3 + Math.max(0, room)));
     else out.push([S('       its answer is not in the conversation kept here', 'secondary')]);

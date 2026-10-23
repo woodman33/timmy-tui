@@ -507,6 +507,59 @@ function bottomRows(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Lin
   return { lines: [[S(' '), S((g.unicode ? '─' : '-').repeat(Math.max(0, w - 1)), 'border')], acts, status], items };
 }
 
+// ── the bottom's drawers: Logs, Budget and (below WIDE_COLUMNS) More ─────────────
+
+/** Where a turn came from, in words ("here": this Workbench). */
+const fromWords = (surface: string): string => (surface === 'workbench' ? 'here' : surface === 'repl' ? 'in the REPL' : `in the ${surface}`);
+
+/** The controls More lists: the ones the compact row leaves out, in the row's order. */
+export function moreControls(c: Pick<ShellCtx, 'data'>): ShellControl[] {
+  return shellControls(c, false).filter((k) => !['tools', 'budget', 'logs'].includes(k.id));
+}
+
+/**
+ * The drawer a control of the bottom opened (`n` rows over the conversation's, `w` cells): its title and [ Close ], a rule,
+ * then for Logs where the logs and records are kept and the project's recent turns (when, how each ended, the model, where it
+ * was sent from; no receipt id: Logs & records has them) and Open Logs & records; for Budget the next turn's route and price,
+ * free-only, and Open settings; for More the controls the compact row leaves out, as their buttons act (or what each needs).
+ * The cursor's item is marked "> " and amber; Enter acts on it, Esc closes the drawer.
+ */
+export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Line[]; items: View['items'] } {
+  const { g, ui, data } = c;
+  const lines: Line[] = Array.from({ length: n }, (): Line => []);
+  const items: View['items'] = [];
+  const put = (row: number, line: Line): void => { if (row >= 0 && row < n) lines[row] = trimTo(line, w, g.ellipsis); };
+  const which = ui.shellDrawer;
+  const title = which === 'logs' ? 'LOGS / this computer' : which === 'budget' ? 'BUDGET / the next turn' : 'THIS CONVERSATION';
+  put(1, [S(title, 'accent', { bold: true }), S(' '.repeat(Math.max(1, w - title.length - 9))), S('[ Close ]', 'accent')]);
+  put(2, [S((g.unicode ? '─' : '-').repeat(w), 'border')]);
+  const cur = ui.cursor.shellDrawer ?? 0;
+  const choice = (row: number, k: number, id: string, label: string, after?: string): void => {
+    const on = k === cur;
+    const sel = on ? { selected: true } : {};
+    items.push({ line: row, item: { kind: 'action', key: `drawer:${id}`, action: id } });
+    put(row, [S(on ? '> ' : '  ', 'accent', sel), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, ...sel } : {}), ...(after ? [S(`  ${after}`, 'secondary')] : [])]);
+  };
+  if (which === 'logs') {
+    wrapText('Logs and records stay on this computer; cloud sync is off. Each turn\'s receipt is sealed here.', w).slice(0, 2).forEach((t, k) => put(4 + k, [S(t, 'secondary')]));
+    put(7, [S('RECENT TURNS', 'secondary', { bold: true })]);
+    const turns = (data.turns ?? []).slice(0, Math.max(1, n - 12));
+    if (!turns.length) put(8, [S('No turn is recorded in this project yet.', 'secondary')]);
+    turns.forEach((t, k) => put(8 + k, [S(clock(t.at).slice(0, 5), 'secondary'), S('  '), S(t.state, t.state === 'failed' ? 'failure' : 'text'), S('  '), S(`${t.model && /\bfake\b/i.test(t.model) ? 'FAKE ' : ''}${t.model ?? 'model not recorded'}`, 'text'), S(`  ${fromWords(t.surface)}`, 'secondary')]));
+    choice(n - 2, 0, 'open-logs', 'Open Logs & records', 'every receipt, run and log');
+  } else if (which === 'budget') {
+    const rt = routeLine(data);
+    const freeOnly = /\bfree-only\b/.test(data.route.words);
+    put(4, [S('Next turn  ', 'secondary'), S(rt.model ? `${rt.fake ? 'FAKE ' : ''}${rt.model} / ${rt.price}` : 'no model: nothing is sent, nothing spent', 'text')]);
+    put(5, [S('Free-only  ', 'secondary'), S(freeOnly ? 'on: a model the catalog does not price at 0 is not used' : 'off', 'text')]);
+    wrapText('Each turn\'s cost is sealed on its receipt (Logs & records). Settings turns free-only on or off.', w).slice(0, 2).forEach((t, k) => put(7 + k, [S(t, 'secondary')]));
+    choice(n - 2, 0, 'settings', 'Open settings');
+  } else {
+    moreControls(c).forEach((k, i) => choice(4 + i, i, `ctl:${k.id}`, k.label, k.on ? undefined : `needs ${k.needs ?? 'what it names'}`));
+  }
+  return { lines, items };
+}
+
 // ── the composer and its action row ────────────────────────────────────────────
 
 /** MESSAGE's rows: the label; the composer (boxed in amber only while it has the keyboard, else the draft kept or what Enter
@@ -625,7 +678,7 @@ export function firstRunLines(c: ShellCtx, w: number, rows: number, focused: boo
 /** Chat with no model and an empty conversation: a model is needed only for an answer; Choose a model (Models has the
  *  keyboard) and Review setup choices (the first run's question again). The composer keeps a draft below. */
 export function noModelLines(c: ShellCtx, w: number, focused: boolean): { lines: Line[]; items: View['items'] } {
-  const ids = ['models', 'review'];
+  const ids = ['models', 'review', 'draft'];
   const cur = Math.max(0, Math.min(ids.length - 1, c.ui.cursor['center:first'] ?? 0));
   const lines: Line[] = [
     [S('A model is optional until you need an answer.', 'strong', { bold: true })],
@@ -633,7 +686,7 @@ export function noModelLines(c: ShellCtx, w: number, focused: boolean): { lines:
     blank,
   ];
   const items: View['items'] = [];
-  [['models', 'Choose a model'], ['review', 'Review setup choices']].forEach(([id, label]) => {
+  [['models', 'Choose a model'], ['review', 'Review setup choices'], ['draft', 'Write a draft']].forEach(([id, label]) => {
     const on = focused && ids[cur] === id;
     items.push({ line: lines.length, item: { kind: 'action', key: `first:${id}`, action: id }, rows: 1 });
     lines.push([S(on ? '> ' : '  ', 'accent', on ? { selected: true } : {}), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, selected: true } : {})]);
@@ -681,6 +734,9 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const mN = drawer ? ruleAt + 5 : contentH;
   const models = grid.sepR !== null || drawer ? modelsLines(c, mN, grid.mw, a.focus === 'right', drawer) : null;
   if (drawer && models) models.lines.forEach((l, k) => { center[k] = l; });
+  // the bottom's drawer (Logs, Budget, More): over the conversation's rows, the composer and its draft in sight below it;
+  // below WIDE_COLUMNS down to the composer's action row, as the Models drawer
+  if (ui.shellDrawer && !drawer && !a.first) shellDrawerLines(c, grid.sepR === null ? ruleAt + 5 : ruleAt, cw).lines.forEach((l, k) => { center[k] = l; });
   const bottom = bottomRows(c, grid, a.focus === 'bottom');
   const screen: Line[] = [...head];
   for (let y = 3; y < H; y++) {

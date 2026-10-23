@@ -649,7 +649,7 @@ function chatView(c: ViewCtx): View {
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   if (!shell) lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
-  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S(shell ? 'No conversation is kept in this project yet: Enter writes the first message.' : '  No conversation is kept in this project yet.', 'secondary')]);
+  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S(shell ? 'No conversation here yet: Enter writes the first message.' : '  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
   const bodyW = Math.max(8, c.width - 2 - 6);
@@ -673,7 +673,9 @@ function chatView(c: ViewCtx): View {
           ? row([S('Timmy'.padEnd(6), 'ai'), S('(partial) ', 'secondary'), S(b, 'text')], sel, g)
           : under(`${' '.repeat(10)}${b}`, sel)));
       }
-      const note = ownLast && stoppedHere ? stoppedHere : recordNote(rec, m.at, g);
+      // (R10 CHAT H167; H168's R3 at pass 2c: its turn's own record, the receipt sealed for the message it answers)
+      const asked = i > 0 && msgs[i - 1].role === 'user' ? msgs[i - 1].at : undefined;
+      const note = ownLast && stoppedHere ? stoppedHere : recordNote(rec, m.at, g, turnNear(data, asked));
       if (ownLast) noted = true;
       wrapSegs(note, Math.max(8, c.width - 2), '  ').forEach((r, k) => lines.push(k === 0 && !partial ? row(r, sel, g) : [S('  ', 'text', sel ? { selected: true } : {}), ...r.map((x) => (sel ? { ...x, selected: true } : x))]));
       items.push({ line: at, item, rows: lines.length - at });
@@ -778,10 +780,14 @@ function timmyRecord(text: string): { stopped: boolean; partial?: string; stands
 /** A stop's mark, as the Control Room's stopped turn has it (■). */
 const stopMark = (g: Glyphs): string => (g.unicode ? '■' : '#');
 
-/** R5 (H131; the QA of e7f853e, defect 8): an earlier record's note, in Timmy's own words, with when it was kept. */
-function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs): Line {
+/** R5 (H131; the QA of e7f853e, defect 8): an earlier record's note, in Timmy's own words, with when it was kept. R10 CHAT
+ *  (H167; H168's R3 at pass 2c): a turn that was not answered is said from its own record when one was sealed (failed or
+ *  stopped, at the time its receipt has), the general words (no stop's mark: nothing says it was stopped) when there is none. */
+function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs, sealed?: TurnRow): Line {
   const when = at !== undefined ? ` ${g.sep} ${clock(new Date(at).toISOString())}` : '';
-  if (!rec.stopped) return [S(`${stopMark(g)} not answered`, 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
+  if (!rec.stopped && sealed?.state === 'failed') return [S(`${g.fail} failed`, 'failure'), S(`: the turn ended without an answer ${g.sep} ${clock(sealed.at)} (its receipt: Logs & records)`, 'secondary')];
+  if (!rec.stopped && sealed?.state === 'stopped') return [S(`${stopMark(g)} stopped`, 'text'), S(` ${g.sep} ${clock(sealed.at)}`, 'secondary')];
+  if (!rec.stopped) return [S('not answered', 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
   // R5 lead (the final QA of a77d80d, defect 3): an earlier record does not say who asked (a turn of another surface, or one
   // another surface stopped: its receipt says, and the log beside names it), so it is "stopped", never "stopped by you"
   return [S(`${stopMark(g)} stopped`, 'text'), S(`${rec.stands ? ` ${g.sep} what its tools did stands (nothing was rolled back)` : ''}${when}`, 'secondary')];
@@ -810,6 +816,17 @@ export const chatFollows = (ui: Pick<Ui, 'chosen' | 'input'>): boolean => !ui.ch
 
 /** R10 CHAT (H167): the model a sealed turn used (its receipt's model_resolved, else model_requested), for the answer kept at
  *  `at` (the conversation's timestamp): the turn sealed within a minute after it; null where no receipt says it. */
+/** R10 CHAT (H167): the turn record sealed for a message sent at `at` (the nearest from 5 s before it to 60 s after). */
+function turnNear(d: Pick<Data, 'turns'>, at: number | undefined): TurnRow | undefined {
+  if (at === undefined || !d.turns?.length) return undefined;
+  let best: { t: TurnRow; gap: number } | null = null;
+  for (const t of d.turns) {
+    const gap = Date.parse(t.at) - at;
+    if (Number.isFinite(gap) && gap >= -5_000 && gap <= 60_000 && (!best || Math.abs(gap) < best.gap)) best = { t, gap: Math.abs(gap) };
+  }
+  return best?.t;
+}
+
 function turnModel(d: Pick<Data, 'turns'>, at: number | undefined): string | null {
   if (at === undefined || !d.turns?.length) return null;
   let best: { model: string | null; gap: number } | null = null;

@@ -152,3 +152,25 @@ describe('the actions strip\'s second row (R10 H167; H168\'s F13 at pass 2a)', (
     expect(plain(actionWords(check, g, 40))).toBe('Enter checks the connections (free requests, no model called)');
   });
 });
+
+describe('Home\'s Selected for the conversation row that carries the turn count (R10 CHAT H167; H168\'s R1 at pass 2c)', () => {
+  it('finds the turn by its own words, not by the row\'s title with the count: You says the message, Timmy its answer', () => {
+    const merged = { ...turn, title: `${QUESTION} · 13 turns in this conversation`, turns: 13 } as unknown as JourneyWorkItem;
+    const v = rows(homeSideView(ctx(data({ ...withTurn, recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [merged] } }), ui(), 50, 22)));
+    expect(v.find((l) => l.startsWith('You    '))).toBe(`You    ${QUESTION}`);
+    expect(v.join('\n')).not.toMatch(/its answer is not in the conversation|turns in this conversation/);
+    expect(ANSWER.startsWith(answerShown(v))).toBe(true);
+  });
+
+  it('a title cut to make the count room: the message found by its start and said whole; a row with no such message says so', () => {
+    const long = `${'FIXTURE: a long question about the tray project, '.repeat(3)}its end.`;
+    const cutTitle = `${long.slice(0, 50)}… · at least 7 turns in this conversation`;
+    const item = { ...turn, title: cutTitle, turns: 7 } as unknown as JourneyWorkItem;
+    const found = data({ recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [item] }, chat: { session: 's1', total: 2, messages: [{ role: 'user', text: long }, { role: 'assistant', text: 'FIXTURE: its answer.' }] } as unknown as Data['chat'] });
+    const v = rows(homeSideView(ctx(found, ui(), 50, 22)));
+    expect(v.join(' ')).toContain('FIXTURE: its answer.');
+    expect(v.join('\n')).not.toMatch(/its answer is not in the conversation|turns in this conversation/);
+    const none = data({ recent: { project: { name: 'tray', id: 'p1' }, notes: [], items: [item] }, chat: { session: 's1', total: 1, messages: [{ role: 'user', text: 'FIXTURE: another question.' }] } as unknown as Data['chat'] });
+    expect(rows(homeSideView(ctx(none, ui(), 50, 22))).join('\n')).toMatch(/its answer is not in the conversation kept here/);
+  });
+});
