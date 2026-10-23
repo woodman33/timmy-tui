@@ -7,11 +7,12 @@
  *                  default answer is the text-output models; `output: 'all'` asks for every output kind (images, speech,
  *                  embeddings ...), kept in a file of its own. The answer is kept in the Timmy home with the time it was
  *                  fetched; a refresh that fails keeps the last good copy (else the snapshot shipped with Timmy), dated.
- *   ollama-local   the Ollama on this computer (a loopback address only, src/agent/providers.ts): the models it lists that
+ *   ollama-local   the Ollama on this computer (a loopback address only, the probe in src/models/ollama-list.ts): the models it lists that
  *                  pass its own /api/show check as local completion weights, with what /api/show says of them, and which
  *                  are loaded now where /api/ps says. A cloud model is never a local row (its name says cloud, or Ollama
  *                  names a remote host for it).
- *   ollama-cloud   Ollama's hosted API (src/agent/ollama-cloud.ts): its catalog, remote inference, no local weights.
+ *   ollama-cloud   Ollama's hosted API (src/models/ollama-list.ts; its chat: src/agent/ollama-cloud.ts): its catalog, remote
+ *                  inference, no local weights.
  *
  * What a row says is what its source said, and nothing else: `created` is when OpenRouter ADDED the model (never its release),
  * a price is free only when the catalog's prices are all zero ('unknown' when one is missing or variable, never free), and a
@@ -25,6 +26,11 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timmyHome } from '../setup/home.js';
+// R10 (H169; the lead's note of 2026-10-22): the Ollama lists below both this data module and the agent; nothing of the agent,
+// a capability or a surface is imported here (src/agent/model-price.ts reads this module)
+import { listLocalOllama, listOllamaCloudModels, ollamaAddressNow, ollamaCloudKey, type OllamaModelFacts } from './ollama-list.js';
+
+export type { OllamaModelFacts };
 
 type Env = Record<string, string | undefined>;
 
@@ -315,19 +321,6 @@ export function openRouterRow(m: OpenRouterCatalogModel): CatalogRow {
   };
 }
 
-/** What Timmy reads of one local Ollama model (src/agent/providers.ts listLocalOllama): its /api/show facts and its size. */
-export interface OllamaModelFacts {
-  name: string;
-  capabilities?: string[] | null;
-  contextLength?: number | null;
-  family?: string | null;
-  parameterSize?: string | null;
-  quantizationLevel?: string | null;
-  sizeBytes?: number | null;
-  running?: boolean | null;
-  description?: string;
-}
-
 /**
  * An Ollama model as a catalog row. Local: weights on this computer, no charge. Cloud: remote inference, no local weights,
  * its price unknown (Ollama's plans, not a per-token price), so free-only never takes it as free.
@@ -503,15 +496,25 @@ async function loadOpenRouter(ctx: CatalogCtx): Promise<CatalogLoad> {
   return { rows: rowsOf(cache), from: 'live', fetchedAt: got.fetchedAt, asked: true };
 }
 
-/** The local Ollama's rows (src/agent/providers.ts listLocalOllama): live when it answered, none (with why) when not. */
+/** The local Ollama's rows (src/models/ollama-list.ts listLocalOllama): live when it answered, none (with why) when not. */
 async function loadOllamaLocal(ctx: CatalogCtx): Promise<CatalogLoad> {
   const env = ctx.env ?? process.env;
-  const [{ listLocalOllama }, { ollamaAddress }] = await Promise.all([import('../agent/providers.js'), import('../capabilities/ollama-route.js')]);
-  const host = ctx.ollamaHost ?? (() => { try { return ollamaAddress(env); } catch { return undefined; } })();
+  const host = ctx.ollamaHost ?? ollamaAddressNow(env);
   const listing = await listLocalOllama({ baseUrl: host, timeoutMs: ctx.timeoutMs ?? 3000, ...(ctx.fetch ? { fetch: ctx.fetch } : {}), ...(ctx.signal ? { signal: ctx.signal } : {}) });
   const at = iso((ctx.now ?? Date.now)());
   if (!listing.answered) return { rows: [], from: 'none', asked: listing.asked, error: listing.why };
   return { rows: listing.models.map((m) => ollamaRow(m, 'ollama-local')), from: 'live', fetchedAt: at, asked: true, ...(listing.why ? { error: listing.why } : {}) };
+}
+
+/** Ollama Cloud's rows (its hosted list, with the key): none until a key is set up; nothing is kept (read when asked). */
+async function loadOllamaCloud(ctx: CatalogCtx): Promise<CatalogLoad> {
+  const env = ctx.env ?? process.env;
+  const key = ctx.ollamaCloudKey ? await ctx.ollamaCloudKey() : ollamaCloudKey(env);
+  if (!key) return { rows: [], from: 'none', asked: false, error: 'Ollama Cloud is not set up: no key (an Ollama account\'s key, from ollama.com/settings/keys)' };
+  if (ctx.refresh === 'never') return { rows: [], from: 'none', asked: false, error: 'Ollama Cloud\'s list is read when asked (it keeps no copy here)' };
+  const got = await listOllamaCloudModels({ key, ...(ctx.fetch ? { fetch: ctx.fetch } : {}), ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}), ...(ctx.signal ? { signal: ctx.signal } : {}) });
+  if (!got.ok) return { rows: [], from: 'none', asked: got.sent, error: `Ollama Cloud's list could not be read: ${got.why}` };
+  return { rows: got.models.map((m) => ollamaRow(m, 'ollama-cloud')), from: 'live', fetchedAt: iso((ctx.now ?? Date.now)()), asked: true };
 }
 
 /**
@@ -522,8 +525,7 @@ export async function loadCatalog(source: ModelSource, ctx: CatalogCtx = {}): Pr
   try {
     if (source === 'openrouter') return await loadOpenRouter(ctx);
     if (source === 'ollama-local') return await loadOllamaLocal(ctx);
-    const { loadOllamaCloudCatalog } = await import('../agent/ollama-cloud.js');
-    return await loadOllamaCloudCatalog(ctx);
+    return await loadOllamaCloud(ctx);
   } catch (err) {
     return { rows: [], from: 'none', asked: false, error: `the catalog could not be read: ${err instanceof Error ? err.message : String(err)}` };
   }
