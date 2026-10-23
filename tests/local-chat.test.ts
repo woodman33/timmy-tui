@@ -28,6 +28,8 @@ import { LiveRegion } from '../src/term/live-region.js';
 import { buildTheme } from '../src/term/theme.js';
 import { readChain } from '../src/utils/receipts.js';
 import { closedPort, startFakeOllama, textChunks, toolCallChunks, type FakeOllama } from './fixtures/fake-ollama-chat.js';
+// R11 Phase 2 (H169, item c): the route's words for Ollama's cloud
+import { localRouteWords, type ChatRoute } from '../src/agent/chat-route.js';
 
 const MODEL = 'qwen3:8b';
 const fakes: FakeOllama[] = [];
@@ -253,7 +255,7 @@ describe('the chat on a local model (FAKE Ollama)', () => {
     expect(openRouterCalls()).toBe(0);
   });
 
-  it('a cloud-backed model whose name does not say cloud is refused before anything is sent; one named as cloud says the chat leaves this computer, cost unknown', async () => {
+  it('a cloud-backed model whose name does not say cloud is refused before anything is sent; one named as cloud runs on Ollama\'s servers (your account\'s terms), cost unknown, its receipt naming the route (R11 Phase 2 item c)', async () => {
     const hidden = await fake({ models: [{ name: 'alias:latest', remote_host: 'https://ollama.example:443' }] });
     const a = localAgent(hidden.url, 'alias:latest');
     const r = await turn(a.agent, 'hi', a.files);
@@ -268,11 +270,17 @@ describe('the chat on a local model (FAKE Ollama)', () => {
     b.agent.on('cost:update', (...x) => costs.push(x));
     const t = await turn(b.agent, 'hi', b.files);
     expect(t.result).toBe('ok');
-    expect(t.out.replace(/\s+/g, ' ')).toContain('big:120b-cloud is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).');
+    expect(t.out.replace(/\s+/g, ' ')).toContain('big:120b-cloud runs on Ollama\'s servers; your account\'s terms: Ollama sends this chat off this computer, and no cost comes back (unknown).');
     expect(t.out).toMatch(/cost unknown/);
+    expect(t.out).not.toMatch(/no charge|free/);
     expect(costs).toEqual([[0, 0, { complete: false }]]);
+    expect(b.agent.lastLocalTurn()).toMatchObject({ cloud: true, localEndpoint: false });
+    // the receipt names the route: endpoint cloud, "ollama cloud", its cost basis unknown (never no charge)
     expect(t.receipt).toMatchObject({ via: 'ollama', cost_usd: 0, cost_measured: false });
-    expect(t.receipt?.sources).toEqual([expect.objectContaining({ endpoint: 'remote', cost_basis: 'unknown' })]);
+    expect(t.receipt?.sources).toEqual([expect.objectContaining({ kind: 'ollama', endpoint: 'cloud', route: 'ollama cloud', cost_basis: 'unknown' })]);
+    expect(sealedRoute({ host: named.url, model: 'big:120b-cloud' }, b.agent.lastLocalTurn())).toMatchObject({ endpoint: 'cloud', route: 'ollama cloud', costBasis: 'unknown' });
+    // the route's words, for every surface's label: the route's name and the model
+    expect(localRouteWords({ kind: 'local', host: named.url, at: ollamaAt(named.url), model: 'big:120b-cloud', from: 'the setup', cloud: true } as Extract<ChatRoute, { kind: 'local' }>)).toBe('chat: ollama cloud · big:120b-cloud');
   });
 
   it('stops at the step limit: the calls asked for after it are named and do not run', async () => {

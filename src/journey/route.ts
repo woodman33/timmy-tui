@@ -29,6 +29,7 @@
 import { chatRouteNow, type ChatRoute, type ModelFrom } from '../agent/chat-route.js';
 import { modelPrice, type ModelPrice } from '../agent/model-price.js';
 import { pageModel, pageRoute } from '../companion/chat-route.js';
+import { OLLAMA_CLOUD_TERMS } from '../models/catalog.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
 import { chatTurnOf } from '../repl/seal.js';
 import { cloudModelTag } from '../setup/ollama-models.js';
@@ -146,7 +147,9 @@ function priceOf(p: ModelPrice): RoutePrice {
 }
 
 const LOCAL_PRICE = 'no price declared: a turn on this computer\'s Ollama is sealed as no charge only when Ollama reports the model\'s local weights';
-const AWAY_PRICE = 'unknown: Ollama reports no cost for a cloud-backed model or another computer\'s';
+const AWAY_PRICE = 'unknown: Ollama reports no cost for another computer\'s model';
+// R11 Phase 2 (H169, item c): a model on Ollama's servers (the person's Ollama account): never free, never no charge
+const CLOUD_PRICE = `unknown: ${OLLAMA_CLOUD_TERMS} (Ollama reports no cost per request)`;
 
 /**
  * The route the next chat turn of `ctx.surface` takes now, from the function the turn reads (chatRouteNow), with the arguments
@@ -186,7 +189,7 @@ export function routeNow(ctx: RouteCtx = {}): JourneyRoute {
     const kind: RouteStep['kind'] = bad ? 'ollama-address' : !r.model ? 'local-model' : 'other';
     return {
       provider: 'ollama', model: r.model, where,
-      price: { state: 'unknown', words: where === 'this computer' ? LOCAL_PRICE : AWAY_PRICE },
+      price: { state: 'unknown', words: where === 'this computer' ? LOCAL_PRICE : where === 'cloud' ? CLOUD_PRICE : AWAY_PRICE },
       fake: !!fakeWhy, ...(fakeWhy ? { fakeWhy } : {}),
       ready: s.ready, ...(s.ready ? {} : notReady(refusal, kind)),
       words, surface, tools, conversation, receipt,

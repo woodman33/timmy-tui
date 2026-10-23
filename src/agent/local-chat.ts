@@ -24,6 +24,7 @@ import { convertZodToJsonSchema, executeTool } from '@openrouter/sdk/lib/tool-ex
 import type { ParsedToolCall, Tool } from '@openrouter/sdk/lib/tool-types.js';
 import type { AgentEvents } from './events.js';
 import { atWords, boundedText, cloudModelTag, failure, ollamaAt, type OllamaAt } from '../setup/ollama-models.js';
+import { OLLAMA_CLOUD_TERMS } from '../models/catalog.js';
 import { neverSent } from './never-sent.js';
 
 /** The chat's local route: the Ollama address the setup recorded, and the model chosen. */
@@ -69,6 +70,8 @@ export interface LocalTurnResult {
   toolsOff?: string;
   /** a loopback Ollama and a model with local weights: no charge */
   localEndpoint: boolean;
+  /** R11 Phase 2 (H169, item c): the model ran on Ollama's servers (its name says cloud, or Ollama named a remote host for it) */
+  cloud: boolean;
 }
 
 /** An error of the local route, worded as the turn shows it (what; Reason; Next), never an OpenRouter key's fix. */
@@ -283,7 +286,8 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       : shown.capabilities === null ? `Ollama did not say whether ${model} takes tool calls (its /api/show lists no capabilities)`
         : toolsOn ? undefined : `${model} does not take tool calls`;
     if (toolsOff) notice(`tools off: ${toolsOff}. This turn runs without tools.`);
-    if (cloud) notice(`${model} is cloud-backed: Ollama sends this chat off this computer, and no cost comes back (unknown).`);
+    // R11 Phase 2 (H169, item c): the words of Ollama's cloud route (never "free", never "no charge")
+    if (cloud) notice(`${model} ${OLLAMA_CLOUD_TERMS}: Ollama sends this chat off this computer, and no cost comes back (unknown).`);
     else if (!at.loopback) notice(`${atWords(at)}: the chat leaves this computer for that one, and no cost comes back (unknown).`);
     const apiTools = toolsOn ? o.tools.map(apiTool) : [];
     const offNote = 'No tools are available in this conversation: you cannot read or change files or run anything. Never claim a tool ran or quote a tool result; say what the operator could do instead.';
@@ -415,7 +419,7 @@ export async function runLocalTurn(o: LocalTurnOptions): Promise<LocalTurnResult
       if (aborted()) throw cancelled();
     }
     if (!full && calls === 0) notice(`${model} gave no answer text.`);
-    return { fullText: full, actualModel, toolsOn, ...(toolsOff ? { toolsOff } : {}), localEndpoint };
+    return { fullText: full, actualModel, toolsOn, ...(toolsOff ? { toolsOff } : {}), localEndpoint, cloud };
   } finally {
     // no charge on a local endpoint, whatever happened (a cancel or a failure costs nothing there); otherwise unknown
     hooks.emit('cost:update', 0, 0, localEndpoint ? { complete: true, basis: 'local endpoint' } : { complete: false });

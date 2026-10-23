@@ -111,7 +111,7 @@ describe('timmy init --chat local --model <name> (FAKE Ollama)', () => {
     const ollama = await fake({ models: MODELS });
     const r = await init(['--chat', 'local', '--model', 'big:120b-cloud', '--ollama', ollama.url]);
     expect(r.code).toBe(0);
-    expect(r.text).toContain('big:120b-cloud is cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).');
+    expect(r.text).toContain('big:120b-cloud runs on Ollama\'s servers; your account\'s terms. Ollama sends the chat off this computer, and no cost comes back (unknown).');
   });
 });
 
