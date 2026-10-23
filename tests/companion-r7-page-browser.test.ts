@@ -68,8 +68,16 @@ describe.skipIf(!browserPath)('the companion page\'s R7 states (H152)', () => {
         const { op: newer } = await runOf(p.ws, 'NOPIC.md', 'nopic');
         // Home's newest run is that one now ...
         await page.waitForFunction((op) => document.querySelector('#home-preview [data-preview="run"] [data-open-run]')?.getAttribute('data-open-run') === op, newer, { timeout: 20_000 });
-        // ... and its images are still the newest ones the records hold, each saying what ran after it
-        await page.waitForFunction((sel) => document.querySelector(`${sel} figure[data-home-image="run"]`)?.getAttribute('data-newer') === '1', figs, { timeout: 20_000 });
+        // ... and its images are still the newest ones the records hold, each saying what ran after it. R10 (H171; CI at 5072a81
+        // and a88ede0): both read once both are drawn. The page asks the run's image and the record's apart, and when its first
+        // frame was drawn before the companion's welcome named the project, the first frame drawn after it (here: the newer
+        // run's) asks both again: the run's answer (one request) came back and was drawn before the record's (three, and its
+        // image read into the page), so a read on the run's alone found the run's figure only.
+        await page.waitForFunction((sel) => ['run', 'vox'].every((k) => {
+          const fig = document.querySelector(`${sel} figure[data-home-image="${k}"]`);
+          const img = fig?.querySelector('img');
+          return fig?.getAttribute('data-newer') === '1' && img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+        }), figs, { timeout: 20_000 });
         const shown = await page.$$eval(`${figs} [data-home-image]`, (els) => els.map((e) => ({
           kind: e.getAttribute('data-home-image'), tag: e.tagName.toLowerCase(), newer: e.getAttribute('data-newer'),
           words: (e.querySelector('figcaption')?.textContent ?? '').trim(), note: (e.querySelector('.home-thumb-note')?.textContent ?? '').trim(),
