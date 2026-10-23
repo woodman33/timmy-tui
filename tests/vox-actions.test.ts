@@ -195,8 +195,9 @@ describe('a missing tool is "needs setup" with its exact step, never a value', (
     put(root, 'refs/clip.mp4', Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(16)]));
     put(root, 'scans/a.ply', 'ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n');
     put(root, 'scans/b.ply', 'ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n1 1 1\n');
-    // No interpreter anywhere: nothing on the PATH, no TIMMY_* settings, no Roboflow key.
-    const { ws, sealed } = workspace(root, kit, { env: { PATH: '/nonexistent' } });
+    // No interpreter or key. An explicit nonexistent Blender path also prevents
+    // native /Applications discovery from using the reviewer's actual install.
+    const { ws, sealed } = workspace(root, kit, { env: { PATH: '/nonexistent', TIMMY_BLENDER: join(root, 'missing-blender') } });
     const cases: Array<[string, string, string, string]> = [
       ['measure', 'refs/photo.png', 'look', SETUP.look],
       ['measure', 'cad/part.step', 'step', SETUP.step],
@@ -328,7 +329,7 @@ describe('refusals, stops and a tampered highlight', () => {
     expect(r.status).toBe('partial');
   });
 
-  it('a Roboflow detection with its key is a model\'s claim, apart from the metrics, and never drawn', async () => {
+  it('UNIT Roboflow double: predictions remain claims, apart from metrics, and never drawn', async () => {
     const root = project();
     const fake = fakeTools(kit.temp('vox-fake-'));
     // The FAKE stands in for the project's venv python, where roboflow-adapter.ts looks for it (the real bridge would
@@ -336,7 +337,9 @@ describe('refusals, stops and a tampered highlight', () => {
     mkdirSync(join(root, '.timmy/venv-roboflow/bin'), { recursive: true });
     copyFileSync(fake.roboflow, join(root, '.timmy/venv-roboflow/bin/python'));
     chmodSync(join(root, '.timmy/venv-roboflow/bin/python'), 0o755);
-    const { ws } = workspace(root, kit, { env: { TIMMY_VISION_PYTHON: fake.look, ROBOFLOW_API_KEY: 'fake-key' } });
+    // Use the project's explicit SDK double. TIMMY_VISION_PYTHON, when present,
+    // intentionally governs Roboflow too and must not point at the Look double.
+    const { ws } = workspace(root, kit, { env: { ROBOFLOW_API_KEY: 'fake-key' } });
     await ws.detect('refs/photo.png roboflow cards/3');
     await settled(ws);
     const r = recordOf(root);

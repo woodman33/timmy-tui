@@ -17,17 +17,29 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 function mockRunner(result: unknown = { predictions: [{ class: 'card', confidence: 0.45, x: 2, y: 2, width: 4, height: 4 }] }) {
   return vi.fn<VisionRunner>(async req => req.action === 'probe' ? {
     ok: true, state: 'checked', dependencies: { inference_sdk: { installed: true, version: '1.5.0' }, roboflow: { installed: true } },
+    capabilities: { imageInference: true, workflows: false, cloudEvents: true },
   } : { ok: true, state: 'observed', result, sdkVersion: '1.5.0' });
 }
 
-describe('vision execution and evidence', () => {
+describe('vision orchestration unit contracts with an injected SDK runner (not real inference)', () => {
   it('checks package presence without running inference or probing a remote service', async () => {
     const runner = mockRunner();
     const status = await getVisionStatus({ dir, env, runner });
     expect(status.state).toBe('configured_unchecked');
     expect(status.serverChecked).toBe(false);
+    expect(status.capabilities).toMatchObject({ imageInference: true, workflows: false, cloudEvents: true });
     expect(runner.mock.calls[0][0]).toEqual({ action: 'probe' });
     expect(JSON.stringify(status)).not.toContain(env.ROBOFLOW_API_KEY);
+    expect(readChain('runs', dir)).toEqual([]);
+  });
+
+  it('does not call a configured Workflow ready when the bridge has no qualified sink controls', async () => {
+    const runner = mockRunner();
+    const status = await getVisionStatus({ dir, env: { ...env, TIMMY_VISION_WORKFLOW_ID: 'unit-workflow' }, runner });
+    expect(status).toMatchObject({ ok: false, state: 'not_configured', serverChecked: false,
+      capabilities: { workflows: false } });
+    expect(status.reasons).toContain('The configured Workflow is unavailable: its runtime has not qualified sink controls. Select a single model or a qualified Workflow runtime.');
+    expect(runner.mock.calls.map(call => call[0].action)).toEqual(['probe']);
     expect(readChain('runs', dir)).toEqual([]);
   });
 
@@ -39,7 +51,7 @@ describe('vision execution and evidence', () => {
     expect(listVisionEvents({}, { dir }).events).toEqual([]);
   });
 
-  it('stores an actual result with image and output hashes plus an intact receipt', async () => {
+  it('stores the injected unit result with image and output hashes plus an intact receipt', async () => {
     const runner = mockRunner();
     const result = await runVisionInspection({ imageBase64: PNG, templateId: 'card-inspection', filename: '../../card.png' }, { dir, env, runner });
     expect(result.ok).toBe(true);

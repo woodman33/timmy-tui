@@ -71,19 +71,20 @@ describe.skipIf(!(dockerPresent() && comfyPresent()))('timmy doctor preflight ti
 });
 
 // R11 (H170; Phase 0 item 5): the doctor names what this build carries, and what it lacks, as optional rows that never fail it.
-describe('doctor: what this build carries (R11 lead: the npm package now lists the Roboflow bridge and the geo lane; the engine shelf and the vision bridge stay out)', () => {
+describe('doctor: what this build carries (R11: the npm package lists the Roboflow bridge, the geo lane and, since the vision integration, the vision bridge; the engine shelf stays out)', () => {
   it('a packed build without them gets a "needs setup" row each, never a required failure; a checkout gets "in this build"', async () => {
     const { BUILD_CONTENTS, checkBuildContents } = await import('../src/utils/doctor.js');
     const packed = checkBuildContents(() => false);
     expect(packed.map((c) => c.name)).toEqual(['Roboflow bridge', 'geo lane (voxel scorer)', 'engine shelf (timmy engine run)', 'vision bridge (timmy vision run, timmy_vision_* tools)']);
     for (const c of packed) { expect(c.required).toBe(false); expect(c.state).toBe('not_configured'); }
     expect(packed[0].note).toBe('needs setup (the bridge is missing from this installation; the npm package carries it): reinstall Timmy, or run it from a checkout of its repository; a hosted detection also needs ROBOFLOW_API_KEY and the venv (.timmy/venv-roboflow). VoxVision\'s /observe, /detect (QR, ArUco, colour) and /measure do not need it');
-    expect(packed[3].note).toMatch(/^not available in this build: the vision bridge is not included \(no Timmy build ships it/);
+    expect(packed[3].note).toBe('not available: the vision bridge is missing from this installation (the npm package carries it): reinstall Timmy, or run it from a checkout of its repository. VoxVision\'s /observe, /detect and /measure do not need it');
     const checkout = checkBuildContents(() => true);
     expect(checkout.every((c) => c.state === 'ok' && c.note?.startsWith('in this build'))).toBe(true);
-    // this checkout: the Roboflow bridge, the geo lane and the engine shelf are here; the vision bridge is not (it exists nowhere)
+    // this checkout: the Roboflow bridge, the geo lane, the engine shelf and (since the R11 vision integration) the vision bridge
     const here = checkBuildContents();
-    expect(here.map((c) => c.state)).toEqual(['ok', 'ok', 'ok', 'not_configured']);
+    expect(here.map((c) => c.state)).toEqual(['ok', 'ok', 'ok', 'ok']);
+    expect(here[3].note).toMatch(/Roboflow inference is unverified until a real authorized run succeeds$/);
     // and the doctor's verdict never depends on them
     const rep = await runDoctor();
     expect(rep.checks.filter((c) => BUILD_CONTENTS.some((b) => b.name === c.name)).every((c) => !c.required)).toBe(true);

@@ -5,6 +5,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const RUNTIME_ASSETS = Object.freeze([
+  // A package declaration silently omits nonexistent files. Fail the build if a
+  // vision execution asset is missing, before copying any runtime assets.
+  'scripts/vision-bridge.py',
+  'scripts/roboflow-bridge.py',
+  'workers/look/look.py',
   'lanes/privacy/overlay.mjs',
   'lanes/privacy/scan.mjs',
   'lanes/privacy/patterns.json',
