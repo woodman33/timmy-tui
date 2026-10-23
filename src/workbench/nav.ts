@@ -26,14 +26,16 @@ export interface NavItem {
   task: string;
   /** R11 (H167; step 3a): the Chat screen's rail names for it (the plan's section 2), which the finder matches too */
   also?: readonly string[];
+  /** R11 phase 2 (H168's pass 4b R45): the Chat screen's rail name for it, where the rail names it otherwise (the finder leads with it) */
+  rail?: string;
 }
 
 export const NAV: readonly NavItem[] = [
   { id: 'chat', group: 'create', label: 'Chat', title: 'Chat · conversation', task: 'Conversation', purpose: 'Talk to Timmy about this project; the route says where a message would go and what it costs.' },
-  { id: 'studio', group: 'create', label: 'Studio', title: 'Studio · boards and cards', task: 'Studio outline', purpose: 'The project\'s Studio cards in outline, by operation; Studio · Show opens the rich canvas.', also: ['Canvas'] },
-  { id: 'voxvision', group: 'create', label: 'VoxVision', title: 'VoxVision · 2D and 3D inspection', task: 'Inspection', purpose: 'All of Timmy\'s vision tools with their real status, and this project\'s VoxVision records.', also: ['Vision'] },
+  { id: 'studio', group: 'create', label: 'Studio', title: 'Studio · boards and cards', task: 'Studio outline', purpose: 'The project\'s Studio cards in outline, by operation; Studio · Show opens the rich canvas.', rail: 'Canvas', also: ['Canvas'] },
+  { id: 'voxvision', group: 'create', label: 'VoxVision', title: 'VoxVision · 2D and 3D inspection', task: 'Inspection', purpose: 'All of Timmy\'s vision tools with their real status, and this project\'s VoxVision records.', rail: 'Vision', also: ['Vision'] },
   // R5 (H131; the QA of e7f853e, defect 23): the pane says the tab's own name (6 3D & Motion), and which of its two views
-  { id: 'create3d', group: 'create', label: '3D Create', title: '3D & Motion · scenes, CAD and compositions', task: 'Scenes and CAD', purpose: 'The 3D, CAD and motion apps Timmy drives, what each needs, and this project\'s runs of them.', also: ['Motion & 3D'] },
+  { id: 'create3d', group: 'create', label: '3D Create', title: '3D & Motion · scenes, CAD and compositions', task: 'Scenes and CAD', purpose: 'The 3D, CAD and motion apps Timmy drives, what each needs, and this project\'s runs of them.', rail: 'Motion & 3D', also: ['Motion & 3D'] },
   { id: 'motion', group: 'create', label: 'Motion', title: '3D & Motion · compositions and renders first', task: 'Compositions', purpose: 'After Effects as Timmy drives it, what it needs, and this project\'s renders.', also: ['Motion & 3D'] },
   { id: 'workflows', group: 'operate', label: 'Workflows', title: 'Workflows · plan and run', task: 'Workflow', purpose: 'Each workflow document\'s named blocks, which need you, and how each one last ended.' },
   { id: 'control', group: 'operate', label: 'Control Room', title: 'Control Room · jobs, chat turns and decisions', task: 'Jobs, chat turns and decisions', purpose: 'What runs, what ended and what waits on you, each with its job and operation, and every surface\'s chat turns by their receipts.' },
@@ -41,11 +43,11 @@ export const NAV: readonly NavItem[] = [
   { id: 'rea', group: 'operate', label: 'REA', title: 'REA · analysis', task: 'Analysis', purpose: 'REA\'s registered capabilities and this project\'s REA records, as this revision has them.' },
   // R5 (H134): tab 8's and tab 0's bodies (src/workbench/fleet-tab.ts, src/workbench/logs-tab.ts)
   { id: 'fleet', group: 'operate', label: 'Fleet & Clef', title: 'Fleet & Clef · plans, recommendations and services', task: 'Fleet and Clef', purpose: 'The project\'s fleet plans with their counts, Clef-Omni\'s mode and decisions, Cloudflare and the services, each as it is.' },
-  { id: 'logs', group: 'operate', label: 'Logs & Receipts', title: 'Logs & Receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, the selected operation from intent to receipt, its raw output, and the receipt chain as verified.', also: ['Runs & receipts', 'Logs & records'] },
+  { id: 'logs', group: 'operate', label: 'Logs & Receipts', title: 'Logs & Receipts · events, operations and the chain', task: 'Logs and receipts', purpose: 'The event log newest first, the selected operation from intent to receipt, its raw output, and the receipt chain as verified.', rail: 'Runs & receipts', also: ['Runs & receipts', 'Logs & records'] },
   { id: 'files', group: 'library', label: 'Files', title: 'Files · the project tree', task: 'Files', purpose: 'Every project file by kind: editable source, references, workflows, results and run records.' },
   { id: 'templates', group: 'library', label: 'Templates', title: 'Templates · public starters', task: 'Templates', purpose: 'Public project starters and Studio board templates; none holds private work.' },
-  { id: 'tools', group: 'library', label: 'All tools', title: 'All tools · capabilities', task: 'Tool library', purpose: 'Every capability Timmy registers, its rung, and the step that sets it up.', also: ['Tools & integrations', 'Tools & MCP'] },
-  { id: 'connections', group: 'foot', label: 'Connections', title: 'Connections · this computer', task: 'Connections', purpose: 'This Workbench\'s Companion and Studio servers, the chat route and where receipts are kept.', also: ['Models & accounts', 'Models & keys'] },
+  { id: 'tools', group: 'library', label: 'All tools', title: 'All tools · capabilities', task: 'Tool library', purpose: 'Every capability Timmy registers, its rung, and the step that sets it up.', rail: 'Tools & integrations', also: ['Tools & integrations', 'Tools & MCP'] },
+  { id: 'connections', group: 'foot', label: 'Connections', title: 'Connections · this computer', task: 'Connections', purpose: 'This Workbench\'s Companion and Studio servers, the chat route and where receipts are kept.', rail: 'Models & accounts', also: ['Models & accounts', 'Models & keys'] },
 ];
 
 export const GROUP_LABEL: Readonly<Record<GroupId, string>> = { create: 'CREATE', operate: 'OPERATE', library: 'LIBRARY', foot: '' };

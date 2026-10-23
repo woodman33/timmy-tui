@@ -100,6 +100,12 @@ export async function runWorkbench(): Promise<number> {
       // no model key is given, so OpenRouter is never asked; the other checks are this computer's own
       return capabilities(liveDeps({ env, model: 'the configured model', projectRoot: ws.root }));
     },
+    // R11 phase 2 (H167): the Tools & integrations screen reads H170's capability inventory for this project: files, settings
+    // and receipts only; nothing is run or contacted
+    inventory: async () => {
+      const { inventory } = await import('../capabilities/inventory.js');
+      return inventory({ env, cwd: ws.root });
+    },
     onExit: (code, words) => { after = words; finish(code); },
     // R11 (H167, step 3e; H168's R22): the clipboard escape, to the terminal this Workbench draws on (none: nothing is sent)
     copy: (text) => { if (!process.stdout.isTTY) return false; process.stdout.write(osc52(text)); return true; },

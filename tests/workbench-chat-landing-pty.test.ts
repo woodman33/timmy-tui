@@ -279,7 +279,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     // none selected; the composer below them)
     expect(center.slice(7, 9)).toEqual(['TIMMY runs tools and workflows on your machine and keeps a receipt', 'for every step.']);
     expect(center[9]).toBe('Write below and press Enter: the model on the chip answers.');
-    expect(center.slice(10, 12)).toEqual(['Logs and receipts stay on this computer, in this project\'s .timmy', 'folder: Logs & records lists them.']);
+    expect(center.slice(10, 12)).toEqual(['Logs and receipts stay on this computer, in this project\'s .timmy', 'folder: Runs & receipts lists them.']);
     expect(center[13]).toBe('START WITH');
     expect([center[14], center[17], center[20], center[23]]).toEqual(['  [ Ask about this project ]', '  [ Inspect an image ]', '  [ Run a workflow ]', '  [ Open the canvas ]']);
     // Models: the route's model is SELECTED, the next turn's (once the list is read)

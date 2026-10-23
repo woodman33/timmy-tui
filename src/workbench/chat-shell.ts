@@ -24,7 +24,7 @@ import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { noModelChosen } from './state.js';
 import type { WorkspaceId } from './nav.js';
-import { clock, cut, fit, lineCells, spread, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, count, cut, fit, lineCells, spread, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
 import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type MakerOption, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
 import { localModelGlyph } from '../setup/local-model-check.js';
 import type { ProviderState } from '../setup/providers-state.js';
@@ -172,11 +172,13 @@ function railLines(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Line
     }
   });
   // (R11 step 3a: the footer, Help and the finder, each a target of its own)
+  // (R11 phase 2, H168's pass 4b R47: the packed rail's footer whole in its 14 cells: one cell of air each side)
   const help: Seg = S('? Help', 'secondary', on('help'));
-  const find: Seg = S(wide ? '/ find' : '/', 'secondary', on('find'));
-  put(footAt, 'help', [S('  '), help, S('  '), find]);
-  items.push({ line: footAt, item: { kind: 'action', key: 'rail:find', action: 'find' }, x: { from: 2 + lineCells([help]) + 2, to: 2 + lineCells([help]) + 2 + lineCells([find]) - 1 } });
-  items[items.length - 2].x = { from: 2, to: 2 + lineCells([help]) - 1 };
+  const find: Seg = S('/ find', 'secondary', on('find'));
+  const air = wide ? 2 : 1;
+  put(footAt, 'help', [S(' '.repeat(air)), help, S(' '.repeat(air)), find]);
+  items.push({ line: footAt, item: { kind: 'action', key: 'rail:find', action: 'find' }, x: { from: air + lineCells([help]) + air, to: air + lineCells([help]) + air + lineCells([find]) - 1 } });
+  items[items.length - 2].x = { from: air, to: air + lineCells([help]) - 1 };
   return { lines, items };
 }
 
@@ -422,8 +424,10 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
         if (h?.state === 'listed') return S(`Ollama answered ${clock(h.at ?? new Date(c.now).toISOString()).slice(0, 5)}`, 'live');
         if (h?.state === 'failed') return S(`Ollama did not answer${h.at ? ` ${clock(h.at).slice(0, 5)}` : ''}`, 'failure');
         if (h?.state === 'reading') return S('asking Ollama…', 'attention');
+        // (R11 phase 2, H168's pass 4b R44: before the first ask, the row says so; the files' "not installed" is not an answer)
+        return S('not asked yet', 'secondary');
       }
-      if (!st) return S(id === 'ollama-local' ? 'not read yet' : 'not set up', 'secondary');
+      if (!st) return S('not set up', 'secondary');
       return S(st.state === 'checked' && st.at ? `${id === 'ollama-local' ? 'Ollama' : 'key'} checked ${clock(st.at).slice(0, 5)}` : st.state, st.state === 'checked' ? 'live' : st.state === 'refused' || st.state === 'unreachable' ? 'failure' : 'secondary');
     };
     let row = drawer ? 3 : 3;
@@ -507,7 +511,10 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   // (R11 H167, step 3; H168's pass 4a R34: the drawer keeps its last row for what the keys do: Enter chooses, r asks again)
   const listFrom = at;
   const listRows = Math.max(0, drawer ? n - 1 - at : footAt - 1 - at);
-  const cur = railCursor(c);
+  // (R11 phase 2, H168's pass 4b R48: on the first run with OpenRouter chosen and no key saved yet, the catalog has no cursor
+  // and no MODEL box until Models has the keyboard: the sign-in is the step, not a priced model)
+  const quiet = isFirstRun(c) && source === 'openrouter' && !focused && (!ps || ps.state === 'not set up');
+  const cur = quiet ? -1 : railCursor(c);
   const list: Line[] = [];
   const items: View['items'] = [];
   rows.forEach((r, i) => {
@@ -621,6 +628,9 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     put(footAt + 1, [S('SELECTED', 'strong', { bold: true })]);
     put(footAt + 2, [S(`${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'strong', { bold: true, raw: true })]);
     put(footAt + 3, [S(source === 'ollama-local' && m?.ollama?.state === 'failed' ? 'Not listed: no answer.' : source === 'ollama-local' && m?.ollama?.state !== 'listed' ? 'Not listed here yet.' : 'Not in this list: the route names it.', 'secondary')]);
+  } else if (quiet) {
+    // (R48: the sign-in is the step; the MODEL box comes once the key is saved and Models lists the catalog for the keyboard)
+    wrapText('No key saved yet: the box in the center saves one; then M, and Enter on one.', w).slice(0, 3).forEach((t, k) => put(footAt + 1 + k, [S(t, 'secondary')]));
   } else {
     put(footAt + 1, [S('MODEL / ', 'strong', { bold: true }), S('none', 'secondary')]);
     if (noneChosen) wrapText('No model is chosen for the next turn: M, then Enter on one.', w).slice(0, 3).forEach((t, k) => put(footAt + 2 + k, [S(t, 'attention')]));
@@ -1060,7 +1070,8 @@ export function isWelcome(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
 export const WELCOME_WORDS: readonly [string, string, string] = [
   'TIMMY runs tools and workflows on your machine and keeps a receipt for every step.',
   'Write below and press Enter: the model on the chip answers.',
-  'Logs and receipts stay on this computer, in this project\'s .timmy folder: Logs & records lists them.',
+  // (R11 phase 2, H168's pass 4b R43: the rail's name for the list)
+  'Logs and receipts stay on this computer, in this project\'s .timmy folder: Runs & receipts lists them.',
 ];
 
 /** The four starter actions, each one the Workbench does today (the controller's firstChoice: nothing is sent, run, signed
@@ -1069,7 +1080,8 @@ export const START_CHOICES: ReadonlyArray<{ id: 'ask' | 'inspect' | 'run' | 'can
   { id: 'ask', label: 'Ask about this project', about: 'A question typed as a draft: what the project does and what ran here last.' },
   { id: 'inspect', label: 'Inspect an image', about: 'VoxVision: what Timmy measured on this project\'s images; /inspect in the REPL inspects a new one.' },
   { id: 'run', label: 'Run a workflow', about: 'Workflows: this project\'s WORKFLOW.md blocks; Enter runs one after it asks.' },
-  { id: 'canvas', label: 'Open the canvas', about: 'Studio in your browser (s): this project\'s runs and drafts as cards.' },
+  // (R11 phase 2, H168's pass 4b R42: no "(s)": Enter on this starter is the path; a letter in the conversation opens the composer)
+  { id: 'canvas', label: 'Open the canvas', about: 'Studio in your browser: this project\'s runs and drafts as cards.' },
 ];
 
 /** The draft Ask about this project types into the composer (nothing is sent until Enter there). */
@@ -1168,12 +1180,18 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   // until it closes (`full`: Connect OpenRouter); else the rule, MESSAGE and the composer
   const whole = a.first === true || a.full === true;
   const convoRows = whole ? contentH - CONVO_AT : Math.max(1, ruleAt - CONVO_AT);
-  const title: Line = [S(a.first ? 'WELCOME TO TIMMY' : `CHAT / ${data.project.name}`, a.focus === 'center' && ui.input.field !== 'composer' ? 'accent' : 'strong', { bold: true })];
+  // (R11 phase 2, H168's pass 4b R49: WELCOME TO TIMMY is a title, off-white bold; CHAT / <project> amber marks the keyboard)
+  const title: Line = [S(a.first ? 'WELCOME TO TIMMY' : `CHAT / ${data.project.name}`, !a.first && a.focus === 'center' && ui.input.field !== 'composer' ? 'accent' : 'strong', { bold: true })];
   // (R10 CHAT H167; H168's pass 3a, R7: the button says its key, [M], and the mouse presses it)
   const modelsKey: Line = grid.sepR === null && !drawer ? [S('[M] Models', 'secondary')] : [];
   // (R10 CHAT H167; H168's pass 3a, R10: a box longer than its rows, the Keys among them, says which rows show at the title
   // row's right, as the tabbed layout's title does; the Keys' first line says so)
-  const note = ui.overlay && a.convoTotal > convoRows ? `${ui.overlay.kind === 'help' ? 'Keys ' : ''}${a.convoScroll + 1}–${Math.min(a.convoTotal, a.convoScroll + convoRows)} of ${a.convoTotal}` : '';
+  // (R11 phase 2, H168's pass 4b R50: the finder's note counts its workspaces, shown of all, at every width; the Keys' their rows)
+  const finder = ui.overlay?.kind === 'find' ? a.convoItems.filter((it) => it.line >= 0) : null;
+  const inView = finder ? finder.filter((it) => it.line >= a.convoScroll && it.line < a.convoScroll + convoRows).length : 0;
+  const note = finder
+    ? (finder.length ? (inView === finder.length ? count(finder.length, 'workspace') : `${finder.findIndex((it) => it.line >= a.convoScroll) + 1}–${finder.findIndex((it) => it.line >= a.convoScroll) + inView} of ${count(finder.length, 'workspace')}`) : '')
+    : ui.overlay && a.convoTotal > convoRows ? `${ui.overlay.kind === 'help' ? 'Keys ' : ''}${a.convoScroll + 1}–${Math.min(a.convoTotal, a.convoScroll + convoRows)} of ${a.convoTotal}` : '';
   const titleRight: Line = note ? [S(note, 'secondary')] : modelsKey;
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(titleRight) - 3))), ...titleRight];
   a.convo.slice(0, convoRows).forEach((l, k) => { center[CONVO_AT + k] = l; });
