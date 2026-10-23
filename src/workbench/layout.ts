@@ -53,11 +53,13 @@ export interface Layout {
   /** the Chat tab's pipeline row (intent → predict → sandbox → receipt), above its two columns */
   strip: Rect | null;
   nav: Rect | null;
-  navAs: 'drawer' | 'hidden';
+  /** R10 CHAT (H167): 'rail': the Chat screen's permanent left rail */
+  navAs: 'drawer' | 'hidden' | 'rail';
   center: Rect | null;
   right: Rect | null;
-  /** column: Context beside a workspace; drawer: Context opened over the body ([i]); hub: Home's preview or Chat's log */
-  rightAs: 'column' | 'drawer' | 'hub' | 'hidden';
+  /** column: Context beside a workspace; drawer: Context opened over the body ([i]); hub: Home's preview or Chat's log;
+   *  R10 CHAT (H167): models: the Chat screen's Models rail (beside the conversation, or its drawer where it does not fit) */
+  rightAs: 'column' | 'drawer' | 'hub' | 'hidden' | 'models';
   bottom: Rect;
   /** how many of the log's newest lines the collapsed Activity & log shows */
   logLines: number;
@@ -66,6 +68,37 @@ export interface Layout {
   quietLog?: boolean;
   /** how many event rows the expanded Activity & log shows */
   activityRows: number;
+  /** R10 CHAT (H167): the Chat screen's shell (src/workbench/chat-shell.ts): the rail is `nav`, the header `tabs`, the
+   *  conversation `center`, Models `right`, this conversation's controls `bottom` */
+  shell?: 'chat';
+  /** R10 CHAT (H167): Models is a drawer here (it does not fit beside the conversation); [M] opens and Esc closes it */
+  modelsDrawer?: boolean;
+}
+
+/**
+ * R10 CHAT (H167): the Chat screen's zones at this size, as the operator's terminal target lays them out in cells
+ * (src/workbench/chat-shell.ts chatGrid draws them): the header rows 0-2 the whole width; the rail from row 3, 18 columns from
+ * 110 columns (14 below) with its separator after it; the conversation and the composer between it and Models (31 columns
+ * from 110, with a separator before them; below, Models is a drawer over the conversation, [M]); the bottom's three rows right
+ * of the rail. Null where the screen is under the Workbench's minimum.
+ */
+export function chatLayout(a: { columns: number; rows: number; modelsOpen?: boolean }): Layout | null {
+  const columns = Math.max(1, Math.floor(a.columns));
+  const rows = Math.max(1, Math.floor(a.rows));
+  if (columns < MIN_COLUMNS || rows < MIN_ROWS + 4) return null;
+  const wide = columns >= 110;
+  const railW = wide ? 18 : 14;
+  const sepR = wide ? columns - 32 : null;
+  const contentH = rows - 6;
+  const centerX = railW + 1;
+  const centerW = (sepR ?? columns) - centerX;
+  const right: Rect | null = sepR !== null ? { x: sepR + 1, y: 3, w: columns - sepR - 1, h: contentH } : a.modelsOpen ? { x: centerX, y: 3, w: centerW, h: contentH } : null;
+  return {
+    columns, rows, mode: modeOf(columns), tooSmall: false, tabs: { x: 0, y: 0, w: columns, h: 3 }, tabRows: 2, top: { x: centerX, y: 3, w: centerW, h: 0 }, topDetail: true,
+    strip: null, nav: { x: 0, y: 3, w: railW, h: rows - 3 }, navAs: 'rail', center: { x: centerX, y: 3, w: centerW, h: contentH },
+    right, rightAs: right ? 'models' : 'hidden', bottom: { x: railW + 1, y: rows - 3, w: columns - railW - 1, h: 3 }, logLines: 0, quietLog: true,
+    activityRows: 0, shell: 'chat', ...(right && sepR === null ? { modelsDrawer: true } : {}),
+  };
 }
 
 /** From here a workspace tab has Context as a column (below: a drawer, [i]). */

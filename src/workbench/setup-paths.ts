@@ -62,6 +62,9 @@ export interface SetupPlan {
 export interface SetupDeps {
   /** the free models and their catalog (files only: no request) */
   freeModels: () => Promise<FreeCatalog>;
+  /** R10 CHAT (H167): OpenRouter's catalog as this computer keeps it (files only: the one it fetched, else the snapshot shipped
+   *  with Timmy; no request), for the Models rail */
+  catalog?: () => Promise<{ from: 'fetched' | 'shipped' | 'none'; at: string | null; models: unknown[] }>;
   /** saves the chat's OpenRouter model in Timmy's settings; the settings file written */
   saveModel: (id: string) => Promise<{ path: string }>;
   /** the models the Ollama the setup names lists now (a request to it, no charge) */
@@ -102,6 +105,13 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       const cache = fetched ?? readCatalogFile(cachePath());
       if (!cache) return { from: 'none', at: null, models: [] };
       return { from: fetched ? 'fetched' : 'shipped', at: cache.fetchedAt.slice(0, 10) || null, models: freeModels(cache as Parameters<typeof freeModels>[0]) };
+    },
+    catalog: async () => {
+      const { cachePath, catalogPath } = await import('../models/registry.js');
+      const fetched = readCatalogFile(catalogPath(env));
+      const cache = fetched ?? readCatalogFile(cachePath());
+      if (!cache) return { from: 'none', at: null, models: [] };
+      return { from: fetched ? 'fetched' : 'shipped', at: cache.fetchedAt.slice(0, 10) || null, models: cache.models };
     },
     saveModel: async (id) => {
       const { getConfig, saveConfig } = await import('../utils/config.js');

@@ -10,7 +10,8 @@ import { compose, innerWidth, panel, type Glyphs, type Placed } from './frame.js
 import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, tabBar, type PageHit } from './hub.js';
 import type { WorkspaceConnection } from '../contracts/workspace.js';
 import { headerRows, homeSideView, selectedHome } from './home-journey.js';
-import { bodyKind, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
+import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
+import { chatScreen, convoRowsAt } from './chat-shell.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
@@ -59,6 +60,10 @@ export function bodyTitle(ui: Ui, data: Data): string {
 
 export function frameOf(a: FrameAsk): Frame {
   const { ui, data, g } = a;
+  // R10 CHAT (H167): the Chat screen is one shell (src/workbench/chat-shell.ts): the permanent rail, the header, the conversation,
+  // Models and this conversation's controls; every other workspace is drawn as before
+  const shell = ui.page === 'chat' && ui.workspace === 'chat' && !ui.chatClassic ? chatLayout({ columns: a.columns, rows: a.rows, modelsOpen: ui.modelsOpen === true || ui.rightOpen }) : null;
+  if (shell) return chatFrame(a, shell);
   const layout = layoutFor({
     columns: a.columns, rows: a.rows, body: bodyKind(isHub(ui.page), ui.workspace), pipeline: ui.page === 'chat' && !ui.overlay,
     navOpen: ui.navOpen, rightOpen: ui.rightOpen, activityOpen: ui.activityOpen, focusMode: ui.focusMode === true,
@@ -233,6 +238,30 @@ export function frameOf(a: FrameAsk): Frame {
   }
 
   return { screen: compose(layout, placed), layout, regions, tabs, pages, actions };
+}
+
+/**
+ * R10 CHAT (H167): the Chat screen's frame (src/workbench/chat-shell.ts chatScreen, the operator's terminal target's grid):
+ * the rail (region nav), the header, the conversation and the composer (center), Models (right; a drawer below 110 columns),
+ * this conversation's actions and the status row (bottom). A box opened over the conversation (the Keys, a NEEDS YOU box, a
+ * setup box) is drawn in the conversation's place. Every row exactly the terminal's width.
+ */
+function chatFrame(a: FrameAsk, layout: Layout): Frame {
+  const { ui, data, g } = a;
+  const at = convoRowsAt(a.columns, a.rows);
+  const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, shell: true };
+  const view = centerView(c);
+  const list = ui.overlay ? 'overlay' : 'center:chat';
+  const i = view.items.length ? cursorOf(ui, list, view.items.length) : -1;
+  const span = i >= 0 ? view.items[i].rows ?? 1 : 1;
+  const follow = list === 'center:chat' && chatFollows(ui);
+  const scroll = follow
+    ? scrollFor(ui, list, [], { at: Math.max(0, view.lines.length - 1), height: at.rows, total: view.lines.length })
+    : scrollFor(ui, list, view.items, { ...(i >= 0 ? { at: view.items[i].line, ...(span > 1 ? { end: view.items[i].line + span - 1 } : {}) } : {}), height: at.rows, total: view.lines.length, first: i === 0 });
+  const shown = view.lines.slice(scroll, scroll + at.rows);
+  const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, focus: ui.focus });
+  const regions: Frame['regions'] = { ...out.regions };
+  return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [] };
 }
 
 /** R10 (H167): what Enter does on a connection of Home's list, in words (the controller's activate does it): the companion's and
