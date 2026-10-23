@@ -142,6 +142,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-spin { display: inline-block; min-width: 1ch; color: var(--timmy-accent); }
 .cx-running { color: var(--timmy-text); }
 .cx-running-box { margin: 10px 0 0 42px; font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.cx-empty:not([hidden]) + .cx-running-box { max-width: 860px; margin: 16px auto 0; padding: 0 6px; }
 .cx-welcome-line { margin-top: 10px; font-size: 14px; line-height: 1.6; color: var(--timmy-text-secondary); }
 .cx-starters .cx-way { min-height: 128px; }
 @media (max-width: 720px) { .cx-running-box { margin-left: 0; } }
@@ -176,7 +177,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cx-send-why { margin-left: auto; min-width: 0; font-size: 13px; color: var(--timmy-text); text-align: right; }
 .cx-send-why:empty { display: none; }
 .cx-compose-foot .cx-send-why ~ .cx-send, .cx-compose-foot .cx-chip ~ .cx-send { margin-left: 0; }
-.cx-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 46%; min-height: 32px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
+.cx-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 62%; min-height: 32px; padding: 4px 10px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: transparent; color: var(--timmy-text); font-size: 13px; cursor: pointer; }
 .cx-chip:hover { border-color: var(--timmy-text-secondary); }
 .cx-chip[aria-expanded="true"] { background: var(--timmy-surface); border-color: var(--timmy-text-secondary); }
 .cx-chip .cx-chip-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -368,6 +369,7 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
   .cx-hint { flex-direction: column; gap: 2px; }
   .cx-compose-foot { flex-wrap: wrap; gap: 8px 12px; }
   .cx-chip { max-width: 100%; order: 3; flex: 1 1 100%; justify-content: flex-start; }
+  .cx-chip .cx-chip-words { white-space: normal; overflow-wrap: anywhere; text-align: left; }
   .cx-send-why { flex: 1 1 100%; order: 4; text-align: left; }
   .cx-send { order: 2; margin-left: auto; }
   .cx-status { flex-wrap: wrap; row-gap: 0; padding: 4px 10px; }

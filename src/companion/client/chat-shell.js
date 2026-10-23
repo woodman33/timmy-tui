@@ -432,9 +432,10 @@ function drawChat() {
   // a panel (the first run, a provider's setup) opens at its top; the conversation follows its end while the person is there,
   // and comes back to its end when a panel closes
   const st = document.body.dataset.chatState || '';
-  const panel = st === 'first-run' || st === 'setup';
+  // (R11 step 2: the welcome opens at its top too, as the first run's panel does)
+  const panel = st === 'first-run' || st === 'setup' || st === 'empty';
   const shownKey = `${st}:${cx.setup || ''}`;
-  const wasPanel = /^(first-run|setup):/.test(cx.shownKey || '');
+  const wasPanel = /^(first-run|setup|empty):/.test(cx.shownKey || '');
   if (scroll) {
     if (panel) { if (cx.shownKey !== shownKey) scroll.scrollTop = 0; }
     else if ((cx.follow && atEnd) || wasPanel) scroll.scrollTop = scroll.scrollHeight;

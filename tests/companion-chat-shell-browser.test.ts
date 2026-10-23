@@ -216,6 +216,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cx-hint-keys')).toBe('Enter sends · Ctrl+J newline');
       expect(await page.getAttribute('#cx-dot', 'data-state')).toBe('ready');
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
+      // (H168's pass 4a R40: "ready" with its time, and the whole of it shown, not cut)
+      expect(await page.$eval('#cx-chip-words', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       expect(await page.isDisabled('#cx-send')).toBe(true);
       expect(await text(page, '#cx-send-why')).toBe('');
       expect(await page.$eval('#cx-send', (b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 176, 0)');
@@ -401,6 +403,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready', null, { timeout: 20_000 });
       expect(await page.isVisible('#cx-models')).toBe(true);
       expect(await text(page, '#cx-chip-words')).toMatch(/^fake-(?:qwen3:8b|llama:1b) · this computer · ready \d\d:\d\d$/);
+      expect(await page.$eval('#cx-chip-words', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
       expect(await page.isDisabled('#cx-send')).toBe(true);
       await page.fill('#cx-input', 'x');
       expect(await page.isDisabled('#cx-send')).toBe(false);
@@ -431,6 +434,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           await page.goto(`${o2}/#t=${t2}`);
           await page.waitForFunction(() => document.body.dataset.chatState === 'empty', null, { timeout: 30_000 });
           expect(await text(page, '#cx-empty .cx-kicker')).toBe('Welcome');
+          // the welcome opens at its top (as the first run's panel does), the composer in view below it at both sizes
+          expect(await page.$eval('#cx-scroll', (e) => e.scrollTop)).toBe(0);
+          expect(await page.$eval('#cx-empty .cx-title', (e) => e.getBoundingClientRect().top >= 0)).toBe(true);
+          expect(await page.$eval('#cx-composer', (f) => f.getBoundingClientRect().bottom <= window.innerHeight)).toBe(true);
           expect(await text(page, '#cx-empty .cx-title')).toBe('TIMMY runs tools and workflows on your machine and keeps a receipt for every step.');
           const welcome = await page.$$eval('#cx-empty .cx-welcome-line', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
           expect(welcome).toEqual([
