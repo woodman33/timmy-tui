@@ -123,8 +123,10 @@ describe('no surface sends to an unchosen paid model (R11 Phase 0; FAKE key, FAK
     const requests = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { method: string; url: string; body: { model?: string } | null }) : [];
     const toOpenRouter = requests.filter((q) => /openrouter\.ai/.test(q.url));
     expect(toOpenRouter.map((q) => `${q.method} ${q.url} ${q.body?.model ?? ''}`), `the REPL sent to OpenRouter with no model chosen:\n${out}`).toEqual([]);
-    expect(out, 'the REPL\'s refusal').toContain(REPL_WORDS);
-    expect(out).toContain(NOTHING_SENT);
+    // (the REPL wraps its lines to the pipe's width: compared with the whitespace collapsed)
+    const flat = out.replace(/\s+/g, ' ');
+    expect(flat, 'the REPL\'s refusal').toContain(REPL_WORDS);
+    expect(flat).toContain(NOTHING_SENT);
     expect(code, `a refused message is a failing exit in a pipe; the REPL said:\n${out}`).not.toBe(0);
   }, 60_000);
 
@@ -198,9 +200,11 @@ describe('no surface sends to an unchosen paid model (R11 Phase 0; FAKE key, FAK
     const or = net.openRouter();
     expect(or.map((q) => q.model), `requests to the FAKE OpenRouter: ${JSON.stringify(or)}`).toEqual(['fake-maker/fake-chosen-model']);
     expect(r.status).not.toBe('answered');
-    const said = `${r.text}\n${joined(r.lines)}`;
+    const said = `${r.text}\n${joined(r.lines)}`.replace(/\s+/g, ' ');
     expect(said, 'the refusal, named').toMatch(/FAKE OpenRouter: refused|400/);
-    expect(said, 'the next step').toContain('Choose another model');
+    // H169's words (1f01162d): "Next: choose another model (Models (M) in timmy workbench, or /model <id> in the REPL) or try
+    // again. No fallback model was tried: a model nobody chose is never asked in its place."
+    expect(said, 'the next step').toMatch(/choose another model/i);
   });
 
   it('control: a model the person chose (OPENROUTER_MODEL) is the one the Workbench session asks for, and no other', async () => {
