@@ -6,14 +6,17 @@
  *   keeps its state"; the center's no-model view has the keyboard) → Write a draft → the draft typed → Esc (kept) → M →
  *   "> granite4.2:latest" → Enter → "checking with Ollama…" (the FAKE delays /api/show, so the screen is read in between)
  *   → ready: the selector closed, the composer has the keyboard with the draft typed before the choice, the status row
- *   "Next turn: granite4.2:latest on this computer. Set up now: identity and setup written in ~/timmy." → the message is
- *   typed and sent with Enter → the FAKE answers → the answer's evidence line is drawn.
+ *   "Next turn: granite4.2:latest on this computer. Set up now (identity made in ~/timmy)." and the chip green
+ *   "● granite4.2:latest · this computer · ready HH:MM" → the message is typed and sent with Enter → the FAKE answers → the
+ *   answer's evidence line is drawn.
  * Asserted: no shell was needed (the choice set identity and setup up: identity.json exists, setup.json by `timmy workbench`
  * with chat local and the model); the composer had the keyboard right after the choice (typed text lands in it); the draft
  * survived; the row went ready only after /api/show answered ("checking" seen first, and the FAKE's clock says when it
- * answered); the status row's "Next turn: … on this computer." at every width and "Set up now:" where the row carries it
- * (at 80x24 the six-second flash is cut to "…on this computer. Set…": said as skipped, not passed; reported); the chip's
- * words (H167's step 1c) are checked only once the chip exists, else that assertion is skipped with the reason.
+ * answered); the chip (H167's step 1c): "○ no model · choose one (M)" before the choice, amber "● … · checking…" while the
+ * FAKE holds its answer, green "● … · ready HH:MM" after, at both widths; the status row's "Next turn: … on this computer."
+ * at every width and "Set up now" where the row carries those words (the six-second flash goes through inWords, which says
+ * the path as "its folder", and is cut with an ellipsis to the row's room: at 122x37 "…Set up now (identity made in its…",
+ * at 80x24 "…on this computer. Set…", the latter said as skipped with the row's exact words, not passed; reported).
  *
  * FAKE, said where used: the Ollama is an HTTP server in this test's process on 127.0.0.1 at a port of its own (never 11434),
  * with no model behind it; it lists exactly `granite4.2:latest` (the identifier as the operator's Mac names it, with the facts
@@ -67,6 +70,14 @@ function answerColumn(screen: string, model: string): string {
   }
   return out.join(' ').replace(/\s+/g, ' ');
 }
+
+/** The model chip (H167's step 1c): no model before the choice; amber "checking…" while Ollama is asked; green "ready HH:MM" after. */
+const M = MODEL.replace('.', '\\.');
+const CHIP_NONE = /○ no model(?: chosen)? · choose one \(M\)/;
+const CHIP_CHECKING = new RegExp(`● ${M} · this computer · checking…`);
+const CHIP_READY = new RegExp(`● ${M} · this computer · ready (\\d\\d:\\d\\d)`);
+/** HH:MM as the Workbench's clock says a time (Date#toTimeString, this process's zone, the one the Workbench inherits) */
+const hhmm = (ms: number): string => new Date(ms).toTimeString().slice(0, 5);
 
 /** the center's no-model view with the keyboard: its cursor on one of its three choices */
 const CENTER_CURSOR = /> \[ (Choose a model|Review setup choices|Write a draft) \]/;
@@ -200,12 +211,13 @@ async function journey(label: string, width: number, height: number): Promise<vo
     await t.keys('Down');
     await t.until(/> \[ Ollama \/ this computer \]/, 'the cursor on Ollama / this computer');
     await t.keys('Enter');
-    const listed = await t.until(new RegExp(`INSTALLED \\/ read \\d\\d:\\d\\d[\\s\\S]*${MODEL.replace('.', '\\.')}`), 'Models listing the FAKE\'s model', 40_000);
+    const listed = await t.until(new RegExp(`INSTALLED \\/ read \\d\\d:\\d\\d[\\s\\S]*${M}`), 'Models listing the FAKE\'s model', 40_000);
     t.keep('02-models-listed');
     expect(asked.map((a) => a.what)).toContain('GET /api/tags');
     expect(asked.filter((a) => a.what === `POST /api/show ${MODEL}`).length).toBeGreaterThan(0);
-    // its facts as Ollama lists them, under its name
+    // its facts as Ollama lists them, under its name; the chip says no model (nothing chosen yet)
     expect(listed.replace(/\s+/g, ' ')).toMatch(/8\.8B · Q4_K_M · 5\.3 GB/);
+    expect(listed, 'the chip before the choice').toMatch(CHIP_NONE);
     // 3. a draft typed BEFORE the choice: Tab cycles the keyboard to the center (its cursor "> [" shows which pane has it),
     // where the no-model view offers Write a draft; the draft typed, Esc keeps it; M returns to Models with its state kept
     // (Esc first: "Esc anywhere earlier: Models keeps its state"; at 80x24 the drawer closes over the center)
@@ -223,36 +235,51 @@ async function journey(label: string, width: number, height: number): Promise<vo
     for (let i = 0; i < 6 && !/> \[ Write a draft \]/.test(t.read()); i++) await t.keys('Down');
     await t.until(/> \[ Write a draft \]/, 'the cursor on Write a draft', 10_000);
     await t.keys('Enter');
-    await t.until(/Esc leaves, the draft kept|Enter sends|┃/, 'the composer open for the draft', 10_000);
+    // (Enter on Write a draft gives the composer the keyboard: the draft typed next lands on its "› " row)
     await t.type(DRAFT);
-    await t.until(new RegExp(DRAFT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the draft typed in the composer', 10_000);
+    await t.until(new RegExp(`› *${DRAFT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), 'the draft typed in the composer', 10_000);
     t.keep('04-draft-typed');
     await t.keys('Escape');
     await t.keys('M');
     await t.until(/INSTALLED \/ read \d\d:\d\d/, 'Models again, with the keyboard', 20_000);
-    // 4. Down to the row, Enter: "checking with Ollama…" is on screen while the FAKE holds its /api/show answer
+    // 4. Down to the row, Enter: the chip "● granite4.2:latest · this computer · checking…" (amber) and the row's "checking
+    // with Ollama…" are on screen while the FAKE still holds its /api/show answer
     const before = asked.filter((a) => a.what === `POST /api/show ${MODEL}`).length;
-    for (let i = 0; i < 6 && !new RegExp(`> ${MODEL.replace('.', '\\.')}`).test(t.read()); i++) await t.keys('Down');
-    await t.until(new RegExp(`> ${MODEL.replace('.', '\\.')}`), 'the cursor on the model\'s row', 10_000);
+    for (let i = 0; i < 6 && !new RegExp(`> ${M}`).test(t.read()); i++) await t.keys('Down');
+    await t.until(new RegExp(`> ${M}`), 'the cursor on the model\'s row', 10_000);
     t.keep('05-cursor-on-granite');
     await t.keys('Enter');
-    const checking = await waitScreen(t.pane, { what: 'checking with Ollama', re: /checking with Ollama…|checking…/, ms: 5_000, foot: 'drawn' });
+    const checking = await waitScreen(t.pane, { what: 'the chip checking', re: CHIP_CHECKING, ms: 5_000, foot: 'drawn' });
     t.keep('06-checking');
     const show = asked.filter((a) => a.what === `POST /api/show ${MODEL}`).slice(before);
     expect(show.length, 'the choice asked /api/show once').toBe(1);
-    expect(show[0].answered, 'the screen said checking before the FAKE answered').toBe(0);
+    expect(show[0].answered, 'the chip said checking before the FAKE answered').toBe(0);
+    expect(checking).toMatch(/checking with Ollama…/);
     expect(checking).not.toMatch(/Next turn:/);
+    expect(checking).not.toMatch(CHIP_READY);
     // 5. ready: the selector closed, the status row's words, the composer with the keyboard and the draft, identity set up
-    // (the status row is a six-second flash, cut with an ellipsis where the row is narrow: its first sentence is asserted at
-    // every width; "Set up now:" where the row carries it, else said as skipped with the row's words, not passed)
-    const ready = await t.until(new RegExp(`Next turn: ${MODEL.replace('.', '\\.')} on this computer\\.`), 'the status row: next turn', 20_000);
+    // (the status row is a six-second flash through inWords, which says a path as "its folder", cut with an ellipsis to the
+    // row's room: its first sentence is asserted at every width; "Set up now" where the row carries those words (122x37),
+    // the whole sentence where it is whole; where "Set up now" is cut off (80x24) it is said as skipped with the row's exact
+    // words, not passed)
+    const ready = await t.until(new RegExp(`Next turn: ${M} on this computer\\.`), 'the status row: next turn', 20_000);
     t.keep('07-ready');
     const statusRow = ready.split('\n').find((r) => r.includes('Next turn:')) ?? '';
-    if (/Set up now:/.test(statusRow)) expect(statusRow).toMatch(/Next turn: \S+ on this computer\. Set up now: identity/);
-    else console.log(`SKIPPED (not a pass): "Set up now:" is not in the status row at ${width}x${height}; the row reads: ${statusRow.trim()}`);
-    expect(asked.filter((a) => a.what === `POST /api/show ${MODEL}`).slice(before)[0].answered).toBeGreaterThan(0);
+    const setUpNow = new RegExp(`Next turn: ${M} on this computer\\. Set up now \\(identity made in (?:~/timmy|its folder)\\)\\.`);
+    if (setUpNow.test(statusRow)) expect(statusRow).toMatch(setUpNow);
+    else if (/Set up now/.test(statusRow)) {
+      expect(statusRow).toMatch(new RegExp(`Next turn: ${M} on this computer\\. Set up now`));
+      console.log(`NOTE: "Set up now" is in the status row at ${width}x${height}, its sentence cut to the row's room; the row reads: ${statusRow.trim()}`);
+    } else console.log(`SKIPPED (not a pass): "Set up now" is not in the status row at ${width}x${height}; the row reads: ${statusRow.trim()}`);
+    expect(show[0].answered, 'ready only after the FAKE answered').toBeGreaterThan(0);
     expect(ready).not.toMatch(/checking with Ollama/);
+    expect(ready).not.toMatch(CHIP_CHECKING);
     expect(ready).toContain(DRAFT);
+    // the chip: green "ready HH:MM" at both widths, the minute the check was made (the FAKE's own clock of the request; the
+    // check starts a moment before the request lands, so the minute before it counts across a minute's edge)
+    const chipRow = await t.until(CHIP_READY, 'the chip ready', 10_000);
+    const chipAt = CHIP_READY.exec(chipRow)?.[1];
+    expect([hhmm(show[0].at - 2000), hhmm(show[0].at), hhmm(show[0].answered)], `the chip's time ${chipAt}`).toContain(chipAt);
     expect(existsSync(join(timmyHome, 'identity.json')), 'the choice set the identity up (no shell)').toBe(true);
     const setup = JSON.parse(readFileSync(join(timmyHome, 'setup.json'), 'utf8')) as { by?: string; answers: Record<string, unknown> };
     expect(setup.by).toBe('timmy workbench');
@@ -261,19 +288,17 @@ async function journey(label: string, width: number, height: number): Promise<vo
     await t.type(MESSAGE);
     const typed = await t.until(new RegExp(`${DRAFT}${MESSAGE}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the typed text landing in the composer after the draft', 10_000);
     t.keep('08-message-typed');
-    // the chip (H167's step 1c): green with Ollama's answer's time, only once it exists
-    const chip = new RegExp(`● ${MODEL.replace('.', '\\.')} · this computer · ready \\d\\d:\\d\\d`);
-    if (chip.test(typed)) expect(typed).toMatch(chip);
-    else console.log(`SKIPPED (not a pass): the chip's ready words are not on screen at ${width}x${height}: H167's step 1c has not landed here`);
+    // (the chip stays ready while the message is typed)
+    expect(typed).toMatch(CHIP_READY);
     // 6. Enter sends; the FAKE answers; the answer and its evidence line are drawn
     await t.keys('Enter');
     // (the answer wraps at the column's edge where it is narrow: read as the chat column's text)
-    const answered = await t.until(new RegExp(`TIMMY / ${MODEL.replace('.', '\\.')} / \\d\\d:\\d\\d`), 'the FAKE answer drawn under the model\'s header', 40_000, (s) => answerColumn(s, MODEL).includes(FAKE_ANSWER));
+    const answered = await t.until(new RegExp(`TIMMY / ${M} / \\d\\d:\\d\\d`), 'the FAKE answer drawn under the model\'s header', 40_000, (s) => answerColumn(s, MODEL).includes(FAKE_ANSWER));
     expect(asked.filter((a) => a.what === `POST /api/chat ${MODEL}`).length).toBe(1);
     // its evidence line under the answer: answered, sent to a model, no charge, local, the model, the receipt sealed
     const evidence = await t.until(/receipt sealed/, 'the answer\'s evidence line', 30_000);
     t.keep('09-answered');
-    expect(answerColumn(evidence, MODEL)).toMatch(new RegExp(`answered · sent to a model · no charge · local · ${MODEL.replace('.', '\\.')} · receipt sealed`));
+    expect(answerColumn(evidence, MODEL)).toMatch(new RegExp(`answered · sent to a model · no charge · local · ${M} · receipt sealed`));
     expect(answered).not.toMatch(/EXIT=/);
     // nothing opened a browser; nothing asked Ollama's own 11434 (the FAKE heard everything)
     expect(existsSync(join(box, 'opened.log'))).toBe(false);
