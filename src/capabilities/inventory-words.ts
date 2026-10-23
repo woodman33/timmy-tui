@@ -28,25 +28,30 @@ export const whenWords = (iso: string): string => {
 
 const sentence = (s: string): string => (/[.!?]$/.test(s) ? s : `${s}.`);
 
-/** The three sentences of a row. */
+/**
+ * The three sentences of a row. A run sealed earlier never speaks for the present: when the files are not here now, the
+ * exercised sentence says "exercised earlier … · not available now" (the receipt stays named), never "exercised" alone.
+ */
 export function rowWords(r: Wordable): RowWords {
+  const exercised = !r.exercised.ok ? `${r.name}: not exercised, ${r.exercised.found}`
+    : r.available.ok ? `${r.name}: exercised ${whenWords(r.exercised.when)}, ${r.exercised.what} (receipt ${r.exercised.receipt})`
+      : `${r.name}: exercised earlier (${whenWords(r.exercised.when)}, ${r.exercised.what}, receipt ${r.exercised.receipt}) · not available now, ${r.available.found}`;
   return {
     available: sentence(r.available.ok ? `${r.name}: available, ${r.available.found}` : `${r.name}: not available, ${r.available.found}`),
     configured: sentence(r.configured.ok ? `${r.name}: configured, ${r.configured.found}` : `${r.name}: not configured, ${r.configured.found}`),
-    exercised: sentence(r.exercised.ok
-      ? `${r.name}: exercised ${whenWords(r.exercised.when)}, ${r.exercised.what} (receipt ${r.exercised.receipt})`
-      : `${r.name}: not exercised, ${r.exercised.found}`),
+    exercised: sentence(exercised),
   };
 }
 
 /**
- * The one word a glyph or a column shows for a row: exercised when a receipt exists, else configured when its setting is
- * set, else available when its files are here, else none. The three facts stay on the row, each its own; this picks only
- * which to show first.
+ * The one word a glyph or a column shows for a row, and it never contradicts the present: nothing stands while the files
+ * are not here (available false → none, whatever a key or an earlier receipt says: the ladder's own rule, a past run never
+ * raises a missing tool); with the files here, exercised when a receipt exists, else configured when its setting is set,
+ * else available. The three facts stay on the row, each its own; this picks only which to show first.
  */
 export function standingWord(r: Pick<Wordable, 'available' | 'configured' | 'exercised'>): 'exercised' | 'configured' | 'available' | 'none' {
+  if (!r.available.ok) return 'none';
   if (r.exercised.ok) return 'exercised';
   if (r.configured.ok) return 'configured';
-  if (r.available.ok) return 'available';
-  return 'none';
+  return 'available';
 }
