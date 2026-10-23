@@ -362,12 +362,25 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       const c = e.getCamera();
       return { box: { x: a.x, y: a.y, width: z.x - a.x, height: z.y - a.y }, camera: { x: c.x, y: c.y, z: c.z } };
     }, id);
+    // The camera's move is 220 ms (canvas.js reveal); under load (the complete check's hold, R11) its frames come slower,
+    // and one read at 700 ms saw the box still on its way, over the toolbar at 390x740. So: after the 700 ms, read until two
+    // reads 150 ms apart agree on the camera (at most 8 s), and read the toolbar's box only then; what is asserted is unchanged.
+    const settled = async (page: Page, id: string): Promise<Awaited<ReturnType<typeof view>>> => {
+      await page.waitForTimeout(700);
+      let last = await view(page, id);
+      for (const end = Date.now() + 8_000; Date.now() < end;) {
+        await page.waitForTimeout(150);
+        const next = await view(page, id);
+        if (next.camera.x === last.camera.x && next.camera.y === last.camera.y && next.camera.z === last.camera.z) return next;
+        last = next;
+      }
+      return last;
+    };
     for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 740 }]) {
       const { page, context } = await open(size);
       const drawn = await exec(rect(100, 100, 'LIVE-01'), `reveal-${size.width}`);
       expect(drawn.ok, drawn.error).toBe(true);
-      await page.waitForTimeout(700); // the camera's move
-      const { box, camera } = await view(page, drawn.result);
+      const { box, camera } = await settled(page, drawn.result);
       const side = (await (await page.$('#side'))!.boundingBox())!;
       const toolbar = await (await page.$('.tlui-main-toolbar'))?.boundingBox();
       expect(overlaps(box, side), `under the panel at ${size.width}x${size.height}: ${JSON.stringify(box)}`).toBe(false);
@@ -378,8 +391,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         const near = await page.evaluate((c: Cam) => ({ x: Math.round(700 / c.z - c.x), y: Math.round(400 / c.z - c.y) }), camera);
         const second = await exec(rect(near.x, near.y, 'beside'), 'reveal-stays');
         expect(second.ok, second.error).toBe(true);
-        await page.waitForTimeout(700);
-        expect((await view(page, second.result)).camera).toEqual(camera);
+        expect((await settled(page, second.result)).camera).toEqual(camera);
       }
       await context.close();
     }
