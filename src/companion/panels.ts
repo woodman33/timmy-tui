@@ -16,6 +16,7 @@ import type express from 'express';
 import type { WorkspaceFrame } from '../contracts/workspace.js';
 import type { ActiveProject } from '../project/index.js';
 import { mountVoxPanel } from './panels/vox.js';
+import type { InventorySource } from './panels/tools.js';
 import { mountToolsPanel } from './panels/tools.js';
 import { mountStudioPanel } from './panels/studio.js';
 import { mountCreatePanel } from './panels/create.js';
@@ -33,6 +34,10 @@ export interface PanelContext {
   /** R8 (H155): the workspace frame of a project, as the page's GET /api/workspace makes it (src/companion/workspace.ts: one
    *  made in the last moment answers again); absent: a panel that would say the frame's words says it has none. */
   frame?: (project: ActiveProject) => Promise<WorkspaceFrame>;
+  /** R11 Phase 2 (H171): a project's Tools & integrations inventory (a test's FAKE rows, in the capability inventory's shape)
+   *  with one sentence of how it was read; absent: src/capabilities inventory({ env, cwd }) (files, settings and receipts;
+   *  nothing run). */
+  inventory?: (project: ActiveProject) => Promise<InventorySource>;
 }
 
 /** Mounts every panel's routes (server.ts calls it once, after the workspace routes and before the page's own). */

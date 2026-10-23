@@ -2,6 +2,8 @@
 // Everything the shell renders derives from these, so the budget caps are
 // testable without a terminal attached.
 import { theme } from '../theme.js';
+import { readCatalogCache } from '../../models/catalog.js';
+import { modelPrice } from '../../agent/model-price.js';
 import { truncateVisible } from './text.js';
 
 export const HEADER_ROWS = 1; // strict 1-line status bar
@@ -32,14 +34,21 @@ export const footerKeysLine = (width: number): string => {
   return truncateVisible(width >= 66 ? FOOTER_KEYS : compact, width);
 };
 
-/** model switching lives strictly in the ^K palette (v1.0.2) */
-export const PALETTE_MODELS = [
-  { id: 'anthropic/claude-opus-4.7', label: 'Claude 4.7 Opus · reasoning' },
-  { id: 'openai/gpt-5.5', label: 'GPT-5.5 · general' },
-  { id: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash · fast' },
-  { id: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6 · long-context' },
-  { id: 'qwen/qwen-2.5-coder-32b-instruct', label: 'Qwen 2.5 Coder · open weights' }
-];
+/**
+ * model switching lives strictly in the ^K palette (v1.0.2). R11 Phase 2 (H169, item b): the palette's models were five paid
+ * names typed into the code; now they are read from the OpenRouter catalog this computer keeps (src/models/catalog.ts: fetched
+ * by `timmy models --refresh`, else the one shipped with Timmy): the free ones, up to eight, each labelled with its price words.
+ * No catalog: an empty list (the palette offers no model it cannot name).
+ */
+export function paletteModels(env: Record<string, string | undefined> = process.env): Array<{ id: string; label: string }> {
+  try {
+    const kept = readCatalogCache(env);
+    if (!kept) return [];
+    return kept.cache.models.map((m) => m.id).filter((id) => modelPrice(id, kept.cache).free === true).sort().slice(0, 8)
+      .map((id) => ({ id, label: `${id} · free (OpenRouter catalog of ${kept.cache.fetchedAt.slice(0, 10)})` }));
+  } catch { return []; }
+}
+export const PALETTE_MODELS = paletteModels();
 
 /** Active Pane Invariant: focused card theme.lineFocus + ◆; others theme.line. */
 export function chromeFor(active: boolean): { border: string; title: string; glyph: string; bold: boolean } {

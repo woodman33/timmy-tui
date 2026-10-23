@@ -210,6 +210,8 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     // the newest calls, from the records
     await page.waitForSelector(`[data-call-row="${id}"]`, { timeout: 15_000 });
     expect(await text(`[data-call-row="${id}"]`)).toMatch(new RegExp(`^\\d\\d:\\d\\d:\\d\\d fake_echo node fake-fixture-server\\.(ts|js) sdk ● answered \\d.* ✓ receipt ${rid} verified this page shown$`));
+    // (the route's row says the last call once the page has read its records back after the call: a second read, waited for)
+    await page.waitForFunction(() => /● answered/.test(document.querySelector('[data-route="sdk"]')?.textContent ?? ''), null, { timeout: 20_000 });
     expect(await text('[data-route="sdk"]')).toMatch(new RegExp(`● answered \\d\\d:\\d\\d:\\d\\d · fake_echo · ✓ receipt ${rid} verified`));
     await cap('h142-04-call-sdk-result-and-receipt');
     expect(errors).toEqual([]);
@@ -232,6 +234,7 @@ describe.skipIf(!browserPath)('the Tools & MCP panel in a real browser: servers,
     expect(await page.$eval('[data-tools-receipt]', (el) => el.getAttribute('data-verified'))).toBe('yes');
     const chain = readChain('runs', root);
     expect(verifyReceiptIn(chain, chain.find((r) => r.hash.slice(7, 15) === rid)!.hash).ok).toBe(true);
+    await page.waitForFunction(() => /● answered/.test(document.querySelector('[data-route="mcporter"]')?.textContent ?? ''), null, { timeout: 20_000 });
     expect(await text('[data-route="mcporter"]')).toMatch(new RegExp(`● answered \\d\\d:\\d\\d:\\d\\d · fake_measure · ✓ receipt ${rid} verified`));
     await cap('h142-05-call-mcporter-result-and-receipt');
     expect(errors).toEqual([]);

@@ -13,6 +13,8 @@ import { freeOnlyOn, freeOnlyRefusal, modelPrice, type ModelPrice } from './mode
 // R10 (H169): the route policy (free-only and local-only) every model call is checked against
 import { checkRoute, localOnlyOn, policyRefusalLines, type RoutePolicy } from './route-policy.js';
 import { atWords, cloudModelTag, listOllamaModels, listProblem, modelFacts, ollamaAt, PULL_WORDS, validOllamaModelName, type ListedModel, type OllamaAt } from '../setup/ollama-models.js';
+// R11 Phase 2 (H169, item c): the words of Ollama's cloud route (src/models/catalog.ts: the shared contract)
+import { OLLAMA_CLOUD_TERMS, ollamaCloudRoute } from '../models/catalog.js';
 // R4 (H103): types only, so a surface can read the route (its header) without loading the agent or the local client
 import type { LocalChatRoute, LocalTurnResult } from './local-chat.js';
 import type { LastResortAnswer } from './core.js';
@@ -69,7 +71,8 @@ export function localRouteWords(r: Local): string {
   if ('error' in r.at) return 'chat: local · the Ollama address is not usable · /setup chat';
   if (!r.model) return 'chat: local · no model chosen · /model';
   const where = r.at.loopback ? 'Ollama' : `Ollama at ${r.at.host} (not this computer)`;
-  return r.cloud ? `chat: ${r.model} · ${where}, cloud-backed` : `chat: local ${r.model} · ${where}`;
+  // R11 Phase 2 (H169, item c): a ":cloud" name runs on Ollama's servers under the person's Ollama account, through this Ollama
+  return r.cloud ? `chat: ${ollamaCloudRoute(r.model)}${r.at.loopback ? '' : ` through the ${where}`}` : `chat: local ${r.model} · ${where}`;
 }
 
 /** The agent's route for a turn, or why there is none (the lines a message gets instead of a turn). */
@@ -228,10 +231,14 @@ export function fallbackRoute(fb: LastResortAnswer): NonNullable<TurnFacts['rout
 export function sealedRoute(route: LocalChatRoute, last: LocalTurnResult | null): NonNullable<TurnFacts['route']> {
   const at = ollamaAt(route.host);
   const local = last ? last.localEndpoint : !('error' in at) && at.loopback && !cloudModelTag(route.model);
+  // R11 Phase 2 (H169, item c): a model that ran on Ollama's servers (its name says cloud, or Ollama said so for the turn):
+  // the receipt names the route ("ollama cloud") and its endpoint 'cloud'; its cost basis stays unknown (never no charge)
+  const cloud = last ? last.cloud : cloudModelTag(route.model);
   return {
-    host: 'error' in at ? route.host : at.host, endpoint: local ? 'local' : 'remote',
+    host: 'error' in at ? route.host : at.host, endpoint: local ? 'local' : cloud ? 'cloud' : 'remote',
     tools: last ? (last.toolsOn ? 'on' : 'off') : 'unknown', ...(last?.actualModel ? { modelResolved: last.actualModel } : {}),
     costBasis: local ? 'local endpoint' : 'unknown',
+    ...(cloud ? { route: 'ollama cloud' as const } : {}),
   };
 }
 
@@ -283,11 +290,13 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
       quiet(`  /model lists what it has. ${PULL_WORDS}`),
     ];
   }
-  // what the model can do, asked of Ollama now (a turn asks again)
+  // what the model can do, asked of Ollama now: this choice's one /api/show, kept for the session's turns (R28: a turn asks
+  // no /api/show again while Ollama keeps answering); a fresh choice asks afresh
   let tools = 'tool calls: checked at the next message';
-  const { showModel, LocalChatError } = await import('./local-chat.js');
+  const { forgetShownModel, showModelOnce, LocalChatError } = await import('./local-chat.js');
   try {
-    const shown = await showModel(r.at, chosen.name, undefined, 5000);
+    forgetShownModel(r.at, chosen.name);
+    const { shown } = await showModelOnce(r.at, chosen.name, undefined, 5000);
     tools = shown.capabilities === null ? 'tool calls: Ollama does not say' : shown.capabilities.includes('tools') ? 'takes tool calls' : 'does not take tool calls: turns run without tools';
   } catch (err) {
     tools = err instanceof LocalChatError ? `tool calls: not known (${err.message.split('\n')[0]})` : tools;
@@ -295,7 +304,7 @@ export async function localModelCommand(args: string, r: Local, o: { set: (model
   o.set(chosen.name);
   out.push([{ text: `  ${o.glyphs.ok} `, role: 'verified' }, { text: 'Chat model ' }, { text: `${r.model ?? 'none'} ${o.glyphs.arrow} `, role: 'secondary' }, { text: chosen.name, role: 'strong' }, { text: ' for this session', role: 'secondary' }]);
   out.push(quiet(`  ${modelFacts(chosen, r.at)} · ${tools}`));
-  if (chosen.cloud) out.push([{ text: '  Cloud-backed: Ollama sends the chat off this computer, and no cost comes back (unknown).', role: 'estimate' }]);
+  if (chosen.cloud) out.push([{ text: `  Ollama cloud: ${chosen.name} ${OLLAMA_CLOUD_TERMS}. Ollama sends the chat off this computer; no cost comes back (unknown).`, role: 'estimate' }]);
   out.push(quiet('  /setup chat keeps a model for every start.'));
   return out;
 }

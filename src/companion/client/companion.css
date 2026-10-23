@@ -1014,6 +1014,38 @@ body.slate-absent p { max-width: 72ch; }
 .tools-step.is-verified .tools-step-n { color: var(--timmy-live); }
 .tools-grid { flex: 0 0 calc(100% - 46px); min-height: 340px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; }
 .tools-grid > .box { margin-top: 8px; min-height: 0; }
+/* R11 Phase 2 (H171): the capabilities' cards, one per row, in the terminal's groups; they stack on a phone */
+.tools-capsbox { flex: 0 0 auto; }
+.tools-caps .tl-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
+.tools-caps .tl-words { font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); max-width: 100ch; }
+.tools-caps .tl-ctl { display: flex; align-items: center; gap: 10px; }
+.tools-caps .tl-at, .tools-caps .tl-legend, .tools-caps .tl-note { font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.tools-caps .tl-legend { margin-top: 6px; }
+.tools-caps .tl-legend strong { color: var(--timmy-text); font-weight: var(--timmy-weight-body); }
+.tools-caps .tl-note { margin-top: 4px; }
+.tl-group { margin-top: 14px; }
+.tl-group-k { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--timmy-text-secondary); }
+.tl-cards { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.tl-card { padding: 12px 14px; border: 1px solid var(--timmy-line-strong); border-radius: 3px; background: var(--timmy-surface); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tl-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tl-name { font-size: 14px; font-weight: var(--timmy-weight-strong); color: var(--timmy-text); min-width: 0; overflow-wrap: anywhere; }
+.tl-chip { flex-shrink: 0; padding: 2px 8px; border: 1px solid var(--timmy-line-strong); border-radius: 2px; font-size: 13px; white-space: nowrap; color: var(--timmy-text-secondary); }
+/* green (.is-verified) only for the exercised word: a verified sealed receipt; a file found or a setting set is in the text colour */
+.tl-chip.is-verified { color: var(--timmy-live); border-color: var(--timmy-live); }
+.tl-chip.is-configured, .tl-chip.is-available { color: var(--timmy-text); }
+.tl-chip.is-none { color: var(--timmy-text-secondary); }
+.tl-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; }
+.tl-fact { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 0 8px; color: var(--timmy-text); }
+.tl-fact[data-tl-ok="0"] .tl-fact-w { color: var(--timmy-text-secondary); }
+.tl-mark.is-ok { color: var(--timmy-text); }
+.tl-mark.is-verified { color: var(--timmy-live); }
+.tl-mark.is-no { color: var(--timmy-text-secondary); }
+.tl-fact-w { overflow-wrap: anywhere; }
+.tl-next { font-size: 13px; line-height: 1.5; color: var(--timmy-text); }
+.tl-next.is-none { color: var(--timmy-text-secondary); }
+.tl-next-k { letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text-secondary); margin-right: 4px; }
+.tl-next-where { color: var(--timmy-text-secondary); }
+@media (max-width: 720px) { .tl-cards { grid-template-columns: minmax(0, 1fr); } .tl-card-head { flex-wrap: wrap; } }
 .tools-callsbox, .tools-frame-cols { flex: 0 0 auto; }
 .tools-frame-cols { margin-bottom: 4px; }
 .tools-frame-cols > .box { max-height: 46vh; }
