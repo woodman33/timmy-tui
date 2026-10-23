@@ -10,7 +10,7 @@
  *                    operations (.timmy/operations), its jobs' events (start, blocks, end: the Activity strip's) and the
  *                    store's other events (`timmy events`). The selected row has its raw line under it; the Inspector has it
  *                    whole (the order: "keep raw logs alongside summaries").
- *   (b) sequence     the selected row's operation as cards: .intent → .predict → sandbox / run → .receipt, from its record and
+ *   (b) sequence     the selected row's operation as cards: .intent → .predict → run → .receipt, from its record and
  *                    its receipts. .intent and .predict amber; a receipt green only when verifyReceiptIn confirms it against
  *                    this reading's chain; a step with no record says "not recorded", never invented.
  *   (c) raw output   the selected run's own log (the job's log file), its last lines, each cut at the column's edge.
@@ -515,6 +515,9 @@ export function chainLine(ch: ChainCheck, g: Glyphs, w: number): Line {
 export interface Stage {
   name: 'intent' | 'predict' | 'run' | 'receipt';
   label: string;
+  /** R11 (H167, step 3d): a plain word beside the label on the card ("Prediction, sealed before the run"), said only when
+   *  the records bear it out; its wordings the fullest first, the card takes the first its edge holds whole */
+  plain?: readonly string[];
   /** the card's edge and its label: amber for .intent and .predict, green for a verified receipt, amber ✕ for what failed,
    *  grey for structure, quiet for what is not recorded */
   role: Role;
@@ -542,7 +545,7 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
   const started = job ? Date.parse(job.row.startedAt) : Number.NaN;
   // .intent: the operation's request, from its record
   const intent: Stage = op?.record
-    ? { name: 'intent', label: '.intent', role: 'accent', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
+    ? { name: 'intent', label: '.intent', plain: ['The request, as recorded', 'The request'], role: 'accent', note: opId, rows: [[S(op.record.request, 'text')], [S(`${VIA[op.record.via] ?? op.record.via} ${g.sep} ${clock(op.record.started)}`, 'secondary')]] }
     : op?.unreadable
       ? { name: 'intent', label: '.intent', role: 'failure', note: opId, rows: [[S(`${g.fail} its record could not be read`, 'failure')], [S(op.why ?? '', 'secondary')]] }
       : notRecorded('intent', '.intent', `no .timmy/operations/${opId}.json in this project`);
@@ -558,13 +561,15 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
       ? (at <= started ? [S('sealed before the run started', 'text')] : [S(`${g.fail} sealed after the run started`, 'failure')]) : [S(`sealed ${clock(p.ts)}`, 'text')];
     const what = p.prediction ? `${p.prediction.doc} › ${p.prediction.block}: ${p.prediction.order.join(` ${g.arrow} `)}`
       : p.fleet ? `${p.fleet.workers} workers, ${p.fleet.isolation} on ${p.fleet.backend}${p.fleet.simulation ? ' (simulation)' : ''}` : p.subject;
+    const before = Number.isFinite(started) && Number.isFinite(at) && at <= started;
     predict = {
-      name: 'predict', label: '.predict', role: 'accent', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
+      name: 'predict', label: '.predict', plain: before ? ['Prediction, sealed before the run', 'Sealed before the run', 'Prediction'] : ['Prediction'], role: 'accent', note: `#${d.seq.get(p.hash) ?? '?'}`, hash: p.hash,
       rows: [order, verdictRow(receiptVerdict(d, p.hash), g), [S(what, 'text')]],
     };
   }
-  // sandbox / run: its job (upmd or another runner on this computer; a sandbox only when a record names one), its fleet
-  // plan (as the plan's files say it, else as its receipts do), or the other runs its record names
+  // run: its job (upmd or another runner on this computer; a sandbox only when a record names one, and the card's plain
+  // word says "no sandbox" when none does: R11 step 3d), its fleet plan (as the plan's files say it, else as its receipts
+  // do), or the other runs its record names
   let run: Stage;
   const box = mine.find((r) => r.openhands)?.openhands;
   const fleet = [...mine].reverse().find((r) => r.fleet)?.fleet;
@@ -574,17 +579,18 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
     const j = job.row;
     const runner = j.kind === 'workflow' ? 'upmd' : `a ${j.kind} job`;
     const failed = j.mark === 'failed';
+    const did = j.live ? 'Running' : failed ? 'Failed' : 'Ran';
     run = {
-      name: 'run', label: 'sandbox / run', role: failed ? 'failure' : 'border', note: j.id,
+      name: 'run', label: 'run', plain: box ? [`${did} in a container`] : [`${did} on this computer; no sandbox`, 'On this computer; no sandbox', 'This computer; no sandbox', 'No sandbox'], role: failed ? 'failure' : 'border', note: j.id,
       rows: [
         [S(j.label, 'text')],
         [S(failed ? `${g.fail} ${j.word}` : j.word, failed ? 'failure' : 'text'), S(` ${g.sep} ${j.live ? `running ${j.elapsed}` : `took ${j.elapsed}`}${j.exitCode !== undefined && j.exitCode !== null ? ` ${g.sep} exit ${j.exitCode}` : ''}`, 'secondary')],
-        [S(box ? `sandbox: container ${box.container} (${box.image})` : `sandbox: none recorded; ${runner} ran it on this computer`, 'secondary')],
+        [S(box ? `container ${box.container} (${box.image})` : `${runner} ${g.sep} this computer ${g.sep} no sandbox`, 'secondary')],
       ],
     };
   } else if (planId && plan) {
     run = {
-      name: 'run', label: 'sandbox / run', role: plan.failed ? 'failure' : 'border',
+      name: 'run', label: 'run', plain: ['A fleet run, as its plan says', 'A fleet run'], role: plan.failed ? 'failure' : 'border',
       rows: [
         [S(`fleet ${planId} ${g.sep} ${plan.simulation ? `${plan.backend} (simulation)` : plan.backend}`, 'text')],
         [S(plan.status, 'text'), S(` ${g.sep} ${plan.delivered} of ${plan.requested} done (not verified)${plan.failed ? `, ${plan.failed} failed` : ''}`, plan.failed ? 'failure' : 'secondary')],
@@ -592,15 +598,15 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
     };
   } else if (fleet) {
     run = {
-      name: 'run', label: 'sandbox / run', role: 'border',
+      name: 'run', label: 'run', plain: ['A fleet run, as its receipts say', 'A fleet run'], role: 'border',
       rows: [[S(`fleet ${fleet.plan} ${g.sep} ${fleet.simulation ? `${fleet.backend} (simulation)` : fleet.backend}`, 'text')], [S(`${fleet.workers} workers, ${fleet.isolation}${fleet.status ? ` ${g.sep} ${fleet.status}` : ''}`, 'secondary')]],
     };
   } else if (op?.runs.length) {
     run = {
-      name: 'run', label: 'sandbox / run', role: 'border',
+      name: 'run', label: 'run', plain: ['Runs its record names'], role: 'border',
       rows: [[S(op.runs.slice(0, 3).map((r) => `${r.kind} ${r.id}`).join(` ${g.sep} `), 'text')], [S('as its operation record names it; its own record is not read here', 'secondary')]],
     };
-  } else run = notRecorded('run', 'sandbox / run', 'no job or run of this operation is recorded');
+  } else run = notRecorded('run', 'run', 'no job or run of this operation is recorded');
   // .receipt: the operation's own receipt (its run's), green only when verifyReceiptIn confirms it now
   const own = [...mine].reverse().find((r) => r.kind === 'workflow' || r.kind === 'fleet.run') ?? [...mine].reverse().find((r) => !PREDICT(r.kind));
   let receipt: Stage;
@@ -612,21 +618,29 @@ export function stagesOf(d: LogsData, opId: string, g: Glyphs): Stage[] {
     const v = receiptVerdict(d, own.hash);
     const st = receiptStatus(own);
     receipt = {
-      name: 'receipt', label: '.receipt', role: v.ok ? 'live' : 'failure', note: `#${d.seq.get(own.hash) ?? '?'}`, hash: own.hash,
+      name: 'receipt', label: '.receipt', plain: ['Receipt, sealed after the run', 'Sealed after the run', 'Receipt'], role: v.ok ? 'live' : 'failure', note: `#${d.seq.get(own.hash) ?? '?'}`, hash: own.hash,
       rows: [[S(`${own.kind} `, 'text'), S(statusText(st, g), toneRole(st.tone)), S(` ${g.sep} ${clock(own.ts)}`, 'secondary')], verdictRow(v, g), [S(receiptSubjectWords(own), 'text')]],
     };
   }
   return [intent, predict, run, receipt];
 }
 
-/** The stages as cards `w` cells wide (the selected row's receipt drawn heavy), each with its first rows only when room is short. */
+/** The stages as cards `w` cells wide (the selected row's receipt drawn heavy), each with its first rows only when room is short.
+ *  R11 (H167, step 3d): the card's title is its label and, beside it, its plain word ("Prediction, sealed before the run")
+ *  where the edge holds both whole; the note (an id) gives way to the word (card drops a note that does not fit). */
 function stageCards(stages: readonly Stage[], w: number, room: number, selHash: string | undefined, g: Glyphs): Line[] {
+  const title = (s: Stage): Seg[] => {
+    const label = S(s.label, s.role === 'secondary' ? 'secondary' : s.role, { bold: s.role !== 'secondary' });
+    // (card's title room is the edge less 5 cells, and the title carries a cell of air each side)
+    const plain = s.plain?.find((p) => lineCells([label]) + 2 + lineCells([S(p)]) + 7 <= w);
+    return plain ? [label, S(`  ${plain}`, 'secondary')] : [label];
+  };
   // as many rows of each as fit: three, then two, then one
   for (const per of [3, 2, 1]) {
     const need = stages.reduce((n, s) => n + 2 + Math.min(per, s.rows.length), 0);
     if (need <= room || per === 1) {
       return stages.flatMap((s) => card({
-        w, g, title: [S(s.label, s.role === 'secondary' ? 'secondary' : s.role, { bold: s.role !== 'secondary' })], ...(s.note ? { note: [S(s.note, 'secondary')] } : {}),
+        w, g, title: title(s), ...(s.note ? { note: [S(s.note, 'secondary')] } : {}),
         body: s.rows.slice(0, per), edge: s.role === 'secondary' ? 'border' : s.role, heavy: !!selHash && s.hash === selHash,
       }));
     }

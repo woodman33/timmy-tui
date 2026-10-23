@@ -402,8 +402,10 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   // (R10 CHAT H167; H168's pass 3b, R21: who answered, said: "Ollama answered 21:59" is the local Ollama answering Models' list,
   // not a turn's time; a key's check is the key's)
   const checkedWho = p === 'ollama-local' ? 'Ollama ' : p === 'cloudflare' ? '' : 'key ';
+  // (R11 H167, step 3; H168's pass 4a R27: while Ollama is being asked, the row says so, not the install's state from the files)
   const word: Seg | null = heard?.state === 'listed' ? S(`Ollama answered ${clock(heard.at ?? new Date(c.now).toISOString()).slice(0, 5)}`, 'live')
     : heard?.state === 'failed' ? S(`Ollama did not answer${heard.at ? ` ${clock(heard.at).slice(0, 5)}` : ''}`, 'failure')
+    : heard?.state === 'reading' ? S('asking Ollama…', 'attention')
       : ps ? S(ps.state === 'checked' && ps.at ? `${checkedWho}checked ${clock(ps.at).slice(0, 5)}` : ps.state, ps.state === 'checked' ? 'live' : ps.state === 'refused' || ps.state === 'unreachable' ? 'failure' : 'secondary') : null;
   if (word && !drawer) put(2, [word]);
   const rule: Line = [S((g.unicode ? '─' : '-').repeat(w), 'border')];
@@ -502,8 +504,9 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     } else at += 3;
   }
   // the list, between `at` and the selected block (two rows a model; one in the drawer), scrolled so the cursor's rows show
+  // (R11 H167, step 3; H168's pass 4a R34: the drawer keeps its last row for what the keys do: Enter chooses, r asks again)
   const listFrom = at;
-  const listRows = Math.max(0, drawer ? n - at : footAt - 1 - at);
+  const listRows = Math.max(0, drawer ? n - 1 - at : footAt - 1 - at);
   const cur = railCursor(c);
   const list: Line[] = [];
   const items: View['items'] = [];
@@ -535,8 +538,12 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     } else list.push(nameRow, [S('  ', 'text', on), S(sub, subRole, on)]);
   });
   if (!rows.length) list.push([S(source === 'openrouter' ? (m?.openrouter ? (ui.modelsSearch ? 'No model matches.' : 'No catalog on this computer.') : 'Reading the catalog...') : m?.ollama?.state === 'listed' ? 'Ollama lists no model.' : '', 'secondary')]);
-  // (under the local list, where it runs: drawn whole below the models shown, or not at all)
-  const tail: Line[] = source === 'ollama-local' && m?.ollama?.state === 'listed' ? wrapText('Runs on this computer. A local model does not require a cloud account.', w).map((t): Line => [S(t, 'secondary')]) : [];
+  // (under the local list, where it runs: drawn whole below the models shown, or not at all. R11 step 3; H168's pass 4a R34:
+  // in the drawer, the refused check's whole words (H170's) first, in up to two rows: the MODEL block that holds them stands
+  // only beside the conversation)
+  const refused = drawer && source === 'ollama-local' && ui.modelCheck && ui.modelCheck.state !== 'ready' && ui.modelCheck.state !== 'checking' && rows.some((r) => r.id === ui.modelCheck?.model) ? ui.modelCheck : null;
+  const reason: Line[] = refused ? wrapText(refused.words.replace(/\s+/g, ' '), w).slice(0, 2).map((t, k, all): Line => [S(k === all.length - 1 && wrapText(refused.words, w).length > 2 ? cut(`${t} ${wrapText(refused.words, w)[2]}`, w, g.ellipsis) : t, 'failure')]) : [];
+  const tail: Line[] = [...reason, ...(source === 'ollama-local' && m?.ollama?.state === 'listed' ? wrapText('Runs on this computer. A local model does not require a cloud account.', w).map((t): Line => [S(t, 'secondary')]) : [])];
   // the list scrolled by whole models (a model's name never left above its facts, nor its facts without their name), the
   // cursor's in view
   const fits = Math.max(1, Math.floor(listRows / per));
@@ -544,6 +551,8 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   const shownRows = list.slice(top, top + (rows.length ? fits * per : listRows));
   const gap = shownRows.length + 2 + tail.length <= listRows ? 2 : shownRows.length + 1 + tail.length <= listRows ? 1 : -1;
   if (tail.length && gap > 0) shownRows.push(...Array.from({ length: gap }, () => blank), ...tail);
+  // (the reason alone, where the sentence under it has no room)
+  else if (reason.length && shownRows.length + 1 + reason.length <= listRows) shownRows.push(blank, ...reason);
   const picked = cur >= 0 ? rows[cur] : undefined;
   if (ui.modelsDetails && picked) {
     // Details: every field the record has, unknown said so, in place of the list and the selected block
@@ -563,7 +572,12 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     return { lines, items: [], listFrom: n, listRows: 0, perItem: per };
   }
   shownRows.forEach((l, k) => put(listFrom + k, l));
-  if (drawer) return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
+  if (drawer) {
+    // R34: the drawer's last row says what the keys do here (words, where the MODEL block's are not drawn)
+    const keys = source === 'ollama-local' ? `Enter chooses ${g.sep} r asks Ollama again ${g.sep} Esc closes` : `Enter chooses ${g.sep} Esc closes`;
+    put(n - 1, [S(keys, 'secondary')]);
+    return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
+  }
   put(footAt, rule);
   // (R10 CHAT H167; H168's pass 3b, R17: with a key and no OpenRouter model chosen, MODEL / none while Models does not have the
   // keyboard: the cursor's row is not a choice)
@@ -685,10 +699,15 @@ function bottomRows(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Lin
   const turn = chatTurnNow(data);
   const runningN = data.activity.running + (turn ? 1 : 0);
   // (R11 step 3b, the plan's section 3: the status words in sentences, not slashes; R17c: a paid route's spend, short)
-  const state = runningN ? ` ${g.sep} ${runningN} running${turn ? ` (the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : ''}` : '';
+  const states = runningN ? [` ${g.sep} ${runningN} running${turn ? ` (the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : ''}`, ` ${g.sep} ${runningN} running${turn && !turn.mine ? ` (in ${turn.where})` : ''}`, ` ${g.sep} ${runningN} running`] : [''];
+  // (the state's fullest form that leaves the size its place at the row's end: at 80x24 "(the chat turn)" gives way)
+  const state = states.find((t) => lineCells([S(`Logs stay on this computer${t}`)]) <= statusRoom(grid.W, grid.H)) ?? states[states.length - 1];
   const rt = routeLine(data);
   const spend = spendWords(rt);
-  const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || turn?.id === ui.flash.whileTurn) ? ui.flash : null;
+  // (R11 H167, step 3; H168's pass 4a R39: a notice from before the turn being answered began gives way to "1 running (the chat
+  // turn)"; one said during it stays its six seconds)
+  const before = !!turn && !!ui.flash && !(ui.flash.whileTurn && ui.flash.whileTurn === turn.id) && ui.flash.at < Date.parse(turn.since);
+  const fresh = ui.flash && !before && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || turn?.id === ui.flash.whileTurn) ? ui.flash : null;
   const picked = ctls[cur];
   const left: Line = fresh ? [S(inWords(fresh.text), fresh.role)] : focused && picked && !picked.on && picked.needs ? [S(`${picked.label}: needs ${picked.needs}`, 'secondary')] : [S(`Logs stay on this computer${state}`, 'secondary')];
   // at its right: cloud sync off, the spend and the terminal's size (the target's), the spend left out where it does not fit

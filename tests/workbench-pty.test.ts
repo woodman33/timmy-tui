@@ -203,7 +203,8 @@ describe('`timmy workbench` in a terminal (tmux; R4 H110)', () => {
     expect(widest(capture('wb-160x45-home'))).toBeLessThanOrEqual(160);
     // 3: Workflows, the tray workflow's blocks in its three columns (R5, H136: the whole width; Context a drawer, i)
     await keys('3');
-    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*SANDBOX/);
+    // (R11 H167 step 3d: the centre column is headed RUN · where it runs, never SANDBOX: none runs in one)
+    const wide = await waitFor(/tray1 \/ Workflows[\s\S]*RUN · where it runs/);
     for (const block of ['change', 'inspect', 'result', 'lesson', 'tidy']) expect(wide).toContain(block);
     expect(wide).toContain('⚠ needs you before it runs');
     expect(wide).toContain(`Stop current: ${id} FAKE job (test): sleep 300`);

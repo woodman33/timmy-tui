@@ -433,6 +433,33 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     expect(set).toEqual([]);
   });
 
+  it('R11 step 3 (H168\'s pass 4a R37): a model Ollama does not hold: "not installed" said in words on the status row, in two flashes, the download command named as the row\'s and the details\' (never read as "Ollama" there)', async () => {
+    const set: string[] = [];
+    const fake = fakeCheck({ 'fake-qwen3:8b': 'not-installed' }, 30);
+    const c = workbench(homeWithModel('notheld', false), { checkLocal: fake.checkLocal, setLocal: async (m: string) => { set.push(m); return { written: [] }; }, blank: async () => false });
+    shown(c);
+    press(c, '', { downArrow: true });
+    let t = press(c, '\r', ENTER);
+    const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
+    for (const end = Date.now() + 10_000; Date.now() < end && !rail(t).includes('> FAKE fake-qwen3:8b'); await sleep(20)) t = shown(c);
+    c.key('\r', ENTER);
+    for (const end = Date.now() + 10_000; Date.now() < end && c.ui.modelCheck?.state !== 'not-installed'; await sleep(20)) t = shown(c);
+    t = shown(c);
+    expect(fake.asked).toEqual(['fake-qwen3:8b']);
+    expect(set).toEqual([]);
+    expect(rail(t)[15]).toBe('  ✕ not installed');
+    expect(rail(t).join(' ').replace(/\s+/g, ' ')).toMatch(/does not have fake-qwen3:8b: ollama pull fake-qwen3:8b downloads it/);
+    expect(c.ui.flash?.text).toBe('Not chosen: fake-qwen3:8b is not installed in Ollama.');
+    expect(c.ui.flash?.role).toBe('failure');
+    expect(cols(t[36], 20, 121)).toMatch(/^Not chosen: fake-qwen3:8b is not installed in Ollama\. +cloud sync off(?: · spend [^·]+)? · 122 x 37$/);
+    // Activity has the whole, once; the second sentence is the next flash (six seconds on)
+    expect(c.data.activity.events[0]?.words ?? c.data.activity.last?.words).toContain('Not chosen: fake-qwen3:8b is not installed in Ollama. Its download command is under it in Models, and in [i].');
+    await sleep(6_200);
+    expect(c.ui.flash?.text).toBe('Its download command is under it in Models, and in [i].');
+    expect(c.ui.focus).toBe('right');
+    expect(c.ui.modelsOpen).toBe(true);
+  }, 20_000);
+
   it('R11 step 1a: a home with no identity yet: the choice sets it up through the setup\'s writer (as timmy init would, by timmy workbench), said on the status row; nothing is sent to a shell', async () => {
     const fake = fakeCheck({ 'fake-qwen3:8b': 'ready' });
     const home = join(box, 'blankhome');
@@ -497,7 +524,9 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
         submit: () => ({ ok: false, words: 'FIXTURE: not taken.' }),
       };
     };
-    const c = workbench(p, {}, { signIn, opener: { program: 'FAKE', open: (href) => { opened.push(href); return { ok: true }; } } });
+    // FAKE: the clipboard escape's writer records what it was given (run.ts writes OSC 52 to the terminal; none here)
+    const copied: string[] = [];
+    const c = workbench(p, {}, { signIn, opener: { program: 'FAKE', open: (href) => { opened.push(href); return { ok: true }; } }, copy: (text) => { copied.push(text); return true; } });
     // every frame drawn here, to read that no step shows what was typed into the hidden field
     const frames: string[] = [];
     const see = (t: string[]): string[] => { frames.push(t.join('\n')); return t; };
@@ -508,16 +537,32 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = see(press(c, '\r', ENTER));
     expect(mid(t)).toContain('Connect OpenRouter');
     expect(mid(t)).toContain('> [ Sign in with OpenRouter ]');
-    // Enter on Sign in: its address, whole; nothing opened
+    // Enter on Sign in: its address, whole (R11 step 3e, H168's R22: its rows read on without a break, no indent); nothing opened
     press(c, '\r', ENTER);
-    for (const end = Date.now() + 5_000; Date.now() < end && !mid(shown(c)).some((r) => r.startsWith('  https://openrouter.ai/auth?')); await sleep(20)) { /* the FAKE sign-in starts */ }
+    for (const end = Date.now() + 5_000; Date.now() < end && !mid(shown(c)).some((r) => r.startsWith('https://openrouter.ai/auth?')); await sleep(20)) { /* the FAKE sign-in starts */ }
     t = see(shown(c));
-    const at = mid(t).findIndex((r) => r.startsWith('  https://openrouter.ai/auth?'));
+    const at = mid(t).findIndex((r) => r.startsWith('https://openrouter.ai/auth?'));
     const rows: string[] = [];
-    for (let k = at; k >= 0 && /^ {2}\S+$/.test(mid(t)[k] ?? ''); k++) rows.push(mid(t)[k].slice(2));
+    for (let k = at; k >= 0 && /^\S+$/.test(mid(t)[k] ?? ''); k++) rows.push(mid(t)[k]);
     expect(rows.join('')).toBe(FIXTURE_URL);
     expect(opened).toEqual([]);
     expect(mid(t)).toContain('> [ Open it in the browser ]');
+    // c: the address to the clipboard through the escape (what is known of the terminal is said; nothing is asked of it)
+    c.ui.clipboard = 'unknown';
+    t = see(press(c, 'c'));
+    expect(copied).toEqual([FIXTURE_URL]);
+    expect(mid(t).join(' ').replace(/\s+/g, ' ')).toContain('The address was sent to the clipboard through OSC 52: the paste shows whether this terminal took it.');
+    c.ui.clipboard = 'yes';
+    t = see(press(c, 'c'));
+    expect(copied).toEqual([FIXTURE_URL, FIXTURE_URL]);
+    expect(mid(t).join(' ').replace(/\s+/g, ' ')).toContain('The address is on the clipboard (OSC 52, which this terminal takes by default).');
+    // a terminal known to take none: nothing is written, and the row says what to do instead
+    c.ui.clipboard = 'no';
+    t = see(press(c, 'c'));
+    expect(copied).toEqual([FIXTURE_URL, FIXTURE_URL]);
+    expect(mid(t).join(' ').replace(/\s+/g, ' ')).toContain('Terminal.app takes no clipboard escape (OSC 52): m gives the mouse back to the terminal to select it, or Open it in the browser.');
+    expect(c.ui.overlay).toMatchObject({ kind: 'connect', step: 'signin' });
+    c.ui.clipboard = 'unknown';
     // Enter on Open: the opener has it, only now
     t = see(press(c, '\r', ENTER));
     expect(opened).toEqual([FIXTURE_URL]);

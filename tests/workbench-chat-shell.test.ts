@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { chatLayout } from '../src/workbench/layout.js';
 import { frameOf } from '../src/workbench/screen.js';
+import { pipelineLines } from '../src/workbench/hub.js';
 import { centerView } from '../src/workbench/views.js';
 import { evidenceSegs, spinnerFrame, toolRuns, turnCost, turnWhere } from '../src/workbench/chat-evidence.js';
 import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, RAIL_GROUPS, spendWords, type CatalogRow } from '../src/workbench/chat-shell.js';
@@ -323,8 +324,9 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(or[6]).toBe('> OpenRouter     Local     Cloud     Cloudflare');
     expect(or[7]).toBe('Search name or model id');
     expect(or.slice(9, 13)).toEqual([expect.stringMatching(/^Sort: recent +Maker: All$/), expect.stringMatching(/^Capability: All +Cost: All$/), 'Context: All', '─'.repeat(62)]);
-    // (R11: three rows of the list under the controls; the Send row and the chip below the drawer)
-    expect(or.slice(14, 17)).toEqual(['> FIXTURE: Newest (free) / 262k context / Free', '  FIXTURE: Middle model / 1M context / price unknown', '  FIXTURE: Older model / 32k context / $0.50 / $1.50']);
+    // (R11: two rows of the list under the controls, then the keys' row (step 3, H168's R34: the drawer's last row says what
+    // Enter does); the Send row and the chip below the drawer)
+    expect(or.slice(14, 17)).toEqual(['> FIXTURE: Newest (free) / 262k context / Free', '  FIXTURE: Middle model / 1M context / price unknown', 'Enter chooses · Esc closes']);
     expect(or[17]).toBe('[ Send ]  Enter or a letter opens the composer');
   });
 
@@ -670,14 +672,24 @@ describe('Connect OpenRouter\'s box (R10 CHAT H167; the lead\'s Mac check of 502
     expect(empty.join('\n')).toMatch(/If the browser is on another computer/);
   });
 
-  it('the sign-in\'s address is shown whole across its rows, with Open, the code\'s field and Cancel', () => {
+  it('the sign-in\'s address is shown whole across its rows, with Open, the code\'s field and Cancel; R11 step 3e (H168\'s R22): its rows read on without a break, and c copies it where the terminal takes OSC 52', () => {
     const url = 'https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A9%2Fopenrouter%2Fcallback%2FFIXTURE-path&code_challenge=FIXTURE-challenge-FIXTURE-challenge-FIXTURE&code_challenge_method=S256';
     const c = center(text(frame(data(NONE), ui({ overlay: box({ step: 'signin', url }) }))));
-    const at = c.findIndex((r) => r.startsWith('  https://'));
+    // (no indent, each row the center's whole 69 cells but the last: a selection of the rows reads on)
+    const at = c.findIndex((r) => r.startsWith('https://'));
     const rows: string[] = [];
-    for (let k = at; k >= 0 && /^ {2}\S+$/.test(c[k] ?? ''); k++) rows.push(c[k].slice(2));
+    for (let k = at; k >= 0 && /^\S+$/.test(c[k] ?? ''); k++) rows.push(c[k]);
     expect(rows.length).toBeGreaterThan(1);
+    expect(rows.slice(0, -1).every((r) => [...r].length === 69)).toBe(true);
     expect(rows.join('')).toBe(url);
+    expect(c[at - 1]).toBe('secret); its rows read on without a break:');
+    // the copy row: what is known of the terminal (nothing asked of it): unknown, known to take it, known not to
+    expect(c.slice(at + rows.length, at + rows.length + 3)).toEqual(['c sends it to the clipboard (OSC 52; the paste shows whether this', 'terminal took it). m gives the mouse back to the terminal to select', 'it.']);
+    const yes = center(text(frame(data(NONE), ui({ overlay: box({ step: 'signin', url }), clipboard: 'yes' }))));
+    expect(yes.slice(at + rows.length, at + rows.length + 2)).toEqual(['c copies it to the clipboard (OSC 52, which this terminal takes by', 'default).']);
+    const no = center(text(frame(data(NONE), ui({ overlay: box({ step: 'signin', url }), clipboard: 'no' }))));
+    expect(no.slice(at + rows.length, at + rows.length + 2)).toEqual(['Terminal.app takes no clipboard escape (OSC 52): m gives the mouse', 'back to the terminal to select it, or Open it in the browser.']);
+    expect(no.join(' ')).not.toMatch(/\bc (?:sends|copies)/);
     expect(c).toContain('> [ Open it in the browser ]');
     expect(c).toContain('  [ Type the code from the browser ]');
     expect(c.join(' ')).toMatch(/Esc cancels the sign-in; nothing is saved then\./);
@@ -1026,5 +1038,91 @@ describe('R11 step 2: H168\'s pass 4a R32: rows above the view are said on the c
     // without Unicode a caret says it
     const ascii = frameOf({ ui: ui(), data: long(), g: glyphsFor(false), columns: 80, rows: 24, now: NOW, can }).screen.map(plain).map((r) => cols(r, 16, 79));
     expect(ascii[7]).toBe('^ 1 earlier message - ^ moves to it');
+  });
+});
+
+describe('R11 step 3d: the classic Chat tab\'s pipeline row says run, never sandbox (none ran); its wording chosen for the row, not cut', () => {
+  type Stage = { state: 'done' | 'none' | 'not run yet' | 'running' | 'failed' | 'unknown'; words: string; verified?: boolean };
+  const st = (state: Stage['state'], words: string, verified?: boolean): Stage => ({ state, words, ...(verified ? { verified } : {}) });
+  const job = { operation: 'o1a2b3c4d', label: 'build.md › build', kind: 'job', intent: st('done', '/run build.md build'), predict: st('done', 'sealed before it ran (rc_x)'), sandbox: st('done', 'upmd ran it on this computer; no sandbox · completed'), receipt: st('done', 'sealed rc_y · verified here', true) };
+  const live = { operation: 'o1a2b3c4d', label: 'chat turn in the Workbench', kind: 'chat', live: true, intent: st('done', 'What does this project do?'), predict: st('none', 'none recorded for this turn'), sandbox: st('running', 'a chat turn in the Workbench, on this computer; no sandbox · being answered'), receipt: st('running', 'not sealed yet: it is being answered') };
+  const failed = { operation: 'o1a2b3c4d', label: 'chat turn in the REPL', kind: 'chat', intent: st('done', 'Hello'), predict: st('none', 'none recorded for this turn'), sandbox: st('failed', 'a chat turn in the REPL, on this computer; no sandbox · failed'), receipt: st('failed', 'sealed rc_z · does not verify: bad link') };
+  const rows = (pipeline: unknown, width: number): string[] => pipelineLines({ g: glyphsFor(true), width, data: { pipeline, jobs: [] }, ui: {}, now: NOW } as never, width).map(plain);
+
+  it('wide (156 cells): the plan\'s whole words on the chip, "ran on this computer; no sandbox"; running and failed say so too', () => {
+    expect(rows(job, 156)[0]).toBe('[intent · recorded] → [predict · sealed before it ran] → [run · ran on this computer; no sandbox] → [✓ receipt · sealed · verified here]');
+    expect(rows(job, 156)[1]).toBe('newest run build.md › build  · [i] its records');
+    expect(rows(live, 156)[0]).toBe('[intent · recorded] → [predict · none sealed] → [run · running on this computer; no sandbox] → [receipt · not sealed yet]');
+    expect(rows(failed, 156)[0]).toBe('[intent · recorded] → [predict · none sealed] → [✕ run · failed on this computer; no sandbox] → [✕ receipt · does not verify]');
+  });
+
+  it('122x37 (118 cells): the chip takes the wording the row holds whole beside the others, never a cut; where it is only "this computer", the row under says the whole', () => {
+    expect(rows(job, 118)[0]).toBe('[intent · recorded] → [predict · sealed before it ran] → [run · this computer] → [✓ receipt · sealed · verified here]');
+    expect(rows(job, 118)[1]).toBe('newest run build.md › build · ran on this computer; no sandbox  · [i] its records');
+    expect(rows(live, 118)[0]).toBe('[intent · recorded] → [predict · none sealed] → [run · running; no sandbox] → [receipt · not sealed yet]');
+    expect(rows(live, 118)[1]).toBe('newest turn in the Workbench · being answered now · asked: What does this project do?  · [i] its records');
+    expect(rows(failed, 118)[0]).toBe('[intent · recorded] → [predict · none sealed] → [✕ run · failed; no sandbox] → [✕ receipt · does not verify]');
+    for (const w of [156, 118, 96, 76]) for (const p of [job, live, failed]) {
+      const [chips, under] = rows(p, w);
+      expect(chips).toMatch(/\[(?:✕ )?run · /);
+      expect(chips).not.toMatch(/\[sandbox/);
+      // the word sandbox only ever says that none ran
+      for (const m of `${chips}\n${under}`.matchAll(/sandbox/g)) expect(`${chips}\n${under}`.slice(Math.max(0, m.index - 3), m.index)).toBe('no ');
+    }
+  });
+
+  it('nothing run yet: every chip says not run yet, the third named run', () => {
+    expect(rows(null, 118)[0]).toBe('[intent · not run yet] → [predict · not run yet] → [run · not run yet] → [receipt · not run yet]');
+  });
+});
+
+describe('R11 step 3: H168\'s pass 4a Low findings on the Chat screen\'s frames: R27, R34, R38, R39', () => {
+  it('R27: Models\' state row says "asking Ollama…" while Ollama is asked, not the install\'s state from the files', () => {
+    const reading = data({ models: { openrouter: { from: 'shipped', at: '2026-09-07', rows: [] }, ollama: { state: 'reading', where: 'Ollama', rows: [] } } } as unknown as Partial<Data>);
+    const m = models(text(frame(reading, ui({ modelsProvider: 'ollama-local', firstRunDone: true }))));
+    expect(m[5]).toBe('asking Ollama…');
+    expect(frame(reading, ui({ modelsProvider: 'ollama-local', firstRunDone: true })).screen[5].find((s) => s.text === 'asking Ollama…')?.role).toBe('attention');
+    expect(m[12]).toBe('ASKING THE LOCAL OLLAMA');
+    expect(m.join('\n')).not.toMatch(/not installed/);
+  });
+
+  it('R34 (80x24): the Models drawer says what the keys do on its last row, and a refused check\'s whole words under the list (the MODEL block is 122x37\'s)', () => {
+    const check = { model: 'fake-qwen3:8b', state: 'not-installed', at: NOW, words: 'Ollama at 127.0.0.1:4463 does not have fake-qwen3:8b: ollama pull fake-qwen3:8b downloads it (its size is as Ollama lists it).' } as Ui['modelCheck'];
+    const t = text(frame(data(), ui({ modelsOpen: true, focus: 'right', modelsProvider: 'ollama-local', modelCheck: check }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(t.slice(10, 17)).toEqual([
+      '> FAKE fake-qwen3:8b / ✕ not installed',
+      '',
+      'Ollama at 127.0.0.1:4463 does not have fake-qwen3:8b: ollama',
+      'pull fake-qwen3:8b downloads it (its size is as Ollama lists…',
+      'Runs on this computer. A local model does not require a cloud',
+      'account.',
+      'Enter chooses · r asks Ollama again · Esc closes',
+    ]);
+    expect(frame(data(), ui({ modelsOpen: true, focus: 'right', modelsProvider: 'ollama-local', modelCheck: check }), 80, 24).screen[12].find((s) => s.text.startsWith('Ollama at'))?.role).toBe('failure');
+    // no refusal: the keys' row alone under the list's sentence; OpenRouter's drawer says its keys too
+    const plain = text(frame(data(), ui({ modelsOpen: true, focus: 'right', modelsProvider: 'ollama-local' }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(plain.slice(10, 17)).toEqual(['> FAKE fake-qwen3:8b / 8B · Q4_K_M', '', '', 'Runs on this computer. A local model does not require a cloud', 'account.', '', 'Enter chooses · r asks Ollama again · Esc closes']);
+    const or = text(frame(data(OPENROUTER), ui({ modelsOpen: true, focus: 'right', modelsCost: 'all' }), 80, 24)).map((r) => cols(r, 16, 79));
+    expect(or[16]).toBe('Enter chooses · Esc closes');
+    expect(or.slice(14, 16)).toEqual(['> FIXTURE: Newest (free) / 262k context / Free', '  FIXTURE: Middle model / 1M context / price unknown']);
+  });
+
+  it('R38: a message is drawn selected only while the conversation has the keyboard and one was chosen; not under the composer, not with Models, not for the cursor alone', () => {
+    const selRows = (u: Ui): number[] => frame(data(), u).screen.map((l, y) => (l.some((s) => s.selected) ? y : -1)).filter((y) => y >= 0);
+    expect(selRows(ui({ cursor: { 'center:chat': 1 }, chosen: { 'center:chat': true } }))).toEqual([10, 11, 12]);
+    expect(selRows(ui({ input: { field: 'composer', text: '' }, cursor: { 'center:chat': 1 }, chosen: { 'center:chat': true } }))).toEqual([]);
+    expect(selRows(ui({ cursor: { 'center:chat': 1 } }))).toEqual([]);
+    // (Models with the keyboard: its own cursor's rows, none of the conversation's)
+    expect(selRows(ui({ focus: 'right', cursor: { 'center:chat': 1 }, chosen: { 'center:chat': true } })).every((y) => y >= 14)).toBe(true);
+  });
+
+  it('R39: a notice from before the turn being answered began gives way to "1 running (the chat turn)"; one said during the turn stays; at 80x24 the state keeps its words whole', () => {
+    const sending = data({ turn: { text: 'Hello', answer: '', state: 'sending', lines: [], sent: true, tools: [], at: NOW - 1500 } } as unknown as Partial<Data>);
+    const older = { text: 'Next turn: fake-qwen3:8b on this computer.', role: 'text', at: NOW - 3000 } as Ui['flash'];
+    expect(cols(text(frame(sending, ui({ flash: older })))[36], 20, 121)).toMatch(/^Logs stay on this computer · 1 running \(the chat turn\) +cloud sync off · 122 x 37$/);
+    expect(cols(text(frame(sending, ui({ flash: { text: 'Said during the turn.', role: 'text', at: NOW - 1000 } })))[36], 20, 121)).toMatch(/^Said during the turn\. +cloud sync off · spend no charge · 122 x 37$/);
+    expect(cols(text(frame(sending, ui({ flash: older }), 80, 24))[23], 16, 79)).toMatch(/^Logs stay on this computer · 1 running +80 x 24$/);
+    // (no turn: the notice stands its six seconds)
+    expect(cols(text(frame(data(), ui({ flash: older })))[36], 20, 121)).toMatch(/^Next turn: fake-qwen3:8b on this computer\. +cloud sync off · spend no charge · 122 x 37$/);
   });
 });

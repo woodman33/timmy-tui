@@ -59,6 +59,7 @@ import { remember as rememberList, resolve, select } from './select.js';
 import type { CompanionControl, StudioControl } from './servers.js';
 import { systemOpener, type Opener } from './servers.js';
 import { startOpenRouterSignIn, type SignIn, type SignInOptions, type SignInResult } from '../setup/openrouter-signin.js';
+import { copiedWords, copyWords, osc52Support } from './clipboard.js';
 import { saveKey } from '../setup/provider-keys.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
@@ -135,6 +136,9 @@ export interface ControllerDeps {
   /** R10 CHAT (H167; H168's pass 3b, R17): Check the key (absent: H170's checkProvider: OpenRouter's key endpoint, no model
    *  called, nothing charged; a test gives a FAKE that asks nothing) */
   checkKey?: (id: 'openrouter') => Promise<ProviderState>;
+  /** R11 (H167, step 3e; H168's R22): puts text on the terminal's clipboard through OSC 52 (run.ts writes the escape to the
+   *  terminal; absent: nothing is sent, and c says so); true when the escape went out */
+  copy?: (text: string) => boolean;
 }
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
@@ -241,6 +245,7 @@ export class Controller {
       input: { field: null, text: '' }, cursor: {}, scroll: {}, sel: {}, anchor: {}, wheel: {}, activityFollow: true, toolsQuery: '',
       flash: null, mouse: false, related: false, settings, saved: null,
       companion: d.companion.state(), studio: d.studio.state(), mine: [], starting: [],
+      clipboard: osc52Support(d.env),
       // R10 CHAT (H167): the Chat screen's shell, unless this Workbench was started for the classic Chat tab
       ...(classic ? { chatClassic: true } : {}),
     };
@@ -2016,6 +2021,16 @@ export class Controller {
     // R10 CHAT (H167): Connect OpenRouter: Enter takes the selected choice; Esc cancels a sign-in under way and closes the box
     if (o.kind === 'connect') {
       if (k.escape) { this.closeConnect(); return true; }
+      // R11 (H167, step 3e; H168's R22): c sends the sign-in address to the clipboard through OSC 52 (the terminal that takes
+      // none is told so instead; a key the terminal may not take is still only an escape written to it, nothing else)
+      if (input === 'c' && o.step === 'signin' && o.url && !k.ctrl && !k.meta) {
+        const support = this.ui.clipboard ?? 'unknown';
+        if (support === 'no') o.note = { text: copyWords('no'), failed: true };
+        else if (this.d.copy?.(o.url)) o.note = { text: copiedWords(support, 'The address') };
+        else o.note = { text: 'Not sent: this Workbench has no terminal to write the clipboard escape to. Select the rows with the mouse, or Open it in the browser.', failed: true };
+        this.emit();
+        return true;
+      }
       if (!k.return) return false;
       const ids = connectChoices(o);
       const id = ids.length ? ids[cursorOf(this.ui, 'overlay', ids.length)] : undefined;
@@ -2337,8 +2352,11 @@ export class Controller {
     if (check.state !== 'ready') {
       // nothing saved: the row says why, the status row too; the selector stays open on it
       this.ui.modelCheck = { model, state: check.state, at: this.now(), words: check.words, why: check.why, origin: check.origin };
-      // (the status row holds a sentence: the row's short words; H170's whole words stand under SELECTED / MODEL)
-      this.say(`Not chosen: ${(checkRowWords(this.ui.modelCheck)?.long ?? check.words).replace(/^✕ /, '')}.`, 'failure');
+      // (the status row holds a sentence: the row's short words; H170's whole words stand under SELECTED / MODEL, and at 80x24
+      // under the drawer's list. R11 step 3; H168's pass 4a R37: "not installed" said in words, the download command named
+      // as the row's and the details' (the status row says no command: "ollama pull <model>" read as "Ollama" there))
+      if (check.state === 'not-installed') this.sayEach([`Not chosen: ${model} is not installed in Ollama.`, 'Its download command is under it in Models, and in [i].'], 'failure');
+      else this.say(`Not chosen: ${(checkRowWords(this.ui.modelCheck)?.long ?? check.words).replace(/^✕ /, '')}.`, 'failure');
       this.emit();
       return;
     }

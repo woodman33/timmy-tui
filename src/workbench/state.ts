@@ -535,8 +535,9 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
 
 /**
  * R5 (H131): the project's newest run as its records say it, for the Chat tab's pipeline row (the operator's references 02 and
- * 11: intent → predict → sandbox → receipt): its operation's request (the operation record), the prediction sealed before it
- * (a `predict` receipt of the operation), what ran it (its job record; a sandbox only when a record names one), and the
+ * 11: intent → predict → run → receipt): its operation's request (the operation record), the prediction sealed before it
+ * (a `predict` receipt of the operation), what ran it (its job record; a sandbox only when a record names one, and none
+ * does yet: R11 step 3d, the words say "no sandbox", never a sandbox), and the
  * operation's own receipt, verified here by `verify` (its chain link, body hash and signature: src/utils/receipts.ts
  * verifyReceiptIn). What no record says is said so; nothing is guessed. Reads only.
  */
@@ -561,7 +562,7 @@ export function readPipeline(root: string, rows: readonly JobRow[], chain: reado
   const runner = job.kind === 'workflow' ? 'upmd' : `a ${job.kind} job`;
   const sandbox: PipelineStage = {
     state: job.live ? 'running' : job.mark === 'failed' ? 'failed' : 'done',
-    words: `none recorded: ${runner} ran it on this computer · ${job.word}`,
+    words: `${runner} ran it on this computer; no sandbox · ${job.word}`,
   };
   // the operation's own receipt: its run's (a workflow's), else its newest that is not the prediction
   const own = [...mine].reverse().find((r) => r.kind === 'workflow') ?? [...mine].reverse().find((r) => r.kind !== 'predict');
@@ -598,7 +599,7 @@ function turnPipeline(root: string, op: string, chain: readonly Receipt[], verif
   const word = t.live ? 'being answered' : t.state ?? 'ended';
   const sandbox: PipelineStage = {
     state: t.live ? 'running' : t.state === 'failed' ? 'failed' : 'done',
-    words: `none recorded: a chat turn in ${where} · ${word}`,
+    words: `a chat turn in ${where}, on this computer; no sandbox · ${word}`,
   };
   const own = [...mine].reverse().find((r) => chatTurnOf(r)) ?? [...mine].reverse().find((r) => r.kind !== 'predict');
   let receipt: PipelineStage;
