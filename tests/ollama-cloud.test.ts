@@ -3,9 +3,13 @@
  * Every request goes to a FAKE fetch handed to it (no request reaches ollama.com); `never` fails the test when anything is
  * asked. The key is a FAKE one, and no word the adapter gives back may carry it.
  */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cloudRouteWords, OllamaCloudError, runOllamaCloudTurn } from '../src/agent/ollama-cloud.js';
+import { cloudRouteWords, OllamaCloudError, ollamaCloudKey, ollamaCloudKeyFrom, runOllamaCloudTurn } from '../src/agent/ollama-cloud.js';
 import { checkRoute, inferenceAt } from '../src/agent/route-policy.js';
+import { keyInUse } from '../src/setup/provider-keys.js';
 
 const KEY = 'FAKE-ollama-cloud-key-0001';
 const OFF = { freeOnly: false, localOnly: false };
@@ -83,5 +87,27 @@ describe('Ollama Cloud: its own route, labelled cloud, apart from the local one'
       return new Response(body, { status: 200 });
     }) as unknown as typeof fetch;
     await expect(runOllamaCloudTurn({ model: 'm', history: [], key: KEY, policy: OFF, fetch: slow, signal: stop.signal })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('reads the key the setup keeps (H170\'s keyInUse(\'ollama-cloud\')): OLLAMA_API_KEY first, else providers.json\'s ollama_cloud_api_key, and sends it only in the header', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'h169-cloud-key-'));
+    try {
+      const env: Record<string, string | undefined> = { TIMMY_HOME: home, TIMMY_SETTINGS_DIR: join(home, 'settings') };
+      const keep = (body: Record<string, string>): void => writeFileSync(join(home, 'providers.json'), JSON.stringify(body), { mode: 0o600 });
+      expect([ollamaCloudKey(env), ollamaCloudKeyFrom(env)]).toEqual([null, null]);
+      // the interim field this adapter read before the setup's store landed is not read any more
+      keep({ ollama_api_key: KEY });
+      expect(ollamaCloudKey(env)).toBeNull();
+      keep({ ollama_cloud_api_key: KEY, openrouter_api_key: 'FAKE-openrouter-not-this-one' });
+      expect([ollamaCloudKey(env), ollamaCloudKeyFrom(env)]).toEqual([KEY, 'providers.json']);
+      expect(ollamaCloudKey(env)).toBe(keyInUse('ollama-cloud', env)?.key);
+      expect([ollamaCloudKey({ ...env, OLLAMA_API_KEY: 'FAKE-ollama-cloud-key-env' }), ollamaCloudKeyFrom({ ...env, OLLAMA_API_KEY: 'FAKE-ollama-cloud-key-env' })]).toEqual(['FAKE-ollama-cloud-key-env', 'OLLAMA_API_KEY']);
+      // a turn given no key takes the store's, in the Authorization header only
+      const net = fake(() => ndjson([{ model: 'gpt-oss:120b', message: { role: 'assistant', content: 'FAKE: ok' }, done: true }]));
+      const r = await runOllamaCloudTurn({ model: 'gpt-oss:120b', history: [{ role: 'user', content: 'hi' }], env, policy: OFF, fetch: net.f });
+      expect(r.text).toBe('FAKE: ok');
+      expect(net.calls.map((c) => [c.url, c.auth])).toEqual([['https://ollama.com/api/chat', `Bearer ${KEY}`]]);
+      expect(JSON.stringify(net.calls[0].body)).not.toContain(KEY);
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

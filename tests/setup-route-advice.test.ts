@@ -259,11 +259,13 @@ describe('the setup helper (adviseRoute): three deterministic fixtures, no model
     expect(pick(chatFix({ kind: 'local', ready: true }, down))).toEqual(ADVICE_ACTIONS['ollama-unreachable']);
     const noModel = [{ id: 'ollama' as const, state: 'not set up' as const, words: `answered with no local model: ${(await import('../src/ops/workspace-frame.js')).NO_MODEL_STEP}` }];
     expect(pick(chatFix({ kind: 'local', ready: true }, noModel))).toEqual(ADVICE_ACTIONS['ollama-no-model']);
-    // its own imports: the decision layer's choice set and deterministic path, two word scrubbers, the setup's cloud-tag rule,
-    // and types (erased); no network, file or process module
-    const source = readFileSync(join(start, 'src', 'setup', 'route-advice.ts'), 'utf8');
-    const runtime = [...source.matchAll(/^import (?!type )[^;]*? from '([^']+)';$/gm)].map((m) => m[1]).sort();
-    expect(runtime).toEqual(['../decision/deterministic.js', '../decision/policy.js', '../utils/home-scrub.js', '../utils/redact.js', './ollama-models.js']);
+    // its own imports: the route policy's rule (R10 H169: the shared contract's checkRoute rule, src/agent/route-check.ts, pure),
+    // the decision layer's choice set and deterministic path, two word scrubbers, the setup's cloud-tag rule, and types
+    // (erased); no network, file or process module
+    const runtimeOf = (...rel: string[]): string[] => [...readFileSync(join(start, ...rel), 'utf8').matchAll(/^import (?!type )[^;]*? from '([^']+)';$/gm)].map((m) => m[1]).sort();
+    expect(runtimeOf('src', 'setup', 'route-advice.ts')).toEqual(['../agent/route-check.js', '../decision/deterministic.js', '../decision/policy.js', '../utils/home-scrub.js', '../utils/redact.js', './ollama-models.js']);
+    // and the rule's own: the same cloud-tag rule only (it reads no price, setting or file: the helper gives it the facts)
+    expect(runtimeOf('src', 'agent', 'route-check.ts')).toEqual(['../setup/ollama-models.js']);
   });
 
   it('optional: a decision model scores the same permitted choices only on a configured, authorized zero-cost path', async (ctx) => {

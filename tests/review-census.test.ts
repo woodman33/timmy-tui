@@ -102,7 +102,9 @@ describe('the Workbench leaves nothing behind when it quits (R10, H163)', () => 
       // the pane: the Workbench, then its exit status, then a wait outside the sandbox (so the pane itself is not counted)
       tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'wb', '-x', '122', '-y', '37', '-c', '/', 'sh', '-c',
         'cd "$WB_DIR" && "$WB_NODE" --import "$WB_TSX" "$WB_TIMMY" workbench; echo EXIT=$?; cd /; exec sleep 600');
-      expect(await waitFor(() => /Activity/.test(screen()), 90_000), screen()).toBe(true);
+      // R10 lead (CI at 793fb1c): Timmy opens on the Chat screen now (H167's 6572fd22), whose header says LOCAL RECORDS at
+      // its right; the tabbed Home's Activity is not drawn first any more. c and s stay the Workbench's own keys there.
+      expect(await waitFor(() => /LOCAL RECORDS/.test(screen()), 90_000), screen()).toBe(true);
       await sleep(1500);
       tmux('send-keys', '-t', 'wb', 'c');
       expect(await waitFor(() => opened() >= 1, 30_000), `no launch page for the companion:\n${screen()}`).toBe(true);

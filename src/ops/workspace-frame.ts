@@ -31,6 +31,8 @@ import { cloudroomConfigPath } from '../fleet/cloudroom/config.js';
 import { studioBaseUrl } from '../studio/config.js';
 import { pendingDrafts } from '../studio/boards.js';
 import { freeOnlyOn } from '../agent/model-price.js';
+import { localOnlyOn } from '../agent/route-policy.js';
+import { keyFingerprint, keyInUse, keyWhere } from '../setup/provider-keys.js';
 import { askedCompanionPort } from '../setup/companion-port.js';
 import { runningTurns, surfaceWords, type OtherTurn } from '../agent/chat-turn.js';
 import type { ChatSurface } from '../contracts/chat-session.js';
@@ -79,8 +81,8 @@ export interface ConnectionCheck {
   detail?: string;
   /**
    * R5 lead (the QA round, defect 3; the operator's 22:32 order, item 1): what was asked, as it was set up then: the address
-   * (Ollama's, the companion's, Studio's, the edge's) or, for OpenRouter, the key's fingerprint ("key <12 hex>", never the
-   * key). A check of another address or key than the one set up now says nothing about it (forNow).
+   * (Ollama's, the companion's, Studio's, the edge's) or, for OpenRouter and Ollama Cloud, the key's fingerprint ("key <12 hex>",
+   * never the key). A check of another address or key than the one set up now says nothing about it (forNow).
    */
   asked?: string;
   /**
@@ -401,6 +403,19 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
     configured: ollamaChosen, setupWords: 'optional: run Ollama with a model pulled, then timmy init --chat local --model <name> chooses it for chat',
     setup: ollamaChosen ? 'timmy workspace check' : 'timmy init --chat local --model <name>', check: ol.other ? ol.check : newestObservation(ol.check, 'ollama', recentTurns), now,
     detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)${ol.other ? `; not checked at this address yet (the last check asked ${ol.other})` : ''}`,
+  }));
+  // R10 (H169; the lead's decision of 2026-10-22 18:02, on H170's proposal): Ollama Cloud, Ollama's hosted API, a connection of
+  // its own: remote inference (labelled cloud; local-only refuses it, and free-only too: no price per request is known here),
+  // set up by its key (H170's keyInUse: OLLAMA_API_KEY, else providers.json's ollama_cloud_api_key), observed by a check that
+  // lists its models with that key and runs none (timmy workspace check, or the setup's own: H170's checkProvider), which names
+  // the key's fingerprint. Only where the key is kept is said, never the key.
+  const cloudKey = (() => { try { return keyWhere('ollama-cloud', env, cwd); } catch { return null; } })();
+  const oc = forNow(checks['ollama-cloud'], cloudKey?.fingerprint ?? null);
+  out.push(connectionOf('ollama-cloud', 'Ollama Cloud (cloud models, optional)', {
+    configured: cloudKey !== null,
+    setupWords: 'optional: an Ollama API key from ollama.com/settings/keys, as OLLAMA_API_KEY or saved by the setup in providers.json; remote inference, nothing to download',
+    setup: cloudKey ? 'timmy workspace check' : null, check: cloudKey ? oc.check : undefined, now,
+    detail: `remote inference on ollama.com (cloud, no local weights); ${localOnlyOn(env) ? 'local-only is on, so chat never uses it' : 'local-only refuses it'}; no price per request is known here, so free-only refuses it too${cloudKey ? `; key from ${cloudKey.words}` : ''}${cloudKey && oc.other ? '; not checked with this key yet (the last check asked with another key)' : ''}`,
   }));
   const edge = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
   const cf = forNow(checks.cloudflare, edge);
@@ -779,12 +794,17 @@ export interface CheckDeps {
   /** the companion's /api/auth: its HTTP status, 'refused' when nothing listens, null when nothing answered in time */
   companion?: (baseUrl: string) => Promise<number | 'refused' | null>;
   edge?: (url: string) => Promise<number | null>;
+  /** R10 (H169): the Ollama Cloud key, read only to list its models; never written or printed. Absent: H170's keyInUse */
+  ollamaCloudKey?: () => string | null;
+  /** Ollama Cloud's model list with that key (no model runs, no charge); absent: src/models/ollama-list.ts listOllamaCloudModels */
+  ollamaCloud?: (key: string) => Promise<{ ok: true; models: readonly unknown[] } | { ok: false; why: string; status?: number }>;
 }
 
 /**
  * Asks each service once, with short timeouts, and records what answered: OpenRouter's key endpoint (free), the local
  * Ollama's model list, Timmy Studio's health, the browser companion's token check (a 401 is a companion answering) and,
- * when one is set up, the Cloudflare edge's /health. No model is called and nothing is spent. Returns the record it wrote.
+ * when one is set up, Ollama Cloud's model list with its key (R10 H169) and the Cloudflare edge's /health. No model is called
+ * and nothing is spent. Returns the record it wrote.
  */
 export async function checkConnections(d: CheckDeps = {}): Promise<{ record: ConnectionsRecord; path: string }> {
   const env = d.env ?? process.env;
@@ -822,6 +842,17 @@ export async function checkConnections(d: CheckDeps = {}): Promise<{ record: Con
     : ol.answer?.state === 'listed'
       ? { answer: 'no model', at: stamp(), detail: (await import('../capabilities/ollama-row.js')).ollamaRow(ol as OllamaProbe, { cli: true, base: olAt }).detail, asked: olAt }
       : { answer: 'no answer', at: stamp(), detail: (ol.answer && 'why' in ol.answer ? String(ol.answer.why) : ol.answer?.state) ?? 'no answer', asked: olAt };
+  // R10 (H169): Ollama Cloud, when its key is set up: GET https://ollama.com/api/tags with the key (a list; no model runs,
+  // nothing is charged), recorded as the setup's own check records it (H170's checkProvider: the key's fingerprint as `asked`)
+  const cloudKey = d.ollamaCloudKey ? d.ollamaCloudKey() : (() => { try { return keyInUse('ollama-cloud', env, cwd)?.key ?? null; } catch { return null; } })();
+  if (cloudKey) {
+    const list = d.ollamaCloud ?? (async (k: string) => (await import('../models/ollama-list.js')).listOllamaCloudModels({ key: k, timeoutMs: 5000 }));
+    const r = await list(cloudKey);
+    const asked = keyFingerprint(cloudKey);
+    checks['ollama-cloud'] = r.ok ? { answer: 'accepted', at: stamp(), detail: `it lists ${r.models.length} model${r.models.length === 1 ? '' : 's'}; none was run`, asked }
+      : r.status === 401 || r.status === 403 ? { answer: 'refused', at: stamp(), detail: `HTTP ${r.status}: Ollama refused the key`, asked }
+        : { answer: 'no answer', at: stamp(), detail: r.why, asked };
+  } else delete checks['ollama-cloud'];
   const studio = d.studio ?? (async (u: string) => (await import('../studio/health.js')).studioHealth(u) as Promise<{ state: string; pageConnected?: boolean | null; detail?: string }>);
   const st = await studio(studioBaseUrl(env));
   const studioAsked = surfaceAddress('studio', env);
