@@ -179,10 +179,13 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     for (const label of ['OpenRouter / cloud', 'Ollama / this computer', 'Ollama / cloud', 'Continue without a model', 'Advanced: Cloudflare (optional)']) expect(center.some((r) => r.includes(`[ ${label} ]`)), label).toBe(true);
     expect(center.find((r) => r.includes('[ OpenRouter / cloud ]'))).toBe('> [ OpenRouter / cloud ]');
     // the menu with Chat selected, Models beside, the bottom: the same screen as with a model
-    expect(rows.map((r) => cols(r, 0, 17))[10]).toBe(' > Chat');
+    expect(rows.map((r) => cols(r, 0, 17))[9]).toBe('> Chat');
     expect(cols(rows[4], 92, 121)).toBe('MODELS [M]');
-    expect(cols(rows[35], 20, 121)).toBe('[Attach]  [Tools]  [Plan / Run]  [Permissions]  [Budget]  [Stop]  [Logs]  [Cloudflare]');
-    expect(cols(rows[36], 20, 121)).toMatch(/^Logs: this computer \/ idle .* 122 x 37$/);
+    // (R11 step 3a/3b: the grouped rail, the compact bottom row, the status row in sentences)
+    expect(rows.map((r) => cols(r, 0, 17)).slice(11, 16)).toEqual(['  WORK', '  Files', '  Workflows', '  Runs & receipts', '  Canvas']);
+    expect(cols(rows[34], 0, 17)).toBe('  ? Help  / find');
+    expect(cols(rows[35], 20, 121)).toBe('[Attach]  [Tools]  [Budget]  [Logs]');
+    expect(cols(rows[36], 20, 121)).toMatch(/^Logs stay on this computer .* 122 x 37$/);
     // never the tabbed Home
     expect(screen).not.toMatch(/\[1 Home\]|\/ Home · recent work|Workflow actions/);
     // Models: the four providers and their states, no list, no cursor, nothing SELECTED or "the next turn's" (R30; the local

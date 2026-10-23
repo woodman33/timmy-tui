@@ -256,6 +256,8 @@ export interface View { lines: Line[]; items: Array<{ line: number; item: Item; 
 export type Overlay =
   | null
   | { kind: 'help' }
+  // R11 (H167; step 3a): the Chat screen's finder (/ and the rail's "/ find"): a workspace by its name, the rail's or the plan's
+  | { kind: 'find' }
   | { kind: 'picker' }
   | { kind: 'new'; from?: string }
   | { kind: 'settings' }
@@ -388,7 +390,7 @@ export interface Ui {
   guide?: boolean;
   /** R10 CHAT (H167): the drawer a control of the Chat screen's bottom opened (Logs, Budget; More below WIDE_COLUMNS): over
    *  the conversation, the keyboard staying on that control (↑ ↓ in the drawer, Enter acts, Esc closes it) */
-  shellDrawer?: 'logs' | 'budget' | 'more';
+  shellDrawer?: 'logs' | 'budget' | 'more' | 'tools';
   /** R10 CHAT (H167): the Chat tab as it was before the shell (row 2's actions, the pipeline, the event log), where this
    *  Workbench was started with TIMMY_WORKBENCH_CHAT=classic (the tests that check that layout); else the shell */
   chatClassic?: boolean;

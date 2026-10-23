@@ -95,24 +95,47 @@ const CONVO_AT = 4;
 
 // ── the left rail ──────────────────────────────────────────────────────────────
 
-/** The menu, Chat first; each opens the existing workspace as it is today (Files: the project's files; Connections: Home's
- *  list of them; Logs & records: the turn records, the receipts and the logs). Home is the project selector's, and its key. */
-export const RAIL: ReadonlyArray<{ id: string; label: string; short: string; page: TabId; ws?: WorkspaceId }> = [
-  { id: 'chat', label: 'Chat', short: 'Chat', page: 'chat' },
-  { id: 'studio', label: 'Studio', short: 'Studio', page: 'studio' },
-  { id: 'workflows', label: 'Workflows', short: 'Workflows', page: 'workflows' },
-  { id: 'voxvision', label: 'VoxVision', short: 'VoxVision', page: 'voxvision' },
-  { id: 'motion', label: 'Motion', short: 'Motion', page: 'create' },
-  { id: 'control', label: 'Control Room', short: 'Control', page: 'control' },
-  { id: 'files', label: 'Files', short: 'Files', page: 'logs', ws: 'files' },
-  { id: 'logs', label: 'Logs & records', short: 'Logs', page: 'logs' },
-  { id: 'connections', label: 'Connections', short: 'Connections', page: 'home' },
+/**
+ * R11 (H167; step 3a, the plan's section 2): the rail in four groups with uppercase labels: PROJECT (the switcher, + New),
+ * CHAT, WORK (Files · Workflows · Runs & receipts · Canvas), CREATE (Vision · Motion & 3D) and CONNECT (Models & accounts ·
+ * Tools & integrations · Control Room); a footer "? Help · / find". Each opens the existing workspace as it is today, renamed
+ * (`label` is the plan's name, the companion's and the finder's; `wide` fits the 18-column rail's 16 cells, `short` the
+ * 14-column rail's 12): Files the project's files; Runs & receipts the turn records, the receipts and the logs (today's Logs
+ * & records); Canvas Studio's outline (Studio · Show opens it in the browser); Vision VoxVision; Motion & 3D the 3D and
+ * motion apps; Models & accounts Home's connections (the keys and the servers; Models itself is M); Tools & integrations the
+ * Tools & MCP page; Control Room the jobs, turns and decisions.
+ */
+export interface RailItem { id: string; label: string; wide: string; short: string; page: TabId; ws?: WorkspaceId }
+export const RAIL_GROUPS: ReadonlyArray<{ label: string | null; items: readonly RailItem[] }> = [
+  { label: null, items: [{ id: 'chat', label: 'Chat', wide: 'Chat', short: 'Chat', page: 'chat' }] },
+  { label: 'WORK', items: [
+    { id: 'files', label: 'Files', wide: 'Files', short: 'Files', page: 'logs', ws: 'files' },
+    { id: 'workflows', label: 'Workflows', wide: 'Workflows', short: 'Workflows', page: 'workflows' },
+    { id: 'logs', label: 'Runs & receipts', wide: 'Runs & receipts', short: 'Runs', page: 'logs' },
+    { id: 'studio', label: 'Canvas', wide: 'Canvas', short: 'Canvas', page: 'studio' },
+  ] },
+  { label: 'CREATE', items: [
+    { id: 'voxvision', label: 'Vision', wide: 'Vision', short: 'Vision', page: 'voxvision' },
+    { id: 'motion', label: 'Motion & 3D', wide: 'Motion & 3D', short: 'Motion & 3D', page: 'create' },
+  ] },
+  { label: 'CONNECT', items: [
+    { id: 'connections', label: 'Models & accounts', wide: 'Models & keys', short: 'Models', page: 'home' },
+    { id: 'tools', label: 'Tools & integrations', wide: 'Tools & MCP', short: 'Tools', page: 'tools' },
+    { id: 'control', label: 'Control Room', wide: 'Control Room', short: 'Control', page: 'control' },
+  ] },
 ];
 
-/** The rail's items, in order: the project selector, New project, the menu, then Help. */
-export const RAIL_ITEMS: readonly string[] = ['project', 'new', ...RAIL.map((r) => r.id), 'help'];
+/** The rail's menu items in order (the groups flattened). */
+export const RAIL: ReadonlyArray<RailItem> = RAIL_GROUPS.flatMap((x) => x.items);
 
-/** The rail's rows from row 3 to the screen's last (`railW` cells each; its separator is the caller's). */
+/** The rail's items, in order: the project selector, New project, the menu, then Help and the finder. */
+export const RAIL_ITEMS: readonly string[] = ['project', 'new', ...RAIL.map((r) => r.id), 'help', 'find'];
+
+/**
+ * The rail's rows from row 3 to the screen's last (`railW` cells each; its separator is the caller's): the groups with a
+ * blank row between them where the rows allow (the target's 122x37), packed where they do not (80x24: 21 rows), the footer
+ * on the third row from the end. The item shown is marked "> " and amber, the cursor's row on the selection's ground.
+ */
 function railLines(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Line[]; items: View['items'] } {
   const { g, data, ui } = c;
   const wide = grid.railW >= 18;
@@ -126,17 +149,34 @@ function railLines(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Line
     lines[row] = line;
     if (id) items.push({ line: row, item: { kind: 'action', key: `rail:${id}`, action: id } });
   };
-  put(1, null, [S('  '), S('PROJECT', focused ? 'accent' : 'secondary', { bold: focused })]);
+  const label = (row: number, text: string): void => put(row, null, [S('  '), S(text, focused ? 'accent' : 'secondary', { bold: focused })]);
+  // the footer, and whether the groups get their blank rows: PROJECT's three rows, a blank, then the groups (a label row
+  // and its items, a blank between groups) must end above the footer's blank row
+  const footAt = rows - 3;
+  const groupRows = RAIL_GROUPS.reduce((n, x) => n + (x.label ? 1 : 0) + x.items.length, 0);
+  const roomy = 6 + groupRows + (RAIL_GROUPS.length - 1) + 1 <= footAt;
+  label(1, 'PROJECT');
   const name = cut(data.project.name, grid.railW - (wide ? 6 : 3), g.ellipsis);
   put(2, 'project', [S('  '), S(name, 'strong', on('project')), S(wide ? ' v' : '', 'secondary', on('project'))]);
-  put(4, 'new', [S('  '), S(wide ? '+ New project' : '+ New', 'text', on('new'))]);
-  RAIL.forEach((r, k) => {
-    const shown = ui.page === r.page && (r.id === 'files' ? ui.workspace === 'files' : r.id === 'logs' ? ui.workspace !== 'files' : true);
-    const label = cut(wide ? r.label : r.short, grid.railW - 3, g.ellipsis);
-    const o = { ...(shown ? { bold: true } : {}), ...on(r.id) };
-    put(7 + k, r.id, [S(shown ? ' > ' : '   ', shown ? 'accent' : 'text', o), S(label, shown ? 'accent' : 'text', o)]);
+  put(roomy ? 4 : 3, 'new', [S('  '), S(wide ? '+ New project' : '+ New', 'text', on('new'))]);
+  let row = roomy ? 6 : 5;
+  RAIL_GROUPS.forEach((gr, k) => {
+    if (k && roomy) row += 1;
+    if (gr.label) { label(row, gr.label); row += 1; }
+    for (const r of gr.items) {
+      const shown = ui.page === r.page && (r.id === 'files' ? ui.workspace === 'files' : r.id === 'logs' ? ui.workspace !== 'files' : true);
+      const text = cut(wide ? r.wide : r.short, grid.railW - 2, g.ellipsis);
+      const o = { ...(shown ? { bold: true } : {}), ...on(r.id) };
+      put(row, r.id, [S(shown ? '> ' : '  ', shown ? 'accent' : 'text', o), S(text, shown ? 'accent' : 'text', o)]);
+      row += 1;
+    }
   });
-  put(rows - 3, 'help', [S('  '), S('? Help', 'secondary', on('help'))]);
+  // (R11 step 3a: the footer, Help and the finder, each a target of its own)
+  const help: Seg = S('? Help', 'secondary', on('help'));
+  const find: Seg = S(wide ? '/ find' : '/', 'secondary', on('find'));
+  put(footAt, 'help', [S('  '), help, S('  '), find]);
+  items.push({ line: footAt, item: { kind: 'action', key: 'rail:find', action: 'find' }, x: { from: 2 + lineCells([help]) + 2, to: 2 + lineCells([help]) + 2 + lineCells([find]) - 1 } });
+  items[items.length - 2].x = { from: 2, to: 2 + lineCells([help]) - 1 };
   return { lines, items };
 }
 
@@ -579,23 +619,48 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
 /** A control of this conversation: its words, whether a capability backs it now, and what it needs when not. */
 export interface ShellControl { id: string; label: string; count?: number; on: boolean; needs?: string }
 
-/** This conversation's actions, in the target's order and words, each backed by a real capability (or saying what it
- *  needs): Attach, Tools, Plan / Run, Permissions (what waits on you), Budget, Stop (while a turn runs), Logs, Cloudflare. Below
- *  WIDE_COLUMNS: Tools, Budget, Logs and More. */
+/**
+ * R11 (H167; step 3b, the plan's section 2): one compact row of this conversation's actions, each backed by a real capability
+ * (or saying what it needs): Attach, Tools, Budget, Logs. Plan / Run, Permissions (what waits on you) and Cloudflare are
+ * under Tools (its drawer's MORE CONTROLS); Stop lives in the composer ([ Stop ] during the turn, Esc there). Below
+ * WIDE_COLUMNS: Tools, Budget and More (Attach and Logs under it).
+ */
 export function shellControls(c: Pick<ShellCtx, 'data'>, compact = false): ShellControl[] {
   const d = c.data;
-  const turnRuns = d.turn?.state === 'sending' || !!chatTurnNow(d)?.mine;
   const all: ShellControl[] = [
     { id: 'attach', label: 'Attach', on: false, needs: 'the companion: the terminal attaches no files yet' },
-    { id: 'tools', label: 'Tools', on: true },
+    { id: 'tools', label: 'Tools', on: true, ...(d.decisions.total ? { count: d.decisions.total } : {}) },
+    { id: 'budget', label: 'Budget', on: true },
+    { id: 'logs', label: 'Logs', on: true },
+  ];
+  return compact ? [...all.filter((k) => ['tools', 'budget'].includes(k.id)), { id: 'more', label: 'More', on: true }] : all;
+}
+
+/** The controls under Tools' MORE CONTROLS: Plan / Run (Workflows), Permissions (the Control Room, with what waits on you),
+ *  Cloudflare (Models on it). */
+export function toolsControls(c: Pick<ShellCtx, 'data'>): ShellControl[] {
+  const d = c.data;
+  return [
     { id: 'plan', label: 'Plan / Run', on: true },
     { id: 'permissions', label: 'Permissions', on: true, ...(d.decisions.total ? { count: d.decisions.total } : {}) },
-    { id: 'budget', label: 'Budget', on: true },
-    { id: 'stop', label: 'Stop', on: turnRuns, needs: 'a turn being answered here' },
-    { id: 'logs', label: 'Logs', on: true },
     { id: 'cloudflare', label: 'Cloudflare', on: true },
   ];
-  return compact ? [...all.filter((k) => ['tools', 'budget', 'logs'].includes(k.id)), { id: 'more', label: 'More', on: true }] : all;
+}
+
+/**
+ * R11 (H167; step 3e, H168's pass 3c R17c): the next turn's spend in a few words for the status row: no charge on a local
+ * route; a priced OpenRouter model's prices in and out per million tokens ("$0.20 in / $0.80 out per 1M", from the route's
+ * words); free; unknown said so; none with no model (nothing is sent, so nothing is spent).
+ */
+export function spendWords(rt: { model: string | null; price: string }): string {
+  if (!rt.model) return 'none (no model)';
+  if (/^no charge/.test(rt.price)) return 'no charge';
+  const m = /\$([\d.]+) per million tokens in, \$([\d.]+) out/.exec(rt.price);
+  if (m) return `$${m[1]} in / $${m[2]} out per 1M`;
+  if (/^free\b/.test(rt.price)) return 'free';
+  if (/not read here/.test(rt.price)) return 'as OpenRouter lists it';
+  if (/^cost unknown|^unknown/.test(rt.price)) return 'unknown';
+  return rt.price;
 }
 
 /** The bottom's three rows (from the separator's next column to the edge): a rule; the actions ("[Tools]", the selected one
@@ -619,17 +684,17 @@ function bottomRows(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Lin
   });
   const turn = chatTurnNow(data);
   const runningN = data.activity.running + (turn ? 1 : 0);
-  const state = runningN ? `${runningN} running${turn ? ` (the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : ''}` : 'idle';
+  // (R11 step 3b, the plan's section 3: the status words in sentences, not slashes; R17c: a paid route's spend, short)
+  const state = runningN ? ` ${g.sep} ${runningN} running${turn ? ` (the chat turn${turn.mine ? '' : ` in ${turn.where}`})` : ''}` : '';
   const rt = routeLine(data);
-  // (with no model nothing is sent, so nothing is spent: said so, not "unknown")
-  const spend = !rt.model ? 'none (no model)' : /^no charge/.test(rt.price) ? 'no charge' : rt.price;
+  const spend = spendWords(rt);
   const fresh = ui.flash && c.now - ui.flash.at < 6000 && (!ui.flash.whileTurn || turn?.id === ui.flash.whileTurn) ? ui.flash : null;
   const picked = ctls[cur];
-  const left: Line = fresh ? [S(inWords(fresh.text), fresh.role)] : focused && picked && !picked.on && picked.needs ? [S(`${picked.label}: needs ${picked.needs}`, 'secondary')] : [S(`Logs: this computer / ${state}`, 'secondary')];
+  const left: Line = fresh ? [S(inWords(fresh.text), fresh.role)] : focused && picked && !picked.on && picked.needs ? [S(`${picked.label}: needs ${picked.needs}`, 'secondary')] : [S(`Logs stay on this computer${state}`, 'secondary')];
   // at its right: cloud sync off, the spend and the terminal's size (the target's), the spend left out where it does not fit
   const margin = grid.W >= WIDE_COLUMNS ? 8 : 3;
   const size = `${grid.W} x ${grid.H}`;
-  const wordsR = [`cloud sync off / spend ${spend} / ${size}`, `cloud sync off / ${size}`].find((t) => lineCells(left) + 2 + t.length <= w - 1 - margin) ?? size;
+  const wordsR = [`cloud sync off ${g.sep} spend ${spend} ${g.sep} ${size}`, `cloud sync off ${g.sep} ${size}`].find((t) => lineCells(left) + 2 + t.length <= w - 1 - margin) ?? size;
   const right: Line = [S(wordsR, 'secondary')];
   // (the size stays at the row's right end whatever stands at its left: a notice too long is cut to leave it room)
   const room = Math.max(4, w - 1 - lineCells(right) - margin - 2);
@@ -654,7 +719,7 @@ const fromWords = (surface: string): string => (surface === 'workbench' ? 'here'
 
 /** The controls More lists: the ones the compact row leaves out, in the row's order. */
 export function moreControls(c: Pick<ShellCtx, 'data'>): ShellControl[] {
-  return shellControls(c, false).filter((k) => !['tools', 'budget', 'logs'].includes(k.id));
+  return shellControls(c, false).filter((k) => !['tools', 'budget'].includes(k.id));
 }
 
 /**
@@ -670,7 +735,7 @@ export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Li
   const items: View['items'] = [];
   const put = (row: number, line: Line): void => { if (row >= 0 && row < n) lines[row] = trimTo(line, w, g.ellipsis); };
   const which = ui.shellDrawer;
-  const title = which === 'logs' ? 'LOGS / this computer' : which === 'budget' ? 'BUDGET / the next turn' : 'THIS CONVERSATION';
+  const title = which === 'logs' ? 'LOGS / this computer' : which === 'budget' ? 'BUDGET / the next turn' : which === 'tools' ? 'TOOLS' : 'THIS CONVERSATION';
   put(1, [S(title, 'accent', { bold: true }), S(' '.repeat(Math.max(1, w - title.length - 9))), S('[ Close ]', 'accent')]);
   put(2, [S((g.unicode ? '─' : '-').repeat(w), 'border')]);
   const cur = ui.cursor.shellDrawer ?? 0;
@@ -698,6 +763,12 @@ export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Li
     // (R10 CHAT H167; the lead's 20:06 note: where each really switches: the REPL, or the environment; not this Workbench)
     wrapText('Each turn\'s cost is sealed on its receipt (Logs & records). Free-only and local-only switch in the REPL (timmy): /model free-only on|off and /model local-only on|off; TIMMY_CHAT_FREE_ONLY=1 or TIMMY_CHAT_LOCAL_ONLY=1 sets one for what runs with it. Settings here does not switch them.', w).slice(0, Math.max(1, n - 11)).forEach((t, k) => put(8 + k, [S(t, 'secondary')]));
     choice(n - 2, 0, 'settings', 'Open settings');
+  } else if (which === 'tools') {
+    // (R11 step 3b: Tools & integrations, the page; then the controls the compact row no longer carries, as their buttons act)
+    choice(4, 0, 'open-tools', 'Open Tools & integrations', 'every tool and MCP server, its rung and its step');
+    put(6, [S('MORE CONTROLS', 'secondary', { bold: true })]);
+    toolsControls(c).forEach((k, i) => choice(7 + i, 1 + i, `ctl:${k.id}`, `${k.label}${k.count ? ` ${k.count}` : ''}`, k.id === 'plan' ? 'Workflows: the blocks, Enter runs one after it asks' : k.id === 'permissions' ? 'the Control Room: what waits on you' : 'Models on Cloudflare (optional)'));
+    wrapText('Stop lives in the composer: [ Stop ] during the turn, or Esc there.', w).slice(0, 2).forEach((t, k) => put(11 + k, [S(t, 'secondary')]));
   } else {
     moreControls(c).forEach((k, i) => choice(4 + i, i, `ctl:${k.id}`, k.label, k.on ? undefined : `needs ${k.needs ?? 'what it names'}`));
   }

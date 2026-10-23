@@ -17,6 +17,7 @@ import { copyStarter } from '../src/project/starters.js';
 import { Workspace } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { Controller, type ControllerDeps } from '../src/workbench/controller.js';
+import { RAIL_ITEMS } from '../src/workbench/chat-shell.js';
 import type { SignIn, SignInResult } from '../src/setup/openrouter-signin.js';
 import type { ChatRouteState, ChatSession, ChatTurnResult } from '../src/contracts/chat-session.js';
 import type { Producers } from '../src/workbench/producers.js';
@@ -161,13 +162,14 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     expect(c.ui.draft).toBe('kept words');
     expect(c.ui.focus).toBe('center');
     expect(cols(t[28], 20, 89)).toBe('› kept words');
-    // Tab: Models, then the bottom; → to Logs (the seventh control); Enter opens its drawer over the conversation
+    // Tab: Models, then the bottom; → to Logs (the fourth control: R11 step 3b's compact row); Enter opens its drawer over the
+    // conversation
     press(c, '', TAB);
     expect(c.ui.focus).toBe('right');
     press(c, '', TAB);
     expect(c.ui.focus).toBe('bottom');
-    for (let i = 0; i < 6; i++) press(c, '', RIGHT);
-    expect(c.ui.cursor.shellBottom).toBe(6);
+    for (let i = 0; i < 3; i++) press(c, '', RIGHT);
+    expect(c.ui.cursor.shellBottom).toBe(3);
     t = press(c, '\r', ENTER);
     expect(c.ui.shellDrawer).toBe('logs');
     expect(cols(t[4], 20, 89)).toMatch(/^LOGS \/ this computer +\[ Close \]$/);
@@ -176,7 +178,7 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = press(c, '', ESC);
     expect(c.ui.shellDrawer).toBeUndefined();
     expect(c.ui.focus).toBe('bottom');
-    expect(c.ui.cursor.shellBottom).toBe(6);
+    expect(c.ui.cursor.shellBottom).toBe(3);
     expect(c.ui.draft).toBe('kept words');
     expect(cols(t[4], 20, 89)).toBe('CHAT / keys');
     // Tab on round to the conversation (the rail first); Enter gives the draft back in the composer
@@ -274,18 +276,23 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     const c = workbench(homeWithModel('mouse'));
     c.ui.mouse = true;
     let t = shown(c);
-    // (1-based cells, as the terminal reports them) the rail's Studio, row 11
+    // (1-based cells, as the terminal reports them) the rail's Canvas (R11 step 3a: WORK's fourth item), row 15
     const click = (col: number, row: number): string[] => { c.mouse({ button: 0, x: col + 1, y: row + 1, press: true }); return shown(c); };
-    expect(cols(t[11], 0, 17)).toBe('   Studio');
-    t = click(5, 11);
+    expect(cols(t[15], 0, 17)).toBe('  Canvas');
+    t = click(5, 15);
     expect(c.ui.focus).toBe('nav');
     expect(c.ui.page).toBe('chat');
-    expect(c.ui.cursor.rail).toBe(3);
+    expect(c.ui.cursor.rail).toBe(6);
+    // the footer's two cells: "? Help" and "/ find" (the finder is its own target)
+    t = click(12, 34);
+    expect(c.ui.cursor.rail).toBe(13);
+    t = click(3, 34);
+    expect(c.ui.cursor.rail).toBe(12);
     // the bottom's [Budget] (its cells in the actions row)
     const budgetAt = [...t[35]].join('').indexOf('[Budget]');
     t = click(budgetAt + 2, 35);
     expect(c.ui.focus).toBe('bottom');
-    expect(c.ui.cursor.shellBottom).toBe(4);
+    expect(c.ui.cursor.shellBottom).toBe(2);
     expect(c.ui.shellDrawer).toBeUndefined();
     // Models' model row (the FAKE list's one, once the deps' FAKE list is read)
     const modelRow = (rows: string[]): number => rows.findIndex((r) => cols(r, 92, 121) === '> FAKE fake-qwen3:8b');
@@ -886,7 +893,8 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     const [from, to, of] = [Number(m![1]), Number(m![2]), Number(m![3])];
     expect(from).toBe(1);
     expect(of).toBeGreaterThan(to);
-    expect(mid(t).join('\n')).toMatch(/Tab +the next pane: the left menu, the conversation,/);
+    // (R11 step 3c: grouped by task: CHAT's keys first; Tab is under MOVING AROUND, on a later page)
+    expect(mid(t).join('\n')).toMatch(/CHAT\nEnter +in the conversation, opens the composer/);
     t = press(c, '', { downArrow: true });
     expect(cols(t[4], 20, 89)).toMatch(new RegExp(`Keys 2–${to + 1} of ${of}$`));
     press(c, '', ESC);
@@ -1157,5 +1165,109 @@ describe('R11 step 2 through the Controller (H167): H168\'s pass 4a Medium findi
     for (const end = Date.now() + 5_000; Date.now() < end && c.data.models?.ollama?.state !== 'failed'; await sleep(20)) shown(c);
     press(c, '\r', ENTER);
     expect(c.ui.flash?.text).toBe('No model is listed here to choose: Ollama did not answer. Start Ollama (ollama serve), then r asks again.');
+  });
+});
+
+describe('R11 step 3 through the Controller (H167): the rail\'s groups, the finder, the Tools drawer', { timeout: 60_000 }, () => {
+  it('the rail: ↓ walks PROJECT, Chat, WORK, CREATE and CONNECT\'s items, Help and the finder; Enter opens each page (Runs & receipts the Logs page, Canvas Studio\'s outline, Models & keys Home\'s connections, Tools & MCP the tools page)', () => {
+    const c = workbench(homeWithModel('rail3'));
+    shown(c);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    expect(c.ui.focus).toBe('nav');
+    const walk = (to: string): void => { while (c.ui.cursor.rail === undefined || RAIL_ITEMS[c.ui.cursor.rail] !== to) press(c, '', { downArrow: true }); };
+    for (const [id, page, ws] of [['logs', 'logs', 'logs'], ['studio', 'studio', 'studio'], ['voxvision', 'voxvision', 'voxvision'], ['connections', 'home', 'connections'], ['tools', 'tools', 'tools'], ['control', 'control', 'control']] as const) {
+      c.selectPage('chat');
+      shown(c);
+      c.ui.focus = 'nav';
+      c.ui.cursor.rail = RAIL_ITEMS.indexOf('project');
+      walk(id);
+      press(c, '\r', ENTER);
+      expect([id, c.ui.page, c.ui.workspace]).toEqual([id, page, ws]);
+    }
+    // Files: the Logs page's Files workspace
+    c.selectPage('chat');
+    shown(c);
+    c.ui.focus = 'nav';
+    c.ui.cursor.rail = RAIL_ITEMS.indexOf('project');
+    walk('files');
+    press(c, '\r', ENTER);
+    expect([c.ui.page, c.ui.workspace]).toEqual(['logs', 'files']);
+    expect(RAIL_ITEMS).toEqual(['project', 'new', 'chat', 'files', 'workflows', 'logs', 'studio', 'voxvision', 'motion', 'connections', 'tools', 'control', 'help', 'find']);
+  });
+
+  it('the finder: / from the conversation (not a letter into the composer: the plan\'s "/ find") opens the box; the words typed name a workspace by the rail\'s or the plan\'s name; Enter opens the first match; Esc closes it', () => {
+    const c = workbench(homeWithModel('find3'));
+    let t = shown(c);
+    press(c, '/');
+    expect(c.ui.overlay).toEqual({ kind: 'find' });
+    expect(c.ui.input).toEqual({ field: 'search', text: '' });
+    t = press(c, 'recei');
+    expect(cols(t[9], 20, 89)).toBe('/ recei');
+    expect(cols(t[11], 20, 89)).toMatch(/^> Logs & Receipts  Runs & receipts · Logs & records  · Logs and/);
+    press(c, '\r', ENTER);
+    expect(c.ui.overlay).toBeNull();
+    expect([c.ui.page, c.ui.workspace]).toEqual(['logs', 'logs']);
+    c.selectPage('chat');
+    shown(c);
+    press(c, '/');
+    press(c, 'canvas');
+    press(c, '\r', ENTER);
+    expect([c.ui.page, c.ui.workspace]).toEqual(['studio', 'studio']);
+    c.selectPage('chat');
+    shown(c);
+    press(c, '/');
+    press(c, 'integrations');
+    expect(cols(shown(c)[11], 20, 89)).toBe('> All tools  Tools & integrations · Tools & MCP  · Tool library');
+    press(c, '', ESC);
+    expect(c.ui.overlay).toBeNull();
+    expect(c.ui.input.field).toBeNull();
+    expect(c.ui.page).toBe('chat');
+    // the rail's "/ find" cell: the same box
+    c.ui.focus = 'nav';
+    c.ui.cursor.rail = RAIL_ITEMS.indexOf('find');
+    press(c, '\r', ENTER);
+    expect(c.ui.overlay).toEqual({ kind: 'find' });
+    press(c, '', ESC);
+  });
+
+  it('the bottom\'s Tools: its drawer, Enter on Open Tools & integrations opens the page; on Permissions the Control Room; on More (80x24) Logs opens its drawer', async () => {
+    const c = workbench(homeWithModel('tools3'));
+    shown(c);
+    press(c, '', TAB);
+    press(c, '', TAB);
+    expect(c.ui.focus).toBe('bottom');
+    press(c, '', RIGHT);
+    expect(c.ui.cursor.shellBottom).toBe(1);
+    let t = press(c, '\r', ENTER);
+    expect(c.ui.shellDrawer).toBe('tools');
+    expect(cols(t[7], 20, 89)).toBe('> [ Open Tools & integrations ]  every tool and MCP server, its rung…');
+    press(c, '', { downArrow: true });
+    press(c, '', { downArrow: true });
+    expect(c.ui.cursor.shellDrawer).toBe(2);
+    press(c, '\r', ENTER);
+    expect(c.ui.shellDrawer).toBeUndefined();
+    expect(c.ui.page).toBe('control');
+    c.selectPage('chat');
+    shown(c);
+    c.ui.focus = 'bottom';
+    c.ui.cursor.shellBottom = 1;
+    press(c, '\r', ENTER);
+    press(c, '\r', ENTER);
+    expect(c.ui.page).toBe('tools');
+    // at 80x24: [Tools] [Budget] [More]; More's Logs opens the Logs drawer
+    c.selectPage('chat');
+    c.frame(80, 24);
+    c.ui.focus = 'bottom';
+    c.ui.cursor.shellBottom = 2;
+    c.key('\r', ENTER);
+    expect(c.ui.shellDrawer).toBe('more');
+    c.frame(80, 24);
+    c.key('', { downArrow: true });
+    c.key('\r', ENTER);
+    expect(c.ui.shellDrawer).toBe('logs');
+    c.key('', ESC);
+    expect(c.ui.shellDrawer).toBeUndefined();
   });
 });

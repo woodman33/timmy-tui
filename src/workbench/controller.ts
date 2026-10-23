@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { ASK_DRAFT, CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, isFirstRun, isWelcome, MODEL_CONTROLS, modelRows, moreControls, NO_ANSWER_NEXT, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, statusRoom, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { ASK_DRAFT, CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, isFirstRun, isWelcome, MODEL_CONTROLS, modelRows, moreControls, NO_ANSWER_NEXT, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, statusRoom, toolsControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { checkProvider, describeCheck, providerStates, type ProviderState } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -52,7 +52,7 @@ import { companionWhat, handoffWords, homeDefault, inWords, routeLine, turnEndNo
 import { openTarget, recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
 import { REGIONS } from './model.js';
-import { NAV_ORDER, type WorkspaceId } from './nav.js';
+import { findWorkspaces, NAV_ORDER, type WorkspaceId } from './nav.js';
 import { OutputWatch } from './output.js';
 import { checkDetail, realProducers, type Loaded, type Producers, type RunDetailOf } from './producers.js';
 import { remember as rememberList, resolve, select } from './select.js';
@@ -1092,9 +1092,10 @@ export class Controller {
     if (k.escape) { this.escape(); return 'Esc'; }
     if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return 'Tab'; }
     // R11 (H167; step 2, H168's pass 4a R29): on the Chat screen the conversation's zone takes a printable key as the start of a
-    // message: the composer opens with it typed after the draft. The two keys the screen names keep their work (M: Models, ?:
-    // Help, "[M] Models" and "? Help" on screen); the first run's question has no composer (its choices take Enter)
-    if (this.chatShell() && !o && this.ui.focus === 'center' && !this.ui.input.field && !k.ctrl && !k.meta && [...input].length === 1 && !/[\x00-\x20\x7f]/.test(input) && input !== 'M' && input !== '?' && !isFirstRun({ ui: this.ui, data: this.data })) {
+    // message: the composer opens with it typed after the draft. The three keys the screen names keep their work (M: Models,
+    // ?: Help, /: the finder; "[M] Models", "? Help" and "/ find" on screen); the first run's question has no composer (its
+    // choices take Enter)
+    if (this.chatShell() && !o && this.ui.focus === 'center' && !this.ui.input.field && !k.ctrl && !k.meta && [...input].length === 1 && !/[\x00-\x20\x7f]/.test(input) && !['M', '?', '/'].includes(input) && !isFirstRun({ ui: this.ui, data: this.data })) {
       this.ui.input = { field: 'composer', text: `${this.ui.draft ?? ''}${input}` };
       delete this.ui.draft;
       this.emit();
@@ -1264,7 +1265,7 @@ export class Controller {
       if (at >= 0 && this.ui.cursor['right:models'] === undefined) this.ui.cursor['right:models'] = at;
     }
     if (this.chatShell() && region === 'bottom' && this.ui.shellDrawer) {
-      const n = this.ui.shellDrawer === 'more' ? moreControls({ data: this.data }).length : 1;
+      const n = this.ui.shellDrawer === 'more' ? moreControls({ data: this.data }).length : this.ui.shellDrawer === 'tools' ? 1 + toolsControls({ data: this.data }).length : 1;
       this.ui.cursor.shellDrawer = Math.max(0, Math.min(n - 1, (this.ui.cursor.shellDrawer ?? 0) + delta));
       this.emit();
       return;
@@ -1477,6 +1478,8 @@ export class Controller {
     if (id === 'project') { this.openPicker(); return; }
     if (id === 'new') { this.openNew(); return; }
     if (id === 'help') { this.open({ kind: 'help' }); return; }
+    // (R11 step 3a: the footer's finder, as / opens it)
+    if (id === 'find') { this.search(); return; }
     const r = RAIL.find((x) => x.id === id);
     if (!r) return;
     if (r.id === 'chat') { this.ui.focus = 'center'; this.emit(); return; }
@@ -1534,11 +1537,11 @@ export class Controller {
     const k = shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS).find((x) => x.id === id);
     if (k && !k.on) { this.say(`${k.label}: needs ${k.needs ?? 'what it names'}.`, 'secondary'); return; }
     switch (id) {
-      case 'tools': this.selectPage('tools'); this.ui.focus = 'center'; break;
       case 'plan': this.selectPage('workflows'); this.ui.focus = 'center'; break;
       case 'permissions': this.selectPage('control'); this.ui.focus = 'center'; break;
-      // (R10 CHAT H167: Logs, Budget and More open their drawer over the conversation; the draft and the keyboard stay)
-      case 'more': case 'logs': case 'budget': this.ui.shellDrawer = id as 'logs' | 'budget' | 'more'; this.ui.cursor.shellDrawer = 0; this.ui.focus = 'bottom'; break;
+      // (R10 CHAT H167: Logs, Budget and More open their drawer over the conversation; the draft and the keyboard stay;
+      // R11 step 3b: Tools too, with the page's opener and the controls the compact row no longer carries)
+      case 'tools': case 'more': case 'logs': case 'budget': this.ui.shellDrawer = id; this.ui.cursor.shellDrawer = 0; this.ui.focus = 'bottom'; break;
       case 'stop': await this.stop(); return;
       case 'cloudflare': this.ui.modelsProvider = 'cloudflare'; this.focusModels(); return;
       default: return;
@@ -1546,14 +1549,21 @@ export class Controller {
     this.emit();
   }
 
-  /** Enter in a drawer of the bottom: Logs' Open Logs & records (the Logs & records workspace), Budget's Open settings, or the
-   *  control More lists (as its button acts); the drawer closes first. */
+  /** Enter in a drawer of the bottom: Logs' Open Logs & records (the Runs & receipts workspace), Budget's Open settings,
+   *  Tools' Open Tools & integrations or one of its MORE CONTROLS, or the control More lists (as its button acts); the drawer
+   *  closes first. */
   private async drawerChoice(): Promise<void> {
     const which = this.ui.shellDrawer;
     const cur = this.ui.cursor.shellDrawer ?? 0;
     delete this.ui.shellDrawer;
     if (which === 'logs') { this.selectPage('logs'); this.ui.focus = 'center'; this.emit(); return; }
     if (which === 'budget') { this.open({ kind: 'settings' }); return; }
+    if (which === 'tools') {
+      if (cur === 0) { this.selectPage('tools'); this.ui.focus = 'center'; this.emit(); return; }
+      const k = toolsControls({ data: this.data })[cur - 1];
+      if (k) await this.shellControl(k.id); else this.emit();
+      return;
+    }
     const k = moreControls({ data: this.data })[cur];
     if (k) await this.shellControl(k.id); else this.emit();
   }
@@ -1602,6 +1612,9 @@ export class Controller {
     // in All tools, from its list, / searches the tools (R4, H112: from the words the search kept). R5 (H131): only from the
     // list: from the actions bar (where the Workbench starts), Context or Activity, / finds a workspace as on every tab
     if (this.ui.workspace === 'tools' && this.ui.focus === 'center') { this.ui.input = { field: 'tools', text: this.ui.toolsQuery }; this.toolsTop(); this.loadFor('tools'); this.emit(); return; }
+    // R11 (H167; step 3a): the Chat screen has no navigation drawer: its finder is a box over the conversation (the rail's
+    // words and the plan's names match: src/workbench/nav.ts findWorkspaces); Enter opens the first match, Esc closes it
+    if (this.chatShell()) { this.open({ kind: 'find' }); this.ui.input = { field: 'search', text: '' }; this.emit(); return; }
     // R5 (H131): the navigation is a drawer at every size: / opens it with its search
     this.ui.navOpen = true;
     this.ui.rightOpen = false;
@@ -1709,7 +1722,7 @@ export class Controller {
         delete this.ui.cursor.top;
       }
       this.ui.input = { field: null, text: '' };
-      if (f === 'picker' || f === 'new') this.ui.overlay = null;
+      if (f === 'picker' || f === 'new' || (f === 'search' && this.ui.overlay?.kind === 'find')) this.ui.overlay = null;
       if (f === 'tools') {
         // R4 (H112; the r26 dry run, where / could not reach the finder from All tools): Esc clears the tools search and,
         // where the navigation is shown, gives it the keyboard, so / finds a workspace in one key (no key changes). Where it
@@ -1785,7 +1798,9 @@ export class Controller {
   private async submit(field: NonNullable<Ui['input']['field']>, text: string): Promise<void> {
     if (field === 'search') {
       const q = text.trim().toLowerCase();
-      const hit = NAV_ORDER.find((id) => this.labelOf(id).toLowerCase().startsWith(q)) ?? NAV_ORDER.find((id) => this.labelOf(id).toLowerCase().includes(q));
+      // (R11 step 3a: the rail's and the plan's names match too: "Runs & receipts", "Canvas", "Models & accounts")
+      const hit = q ? findWorkspaces(q)[0]?.id : undefined;
+      if (this.ui.overlay?.kind === 'find') this.ui.overlay = null;
       // R5 (H131): else a tab by its words ("Logs", "Fleet", "Home")
       const tab = !hit && q ? TABS.find((t) => t.label.toLowerCase().startsWith(q)) ?? TABS.find((t) => t.label.toLowerCase().includes(q)) : undefined;
       this.ui.input = { field: null, text: '' };

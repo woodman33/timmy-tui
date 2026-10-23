@@ -23,7 +23,7 @@ import { evidenceLine, evidenceRows, toolRows, toolRuns } from './chat-evidence.
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
-import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
+import { FAMILY_ROWS, findWorkspaces, GROUP_LABEL, NAV, navItem, NOT_IN_TIMMY, type WorkspaceId } from './nav.js';
 import { limitRows } from './tab-columns.js';
 import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
@@ -1116,26 +1116,34 @@ function connectView(c: ViewCtx, o: ConnectBox): View {
   return { lines, items };
 }
 
-/** R10 CHAT (H167; H168's pass 3a, R10): the Chat screen's keys, as its Help lists them (the tabbed Workbench's are HELP). */
+/** R10 CHAT (H167; H168's pass 3a, R10): the Chat screen's keys, as its Help lists them (the tabbed Workbench's are HELP).
+ *  R11 (H167; step 3c): grouped by task, still one list: a group's name on a row of its own (an empty key column). */
 const CHAT_HELP: ReadonlyArray<[string, string]> = [
-  ['Tab', 'the next pane: the left menu, the conversation, Models (where it shows), the bottom; Shift+Tab the one before. Tab from the composer keeps what is typed as a draft'],
-  ['↑ ↓', 'move in the pane\'s list (k j too). In Models, ↑ above the first model reaches Search and the five filters; ↓ goes back to the list'],
+  ['', 'CHAT'],
+  ['Enter', 'in the conversation, opens the composer (a draft given back); in it, sends; on an answer you selected, its activity (the tools it ran, its receipt); on the welcome\'s choice, that action'],
+  ['a letter', 'in the conversation, opens the composer with it typed (after the draft); M, ? and / keep their work there (named on the screen); the keys below act from the left menu, Models or the bottom'],
+  ['Ctrl+J', 'a new line in the message'],
+  ['Esc', 'leaves the composer with the draft kept, or, while this Workbench\'s turn is answered, stops it; folds an answer\'s activity; closes a drawer or a box, the keyboard back where it was'],
+  ['x', 'from the left menu or the bottom: Stop current, a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked, after a confirm)'],
+  ['', 'MODELS'],
+  ['M', 'Models: beside the conversation, or a drawer below 110 columns ([M] on the screen); Esc gives the keyboard back. From the composer: Tab to the model chip, then Enter'],
   ['← →', 'in Models, the provider (OpenRouter, Ollama local, Ollama cloud, Cloudflare); on a filter, its value'],
-  ['Enter', 'opens or acts: the left menu\'s item; the composer (a draft given back), and in it, sends; on an answer you selected, its activity (the tools, the receipt); in Models, the model under the cursor for the next turn, or a filter\'s next value; a bottom control'],
-  // (R11 H167, step 2; H168's pass 4a R29: in the conversation a letter starts a message; the keys below act from the other panes)
-  ['a letter', 'in the conversation, opens the composer with it typed (after the draft); the keys below act from the left menu, Models or the bottom'],
-  ['Esc', 'closes a drawer or a box, the keyboard back where it was; leaves the composer with the draft kept, or, while this Workbench\'s turn is answered, stops it'],
-  ['M', 'Models: beside the conversation, or a drawer below 110 columns ([M] on the screen); Esc gives the keyboard back'],
-  ['/', 'in Models (OpenRouter), its Search: each key filters, Enter keeps the matches, Esc clears it; elsewhere the finder'],
+  ['↑ ↓', 'in Models, ↑ above the first model reaches Search and the five filters; ↓ goes back to the list. Enter on a model asks Ollama (or the key\'s check) and makes it the next turn\'s'],
+  ['/', 'in Models (OpenRouter), its Search: each key filters, Enter keeps the matches, Esc clears it'],
   ['i', 'in Models, Details of the model under the cursor, and back to the list'],
-  ['Bottom', 'Tools opens Tools & MCP, Plan / Run Workflows, Permissions the Control Room; Logs, Budget and (below 110 columns) More open drawers over the conversation, the draft kept; Cloudflare shows it in Models; Stop stops this Workbench\'s turn; Attach needs the companion'],
-  ['x', 'Stop current: a job of this project, else the chat turn being answered (this Workbench\'s stops here; another surface\'s is asked, after a confirm)'],
-  ['r', 'read the records again, and what the local Ollama lists (Models)'],
+  ['r', 'in Models, asks the local Ollama again (and reads the records again)'],
+  ['', 'MOVING AROUND'],
+  ['Tab', 'the next pane: the left menu, the conversation, Models (where it shows), the bottom; Shift+Tab the one before. Tab from the composer keeps what is typed as a draft'],
+  ['↑ ↓', 'move in the pane\'s list (k j too): the left menu\'s groups (CHAT, WORK, CREATE, CONNECT), the conversation\'s messages, the bottom\'s controls (← → too)'],
+  ['/', 'the finder, a box over the conversation: a workspace by name (Runs & receipts, Canvas, Models & accounts, Tools & integrations…); Enter opens the first match'],
   ['p  n', 'switch project (search, recent, open a folder)  ·  a new blank project'],
   ['1 … 0', 'the other tabs of the Workbench (2 is this Chat screen)'],
   ['?', 'these keys; Esc closes them'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
   ['Mouse', 'a click gives the pane under it the keyboard and selects the row under it (Enter acts); [M], [ Models ], [ Details ] and [ Close ] act as their keys'],
+  ['', 'RUNS'],
+  ['Bottom', 'Attach needs the companion; Tools opens its drawer (Tools & integrations, then Plan / Run, Permissions and Cloudflare); Budget and Logs open drawers over the conversation, the draft kept; below 110 columns More holds Attach and Logs'],
+  ['Runs', 'Runs & receipts (the left menu) lists every turn, run and log with its receipt; Workflows runs a block after it asks; a running turn\'s tools show under the answer as they run'],
 ];
 
 function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
@@ -1148,11 +1156,28 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       // about half the width on Home and Chat)
       // R6 (H141; the interaction review of a77d80d, defect 6): it scrolls from the keyboard, and says how
       lines.push(...wrapSegs([S('Keys', 'strong'), S('  Esc closes. ↑ ↓ (k j) scroll this list, PgUp PgDn a page, Home End to its start or end; the title says which rows show. The mouse clicks what it is on: a workspace, a tab, a row or any [key].', 'secondary')], c.width), blank);
+      let firstGroup = true;
       for (const [k, w] of c.inChat ? CHAT_HELP : HELP) {
+        // (R11 step 3c: a group's name, uppercase, with a blank row before it; the keys under it)
+        if (!k) { if (!firstGroup) lines.push(blank); firstGroup = false; lines.push([S(w, 'secondary', { bold: true })]); continue; }
         const words = wrapText(w, Math.max(8, c.width - KEY_COLUMN));
         words.forEach((r, i) => lines.push(i === 0 ? [S(k.padEnd(KEY_COLUMN), 'action'), S(r, 'text')] : [S(' '.repeat(KEY_COLUMN)), S(r, 'text')]));
       }
       return { lines, items };
+    case 'find': {
+      // R11 (H167; step 3a): the Chat screen's finder: the words typed, then the workspaces they name, best first, each with
+      // the rail's name for it where that differs; Enter opens the first
+      lines.push(...wrapSegs([S('Find a workspace', 'strong'), S('  type its name (the left menu\'s or the plan\'s); Enter opens the first match; Esc closes', 'secondary')], c.width));
+      lines.push([S('/ ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
+      const found = findWorkspaces(ui.input.text);
+      if (!found.length) { lines.push([S(`No workspace is named "${ui.input.text.trim()}". Enter searches All tools for it.`, 'secondary')]); return { lines, items }; }
+      found.forEach((n, i) => {
+        const also = (n.also ?? []).filter((w) => w !== n.label);
+        items.push({ line: lines.length, item: { kind: 'action', key: `find:${n.id}`, action: n.id } });
+        lines.push([S(i === 0 ? '> ' : '  ', 'accent'), S(n.label, i === 0 ? 'accent' : 'text', i === 0 ? { bold: true } : {}), ...(also.length ? [S(`  ${also.join(' · ')}`, 'secondary')] : []), S(`  ${g.sep} ${n.task}`, 'secondary')]);
+      });
+      return { lines, items };
+    }
     case 'picker': {
       lines.push([S('Switch project', 'strong'), S('  type to search; Enter chooses; a path (with /) opens that folder; Esc keeps this one', 'secondary')]);
       lines.push([S('› ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })]);
