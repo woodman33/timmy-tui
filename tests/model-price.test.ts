@@ -110,13 +110,18 @@ describe('the one chat route under free-only', () => {
   it('on: a free model is ready and says free-only; a paid or unknown one is refused on every surface, nothing sent', () => {
     expect(route('acme/zero', 'repl', true).state).toMatchObject({ ready: true, words: expect.stringContaining('· free-only') });
     for (const surface of ['repl', 'workbench', 'companion'] as const) {
-      for (const model of ['acme/paid-1', 'acme/unlisted', null]) {
+      for (const model of ['acme/paid-1', 'acme/unlisted']) {
         const s = route(model, surface, true).state;
         expect(s, `${surface} ${model}`).toMatchObject({ kind: 'openrouter', ready: false });
         expect(s.words).toContain('free-only: not sent');
         expect(s.refusal?.at(-1)).toBe('Nothing was sent to any model.');
         expect(s.refusal?.[2]).toMatch(surface === 'repl' ? /^Try: \/model free/ : /^Try: choose a free model: \/model free in the REPL/);
       }
+      // R11 (H169, Phase 0 item 1): no model at all is refused before the policy is read: nothing is sent to a model nobody chose
+      const none = route(null, surface, true).state;
+      expect(none).toMatchObject({ kind: 'openrouter', ready: false, words: 'chat: OpenRouter · no model chosen' });
+      expect(none.refusal?.[0]).toBe('Error: No model chosen. /model <id> chooses one (/model free lists free ones).');
+      expect(none.refusal?.at(-1)).toBe('Nothing was sent to any model.');
     }
   });
 });

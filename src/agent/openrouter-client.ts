@@ -71,15 +71,12 @@ export async function findModels(filter: {
   return results;
 }
 
+/**
+ * R11 (H169, Phase 0 item 1): there is no default model: '' (none). A model is chosen by a person (Models in the Workbench,
+ * /model <id> in the REPL, timmy init --chat openrouter --model <id>); nothing picks one from the catalog.
+ */
 export async function getDefaultModel(): Promise<string> {
-  try {
-    const models = await fetchModels();
-    const claude = models.find(m => m.id.includes('claude-opus'));
-    if (claude) return claude.id;
-    return 'anthropic/claude-opus-4.7';
-  } catch {
-    return 'anthropic/claude-opus-4.7';
-  }
+  return '';
 }
 
 export function resetClient(): void {

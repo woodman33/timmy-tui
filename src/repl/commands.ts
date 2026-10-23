@@ -445,12 +445,17 @@ export const COMMANDS: SlashCommand[] = [
       if (local) return local.then((lines) => { for (const line of lines) ctx.print(line); });
       const current = ctx.agent.getModel();
       if (!a) {
+        // R11 (H169, Phase 0 item 1): no shipped default: with none chosen, nothing is sent, and this says how to choose one
+        if (!current) {
+          ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: 'none chosen', role: 'strong' }, { text: ' · /model <id> chooses one (/model free lists free ones); nothing is sent until then', role: 'secondary' }]);
+          return void ctx.print(freeOnlyLine());
+        }
         ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
         ctx.print(priceLine(current));
         return void ctx.print(freeOnlyLine());
       }
       ctx.agent.setModel(a);
-      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current} ${ctx.glyphs.arrow} ` }, { text: a, role: 'strong' }]);
+      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current || 'none chosen'} ${ctx.glyphs.arrow} ` }, { text: a, role: 'strong' }]);
       ctx.print(priceLine(a));
       if (freeOnlyOn() && modelPrice(a).free !== true) ctx.print([{ text: `  ${ctx.glyphs.fail} free-only is on, and ${a} is not known to be free: messages will not be sent until you choose a free one.`, role: 'failure' }]);
     },

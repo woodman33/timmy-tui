@@ -111,6 +111,24 @@ export interface RouteNow {
 export const REPL_NO_ROUTE_TRY = 'Try: /setup key (it asks for the key, hidden), or the local model: /setup chat';
 
 /**
+ * R11 (H169, Phase 0 item 1; the operator's order of 2026-10-23: no default paid model anywhere, "Disable an unsafe Send path
+ * rather than using an unchosen model"): a key, and no OpenRouter model chosen for the next turn. Nothing is sent until a
+ * person chooses one; the same words on every surface, each with its own way to choose. The route's words end in
+ * NO_MODEL_CHOSEN_WORDS, so a surface can tell this refusal by them.
+ */
+export const NO_MODEL_CHOSEN_WORDS = 'no model chosen';
+/** The one sentence every surface says (the lead's words; H172's test asserts it on each): the REPL's own way to choose. */
+export const NO_MODEL_CHOSEN_SENTENCE = 'No model chosen. /model <id> chooses one (/model free lists free ones).';
+export const NO_MODEL_CHOSEN_REFUSAL: readonly string[] = [
+  `Error: ${NO_MODEL_CHOSEN_SENTENCE}`,
+  'Cause: an OpenRouter key is set up, and no model is chosen for the next turn: nothing is sent to a model nobody chose.',
+  'Try: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>',
+  'Nothing was sent to any model.',
+];
+/** The refusal in the words of a surface: the REPL's own command is in the sentence already (no Try); elsewhere, where to choose. */
+export const noModelChosenRefusal = (surface: ChatSurface): string[] => NO_MODEL_CHOSEN_REFUSAL.filter((l) => !(surface === 'repl' && /^Try:/.test(l)));
+
+/**
  * R4 (H103): the chat's route from the setup now, in the words of the contract (src/contracts/chat-session.ts): local (the
  * Ollama and model the setup chose: ready, or why not), OpenRouter (a model key is found), or none (no key, and the setup
  * did not choose the local model: refused, nothing sent). `key`: whether a model key is found; `openRouterModel`: the
@@ -159,6 +177,10 @@ export function chatRouteNow(o: {
   }
   const key = o.key ?? (() => { try { return modelKeySource(o.env ?? process.env, o.cwd ?? process.cwd()) !== null; } catch { return false; } })();
   if (key) {
+    // R11 (H169, Phase 0 item 1): a key and no model chosen: refused before anything, on every surface, whatever the policy
+    if (!String(o.openRouterModel ?? '').trim()) {
+      return { route, state: { kind: 'openrouter', words: `${said(chatRoute({ key: true, model: null, short: o.short }))} · ${NO_MODEL_CHOSEN_WORDS}`, ready: false, refusal: noModelChosenRefusal(surface) } };
+    }
     const words = said(chatRoute({ key: true, model: o.openRouterModel ?? null, short: o.short }));
     // R10 (H169): local-only refuses OpenRouter, whatever the model costs
     if (policy.localOnly) {
