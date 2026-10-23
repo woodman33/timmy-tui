@@ -186,6 +186,23 @@ describe('no surface sends to an unchosen paid model (R11 Phase 0; FAKE key, FAK
     expect(loadConfig().model || '', 'the config\'s model with none chosen').toBe('');
   });
 
+  it('a chosen model the FAKE OpenRouter refuses (400): no further request to any paid model; the words name the refusal and the next step', async () => {
+    // the lead's decision (09:05 PT): a chosen model that is refused or fails never falls back to another paid model silently;
+    // the turn ends with the reason and the next step, and a fallback happens only to a free or local model the policy allows,
+    // named in the answer and the receipt as a fallback
+    keyedSetup();
+    process.env.OPENROUTER_MODEL = 'fake-maker/fake-chosen-model';
+    const net = fakeNetwork();
+    const chat = await openChatSession({ project: { name: 'demo', root: project }, surface: 'workbench' });
+    const r = await chat.send('hello', hooks);
+    const or = net.openRouter();
+    expect(or.map((q) => q.model), `requests to the FAKE OpenRouter: ${JSON.stringify(or)}`).toEqual(['fake-maker/fake-chosen-model']);
+    expect(r.status).not.toBe('answered');
+    const said = `${r.text}\n${joined(r.lines)}`;
+    expect(said, 'the refusal, named').toMatch(/FAKE OpenRouter: refused|400/);
+    expect(said, 'the next step').toContain('Choose another model');
+  });
+
   it('control: a model the person chose (OPENROUTER_MODEL) is the one the Workbench session asks for, and no other', async () => {
     keyedSetup();
     process.env.OPENROUTER_MODEL = 'fake-maker/fake-free-model:free';
