@@ -11,7 +11,7 @@ import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, ta
 import type { WorkspaceConnection } from '../contracts/workspace.js';
 import { headerRows, homeSideView, selectedHome } from './home-journey.js';
 import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
-import { chatScreen, convoRowsAt } from './chat-shell.js';
+import { chatScreen, convoRowsAt, firstRowsAt, firstRunLines, isFirstRun, noModelLines, noModelNow } from './chat-shell.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
@@ -248,6 +248,16 @@ export function frameOf(a: FrameAsk): Frame {
  */
 function chatFrame(a: FrameAsk, layout: Layout): Frame {
   const { ui, data, g } = a;
+  // R10 CHAT (H167): the first run's question (no model yet, not answered here), or Chat with no model and nothing said yet:
+  // their choices are the center's items (list center:first); a box over the center (a setup's, a message) is drawn as before
+  if (!ui.overlay && (isFirstRun({ ui, data }) || noModelNow({ ui, data }))) {
+    const first = isFirstRun({ ui, data });
+    const at = first ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
+    const ctx = { ui, data, g, width: a.columns, height: a.rows, now: a.now };
+    const f = first ? firstRunLines(ctx, at.width, at.rows, ui.focus === 'center') : noModelLines(ctx, at.width, ui.focus === 'center');
+    const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
+    return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [] };
+  }
   const at = convoRowsAt(a.columns, a.rows);
   const c: ViewCtx = { ui, data, g, width: at.width, height: at.rows, now: a.now, can: a.can, columns: a.columns, shell: true };
   const view = centerView(c);

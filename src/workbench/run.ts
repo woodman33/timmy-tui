@@ -89,6 +89,8 @@ export async function runWorkbench(): Promise<number> {
   const keyLog = keyLogTo(env.TIMMY_WORKBENCH_KEYLOG);
   const controller = new Controller({
     env, jobsDir, onPath, glyphs, workspace: ws, companion, studio, setMouse, interactive: true, ...(keyLog ? { keyLog } : {}),
+    // R10 CHAT (H167): the Workbench opens on the Chat screen (the first run's question in it while there is no model)
+    opensOn: 'chat',
     capabilities: async () => {
       const { capabilities } = await import('../capabilities/index.js');
       const { liveDeps } = await import('../capabilities/live.js');

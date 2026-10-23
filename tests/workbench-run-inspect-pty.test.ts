@@ -82,7 +82,8 @@ describe.skipIf(!tmuxHere)('the Workbench\'s tab 3 in a real terminal: the newes
     const { op } = await runOf(ws, 'REPORT.md', 'report');
     for (const d of ['tmp', 'settings']) mkdirSync(path.join(s.base, d), { recursive: true });
     const env: NodeJS.ProcessEnv = {
-      ...withoutRunner(s.env), TMPDIR: path.join(s.base, 'tmp'), TIMMY_SETTINGS_DIR: path.join(s.base, 'settings'), XDG_CONFIG_HOME: path.join(s.home, '.config'),
+      // R10 CHAT (H167): the Workbench as it was before the Chat screen (Home first): this file checks a run's detail there
+      ...withoutRunner(s.env), TIMMY_WORKBENCH_CHAT: 'classic', TMPDIR: path.join(s.base, 'tmp'), TIMMY_SETTINGS_DIR: path.join(s.base, 'settings'), XDG_CONFIG_HOME: path.join(s.home, '.config'),
       XDG_DATA_HOME: path.join(s.home, '.local', 'share'), XDG_STATE_HOME: path.join(s.home, '.local', 'state'), XDG_CACHE_HOME: path.join(s.home, '.cache'),
       UPMD_BIN: FAKE_UPMD, OPENROUTER_API_KEY: '', COLORTERM: 'truecolor', TMUX: '', TMUX_TMPDIR: s.base, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8',
     };

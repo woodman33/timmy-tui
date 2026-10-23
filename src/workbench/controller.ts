@@ -93,6 +93,9 @@ export interface ControllerDeps {
   setMouse?: (on: boolean) => void;
   /** an interactive `timmy workbench`: the startup choices apply */
   interactive?: boolean;
+  /** R10 CHAT (H167): the screen the Workbench opens on: Chat (the app's, run.ts, after setup and on every later launch) or
+   *  Home (absent: Home, as before the Chat screen; TIMMY_WORKBENCH_CHAT=classic: Home either way) */
+  opensOn?: 'chat' | 'home';
   /** the app ends with this exit code (after the terminal is restored) */
   onExit?: (code: number, after: string[]) => void;
   stopLeft?: StopDeps['stopLeft'];
@@ -199,18 +202,23 @@ export class Controller {
     const settings = (d.settings?.read ?? (() => readSettings(d.env)))();
     const project = projectView(d.workspace.project, d.env);
     const remembered = settings.settings.rememberLayout ? settings.settings.layouts[project.id] : undefined;
-    // R5 (H131): the Workbench opens on Home (the operator's opening hub, references 01 and 13); the workflow actions have the
-    // keyboard first, their one primary next step selected (Tab: the body). R10 (H167; H168's F11): always on Home, the
-    // project's last tab one key away (rememberLayout keeps Context's tab and Activity, no longer the tab it opens on)
-    const workspace: WorkspaceId = 'connections';
+    // R5 (H131): the Workbench opened on Home (the operator's opening hub, references 01 and 13); R10 (H167; H168's F11): always
+    // on it, the project's last tab one key away (rememberLayout keeps Context's tab and Activity, not the tab it opens on).
+    // R10 CHAT (H167; the operator's order of 2026-10-22 and the lead's Mac check of 4417b2a): it opens on Chat, after setup and
+    // on every later launch (the app's, run.ts: opensOn chat), the conversation having the keyboard (a fresh home: the first
+    // run's question in its center); Home is the project selector's and its key. TIMMY_WORKBENCH_CHAT=classic keeps the
+    // Workbench as it was before the Chat screen (Home first, the classic Chat tab), for the tests that check that; a
+    // Controller made without opensOn (its own tests) opens on Home, as before
+    const classic = d.env.TIMMY_WORKBENCH_CHAT === 'classic';
+    const workspace: WorkspaceId = d.opensOn === 'chat' && !classic ? 'chat' : 'connections';
     this.ui = {
-      page: pageOf(workspace), workspace, focus: 'top', tab: remembered?.tab ?? 'inspector',
+      page: pageOf(workspace), workspace, focus: workspace === 'chat' ? 'center' : 'top', tab: remembered?.tab ?? 'inspector',
       navOpen: false, rightOpen: false, activityOpen: remembered?.activity ?? false, activityAll: false, overlay: null,
       input: { field: null, text: '' }, cursor: {}, scroll: {}, sel: {}, anchor: {}, wheel: {}, activityFollow: true, toolsQuery: '',
       flash: null, mouse: false, related: false, settings, saved: null,
       companion: d.companion.state(), studio: d.studio.state(), mine: [], starting: [],
       // R10 CHAT (H167): the Chat screen's shell, unless this Workbench was started for the classic Chat tab
-      ...(d.env.TIMMY_WORKBENCH_CHAT === 'classic' ? { chatClassic: true } : {}),
+      ...(classic ? { chatClassic: true } : {}),
     };
     this.data = this.emptyData(project);
     // R10 (H163; R9's item B, for the Workbench): the first frame waits on no walk of the project. Its files and workflow
@@ -1103,6 +1111,8 @@ export class Controller {
 
   /** The list a region's cursor moves in. */
   private listOf(region: Region): string {
+    // R10 CHAT (H167): the first run's choices (and Chat with no model's) are a list of their own
+    if (region === 'center' && !this.ui.overlay && this.chatShell() && this.last?.regions.center?.list === 'center:first') return 'center:first';
     if (region === 'center') return this.ui.overlay ? 'overlay' : `center:${this.ui.workspace}`;
     if (region === 'right' && this.chatShell() && !this.ui.rightOpen) return 'right:models';
     if (region === 'right') return this.hubColumn() ? `right:hub-${this.ui.page}` : `right:${this.ui.tab}`;
@@ -1177,6 +1187,7 @@ export class Controller {
   private itemsNow(region: Region): View['items'] | null {
     const c = this.ctx();
     if (region === 'right' && this.chatShell() && !this.ui.rightOpen) return this.last?.regions.right?.items ?? [];
+    if (region === 'center' && this.listOf('center') === 'center:first') return this.last?.regions.center?.items ?? [];
     if (region === 'center') return centerView(c).items;
     if (region === 'right') return this.hubColumn() ? [] : rightView(c).items;
     if (region === 'bottom') return bottomView(c).items;
@@ -1253,6 +1264,40 @@ export class Controller {
           : { state: 'failed', where: list.where, rows: [], at: new Date(this.now()).toISOString(), ...(list.why ? { why: list.why } : {}) };
       } catch (e) { m.ollama = { state: 'failed', where: 'Ollama', rows: [], why: e instanceof Error ? e.message : String(e) }; }
       this.emit();
+    }
+  }
+
+  /**
+   * Enter on a choice of the first run (or of Chat with no model): its own setup, through the paths Timmy has. OpenRouter: the
+   * existing setup's box (timmy init --chat openrouter in a shell asks for the key, hidden; nothing is typed here), Models on
+   * OpenRouter; Ollama on this computer: Models on Ollama local (what it lists: one request to it, no model run; Enter on one
+   * chooses it through the setup's writer); Ollama cloud and Cloudflare: Models on theirs (not set up here, said so); Continue
+   * without a model: Chat with none (a draft kept); the guide shown or hidden; Choose a model: Models has the keyboard; Review
+   * setup choices: the question again. Nothing is sent, signed up or downloaded by any of them.
+   */
+  private async firstChoice(id: string): Promise<void> {
+    const toModels = (p: NonNullable<Ui['modelsProvider']>): void => {
+      this.ui.modelsProvider = p;
+      delete this.ui.cursor['right:models'];
+      this.ui.modelsDetails = false;
+      this.focusModels();
+    };
+    switch (id) {
+      case 'openrouter': this.ui.firstRunDone = true; this.ui.modelsProvider = 'openrouter'; await this.openSetup('init', 'timmy init --chat openrouter'); return;
+      case 'ollama-local': this.ui.firstRunDone = true; toModels('ollama-local'); void this.loadModels(true); return;
+      case 'ollama-cloud': this.ui.firstRunDone = true; toModels('ollama-cloud'); return;
+      case 'cloudflare': toModels('cloudflare'); return;
+      case 'explore':
+        this.ui.firstRunDone = true;
+        delete this.ui.cursor['center:first'];
+        this.ui.focus = 'center';
+        this.say('Chat with no model: project files, logs and records work; a draft is kept until a model is chosen (Models, M).', 'secondary');
+        this.emit();
+        return;
+      case 'guide': this.ui.guide = !this.ui.guide; this.emit(); return;
+      case 'models': toModels(railProvider({ ui: this.ui, data: this.data })); return;
+      case 'review': this.ui.firstRunDone = false; delete this.ui.cursor['center:first']; this.ui.focus = 'center'; this.emit(); return;
+      default: return;
     }
   }
 
@@ -2155,6 +2200,12 @@ export class Controller {
       if (region === 'nav') { this.openRail(RAIL_ITEMS[this.ui.cursor.rail ?? RAIL_ITEMS.indexOf('chat')] ?? 'chat'); return; }
       if (region === 'right' && !this.ui.rightOpen) { await this.chooseFromRail(); return; }
       if (region === 'bottom') { await this.shellControl(shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS)[this.ui.cursor.shellBottom ?? 0]?.id ?? 'tools'); return; }
+      if (region === 'center' && this.listOf('center') === 'center:first') {
+        const items = this.itemsNow('center') ?? [];
+        const it = items[Math.max(0, Math.min(items.length - 1, this.ui.cursor['center:first'] ?? 0))]?.item;
+        if (it?.kind === 'action') await this.firstChoice(it.action);
+        return;
+      }
     }
     if (region === 'nav') { this.ui.focus = 'center'; this.ui.navOpen = false; this.emit(); return; }
     if (region === 'top') {

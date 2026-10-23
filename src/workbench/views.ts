@@ -649,7 +649,7 @@ function chatView(c: ViewCtx): View {
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   if (!shell) lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
-  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet.', 'secondary')]);
+  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S(shell ? 'No conversation is kept in this project yet: Enter writes the first message.' : '  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
   const bodyW = Math.max(8, c.width - 2 - 6);
