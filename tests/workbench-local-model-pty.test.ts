@@ -2,7 +2,8 @@
 // as the rehearsal drives it. `timmy init --yes --chat local --ollama <host>` names a FAKE Ollama on 127.0.0.1 at a port of
 // this test's own (never 11434) and no model; Home's one next step is then "Choose the local model (from what Ollama lists)";
 // Enter on it, with the Workflow actions bar holding the keyboard, opens the box with what THAT Ollama lists; Enter on a model
-// writes it through the setup's own writer: "The chat is set to the local model …". The chat route then reads it.
+// writes it through the setup's own writer (R11 H167, step 1a: after Ollama answered /api/show for it; the status row says
+// "Next turn: … on this computer." and the composer has the keyboard). The chat route then reads it.
 //
 // FAKE here, each said where it is made:
 // - the Ollama: an HTTP server in this test's process, with no model behind it; it answers GET /api/tags with two FAKE models
@@ -33,7 +34,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** The body's left column of a screen (Home's and Chat's box), its rows joined and its runs of spaces as one: each row up to
  *  where the column's border meets the right column's. */
-const leftColumn = (screen: string): string => screen.split('\n').map((row) => { const at = row.search(/┃[│╭╰]/); return at >= 0 ? row.slice(0, at) : row; }).join(' ').replace(/[┃│]/g, ' ').replace(/\s+/g, ' ');
 
 let box = '';
 let repo = '';
@@ -165,15 +165,14 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     expect(asked.slice(before)).toContain('GET /api/tags');
     t.capture('local-model-160x45-02-box-listed-FAKE-ollama');
 
-    // Enter on the first (selected): the setup's answer, through its writer
+    // Enter on the first (selected): R11 (H167, step 1a): the FAKE Ollama is asked for that model (/api/show, no model run),
+    // then the setup's answer through its writer; the box closes, the composer has the keyboard, the status row says the next
+    // turn (no box of what changed any more)
+    const shows = asked.filter((a) => a === 'POST /api/show').length;
     await t.keys('Enter');
-    const done = await t.waitFor(/The chat is set to the local model fake-qwen3:8b/, 'the words of what changed', 20_000);
-    expect(done).toContain('WHAT CHANGED');
-    expect(done).toContain('WHAT DID NOT');
-    // its first line whole, wrapped under itself (it was cut at "the setup's answer…"), and what was written, from ~
-    expect(leftColumn(done)).toContain('The chat is set to the local model fake-qwen3:8b, as the setup\'s answer (written as timmy init --chat local --model writes it).');
-    expect(leftColumn(done)).toMatch(/Written: ~\/work\/\.timmy\/private\/config\.json, ~\/timmy\/setup\.json\./);
-    expect(done).toMatch(/The route as read now: chat: local fake-qwen3:8b · Ollama \(ready\)\./);
+    const done = await t.waitFor(/Next turn: fake-qwen3:8b on this computer\./, 'the next turn said on the status row', 20_000);
+    expect(done).not.toMatch(/LOCAL MODELS \(2\)|WHAT CHANGED|The chat is set to the local model/);
+    expect(asked.filter((a) => a === 'POST /api/show').length).toBeGreaterThan(shows);
     t.capture('local-model-160x45-03-model-set-FAKE-ollama');
     const setup = JSON.parse(readFileSync(join(timmyHome, 'setup.json'), 'utf8')) as { by: string; answers: { chat?: string; model?: string; ollama?: string } };
     expect(setup).toMatchObject({ by: 'timmy workbench', answers: { chat: 'local', model: 'fake-qwen3:8b', ollama: host } });

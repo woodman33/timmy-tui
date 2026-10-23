@@ -24,6 +24,9 @@
  */
 import { readFileSync } from 'node:fs';
 import type { ConnectionCheck, ConnectionsRecord } from '../ops/workspace-frame.js';
+import type { LocalModelCheck } from '../setup/local-model-check.js';
+
+export type { LocalModelCheck };
 
 type Env = Record<string, string | undefined>;
 
@@ -72,8 +75,14 @@ export interface SetupDeps {
   saveModel: (id: string) => Promise<{ path: string }>;
   /** the models the Ollama the setup names lists now (a request to it, no charge) */
   ollama: () => Promise<OllamaList>;
-  /** the local chat's model, written as the setup's answer; the files written. Refused (thrown) before the setup has run. */
-  setLocal: (model: string) => Promise<{ written: string[] }>;
+  /** R11 (H167; step 1a, the operator's first-use failure): the readiness of one local model on the Ollama the setup names,
+   *  now (H170's checkLocalModel: one POST /api/show of that exact name, no model run; it never throws: every outcome is a
+   *  state with words). `signal` cancels the request. */
+  checkLocal: (model: string, signal?: AbortSignal) => Promise<LocalModelCheck>;
+  /** the local chat's model, written as the setup's answer; the files written. R11 (H167; step 1a): on a home with no
+   *  identity yet, the identity is made first, through the same writer as timmy init's, and `identity` says so; before,
+   *  the choice was refused there and the person sent to a shell. */
+  setLocal: (model: string) => Promise<{ written: string[]; identity?: boolean }>;
   /** the connection check (free requests only); the record it wrote, and where */
   check: () => Promise<{ record: ConnectionsRecord; path: string }>;
   /** what `command` (timmy init with its flags; timmy setup and /setup as plain timmy init) asks now */
@@ -147,12 +156,24 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       const local = runs.flatMap((m, i) => { const ok = chat[i]; return ok === 'cloud' ? [] : [{ name: m.name, facts: listedFacts(m, list.at), chat: ok }]; });
       return { where: atWords(list.at), answered: true, models: local, listed: list.models.length, cloud: list.models.length - local.length };
     },
+    checkLocal: async (model, signal) => {
+      const { OLLAMA_DEFAULT, readSetupState } = await import('../setup/questions.js');
+      const { checkLocalModel } = await import('../setup/local-model-check.js');
+      const s = readSetupState(env);
+      // the address the local chat asks (the same one ollama() lists from), so the check is of the Ollama the turn would ask
+      const host = s.providers.ollama ?? s.recorded?.answers.ollama ?? OLLAMA_DEFAULT;
+      return checkLocalModel(model, { env, origin: host, ...(signal ? { signal } : {}) });
+    },
     setLocal: async (model) => {
-      // the writer makes an identity when the home has none: that is the setup's to do, in a shell, never a side effect here
       const { readSetupState } = await import('../setup/questions.js');
-      if (!readSetupState(process.env).identity.exists) throw new Error('Timmy is not set up on this computer yet (it has no identity): timmy init, in a shell, sets it up first');
       const { applySetup } = await import('../utils/init.js');
-      return { written: applySetup({ chat: 'local', model }, { by: 'timmy workbench' }).written };
+      // R11 (H167; step 1a, the lead's brief and his 08:58 word): a home with no identity yet is set up here, as `timmy init
+      // --yes --chat local --model <model>` would set it up, by the same writer (a new ed25519 identity, providers.json with
+      // the Ollama address, setup.json recorded as made by 'timmy workbench', the first project), so the first run never sends
+      // the person to a shell. R10 refused this ("never a side effect here"): the operator's first use ran into that refusal.
+      const fresh = !readSetupState(process.env).identity.exists;
+      const r = applySetup({ chat: 'local', model, ...(fresh ? { identity: 'generate' } : {}) }, { by: 'timmy workbench' });
+      return { written: r.written, ...(fresh ? { identity: true } : {}) };
     },
     check: async () => (await import('../ops/workspace-frame.js')).checkConnections({ env }),
     setupPlan: async (command) => {

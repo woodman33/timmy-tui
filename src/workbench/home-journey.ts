@@ -75,8 +75,9 @@ export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute
   const line = routeLineOf(data);
   // R10 CHAT (H167; H168's pass 3b, R17): the settings' shipped default nobody chose (src/workbench/state.ts
   // unchosenOpenRouterModel, a priced model) is no model for the next turn: none is said, and nothing is sent on it here
+  // (R11 H167; H169's Phase 0 item 1: no shipped default: a key and no model chosen is the route's own refusal, said the same)
   const u = data.route.unchosen;
-  if (u && line.where === 'OpenRouter (cloud)' && (line.model === null || line.model === u)) {
+  if ((u || data.route.noneChosen) && line.where === 'OpenRouter (cloud)' && (line.model === null || line.model === u)) {
     return { ...line, model: null, ready: false, price: 'unknown', why: 'no OpenRouter model chosen yet: Models (M) chooses one' };
   }
   return line;

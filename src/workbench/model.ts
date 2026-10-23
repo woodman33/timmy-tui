@@ -357,6 +357,11 @@ export interface Ui {
   draft?: string;
   /** R10 CHAT (H167): the zone that had the keyboard when M gave it to the Models rail (Esc gives it back) */
   modelsFrom?: Region;
+  /** R11 (H167; step 1a, the operator's first-use failure): the readiness check of the local model last chosen (H170's
+   *  checkLocalModel: one POST /api/show of that exact name, no model run): `checking` while Ollama is asked, then its
+   *  answer, kept until the next choice. The model chip and the chosen row say it in words (B10: never colour alone);
+   *  green only on `ready`, which is Ollama's own answer, with its time. */
+  modelCheck?: { model: string; state: 'checking' | 'ready' | 'not-a-chat-model' | 'not-installed' | 'unreachable'; at: number; words: string; why?: string; origin?: string; /** the setup made the identity on this choice (a home that had none) */ setUp?: boolean };
   /** R10 CHAT (H167): the first run's question answered in this Workbench (a choice made, or Continue without a model; Review
    *  setup choices asks it again). Not kept: a later start with still no model asks it again */
   firstRunDone?: boolean;
