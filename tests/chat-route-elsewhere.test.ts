@@ -99,9 +99,11 @@ describe('timmy init --chat local --model <name> (FAKE Ollama)', () => {
     const down = await init(['--chat', 'local', '--model', 'qwen3:8b', '--ollama', `127.0.0.1:${port}`]);
     expect(down.code).toBe(1);
     expect(down.text).toMatch(/Nothing was written: Ollama at 127\.0\.0\.1:\d+ did not answer .*so Timmy cannot check that it lists qwen3:8b\. Start Ollama/);
+    // R11 (H169, Phase 0 item 1): with --chat openrouter, --model names an OpenRouter model (an id as the catalog names it), so
+    // a local model's name is refused as one, and nothing is written
     const paid = await init(['--chat', 'openrouter', '--model', 'qwen3:8b']);
     expect(paid.code).toBe(2);
-    expect(paid.text).toContain('--model names the local chat\'s model: it goes with --chat local');
+    expect(paid.text).toContain('--model with --chat openrouter takes a model\'s id as the catalog names it');
     expect(existsSync(join(home(), 'setup.json'))).toBe(false);
   });
 

@@ -32,9 +32,20 @@ only the TUI (or a TUI-delegated key) can SIGN it.
 ```
 
 ## Verification
-`/verify` (TUI) or `scripts/timmy-mcp.mjs → timmy_verify` (any MCP client):
-walk each stream, check `prev_hash` linkage and recompute `hash`. A bit-flip
-anywhere breaks the chain at exactly the tampered receipt.
+`/verify` (TUI), `/receipts` (REPL), `timmy verify`, `timmy receipts` or
+`scripts/timmy-mcp.mjs → timmy_verify` (any MCP client): walk each stream,
+check `prev_hash` linkage and recompute `hash`. A bit-flip anywhere breaks the
+chain at exactly the tampered receipt. These check the hash chain only; the
+ed25519 signature of one receipt is checked by `verifyReceiptIn`
+(src/utils/receipts.ts), which `/op`, the Workbench's pipeline row and the
+chat turn's own seal use.
+
+What this proves, exactly: the chain is **tamper-evident**, not tamper-proof.
+The signing key is generated on this machine (`.timmy/keys/ed25519.pem`,
+0600), so a valid signature proves "sealed by this machine's key", not an
+outside identity; a holder of that key could re-sign and re-chain a rewritten
+file without any check here noticing. There is no external anchor,
+transparency log or independent verifier in this tree (see below).
 
 ## Policy tiers (AgentPass)
 T0 read-public · T1 workspace-write · T2 lane-spawn/delegate (TUI approval) ·

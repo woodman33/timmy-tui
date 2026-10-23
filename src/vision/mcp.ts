@@ -1,5 +1,5 @@
 import { getVisionStatus, runVisionInspection, listVisionEvents, recordVisionFeedback,
-  syncVisionEvent, queryCloudVisionEvents, listLearningCandidates } from './runtime.js';
+  syncVisionEvent, queryCloudVisionEvents, listLearningCandidates, visionBridgeAvailability, visionRefusal } from './runtime.js';
 import { loadVisionEnvironment } from './config.js';
 import { getVisionCatalog } from './platform.js';
 import { publicVisionEvent } from './presentation.js';
@@ -18,6 +18,10 @@ export const VISION_TOOLS = [
 ];
 export async function callVisionTool(name: string, args: any = {}) {
   loadVisionEnvironment();
+  // R11 (H170; Phase 0 item 2): while the bridge is absent, every vision tool answers the same structured refusal, before
+  // anything is read, stored or sent (no fake success); a build that ships the bridge takes the switch below as before
+  const a = visionBridgeAvailability();
+  if (!a.available && VISION_TOOLS.some((t) => t.name === name)) return visionRefusal(a, name);
   switch (name) {
     case 'timmy_vision_catalog': return getVisionCatalog();
     case 'timmy_vision_status': return getVisionStatus();

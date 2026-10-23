@@ -28,7 +28,7 @@ import { onlyPorts, recordFetch } from './fixtures/recording-fetch.js';
 // the implementation is the contract's OpenChatSession (a call with { project, surface } alone)
 const contract: OpenChatSession = openChatSession;
 
-const VARS = ['TIMMY_HOME', 'TIMMY_SETTINGS_DIR', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'TIMMY_CHAT_NUM_CTX', 'OLLAMA_HOST'] as const;
+const VARS = ['TIMMY_HOME', 'TIMMY_SETTINGS_DIR', 'OPENROUTER_API_KEY', 'TIMMY_CHAT_MODEL', 'TIMMY_CHAT_NUM_CTX', 'OLLAMA_HOST', 'TIMMY_CHAT_FREE_ONLY'] as const;
 const kept = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
 const fakes: FakeOllama[] = [];
 let box = '';
@@ -312,22 +312,24 @@ describe('a turn on the OpenRouter route (FAKE OpenRouter client)', () => {
     expect(net.requests).toEqual([]);
   });
 
-  it('the last-resort fallback: said beside the answer and sealed with OpenRouter\'s failure; never a cloud-backed model', async () => {
+  it('the last-resort fallback (R11 H169: under free-only only, after the chosen free model, never a paid one): said beside the answer and sealed with OpenRouter\'s failure; never a cloud-backed model', async () => {
+    process.env.TIMMY_CHAT_FREE_ONLY = '1';
     const ollama = await fake({
       models: [{ name: 'kimi-k2:cloud', remote_host: 'https://ollama.com:443' }, { name: 'granite4.2:latest' }],
       completions: [() => ({ content: 'FAKE local answer.' })],
     });
     process.env.OLLAMA_HOST = ollama.url;
     network(portOf(ollama));
-    const agent: Agent = createAgent({ apiKey: 'sk-or-FAKE-key', model: 'fake/model', instructions: '', maxSteps: 1, maxCost: 1 }, { multiplexer: 'none' });
+    // a model the catalog knows to be free (its :free name), chosen for the turn
+    const agent: Agent = createAgent({ apiKey: 'sk-or-FAKE-key', model: 'fake/model:free', instructions: '', maxSteps: 1, maxCost: 1 }, { multiplexer: 'none' });
     agent.useSessions(join(box, 'sessions'));
     (agent as unknown as { client: unknown }).client = { callModel: () => { throw new Error('503 Service Unavailable (FAKE)'); } };
     const chat = await openChatSession({ project: { name: 'demo', root: project }, surface: 'monitor' }, { agent });
     const r = await chat.send('hello', surface().hooks);
     expect(r).toMatchObject({ status: 'answered', text: 'FAKE local answer.', sent: true, model: 'ollama/granite4.2:latest', costWords: 'cost unknown' });
-    expect(r.lines).toEqual(['OpenRouter failed: fake/model: 503 Service Unavailable (FAKE); then anthropic/claude-opus-4.7: 503 Service Unavailable (FAKE); answered by local granite4.2:latest on this computer\'s Ollama, the last-resort fallback.']);
+    expect(r.lines).toEqual(['OpenRouter failed: fake/model:free: 503 Service Unavailable (FAKE); answered by local granite4.2:latest on this computer\'s Ollama, the last-resort fallback.']);
     expect(chats().at(-1)).toMatchObject({
-      model_requested: 'fake/model', model_resolved: 'ollama/granite4.2:latest', via: 'ollama',
+      model_requested: 'fake/model:free', model_resolved: 'ollama/granite4.2:latest', via: 'ollama',
       sources: [{ kind: 'ollama', host: ollama.host, endpoint: 'local', tools: 'off', cost_basis: 'local endpoint', role: 'last-resort fallback', openrouter_failed: expect.stringContaining('503 Service Unavailable') }],
       cost_measured: false,
     });

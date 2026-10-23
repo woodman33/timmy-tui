@@ -63,6 +63,9 @@ export function drawerStatus(now: RouteNow | null, provider: string): string {
   if (!now) return provider;
   const { route, state } = now;
   if (state.kind === 'none') return NO_ROUTE_STATUS;
+  // R11 (H169, Phase 0 item 1): OpenRouter with no model chosen (or refused by the policy): the route's own refusal, as the
+  // local route's below; nothing is sent, and the words say how to choose
+  if (state.kind === 'openrouter' && !state.ready) return (state.refusal ?? []).filter((l) => !/^Nothing was sent/.test(l)).join(' ');
   if (route.kind === 'local') {
     if (!state.ready || 'error' in route.at) return (state.refusal ?? []).filter((l) => !/^Nothing was sent/.test(l)).join(' ');
     return route.at.loopback && !route.cloud
