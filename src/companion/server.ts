@@ -130,7 +130,7 @@ import { FAVICON_PATHS, faviconSvg } from './favicon.js';
 // R4 (H104, second part): the project a page shows, the chat's route, a run detail by operation id
 import { projectId, type ActiveProject } from '../project/index.js';
 import { busFilesOf, ProjectFollower, type ProjectMode } from './project.js';
-import { openRouterKey, OPENROUTER_MODEL, pageRoute, streamLocalChat } from './chat-route.js';
+import { openRouterKey, pageRoute, streamLocalChat } from './chat-route.js';
 import { OPERATION_ID, runDetailAnswer, type RunDetailProducer } from './run-detail.js';
 // R5 (H132): the workspace frame every surface draws, and the page's two start-up settings
 import { CompanionWorkspace, type WorkspaceDeps } from './workspace.js';
@@ -142,8 +142,8 @@ import { mountChatView } from './chat-view.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Model used by the /chat streaming proxy on the OpenRouter route (the page's model chat, the Streamdown island, TMX P3). */
-const CHAT_MODEL = OPENROUTER_MODEL;
+// R11 (H169, Phase 0 item 2): the /chat proxy's OpenRouter model is the route's (pageRoute: the model chosen in the settings,
+// the same the Workbench's Models chose); with none chosen the route is not ready and nothing is sent. No fixed model here.
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -633,7 +633,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   /**
    * POST /chat — TMX P3 streaming chat proxy.
    * Accepts JSON { message: string } or { messages: [{ role, content }] },
-   * proxies a streaming OpenRouter chat completion (model: qwen/qwen3.8-max)
+   * proxies a streaming OpenRouter chat completion (the model chosen in the settings: pageRoute; none chosen, nothing is sent)
    * and relays it to the browser as Server-Sent Events:
    *   event: delta  — JSON-encoded text chunk
    *   event: usage  — token usage object (when OpenRouter reports it)
@@ -724,14 +724,14 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model: CHAT_MODEL, messages: chatMessages, stream: true }),
+        body: JSON.stringify({ model: route.model, messages: chatMessages, stream: true }),
         signal: controller.signal,
       });
 
       if (!upstream.ok || !upstream.body) {
         const details = await upstream.text().catch(() => '');
         sendSse('error', {
-          error: `OpenRouter responded ${upstream.status} for model ${CHAT_MODEL}`,
+          error: `OpenRouter responded ${upstream.status} for model ${route.model}`,
           details: details.slice(0, 2000),
         });
         res.end();

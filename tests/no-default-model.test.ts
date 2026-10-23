@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAgent, NoModelChosenError, type Agent } from '../src/agent/core.js';
 import { chatRouteNow, NO_MODEL_CHOSEN_REFUSAL, NO_MODEL_CHOSEN_SENTENCE } from '../src/agent/chat-route.js';
 import { openChatSession } from '../src/agent/chat-session.js';
+import { pageModel, pageRoute } from '../src/companion/chat-route.js';
 import { getDefaultModel } from '../src/agent/openrouter-client.js';
 import { getDefaultModelForProvider } from '../src/agent/provider-registry.js';
 import { getConfig, LEGACY_DEFAULT_MODEL, loadConfig, saveConfig } from '../src/utils/config.js';
@@ -172,10 +173,41 @@ describe('a key with no chosen model: refused on every surface, nothing sent', (
       expect(s.refusal).toEqual([...NO_MODEL_CHOSEN_REFUSAL]);
       expect(s.refusal?.[0]).toBe('Error: No model chosen. /model <id> chooses one (/model free lists free ones).');
     }
-    // whatever the policy says: refused before the policy is read
+    // under free-only too: refused before the price is asked (free-only needs a chosen model's price)
     expect(chatRouteNow({ env: { ...env, TIMMY_CHAT_FREE_ONLY: '1' }, key: true, openRouterModel: null, surface: 'repl' }).state.refusal?.[0]).toBe(`Error: ${NO_MODEL_CHOSEN_SENTENCE}`);
+    // under local-only the OpenRouter route is refused whatever the model, chosen or not: local-only's own words come first
+    // (choosing a model would not help), on the page too (item 2)
+    expect(chatRouteNow({ env: { ...env, TIMMY_CHAT_LOCAL_ONLY: '1' }, key: true, openRouterModel: null, surface: 'repl' }).state.refusal?.[0]).toMatch(/^Error: local-only is on/);
     // a model chosen: the route is ready and names it
     expect(chatRouteNow({ env, key: true, openRouterModel: FREE, surface: 'repl' }).state).toMatchObject({ kind: 'openrouter', ready: true, words: `chat: ${FREE} · OpenRouter` });
+  });
+
+  it('the companion page\'s own Send (item 2): off with "No model chosen: choose one in Models" and no model of its own; on with the settings\' chosen model and its price', () => {
+    keyedSetup();
+    const env = { TIMMY_HOME: join(home, 'timmy'), TIMMY_SETTINGS_DIR: settingsDir(), OPENROUTER_API_KEY: KEY };
+    expect(pageModel(env, project)).toBe('');
+    const off = pageRoute(env, project);
+    expect(off).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen', label: 'No model chosen: choose one in Models · Send is off' });
+    expect(off.kind === 'none' && off.words).toMatch(/^Send is off: No model chosen: choose one in Models /);
+    expect(off.kind === 'none' && off.refusal).toEqual([...NO_MODEL_CHOSEN_REFUSAL]);
+    // nothing on the page names a model nobody chose: not the page's old fixed model, not the old shipped default
+    expect(JSON.stringify(off)).not.toMatch(/qwen3\.8-max|claude-opus/);
+    // an older file's shipped default is no choice on the page either (the same rule as everywhere: src/utils/model-choice.ts)
+    writeFileSync(settingsPath(), JSON.stringify({ apiKey: '', model: LEGACY_DEFAULT_MODEL }));
+    expect(pageRoute(env, project)).toMatchObject({ kind: 'none', reason: 'no-model-chosen' });
+    // chosen (Models (M) in the Workbench, /model in the REPL, timmy init --model: saveConfig records it): the page asks it
+    saveConfig({ model: PAID });
+    expect(pageModel(env, project)).toBe(PAID);
+    const on = pageRoute(env, project);
+    expect(on).toMatchObject({ kind: 'openrouter', ready: true, model: PAID, keyFrom: 'environment', freeOnly: false, label: `${PAID} · OpenRouter · this page's own chat · each message spends credits` });
+    expect(on.kind === 'openrouter' && on.price).toMatch(/^\$0\.15 in \/ \$0\.6 out per 1M tokens \(OpenRouter catalog of 2026-10-22\)/);
+    expect(on.kind === 'openrouter' && on.words).toContain(`Send asks ${PAID} (the model chosen in Models) through OpenRouter`);
+    // under free-only the chosen paid model is refused in the policy's words (not "no model chosen"); a free one passes
+    expect(pageRoute({ ...env, TIMMY_CHAT_FREE_ONLY: '1' }, project)).toMatchObject({ kind: 'none', chat: 'openrouter', label: 'free-only · Send is off' });
+    saveConfig({ model: FREE });
+    expect(pageRoute({ ...env, TIMMY_CHAT_FREE_ONLY: '1' }, project)).toMatchObject({ kind: 'openrouter', ready: true, model: FREE, freeOnly: true, label: `${FREE} · OpenRouter · this page's own chat · free-only: free` });
+    // OPENROUTER_MODEL in the environment wins for one process, on the page as everywhere
+    expect(pageRoute({ ...env, OPENROUTER_MODEL: 'fake/for-this-process' }, project)).toMatchObject({ kind: 'openrouter', model: 'fake/for-this-process' });
   });
 
   it('the agent itself: a key and no model refuses before the conversation takes the message, 0 requests; a chosen model goes out as chosen', async () => {
