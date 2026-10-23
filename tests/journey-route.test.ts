@@ -231,7 +231,9 @@ describe('the place, the price as declared, FAKE, the companion page\'s own Send
     setUp({ chat: 'local', model: 'kimi-k2:cloud', ollama: 'http://127.0.0.1:11434' });
     const cloud = routeNow();
     expect(cloud).toMatchObject({ provider: 'ollama', model: 'kimi-k2:cloud', where: 'cloud', ready: true });
-    expect(cloud.price).toEqual({ state: 'unknown', words: 'unknown: Ollama reports no cost for a cloud-backed model or another computer\'s' });
+    // R11 Phase 2 (H169, item c): Ollama's cloud: the account's terms, never free, never no charge
+    expect(cloud.price).toEqual({ state: 'unknown', words: 'unknown: runs on Ollama\'s servers; your account\'s terms (Ollama reports no cost per request)' });
+    expect(away.price.words).toBe('unknown: Ollama reports no cost for another computer\'s model');
   });
 
   it('a FAKE model is labelled FAKE; a caller\'s declared FAKE stand-in is provider fake', () => {

@@ -974,7 +974,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
           else showProject(ws, view, 'unpinned');
         } else if (msg.type === 'addTmuxSession') {
           if (globalServer && globalServer.agent) {
-            globalServer.agent.addTmuxSession(msg.name || 'AgentPane', msg.model || 'claude-opus-4.7');
+            // R11 Phase 2 (H169, item b): a lane's model is a label; none is named unless the page names one
+            globalServer.agent.addTmuxSession(msg.name || 'AgentPane', typeof msg.model === 'string' ? msg.model : '');
           }
         } else if (msg.type === 'killTmuxSession') {
           if (globalServer && globalServer.agent) {
