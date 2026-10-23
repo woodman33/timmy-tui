@@ -326,11 +326,17 @@ export interface Ui {
   focusMode?: boolean;
   /** R10 CHAT (H167): the Models rail's provider (else the next turn's route's), Ollama's Local or Cloud, its sort and search;
    *  whether the Models drawer is open where the rail does not fit beside the conversation */
-  modelsProvider?: 'openrouter' | 'ollama' | 'cloudflare';
-  modelsOllama?: 'local' | 'cloud';
+  modelsProvider?: 'openrouter' | 'ollama-local' | 'ollama-cloud' | 'cloudflare';
   modelsSort?: 'recent' | 'name' | 'price' | 'context';
   modelsSearch?: string;
+  /** R10 CHAT (H167): Models' Cost filter (free: only the ones the catalog prices at 0; all); unset: free where the route is
+   *  free-only, else all */
+  modelsCost?: 'free' | 'all';
   modelsOpen?: boolean;
+  /** R10 CHAT (H167): Models shows the selected model's every field in place of its list ([ Details ], i) */
+  modelsDetails?: boolean;
+  /** R10 CHAT (H167): what was typed in the composer when it was left (Esc, Tab): kept, and given back when it opens again */
+  draft?: string;
   /** R10 CHAT (H167): the zone that had the keyboard when M gave it to the Models rail (Esc gives it back) */
   modelsFrom?: Region;
   /** R10 CHAT (H167): the Chat tab as it was before the shell (row 2's actions, the pipeline, the event log), where this

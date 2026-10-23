@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { modelRows, ollamaRows, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, type RailModels } from './chat-shell.js';
+import { modelRows, ollamaRows, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
@@ -1043,7 +1043,7 @@ export class Controller {
       case 'S': void this.d.studio.stopServing().then((w) => this.say(inWords(w))); break;
       case ',': this.open({ kind: 'settings' }); break;
       case 'x': void this.stop(); break;
-      case 'i': this.toggleRight(); break;
+      case 'i': if (this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen) { this.ui.modelsDetails = !this.ui.modelsDetails; this.emit(); } else this.toggleRight(); break;
       case 'g': this.toggleNav(); break;
       case 'z': this.ui.focusMode = !this.ui.focusMode; this.ui.navOpen = false; this.ui.rightOpen = false; this.ui.focus = 'center'; this.emit(); break;
       case 'a': this.ui.activityOpen = !this.ui.activityOpen; this.remember(); this.emit(); break;
@@ -1125,7 +1125,7 @@ export class Controller {
       return;
     }
     if (this.chatShell() && region === 'bottom') {
-      this.ui.cursor.shellBottom = Math.max(0, Math.min(shellControls({ data: this.data }).length - 1, (this.ui.cursor.shellBottom ?? 0) + delta));
+      this.ui.cursor.shellBottom = Math.max(0, Math.min(shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS).length - 1, (this.ui.cursor.shellBottom ?? 0) + delta));
       this.emit();
       return;
     }
@@ -1186,11 +1186,11 @@ export class Controller {
   private side(dir: 1 | -1): void {
     // R10 CHAT (H167): on Models, ← → choose the provider (OpenRouter, Ollama, Cloudflare); on the controls row, the control
     if (this.chatShell() && this.ui.focus === 'right' && !this.ui.rightOpen) {
-      const order = ['openrouter', 'ollama', 'cloudflare'] as const;
-      const at = order.indexOf(railProvider({ ui: this.ui, data: this.data }));
-      this.ui.modelsProvider = order[Math.max(0, Math.min(order.length - 1, at + dir))];
+      const at = PROVIDERS.findIndex((x) => x.id === railProvider({ ui: this.ui, data: this.data }));
+      this.ui.modelsProvider = PROVIDERS[Math.max(0, Math.min(PROVIDERS.length - 1, at + dir))].id;
       delete this.ui.cursor['right:models'];
-      if (this.ui.modelsProvider === 'ollama') void this.loadModels();
+      this.ui.modelsDetails = false;
+      if (this.ui.modelsProvider === 'ollama-local') void this.loadModels();
       this.emit();
       return;
     }
@@ -1241,7 +1241,7 @@ export class Controller {
       try { const c = await this.setup.catalog(); m.openrouter = { from: c.from, at: c.at, rows: railCatalog(c.models as Parameters<typeof railCatalog>[0]) }; } catch { m.openrouter = { from: 'none', at: null, rows: [] }; }
       this.emit();
     }
-    const wantsOllama = railProvider({ ui: this.ui, data: this.data }) === 'ollama' || this.data.route.kind === 'local';
+    const wantsOllama = railProvider({ ui: this.ui, data: this.data }) === 'ollama-local' || this.data.route.kind === 'local';
     if (wantsOllama && (force || !this.modelsAsked.ollama)) {
       this.modelsAsked.ollama = true;
       m.ollama = { state: 'reading', where: m.ollama?.where ?? 'Ollama', rows: m.ollama?.rows ?? [] };
@@ -1261,6 +1261,7 @@ export class Controller {
   private openRail(id: string): void {
     if (id === 'project') { this.openPicker(); return; }
     if (id === 'new') { this.openNew(); return; }
+    if (id === 'help') { this.open({ kind: 'help' }); return; }
     const r = RAIL.find((x) => x.id === id);
     if (!r) return;
     if (r.id === 'chat') { this.ui.focus = 'center'; this.emit(); return; }
@@ -1284,12 +1285,13 @@ export class Controller {
 
   /** Enter on a control of this conversation: what it opens or does (each backed by a capability; else what it needs). */
   private async shellControl(id: string): Promise<void> {
-    const k = shellControls({ data: this.data }).find((x) => x.id === id);
+    const k = shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS).find((x) => x.id === id);
     if (k && !k.on) { this.say(`${k.label}: needs ${k.needs ?? 'what it names'}.`, 'secondary'); return; }
     switch (id) {
       case 'tools': this.selectPage('tools'); this.ui.focus = 'center'; break;
       case 'plan': this.selectPage('workflows'); this.ui.focus = 'center'; break;
-      case 'approvals': this.selectPage('control'); this.ui.focus = 'center'; break;
+      case 'permissions': this.selectPage('control'); this.ui.focus = 'center'; break;
+      case 'more': this.open({ kind: 'message', title: 'This conversation', lines: shellControls({ data: this.data }).map((x): Line => [{ text: `[${x.label}]`, role: x.on ? 'text' : 'secondary' }, { text: x.on ? '' : `  needs ${x.needs ?? ''}`, role: 'secondary' }]) }); return;
       case 'logs': this.selectPage('logs'); this.ui.focus = 'center'; break;
       case 'stop': await this.stop(); return;
       case 'cloudflare': this.ui.modelsProvider = 'cloudflare'; this.focusModels(); return;
@@ -1410,17 +1412,22 @@ export class Controller {
       if (f === 'composer' && this.turnAbort) {
         this.turnAbort.abort();
         const typed = this.ui.input.text.trim();
+        // R10 CHAT (H167): in the shell what was typed is kept as the draft (not sent), given back when the composer opens
+        if (this.chatShell() && typed) this.ui.draft = this.ui.input.text;
         this.ui.input = { field: null, text: '' };
         // (the keyboard back where launch puts it: the workflow actions, whose one next step reopens the composer; R10 CHAT:
         // in the Chat screen's shell, the conversation, where Enter reopens it)
         this.ui.focus = this.chatShell() ? 'center' : 'top';
         delete this.ui.cursor.top;
-        this.say(`Esc: stopping the chat turn being answered, and left the composer${typed ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
+        this.say(`Esc: stopping the chat turn being answered, and left the composer${typed ? (this.chatShell() ? ' (what was typed in it is kept as a draft, not sent)' : ' (what was typed in it was not sent)') : ''}. Enter opens it again.`, 'secondary');
         this.emit();
         return;
       }
       if (f === 'composer') {
-        this.say(`Esc: left the composer${this.ui.input.text.trim() ? ' (what was typed in it was not sent)' : ''}. Enter opens it again.`, 'secondary');
+        // R10 CHAT (H167): in the shell the words typed stay as the draft (Enter opens the composer with them again)
+        const keep = this.chatShell() && this.ui.input.text.trim();
+        if (keep) this.ui.draft = this.ui.input.text;
+        this.say(`Esc: left the composer${this.ui.input.text.trim() ? (keep ? ' (what you typed is kept as a draft)' : ' (what was typed in it was not sent)') : ''}. Enter opens it again.`, 'secondary');
         // R10 (H167; H168's F1 and F2): the keyboard back on the workflow actions (their one next step reopens it), as at launch;
         // R10 CHAT (H167): in the Chat screen's shell, on the conversation (Enter reopens the composer)
         this.ui.focus = this.chatShell() ? 'center' : 'top';
@@ -1451,6 +1458,13 @@ export class Controller {
       return;
     }
     if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); this.emit(); return; }
+    // R10 CHAT (H167): Tab from the composer, in the shell, moves to the next pane with the words typed kept as the draft
+    if (k.tab && f === 'composer' && this.chatShell()) {
+      if (this.ui.input.text.trim()) this.ui.draft = this.ui.input.text;
+      this.ui.input = { field: null, text: '' };
+      this.cycleFocus(k.shift ? -1 : 1);
+      return;
+    }
     if (k.ctrl || k.meta || k.tab) return;
     // printable text only (a paste arrives as one string)
     const text = input.replace(/[\x00-\x1f\x7f]/g, '');
@@ -2140,7 +2154,7 @@ export class Controller {
     if (this.chatShell() && !this.ui.overlay) {
       if (region === 'nav') { this.openRail(RAIL_ITEMS[this.ui.cursor.rail ?? RAIL_ITEMS.indexOf('chat')] ?? 'chat'); return; }
       if (region === 'right' && !this.ui.rightOpen) { await this.chooseFromRail(); return; }
-      if (region === 'bottom') { await this.shellControl(shellControls({ data: this.data })[this.ui.cursor.shellBottom ?? 0]?.id ?? 'tools'); return; }
+      if (region === 'bottom') { await this.shellControl(shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS)[this.ui.cursor.shellBottom ?? 0]?.id ?? 'tools'); return; }
     }
     if (region === 'nav') { this.ui.focus = 'center'; this.ui.navOpen = false; this.emit(); return; }
     if (region === 'top') {
@@ -2156,7 +2170,13 @@ export class Controller {
       }
       return;
     }
-    if (region === 'center' && this.ui.workspace === 'chat' && !this.ui.overlay) { this.ui.input = { field: 'composer', text: '' }; this.emit(); return; }
+    if (region === 'center' && this.ui.workspace === 'chat' && !this.ui.overlay) {
+      // R10 CHAT (H167): with the draft kept when it was left (Esc, Tab), if there is one
+      this.ui.input = { field: 'composer', text: this.ui.draft ?? '' };
+      delete this.ui.draft;
+      this.emit();
+      return;
+    }
     if (region === 'center') await this.activate(this.selected());
   }
 
