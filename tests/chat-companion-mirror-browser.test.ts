@@ -203,7 +203,8 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
       // R10 CHAT (H171): on Chat the strip is drawn behind the composition, whose own controls offer the same Stop
       await page.click('#rail-menu .rail-item[data-dest="chat"]');
       await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
-      await page.waitForSelector(`#cx-controls [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      // (R11 step 3: Stop lives in the composer; the row keeps it only while the composer is away, on the first run)
+      await page.waitForSelector(`#cx-composer [data-stop-turn="${t.hold.id}"]:visible, #cx-controls [data-stop-turn="${t.hold.id}"]:visible`, { timeout: 15_000 });
       await page.waitForFunction(() => /^1 running/.test(document.getElementById('ws-activity-counts')?.textContent ?? ''), null, { timeout: 15_000 });
       // just after one of the page's 3 s reads has been answered, the turn ends: its receipt sealed with its identity
       const polled = reads.length;

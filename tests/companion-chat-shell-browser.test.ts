@@ -141,8 +141,11 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.getAttribute('body', 'data-dest')).toBe('chat');
       expect(await page.isVisible('#ws-chat')).toBe(true);
       expect(await page.isVisible('.ws-header')).toBe(false);
+      // (R11 step 3: the terminal's groups and labels; every old route still reachable under its new name)
       const menu = await page.$$eval('#rail-menu .rail-item', (els) => els.map((e) => ({ label: e.querySelector('.rail-label')?.textContent?.trim(), current: e.getAttribute('aria-current') })));
-      expect(menu.slice(0, 9).map((m) => m.label?.replace(/ · \d+$/, ''))).toEqual(['Chat', 'Studio', 'Workflows', 'VoxVision', 'Motion', 'Control Room', 'Files', 'Logs & records', 'Connections']);
+      expect(menu.map((m) => m.label?.replace(/ · \d+$/, ''))).toEqual(['Chat', 'Files', 'Workflows', 'Runs & receipts', 'Canvas', 'Vision', 'Motion & 3D', 'Models & accounts', 'Tools & integrations', 'Control Room', 'Fleet & Clef']);
+      expect(await page.$$eval('#rail-menu .rail-group', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Work', 'Create', 'Connect']);
+      expect(await page.$$eval('#rail-foot button', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).toEqual(['? Help', '/ find']);
       expect(menu[0].current).toBe('page');
       expect(menu.filter((m) => m.current === 'page')).toHaveLength(1);
       // the project the companion says this page shows, once its socket has said it
@@ -160,9 +163,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       const lines = await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-evidence', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
       expect(lines).toEqual([
         `▸ fake-qwen3:8b · this computer · 2.1 s · receipt ${ids.a1} ✓`,
-        '▸ fake-qwen3:8b · this computer · 0.9 s · receipt 7f7f7f7f (not verified)',
+        '▸ fake-qwen3:8b · this computer · 0.9 s · receipt 7f7f7f7f',
         `▸ fake-qwen3:8b · this computer · 1.2 s · receipt ${ids.stop} ✓`,
-        '▸ no receipt of this project seals this answer · model, where and time not recorded',
+        '▸ model not recorded · no receipt',
       ]);
       expect(await page.$('#cx-turns .cx-activity')).toBeNull();
       // Enter on the line opens the activity: the tools as grouped lines (the receipt's outcomes, the result's first line), the receipt's facts
@@ -318,6 +321,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await page.inputValue('#cx-input')).toBe('a draft kept through the choice');
       expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
       expect(await text(page, '#cx-status .is-inference .cx-st-v')).toBe('fake-llama:1b on this computer');
+      // (R11 step 3: the status row in sentences, as the terminal's)
+      expect(await text(page, '#cx-status .is-logs')).toBe('Logs stay on this computer');
+      expect(await page.$eval('#rail-menu .rail-item[data-dest="tools"] .rail-label', (e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+      expect(await text(page, '#cx-status .cx-st-sync')).toBe('cloud sync off · spend no charge');
       expect(await text(page, '#cx-note')).toBe('Next turn: fake-llama:1b on this computer.');
       await page.waitForFunction(() => document.getElementById('cx-dot')?.dataset.state === 'ready' && /^fake-llama:1b · this computer · ready \d\d:\d\d$/.test(document.getElementById('cx-chip-words')?.textContent ?? ''), null, { timeout: 20_000 });
       expect(await text(page, '#cm-list .cm-row[data-model="fake-llama:1b"] .cm-inuse')).toBe('✓ in use');
@@ -344,9 +351,14 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(ollama.chats()).toHaveLength(1);
       // a bottom control opens its drawer; Esc closes it and gives focus back
       const controls = await page.$$eval('#cx-controls .cx-ctl', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
-      expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Attach', 'Tools', 'Plan / Run', 'Permissions', 'Budget', 'Stop', 'Logs', 'Cloudflare']);
+      // (R11 step 3: [Attach] [Tools] [Budget] [Logs]; Plan / Run, Permissions and Cloudflare under Tools; Stop in the composer)
+      expect(controls.map((c) => c.replace(/^[^A-Za-z]+/, '').replace(/(?:\d+|—|free-only|this computer)$/, '').trim())).toEqual(['Attach', 'Tools', 'Budget', 'Logs']);
+      expect(await page.$('#cx-controls [data-cx="stop"], #cx-controls [data-cx="stop-other"]')).toBeNull();
       await page.click('[data-cx-ctl="tools"]');
       expect(await text(page, '#cx-drawer')).toContain('This page’s Send offers no tools');
+      expect(await page.$$eval('#cx-drawer .cx-more-list [data-cx-ctl]', (els) => els.map((e) => (e.textContent ?? '').replace(/[^A-Za-z /]/g, '').trim()))).toEqual(['Plan / Run', 'Permissions', 'Cloudflare']);
+      expect(await text(page, '#cx-drawer')).toContain('Stop lives in the composer');
+      expect(await text(page, '#cx-drawer [data-cx-dest="tools"]')).toBe('Open Tools & integrations');
       await page.keyboard.press('Escape');
       expect(await page.isVisible('#cx-drawer')).toBe(false);
       expect(await page.evaluate(() => document.activeElement?.getAttribute('data-cx-ctl'))).toBe('tools');
@@ -389,6 +401,23 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.keyboard.press('2');
       await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
       expect(await page.isVisible('#shell-rail')).toBe(true);
+      // R11 step 3: "/ find" filters the rail by name and Enter opens the first; "? Help" is the help by task
+      await page.keyboard.press('/');
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe('rail-find');
+      await page.keyboard.type('runs');
+      expect(await page.$$eval('#rail-menu .rail-item .rail-label', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Runs & receipts']);
+      expect(await page.$$eval('#rail-menu .rail-group', (els) => els.filter((e) => !(e as HTMLElement).hidden).map((e) => (e.textContent ?? '').trim()))).toEqual(['Work']);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.body.dataset.dest === 'logs', null, { timeout: 10_000 });
+      await page.keyboard.press('2');
+      await page.waitForFunction(() => document.body.dataset.dest === 'chat', null, { timeout: 10_000 });
+      expect(await page.isVisible('#rail-find-box')).toBe(false);
+      expect(await page.$$eval('#rail-menu .rail-item', (els) => els.length)).toBe(11);
+      await page.click('#rail-help');
+      expect(await text(page, '#cx-drawer-title')).toBe('Help');
+      expect(await page.$$eval('#cx-drawer h4', (els) => els.map((e) => (e.textContent ?? '').trim()))).toEqual(['Chat', 'Models', 'Moving around', 'Runs']);
+      await page.keyboard.press('Escape');
+      expect(await page.isVisible('#cx-drawer')).toBe(false);
       expect(errors).toEqual([]);
     } finally {
       await context.close();
@@ -447,17 +476,19 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
           })).toBe(true);
           expect(await text(page, '#cx-empty .cx-title')).toBe('TIMMY runs tools and workflows on your machine and keeps a receipt for every step.');
           const welcome = await page.$$eval('#cx-empty .cx-welcome-line', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+          // (the terminal's words, H167's step 2)
           expect(welcome).toEqual([
-            `Type below and press Enter to send: your first message goes to ${size.width > 720 ? 'fake-qwen3:8b' : 'fake-qwen3:8b'} (Ollama on this computer).`,
-            'Logs and receipts stay on this computer, in this project’s .timmy folder (Logs & records shows them). Cloud sync is off.',
+            'Write below and press Enter: the model on the chip answers.',
+            'Logs and receipts stay on this computer, in this project’s .timmy folder: Logs & records lists them.',
           ]);
+          expect(await text(page, '#cx-empty .cx-start-k')).toBe('Start with');
           const starters = await page.$$eval('#cx-empty [data-cx-start]', (els) => els.map((e) => [e.getAttribute('data-cx-start'), e.querySelector('.cx-way-title')?.textContent?.trim()]));
           expect(starters).toEqual([['ask', 'Ask about this project'], ['image', 'Inspect an image'], ['workflow', 'Run a workflow'], ['canvas', 'Open the canvas']]);
           // every starter is in view with the composer (nothing cut), at both sizes
           expect(await page.$$eval('#cx-empty [data-cx-start]', (els) => els.every((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; }))).toBe(true);
           // Ask: the sample question as a draft in the composer, which has the keyboard; the page's own draft is kept as it is
           await page.click('[data-cx-start="ask"]');
-          expect(await page.inputValue('#cx-input')).toBe('What is in this project, and what would you do first?');
+          expect(await page.inputValue('#cx-input')).toBe('What does this project do, and what ran here last?');
           expect(await page.evaluate(() => document.activeElement?.id)).toBe('cx-input');
           expect(await page.isDisabled('#cx-send')).toBe(false);
           await page.fill('#cx-input', 'my own words');
@@ -498,9 +529,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       // the row of controls fits the phone's width: the minor ones are in More
       expect(await page.$eval('#cx-controls', (b) => b.scrollWidth <= b.clientWidth + 1)).toBe(true);
       const said = (sel: string): Promise<string[]> => page.$$eval(sel, (els) => els.filter((e) => e.getClientRects().length).map((e) => (e as HTMLElement).innerText.replace(/[^A-Za-z /]/g, '').trim()));
-      expect(await said('#cx-controls .cx-ctl, #cx-controls .cx-more')).toEqual(['Tools', 'Budget', 'Stop', 'Logs', 'More']);
+      expect(await said('#cx-controls .cx-ctl, #cx-controls .cx-more')).toEqual(['Tools', 'Budget', 'More']);
       await page.click('#cx-more');
-      expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Plan / Run', 'Permissions', 'Cloudflare']);
+      expect(await said('#cx-drawer [data-cx-ctl]')).toEqual(['Attach', 'Logs']);
       await page.click('#cx-drawer [data-cx-ctl="attachments"]');
       expect(await text(page, '#cx-drawer')).toContain('Not on this page yet: its Send carries text only.');
       await page.keyboard.press('Escape');
@@ -590,6 +621,13 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         expect(none.chats()).toEqual([]);
         expect(await p2.inputValue('#cx-input')).toBe('a draft with no model');
         expect(none.chats()).toEqual([]);
+        // (H168's R18b) a fresh page with no setup never says "the setup's model": a row opened in Models, the whole face read
+        await p2.click('#cx-chip');
+        await p2.click('[data-cm-provider="openrouter"]');
+        await p2.waitForSelector('#cm-list .cm-row', { timeout: 20_000 });
+        await p2.click('#cm-list .cm-row');
+        await p2.waitForSelector('.cm-detail', { timeout: 10_000 });
+        expect(await p2.evaluate(() => document.body.innerText)).not.toMatch(/setup['’]s (model|choice)/);
         expect(e2).toEqual([]);
       } finally {
         await c2.close();
