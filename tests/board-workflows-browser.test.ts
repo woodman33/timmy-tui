@@ -117,6 +117,23 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     }
   }
 
+  /**
+   * R10 (H172; check fa45040-c1, under load: build's last result said "block build: receipt 00000003" and no outcome receipt yet):
+   * a block says completed as upmd prints its end (its own receipt sealed then), while the run's outcome is sealed when upmd has
+   * exited and its job ends, and reaches the card (drawn again with the board's next reading, every 2 s) only then, with the files
+   * it names: in between, the block says completed and its last result has no outcome receipt yet (shown with a copy of the FAKE
+   * upmd that exits 3 s after its last block: the read made once failed, this wait passed). Waited for as a person sees it arrive;
+   * a wait that times out says what the last result said meanwhile.
+   */
+  async function lastSays(page: Page, panel: string, want: string): Promise<void> {
+    try {
+      await page.waitForFunction(([p, w]) => (document.querySelector(`${p} .wf-last`)?.textContent ?? '').includes(w), [panel, want] as const, { timeout: 15_000 });
+    } catch (e) {
+      const said = await page.textContent(`${panel} .wf-last`).catch((x: unknown) => `(unread: ${String(x).split('\n')[0]})`);
+      throw new Error(`${String(e).split('\n')[0]}: the last result says "${said}"; wanted "${want}" in it`);
+    }
+  }
+
   it('selects the same block from the graph, from the prose and with the keyboard; edits an OpenSCAD parameter; runs a block and shows each state in words', async () => {
     const { ws, root, notes, sealed } = make();
     const { page, problems, close } = await open(ws);
@@ -171,7 +188,8 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await page.waitForFunction(() => /^✓ completed · exit 0/.test(document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="2"] .wf-state')?.textContent ?? ''), undefined, { timeout: 15_000 });
     expect(await page.textContent(`${card} [data-wf-select="2"] .wf-chip-state`)).toBe('completed');
     expect(await nodeWords(page, '3')).toBe('· not run yet');
-    expect(await page.textContent(`${panel} .wf-last`)).toContain('outcome receipt');
+    // R10 (H172): the outcome receipt comes with the card drawn again after it is sealed (lastSays), the run's files with it
+    await lastSays(page, panel, 'outcome receipt');
     expect(await page.textContent(`${panel} .wf-last`)).toContain('dist/params.txt');
     expect(readFileSync(join(root, 'dist/params.txt'), 'utf8')).toContain('"width": 80');
     expect(await shown(page)).toEqual(['2']);
