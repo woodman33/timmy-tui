@@ -293,7 +293,8 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     const rail = t.map((r) => cols(r, 0, 13));
     // (R11 step 3a: the groups packed, + New under the project, the short names, the footer "? Help  /")
     expect(rail.slice(4, 8)).toEqual(['  PROJECT', '  tray', '  + New', '']);
-    expect(rail.slice(6, 22)).toEqual(['  + New', '', '> Chat', '  WORK', '  Files', '  Workflows', '  Runs', '  Canvas', '  CREATE', '  Vision', '  Motion & 3D', '  CONNECT', '  Models', '  Tools', '  Control', '  ? Help  /']);
+    // (R11 phase 2, H168's pass 4b R47: the packed footer whole, one cell of air each side)
+    expect(rail.slice(6, 22)).toEqual(['  + New', '', '> Chat', '  WORK', '  Files', '  Workflows', '  Runs', '  Canvas', '  CREATE', '  Vision', '  Motion & 3D', '  CONNECT', '  Models', '  Tools', '  Control', ' ? Help / find']);
     const c = t.map((r) => cols(r, 16, 79));
     expect(c[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(c[15]).toBe('─'.repeat(62));
@@ -374,6 +375,26 @@ describe('Models\' query (H169\'s queryCatalog shape, drawn here until the switc
 
 describe('the first run and Chat with no model (R10 CHAT H167; terminal-target captures/02-first-run-122x37, 05-first-run-80x24)', () => {
   const NONE = { route: { kind: 'none', words: 'chat: none · no key, no model', ready: false }, chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+
+  it('R11 phase 2 (H168\'s pass 4b R44, R48, R49): "not asked yet" for the local Ollama before the first ask; WELCOME TO TIMMY off-white bold, not amber; OpenRouter chosen with no key saved: no catalog cursor and no MODEL box until Models has the keyboard', () => {
+    // R44: the models were not listed yet (no ollama reading): the row says so, never "not installed" before asking
+    const f = frame(data({ ...NONE, models: { openrouter: data().models!.openrouter } } as Partial<Data>), ui());
+    expect(models(text(f)).slice(6, 10)).toEqual(['  OpenRouter', '    not set up', '  Ollama local', '    not asked yet']);
+    // R49: a title is not a focus
+    expect(f.screen[4].find((s) => s.text === 'WELCOME TO TIMMY')).toMatchObject({ role: 'strong', bold: true });
+    expect(cols(text(f)[4], 20, 89)).toBe('WELCOME TO TIMMY');
+    // R48 (pass 4a's R30 one screen later): OpenRouter / cloud chosen, no key saved, the center (the sign-in box) holds the
+    // keyboard: the catalog's rows show dim, no cursor on a priced model, no MODEL box; the foot says the key is the step
+    const noKey = data({ ...NONE, models: { ...data().models, providers: [{ id: 'openrouter', state: 'not set up' }] } } as Partial<Data>);
+    const q = models(text(frame(noKey, ui({ modelsProvider: 'openrouter' }))));
+    expect(q.slice(20, 26)).toEqual(['  FIXTURE: Newest (free)', '  262k context / Free', '  FIXTURE: Middle model', '  1M context / price unknown', '  FIXTURE: Older model', '  32k context / $0.50/$1.50']);
+    expect(q.join('\n')).not.toMatch(/MODEL \/|SELECTED|^> FIXTURE/m);
+    expect(q.slice(28, 31)).toEqual(['No key saved yet: the box in', 'the center saves one; then', 'M, and Enter on one.']);
+    // Models with the keyboard (M): the cursor and the MODEL box are back, as before
+    const keyed = models(text(frame(noKey, ui({ modelsProvider: 'openrouter', focus: 'right' }))));
+    expect(keyed[20]).toBe('> FIXTURE: Newest (free)');
+    expect(keyed[28]).toBe('MODEL');
+  });
 
   it('no model and the question not answered: WELCOME TO TIMMY, FIRST RUN in the header, the four choices (Cloudflare only as the advanced one), the guide, the note; no composer', () => {
     const f = frame(data(NONE), ui());
@@ -508,11 +529,12 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
     const f = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'runs' } }))));
     expect(f[7]).toMatch(/^Find a workspace  type its name/);
     expect(f[9]).toBe('/ runs');
-    expect(f[11]).toMatch(/^> Logs & Receipts  Runs & receipts · Logs & records  · Logs and/);
+    // (R11 phase 2, H168's pass 4b R45: the rail's name leads; the page's other names grey after it)
+    expect(f[11]).toMatch(/^> Runs & receipts  Logs & Receipts · Logs & records  · Logs and/);
     const canvas = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'canv' } }))));
-    expect(canvas[11]).toBe('> Studio  Canvas  · Studio outline');
+    expect(canvas[11]).toBe('> Canvas  Studio  · Studio outline');
     const acc = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'accounts' } }))));
-    expect(acc[11]).toBe('> Connections  Models & accounts · Models & keys  · Connections');
+    expect(acc[11]).toBe('> Models & accounts  Connections · Models & keys  · Connections');
     const none = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: 'zzz' } }))));
     expect(none[11]).toBe('No workspace is named "zzz". Enter searches All tools for it.');
     const all = center(text(frame(data(), ui({ overlay: { kind: 'find' }, input: { field: 'search', text: '' } }))));
@@ -828,8 +850,33 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
     expect(whole.filter((r) => /^(CHAT|MODELS|MOVING AROUND|RUNS)$/.test(r))).toEqual(['CHAT', 'MODELS', 'MOVING AROUND', 'RUNS']);
     expect(whole[whole.indexOf('MODELS') - 1]).toBe('');
     expect(whole.join('\n')).toMatch(/Tab +the next pane: the left menu, the conversation,/);
+    // (R11 phase 2, H168's pass 4b R46: one sentence for the other screens, the numbered tabs' pages; R42: where c and s act)
+    expect(whole.join('\n')).toMatch(/1 … 0 +the other screens \(Files, Workflows, Runs &\n +receipts, Canvas, Vision, Motion & 3D, Models &[\s\S]*as the numbered tabs' pages, with their own header/);
+    expect(whole.join('\n')).toMatch(/c {2}s +Companion · Show and Studio · Show, from the left\n +menu, Models or the bottom row \(Tab reaches them\)/);
     // the title row says which of its rows show (the Keys' first line says it does)
     expect(h[4]).toMatch(/^CHAT \/ tray +Keys 1–\d+ of \d+$/);
+  });
+
+  it('R11 phase 2 (H168\'s pass 4b R45, R50): the finder\'s rows lead with the rail\'s name, the page\'s other names grey after it; its note counts workspaces at every width ("15 workspaces" whole at 122x37; "1–4 of 15 workspaces" scrolled at 80x24)', () => {
+    const find = { overlay: { kind: 'find' }, input: { field: 'search', text: '' } } as unknown as Partial<Ui>;
+    const f = frame(data(), ui(find));
+    const t = text(f);
+    const c = center(t);
+    expect(cols(t[4], 20, 89)).toMatch(/^CHAT \/ tray +15 workspaces$/);
+    expect(c[11]).toBe('> Chat  · Conversation');
+    expect(c[12]).toBe('  Canvas  Studio  · Studio outline');
+    expect(c[14]).toBe('  Motion & 3D  3D Create  · Scenes and CAD');
+    expect(c[21]).toBe('  Runs & receipts  Logs & Receipts · Logs & records  · Logs and…');
+    expect(c[24]).toBe('  Tools & integrations  All tools · Tools & MCP  · Tool library');
+    expect(c[25]).toBe('  Models & accounts  Connections · Models & keys  · Connections');
+    // the lead amber on the first row only; the other names grey
+    expect(f.screen[12].find((s) => s.text === 'Canvas')?.role).toBe('text');
+    expect(f.screen[12].find((s) => s.text.includes('Studio'))?.role).toBe('secondary');
+    // typed: one match, counted as one
+    expect(cols(text(frame(data(), ui({ ...find, input: { field: 'search', text: 'recei' } } as Partial<Ui>)))[4], 20, 89)).toMatch(/ 1 workspace$/);
+    const n = text(frame(data(), ui(find), 80, 24));
+    expect(cols(n[4], 16, 79)).toMatch(/^CHAT \/ tray +1–4 of 15 workspaces$/);
+    expect(cols(n[11], 16, 79)).toBe('> Chat  · Conversation');
   });
 });
 
@@ -848,7 +895,7 @@ describe('R11 step 2a: the welcome of an empty conversation with a model on the 
       'for every step.',
       'Write below and press Enter: the model on the chip answers.',
       'Logs and receipts stay on this computer, in this project\'s .timmy',
-      'folder: Logs & records lists them.',
+      'folder: Runs & receipts lists them.',
       '',
     ]);
     expect(c[13]).toBe('START WITH');
@@ -857,14 +904,15 @@ describe('R11 step 2a: the welcome of an empty conversation with a model on the 
       '  [ Ask about this project ]', '  A question typed as a draft: what the project does and what ran', '  here last.',
       '  [ Inspect an image ]', '  VoxVision: what Timmy measured on this project\'s images; /inspect', '  in the REPL inspects a new one.',
       '  [ Run a workflow ]', '  Workflows: this project\'s WORKFLOW.md blocks; Enter runs one after', '  it asks.',
-      '  [ Open the canvas ]', '  Studio in your browser (s): this project\'s runs and drafts as', '  cards.', '',
+      // (R11 phase 2, H168's pass 4b R42: no "(s)": Enter on the starter is the path; its line fits one row now)
+      '  [ Open the canvas ]', '  Studio in your browser: this project\'s runs and drafts as cards.', '', '',
     ]);
     expect(f.screen[7].find((s) => s.text.startsWith('TIMMY runs'))).toMatchObject({ role: 'strong', bold: true });
     expect(f.screen[10].find((s) => s.text.startsWith('Logs and receipts'))?.role).toBe('secondary');
     expect(f.screen[14].find((s) => s.text === '[ Ask about this project ]')?.role).toBe('strong');
     // the choices are the center's items (list center:first), one of two rows each; no "No conversation here yet"
     expect(f.regions.center).toMatchObject({ list: 'center:first' });
-    expect(f.regions.center?.items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line, x.rows])).toEqual([['ask', 7, 3], ['inspect', 10, 3], ['run', 13, 3], ['canvas', 16, 3]]);
+    expect(f.regions.center?.items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line, x.rows])).toEqual([['ask', 7, 3], ['inspect', 10, 3], ['run', 13, 3], ['canvas', 16, 2]]);
     expect(t.join('\n')).not.toMatch(/No conversation here yet/);
     expect(c.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
     expect(c[30]).toBe('[ Send ]  Enter or a letter opens the composer');
@@ -891,7 +939,7 @@ describe('R11 step 2a: the welcome of an empty conversation with a model on the 
       'receipt for every step.',
       'Write below and press Enter: the model on the chip answers.',
       'Logs and receipts stay on this computer, in this project\'s',
-      '.timmy folder: Logs & records lists them.',
+      '.timmy folder: Runs & receipts lists them.',
       'START WITH',
       '  [ Ask about this project ]   [ Inspect an image ]',
       '  [ Run a workflow ] > [ Open the canvas ]',

@@ -1015,6 +1015,28 @@ describe('R11 step 2 through the Controller (H167): the welcome\'s starter actio
     expect(c.data.turn).toBeUndefined();
   });
 
+  it('R11 phase 2 (H168\'s pass 4b R41): in an EMPTY composer on the welcome, ↓ moves the cursor to the first starter (no Esc needed); ↑ from the first starter returns to the composer; a draft keeps the composer', () => {
+    const c = workbench(homeWithModel('welcome-down'));
+    shown(c);
+    press(c, '\r', ENTER);
+    expect(c.ui.input).toEqual({ field: 'composer', text: '' });
+    let t = press(c, '', { downArrow: true });
+    expect(c.ui.input.field).toBeNull();
+    expect(c.ui.focus).toBe('center');
+    expect(c.ui.cursor['center:first']).toBe(0);
+    expect(cols(t[14], 20, 89)).toBe('> [ Ask about this project ]');
+    // ↑ from the first starter: the composer again, the cursor on no choice
+    t = press(c, '', { upArrow: true });
+    expect(c.ui.input).toEqual({ field: 'composer', text: '' });
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    expect(cols(t[14], 20, 89)).toBe('  [ Ask about this project ]');
+    // a draft typed: ↓ stays in the composer (its history, not the starters)
+    press(c, 'hello');
+    press(c, '', { downArrow: true });
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'hello' });
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+  });
+
   it('the welcome: Inspect an image opens VoxVision, Run a workflow opens Workflows, Open the canvas is Studio · Show (FAKE: not started here); the welcome again on Chat', async () => {
     const c = workbench(homeWithModel('starters'));
     shown(c);
@@ -1251,7 +1273,7 @@ describe('R11 step 3 through the Controller (H167): the rail\'s groups, the find
     expect(c.ui.input).toEqual({ field: 'search', text: '' });
     t = press(c, 'recei');
     expect(cols(t[9], 20, 89)).toBe('/ recei');
-    expect(cols(t[11], 20, 89)).toMatch(/^> Logs & Receipts  Runs & receipts · Logs & records  · Logs and/);
+    expect(cols(t[11], 20, 89)).toMatch(/^> Runs & receipts  Logs & Receipts · Logs & records  · Logs and/);
     press(c, '\r', ENTER);
     expect(c.ui.overlay).toBeNull();
     expect([c.ui.page, c.ui.workspace]).toEqual(['logs', 'logs']);
@@ -1265,7 +1287,8 @@ describe('R11 step 3 through the Controller (H167): the rail\'s groups, the find
     shown(c);
     press(c, '/');
     press(c, 'integrations');
-    expect(cols(shown(c)[11], 20, 89)).toBe('> All tools  Tools & integrations · Tools & MCP  · Tool library');
+    // (R11 phase 2, H168's pass 4b R45: the rail's name leads; the page's other names grey after it)
+    expect(cols(shown(c)[11], 20, 89)).toBe('> Tools & integrations  All tools · Tools & MCP  · Tool library');
     press(c, '', ESC);
     expect(c.ui.overlay).toBeNull();
     expect(c.ui.input.field).toBeNull();

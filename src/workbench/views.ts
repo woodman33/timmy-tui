@@ -1146,7 +1146,9 @@ const CHAT_HELP: ReadonlyArray<[string, string]> = [
   ['↑ ↓', 'move in the pane\'s list (k j too): the left menu\'s groups (CHAT, WORK, CREATE, CONNECT), the conversation\'s messages, the bottom\'s controls (← → too)'],
   ['/', 'the finder, a box over the conversation: a workspace by name (Runs & receipts, Canvas, Models & accounts, Tools & integrations…); Enter opens the first match'],
   ['p  n', 'switch project (search, recent, open a folder)  ·  a new blank project'],
-  ['1 … 0', 'the other tabs of the Workbench (2 is this Chat screen)'],
+  // (R11 phase 2, H168's pass 4b R46: the other screens are the numbered tabs' pages until they are regrouped; R42: c and s)
+  ['1 … 0', 'the other screens (Files, Workflows, Runs & receipts, Canvas, Vision, Motion & 3D, Models & accounts, Tools & integrations, Control Room) open as the numbered tabs\' pages, with their own header and footer; 2, or / then chat, brings this screen back'],
+  ['c  s', 'Companion · Show and Studio · Show, from the left menu, Models or the bottom row (Tab reaches them): in the conversation a letter opens the composer with it typed'],
   ['?', 'these keys; Esc closes them'],
   ['Ctrl+C', 'quit (work another session started keeps running; it says what)'],
   ['Mouse', 'a click gives the pane under it the keyboard and selects the row under it (Enter acts); [M], [ Models ], [ Details ] and [ Close ] act as their keys'],
@@ -1180,10 +1182,12 @@ function overlayView(c: ViewCtx, o: NonNullable<Overlay>): View {
       lines.push([S('/ ', 'accent'), S(ui.input.text, 'text'), S(' ', 'text', { inverse: true })], blank);
       const found = findWorkspaces(ui.input.text);
       if (!found.length) { lines.push([S(`No workspace is named "${ui.input.text.trim()}". Enter searches All tools for it.`, 'secondary')]); return { lines, items }; }
+      // (R11 phase 2, H168's pass 4b R45: the rail's name leads where the rail has one; the other names grey after it)
       found.forEach((n, i) => {
-        const also = (n.also ?? []).filter((w) => w !== n.label);
+        const lead = n.rail ?? n.label;
+        const also = [...(n.rail ? [n.label] : []), ...(n.also ?? [])].filter((w) => w !== lead);
         items.push({ line: lines.length, item: { kind: 'action', key: `find:${n.id}`, action: n.id } });
-        lines.push([S(i === 0 ? '> ' : '  ', 'accent'), S(n.label, i === 0 ? 'accent' : 'text', i === 0 ? { bold: true } : {}), ...(also.length ? [S(`  ${also.join(' · ')}`, 'secondary')] : []), S(`  ${g.sep} ${n.task}`, 'secondary')]);
+        lines.push([S(i === 0 ? '> ' : '  ', 'accent'), S(lead, i === 0 ? 'accent' : 'text', i === 0 ? { bold: true } : {}), ...(also.length ? [S(`  ${also.join(' · ')}`, 'secondary')] : []), S(`  ${g.sep} ${n.task}`, 'secondary')]);
       });
       return { lines, items };
     }

@@ -1328,6 +1328,14 @@ export class Controller {
       this.emit();
       return;
     }
+    // R11 phase 2 (H167; H168's pass 4b R41): ↑ from the first starter returns to the composer (the draft given back)
+    if (list === 'center:first' && delta < 0 && this.ui.cursor[list] === 0 && this.chatShell() && isWelcome({ ui: this.ui, data: this.data })) {
+      this.leaveWelcome();
+      this.ui.input = { field: 'composer', text: this.ui.draft ?? '' };
+      delete this.ui.draft;
+      this.emit();
+      return;
+    }
     // R5 (H137): a view that lays its items out as a grid names where ↑ and ↓ move from each (View items' `near`)
     const near = Math.abs(delta) === 1 ? items?.[this.ui.cursor[list] ?? 0]?.near : undefined;
     const at = Math.max(0, Math.min(n - 1, (delta > 0 ? near?.down : near?.up) ?? (this.ui.cursor[list] ?? 0) + delta));
@@ -1754,6 +1762,15 @@ export class Controller {
     if (k.return) { void this.submit(f, this.ui.input.text); return; }
     if (k.upArrow || k.downArrow) {
       if (f === 'picker') { this.ui.cursor.overlay = Math.max(0, (this.ui.cursor.overlay ?? 0) + (k.upArrow ? -1 : 1)); this.emit(); }
+      // R11 phase 2 (H167; H168's pass 4b R41): in an EMPTY composer on the welcome, ↓ leaves it for the first starter (the
+      // person who just chose a model reaches the starters without Esc); a draft keeps the composer
+      else if (k.downArrow && f === 'composer' && this.chatShell() && !this.ui.input.text && isWelcome({ ui: this.ui, data: this.data })) {
+        this.ui.input = { field: null, text: '' };
+        this.ui.focus = 'center';
+        const items = this.itemsNow('center');
+        if (items?.length) select(this.ui, 'center:first', items, 0); else this.ui.cursor['center:first'] = 0;
+        this.emit();
+      }
       return;
     }
     if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); if (f === 'msearch') this.modelsSearchNow(); this.emit(); return; }
