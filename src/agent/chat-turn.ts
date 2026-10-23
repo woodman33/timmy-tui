@@ -27,6 +27,8 @@ import type { Transcript } from '../repl/transcript.js';
 import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect, type TurnMarks, type TurnResult, type TurnSummary } from '../repl/turn.js';
 import type { ConversationManager } from './conversation.js';
 import { cloudModelTag, ollamaAt } from '../setup/ollama-models.js';
+import { noteTurnAnswer } from '../ops/connections-record.js';
+import { modelKeyFingerprint } from '../utils/model-key.js';
 import type { InferenceAt, RoutePolicy } from './route-policy.js';
 
 export const CHAT_TURNS_DIR = '.timmy/chat-turns';
@@ -547,22 +549,23 @@ export type ProjectTurnResult =
  */
 /**
  * R10 (H169): a turn's observation of its route's connection, kept where the checks keep theirs (the Timmy home's
- * connections record, src/ops/workspace-frame.ts noteTurnAnswer), named as a turn's and for the address or key it asked.
- * Loaded only when there is one to keep; a record that cannot be written changes nothing.
+ * connections record, src/ops/connections-record.ts noteTurnAnswer), named as a turn's and for the address or key it asked.
+ * Kept as the turn ends, in the Timmy home it ran under and with the key it was sent with: CI at 704d8510 (run 39910190145)
+ * found a note kept later, after a promise, that read the home from the environment as it was by then (a test file's restored
+ * one: the account's own ~/timmy). A record that cannot be written changes nothing.
  */
-let noting: Promise<void> = Promise.resolve();
-/** Settles once every turn's observation this process started is kept (a test's wait; the turn never waits for it). */
-export const observationsKept = (): Promise<void> => noting;
-
-async function noteObserved(o: NonNullable<ReturnType<typeof turnConnection>>, route: TurnRouteStart): Promise<void> {
+function noteObserved(o: NonNullable<ReturnType<typeof turnConnection>>, route: TurnRouteStart): void {
   try {
-    const frame = await import('../ops/workspace-frame.js');
+    const env = process.env;
     let asked: string | undefined;
     if (o.id === 'ollama') { const at = ollamaAt(route.endpoint); asked = 'error' in at ? undefined : at.origin; }
-    else { const { modelKeyFingerprint } = await import('../utils/model-key.js'); asked = modelKeyFingerprint() ?? undefined; }
-    frame.noteTurnAnswer(o.id, { answer: o.answer, detail: o.detail, ...(asked ? { asked } : {}) });
+    else asked = modelKeyFingerprint(env) ?? undefined;
+    noteTurnAnswer(o.id, { answer: o.answer, detail: o.detail, ...(asked ? { asked } : {}) }, env);
   } catch { /* the observation is help: the turn and its receipt stand */ }
 }
+
+/** Settles at once: a turn's observation is kept as the turn ends, before projectTurn returns (kept for the waits of tests). */
+export const observationsKept = (): Promise<void> => Promise.resolve();
 
 export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResult> {
   const root = i.project.root;
@@ -645,8 +648,8 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
     // frame's row, src/ops/workspace-frame.ts): an answer, or a connection that did not answer (it ends "live")
     endRoute();
     const seen = observed as ReturnType<typeof turnConnection>;
-    // kept after the turn has ended, without holding its answer back (the frame's module may load the first time)
-    if (seen && route) noting = noting.then(() => noteObserved(seen, route));
+    // kept now, once the turn has ended (its answer is already given), never after a promise: the Timmy home is this turn's
+    if (seen && route) noteObserved(seen, route);
     return { status, continued };
   } finally {
     // a turn that ended without its summary (abandoned, or thrown): its end kept, whether it sent not recorded
