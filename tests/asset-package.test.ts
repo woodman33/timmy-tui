@@ -131,7 +131,10 @@ describe('an installed Timmy finds its starters and workers', () => {
 
     // The TypeScript build's layout: each module compiled on its own to dist/<its path>.js, as tsc emits it.
     const graph = buildSync({ entryPoints: ['src/project/starters.ts', 'src/vision/look.ts', 'src/utils/asset-dirs.ts'], bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent', outdir: join(base, 'unused'), absWorkingDir: root });
-    for (const input of Object.keys(graph.metafile!.inputs)) {
+    // R11 (lead): the graph holds what the entry modules reach, dynamic imports included (src/utils/init.ts reaches
+    // src/utils/config.ts, so `conf` and its JSON schemas, since H169's Phase 0): tsc emits the tree's own modules only, so
+    // only those are laid out; a package the probe never runs is not needed in the layout
+    for (const input of Object.keys(graph.metafile!.inputs).filter((i) => /^src\/.*\.tsx?$/.test(i))) {
       const code = transformSync(readFileSync(join(root, input), 'utf8'), { loader: 'ts', format: 'esm', target: 'es2022' }).code;
       write(join(pkg, 'dist', input.replace(/\.ts$/, '.js')), code);
     }
