@@ -129,7 +129,8 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
   const dirs: string[] = [];
   const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
   const saved: Record<string, string | undefined> = {};
-  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'TIMMY_HOME'];
+  // R11 (H171, step 1): the page's chat sends only to a model somebody chose; OPENROUTER_MODEL names this test's
+  const ENV = ['TIMMY_REPO', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'TIMMY_HOME'];
   const originalCwd = process.cwd();
   let browser: Browser;
   let fake: Server;
@@ -146,6 +147,7 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     writeFileSync(join(root, '.timmy', 'runs', 'timmy-events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), kind: 'test.h95-seeded', payload: { note: 'SYNTHETIC' } })}\n`);
     process.env.TIMMY_REPO = root;
     process.env.OPENROUTER_API_KEY = FAKE_KEY;
+    process.env.OPENROUTER_MODEL = 'fake/page-test:free';
     process.env.TIMMY_HOME = temp('h95-home-');
     process.chdir(temp('h95-work-'));
     // FAKE OpenRouter: the hostile answer, a slow answer (for the caret) or the markdown answer; streamed in pieces that

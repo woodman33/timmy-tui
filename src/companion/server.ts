@@ -648,6 +648,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
    */
   app.post('/chat', withToken, express.json(), async (req, res) => {
     const env = chatEnv();
+    // R11 (H169, Phase 0 item 2; the operator's order: "disable an unsafe Send path rather than using an unchosen model"): the
+    // route names the model chosen in the settings, or is none (nothing is sent)
     const route = pageRoute(env, process.cwd());
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -858,7 +860,7 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   // read from the environment its /chat reads
   mountJourneyRoutes(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
   // R10 CHAT (H171): the Chat's saved conversation, its route, the providers' states and the models (/api/chat/view, /models)
-  mountChatView(app, { withToken, projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
+  mountChatView(app, { withToken, json: express.json({ limit: '2kb' }), projectFor, projectUnknown: PROJECT_UNKNOWN, chatEnv, env: options.workspace?.env ?? process.env });
 
   // Serve the built client (if using vite)
   // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
