@@ -36,7 +36,7 @@ export type Readiness = { ready: true; command: string; via: string; extra?: Rec
 function packaged(rel: string): string {
   return packagedPath(rel, import.meta.url, { kind: 'file' }) ?? join(packageRoot(import.meta.url) ?? fileURLToPath(new URL('.', import.meta.url)), rel);
 }
-/** The geo lane's scorer and the Roboflow bridge, at the package root (a checkout carries them; the npm package does not). */
+/** The geo lane's scorer and the Roboflow bridge, at the package root (a checkout carries them; so does the npm package, since R11). */
 export const GEO_SCRIPT = packaged('lanes/geo/voxel_score.py');
 export const ROBOFLOW_BRIDGE = packaged('scripts/roboflow-bridge.py');
 
@@ -48,10 +48,10 @@ export const SETUP = {
   video: AE_FFMPEG_SETUP,
   python: 'install Python 3, so that python3 is on the PATH',
   geo: 'python3 -m pip install numpy scipy',
-  geoLane: 'run Timmy from a checkout of its repository: the geo lane (lanes/geo/voxel_score.py) is not in the npm package',
+  geoLane: 'reinstall Timmy, or run it from a checkout of its repository: the geo lane (lanes/geo/voxel_score.py) is missing from this installation (the npm package carries it)',
   roboflowKey: 'set ROBOFLOW_API_KEY (console.roboflow.com)',
   roboflowVenv: 'python3 -m venv .timmy/venv-roboflow && .timmy/venv-roboflow/bin/pip install roboflow inference-sdk',
-  roboflowBridge: 'run Timmy from a checkout of its repository: the Roboflow bridge (scripts/roboflow-bridge.py) is not in the npm package',
+  roboflowBridge: 'reinstall Timmy, or run it from a checkout of its repository: the Roboflow bridge (scripts/roboflow-bridge.py) is missing from this installation (the npm package carries it)',
   worker: 'reinstall Timmy: one of its workers is missing',
 } as const;
 
