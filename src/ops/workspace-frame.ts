@@ -83,6 +83,12 @@ export interface ConnectionCheck {
    * key). A check of another address or key than the one set up now says nothing about it (forNow).
    */
   asked?: string;
+  /**
+   * R10 (H169; H168's pass 2c, R2 and R4): who observed it: a chat turn (src/agent/chat-turn.ts: its route answered, or the
+   * Ollama it asked did not answer), not a check; absent: a check or a surface's own note. The newest observation is the
+   * connection's, whichever made it.
+   */
+  by?: 'turn';
 }
 
 export interface ConnectionsRecord {
@@ -183,6 +189,22 @@ export function noteListening(id: 'studio' | 'companion', env: Env = process.env
 }
 
 /**
+ * R10 (H169; H168's pass 2c, R2: "Ollama stays '● live' (green) right after a send to it was refused"): a chat turn's
+ * observation of its route's connection, kept as the connection's newest: it answered (accepted, `detail` the model), or the
+ * Ollama it asked did not answer (the connection failed: it is no longer live until a check or a turn answers again). Named as
+ * a turn's (`by`), for the address or the key it asked. A record that cannot be written changes nothing.
+ */
+export function noteTurnAnswer(id: 'ollama' | 'openrouter', o: { answer: 'accepted' | 'no answer'; detail: string; asked?: string }, env: Env = process.env, now = Date.now()): boolean {
+  try {
+    const rec = readConnections(env);
+    writeConnections({ ...rec, checks: { ...rec.checks, [id]: { answer: o.answer, at: new Date(now).toISOString(), detail: o.detail, ...(o.asked ? { asked: o.asked } : {}), by: 'turn' } } }, env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * R5 lead (the QA round, defect 19): a local surface that stops records it, as a check made then would see it (refused,
  * so not running), so no surface goes on saying it answered after it ended. A record that cannot be written changes nothing.
  */
@@ -222,6 +244,14 @@ export function connectionOf(
   if (c && Number.isFinite(Date.parse(c.at))) {
     const fresh = o.now - Date.parse(c.at) <= LIVE_FOR_MS;
     const said = c.detail ? ` (${c.detail})` : '';
+    // R10 (H169; H168's pass 2c, R2 and R4): a chat turn's observation is said as a turn's, never as a check's
+    // (the brief's words: it ends "live", "○ configured · did not answer HH:MM", until a check or a turn answers again)
+    if (c.by === 'turn' && c.answer === 'no answer') return { ...base, state: o.configured ? 'configured' : (o.notConfiguredState ?? 'not set up'), words: `did not answer a chat turn ${ago(c.at, o.now)}${said}; a check or a turn that answers makes it live again`, observedAt: c.at };
+    if (c.by === 'turn' && c.answer === 'accepted') {
+      return fresh
+        ? { ...base, state: 'live', words: `answered a chat turn ${ago(c.at, o.now)}${said}; live: ${LIVE_FOR_WORDS}`, observedAt: c.at }
+        : { ...base, state: o.configured ? 'configured' : 'unknown', words: `answered a chat turn ${ago(c.at, o.now)}${said}; check again to see it now`, observedAt: c.at };
+    }
     if (c.answer === 'refused') return { ...base, state: 'refused', words: `refused when checked ${ago(c.at, o.now)}${said}`, observedAt: c.at };
     // a surface Timmy starts on demand that is not started is not a failure: it is set up, and says how to start it
     if (c.answer === 'not running') return { ...base, state: 'configured', words: `not running when checked ${ago(c.at, o.now)}${o.startWords ? `; ${o.startWords}` : ''}`, observedAt: c.at };
@@ -338,7 +368,21 @@ function decisionModelConnection(env: Env): WorkspaceConnection {
   };
 }
 
-function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}, mcpCalls: readonly McpCallRead[] = []): WorkspaceConnection[] {
+/**
+ * R10 (H169; H168's pass 2c, R4: "Ollama's row at launch tells the last check's time, not the newest answer's"): the newest
+ * observation of a chat route's connection: its check (or a turn's own note), or the project's newest sealed turn on that route
+ * that answered, when that is newer (a receipt that names an Ollama endpoint went through Ollama; one that names none,
+ * OpenRouter). A turn's answer counts only while no check names another address or key than the one set up now.
+ */
+export function newestObservation(check: ConnectionCheck | undefined, via: 'ollama' | 'openrouter', turns: readonly Pick<TurnRow, 'state' | 'at' | 'local' | 'model'>[] = []): ConnectionCheck | undefined {
+  const t = turns.filter((x) => x.state === 'answered' && Number.isFinite(Date.parse(x.at)) && (via === 'ollama' ? x.local !== undefined : x.local === undefined))
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  if (!t) return check;
+  if (check && Number.isFinite(Date.parse(check.at)) && Date.parse(check.at) >= Date.parse(t.at)) return check;
+  return { answer: 'accepted', at: t.at, ...(t.model ? { detail: t.model } : {}), by: 'turn' };
+}
+
+function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, unknown: WorkspaceFrame['unknown'], alive?: ProcessAlive, surfaces: Partial<Record<'companion' | 'studio', SurfaceNow>> = {}, mcpCalls: readonly McpCallRead[] = [], recentTurns: readonly Pick<TurnRow, 'state' | 'at' | 'local' | 'model'>[] = []): WorkspaceConnection[] {
   const checks = readConnections(env).checks;
   const out: WorkspaceConnection[] = [];
   const key = (() => { try { return modelKeySource(env, cwd); } catch { return null; } })();
@@ -346,7 +390,7 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const or = forNow(checks.openrouter, keyNow);
   out.push(connectionOf('openrouter', 'OpenRouter (cloud chat)', {
     configured: key !== null, setupWords: 'no key: timmy init --chat openrouter asks for it (typed hidden), or set OPENROUTER_API_KEY', setup: key ? 'timmy workspace check' : 'timmy init --chat openrouter',
-    check: or.check, now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}${or.other ? '; not checked with this key yet (the last check asked with another key)' : ''}` } : {}),
+    check: or.other ? or.check : newestObservation(or.check, 'openrouter', recentTurns), now, ...(key ? { detail: `key from ${key}${freeOnlyOn(env) ? '; free-only on (a model not known to be free is refused)' : ''}${or.other ? '; not checked with this key yet (the last check asked with another key)' : ''}` } : {}),
   }));
   const ollamaBase = ollamaAddress(env);
   // set up when the chat route is the local model, or when an address for it is set; otherwise it is optional
@@ -355,7 +399,7 @@ function connectionsOf(env: Env, cwd: string, wb: WorkbenchJson, now: number, un
   const ol = forNow(checks.ollama, ollamaBase);
   out.push(connectionOf('ollama', 'Ollama (local models)', {
     configured: ollamaChosen, setupWords: 'optional: run Ollama with a model pulled, then timmy init --chat local --model <name> chooses it for chat',
-    setup: ollamaChosen ? 'timmy workspace check' : 'timmy init --chat local --model <name>', check: ol.check, now,
+    setup: ollamaChosen ? 'timmy workspace check' : 'timmy init --chat local --model <name>', check: ol.other ? ol.check : newestObservation(ol.check, 'ollama', recentTurns), now,
     detail: `asked at ${ollamaBase.replace(/\/+$/, '')}, no charge (local)${ol.other ? `; not checked at this address yet (the last check asked ${ol.other})` : ''}`,
   }));
   const edge = (() => { try { return edgeUrlOrNull(); } catch { return null; } })();
@@ -670,7 +714,10 @@ async function frameWith(d: FrameDeps, table: ProcessTable): Promise<WorkspaceFr
   let chainRead: Receipt[] | null = null;
   const chainOnce = (): Receipt[] => (chainRead ??= d.chain ? d.chain() : chainOf(wb.project.root, env));
   const mcpCalls = (() => { try { return readMcpCalls(wb.project.root, chainOnce(), 12).list; } catch { return []; } })();
-  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls), table, looked);
+  // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
+  // an older check. R10 (H169): read before the connections, whose rows take the newest answer (R4)
+  const recentTurns = (() => { try { return readTurns(chainOnce(), wb.project.root); } catch { return []; } })();
+  const connections = withProcessTable(() => connectionsOf(env, cwd, wb, now, unknown, d.alive, read, mcpCalls, recentTurns), table, looked);
   const settings = readWorkbenchSettings(env).settings;
   // R6 (H140): a surface runs when it answered within the bound (live), or while the process that noted it listening runs (it
   // listens; nothing has asked it yet); not running when a check or its own note says so, or its process is gone; else unknown
@@ -680,9 +727,6 @@ async function frameWith(d: FrameDeps, table: ProcessTable): Promise<WorkspaceFr
     const state = running ? 'running' as const : now_ === 'not running' || now_ === 'gone' || now_ === 'no answer' || now_ === 'refused' ? 'not running' as const : 'unknown' as const;
     return { openAtStart, url: running ? (id === 'studio' ? studioBaseUrl(env) : companionBaseUrl(env)) : null, state };
   };
-  // R5 lead: the project's newest sealed chat turns (their receipts, newest first): newer observations of the chat route than
-  // an older check
-  const recentTurns = (() => { try { return readTurns(chainOnce(), wb.project.root); } catch { return []; } })();
   // R5 lead: a chat turn being answered now (its hold in <project>/.timmy/chat-turns), read without removing a stale one (a
   // hold whose process has ended is no running turn). R5 lead (the QA round, defect 9; the operator's 22:32 order, item 1):
   // a hold whose own receipt is sealed has ended (the hold is let go a moment after): matched by the turn's identity, its
