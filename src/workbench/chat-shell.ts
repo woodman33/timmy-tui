@@ -24,8 +24,9 @@ import { inWords, routeLine } from './home-journey.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { noModelChosen } from './state.js';
 import type { WorkspaceId } from './nav.js';
-import { clock, cut, fit, lineCells, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
+import { clock, cut, fit, lineCells, spread, trimTo, wrapText, type Line, type Role, type Seg } from './text.js';
 import { openRouterRow, queryCatalog, type CatalogQuery, type CatalogRow, type MakerOption, type ModelSource, type OpenRouterCatalogModel } from '../models/catalog.js';
+import { localModelGlyph } from '../setup/local-model-check.js';
 import type { ProviderState } from '../setup/providers-state.js';
 
 const S = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => ({ text, role, ...o });
@@ -160,8 +161,10 @@ function headerRows(c: ShellCtx, grid: ChatGrid, first: boolean): Line[] {
   const right: Line = [S('LOCAL RECORDS', 'secondary')];
   const fill = Math.max(1, grid.W - at - lineCells(title) - lineCells(right) - margin);
   const row0: Line = [S('  '), S('TIMMY', 'strong', { bold: true }), S(' '.repeat(Math.max(1, at - 7))), ...title, S(' '.repeat(fill)), ...right];
+  // (R11 H167, step 1c: below WIDE_COLUMNS the next turn's model is the chip's, at the composer's right: row 1 is blank there)
   const next: Line = first
     ? [S('FIRST RUN / choose how chat runs', 'secondary')]
+    : grid.W < WIDE_COLUMNS ? []
     : rt.model
       ? [S(`NEXT / ${nextProvider(data)} / `, 'secondary'), ...(rt.fake ? [S('FAKE ', 'attention')] : []), S(rt.model, 'text')]
       // (R10 CHAT H167; H168's pass 3b, R17: a key and no model chosen: none is the next turn's)
@@ -661,39 +664,144 @@ export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Li
   return { lines, items };
 }
 
-// ── the composer and its action row ────────────────────────────────────────────
+// ── the composer, its action row and the model chip ─────────────────────────────
 
-/** MESSAGE's rows: the label; the composer (boxed in amber only while it has the keyboard, else the draft kept or what Enter
- *  does); the action row ([ Send ] and its keys; [ Stop ] while this Workbench's own turn is being answered). */
-function composerRows(c: ShellCtx, w: number): Line[] {
+/** The composer's placeholder while nothing is typed. */
+export const COMPOSER_PLACEHOLDER = 'Message TIMMY…';
+/** The chord hint beside [ Send ] (the playbook §17.2: Enter submits, Ctrl+J inserts a newline). */
+export const SEND_HINT = 'Enter sends · Ctrl+J newline';
+
+/** A text as the composer's rows: each newline a row, a long row cut into pieces of `room` cells. */
+function textRows(text: string, room: number): string[] {
+  const out: string[] = [];
+  for (const para of text.split('\n')) {
+    const cs = [...para];
+    if (!cs.length) { out.push(''); continue; }
+    for (let i = 0; i < cs.length; i += Math.max(1, room)) out.push(cs.slice(i, i + Math.max(1, room)).join(''));
+  }
+  return out.length ? out : [''];
+}
+
+/**
+ * R11 (H167; step 1c): the model chip at the composer's right: the next turn's model, where it runs and its readiness, in
+ * words with a dot (DESIGN.md B10: never colour alone): ● amber while Ollama is asked, ● green only after Ollama (or the
+ * key's check) answered, with that answer's time; ○ grey when nothing answered yet; ✕ with the word on a failure. The
+ * readiness of a local model is Ollama's own answer: the choice's check (ui.modelCheck), else the /api/show answer Models'
+ * listing got for that exact name; a cloud model's is the key check's (H170's providerStates). "○ no model · choose one"
+ * with none. The name is cut to the room, never the state.
+ */
+export interface ModelChip { glyph: '●' | '○' | '✕'; tone: Role; words: string; state: 'checking' | 'ready' | 'failed' | 'unknown' | 'none' }
+
+export function modelChip(c: Pick<ShellCtx, 'ui' | 'data'>, room = 200): ModelChip {
+  const { ui, data } = c;
+  const rt = routeLine(data);
+  const at = (iso: string | number | undefined): string => clock(typeof iso === 'number' ? new Date(iso).toISOString() : iso).slice(0, 5);
+  // (the name cut to the room: by its words where that keeps most of it, else by its characters: "FAKE…" alone is never the
+  // name, as R5b found in the drawer)
+  const fitName = (name: string, tail: string): string => {
+    const nameRoom = Math.max(6, room - 2 - [...tail].length);
+    if ([...name].length <= nameRoom) return `${name}${tail}`;
+    const byWords = cut(name, nameRoom, '…');
+    return `${[...byWords].length >= nameRoom - 6 ? byWords : `${[...name].slice(0, nameRoom - 1).join('')}…`}${tail}`;
+  };
+  // (a choice being checked is the chip's while Ollama is asked, whatever the route's model is until it answers)
+  const asking = ui.modelCheck;
+  if (asking?.state === 'checking') return { glyph: '●', tone: 'attention', words: fitName(`${/\bfake\b/i.test(asking.model) ? 'FAKE ' : ''}${asking.model}`, ' · this computer · checking…'), state: 'checking' };
+  if (!rt.model) return { glyph: '○', tone: 'secondary', words: data.route.unchosen ? 'no model chosen · choose one (M)' : 'no model · choose one (M)', state: 'none' };
+  const name = `${rt.fake ? 'FAKE ' : ''}${rt.model}`;
+  if (data.route.kind === 'local') {
+    const where = /cloud/i.test(rt.where) ? 'Ollama cloud' : /another computer/.test(rt.where) ? 'another computer' : 'this computer';
+    const ck = ui.modelCheck?.model === rt.model ? ui.modelCheck : null;
+    const o = data.models?.ollama;
+    const row = o?.rows.find((r) => r.id === rt.model) as (CatalogRow & { chat?: boolean | null }) | undefined;
+    const said = (state: 'checking' | 'ready' | 'failed' | 'unknown', word: string): ModelChip => {
+      const gl = localModelGlyph(state === 'checking' ? 'checking' : state === 'ready' ? 'ready' : state === 'unknown' ? 'unknown' : 'unreachable');
+      return { glyph: state === 'failed' ? '✕' : gl.glyph, tone: state === 'failed' ? 'failure' : gl.tone, words: fitName(name, ` · ${where} · ${word}`), state };
+    };
+    if (ck?.state === 'ready') return said('ready', `ready ${at(ck.at)}`);
+    if (ck) return said('failed', localModelGlyph(ck.state).word);
+    if (o?.state === 'listed' && row?.chat === true) return said('ready', `ready ${at(o.at)}`);
+    if (o?.state === 'listed' && row?.chat === false) return said('failed', 'not a chat model');
+    if (o?.state === 'listed' && !row) return said('failed', 'not listed by Ollama');
+    if (o?.state === 'failed') return said('failed', 'unreachable');
+    if (o?.state === 'reading') return said('checking', 'checking…');
+    return said('unknown', 'not checked');
+  }
+  if (data.route.kind === 'openrouter') {
+    const row = data.models?.openrouter?.rows.find((r) => r.id === rt.model);
+    const price = row ? (row.price.free === true ? 'free' : row.price.inPerM === undefined || row.price.outPerM === undefined ? 'price unknown' : `${usd(row.price.inPerM)} in / ${usd(row.price.outPerM)} out per 1M`) : /^free/.test(rt.price) ? 'free' : 'price not read';
+    const ps = data.models?.providers?.find((x) => x.id === 'openrouter');
+    const checked = ps?.state === 'checked' && ps.at;
+    const failed = ps?.state === 'refused' || ps?.state === 'unreachable';
+    const word = checked ? `key checked ${at(ps.at)}` : failed ? `key ${ps.state}` : 'key saved, not checked';
+    return { glyph: checked ? '●' : failed ? '✕' : '○', tone: checked ? 'live' : failed ? 'failure' : 'secondary', words: fitName(name, ` · OpenRouter · ${price} · ${word}`), state: checked ? 'ready' : failed ? 'failed' : 'unknown' };
+  }
+  return { glyph: '○', tone: 'secondary', words: fitName(name, ` · ${rt.where} · not checked`), state: 'unknown' };
+}
+
+/** The chip as a row's segments (amber words while it has the keyboard; its dot keeps its tone). */
+function chipLine(c: ShellCtx, room: number, focused: boolean): Line {
+  const chip = modelChip(c, room);
+  return [S(chip.glyph, chip.tone, chip.state === 'ready' ? { bold: true } : {}), S(' '), S(chip.words, focused ? 'accent' : 'text', focused ? { bold: true, selected: true } : { raw: true })];
+}
+
+/**
+ * R11 (H167; step 1b): the composer nobody can miss (the playbook's `block` input, §17.2): tinted rows (Seg.block; the tint
+ * from the terminal's own background, none without colour) with "› " (amber while the composer has the keyboard) and an
+ * inverse cursor cell; two rows at the target's 122x37, one at 80x24, always drawn, never dim; "Message TIMMY…" while
+ * nothing is typed; the draft kept shows in it when the composer is left. Below: [ Send ] amber while a model is on the
+ * route and no turn runs (dim with the reason otherwise: an unsafe Send is disabled, never sent on an unchosen model), the
+ * chord hint "Enter sends · Ctrl+J newline", [ Stop ] during this Workbench's own turn; the model chip (modelChip) at the
+ * right of that row where it fits (122x37), on its own row below it (80x24). `chip`: where the chip is drawn (row of these
+ * lines, cells from the row's start), for the click.
+ */
+function composerRows(c: ShellCtx, w: number, wide: boolean): { lines: Line[]; chip: { row: number; x0: number; x1: number } } {
   const { g, ui, data } = c;
   const typing = ui.input.field === 'composer';
   const turn = chatTurnNow(data);
   const answering = !!turn?.mine || data.turn?.state === 'sending';
   const rt = routeLine(data);
-  const label: Line = [S('MESSAGE', typing ? 'accent' : 'secondary', typing ? { bold: true } : {})];
-  let box: Line[];
-  if (typing) {
-    const b = g.unicode ? { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃' } : { tl: '#', tr: '#', bl: '#', br: '#', h: '=', v: '#' };
-    const room = Math.max(1, w - 5);
-    const text = ui.input.text;
-    const shown = [...text].length > room ? `${g.ellipsis}${[...text].slice(-(room - 1)).join('')}` : text;
-    box = [
-      [S(`${b.tl}${b.h.repeat(Math.max(0, w - 2))}${b.tr}`, 'focus')],
-      [S(`${b.v} `, 'focus'), S(shown, 'text'), S(' ', 'text', { inverse: true }), S(' '.repeat(Math.max(0, w - 4 - [...shown].length - 1))), S(` ${b.v}`, 'focus')],
-      [S(`${b.bl}${b.h.repeat(Math.max(0, w - 2))}${b.br}`, 'focus')],
-    ];
-  } else {
-    const draft = ui.draft?.trim();
-    box = [draft ? [S('draft: ', 'secondary'), S(cut(draft.replace(/\s+/g, ' '), w - 7, g.ellipsis), 'text')] : [S(rt.model ? 'Enter writes a message' : noModelChosen(data.route) ? 'Choose a model in Models, M (a draft is kept)' : 'Connect a model to chat (a draft is kept)', 'secondary')], blank, blank];
+  const B = (text: string, role: Role = 'text', o: Omit<Seg, 'text' | 'role'> = {}): Seg => S(text, role, { ...o, block: true });
+  const pad = (line: Line): Line => { const used = lineCells(line); return used < w ? [...line, B(' '.repeat(w - used))] : line; };
+  const inputRows = wide ? 2 : 1;
+  const text = typing ? ui.input.text : ui.draft ?? '';
+  const room = Math.max(4, w - 2);
+  const rows = textRows(text, room);
+  // (the cursor on the next row once a row is full)
+  if (typing && text && [...rows[rows.length - 1]].length >= room) rows.push('');
+  const shown = rows.slice(-inputRows);
+  const more = rows.length > inputRows;
+  const lines: Line[] = [];
+  for (let k = 0; k < inputRows; k++) {
+    const r = shown[k];
+    const first = k === 0;
+    const last = k === shown.length - 1;
+    const prompt: Seg = first ? B('› ', typing ? 'accent' : 'text', typing ? { bold: true } : {}) : B('  ');
+    if (r === undefined) { lines.push(pad([prompt])); continue; }
+    const segs: Line = [prompt];
+    if (!text) segs.push(...(typing ? [B(' ', 'text', { inverse: true })] : []), B(COMPOSER_PLACEHOLDER, 'secondary'));
+    else {
+      const body = first && more ? `${g.ellipsis}${[...r].slice(1).join('')}` : r;
+      segs.push(B(body, 'text', { raw: true }));
+      if (typing && last) segs.push(B(' ', 'text', { inverse: true }));
+    }
+    lines.push(pad(segs));
   }
-  const ready = rt.ready && !!rt.model;
+  const on = rt.ready && !!rt.model && !data.route.unchosen;
   const send: Line = answering
-    ? [S('[ Stop ]', 'accent', { bold: true }), S('        Esc stops the turn being answered', 'secondary')]
-    : typing
-      ? [S('[ Send ]', ready && ui.input.text.trim() ? 'accent' : 'secondary', ready && ui.input.text.trim() ? { bold: true } : {}), S(ready ? '        Enter sends / Esc leaves, the draft kept' : '        no model: Models chooses one', 'secondary')]
-      : [S('[ Send ]', 'secondary'), S('        Enter writes / Tab moves on', 'secondary')];
-  return [label, ...box, send];
+    ? [S('[ Stop ]', 'accent', { bold: true }), S('  Esc stops the turn being answered', 'secondary')]
+    : [S('[ Send ]', on ? 'accent' : 'secondary', on ? { bold: true } : {}), S(on ? `  ${SEND_HINT}` : rt.model ? '  not sent: the route is not ready' : data.route.unchosen ? '  no model chosen: M chooses one' : '  no model: M chooses one', 'secondary')];
+  const chipFocus = ui.chip === true && ui.focus === 'center' && !typing;
+  // (the chip whole: at the Send row's right where both fit (a terminal wider than the target's: at 122x37 the center's 69
+  // cells hold the hint or the chip, not both), else on the row under it, flush left)
+  const chip = chipLine(c, w, chipFocus);
+  const cells = lineCells(chip);
+  if (wide && cells + 1 + lineCells(send) <= w) {
+    lines.push(spread(send, chip, w, g.ellipsis), blank);
+    return { lines, chip: { row: inputRows, x0: w - cells, x1: w - 1 } };
+  }
+  lines.push(send, trimTo(chip, w, g.ellipsis));
+  return { lines, chip: { row: inputRows + 1, x0: 0, x1: Math.min(w, cells) - 1 } };
 }
 
 // ── the first run, and Chat with no model ──────────────────────────────────────
@@ -816,7 +924,7 @@ export interface ShellRegion { rect: { x: number; y: number; w: number; h: numbe
  * the shell's form, already scrolled to the rows convoRowsAt gives, or the first run's question (`first`: WELCOME TO TIMMY,
  * the header's FIRST RUN, the rows firstRowsAt gives and no composer) or Chat with no model's rows; `list`: their cursor's.
  */
-export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: boolean; full?: boolean; list?: string; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid } {
+export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: boolean; full?: boolean; list?: string; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid; chip?: { x0: number; x1: number; y: number } } {
   const { g, ui, data } = c;
   const grid = chatGrid(c.width, c.height);
   const { W, H, railW, cw, contentH } = grid;
@@ -840,17 +948,21 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const titleRight: Line = note ? [S(note, 'secondary')] : modelsKey;
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(titleRight) - 3))), ...titleRight];
   a.convo.slice(0, convoRows).forEach((l, k) => { center[CONVO_AT + k] = l; });
+  let chip: { x0: number; x1: number; y: number } | undefined;
   if (!whole) {
     center[ruleAt] = [S((g.unicode ? '─' : '-').repeat(cw), 'border')];
-    composerRows(c, cw).forEach((l, k) => { if (ruleAt + 1 + k < contentH) center[ruleAt + 1 + k] = l; });
+    const comp = composerRows(c, cw, grid.sepR !== null);
+    comp.lines.forEach((l, k) => { if (ruleAt + 1 + k < contentH) center[ruleAt + 1 + k] = l; });
+    if (ruleAt + 1 + comp.chip.row < contentH) chip = { x0: grid.cx + comp.chip.x0, x1: grid.cx + comp.chip.x1, y: 3 + ruleAt + 1 + comp.chip.row };
   }
-  // Models: beside the center, or its drawer over the center's rows down to the composer (the action row stays in sight)
-  const mN = drawer ? ruleAt + 5 : contentH;
+  // Models: beside the center, or its drawer over the center's rows down to the composer's text row (R11 H167, step 1b/1c:
+  // the Send row and the model chip stay in sight under it, so a choice's "checking…" and its answer are seen at 80x24 too)
+  const mN = drawer ? (whole ? ruleAt + 5 : ruleAt + 2) : contentH;
   const models = grid.sepR !== null || drawer ? modelsLines(c, mN, grid.mw, a.focus === 'right', drawer) : null;
   if (drawer && models) models.lines.forEach((l, k) => { center[k] = l; });
   // the bottom's drawer (Logs, Budget, More): over the conversation's rows, the composer and its draft in sight below it;
   // below WIDE_COLUMNS down to the composer's action row, as the Models drawer
-  if (ui.shellDrawer && !drawer && !a.first) shellDrawerLines(c, grid.sepR === null ? ruleAt + 5 : ruleAt, cw).lines.forEach((l, k) => { center[k] = l; });
+  if (ui.shellDrawer && !drawer && !a.first) shellDrawerLines(c, grid.sepR === null ? ruleAt + 2 : ruleAt, cw).lines.forEach((l, k) => { center[k] = l; });
   const bottom = bottomRows(c, grid, a.focus === 'bottom');
   const screen: Line[] = [...head];
   for (let y = 3; y < H; y++) {
@@ -867,5 +979,6 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
     bottom: { rect: { x: railW + 1, y: H - 3, w: W - railW - 1, h: 3 }, list: 'shellBottom', items: bottom.items, scroll: 0, fixed: 0, height: 3, total: 3 },
   };
   if (models) regions.right = { rect: grid.sepR !== null ? { x: grid.modelsX, y: 3, w: W - grid.modelsX, h: contentH } : { x: grid.centerX, y: 3, w: grid.centerW, h: mN }, list: 'right:models', items: models.items, scroll: 0, fixed: models.listFrom, height: models.listRows, total: models.items.length * models.perItem };
-  return { screen, regions, grid };
+  // (a drawer stops above the Send row: the chip under it is drawn, and a click on it opens Models)
+  return { screen, regions, grid, ...(chip ? { chip } : {}) };
 }

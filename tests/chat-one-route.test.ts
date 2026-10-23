@@ -75,13 +75,13 @@ async function surfaces() {
   return { repl, workbench, monitor, page, model };
 }
 
-// R11 (H169, Phase 0 item 1): a key alone chooses no model (there is no shipped default): the route is OpenRouter's, not
-// ready, and its words say so on every surface; `pageReady`: the companion page's own Send (item 2 makes it the settings'
-// chosen model too; until then it names its own)
-const EXPECTED: Record<Setup, { kind: 'none' | 'local' | 'openrouter'; ready: boolean; pageReady?: boolean; repl: (m: string) => string; monitor: (m: string) => string; page: string }> = {
+// R11 (H169, Phase 0 items 1 and 2): a key alone chooses no model (there is no shipped default): the route is OpenRouter's, not
+// ready, and its words say so on every surface, the companion page's own Send included (item 2: it asks the settings' chosen
+// model, the Workbench's choice, and with none it is off: "No model chosen: choose one in Models")
+const EXPECTED: Record<Setup, { kind: 'none' | 'local' | 'openrouter'; ready: boolean; repl: (m: string) => string; monitor: (m: string) => string; page: string }> = {
   'no key': { kind: 'none', ready: false, repl: () => 'chat: no model key · /setup', monitor: () => 'chat: no model key · /setup', page: 'no chat route here · Send is off' },
   'local model chosen': { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
-  'OpenRouter key': { kind: 'openrouter', ready: false, pageReady: true, repl: () => 'chat: OpenRouter · no model chosen', monitor: () => 'chat: OpenRouter · no model chosen', page: 'qwen/qwen3.8-max · OpenRouter · this page\'s own chat · each message spends credits' },
+  'OpenRouter key': { kind: 'openrouter', ready: false, repl: () => 'chat: OpenRouter · no model chosen', monitor: () => 'chat: OpenRouter · no model chosen', page: 'No model chosen: choose one in Models · Send is off' },
   both: { kind: 'local', ready: true, repl: () => 'chat: local qwen3:8b · Ollama', monitor: () => 'chat: local qwen3:8b · Ollama', page: 'local qwen3:8b · Ollama · this page\'s own chat · no tools' },
 };
 
@@ -93,9 +93,8 @@ describe('one route for every surface (R4 H113, part 4)', () => {
       const { repl, workbench, monitor, page, model } = await surfaces();
       // the same route, ready or not, on every surface
       expect([repl.state.kind, workbench.kind, monitor.state.kind]).toEqual([want.kind, want.kind, want.kind]);
-      const pageReady = want.pageReady ?? want.ready;
-      expect([repl.state.ready, workbench.ready, monitor.state.ready, page.ready]).toEqual([want.ready, want.ready, want.ready, pageReady]);
-      expect(page.kind).toBe(pageReady ? want.kind : 'none');
+      expect([repl.state.ready, workbench.ready, monitor.state.ready, page.ready]).toEqual([want.ready, want.ready, want.ready, want.ready]);
+      expect(page.kind).toBe(want.ready ? want.kind : 'none');
       // the words: the REPL's header and the Workbench's are the same words; the monitor's names the model's last part
       expect(repl.state.words).toBe(want.repl(model));
       expect(workbench.words).toBe(repl.state.words);
@@ -115,6 +114,10 @@ describe('one route for every surface (R4 H113, part 4)', () => {
         expect(workbench.refusal).toContain('Try: Models (M) in timmy workbench, /model <id> in the REPL (timmy), or timmy init --chat openrouter --model <id>');
         expect(model).toBe('');
         expect(drawerStatus(monitor, 'not checked')).toMatch(/^Error: No model chosen\. \/model <id> chooses one/);
+        // item 2: the page's Send is off for the same reason, in its own words, and no model is named anywhere on it
+        expect(page).toMatchObject({ kind: 'none', ready: false, chat: 'openrouter', reason: 'no-model-chosen' });
+        expect(page.kind === 'none' && page.words).toMatch(/^Send is off: No model chosen: choose one in Models /);
+        expect(JSON.stringify(page)).not.toMatch(/qwen3\.8-max|claude-opus/);
       }
       if (setup === 'no key') {
         expect(repl.state.refusal).toContain(REPL_NO_ROUTE_TRY);

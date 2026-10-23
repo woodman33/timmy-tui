@@ -157,7 +157,9 @@ describe('a cancelled request is closed in the conversation', () => {
     const { agent, inputs, send } = scripted([{ items: [msg('m2', 'Paris.')] }]);
     const client = (agent as any).client;
     let calls = 0;
-    (agent as any).client = { callModel: (req: any, o: any) => (++calls <= 2 ? (() => { throw new Error('503 Service Unavailable'); })() : client.callModel(req, o)) };
+    // R11 (lead; H169's Phase 0 item 1): a chosen model that fails is asked once and no fallback model is tried, so the first
+    // request is one failing call (it was two: the model, then the shipped fallback)
+    (agent as any).client = { callModel: (req: any, o: any) => (++calls <= 1 ? (() => { throw new Error('503 Service Unavailable'); })() : client.callModel(req, o)) };
     (agent as any).tryOllamaLastResort = async () => null;
     agent.on('error', () => {});
     await expect(send('First request.')).rejects.toThrow(/OpenRouter request failed/);

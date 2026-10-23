@@ -11,7 +11,7 @@ import { chatLayout } from '../src/workbench/layout.js';
 import { frameOf } from '../src/workbench/screen.js';
 import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, type CatalogRow } from '../src/workbench/chat-shell.js';
 import type { Data, Ui } from '../src/workbench/model.js';
-import { plain } from '../src/workbench/text.js';
+import { clock, plain } from '../src/workbench/text.js';
 import { UNANSWERED } from '../src/agent/core.js';
 
 const g = glyphsFor(true);
@@ -42,7 +42,8 @@ function data(o: Partial<Data> = {}): Data {
     vox: [], native: {}, starters: [], boards: [], studio: { state: 'idle' }, overview: { state: 'idle' }, caps: { state: 'idle' }, details: {}, readAt: NOW, away: [],
     models: {
       openrouter: { from: 'shipped', at: '2026-09-07', rows: railCatalog(CATALOG) },
-      ollama: { state: 'listed', where: 'Ollama at 127.0.0.1:4463', rows: ollamaRows([{ name: 'fake-qwen3:8b', facts: 'local weights · 8B · Q4_K_M' }]), at: iso(1) },
+      // (R11: the probe's /api/show answer for it, as the real listing records it: a chat model)
+      ollama: { state: 'listed', where: 'Ollama at 127.0.0.1:4463', rows: ollamaRows([{ name: 'fake-qwen3:8b', facts: 'local weights · 8B · Q4_K_M', chat: true }]), at: iso(1) },
     },
     ...o,
   } as unknown as Data;
@@ -95,7 +96,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(f.screen[11].find((s) => s.text.includes('Studio'))?.role).toBe('text');
   });
 
-  it('the center: CHAT / project, YOU (grey) and TIMMY / the model that turn used (FAKE named), the rule, MESSAGE, [ Send ] and its keys', () => {
+  it('the center: CHAT / project, YOU (grey) and TIMMY / the model that turn used (FAKE named), the rule, the composer (R11: › Message TIMMY…), [ Send ] with the chord hint and the model chip', () => {
     const f = frame(data(), ui());
     const c = center(text(f));
     expect(c[4]).toBe('CHAT / tray');
@@ -104,22 +105,98 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(c[10]).toMatch(/^TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d$/);
     expect(c[11]).toBe('FAKE answer from a stand-in: the run wrote two files.');
     expect(c[27]).toBe('─'.repeat(69));
-    expect(c.slice(28, 30)).toEqual(['MESSAGE', 'Enter writes a message']);
-    expect(c[32]).toMatch(/^\[ Send \] +Enter writes \/ Tab moves on$/);
+    // (R11 H167, step 1b/1c: two tinted rows with › and the placeholder; [ Send ] amber with the chord hint; the chip at the
+    // right, green with the time Ollama's listing answered /api/show for the route's model)
+    expect(c.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
+    // (the center's 69 cells hold the Send row's hint or the chip, not both: the chip on the row under it)
+    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
+    expect(c.slice(32, 34)).toEqual(['', '']);
+    expect(f.screen[28].filter((s) => s.block).map((s) => s.text).join('')).toMatch(/^› Message TIMMY… +$/);
+    expect(f.screen[29].filter((s) => s.block).map((s) => s.text).join('').length).toBeGreaterThanOrEqual(69);
+    expect(f.screen[28].find((s) => s.text === '› ')?.role).toBe('text');
+    expect(f.screen[30].find((s) => s.text === '[ Send ]')?.role).toBe('accent');
+    expect(f.screen[31].find((s) => s.text === '●')?.role).toBe('live');
+    expect(f.chip).toEqual({ x0: 20, x1: 20 + 50 - 1, y: 31 });
     expect(f.screen[7].find((s) => s.text.startsWith('YOU'))?.role).toBe('secondary');
     expect(f.screen[10].find((s) => s.text.startsWith('TIMMY'))?.bold).toBe(true);
   });
 
-  it('the composer is boxed in amber only while it has the keyboard: Enter sends / Esc leaves with the draft kept; a draft left shows', () => {
+  it('R11 step 1b: the composer with the keyboard: › amber, the words and an inverse cursor on the tint; a newline (Ctrl+J) a second row; a long message its tail with …; a draft left shows in it', () => {
     const typing = frame(data(), ui({ input: { field: 'composer', text: 'Plan the next step.' } }));
     const c = center(text(typing));
-    expect(c[29]).toMatch(/^┏━{67}┓$/);
-    expect(c[30]).toMatch(/^┃ Plan the next step\. +┃$/);
-    expect(c[31]).toMatch(/^┗━{67}┛$/);
-    expect(typing.screen[29].find((s) => s.text.startsWith('┏'))?.role).toBe('focus');
-    expect(c[32]).toMatch(/^\[ Send \] +Enter sends \/ Esc leaves, the draft kept$/);
-    expect(typing.screen[32].find((s) => s.text === '[ Send ]')?.role).toBe('accent');
-    expect(center(text(frame(data(), ui({ draft: 'Plan the next step.' }))))[29]).toBe('draft: Plan the next step.');
+    expect(c[28]).toBe('› Plan the next step.');
+    expect(c[29]).toBe('');
+    expect(typing.screen[28].find((s) => s.text === '› ')).toMatchObject({ role: 'accent', bold: true, block: true });
+    const cursor = typing.screen[28].find((s) => s.inverse);
+    expect(cursor).toMatchObject({ text: ' ', block: true });
+    expect(typing.screen[28].indexOf(cursor!)).toBe(typing.screen[28].findIndex((s) => s.text === 'Plan the next step.') + 1);
+    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b/);
+    expect(typing.screen[30].find((s) => s.text === '[ Send ]')?.role).toBe('accent');
+    // empty with the keyboard: the cursor, then the placeholder
+    const empty = center(text(frame(data(), ui({ input: { field: 'composer', text: '' } }))));
+    expect(empty[28]).toBe('›  Message TIMMY…');
+    // a newline: the second row; three rows: the first shown row starts with …
+    expect(center(text(frame(data(), ui({ input: { field: 'composer', text: 'first line\nsecond line' } })))).slice(28, 30)).toEqual(['› first line', '  second line']);
+    expect(center(text(frame(data(), ui({ input: { field: 'composer', text: 'one\ntwo\nthree' } })))).slice(28, 30)).toEqual(['› …wo', '  three']);
+    // a long row: cut into rows of the room (67 cells after the prompt)
+    const long = 'x'.repeat(70);
+    expect(center(text(frame(data(), ui({ input: { field: 'composer', text: long } })))).slice(28, 30)).toEqual([`› ${'x'.repeat(67)}`, `  ${'x'.repeat(3)}`]);
+    // the draft left (Esc, Tab) shows in it, the › plain: nothing has the keyboard
+    const left = frame(data(), ui({ draft: 'Plan the next step.' }));
+    expect(center(text(left))[28]).toBe('› Plan the next step.');
+    expect(left.screen[28].find((s) => s.text === '› ')?.role).toBe('text');
+    expect(left.screen[28].some((s) => s.inverse)).toBe(false);
+    // during this Workbench's own turn: [ Stop ] amber in the composer's row
+    const turn = frame(data({ turn: { text: 'q', answer: '', state: 'sending', lines: [], sent: null, tools: [], at: NOW, operation: 'o1', route: 'r' } } as unknown as Partial<Data>), ui());
+    expect(center(text(turn))[30]).toBe('[ Stop ]  Esc stops the turn being answered');
+    expect(turn.screen[30].find((s) => s.text === '[ Stop ]')?.role).toBe('accent');
+  });
+
+  it('R11 step 1c: the model chip says the next turn\'s model, where it runs and its readiness, with its dot: checking amber, ready green after an answer (with the time), ✕ with the word on a failure, ○ with none; the name cut, never the state', () => {
+    const chip = (d: Data, u: Ui, w = 122, h = 37) => text(frame(d, u, w, h)).map((r) => (w >= 110 ? cols(r, 20, 88) : cols(r, 16, 79))).find((r) => /^[●○✕] |^\[ Send \].* [●○✕] /.test(r))?.replace(/^\[ Send \].* (?=[●○✕] )/, '');
+    const clockOf = (s: string) => clock(s).slice(0, 5);
+    const NONE = { route: { kind: 'none', words: 'chat: none · no key, no model', ready: false }, chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+    const local = data();
+    // the choice's check first: checking, ready with its time, each failure's word
+    expect(chip(local, ui({ modelCheck: { model: 'fake-qwen3:8b', state: 'checking', at: NOW, words: '' } }))).toBe('● FAKE fake-qwen3:8b · this computer · checking…');
+    expect(chip(local, ui({ modelCheck: { model: 'fake-qwen3:8b', state: 'ready', at: Date.parse(iso(2)), words: '' } }))).toBe(`● FAKE fake-qwen3:8b · this computer · ready ${clockOf(iso(2))}`);
+    expect(chip(local, ui({ modelCheck: { model: 'fake-qwen3:8b', state: 'unreachable', at: NOW, words: '' } }))).toBe('✕ FAKE fake-qwen3:8b · this computer · unreachable');
+    expect(chip(local, ui({ modelCheck: { model: 'fake-qwen3:8b', state: 'not-installed', at: NOW, words: '' } }))).toBe('✕ FAKE fake-qwen3:8b · this computer · not installed');
+    // another model's failed check does not speak for the route's: the listing's /api/show answer does (ready with its time);
+    // another model being checked is the chip's while Ollama is asked (the choice under way)
+    expect(chip(local, ui({ modelCheck: { model: 'other:latest', state: 'unreachable', at: NOW, words: '' } }))).toBe(`● FAKE fake-qwen3:8b · this computer · ready ${clockOf(iso(1))}`);
+    expect(chip(local, ui({ modelCheck: { model: 'fake-other:1b', state: 'checking', at: NOW, words: '' } }))).toBe('● FAKE fake-other:1b · this computer · checking…');
+    // the listing: not a chat model; not listed; Ollama did not answer; being read; not read yet
+    const listed = (rows: ReturnType<typeof ollamaRows>, state: 'listed' | 'failed' | 'reading' = 'listed') => data({ models: { ollama: { state, where: 'Ollama', rows, at: iso(1) } } } as unknown as Partial<Data>);
+    expect(chip(listed(ollamaRows([{ name: 'fake-qwen3:8b', facts: 'x', chat: false }])), ui())).toBe('✕ FAKE fake-qwen3:8b · this computer · not a chat model');
+    expect(chip(listed(ollamaRows([{ name: 'fake-other:1b', facts: 'x', chat: true }])), ui())).toBe('✕ FAKE fake-qwen3:8b · this computer · not listed by Ollama');
+    expect(chip(listed([], 'failed'), ui())).toBe('✕ FAKE fake-qwen3:8b · this computer · unreachable');
+    expect(chip(listed([], 'reading'), ui())).toBe('● FAKE fake-qwen3:8b · this computer · checking…');
+    expect(chip(data({ models: {} }), ui())).toBe('○ FAKE fake-qwen3:8b · this computer · not checked');
+    // no model: choose one; a key and no model chosen: said so
+    expect(chip(data(NONE), ui({ firstRunDone: true }))).toBe('○ no model · choose one (M)');
+    expect(chip(data({ route: { kind: 'openrouter', words: 'chat: anthropic/claude-opus-4.7 · OpenRouter', ready: true, unchosen: 'anthropic/claude-opus-4.7' } } as unknown as Partial<Data>), ui())).toBe('○ no model chosen · choose one (M)');
+    // OpenRouter: the catalog's price, and the key's check (H170's providerStates): saved not checked, checked with its time, refused
+    const or = (state?: 'checked' | 'refused') => data({ ...OPENROUTER, models: { ...data().models, providers: state ? [{ id: 'openrouter', state, words: 'x', ...(state === 'checked' ? { at: iso(2) } : {}) }] : [] } } as unknown as Partial<Data>);
+    // (a FIXTURE route is named FAKE, as every FAKE is; the id is cut by its characters to the room, the state kept whole)
+    expect(chip(or(), ui())).toBe('○ FAKE fixture-maker/ne… · OpenRouter · free · key saved, not checked');
+    expect(chip(or('checked'), ui())).toBe(`● FAKE fixture-maker/newest-… · OpenRouter · free · key checked ${clockOf(iso(2))}`);
+    expect(chip(or('refused'), ui())).toBe('✕ FAKE fixture-maker/newest-model:… · OpenRouter · free · key refused');
+    // a wide terminal shows the whole id
+    expect(text(frame(or(), ui(), 160, 45)).map((r) => cols(r, 20, 126)).find((r) => /^○ /.test(r))).toBe('○ FAKE fixture-maker/newest-model:free · OpenRouter · free · key saved, not checked');
+    // at 80x24 the chip has its own row under [ Send ]; the header's row 1 is blank there (the chip says the next turn's model)
+    const narrow = text(frame(local, ui(), 80, 24));
+    expect(cols(narrow[1], 16, 79)).toBe('');
+    expect(narrow.map((r) => cols(r, 16, 79)).slice(16, 19)).toEqual(['› Message TIMMY…', '[ Send ]  Enter sends · Ctrl+J newline', expect.stringMatching(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/)]);
+    expect(frame(local, ui(), 80, 24).chip).toEqual({ x0: 16, x1: 16 + 50 - 1, y: 18 });
+    // a long name is cut to the room, the state kept whole
+    const longName = data({ route: { kind: 'local', words: 'chat: local fake-qwen3-coder-30b-a3b-instruct-with-a-very-long-tag:latest · Ollama', ready: true }, models: { ollama: { state: 'listed', where: 'Ollama', rows: ollamaRows([{ name: 'fake-qwen3-coder-30b-a3b-instruct-with-a-very-long-tag:latest', facts: 'x', chat: true }]), at: iso(1) } } } as unknown as Partial<Data>);
+    expect(chip(longName, ui(), 80, 24)).toMatch(/^● FAKE fake-qwen3-coder-30b-a3b… · this computer · ready \d\d:\d\d$/);
+    // with the keyboard on it (Tab from the composer): amber
+    const on = frame(local, ui({ chip: true }));
+    expect(on.screen[31].find((s) => s.text.startsWith('FAKE fake-qwen3:8b'))).toMatchObject({ role: 'accent', bold: true });
   });
 
   it('Models for the local route: MODELS [ Details ] (amber with the keyboard), the four providers, INSTALLED, the list, SELECTED / the model', () => {
@@ -186,8 +263,11 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     const c = t.map((r) => cols(r, 16, 79));
     expect(c[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(c[15]).toBe('─'.repeat(62));
-    expect(c[16]).toBe('MESSAGE');
-    expect(c[20]).toMatch(/^\[ Send \] +Enter writes \/ Tab moves on$/);
+    // (R11 H167, step 1b/1c: one tinted row, [ Send ] with the chord hint, the chip on its own row; the header's row 1 blank)
+    expect(cols(t[1], 16, 79)).toBe('');
+    expect(c[16]).toBe('› Message TIMMY…');
+    expect(c[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     expect(c[22]).toBe('[Tools]  [Budget]  [Logs]  [More]');
     expect(c[23]).toMatch(/^Logs: this computer \/ idle +cloud sync off \/ 80 x 24$/);
   });
@@ -200,14 +280,19 @@ describe('the Chat screen at 80x24 (R10 CHAT H167; terminal-target captures/04-c
     expect(c[6]).toBe('  OpenRouter   > Local     Cloud     Cloudflare');
     expect(c[8]).toMatch(/^INSTALLED \/ read \d\d:\d\d$/);
     expect(c[10]).toBe('> FAKE fake-qwen3:8b / 8B · Q4_K_M');
-    expect(c[20]).toMatch(/^\[ Send \]/);
+    // (R11 H167: the drawer stops above the Send row: it and the chip stay in sight under it, the chip a click's target)
+    expect(c[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[18]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
+    expect(frame(data(), ui({ modelsOpen: true, focus: 'right', draft: 'kept words' }), 80, 24).chip).toEqual({ x0: 16, x1: 65, y: 18 });
     expect(t.map((r) => cols(r, 0, 13))[10]).toBe(' > Chat');
-    expect(cols(text(frame(data(), ui({ draft: 'kept words' }), 80, 24))[17], 16, 79)).toBe('draft: kept words');
+    expect(cols(text(frame(data(), ui({ draft: 'kept words' }), 80, 24))[16], 16, 79)).toBe('› kept words');
     const or = text(frame(data(OPENROUTER), ui({ modelsOpen: true, focus: 'right', modelsCost: 'all' }), 80, 24)).map((r) => cols(r, 16, 79));
     expect(or[6]).toBe('> OpenRouter     Local     Cloud     Cloudflare');
     expect(or[7]).toBe('Search name or model id');
     expect(or.slice(9, 13)).toEqual([expect.stringMatching(/^Sort: recent +Maker: All$/), expect.stringMatching(/^Capability: All +Cost: All$/), 'Context: All', '─'.repeat(62)]);
+    // (R11: three rows of the list under the controls; the Send row and the chip below the drawer)
     expect(or.slice(14, 17)).toEqual(['> FIXTURE: Newest (free) / 262k context / Free', '  FIXTURE: Middle model / 1M context / price unknown', '  FIXTURE: Older model / 32k context / $0.50 / $1.50']);
+    expect(or[17]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
   });
 
   it('100x30 and 160x45 keep the grid: the compact rail and the drawer at 100, the wide grid with a taller conversation at 160', () => {
@@ -270,7 +355,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     ]);
     expect(c.slice(22, 29)).toEqual(['  [ Advanced: Cloudflare (optional) ]', '  A gateway in front of a provider; Timmy sends it nothing to check.', '', '  [ Show the Timmy guide ]', '', 'Local logs are included; cloud sync is optional and off.', '']);
     expect(f.screen[10].find((s) => s.text === '[ OpenRouter / cloud ]')?.role).toBe('accent');
-    expect(t.join('\n')).not.toMatch(/MESSAGE|\[ Send \]/);
+    expect(t.join('\n')).not.toMatch(/Message TIMMY|\[ Send \]/);
     // the rail, Models and the bottom as on every Chat screen
     expect(cols(t[10], 0, 17)).toBe(' > Chat');
     expect(models(t)[4]).toBe('MODELS [M]       [ Details ]');
@@ -306,13 +391,18 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(c[7]).toBe('A model is optional until you need an answer.');
     expect(c.slice(8, 10)).toEqual(['Project files, logs and records work without one; what you write is', 'kept as a draft until a model is chosen.']);
     expect(c.slice(11, 14)).toEqual(['> [ Choose a model ]', '  [ Review setup choices ]', '  [ Write a draft ]']);
-    expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: a draft']);
+    // (R11 H167: the draft in the composer; Send dim with the reason; the chip says no model)
+    // (a chip short enough sits at the Send row's right)
+    expect(c.slice(28, 30)).toEqual(['› a draft', '']);
+    expect(c[30]).toMatch(/^\[ Send \]  no model: M chooses one +○ no model · choose one \(M\)$/);
+    expect(c[31]).toBe('');
     // with a conversation kept, the conversation (the header and the composer say what is missing)
     const kept = center(text(frame(data({ ...NONE, chat: data().chat }), ui({ firstRunDone: true }))));
     // (H168's pass 3a, R4: in the Chat screen's words, Models chooses the model)
     expect(kept[7]).toBe('Not ready  no model for the next turn: Models (M) chooses one');
     expect(kept[9]).toMatch(/^YOU \/ \d\d:\d\d$/);
-    expect(kept[29]).toBe('Connect a model to chat (a draft is kept)');
+    expect(kept[28]).toBe('› Message TIMMY…');
+    expect(kept[30]).toMatch(/^\[ Send \]  no model: M chooses one +○ no model · choose one \(M\)$/);
   });
 });
 
@@ -327,7 +417,7 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
     expect(c[10]).toBe('RECENT TURNS');
     expect(c[11]).toMatch(/^\d\d:\d\d  answered  FAKE fake-qwen3:8b  here$/);
     expect(c[25]).toBe('> [ Open Logs & records ]  every receipt, run and log');
-    expect(c.slice(28, 30)).toEqual(['MESSAGE', 'draft: kept words']);
+    expect(c.slice(28, 30)).toEqual(['› kept words', '']);
     expect(f.screen[35].find((s) => s.text === '[Logs]')?.role).toBe('accent');
     expect(t.join('\n')).not.toMatch(/d2d756db|oc372c7b3/);
   });
@@ -349,7 +439,7 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
     expect(m[4]).toMatch(/^THIS CONVERSATION +\[ Close \]$/);
     expect(m[7]).toMatch(/^  \[ Attach \]  needs the companion/);
     expect(m.slice(8, 12)).toEqual(['> [ Plan / Run ]', '  [ Permissions ]', '  [ Stop ]  needs a turn being answered here', '  [ Cloudflare ]']);
-    expect(m[20]).toMatch(/^\[ Send \]/);
+    expect(m[17]).toMatch(/^\[ Send \]/);
   });
 });
 
@@ -559,7 +649,8 @@ describe('H168\'s pass 3b on the Chat screen\'s frames (R10 CHAT H167): R17, R5b
     // a kept conversation: Not ready, and the composer says where a model is chosen
     const k = center(text(frame(data(UNCHOSEN), ui())));
     expect(k[7]).toBe('Not ready  no model for the next turn: Models (M) chooses one');
-    expect(k[29]).toBe('Choose a model in Models, M (a draft is kept)');
+    expect(k[28]).toBe('› Message TIMMY…');
+    expect(k.slice(30, 32)).toEqual(['[ Send ]  no model chosen: M chooses one', '○ no model chosen · choose one (M)']);
   });
 
   it('R5b: in the 80x24 drawer a long FAKE name after its short word is cut by its characters, never to "FAKE…"', () => {

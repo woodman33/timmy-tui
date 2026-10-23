@@ -42,6 +42,8 @@ export interface Frame {
   pages: PageHit[];
   /** R5 (H131): row 2's workflow actions, by cell (a click selects one; Enter runs it) */
   actions: Array<{ x0: number; x1: number; y: number; i: number }>;
+  /** R11 (H167; step 1c): the Chat screen's model chip, by cell (a click opens Models) */
+  chip?: { x0: number; x1: number; y: number };
 }
 
 export interface FrameAsk { ui: Ui; data: Data; g: Glyphs; columns: number; rows: number; now: number; can: ViewCtx['can'] }
@@ -256,7 +258,7 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
     const ctx = { ui, data, g, width: a.columns, height: a.rows, now: a.now };
     const f = first ? firstRunLines(ctx, at.width, at.rows, ui.focus === 'center') : noModelLines(ctx, at.width, ui.focus === 'center');
     const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
-    return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [] };
+    return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };
   }
   // (R10 CHAT H167: Connect OpenRouter takes the composer's rows too: its address and choices whole at 80x24; and the Keys,
   // H168's pass 3a R10: a longer list than the conversation's rows)
@@ -274,7 +276,7 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
   const shown = view.lines.slice(scroll, scroll + at.rows);
   const out = chatScreen({ ui, data, g, width: a.columns, height: a.rows, now: a.now }, { convo: shown, convoItems: view.items, convoScroll: scroll, convoTotal: view.lines.length, full, focus: ui.focus });
   const regions: Frame['regions'] = { ...out.regions };
-  return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [] };
+  return { screen: out.screen, layout, regions, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };
 }
 
 /** R10 (H167): what Enter does on a connection of Home's list, in words (the controller's activate does it): the companion's and

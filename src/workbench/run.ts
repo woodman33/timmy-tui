@@ -38,7 +38,9 @@ export async function runWorkbench(): Promise<number> {
   // R7 (H150; H147's R6 finding 1): the colours this terminal gets: 24-bit exactly; the Timmy Homebrew profile's slots when it
   // is known (TIMMY_PALETTE=homebrew, or the terminal's answer, measured as the REPL measures it, before the screen is taken);
   // else the nearest of the 256 (src/workbench/theme.ts). chalk writes at the terminal's own level, so Ink writes what it says
-  const palette = colour ? workbenchPalette(caps, await measureTerminal(caps, env, { stdin: process.stdin, stdout: process.stdout })) : 'none';
+  // (R11 H167, step 1b: what the terminal answered is kept: its background tints the composer)
+  const measured = colour ? await measureTerminal(caps, env, { stdin: process.stdin, stdout: process.stdout }) : { background: null, slots: {} };
+  const palette = colour ? workbenchPalette(caps, measured) : 'none';
   chalk.level = caps.color;
   const onPath = (cmd: string): string | null => realOnPath(cmd, env);
   const jobsDir = join(timmyHome(env), 'jobs');
@@ -109,7 +111,7 @@ export async function runWorkbench(): Promise<number> {
   process.stdout.prependListener('resize', clear);
   session.beforeRestore(() => { process.stdout.off('resize', clear); });
 
-  const app = render(React.createElement(WorkbenchApp, { controller, colour, palette }), { exitOnCtrlC: false, patchConsole: false, stdout: screenStream(process.stdout) });
+  const app = render(React.createElement(WorkbenchApp, { controller, colour, palette, measured }), { exitOnCtrlC: false, patchConsole: false, stdout: screenStream(process.stdout) });
   session.beforeRestore(() => app.unmount());
   // SIGTERM or SIGHUP: what this Workbench started stops with it (its records say so), then the terminal comes back
   session.install(process, { drain: async () => { controller.dispose(); await ws.close({ by: 'as the Workbench ended (a signal)' }); } });

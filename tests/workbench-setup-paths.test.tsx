@@ -323,7 +323,7 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     expect(set).toEqual(['fake-llama:8b']);
     await until('said', () => c.ui.modelCheck?.state === 'ready');
     // (the folder as tildePath says it: from ~ when it is under the person's home; this sandbox's is not)
-    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-llama:8b on this computer\. Set up now: identity and setup written in \S+\/timmy\.$/);
+    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-llama:8b on this computer\. Set up now \(identity made in \S+\/timmy\)\.$/);
     expect(message(c)).not.toContain('timmy init, in a shell');
     // the real writer makes the identity (as timmy init --yes --chat local --model would), recorded as made by timmy workbench
     const r = await realSetupDeps(process.env).setLocal('fake-llama:8b');

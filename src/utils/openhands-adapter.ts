@@ -3,7 +3,7 @@
 // limits, deterministic acceptance tests. OpenHands' own runtime is
 // docker-backed; we additionally verify the daemon up front and fail closed.
 // PTY/tmux is watch/attach/recovery only — structured spawn here.
-import { existsSync, mkdirSync, writeFileSync, readFileSync, mkdtempSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, mkdtempSync, readdirSync, rmSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 import { spawnSync, spawn } from 'child_process';
@@ -11,6 +11,9 @@ import crypto from 'crypto';
 import { appendReceipt } from './receipts.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { planHashOf, consumeApproval } from './approvals.js';
+// R11 (H169, Phase 0 item 3): the run's model call goes through the route policy like every other (free-only, local-only)
+import { checkRoute, routePolicyNow, type RoutePolicy } from '../agent/route-policy.js';
+import type { PolicyRoute, RouteCheck } from '../agent/route-check.js';
 
 const sha = (s: string): string => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -50,7 +53,32 @@ export interface OpenHandsResult {
 }
 
 export const openHandsPlanHash = (o: OpenHandsOpts): string =>
-  planHashOf({ tool: 'timmy_openhands_run', task: o.task, acceptance: o.acceptance, ref: o.ref ?? null, wall_ms: o.wall_ms ?? 300000, max_iterations: o.max_iterations ?? 4, llm: o.llm ?? 'local', local_model: o.local_model ?? 'ollama/qwen3.8:27b-mlx', no_activity_ms: o.no_activity_ms ?? 90000, max_spend: o.max_spend ?? 0, engine: o.engine ?? 'docker' });
+  planHashOf({ tool: 'timmy_openhands_run', task: o.task, acceptance: o.acceptance, ref: o.ref ?? null, wall_ms: o.wall_ms ?? 300000, max_iterations: o.max_iterations ?? 4, llm: o.llm ?? 'local', local_model: o.local_model ?? DEFAULT_LOCAL_MODEL, no_activity_ms: o.no_activity_ms ?? 90000, max_spend: o.max_spend ?? 0, engine: o.engine ?? 'docker' });
+
+/** The local model a run asks unless one is named (OpenHands' `ollama/<name>` form). */
+export const DEFAULT_LOCAL_MODEL = 'ollama/qwen3.8:27b-mlx';
+/** llm 'auto': OpenRouter's router picks a model per request (openrouter/auto): a paid cloud route whose price is not known before the run. */
+export const OPENROUTER_AUTO = 'openrouter/auto';
+
+/**
+ * R11 (H169, Phase 0 item 3): the model call a run makes, as the route policy reads it (src/agent/route-check.ts). llm 'local'
+ * (the default): the named local model on this computer's Ollama (the runner reaches it at host.docker.internal, the host's
+ * own 127.0.0.1:11434). llm 'auto': openrouter/auto, a cloud route (local-only refuses it) that OpenRouter routes to a model
+ * of its own choosing, so no price is known before the run (free-only refuses it: unknown is never free).
+ */
+export function openHandsRoute(o: Pick<OpenHandsOpts, 'llm' | 'local_model'>): PolicyRoute {
+  if ((o.llm ?? 'local') === 'local') {
+    return { source: 'ollama-local', model: (o.local_model ?? DEFAULT_LOCAL_MODEL).replace(/^ollama\//, ''), host: '127.0.0.1:11434', role: 'tool', tool: 'timmy_openhands_run' };
+  }
+  return { source: 'openrouter', model: OPENROUTER_AUTO, role: 'tool', tool: 'timmy_openhands_run' };
+}
+/** The policy's answer for a run's route (the price of openrouter/auto is never known before the run). */
+export function checkOpenHandsRoute(o: Pick<OpenHandsOpts, 'llm' | 'local_model'>, policy: RoutePolicy = routePolicyNow()): RouteCheck {
+  const route = openHandsRoute(o);
+  return checkRoute(route, policy, route.source === 'openrouter'
+    ? { price: () => ({ id: OPENROUTER_AUTO, free: null, tools: null, from: 'none', catalogAt: null, words: 'OpenRouter routes each request to a model of its own choosing, so no price is known before the run' }) }
+    : {});
+}
 
 // Pinned runner image (scripts/oh-runner.Dockerfile); versions mirror the host
 // uv tool environment so local and containerized runs are comparable.
@@ -91,6 +119,25 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
   if ((o.llm ?? 'local') === 'auto' && !(Number(o.max_spend) > 0)) {
     const rec = appendReceipt('runs', { kind: 'run', subject: 'openhands run DENIED (spend policy)', policy: 'human-gated', status: 'denied', error_class: 'spend_policy', plan_hash: planHash, discrepancies: ['llm=auto requires max_spend > 0 in the approved plan'], spans: [], artifacts: [] }, dir);
     return { ok: false, state: 'blocked', note: 'llm=auto requires max_spend > 0', plan_hash: planHash, receipt: rec.hash };
+  }
+  // R11 (H169, Phase 0 item 3): the route policy, read now: llm 'auto' is openrouter/auto, a cloud route of unknown price, so
+  // local-only and free-only each refuse it in their own words; a local model is checked too (a cloud-named one is refused
+  // under local-only). Refused before docker is asked and before any workspace is made: nothing is started
+  const routeCheck = checkOpenHandsRoute(o);
+  if (!routeCheck.ok) {
+    const rec = appendReceipt('runs', { kind: 'run', subject: 'openhands run DENIED (route policy)', policy: 'human-gated', status: 'denied', error_class: 'route_policy', plan_hash: planHash, discrepancies: [routeCheck.words], spans: [], artifacts: [] }, dir);
+    appendEvent('openhands.denied', { plan_hash: planHash, note: routeCheck.words, reason: routeCheck.reason }, dir);
+    return { ok: false, state: 'blocked', note: routeCheck.words, plan_hash: planHash, receipt: rec.hash };
+  }
+  // R11 (H169, Phase 0 item 3): llm 'auto' needs the OpenRouter key this process holds (LLM_API_KEY or OPENROUTER_API_KEY in
+  // its environment); none set, nothing is started (the key never goes into a command line: see the engines below)
+  const llmLocal = (o.llm ?? 'local') === 'local';
+  const apiKey = llmLocal ? 'ollama' : (process.env.LLM_API_KEY?.trim() || process.env.OPENROUTER_API_KEY?.trim() || '');
+  if (!llmLocal && !apiKey) {
+    const words = 'llm=auto asks OpenRouter, and no key is set (OPENROUTER_API_KEY or LLM_API_KEY in this process\'s environment), so nothing was started';
+    const rec = appendReceipt('runs', { kind: 'run', subject: 'openhands run not_configured', policy: 'human-gated', status: 'failed', error_class: 'not_configured', plan_hash: planHash, discrepancies: [words], spans: [], artifacts: [] }, dir);
+    appendEvent('openhands.not_configured', { plan_hash: planHash }, dir);
+    return { ok: false, state: 'not_configured', note: words, plan_hash: planHash, receipt: rec.hash };
   }
   const engine = o.engine ?? 'docker';
   if (engine === 'docker') {
@@ -135,24 +182,30 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
   // A1: seeded disposable workspace — never shared/live. C: the docker engine
   // moves the whole runner (agent loop + tools) into an ephemeral container
   // whose ONLY mount is the workspace; host engines remain explicit opt-in.
-  const llmLocal = (o.llm ?? 'local') === 'local';
   const llmEnv = {
-    LLM_MODEL: llmLocal ? (o.local_model ?? 'ollama/qwen3.8:27b-mlx') : 'openrouter/auto',
-    LLM_API_KEY: llmLocal ? 'ollama' : (process.env.LLM_API_KEY ?? process.env.OPENROUTER_API_KEY ?? ''),
+    LLM_MODEL: llmLocal ? (o.local_model ?? DEFAULT_LOCAL_MODEL) : OPENROUTER_AUTO,
+    LLM_API_KEY: apiKey,
     LLM_BASE_URL: llmLocal
       ? (engine === 'docker' ? 'http://host.docker.internal:11434' : 'http://localhost:11434')
       : 'https://openrouter.ai/api/v1'
   };
   let child: ReturnType<typeof spawn>;
   let canaryAuthoritative = false;
+  // R11 (H169, Phase 0 item 3): the key reaches the runner through docker's --env-file (a file of this process's own, 0600,
+  // in a folder of its own outside the workspace, removed when the runner exits), never on the docker command line, where
+  // every process list and shell history would show it
+  let envFileDir: string | null = null;
   if (engine === 'docker') {
+    envFileDir = mkdtempSync(join(tmpdir(), 'timmy-oh-env-'));
+    const envFile = join(envFileDir, 'runner.env');
+    writeFileSync(envFile, Object.entries(llmEnv).map(([k, v]) => `${k}=${v}`).join('\n') + '\n', { mode: 0o600 });
     // R11 (H170; Phase 0 item 4): the image was inventoried above; it is never built here (see OH_RUNNER_NOT_BUILT)
     child = spawn('docker', ['run', '--rm', '-i',
       '--cap-drop=ALL', '--security-opt', 'no-new-privileges',
       '--pids-limit', '256', '--memory', '2g', '--cpus', '2',
       '--add-host', 'host.docker.internal:host-gateway',
       '-v', `${work}:/work`,
-      '-e', `LLM_MODEL=${llmEnv.LLM_MODEL}`, '-e', `LLM_API_KEY=${llmEnv.LLM_API_KEY}`, '-e', `LLM_BASE_URL=${llmEnv.LLM_BASE_URL}`,
+      '--env-file', envFile,
       OH_RUNNER_IMAGE], { cwd: work, env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', CI: '1' } });
     child.stdin?.write(JSON.stringify({ task: o.task, workspace: '/work', acceptance: o.acceptance, pristine_dir: '/pristine' }));
     child.stdin?.end();
@@ -197,6 +250,7 @@ export async function runOpenHandsTask(o: OpenHandsOpts): Promise<OpenHandsResul
   }, 5000);
   await new Promise<void>(resolve => child.on('exit', () => resolve()));
   clearInterval(watcher);
+  if (envFileDir) { try { rmSync(envFileDir, { recursive: true, force: true }); } catch { /* the folder is this process's own, in the OS temp folder */ } }
   const run = { status: killed ? null : (child.exitCode ?? 0), stdout: tail, stderr: tail };
   const duration_ms = Date.now() - t0;
   const acceptance = (o.acceptance ?? []).map(cmd => ({

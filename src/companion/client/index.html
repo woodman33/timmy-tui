@@ -185,14 +185,19 @@
             <div class="cx-route" id="cx-route" role="status"><span aria-hidden="true">⚙</span><span class="cx-route-words" id="cx-route-words">Asking the companion which route the next turn takes…</span><button type="button" class="cx-change" id="cx-change" aria-controls="cx-models">Change model</button></div>
             <form class="cx-composer" id="cx-composer" autocomplete="off">
               <label for="cx-input" class="cx-input-k">Message</label>
-              <textarea id="cx-input" class="cx-input" rows="3" placeholder="Ask a question, describe an idea, or make a plan…" aria-describedby="cx-hint-keys"></textarea>
+              <div class="cx-field">
+                <span class="cx-prompt" aria-hidden="true">›</span>
+                <textarea id="cx-input" class="cx-input" rows="2" placeholder="Message TIMMY…" aria-describedby="cx-hint-keys cx-send-why"></textarea>
+              </div>
               <div class="cx-compose-foot">
                 <button type="button" class="cx-foot-btn" data-cx-ctl="attachments"><span aria-hidden="true">⎘</span> Attach</button>
                 <button type="button" class="cx-foot-btn" data-cx-ctl="tools"><span aria-hidden="true">⚒</span> Tools <span id="cx-tools-n">0</span></button>
+                <span class="cx-send-why" id="cx-send-why" role="status"></span>
+                <button type="button" class="cx-chip" id="cx-chip" aria-controls="cx-models" title="The next turn’s model: opens Models"><span class="cx-dot" id="cx-dot" data-state="unknown" aria-hidden="true">●</span><span class="cx-chip-words" id="cx-chip-words">reading…</span></button>
                 <button type="submit" class="cx-send" id="cx-send" disabled>Send <span aria-hidden="true">↑</span></button>
               </div>
             </form>
-            <p class="cx-hint"><span id="cx-hint-draft">Your draft stays on this page until you send it.</span><span id="cx-hint-keys">Enter sends · Shift+Enter a new line</span></p>
+            <p class="cx-hint"><span id="cx-hint-draft">Your draft stays on this page until you send it.</span><span id="cx-hint-keys">Enter sends · Ctrl+J newline</span></p>
           </section>
           <aside class="cx-models" id="cx-models" aria-label="Models"></aside>
         </div>

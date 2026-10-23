@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { chatRouteNow, fallbackRoute, localModelCommand, localRouteWords, prepareLocal, refusalSegments, resolveChatRoute, sealedRoute, type ChatRoute, type RouteNow } from '../agent/chat-route.js';
-import { defaultTools } from '../agent/tools.js';
+import { defaultTools, optedInTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
 import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
 import { guidedSetup, identityPath, timmyHome } from '../utils/init.js';
@@ -196,7 +196,8 @@ export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, mor
   // Round R4: /iterate as a tool (iterate_recipe), asked each time.
   const iterate = more.iterate ? createIterateTools(more.iterate) as unknown as typeof defaultTools : [];
   // R4 (H83): the canvas calls carry this REPL's token and holder id (more.canvas), or the canvas refuses them.
-  return [...defaultTools, ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
+  // R11 (H169, Phase 0 item 4): the opt-in tools (TIMMY_TOOLS_OPT_IN) come after the defaults, before the project's
+  return [...defaultTools, ...optedInTools(), ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {

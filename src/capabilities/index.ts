@@ -254,8 +254,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     ? { id: 'composio', kind: 'tool', name: 'Composio', rung: 'installed', detail: 'lists connections; the rest not built', tools: ['manage_composio_integrations'] }
     : { id: 'composio', kind: 'tool', name: 'Composio', rung: 'needs setup', detail: 'no key', setup: 'set COMPOSIO_API_KEY', tools: ['manage_composio_integrations'] });
   add(d.edgeSet()
-    ? { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'installed', detail: 'edge host set; not contacted', tools: ['cloudflare_send_durable_pulse'] }
-    : { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'needs setup', detail: 'no edge host', setup: 'set TIMMY_EDGE_HOST', tools: ['cloudflare_send_durable_pulse'] });
+    ? { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'installed', detail: 'edge host set; not contacted; offered to a turn only with TIMMY_TOOLS_OPT_IN=cloudflare_send_durable_pulse', tools: ['cloudflare_send_durable_pulse'] }
+    : { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'needs setup', detail: 'no edge host; opt-in (TIMMY_TOOLS_OPT_IN=cloudflare_send_durable_pulse)', setup: 'set TIMMY_EDGE_HOST', tools: ['cloudflare_send_durable_pulse'] });
   // R4 (H76): built, but it reads a flag only through a Worker's binding; no plan here names it, so it is not "proposed".
   add({ id: 'flag', kind: 'tool', name: 'Feature flags', rung: 'needs setup', detail: 'built, but it reads a flag only through a Cloudflare Worker\'s Flagship binding, and this terminal has none', setup: 'run it inside a Cloudflare Worker with a Flagship binding', tools: ['cloudflare_get_feature_flag'] });
   add(keySet(env.BREAK_MODE_API_BASE_URL ?? env.API_BASE_URL) && keySet(env.TIMMY_USERNAME)
