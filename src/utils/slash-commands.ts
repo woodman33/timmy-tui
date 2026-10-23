@@ -1429,7 +1429,7 @@ export default function DemoDashboard() {
   },
   {
     command: '/verify',
-    description: 'Walk the receipt chains — prove nothing was tampered with (the trust spine)',
+    description: 'Walk the receipt chains: each prev_hash link and body hash (tamper-evident; the signature is checked per receipt by /op)',
     usage: '/verify',
     execute: () => {
       const streams = ['gens', 'harness', 'runs', 'exports'];
@@ -1440,7 +1440,7 @@ export default function DemoDashboard() {
           : `× ${s.padEnd(9)} BROKEN at ${r.brokenAt} — ${r.reason}`;
       });
       const allOk = streams.every(s => verifyChain(s).ok);
-      return `🔐 RECEIPT VERIFICATION — ${allOk ? 'all chains intact' : 'TAMPER DETECTED'}\n${lines.join('\n')}\n• schema v1 · sha256 body hash + prev_hash link · cosign checkpoints next`;
+      return `🔐 RECEIPT VERIFICATION — ${allOk ? 'all chains intact' : 'TAMPER DETECTED'}\n${lines.join('\n')}\n• schema v1 · sha256 body hash + prev_hash link · no cosign or external anchor yet (planned)`;
     }
   },
   {
@@ -1582,7 +1582,7 @@ export default function DemoDashboard() {
              `  /porter [cmd]   — TIMMY Porter: strict MCP→CLI gateway (status/caps/job)\n` +
              `  /remotion <p>   — Export Slate beats as a Remotion composition scaffold\n` +
              `  /profiles       — Write Nickel lane profiles + CUE Slate schema\n` +
-             `  /verify         — Walk receipt chains · prove nothing tampered\n` +
+             `  /verify         — Walk receipt chains: links and body hashes (tamper-evident)\n` +
              `  /eval           — Trajectory eval: receipts → cost σ/failures/denials\n` +
              `  /iceberg        — Condense all knowledge into the context funnel\n` +
              `  /recall <q>     — Funnel retrieval: enter closest, descend ≤2, stop early\n\n` +
