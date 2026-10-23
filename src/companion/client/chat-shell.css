@@ -202,6 +202,9 @@ body[data-dest="chat"] .token-note { margin: 8px 14px 0; }
 .cm-row-desc { margin-top: 6px; font-size: 13px; line-height: 1.45; color: var(--timmy-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cm-row-facts { margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--timmy-text-secondary); }
 .cm-empty { margin: 14px 12px; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-none { margin: 8px 16px 0; font-size: 13px; line-height: 1.5; color: var(--timmy-text-secondary); }
+.cm-none .cm-none-k { letter-spacing: 0.08em; text-transform: uppercase; color: var(--timmy-text); }
+.cx-text.is-none { color: var(--timmy-text-secondary); }
 .cm-detail { margin: 0 0 8px; padding: 10px 12px 12px; border: 1px solid var(--timmy-line-strong); border-top: 0; border-radius: 0 0 3px 3px; background: var(--timmy-ground); }
 .cm-detail-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .cm-detail .cm-detail-k { margin: 0; }

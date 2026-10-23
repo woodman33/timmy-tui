@@ -63,8 +63,12 @@ export type { CatalogQuery, CatalogRow, ModelSource };
 
 export type ProviderState = SetupState & { models?: number };
 
-/** What the local Ollama answered this page's read of its list of models (GET /api/tags; no model runs). */
-export interface LocalAnswer { answered: boolean; models: number; at: string; error?: string }
+/**
+ * What the local Ollama answered this page's read of its list of models (GET /api/tags; no model runs): `models` the chat
+ * models (its /api/show check passed as local completion weights: the rows), `listed` how many it lists (R10 H171, H168's
+ * pass 3b R20: a model that is not a chat model, or a cloud one, is listed but not a row), `left` why the others are not rows.
+ */
+export interface LocalAnswer { answered: boolean; models: number; listed?: number; left?: string; at: string; error?: string }
 
 const SOURCES: readonly ModelSource[] = ['openrouter', 'ollama-local', 'ollama-cloud'];
 const SORTS: ReadonlyArray<CatalogQuery['sort']> = ['recent', 'name', 'price', 'context'];
@@ -74,7 +78,13 @@ const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex
 const day = (iso?: string): string => (iso ? iso.slice(0, 10) : 'an unknown date');
 
 /** A source's rows as this computer keeps them (H169's loadCatalog, refresh never: nothing is asked for a catalog), in words. */
-export interface CatalogRead extends CatalogLoad { words: string; observed?: LocalAnswer }
+export interface CatalogRead extends CatalogLoad { words: string; observed?: LocalAnswer; listed?: number; left?: string }
+
+/** How many models the local Ollama lists, and why some are not rows, from H169's listing (src/models/ollama-list.ts: "Ollama lists N: …"). */
+function listedOf(load: CatalogLoad): { listed: number; left?: string } {
+  const m = /^Ollama lists (\d+): (.+)$/.exec(load.error ?? '');
+  return m ? { listed: Number(m[1]), left: m[2] } : { listed: load.rows.length };
+}
 
 /** The local Ollama's last answer, kept a moment so the Chat's every-few-seconds read does not list Ollama each time. */
 const LOCAL_KEEP_MS = 15_000;
@@ -94,8 +104,10 @@ export async function companionCatalog(source: ModelSource, env: Env, o: { now?:
     const load = await loadCatalog('ollama-local', { env, refresh: 'never', timeoutMs: 2000 });
     const at = load.fetchedAt ?? new Date(now).toISOString();
     const n = load.rows.length;
+    const { listed, left } = listedOf(load);
     const read: CatalogRead = load.from === 'live'
-      ? { ...load, words: `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`, observed: { answered: true, models: n, at } }
+      ? { ...load, listed, ...(left ? { left } : {}), words: listed > n ? `Ollama on this computer answered its list of models: it lists ${listed}, ${n} of them ${n === 1 ? 'a local chat model' : 'local chat models'}. No model ran.` : `Ollama on this computer answered its list of models: ${n} installed here. No model ran.`,
+        observed: { answered: true, models: n, listed, ...(left ? { left } : {}), at } }
       : { ...load, words: `Ollama on this computer did not answer: ${load.error ?? 'no answer'}.`, observed: { answered: false, models: 0, at, ...(load.error ? { error: load.error } : {}) } };
     localKept = { at: now, key, read };
     return read;
@@ -167,8 +179,12 @@ const starter = (): { model: string; size: string } => STARTER_MODELS.find((m) =
 function localState(env: Env, local: LocalAnswer, o: { platform?: NodeJS.Platform; exists?: (p: string) => boolean }): ProviderState {
   const host = (() => { try { return ollamaAddress(env).replace(/^https?:\/\//, '').replace(/\/+$/, ''); } catch { return '127.0.0.1:11434'; } })();
   if (local.answered) {
+    const listed = local.listed ?? local.models;
     return { id: 'ollama-local', state: 'checked', at: local.at, models: local.models,
-      words: `Ollama answered its list of models at ${host}: ${local.models} installed here (no model ran, no charge).`,
+      words: listed > local.models
+        ? `Ollama answered its list of models at ${host}: it lists ${listed}, ${local.models} of them ${local.models === 1 ? 'a local chat model' : 'local chat models'} (no model ran, no charge).`
+        : `Ollama answered its list of models at ${host}: ${local.models} installed here (no model ran, no charge).`,
+      ...(local.left ? { lines: [`Not shown as local chat models: ${local.left}.`] } : {}),
       ...(local.models === 0 ? { next: `Install a model yourself (ollama pull ${starter().model}, ${starter().size}); this page downloads nothing.` } : {}) };
   }
   const inst = ollamaInstalled({ env, ...(o.platform ? { platform: o.platform } : {}), ...(o.exists ? { exists: o.exists } : {}) });
@@ -208,10 +224,34 @@ export interface ConvTurn {
   model?: string | null;
   /** the receipt that sealed the turn: its id (the hash's first 8), how it ended, the surface that sent it */
   receipt?: { id: string; status: string; surface: string };
+  /**
+   * R10 (H171; H168's pass 3b R19): a turn stopped before its answer ended. The conversation keeps Timmy's record of the stop
+   * (src/agent/core.ts cancelRecord) where its answer would be: `text` is the answer written before the stop (none: ''), and
+   * `record` the whole record, said apart (never as Timmy's words); `by` the surface that asked for the stop, when another did
+   */
+  stopped?: { record: string; by?: string };
 }
 export interface SavedConversation { session: string | null; total: number; turns: ConvTurn[]; error?: string }
 
 const chainOf = (root: string, env: Env): readonly Receipt[] => { try { return env.TIMMY_STORE ? readChain('runs') : readChain('runs', root); } catch { return []; } };
+
+/** Timmy's record of a stopped turn, as src/agent/core.ts cancelRecord writes it into the conversation. */
+const STOP_RECORD = /^\[Cancelled by the user before I (?:finished answering|answered)\./;
+const WRITTEN = 'What I had written so far: ';
+
+/** A stop record's answer written before the stop (its JSON-quoted part), '' when none was written or it cannot be read. */
+export function stoppedAnswerOf(record: string): string {
+  const at = record.indexOf(WRITTEN);
+  if (at < 0 || record[at + WRITTEN.length] !== '"') return '';
+  const from = at + WRITTEN.length;
+  for (let i = from + 1, esc = false; i < record.length; i += 1) {
+    const c = record[i];
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (c === '"') { try { const v: unknown = JSON.parse(record.slice(from, i + 1)); return typeof v === 'string' ? v : ''; } catch { return ''; } }
+  }
+  return '';
+}
 
 /**
  * The newest conversation the project keeps (.sessions), its newest TURNS_MAX messages: the person's, Timmy's and each tool's
@@ -226,29 +266,43 @@ export function savedConversation(root: string, env: Env = process.env): SavedCo
     if (!sessions.length) return { session: null, total: 0, turns: [] };
     session = sessions[0];
     const all = conv.load(session);
-    const byAnswer = new Map<string, Receipt>();
-    for (const r of chainOf(root, env)) {
+    // each turn's receipt: by its answer's hash (response_hash); else, as the page's turn list knows a turn, by the person's
+    // message it answers (prompt_hash), the first such receipt sealed after that message and not already another answer's:
+    // a stopped turn's answer in the conversation is Timmy's record of the stop, not the text its receipt hashed
+    type TurnReceipt = Receipt & { response_hash?: unknown; prompt_hash?: unknown; model_resolved?: unknown; model_requested?: unknown; status?: unknown; stopped_by?: unknown; ts?: unknown };
+    const byAnswer = new Map<string, TurnReceipt>();
+    const byPrompt = new Map<string, TurnReceipt[]>();
+    for (const r of chainOf(root, env) as readonly TurnReceipt[]) {
       if (!chatTurnOf(r)) continue;
-      const h = (r as Receipt & { response_hash?: unknown }).response_hash;
-      if (typeof h === 'string') byAnswer.set(h, r);
+      if (typeof r.response_hash === 'string') byAnswer.set(r.response_hash, r);
+      if (typeof r.prompt_hash === 'string') byPrompt.set(r.prompt_hash, [...(byPrompt.get(r.prompt_hash) ?? []), r]);
     }
-    const shown = all.filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool').slice(-TURNS_MAX);
-    const turns: ConvTurn[] = shown.map((m) => {
+    const used = new Set<string>();
+    let asked: { hash: string; at: number | null } | null = null;
+    const msgs = all.filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool');
+    const turnsAll: ConvTurn[] = msgs.map((m) => {
       const full = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      const text = full.length > TEXT_MAX ? full.slice(0, TEXT_MAX) : full;
       const at = typeof m.timestamp === 'number' && Number.isFinite(m.timestamp) ? new Date(m.timestamp).toISOString() : undefined;
-      const base = { text, ...(full.length > TEXT_MAX ? { cut: true as const } : {}), ...(at ? { at } : {}) };
-      if (m.role === 'user') return { kind: 'you', ...base };
-      if (m.role === 'tool') return { kind: 'tool', ...base, ...(m.name ? { tool: m.name } : {}) };
-      const r = byAnswer.get(sha256(full));
-      const rr = r as (Receipt & { model_resolved?: unknown; model_requested?: unknown; status?: unknown }) | undefined;
+      const said = (t: string): Pick<ConvTurn, 'text' | 'cut' | 'at'> => ({ text: t.length > TEXT_MAX ? t.slice(0, TEXT_MAX) : t, ...(t.length > TEXT_MAX ? { cut: true as const } : {}), ...(at ? { at } : {}) });
+      if (m.role === 'user') { asked = { hash: sha256(full), at: typeof m.timestamp === 'number' ? m.timestamp : null }; return { kind: 'you', ...said(full) }; }
+      if (m.role === 'tool') return { kind: 'tool', ...said(full), ...(m.name ? { tool: m.name } : {}) };
+      let rr = byAnswer.get(sha256(full));
+      if (rr && used.has(String(rr.hash))) rr = undefined;
+      const q = asked as { hash: string; at: number | null } | null;
+      if (!rr && q) {
+        // (a receipt is sealed when its turn ends, after the person's message; 5 s of clock between surfaces allowed)
+        rr = (byPrompt.get(q.hash) ?? []).find((c) => !used.has(String(c.hash)) && (q.at === null || !(Date.parse(String(c.ts)) < q.at - 5000)));
+      }
+      if (rr) used.add(String(rr.hash));
       const model = rr ? [rr.model_resolved, rr.model_requested].find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null : null;
+      const stop = STOP_RECORD.test(full);
       return {
-        kind: 'timmy', ...base, model,
+        kind: 'timmy', ...said(stop ? stoppedAnswerOf(full) : full), model,
         ...(rr ? { receipt: { id: String(rr.hash).slice(7, 15), status: typeof rr.status === 'string' ? rr.status : 'ok', surface: chatTurnOf(rr)?.surface ?? 'unknown' } } : {}),
+        ...(stop ? { stopped: { record: full.length > TEXT_MAX ? full.slice(0, TEXT_MAX) : full, ...(rr && typeof rr.stopped_by === 'string' ? { by: rr.stopped_by } : {}) } } : {}),
       };
     });
-    return { session, total: all.length, turns };
+    return { session, total: all.length, turns: turnsAll.slice(-TURNS_MAX) };
   } catch (e) {
     return { session, total: 0, turns: [], error: e instanceof Error ? e.message : String(e) };
   }
@@ -304,6 +358,8 @@ export function mountChatView(app: express.Application, ctx: ChatViewContext): v
       answer(res, {
         ok: true, query: q, from: read.from, ...(read.fetchedAt ? { fetchedAt: read.fetchedAt } : {}), ...(read.cache ? { cache: read.cache } : {}), ...(read.error ? { error: read.error } : {}),
         words: read.words, matched: out.rows.length, all: out.total, makers: out.makers, rows: out.rows.slice(0, MODELS_MAX),
+        // (the local Ollama: how many it lists, and why those that are not rows are not)
+        ...(read.listed !== undefined ? { listed: read.listed } : {}), ...(read.left ? { left: read.left } : {}),
       });
     } catch { answer(res, { ok: false, error: FAILED }, 500); }
   });

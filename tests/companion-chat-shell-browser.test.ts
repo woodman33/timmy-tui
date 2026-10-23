@@ -34,6 +34,7 @@ const TEXT = MODELS.filter((m) => !m.architecture?.output_modalities || m.archit
 const NEWEST = [...TEXT].sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const ANSWER_1 = 'FAKE answer 1: a plan in three steps (no model behind it).';
+const PARTIAL = 'FAKE partial answer, written before the stop';
 const text = async (page: Page, sel: string): Promise<string> => ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 
 function project(root: string): void {
@@ -45,12 +46,19 @@ function project(root: string): void {
     { role: 'tool', name: 'list_project_files', content: 'README.md\nSHOT.md', timestamp: t0 + 1500 },
     { role: 'user', content: 'And the first slice?', timestamp: t0 + 2000 },
     { role: 'assistant', content: 'FAKE answer 2, which no receipt of this project seals.', timestamp: t0 + 3000 },
+    // (H168's pass 3b R19) a turn stopped in the Workbench: the conversation keeps Timmy's record of the stop
+    { role: 'user', content: 'Stop that one, please.', timestamp: t0 + 4000 },
+    { role: 'assistant', content: `[Cancelled by the user before I finished answering. No tool had run. What I had written so far: ${JSON.stringify(PARTIAL)}. I stopped here and will not continue this request unless the user asks me to.]`, timestamp: t0 + 6000 },
   ];
   writeFileSync(join(root, '.sessions', 'session-1792711800000-abc123.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   mkdirSync(join(root, '.timmy', 'receipts'), { recursive: true });
   writeFileSync(join(root, '.timmy', 'receipts', 'runs.jsonl'), `${JSON.stringify({
     v: 1, id: 'rc_test', stream: 'runs', ts: '2026-10-22T23:30:01.000Z', kind: 'chat', subject: 'chat.turn · workbench · 0 steps · fake-qwen3:8b',
     status: 'ok', via: 'ollama', model_resolved: 'fake-qwen3:8b', model_requested: 'fake-qwen3:8b', response_hash: sha(ANSWER_1), hash: `sha256_${'7f'.repeat(32)}`,
+  })}\n${JSON.stringify({
+    v: 1, id: 'rc_stop', stream: 'runs', ts: '2026-10-22T23:30:06.000Z', kind: 'chat', subject: 'chat.turn · workbench · cancelled · 0 steps · fake-qwen3:8b',
+    status: 'cancelled', cancelled_at: 'before-tools', via: 'ollama', model_resolved: 'fake-qwen3:8b', model_requested: 'fake-qwen3:8b',
+    prompt_hash: sha('Stop that one, please.'), response_hash: sha(PARTIAL), hash: `sha256_${'6e'.repeat(32)}`,
   })}\n`);
 }
 
@@ -70,7 +78,7 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
     const root = join(box, 'tray');
     project(root);
     ollama = await startFakeOllama({
-      models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] }],
+      models: [{ name: 'fake-qwen3:8b', capabilities: ['completion', 'tools'] }, { name: 'fake-embed:1', capabilities: ['embedding'] }],
       chat: [() => ({ chunks: textChunks('fake-qwen3:8b', ['FAKE streamed ', 'answer from the test\'s stand-in.']), delayMs: 40 })],
     });
     mkdirSync(join(home, 'models'), { recursive: true });
@@ -109,11 +117,18 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cx-proj')).toBe('tray');
       // the saved conversation: YOU / TIMMY, the model each answer's receipt names, a tool result folded
       const turns = await page.$$eval('#cx-turns > .cx-turn', (els) => els.map((e) => e.className.replace('cx-turn ', '')));
-      expect(turns).toEqual(['is-you', 'is-timmy', 'is-tool', 'is-you', 'is-timmy']);
+      expect(turns).toEqual(['is-you', 'is-timmy', 'is-tool', 'is-you', 'is-timmy', 'is-you', 'is-timmy is-stopped']);
       const timmy = await page.$$eval('#cx-turns > .cx-turn.is-timmy .cx-who', (els) => els.map((e) => [...e.children].map((c) => (c.textContent ?? '').trim()).slice(0, 3)));
       expect(timmy[0]).toEqual(['TIMMY', 'fake-qwen3:8b', 'FAKE model']);
       expect(timmy[1].slice(0, 2)).toEqual(['TIMMY', 'model not recorded']);
       expect(await text(page, '#cx-turns > .cx-turn.is-timmy .cx-meta')).toContain('sent from the Workbench · sealed in receipt 7f7f7f7f (not checked here)');
+      // (H168's pass 3b R19) the stopped turn: its model and receipt (found by the person's message it answers), the answer
+      // written before the stop, and Timmy's record of the stop folded, never shown as Timmy's words
+      expect(timmy[2]).toEqual(['TIMMY', 'fake-qwen3:8b', 'FAKE model']);
+      expect(await text(page, '#cx-turns > .cx-turn.is-stopped .cx-text')).toBe(PARTIAL);
+      expect(await text(page, '#cx-turns > .cx-turn.is-stopped .cx-meta')).toBe('■ stopped by you · sent from the Workbench · sealed in receipt 6e6e6e6e (not checked here)');
+      expect(await page.$eval('#cx-turns > .cx-turn.is-stopped details.cx-stop-record', (d) => (d as HTMLDetailsElement).open)).toBe(false);
+      expect(await page.isVisible('#cx-turns > .cx-turn.is-stopped details.cx-stop-record pre')).toBe(false);
       expect(await page.$eval('#cx-turns details.cx-tool', (d) => (d as HTMLDetailsElement).open)).toBe(false);
       await page.click('#cx-turns details.cx-tool > summary');
       expect(await page.isVisible('#cx-turns details.cx-tool pre')).toBe(true);
@@ -126,6 +141,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(await text(page, '#cm-list .cm-row[data-model="fake-qwen3:8b"] .cm-inuse')).toBe('✓ in use');
       expect(await text(page, '.cm-detail')).toContain('✓ The next turn of this page uses this model.');
       expect(await text(page, '.cm-detail-k')).toBe('Selected');
+      // (H168's pass 3b R20) the chat models of what Ollama lists, and why the other is not a row
+      expect(await text(page, '.cm-list-head span:last-child')).toBe('1 chat model · 2 listed');
+      expect(await text(page, '#cm-list .cm-left')).toBe('Not shown as local chat models: 1 did not pass Ollama\'s /api/show check as local weights.');
+      expect(await text(page, '.cm-state')).toMatch(/· Ollama answered its list of models at 127\.0\.0\.1:\d+: it lists 2, 1 of them a local chat model \(no model ran, no charge\)\.$/);
       // the selected model's detail sits right below its row (a one-row list leaves no gap before it)
       const gap = await page.$eval('#cm-list li.is-selected', (li) => {
         const row = li.querySelector('.cm-row')!.getBoundingClientRect();
@@ -137,6 +156,9 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       await page.click('[data-cm-provider="openrouter"]');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length === n, TEXT.length, { timeout: 20_000 });
       expect(await text(page, '#cm-list .cm-row .cm-name')).toBe(NEWEST.name);
+      // (H168's pass 3b R18) no OpenRouter row is the next turn's model: none is opened, and the rail says what the next turn uses
+      expect(await page.$('#cm-list .cm-detail')).toBeNull();
+      expect(await text(page, '#cm-none')).toBe('Model / none · the next turn uses fake-qwen3:8b (Ollama on this computer), not a row here; a row shows its facts when you open it.');
       expect(await page.$eval('#cm-sort', (s) => (s as HTMLSelectElement).selectedOptions[0].textContent)).toBe('Recently added');
       await page.selectOption('#cm-cost', 'free');
       await page.waitForFunction((n) => document.querySelectorAll('#cm-list .cm-row').length < n, TEXT.length, { timeout: 20_000 });
@@ -156,6 +178,8 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
       expect(detail).toContain('Model idanthropic/claude-haiku-5.5');
       expect(await page.isDisabled('.cm-detail .cx-btn')).toBe(true);
       expect(detail).toContain('Not available on this page yet: its Send asks fake-qwen3:8b');
+      // a row the person opened that is not the next turn's model: MODEL, not SELECTED
+      expect(await text(page, '.cm-detail-k')).toBe('Model');
       // ArrowDown moves along the list, the detail with it
       await page.focus('#cm-list .cm-row[aria-current="true"]');
       const before = await page.evaluate(() => document.activeElement?.getAttribute('data-model'));
@@ -284,6 +308,10 @@ describe.skipIf(!browserPath)('the companion\'s shell and its Chat at 1440 × 90
         expect(title).toEqual(['How would you like to run chat?', true]);
         // no model installed: OpenRouter is the suggested way, said why
         expect(await p2.getAttribute('.cx-way.is-suggested', 'data-cx-way')).toBe('openrouter');
+        // (H168's pass 3b R18) its Models (OpenRouter's rows; a drawer here, drawn): no row SELECTED, nobody chose one
+        await p2.waitForSelector('#cm-list .cm-row', { state: 'attached', timeout: 20_000 });
+        expect(await p2.$('#cx-models .cm-detail')).toBeNull();
+        expect(await text(p2, '#cm-none')).toBe('Model / none · no model is chosen for the next turn; a row shows its facts when you open it.');
         // a setup opens at its top too; the Models rail shows Ollama's answer once (its line), the list says so
         await p2.$eval('#cx-scroll', (s) => { s.scrollTop = s.scrollHeight; });
         await p2.click('[data-cx-way="ollama-local"]');
