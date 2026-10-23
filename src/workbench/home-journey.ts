@@ -72,6 +72,17 @@ export const LOCAL_PRICE = 'no charge · local';
 export const costOnFace = (words: string | undefined): string => (words ?? '').replace(/^no charge \(local endpoint\)/, LOCAL_PRICE);
 
 export function routeLine(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute'>): RouteLine {
+  const line = routeLineOf(data);
+  // R10 CHAT (H167; H168's pass 3b, R17): the settings' shipped default nobody chose (src/workbench/state.ts
+  // unchosenOpenRouterModel, a priced model) is no model for the next turn: none is said, and nothing is sent on it here
+  const u = data.route.unchosen;
+  if (u && line.where === 'OpenRouter (cloud)' && (line.model === null || line.model === u)) {
+    return { ...line, model: null, ready: false, price: 'unknown', why: 'no OpenRouter model chosen yet: Models (M) chooses one' };
+  }
+  return line;
+}
+
+function routeLineOf(data: Pick<Data, 'route' | 'chatRoute' | 'journeyRoute'>): RouteLine {
   // the one source (H164's routeNow), unless the open chat session reports another route than it read (a test's FIXTURE
   // session): the session's is the turn's then
   const j = data.journeyRoute;
@@ -783,14 +794,15 @@ export function representation(w: WorkItem, c: JourneyCtx, room = 0): Line[] {
 const noAddress = (words: string): string => inWords(words);
 
 const COMPANION_TAB: Readonly<Record<string, string>> = {
-  home: 'Home', chat: 'Chat & Intent', workflows: 'Workflows', studio: 'Studio', voxvision: 'VoxVision', create: '3D & Motion',
+  // (R10 CHAT H167: the companion's page opens on its Chat now, H171's, with its left menu: "its Chat", not a tab of that name)
+  home: 'Home', chat: 'Chat', workflows: 'Workflows', studio: 'Studio', voxvision: 'VoxVision', create: '3D & Motion',
   control: 'Control Room', fleet: 'Fleet & Clef', tools: 'Tools & MCP', logs: 'Logs & Receipts',
 };
 
 /**
  * R10 (H167; H168's F3 and F5): what a hand-off to the companion opens, in words, from the page's query (H164's openTarget
  * query: tab=create&mesh=…) and the item's name when one was given ("for demo-tray.stl"): "demo-tray.stl in 3D & Motion", or
- * "its Chat & Intent tab".
+ * "its Chat".
  */
 export function companionWhat(query: string, why = ''): string {
   const p = new URLSearchParams(query);
@@ -806,7 +818,7 @@ export function companionWhat(query: string, why = ''): string {
   }
   const chosen = ['run', 'mesh', 'recording', 'file', 'vox', 'receipt'].find((k) => p.has(k));
   const what: Readonly<Record<string, string>> = { run: 'the run', mesh: 'the mesh', recording: 'the recording', file: 'the file', vox: 'the observation', receipt: 'the receipt' };
-  return chosen ? `${what[chosen]} chosen in ${tab}` : `its ${tab} tab`;
+  return chosen ? `${what[chosen]} chosen in ${tab}` : tab === 'Chat' ? 'its Chat' : `its ${tab} tab`;
 }
 
 /**

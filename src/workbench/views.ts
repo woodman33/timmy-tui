@@ -28,6 +28,7 @@ import { PRESETS, SETTING_LABELS } from './settings.js';
 import { catalogWords, keyFromWords, modelFacts } from './setup-paths.js';
 import { MANUAL_WORDS } from '../setup/openrouter-signin.js';
 import { KEY_PAGE } from '../setup/provider-keys.js';
+import { describeCheck } from '../setup/providers-state.js';
 import { KIND_ORDER, KIND_TITLE, KIND_WORD, type FileRow, type JobRow } from './state.js';
 import { mcpCallInspector, toolsItemName, toolsItemOperation, toolsView as toolsTabView, type ToolsSearch } from './tools-tab.js';
 import { voxDetail, voxItemName, voxItemOperation, voxView } from './voxvision-tab.js';
@@ -620,13 +621,15 @@ function chatView(c: ViewCtx): View {
   // setup's refusal, made for the REPL, is the details' [i], not drawn here through inWords: "Cause: no a setting ([i])")
   const noModelHere = shell && !rt.model;
   const notReady = noModelHere ? 'not ready: no model for the next turn: Models (M) chooses one' : fix ? `not ready: ${fix.label.charAt(0).toLowerCase()}${fix.label.slice(1)} (the next step above, Enter)` : 'not ready: timmy init (in a shell) sets up a route';
-  if (!route.ready) lines.push(...fieldRows(shell ? 'Not ready' : 'Ready', shell ? notReady.replace(/^not ready: /, '') : notReady, c.width, 'attention', shell ? 10 : 8));
+  // (R10 CHAT H167; H168's pass 3b, R17: a key with no OpenRouter model chosen is not ready on the Chat screen either)
+  const notReadyNow = !route.ready || (shell && !!data.route.unchosen && !rt.model);
+  if (notReadyNow) lines.push(...fieldRows(shell ? 'Not ready' : 'Ready', shell ? notReady.replace(/^not ready: /, '') : notReady, c.width, 'attention', shell ? 10 : 8));
   if (!route.ready && route.refusal?.length && !noModelHere) {
     const causes = route.refusal.map((r) => r.trim()).filter((r) => /^Cause:/.test(r));
     // (R10 H167; H168's F3: in words; the refusal whole is the details', [i])
     for (const r of causes.length ? causes : route.refusal.slice(0, 1)) lines.push(...para(inWords(r), c.width, 'secondary', '  '));
   }
-  if (!shell || !route.ready) lines.push(blank);
+  if (!shell || notReadyNow) lines.push(blank);
   const t = data.chat;
   const turn = data.turn;
   // R5 (H131; the QA round's defect 21): the newest exchange is said once: while it is being answered, below the conversation
@@ -996,7 +999,8 @@ export function connectChoices(o: ConnectBox): string[] {
   switch (o.step) {
     case 'choose': return ['signin', 'paste', 'cancel'];
     case 'signin': return ['open', 'code', 'cancel'];
-    case 'done': return o.ok ? ['models', 'close'] : ['again', 'paste', 'close'];
+    // (R10 CHAT H167; H168's pass 3b, R17: the next step after a key saved, not checked, is its check: no model runs)
+    case 'done': return o.ok ? ['check', 'models', 'close'] : ['again', 'paste', 'close'];
     default: return [];
   }
 }
@@ -1006,7 +1010,8 @@ const CONNECT_CHOICE: Readonly<Record<string, readonly [string, string | null]>>
   paste: ['Paste a key', `One made at ${KEY_PAGE.openrouter}, into a hidden field here.`],
   open: ['Open it in the browser', 'With this computer\'s opener, now that you press Enter.'],
   code: ['Type the code from the browser', 'For a browser on another computer: into a hidden field here.'],
-  models: ['Choose an OpenRouter model', 'Models, on OpenRouter.'],
+  check: ['Check the key', `${describeCheck('openrouter').words} (${describeCheck('openrouter').sends})`],
+  models: ['Choose an OpenRouter model', 'Models, on OpenRouter: Cost Free only to start with. Nothing is sent until one is chosen.'],
   again: ['Sign in again', null],
   cancel: ['Cancel', 'Nothing is saved.'],
   close: ['Close', null],
@@ -1084,6 +1089,8 @@ function connectView(c: ViewCtx, o: ConnectBox): View {
       if (o.ok && o.route) lines.push(blank, ...para(o.route, c.width, 'text'));
       lines.push(blank);
       choices();
+      // (R10 CHAT H167; H168's pass 3b, R17: what the key's check answered, with its time)
+      note();
       break;
   }
   return { lines, items };

@@ -24,6 +24,7 @@ import { glyphsFor } from '../src/workbench/frame.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
 import type { SetupDeps } from '../src/workbench/setup-paths.js';
 import type { Line } from '../src/workbench/text.js';
+import { readSettings } from '../src/workbench/settings.js';
 
 const FAKE_OPENER: Opener = { program: null, open: () => ({ ok: false, why: 'FAKE opener: nothing is opened in this test' }) };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -199,7 +200,8 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     t = press(c, '\r', ENTER);
     expect(c.ui.input).toEqual({ field: 'composer', text: 'hello there' });
     // (the session is still being looked for here, so that is what the notice says; either way the text stays)
-    expect(c.ui.flash?.text).toMatch(/^Not sent( yet)?: .*What you typed stays here/);
+    // (H168's pass 3a, R4: the notice's words fit the status row: "What you typed stays; M chooses a model.")
+    expect(c.ui.flash?.text).toMatch(/^Not sent( yet)?: .*What you typed stays/);
     expect(c.ui.draft).toBeUndefined();
   });
 
@@ -354,6 +356,125 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
   });
 });
 
+describe('H168\'s pass 3b through the Controller (R10 CHAT H167): R16, R17', { timeout: 60_000 }, () => {
+  const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
+  const mid = (rows: string[]) => rows.map((r) => cols(r, 20, 89));
+
+  it('R16: the cursor drawn, Enter and the arrows act on one row: the next turn\'s model drawn first, Enter takes that one; ↑ moves from it, Enter takes the row drawn', async () => {
+    const chosen: string[] = [];
+    const c = workbench(homeWithModel('r16'), {
+      // FAKE: what the local Ollama lists (no request): a model the check does not establish first, the route's model last
+      ollama: async () => ({ where: 'FAKE Ollama', answered: true, listed: 3, cloud: 0, models: [
+        { name: 'fake-embed-text:latest', facts: 'local weights · 137M · F16', chat: false },
+        { name: 'fake-llama3.2:3b', facts: 'local weights · 3B · Q4_K_M', chat: true },
+        { name: 'fake-qwen3:8b', facts: 'local weights · 8B · Q4_K_M', chat: true },
+      ] }),
+      // FAKE: the setup's writer, recording what it is asked to write (nothing is written)
+      setLocal: async (m: string) => { chosen.push(m); return { written: [] }; },
+      blank: async () => false,
+    });
+    shown(c);
+    press(c, 'M');
+    const drawn = (): string[] => rail(shown(c)).filter((x) => x.startsWith('> FAKE'));
+    for (const end = Date.now() + 5_000; Date.now() < end && drawn()[0] !== '> FAKE fake-qwen3:8b'; await sleep(20)) { /* the list read */ }
+    expect(drawn()).toEqual(['> FAKE fake-qwen3:8b']);
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5_000; Date.now() < end && chosen.length < 1; await sleep(20)) shown(c);
+    expect(chosen).toEqual(['fake-qwen3:8b']);
+    // the box that says what was chosen closes; Models again: ↑ from the row drawn
+    press(c, '', ESC);
+    press(c, 'M');
+    press(c, '', { upArrow: true });
+    expect(drawn()).toEqual(['> FAKE fake-llama3.2:3b']);
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5_000; Date.now() < end && chosen.length < 2; await sleep(20)) shown(c);
+    expect(chosen).toEqual(['fake-qwen3:8b', 'fake-llama3.2:3b']);
+    press(c, '', ESC);
+    press(c, 'M');
+    press(c, '', { upArrow: true });
+    press(c, '', { upArrow: true });
+    expect(drawn()).toEqual(['> FAKE fake-embed-text:late…']);
+    press(c, '\r', ENTER);
+    await sleep(50);
+    expect(chosen).toHaveLength(2);
+    expect(c.ui.flash?.text ?? '').toMatch(/^fake-embed-text:latest is not chosen/);
+  });
+
+  it('R17: a key pasted in a home with no chat answer chooses no model: Models starts on OpenRouter\'s free ones, nothing is sent; Check the key asks only the key endpoint (FAKE); the default chosen in Models is the next turn\'s, priced and said so', async () => {
+    const p = homeWithModel('r17', false);
+    // a fresh home's setup: no chat answer (the key pasted below is the first route)
+    writeFileSync(join(process.env.TIMMY_HOME ?? '', 'setup.json'), JSON.stringify({ version: 1, by: 'timmy init', answers: { operator: 'Sample', ollama: 'http://127.0.0.1:9', project: 'r17' } }));
+    const DEFAULT = 'anthropic/claude-opus-4.7';
+    const saved: string[] = [];
+    let checks = 0;
+    // FIXTURE: the catalog with a row for the settings' shipped default (its price made up here: $5 / $25 per 1M)
+    const catalog = [...FIXTURE_CATALOG, { id: DEFAULT, name: 'FIXTURE: Default', created: 1_760_000_000, context_length: 200_000, pricing: { prompt: '0.000005', completion: '0.000025' } }];
+    const c = workbench(p, { catalog: async () => ({ from: 'shipped', at: '2026-09-07', models: catalog }), saveModel: async (id: string) => { saved.push(id); return { path: 'FAKE: nothing written' }; } }, {
+      // FAKE: H170's check of OpenRouter's key endpoint, answered here (nothing is asked)
+      checkKey: async () => { checks++; return { id: 'openrouter', state: 'checked', at: new Date().toISOString(), words: 'FAKE: the key endpoint took the key; no model was called.' }; },
+    });
+    let t = shown(c);
+    expect(cols(t[4], 20, 89)).toBe('WELCOME TO TIMMY');
+    // OpenRouter / cloud, Paste a key, a FIXTURE string of a key's shape (not a key), Enter
+    press(c, '\r', ENTER);
+    press(c, '', { downArrow: true });
+    press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('secret');
+    press(c, 'FIXTURE-not-a-real-key-0123456789');
+    t = press(c, '\r', ENTER);
+    expect(c.data.route).toMatchObject({ kind: 'openrouter', unchosen: DEFAULT });
+    expect(mid(t)).toContain('OpenRouter: the key is saved');
+    expect(mid(t).join(' ')).toMatch(/No model is chosen for the next turn yet, and nothing is sent from here until one is/);
+    expect(mid(t).join(' ')).toMatch(new RegExp(`the REPL and timmy init would take the settings' default, ${DEFAULT}, which is priced`));
+    expect(mid(t)).toContain('> [ Check the key ]');
+    expect(cols(t[1], 20, 121)).toBe('NEXT / OpenRouter / no model chosen: Models (M)');
+    expect(c.ui).toMatchObject({ modelsProvider: 'openrouter', modelsCost: 'free', modelsCostStart: true });
+    // Check the key: the FAKE check, its answer with its time; no model called
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5_000; Date.now() < end && !mid(shown(c)).join(' ').includes('Checked'); await sleep(20)) { /* the FAKE check */ }
+    expect(checks).toBe(1);
+    expect(mid(shown(c)).join(' ')).toMatch(/Checked \(\d\d:\d\d\): FAKE: the key endpoint took the key; no model was called\./);
+    // Choose an OpenRouter model: Models on OpenRouter, Free (start), the free one listed; no SELECTED
+    press(c, '', { downArrow: true });
+    t = press(c, '\r', ENTER);
+    expect(c.ui.focus).toBe('right');
+    expect(rail(t)[16]).toBe('Cost       Free (start)');
+    expect(rail(t)[20]).toBe('> FIXTURE: Newest (free)');
+    expect(t.join('\n')).not.toMatch(/SELECTED/);
+    // a message now: not sent (the settings' default is nobody's choice); what was typed stays
+    press(c, '', ESC);
+    press(c, '', { downArrow: true });
+    press(c, '', { downArrow: true });
+    press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('composer');
+    press(c, 'FIXTURE: a message');
+    press(c, '\r', ENTER);
+    expect(c.ui.flash?.text).toBe('Not sent: no OpenRouter model chosen yet. What you typed stays; M chooses one.');
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'FIXTURE: a message' });
+    // Models: Cost to Paid (no longer the starting filter), the default chosen: the next turn's, said with its price
+    press(c, '', ESC);
+    press(c, 'M');
+    press(c, '', { upArrow: true });
+    press(c, '', { upArrow: true });
+    t = press(c, '', { rightArrow: true });
+    expect(rail(t)[16]).toBe('Cost       < Paid >');
+    press(c, '', { downArrow: true });
+    t = press(c, '', { downArrow: true });
+    expect(rail(t)[20]).toBe('> FIXTURE: Default');
+    press(c, '\r', ENTER);
+    // (the choice is saved, recorded and said once the FAKE writer's answer is back: the notice says when)
+    for (const end = Date.now() + 5_000; Date.now() < end && !/^The next turn goes to/.test(c.ui.flash?.text ?? ''); await sleep(20)) shown(c);
+    expect(saved).toEqual([DEFAULT]);
+    expect(readSettings(process.env).settings.openRouterModel).toBe(DEFAULT);
+    expect(c.data.route.unchosen).toBeUndefined();
+    expect(c.ui.flash?.text).toBe(`The next turn goes to ${DEFAULT} on OpenRouter (paid: $5.00 in, $25 out per 1M tokens); a turn being answered keeps its route.`);
+    t = shown(c);
+    expect(cols(t[1], 20, 121)).toBe(`NEXT / OpenRouter / ${DEFAULT}`);
+    const r = rail(t);
+    expect(r.slice(28, 34)).toEqual(['SELECTED / FIXTURE: Default', 'No description in the', 'catalog.', 'The next turn uses it, paid:', '$5.00 in / $25 out per 1M', 'Catalog snapshot: Sep 7']);
+  });
+});
+
 describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7, R8, R9', { timeout: 60_000 }, () => {
   const rail = (rows: string[]) => rows.map((r) => cols(r, 92, 121));
   const mid = (rows: string[]) => rows.map((r) => cols(r, 20, 89));
@@ -379,7 +500,9 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     press(c, 'FIXTURE: a message with no model');
     t = press(c, '\r', ENTER);
     expect(fake.sends()).toBe(0);
-    expect(c.ui.flash?.text).toBe('Not sent: no model for the next turn, so nothing was sent. What you typed stays here; Esc keeps it as a draft, and Models (M) chooses a model.');
+    expect(c.ui.flash?.text).toBe('Not sent: no model for the next turn. What you typed stays; M chooses a model.');
+    // the notice whole on the status row at 122x37 (the size at its right end)
+    expect(cols(t[36], 19, 121)).toMatch(/^ Not sent: no model for the next turn\. What you typed stays; M chooses a model\. +122 x 37$/);
     expect(c.ui.input).toEqual({ field: 'composer', text: 'FIXTURE: a message with no model' });
     expect(mid(t)[7]).toBe('A model is optional until you need an answer.');
     expect(mid(t)).toContain('  [ Review setup choices ]');
@@ -536,6 +659,24 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     expect(c.ui.flash?.text).toBe('A field has the keyboard: Tab leaves it, the text kept as a draft (Esc would stop the turn being answered).');
     release();
     for (const end = Date.now() + 5_000; Date.now() < end && c.data.turn?.state === 'sending'; await sleep(20)) shown(c);
+  });
+
+  it('R10: ? on the Chat screen: its own keys, the title row saying which rows show; ↓ scrolls them, Esc closes', () => {
+    const c = workbench(homeWithModel('r10'));
+    shown(c);
+    let t = press(c, '?');
+    expect(c.ui.overlay?.kind).toBe('help');
+    const note = /^CHAT \/ r10 +Keys (\d+)–(\d+) of (\d+)$/;
+    const m = note.exec(cols(t[4], 20, 89));
+    expect(m, cols(t[4], 20, 89)).not.toBeNull();
+    const [from, to, of] = [Number(m![1]), Number(m![2]), Number(m![3])];
+    expect(from).toBe(1);
+    expect(of).toBeGreaterThan(to);
+    expect(mid(t).join('\n')).toMatch(/Tab +the next pane: the left menu, the conversation,/);
+    t = press(c, '', { downArrow: true });
+    expect(cols(t[4], 20, 89)).toMatch(new RegExp(`Keys 2–${to + 1} of ${of}$`));
+    press(c, '', ESC);
+    expect(c.ui.overlay).toBeNull();
   });
 
   it('R9: the composer holds 4,000 characters and says so when it is full', () => {
