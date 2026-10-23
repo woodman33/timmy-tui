@@ -42,6 +42,7 @@ import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
 import { modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { providerStates } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
@@ -1265,6 +1266,8 @@ export class Controller {
   private modelsAsked = { catalog: false, ollama: false };
   async loadModels(force = false): Promise<void> {
     const m: RailModels = (this.data.models ??= {});
+    // R10 CHAT (H167; H170's contract): each provider's state, read from files and observations (nothing is asked)
+    try { m.providers = providerStates({ env: this.d.env }); } catch { /* as before: Models says what it has */ }
     if (!this.modelsAsked.catalog && this.setup.catalog) {
       this.modelsAsked.catalog = true;
       try { const c = await this.setup.catalog(); m.openrouter = { from: c.from, at: c.at, rows: railCatalog(c.models as Parameters<typeof railCatalog>[0]) }; } catch { m.openrouter = { from: 'none', at: null, rows: [] }; }

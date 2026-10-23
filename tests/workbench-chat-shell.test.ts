@@ -349,3 +349,32 @@ describe('an unanswered message after a relaunch (R10 CHAT H167; H168\'s R3 at p
     expect(none).not.toMatch(/■/);
   });
 });
+
+describe('Models with the providers\' states (R10 CHAT H167, step 5; H170\'s providerStates, FIXTURE states here)', () => {
+  const STATES = [
+    { id: 'openrouter', state: 'not set up', words: 'No OpenRouter key is set up.', next: 'Sign in with OpenRouter (a browser page; Timmy never asks for your password), or paste a key from openrouter.ai/keys' },
+    { id: 'ollama-local', state: 'checked', at: iso(2), words: 'Checked 2 min ago: Ollama answered at 127.0.0.1:4463 with local models (no account, no charge).' },
+    { id: 'ollama-cloud', state: 'not set up', words: 'No Ollama Cloud key is set up.', next: 'Paste an Ollama API key from ollama.com/settings/keys (no local install or download is needed for Ollama Cloud)' },
+    { id: 'cloudflare', state: 'not set up', words: 'Optional, and read only here: Timmy never sends Cloudflare a request to check it (a request to an AI Gateway can create one and bill).', lines: ['Worker: not set up (no edge host in the private overlay or TIMMY_EDGE_HOST)'] },
+  ];
+  const withStates = (o: Partial<Data> = {}) => { const d = data(o); return { ...d, models: { ...d.models, providers: STATES } } as unknown as Data; };
+  it('the shown provider\'s state on the row under MODELS, green only for a passed check (with its time); words, never colour alone', () => {
+    const f = frame(withStates(), ui({ focus: 'right' }));
+    expect(models(text(f))[5]).toMatch(/^checked \d\d:\d\d$/);
+    expect(f.screen[5].find((s) => s.text.startsWith('checked'))?.role).toBe('live');
+    const or = frame(withStates(OPENROUTER), ui({ focus: 'right' }));
+    expect(models(text(or))[5]).toBe('not set up');
+    expect(or.screen[5].find((s) => s.text === 'not set up')?.role).toBe('secondary');
+  });
+
+  it('Ollama cloud and Cloudflare: their own words, what is set up and the next step, wrapped to the rail', () => {
+    const cloud = models(text(frame(withStates(), ui({ focus: 'right', modelsProvider: 'ollama-cloud' })))).join(' ').replace(/\s+/g, ' ');
+    expect(cloud).toContain('OLLAMA CLOUD');
+    expect(cloud).toContain('No Ollama Cloud key is set up.');
+    expect(cloud).toMatch(/Next: Paste an Ollama API key from ollama\.com\/settings\/keys/);
+    const cf = models(text(frame(withStates(), ui({ focus: 'right', modelsProvider: 'cloudflare' })))).join(' ').replace(/\s+/g, ' ');
+    expect(cf).toContain('CLOUDFLARE (optional)');
+    expect(cf).toMatch(/Timmy never sends Cloudflare a request to check it/);
+    expect(cf).toMatch(/Worker: not set up/);
+  });
+});
