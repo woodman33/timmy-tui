@@ -350,3 +350,26 @@ describe('loadCatalog(ollama-cloud): the hosted list, with the key in the header
     expect(JSON.stringify(r)).not.toContain('FAKE-ollama-key');
   });
 });
+
+describe('the Ollama the local rows ask is the one the chat asks', () => {
+  it('ollamaAddressNow (src/models/ollama-list.ts) equals ollamaAddress (src/capabilities/ollama-route.ts) for each setup', async () => {
+    const { ollamaAddress } = await import('../src/capabilities/ollama-route.js');
+    const { ollamaAddressNow } = await import('../src/models/ollama-list.js');
+    const cases: Array<{ env: Record<string, string>; setup?: unknown; providers?: unknown; want: string }> = [
+      { env: {}, want: 'http://127.0.0.1:11434' },
+      { env: { OLLAMA_HOST: '127.0.0.1:4483' }, want: '127.0.0.1:4483' },
+      { env: { OLLAMA_BASE_URL: 'http://127.0.0.1:4484/' }, want: 'http://127.0.0.1:4484' },
+      { env: { OLLAMA_HOST: '127.0.0.1:4483' }, setup: { answers: { chat: 'local', ollama: '127.0.0.1:4484', model: 'fake-qwen3:8b' } }, want: 'http://127.0.0.1:4484' },
+      { env: {}, setup: { answers: { chat: 'local', model: 'fake-qwen3:8b' } }, providers: { ollama_host: 'http://localhost:4483' }, want: 'http://localhost:4483' },
+      { env: { OLLAMA_HOST: '127.0.0.1:4483' }, setup: { answers: { chat: 'openrouter' } }, want: '127.0.0.1:4483' },
+    ];
+    for (const [i, c] of cases.entries()) {
+      const h = join(home, `case-${i}`);
+      mkdirSync(h, { recursive: true });
+      if (c.setup) writeFileSync(join(h, 'setup.json'), JSON.stringify(c.setup));
+      if (c.providers) writeFileSync(join(h, 'providers.json'), JSON.stringify(c.providers));
+      const e = { TIMMY_HOME: h, TIMMY_SETTINGS_DIR: join(h, 'settings'), ...c.env };
+      expect({ i, now: ollamaAddressNow(e), route: ollamaAddress(e) }).toEqual({ i, now: c.want, route: c.want });
+    }
+  });
+});

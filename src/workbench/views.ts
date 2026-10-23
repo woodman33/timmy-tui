@@ -20,7 +20,6 @@ import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fle
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
-import { nextTurnLine } from './chat-shell.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
 import { FAMILY_ROWS, GROUP_LABEL, NAV, NOT_IN_TIMMY, navItem, type WorkspaceId } from './nav.js';
@@ -650,7 +649,7 @@ function chatView(c: ViewCtx): View {
   if (turn?.state === 'sending' && kept) msgs = msgs.slice(0, n - 1);
   if (!shell) lines.push(heading(t.session ? `This project's last conversation (${count(t.total, 'message')})` : 'This project\'s conversation'));
   if (t.error) lines.push(...para(`It could not be read: ${t.error}`, c.width, 'failure'));
-  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S('  No conversation is kept in this project yet.', 'secondary')]);
+  else if (!msgs.length && !(turn?.state === 'sending')) lines.push([S(shell ? 'No conversation here yet: Enter writes the first message.' : '  No conversation is kept in this project yet.', 'secondary')]);
   const cur = cursorOf(c.ui, 'center:chat', msgs.length);
   // R5 (H131; the QA round's defect 8): each message whole, wrapped under its speaker (a long answer is read here to its end)
   const bodyW = Math.max(8, c.width - 2 - 6);
@@ -674,7 +673,9 @@ function chatView(c: ViewCtx): View {
           ? row([S('Timmy'.padEnd(6), 'ai'), S('(partial) ', 'secondary'), S(b, 'text')], sel, g)
           : under(`${' '.repeat(10)}${b}`, sel)));
       }
-      const note = ownLast && stoppedHere ? stoppedHere : recordNote(rec, m.at, g);
+      // (R10 CHAT H167; H168's R3 at pass 2c: its turn's own record, the receipt sealed for the message it answers)
+      const asked = i > 0 && msgs[i - 1].role === 'user' ? msgs[i - 1].at : undefined;
+      const note = ownLast && stoppedHere ? stoppedHere : recordNote(rec, m.at, g, turnNear(data, asked));
       if (ownLast) noted = true;
       wrapSegs(note, Math.max(8, c.width - 2), '  ').forEach((r, k) => lines.push(k === 0 && !partial ? row(r, sel, g) : [S('  ', 'text', sel ? { selected: true } : {}), ...r.map((x) => (sel ? { ...x, selected: true } : x))]));
       items.push({ line: at, item, rows: lines.length - at });
@@ -684,11 +685,13 @@ function chatView(c: ViewCtx): View {
     if (shell) {
       // R10 CHAT (H167): who spoke on a row of its own (YOU, TIMMY with the model the turn used, as its receipt names it), the
       // words under it, a blank row between messages
+      // (the operator's terminal target, 2026-10-22: YOU grey, TIMMY bold, the words under each at the same column)
       const used = m.role === 'assistant' ? turnModel(data, m.at) : null;
-      const body = messageRows(m.text, Math.max(8, c.width - 4));
+      const body = messageRows(m.text, Math.max(8, c.width));
       const at = lines.length;
-      lines.push(row([S(who.toUpperCase(), m.role === 'user' ? 'strong' : 'ai', { bold: true }), ...(used ? [S(` ${g.sep} ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary')] : []), ...(m.at !== undefined ? [S(` ${g.sep} ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary')] : [])], sel, g));
-      for (const b of body) lines.push([S('  ', 'text', sel ? { selected: true } : {}), S(`  ${b}`, 'text', sel ? { selected: true } : {})]);
+      const on = sel ? { selected: true } : {};
+      lines.push([S(who.toUpperCase(), m.role === 'user' ? 'secondary' : 'strong', { ...(m.role === 'user' ? {} : { bold: true }), ...on }), ...(used ? [S(` / ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary', on)] : []), ...(m.at !== undefined ? [S(` / ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary', on)] : [])]);
+      for (const b of body) lines.push([S(b, 'text', on)]);
       items.push({ line: at, item, rows: lines.length - at });
       lines.push(blank);
       return;
@@ -736,10 +739,10 @@ function chatView(c: ViewCtx): View {
       else lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
     }
   }
-  if (!shell) lines.push(blank);
+  // R10 CHAT (H167): in the shell the conversation ends here; the shell draws MESSAGE, the composer and its action row
+  if (shell) return { lines, items };
+  lines.push(blank);
   const footFrom = lines.length;
-  // R10 CHAT (H167): the next turn's line above the composer (its model, provider and where it runs; Change model is [M])
-  if (shell) lines.push(nextTurnLine(c, c.width));
   // R10 (H167): the composer, a box of its own at the conversation's end (references 02 and 11: the prompt row under the
   // stream), amber while it has the keyboard; its foot says where the message goes
   // (R10 CHAT H167: in the shell the next turn's line above the composer says where it goes)
@@ -777,10 +780,14 @@ function timmyRecord(text: string): { stopped: boolean; partial?: string; stands
 /** A stop's mark, as the Control Room's stopped turn has it (■). */
 const stopMark = (g: Glyphs): string => (g.unicode ? '■' : '#');
 
-/** R5 (H131; the QA of e7f853e, defect 8): an earlier record's note, in Timmy's own words, with when it was kept. */
-function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs): Line {
+/** R5 (H131; the QA of e7f853e, defect 8): an earlier record's note, in Timmy's own words, with when it was kept. R10 CHAT
+ *  (H167; H168's R3 at pass 2c): a turn that was not answered is said from its own record when one was sealed (failed or
+ *  stopped, at the time its receipt has), the general words (no stop's mark: nothing says it was stopped) when there is none. */
+function recordNote(rec: { stopped: boolean; stands: boolean }, at: number | undefined, g: Glyphs, sealed?: TurnRow): Line {
   const when = at !== undefined ? ` ${g.sep} ${clock(new Date(at).toISOString())}` : '';
-  if (!rec.stopped) return [S(`${stopMark(g)} not answered`, 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
+  if (!rec.stopped && sealed?.state === 'failed') return [S(`${g.fail} failed`, 'failure'), S(`: the turn ended without an answer ${g.sep} ${clock(sealed.at)} (its receipt: Logs & records)`, 'secondary')];
+  if (!rec.stopped && sealed?.state === 'stopped') return [S(`${stopMark(g)} stopped`, 'text'), S(` ${g.sep} ${clock(sealed.at)}`, 'secondary')];
+  if (!rec.stopped) return [S('not answered', 'text'), S(`: it was interrupted before Timmy could (the program ended, or the request failed)${when}`, 'secondary')];
   // R5 lead (the final QA of a77d80d, defect 3): an earlier record does not say who asked (a turn of another surface, or one
   // another surface stopped: its receipt says, and the log beside names it), so it is "stopped", never "stopped by you"
   return [S(`${stopMark(g)} stopped`, 'text'), S(`${rec.stands ? ` ${g.sep} what its tools did stands (nothing was rolled back)` : ''}${when}`, 'secondary')];
@@ -809,6 +816,17 @@ export const chatFollows = (ui: Pick<Ui, 'chosen' | 'input'>): boolean => !ui.ch
 
 /** R10 CHAT (H167): the model a sealed turn used (its receipt's model_resolved, else model_requested), for the answer kept at
  *  `at` (the conversation's timestamp): the turn sealed within a minute after it; null where no receipt says it. */
+/** R10 CHAT (H167): the turn record sealed for a message sent at `at` (the nearest from 5 s before it to 60 s after). */
+function turnNear(d: Pick<Data, 'turns'>, at: number | undefined): TurnRow | undefined {
+  if (at === undefined || !d.turns?.length) return undefined;
+  let best: { t: TurnRow; gap: number } | null = null;
+  for (const t of d.turns) {
+    const gap = Date.parse(t.at) - at;
+    if (Number.isFinite(gap) && gap >= -5_000 && gap <= 60_000 && (!best || Math.abs(gap) < best.gap)) best = { t, gap: Math.abs(gap) };
+  }
+  return best?.t;
+}
+
 function turnModel(d: Pick<Data, 'turns'>, at: number | undefined): string | null {
   if (at === undefined || !d.turns?.length) return null;
   let best: { model: string | null; gap: number } | null = null;

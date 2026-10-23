@@ -48,7 +48,9 @@ import { projectId } from '../project/index.js';
 import { loadConfig } from '../utils/config.js';
 import { modelKeySource } from '../utils/model-key.js';
 import { chatRouteNow, fallbackRoute, sealedRoute, type RouteNow } from './chat-route.js';
-import { keyDecision, noteTurnKey, projectTurn, surfaceWords, type Continued } from './chat-turn.js';
+import { keyDecision, noteTurnKey, projectTurn, surfaceWords, type Continued, type TurnRouteStart } from './chat-turn.js';
+import { inferenceAt, routePolicyNow } from './route-policy.js';
+import { ollamaAt } from '../setup/ollama-models.js';
 import { createAgent, type Agent } from './core.js';
 import { createProjectTools, ProjectTurnFiles } from './project-tools.js';
 import { defaultTools, neverSent } from './tools.js';
@@ -214,6 +216,11 @@ export async function openChatSession(o: { project: { name: string; root: string
     agent.setInstructions(chatInstructions(o.surface));
     agent.useLocalChat(now.local ?? null);
     const requested = now.local ? now.local.model : agent.openRouterModel();
+    // R10 (H169): the turn's route, snapshotted as it starts: a model chosen while it runs changes only the next turn, and its
+    // receipt is never relabelled (src/agent/chat-turn.ts keeps it beside the turn's hold, under the turn's id)
+    const snapshot: TurnRouteStart = now.local
+      ? (() => { const at = ollamaAt(now.local.host); return { source: 'ollama-local' as const, model: requested, inference: inferenceAt({ source: 'ollama-local', model: requested, host: now.local.host }), endpoint: 'error' in at ? now.local.host : at.host, gateway: 'none' as const, policy: routePolicyNow(env) }; })()
+      : { source: 'openrouter', model: requested, inference: 'cloud', endpoint: 'openrouter.ai', gateway: 'none', policy: routePolicyNow(env) };
 
     // R4 (H113): the turn is the REPL's own (src/repl/turn.ts runTurn): the surface is told the answer so far (the agent's
     // stream) and each tool as it starts and ends (the turn's own events), and gets what the turn did from its summary
@@ -235,7 +242,7 @@ export async function openChatSession(o: { project: { name: string; root: string
     let turn: Awaited<ReturnType<typeof projectTurn>>;
     try {
       turn = await projectTurn({
-        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}),
+        agent, project: o.project, surface: o.surface, text: typed, sink, signal: hooks.signal, ...(key !== undefined ? { key } : {}), route: snapshot,
         more: {
           summary: (s) => { summary = s; }, retry: deps.retry ?? false,
           // a failure that never left this computer (no connection, no address) sent nothing
@@ -264,7 +271,10 @@ export async function openChatSession(o: { project: { name: string; root: string
     const local = agent.localChatRoute();
     const localTurn = local ? agent.lastLocalTurn() : null;
     const route = local ? sealedRoute(local, localTurn) : fb ? fallbackRoute(fb) : undefined;
-    const model = fb ? `ollama/${fb.model}` : local ? (localTurn?.actualModel || local.model) : agent.getModel();
+    // R10 (H169): the model that answered, as the turn knows it: the one the provider named, else the one the turn used (a
+    // fallback's included), never the model chosen since the turn started (agent.getModel() then)
+    const told = agent as { lastReturnedModel?: () => string | null; lastTurnModel?: () => string | null };
+    const model = fb ? `ollama/${fb.model}` : local ? (localTurn?.actualModel || local.model) : (told.lastReturnedModel?.() || told.lastTurnModel?.() || t.requested);
     // the cost: on the local route, no charge only when every report says this computer's endpoint; on OpenRouter's, what it
     // reported when it reported all of it; after the last-resort fallback, unknown (OpenRouter failed, and no charge came
     // back for its requests); otherwise unknown, with what was reported as a lower bound

@@ -26,6 +26,8 @@ import type { SealedTurn, TurnFacts } from '../repl/seal.js';
 import type { Transcript } from '../repl/transcript.js';
 import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect, type TurnMarks, type TurnResult, type TurnSummary } from '../repl/turn.js';
 import type { ConversationManager } from './conversation.js';
+import { cloudModelTag, ollamaAt } from '../setup/ollama-models.js';
+import type { InferenceAt, RoutePolicy } from './route-policy.js';
 
 export const CHAT_TURNS_DIR = '.timmy/chat-turns';
 export const CHAT_HOLD_SCHEMA = 'timmy.chat-turn-hold/1';
@@ -289,6 +291,167 @@ export function noteTurnKey(root: string, key: string, surface: ChatSurface, end
   keepKey(root, { key, surface, at: new Date().toISOString(), state: 'ended', sent: end.sent, status: end.status, ...(end.receipt ? { receipt: end.receipt } : {}) });
 }
 
+// ── the turn's route (R10, H169) ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * R10 (H169; the operator's order of 2026-10-22: "Record actual returned model separately from the requested model", and the
+ * spec's "Requested model, returned model, inference destination, gateway path and log destination are distinct fields"): each
+ * turn's route, snapshotted as the turn starts (a model chosen while it runs changes only the next turn) and closed as it ends
+ * (the model the provider named in its answer, how it ended), kept beside the holds in `.timmy/chat-turns/routes.jsonl`, one
+ * line at each, under the turn's id (its hold's, sealed on its receipt as turn_id). A receipt is never rewritten: this record
+ * sits beside it, and both are read by the turn's id.
+ */
+export const TURN_ROUTE_SCHEMA = 'timmy.chat-turn-route/1';
+const ROUTES_FILE = 'routes.jsonl';
+
+/** Where a turn's model call goes, as the turn starts. */
+export interface TurnRouteStart {
+  source: 'openrouter' | 'ollama-local' | 'ollama-cloud';
+  /** the model the turn asks for */
+  model: string;
+  /** where the inference runs (src/agent/route-policy.ts inferenceAt) */
+  inference: InferenceAt;
+  /** the address asked, never a key: openrouter.ai, an Ollama's host, ollama.com */
+  endpoint: string;
+  gateway: 'none' | 'cloudflare';
+  /** the route policy the turn was checked against */
+  policy?: RoutePolicy;
+}
+
+/** One line of routes.jsonl. */
+export interface TurnRouteLine {
+  schema: typeof TURN_ROUTE_SCHEMA;
+  turn: string;
+  surface: ChatSurface;
+  state: 'started' | 'ended';
+  at: string;
+  route?: TurnRouteStart;
+  /** where the turn's log is kept: on this computer, the project's conversation file and this record (project-relative) */
+  log?: { where: 'this computer'; conversation: string | null; record: string };
+  status?: TurnResult;
+  sent?: boolean;
+  /** the model the provider named in its answer (OpenRouter's response `model`; Ollama's), when it named one */
+  returned?: string;
+  /** the last-resort local answer came in place of the requested route (src/agent/core.ts lastFallback) */
+  fallback?: { model: string; host: string };
+  /** what the turn observed of its route's connection: it answered, or did not answer (a failed connection) */
+  connection?: 'answered' | 'did not answer';
+}
+
+/** A turn's route, its start and its end merged (the end absent while it runs, or when its process ended during it). */
+export interface TurnRoute {
+  turn: string;
+  surface: ChatSurface;
+  startedAt: string;
+  requested: { source: TurnRouteStart['source']; model: string };
+  inference: InferenceAt;
+  endpoint: string;
+  gateway: 'none' | 'cloudflare';
+  log: { where: 'this computer'; conversation: string | null; record: string };
+  policy?: RoutePolicy;
+  ended?: { at: string; status: TurnResult; sent: boolean; returned?: string; fallback?: { model: string; host: string }; connection?: 'answered' | 'did not answer' };
+}
+
+/** The route an agent's next turn takes, as it can tell (src/agent/core.ts Agent localChatRoute and openRouterModel), else null. */
+export function routeOfAgent(agent: unknown): TurnRouteStart | null {
+  const a = agent as { localChatRoute?: () => { host: string; model: string } | null; openRouterModel?: () => string };
+  try {
+    const local = typeof a.localChatRoute === 'function' ? a.localChatRoute() : null;
+    if (local) {
+      const at = ollamaAt(local.host);
+      const inference: InferenceAt = cloudModelTag(local.model) ? 'cloud' : 'error' in at ? 'not known' : at.loopback ? 'this computer' : 'another computer';
+      return { source: 'ollama-local', model: local.model, inference, endpoint: 'error' in at ? local.host : at.host, gateway: 'none' };
+    }
+    if (typeof a.openRouterModel === 'function') return { source: 'openrouter', model: a.openRouterModel(), inference: 'cloud', endpoint: 'openrouter.ai', gateway: 'none' };
+  } catch { /* an agent that cannot tell */ }
+  return null;
+}
+
+function keepRoute(root: string, line: TurnRouteLine): void {
+  const dir = turnsDir(root, true);
+  if (!dir.ok) return;
+  try { fs.appendFileSync(path.join(dir.abs, ROUTES_FILE), `${JSON.stringify(line)}\n`, 'utf8'); } catch { /* the receipt still names the turn; this record is help */ }
+}
+
+/** The lines of routes.jsonl (its last 256 KiB), oldest first. */
+function routeLines(root: string): TurnRouteLine[] {
+  const dir = turnsDir(root, false);
+  if (!dir.ok) return [];
+  let text = '';
+  try {
+    const file = path.join(dir.abs, ROUTES_FILE);
+    const st = fs.lstatSync(file);
+    if (!st.isFile()) return [];
+    const fd = fs.openSync(file, 'r');
+    try {
+      const from = Math.max(0, st.size - KEYS_TAIL);
+      const buf = Buffer.alloc(st.size - from);
+      const n = fs.readSync(fd, buf, 0, buf.length, from);
+      text = buf.subarray(0, n).toString('utf8');
+      if (from > 0) text = text.slice(text.indexOf('\n') + 1);
+    } finally { fs.closeSync(fd); }
+  } catch { return []; }
+  const out: TurnRouteLine[] = [];
+  for (const l of text.split('\n')) {
+    if (!l.trim()) continue;
+    try { const r = JSON.parse(l) as TurnRouteLine; if (r && r.schema === TURN_ROUTE_SCHEMA && typeof r.turn === 'string' && TURN_ID.test(r.turn)) out.push(r); } catch { /* a line that is not one */ }
+  }
+  return out;
+}
+
+function merged(lines: TurnRouteLine[]): TurnRoute | null {
+  const start = lines.find((l) => l.state === 'started' && l.route);
+  if (!start || !start.route) return null;
+  const end = [...lines].reverse().find((l) => l.state === 'ended');
+  const r = start.route;
+  return {
+    turn: start.turn, surface: start.surface, startedAt: start.at, requested: { source: r.source, model: r.model }, inference: r.inference, endpoint: r.endpoint,
+    gateway: r.gateway, log: start.log ?? { where: 'this computer', conversation: null, record: `${CHAT_TURNS_DIR}/${ROUTES_FILE}` }, ...(r.policy ? { policy: r.policy } : {}),
+    ...(end ? { ended: { at: end.at, status: end.status ?? 'failed', sent: end.sent === true, ...(end.returned ? { returned: end.returned } : {}), ...(end.fallback ? { fallback: end.fallback } : {}), ...(end.connection ? { connection: end.connection } : {}) } } : {}),
+  };
+}
+
+/** A turn's route by its id (its receipt's turn_id), or null when this project keeps none for it (a turn before R10). */
+export function turnRoute(root: string, id: string): TurnRoute | null {
+  if (!TURN_ID.test(id)) return null;
+  return merged(routeLines(root).filter((l) => l.turn === id));
+}
+
+/** The project's newest turns' routes, the newest first. */
+export function turnRoutes(root: string, max = 20): TurnRoute[] {
+  const lines = routeLines(root);
+  const ids: string[] = [];
+  for (let i = lines.length - 1; i >= 0 && ids.length < max; i--) if (!ids.includes(lines[i].turn)) ids.push(lines[i].turn);
+  return ids.map((id) => merged(lines.filter((l) => l.turn === id))).filter((r): r is TurnRoute => r !== null);
+}
+
+/** The route in a line, for a row: "OpenRouter · cloud · logs on this computer", "Ollama on this computer · logs on this computer". */
+export function turnRouteWords(r: Pick<TurnRoute, 'requested' | 'inference' | 'gateway'>): string {
+  const where = r.requested.source === 'openrouter' ? 'OpenRouter · cloud'
+    : r.requested.source === 'ollama-cloud' ? 'Ollama Cloud · cloud'
+      : r.inference === 'this computer' ? 'Ollama on this computer' : r.inference === 'cloud' ? 'Ollama · its cloud' : `Ollama · ${r.inference}`;
+  return `${where}${r.gateway === 'cloudflare' ? ' · through Cloudflare' : ''} · logs on this computer`;
+}
+
+/**
+ * What a turn's end says of its route's connection, when it says something for certain: the route answered (an answered turn
+ * that went out, the requested route's own answer), or the Ollama it asked did not answer (Timmy's own words for a failed
+ * connection, src/agent/local-chat.ts). Anything else (an error the service gave, a stop, a refusal) says nothing of it.
+ */
+export function turnConnection(route: TurnRouteStart, s: Pick<TurnSummary, 'result' | 'sent' | 'error'>, fellBack: boolean): { id: 'ollama' | 'openrouter'; answer: 'accepted' | 'no answer'; detail: string } | null {
+  const id = route.source === 'openrouter' ? 'openrouter' : route.source === 'ollama-local' ? 'ollama' : null;
+  if (!id) return null;
+  if (s.result === 'ok' && s.sent && !fellBack) return { id, answer: 'accepted', detail: route.model };
+  if (s.result === 'failed' && id === 'ollama') {
+    const msg = String((s.error as Error | undefined)?.message ?? s.error ?? '');
+    if (/ did not answer, so nothing was sent\.| stopped answering\./.test(msg)) {
+      const why = /\nReason: ([^\n]+)/.exec(msg)?.[1]?.trim();
+      return { id, answer: 'no answer', detail: why ?? 'the connection failed' };
+    }
+  }
+  return null;
+}
+
 /** What this module reads of an agent's kept conversation (src/agent/core.ts Agent keptConversation, useSessions). */
 interface KeepsConversation {
   keptConversation?: () => Pick<ConversationManager, 'directory' | 'current' | 'chosen' | 'listSessions' | 'load' | 'getHistory'>;
@@ -364,6 +527,13 @@ export interface ProjectTurnInput {
   key?: string;
   /** told what the turn continues, after the conversation is the project's and before anything is sent */
   onContinue?: (c: Continued) => void;
+  /**
+   * R10 (H169): the turn's route, as the surface took it when the turn started (absent: what the agent tells,
+   * routeOfAgent); kept in routes.jsonl under the turn's id
+   */
+  route?: TurnRouteStart | null;
+  /** R10 (H169): the model the provider named in its answer, asked as the turn ends (absent: what the agent tells) */
+  returned?: () => string | undefined;
 }
 
 export type ProjectTurnResult =
@@ -375,6 +545,25 @@ export type ProjectTurnResult =
  * receipt naming the surface. A keyed message's start is kept before anything is sent and its end before the hold is given
  * back, so a message sent again with its key, from any process, finds how it went (keyDecision).
  */
+/**
+ * R10 (H169): a turn's observation of its route's connection, kept where the checks keep theirs (the Timmy home's
+ * connections record, src/ops/workspace-frame.ts noteTurnAnswer), named as a turn's and for the address or key it asked.
+ * Loaded only when there is one to keep; a record that cannot be written changes nothing.
+ */
+let noting: Promise<void> = Promise.resolve();
+/** Settles once every turn's observation this process started is kept (a test's wait; the turn never waits for it). */
+export const observationsKept = (): Promise<void> => noting;
+
+async function noteObserved(o: NonNullable<ReturnType<typeof turnConnection>>, route: TurnRouteStart): Promise<void> {
+  try {
+    const frame = await import('../ops/workspace-frame.js');
+    let asked: string | undefined;
+    if (o.id === 'ollama') { const at = ollamaAt(route.endpoint); asked = 'error' in at ? undefined : at.origin; }
+    else { const { modelKeyFingerprint } = await import('../utils/model-key.js'); asked = modelKeyFingerprint() ?? undefined; }
+    frame.noteTurnAnswer(o.id, { answer: o.answer, detail: o.detail, ...(asked ? { asked } : {}) });
+  } catch { /* the observation is help: the turn and its receipt stand */ }
+}
+
 export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResult> {
   const root = i.project.root;
   if (i.key !== undefined) {
@@ -404,6 +593,35 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
   // (turn_id), so every surface tells this turn's end from another's by identity; and a stop any surface asks of it
   // (requestTurnStop) stops it here as this surface's own Esc or Ctrl+C would, its receipt naming who asked (stopped_by)
   const turnId = taken.hold.id;
+  // R10 (H169): the turn's route, snapshotted now (a model chosen while the turn runs changes only the next turn)
+  const route = i.route === undefined ? routeOfAgent(i.agent) : i.route;
+  if (route) {
+    const conv = (() => { try { const c = (i.agent as KeepsConversation).keptConversation?.(); return c?.current ? path.relative(root, path.join(c.directory, `${c.current}.jsonl`)).split(path.sep).join('/') : null; } catch { return null; } })();
+    keepRoute(root, { schema: TURN_ROUTE_SCHEMA, turn: turnId, surface: i.surface, state: 'started', at: new Date().toISOString(), route, log: { where: 'this computer', conversation: conv && !conv.startsWith('..') ? conv : null, record: `${CHAT_TURNS_DIR}/${ROUTES_FILE}` } });
+  }
+  let routeEnded = false;
+  let observed: ReturnType<typeof turnConnection> = null;
+  const endRoute = (): void => {
+    if (!route || routeEnded) return;
+    routeEnded = true;
+    const s = summary as TurnSummary | null;
+    const a = i.agent as { lastFallback?: () => { model: string; host: string } | null; lastLocalTurn?: () => { actualModel?: string } | null; lastReturnedModel?: () => string | null };
+    const fb = (() => { try { return a.lastFallback?.() ?? null; } catch { return null; } })();
+    const returned = (() => {
+      try {
+        if (i.returned) return i.returned();
+        if (fb) return `ollama/${fb.model}`;
+        if (route.source === 'ollama-local') return a.lastLocalTurn?.()?.actualModel || undefined;
+        return a.lastReturnedModel?.() ?? undefined;
+      } catch { return undefined; }
+    })();
+    observed = s ? turnConnection(route, s, Boolean(fb)) : null;
+    keepRoute(root, {
+      schema: TURN_ROUTE_SCHEMA, turn: turnId, surface: i.surface, state: 'ended', at: new Date().toISOString(),
+      ...(s ? { status: s.result, sent: s.sent } : {}), ...(returned ? { returned } : {}), ...(fb ? { fallback: { model: fb.model, host: fb.host } } : {}),
+      ...(observed ? { connection: observed.answer === 'accepted' ? 'answered' as const : 'did not answer' as const } : {}),
+    });
+  };
   let stoppedBy: ChatSurface | null | undefined;
   const asked = new AbortController();
   const signal = i.signal ? AbortSignal.any([i.signal, asked.signal]) : asked.signal;
@@ -418,15 +636,22 @@ export async function projectTurn(i: ProjectTurnInput): Promise<ProjectTurnResul
     // chat session) gets the facts with the turn's id in them.
     const more: TurnInspect = {
       ...i.more,
-      summary: (s) => { summary = s; if (s.facts) s.facts = own(s.facts); endKey(); watch.close(); taken.hold.release(); i.more?.summary?.(s); },
+      summary: (s) => { summary = s; if (s.facts) s.facts = own(s.facts); endKey(); endRoute(); watch.close(); taken.hold.release(); i.more?.summary?.(s); },
       // who asked this turn to stop, when another surface did: the cancel line names them (src/repl/transcript.ts)
       stoppedBy: () => (stoppedBy === undefined ? undefined : stoppedBy === null ? 'another surface' : surfaceWords(stoppedBy)),
     };
     const status = await runTurn(i.agent, i.sink as Transcript, i.text, i.clock, i.marks, signal, seal, i.abandon, more);
+    // R10 (H169; pass 2c's R2 and R4): what the turn saw of its route's connection is the connection's newest observation (the
+    // frame's row, src/ops/workspace-frame.ts): an answer, or a connection that did not answer (it ends "live")
+    endRoute();
+    const seen = observed as ReturnType<typeof turnConnection>;
+    // kept after the turn has ended, without holding its answer back (the frame's module may load the first time)
+    if (seen && route) noting = noting.then(() => noteObserved(seen, route));
     return { status, continued };
   } finally {
     // a turn that ended without its summary (abandoned, or thrown): its end kept, whether it sent not recorded
     endKey();
+    endRoute();
     watch.close();
     taken.hold.release();
   }

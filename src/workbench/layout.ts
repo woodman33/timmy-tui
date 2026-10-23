@@ -75,38 +75,29 @@ export interface Layout {
   modelsDrawer?: boolean;
 }
 
-/** R10 CHAT (H167): the Chat screen's rail and Models widths at 110 columns and more (IMPLEMENTATION_SPEC.md: about 18 and 30
- *  at 122x37); the header's rows and the bottom area's. */
-export const CHAT_RAIL_W = 18;
-export const CHAT_MODELS_W = 30;
-const CHAT_HEADER_H = 3;
-const CHAT_BOTTOM_H = 5;
-/** the conversation keeps at least this many columns beside Models (else Models is a drawer) */
-const CHAT_CENTER_MIN = 56;
-
 /**
- * R10 CHAT (H167): the Chat screen's shell at this size, or null where it does not fit (the Workbench's own minimum then
- * applies): the permanent left rail the whole height; the 3-row header, the conversation and Models beside it, and this
- * conversation's controls at the foot, right of the rail. Where Models does not fit beside a conversation of CHAT_CENTER_MIN
- * columns, it is a drawer (open: the conversation narrows to make its room).
+ * R10 CHAT (H167): the Chat screen's zones at this size, as the operator's terminal target lays them out in cells
+ * (src/workbench/chat-shell.ts chatGrid draws them): the header rows 0-2 the whole width; the rail from row 3, 18 columns from
+ * 110 columns (14 below) with its separator after it; the conversation and the composer between it and Models (31 columns
+ * from 110, with a separator before them; below, Models is a drawer over the conversation, [M]); the bottom's three rows right
+ * of the rail. Null where the screen is under the Workbench's minimum.
  */
 export function chatLayout(a: { columns: number; rows: number; modelsOpen?: boolean }): Layout | null {
   const columns = Math.max(1, Math.floor(a.columns));
   const rows = Math.max(1, Math.floor(a.rows));
   if (columns < MIN_COLUMNS || rows < MIN_ROWS + 4) return null;
-  const railW = columns >= 110 ? CHAT_RAIL_W : 16;
-  const mainW = columns - railW;
-  const fits = mainW - CHAT_MODELS_W >= CHAT_CENTER_MIN;
-  const modelsW = fits ? CHAT_MODELS_W : a.modelsOpen ? Math.min(CHAT_MODELS_W, Math.max(24, mainW - 30)) : 0;
-  const bodyY = CHAT_HEADER_H;
-  const bodyH = Math.max(3, rows - CHAT_HEADER_H - CHAT_BOTTOM_H);
-  const header: Rect = { x: railW, y: 0, w: mainW, h: CHAT_HEADER_H };
-  const right: Rect | null = modelsW ? { x: columns - modelsW, y: bodyY, w: modelsW, h: bodyH } : null;
+  const wide = columns >= 110;
+  const railW = wide ? 18 : 14;
+  const sepR = wide ? columns - 32 : null;
+  const contentH = rows - 6;
+  const centerX = railW + 1;
+  const centerW = (sepR ?? columns) - centerX;
+  const right: Rect | null = sepR !== null ? { x: sepR + 1, y: 3, w: columns - sepR - 1, h: contentH } : a.modelsOpen ? { x: centerX, y: 3, w: centerW, h: contentH } : null;
   return {
-    columns, rows, mode: modeOf(columns), tooSmall: false, tabs: header, tabRows: 2, top: { x: railW, y: bodyY, w: mainW, h: 0 }, topDetail: true,
-    strip: null, nav: { x: 0, y: 0, w: railW, h: rows }, navAs: 'rail', center: { x: railW, y: bodyY, w: mainW - modelsW, h: bodyH },
-    right, rightAs: right ? 'models' : 'hidden', bottom: { x: railW, y: bodyY + bodyH, w: mainW, h: rows - bodyY - bodyH }, logLines: 0, quietLog: true,
-    activityRows: 0, shell: 'chat', ...(right && !fits ? { modelsDrawer: true } : {}),
+    columns, rows, mode: modeOf(columns), tooSmall: false, tabs: { x: 0, y: 0, w: columns, h: 3 }, tabRows: 2, top: { x: centerX, y: 3, w: centerW, h: 0 }, topDetail: true,
+    strip: null, nav: { x: 0, y: 3, w: railW, h: rows - 3 }, navAs: 'rail', center: { x: centerX, y: 3, w: centerW, h: contentH },
+    right, rightAs: right ? 'models' : 'hidden', bottom: { x: railW + 1, y: rows - 3, w: columns - railW - 1, h: 3 }, logLines: 0, quietLog: true,
+    activityRows: 0, shell: 'chat', ...(right && sepR === null ? { modelsDrawer: true } : {}),
   };
 }
 
