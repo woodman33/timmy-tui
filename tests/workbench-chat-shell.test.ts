@@ -136,7 +136,7 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(m.slice(28, 34)).toEqual(['SELECTED', 'FAKE fake-qwen3:8b', 'local weights · 8B · Q4_K_M', 'The next turn uses it.', 'no charge / this computer', expect.stringMatching(/^Listed by Ollama: \d\d:\d\d$/)]);
   });
 
-  it('Models on OpenRouter: Search, the five label/value rows, the list (Cost Free only: what it lists), SELECTED with its prices and the catalog\'s date', () => {
+  it('Models on OpenRouter: Search, the five label/value rows, the list (Cost Free only: what it lists), SELECTED (the next turn\'s model) or MODEL (another under the cursor) with its prices and the catalog\'s date', () => {
     const m = models(text(frame(data(OPENROUTER), ui({ focus: 'right' }))));
     expect(m.slice(6, 10)).toEqual(['> OpenRouter', '  Ollama local', '  Ollama cloud', '  Cloudflare (optional)']);
     expect(m[11]).toBe('Search name or model id');
@@ -147,7 +147,14 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const all = models(text(frame(data(OPENROUTER), ui({ focus: 'right', modelsCost: 'all', cursor: { 'right:models': 2 } }))));
     expect(all[16]).toBe('Cost       All');
     expect(all.slice(20, 26)).toEqual(['  FIXTURE: Newest (free)', '  262k context / Free', '  FIXTURE: Middle model', '  1M context / price unknown', '> FIXTURE: Older model', '  32k context / $0.50/$1.50']);
-    expect(all.slice(28, 34)).toEqual(['SELECTED', 'FIXTURE: Older model', 'A FIXTURE model added first.', 'Priced: not under free-only.', '$0.50 in / $1.50 out / 1M', 'Catalog snapshot: Sep 7']);
+    // (the lead's Mac check of 50237ef: only the next turn's model is SELECTED; another under the cursor is MODEL / <model>)
+    expect(all.slice(28, 34)).toEqual(['MODEL / FIXTURE: Older model', 'A FIXTURE model added first.', '', 'Priced: not under free-only.', '$0.50 in / $1.50 out / 1M', 'Catalog snapshot: Sep 7']);
+    // no row for the next turn's model (its list not read yet): the route's model, said so; with no route, MODEL / none
+    const unread = models(text(frame(data({ models: { ...data().models, ollama: { state: 'reading', where: 'Ollama', rows: [] } } } as unknown as Partial<Data>), ui())));
+    expect(unread.slice(28, 31)).toEqual(['SELECTED', 'FAKE fake-qwen3:8b', 'Not listed here yet.']);
+    const none = models(text(frame(data({ route: { kind: 'none', words: 'chat: none', ready: false }, models: { ...data().models, ollama: { state: 'reading', where: 'Ollama', rows: [] } } } as unknown as Partial<Data>), ui({ modelsProvider: 'ollama-local' }))));
+    expect(none[28]).toBe('MODEL / none');
+    expect(none.join('\n')).not.toMatch(/SELECTED/);
   });
 
   it('the bottom: the actions in the target\'s order and words; the status row: logs here, idle, cloud sync off, the spend, the size; no id, hash, port or path', () => {
@@ -254,7 +261,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(c[4]).toBe('WELCOME TO TIMMY');
     expect(c.slice(7, 10)).toEqual(['How would you like to run chat?', 'Choose one. You can add the others later.', '']);
     expect(c.slice(10, 21)).toEqual([
-      '> [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).', '',
+      '> [ OpenRouter / cloud ]', '  Sign in with OpenRouter in your browser, or paste a key.', '',
       '  [ Ollama / this computer ]', '  Use installed models; no cloud account needed.', '',
       '  [ Ollama / cloud ]', '  Remote models; no local weights required.', '',
       '  [ Continue without a model ]', '  Explore files, setup and local records.',
@@ -269,9 +276,9 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     // the guide shown: its text after its row (the rows between the choices go to make it room), deterministic: the official
     // pages, what is set up here
     const g2 = center(text(frame(data(NONE), ui({ guide: true, cursor: { 'center:first': 5 } }))));
-    expect(g2.slice(10, 13)).toEqual(['  [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).', '  [ Ollama / this computer ]']);
+    expect(g2.slice(10, 13)).toEqual(['  [ OpenRouter / cloud ]', '  Sign in with OpenRouter in your browser, or paste a key.', '  [ Ollama / this computer ]']);
     expect(g2[20]).toBe('> [ Hide the Timmy guide ]');
-    expect(g2.join('\n')).toMatch(/TIMMY GUIDE[\s\S]*https:\/\/openrouter\.ai\/settings\/keys[\s\S]*https:\/\/ollama\.com\/download[\s\S]*\[x\] Logs and records on this computer[\s\S]*\[ \] A model for the next turn/);
+    expect(g2.join('\n')).toMatch(/TIMMY GUIDE[\s\S]*https:\/\/openrouter\.ai\/keys[\s\S]*https:\/\/ollama\.com\/download[\s\S]*\[x\] Logs and records on this computer[\s\S]*\[ \] A model for the next turn/);
   });
 
   it('at 80x24 the choices without the rows between them, as the target; the advanced choice and the guide below them', () => {
@@ -280,7 +287,7 @@ describe('the first run and Chat with no model (R10 CHAT H167; terminal-target c
     expect(c[4]).toMatch(/^WELCOME TO TIMMY +\[ Models \]$/);
     expect(c.slice(7, 9)).toEqual(['How would you like to run chat?', 'Choose one. You can add the others later.']);
     expect(c.slice(10, 20)).toEqual([
-      '> [ OpenRouter / cloud ]', '  Use an API key from OpenRouter (typed in a shell, hidden).',
+      '> [ OpenRouter / cloud ]', '  Sign in with OpenRouter in your browser, or paste a key.',
       '  [ Ollama / this computer ]', '  Use installed models; no cloud account needed.',
       '  [ Ollama / cloud ]', '  Remote models; no local weights required.',
       '  [ Continue without a model ]', '  Explore files, setup and local records.',
@@ -322,11 +329,18 @@ describe('the bottom\'s drawers (R10 CHAT H167; the target\'s check: the Logs dr
     expect(t.join('\n')).not.toMatch(/d2d756db|oc372c7b3/);
   });
 
-  it('Budget: the next turn\'s model and price, free-only, Open settings; More at 80x24: the controls the row leaves out, each as its button acts or what it needs', () => {
+  it('Budget: the next turn\'s model and price, free-only and local-only and where each really switches, Open settings; More at 80x24: the controls the row leaves out, each as its button acts or what it needs', () => {
     const b = center(text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 4 }, shellDrawer: 'budget' }))));
     expect(b[4]).toMatch(/^BUDGET \/ the next turn +\[ Close \]$/);
     expect(b[7]).toMatch(/^Next turn  FAKE fake-qwen3:8b \/ /);
     expect(b[8]).toBe('Free-only  off');
+    expect(b[9]).toBe('Local-only off');
+    // (the lead's 20:06 note: the REPL's commands and the environment switch them; Settings here does not)
+    expect(b.join(' ')).toMatch(/Free-only and local-only switch in the REPL \(timmy\): \/model free-only on\|off and \/model local-only on\|off; TIMMY_CHAT_FREE_ONLY=1 or TIMMY_CHAT_LOCAL_ONLY=1 sets one for what runs with it\. Settings here does not switch them\./);
+    expect(b.join(' ')).not.toMatch(/Settings turns free-only/);
+    // the policy as read with the route: on, said so
+    const on = center(text(frame(data({ route: { ...data().route, policy: { freeOnly: true, localOnly: true } } } as unknown as Partial<Data>), ui({ focus: 'bottom', cursor: { shellBottom: 4 }, shellDrawer: 'budget' }))));
+    expect(on.slice(8, 10)).toEqual(['Free-only  on: a model the catalog does not price at 0 is not used', 'Local-only on: no cloud route, fallback or tool model call']);
     expect(b[25]).toBe('> [ Open settings ]');
     const m = text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 3, shellDrawer: 1 }, shellDrawer: 'more' }), 80, 24)).map((r) => cols(r, 16, 79));
     expect(m[4]).toMatch(/^THIS CONVERSATION +\[ Close \]$/);
@@ -347,5 +361,165 @@ describe('an unanswered message after a relaunch (R10 CHAT H167; H168\'s R3 at p
     const none = said({ chat: { session: 's1', total: 2, messages: [asked, record] }, turns: [] } as unknown as Partial<Data>);
     expect(none).toMatch(/not answered: it was interrupted before Timmy could \(the program ended, or the request failed\)/);
     expect(none).not.toMatch(/■/);
+  });
+});
+
+describe('Models with the providers\' states (R10 CHAT H167, step 5; H170\'s providerStates, FIXTURE states here)', () => {
+  const STATES = [
+    { id: 'openrouter', state: 'not set up', words: 'No OpenRouter key is set up.', next: 'Sign in with OpenRouter (a browser page; Timmy never asks for your password), or paste a key from openrouter.ai/keys' },
+    { id: 'ollama-local', state: 'checked', at: iso(2), words: 'Checked 2 min ago: Ollama answered at 127.0.0.1:4463 with local models (no account, no charge).' },
+    { id: 'ollama-cloud', state: 'not set up', words: 'No Ollama Cloud key is set up.', next: 'Paste an Ollama API key from ollama.com/settings/keys (no local install or download is needed for Ollama Cloud)' },
+    { id: 'cloudflare', state: 'not set up', words: 'Optional, and read only here: Timmy never sends Cloudflare a request to check it (a request to an AI Gateway can create one and bill).', lines: ['Worker: not set up (no edge host in the private overlay or TIMMY_EDGE_HOST)'] },
+  ];
+  const withStates = (o: Partial<Data> = {}) => { const d = data(o); return { ...d, models: { ...d.models, providers: STATES } } as unknown as Data; };
+  it('the shown provider\'s state on the row under MODELS, green only for an answer seen or a passed check (with its time); words, never colour alone', () => {
+    // the local Ollama answered Models' own listing a minute ago: that is said first (H170's word is the program's install)
+    const f = frame(withStates(), ui({ focus: 'right' }));
+    expect(models(text(f))[5]).toMatch(/^answered \d\d:\d\d$/);
+    expect(f.screen[5].find((s) => s.text.startsWith('answered'))?.role).toBe('live');
+    const failed = frame(withStates({ models: { ...data().models, ollama: { state: 'failed', where: 'Ollama', rows: [], at: iso(1), why: 'FIXTURE: refused' } } } as unknown as Partial<Data>), ui({ focus: 'right' }));
+    expect(models(text(failed))[5]).toMatch(/^did not answer \d\d:\d\d$/);
+    // not listed yet: H170's word for it, green only for its passed check
+    const checked = frame(withStates({ models: { ...data().models, ollama: undefined } } as unknown as Partial<Data>), ui({ focus: 'right' }));
+    expect(models(text(checked))[5]).toMatch(/^checked \d\d:\d\d$/);
+    expect(checked.screen[5].find((s) => s.text.startsWith('checked'))?.role).toBe('live');
+    const or = frame(withStates(OPENROUTER), ui({ focus: 'right' }));
+    expect(models(text(or))[5]).toBe('not set up');
+    expect(or.screen[5].find((s) => s.text === 'not set up')?.role).toBe('secondary');
+  });
+
+  it('Ollama cloud and Cloudflare: their own words, what is set up and the next step, wrapped to the rail', () => {
+    const cloud = models(text(frame(withStates(), ui({ focus: 'right', modelsProvider: 'ollama-cloud' })))).join(' ').replace(/\s+/g, ' ');
+    expect(cloud).toContain('OLLAMA CLOUD');
+    expect(cloud).toContain('No Ollama Cloud key is set up.');
+    expect(cloud).toMatch(/Next: Paste an Ollama API key from ollama\.com\/settings\/keys/);
+    const cf = models(text(frame(withStates(), ui({ focus: 'right', modelsProvider: 'cloudflare' })))).join(' ').replace(/\s+/g, ' ');
+    expect(cf).toContain('CLOUDFLARE (optional)');
+    expect(cf).toMatch(/Timmy never sends Cloudflare a request to check it/);
+    expect(cf).toMatch(/Worker: not set up/);
+  });
+});
+
+describe('the local list as the probe checks it; no SELECTED claim without a route (R10 CHAT H167; the lead\'s Mac check of 50237ef)', () => {
+  // FAKE: what a local Ollama lists, each with the probe's /api/show check (two do not establish a chat model)
+  const LOCAL = ollamaRows([
+    { name: 'clef-flash:latest', facts: 'local weights · mxfp8 · 12.4 GB', chat: false },
+    { name: 'embeddinggemma-2:latest', facts: 'local weights · nvfp4 · 1.3 GB', chat: false },
+    { name: 'hf.co/fixture-maker/a-very-long-model-name-GGUF:Q4_K_M', facts: 'local weights · 27.3B · Q4_K_M · 18.5 GB', chat: true },
+    { name: 'fake-qwen3:8b', facts: 'local weights · 8B · Q4_K_M', chat: true },
+  ]);
+  const local = (o: Partial<Data> = {}) => data({ models: { ...data().models, ollama: { state: 'listed', where: 'Ollama', rows: LOCAL, at: iso(1) } }, ...o } as Partial<Data>);
+  const NONE = { route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false }, chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+
+  it('a model the check does not establish says "not a chat model" in its facts\' place; a long name is cut where the row ends, never dropped', () => {
+    // (the local list by name: the cursor on the long one)
+    const m = models(text(frame(local(), ui({ focus: 'right', cursor: { 'right:models': 3 } }))));
+    expect(m.slice(14, 22)).toEqual(['  clef-flash:latest', '  not a chat model', '  embeddinggemma-2:latest', '  not a chat model', '  FAKE fake-qwen3:8b', '  8B · Q4_K_M', '> hf.co/fixture-maker/a-ver…', '  27.3B · Q4_K_M · 18.5 GB']);
+    // where it runs, under them, whole (three rows here) or not at all
+    expect(m.slice(22, 26)).toEqual(['', 'Runs on this computer. A', 'local model does not require', 'a cloud account.']);
+  });
+
+  it('with no route chosen (the first run) the cursor\'s model is MODEL, never SELECTED, and nothing says the next turn uses it; a non-chat one says so', () => {
+    const first = models(text(frame(local(NONE), ui())));
+    expect(first[28]).toBe('MODEL / clef-flash:latest');
+    expect(first.join('\n')).not.toMatch(/SELECTED|next turn uses it/);
+    expect(first[31]).toBe('Not a chat model (checked).');
+    // the next turn's model, once chosen, is SELECTED; another under the cursor is MODEL
+    const chosen = models(text(frame(local(), ui({ focus: 'right', cursor: { 'right:models': 2 } }))));
+    expect(chosen.slice(28, 30)).toEqual(['SELECTED', 'FAKE fake-qwen3:8b']);
+    const other = models(text(frame(local(), ui({ focus: 'right', cursor: { 'right:models': 3 } }))));
+    expect(other[28]).toBe('MODEL');
+    expect(other[29]).toBe('hf.co/fixture-maker/a-very-…');
+    // a route that names a model the check does not establish: it is not SELECTED either, and says why
+    const named = models(text(frame(local({ route: { kind: 'local', words: 'chat: local clef-flash:latest · Ollama', ready: true } } as unknown as Partial<Data>), ui())));
+    expect(named[28]).toBe('MODEL / clef-flash:latest');
+    expect(named.join('\n')).not.toMatch(/SELECTED|next turn uses it/);
+    expect(named[31]).toBe('Not a chat model (checked).');
+  });
+
+  it('a long list scrolls by whole models: the cursor\'s name and facts both in view, no facts without their name', () => {
+    const many = ollamaRows(Array.from({ length: 12 }, (_, i) => ({ name: `fixture-model-${String(i + 1).padStart(2, '0')}:latest`, facts: `local weights · ${i + 1}B`, chat: true })));
+    const d = data({ models: { ...data().models, ollama: { state: 'listed', where: 'Ollama', rows: many, at: iso(1) } } } as Partial<Data>);
+    for (const at of [0, 5, 6, 11]) {
+      const m = models(text(frame(d, ui({ focus: 'right', cursor: { 'right:models': at } }))));
+      const list = m.slice(14, 26);
+      expect(list[0], `the first row at cursor ${at}`).toMatch(/^[> ] fixture-model-\d+:latest$/);
+      const mine = list.indexOf(`> fixture-model-${String(at + 1).padStart(2, '0')}:latest`);
+      expect(mine, `the cursor's name at ${at}`).toBeGreaterThanOrEqual(0);
+      expect(list[mine + 1], `its facts at ${at}`).toBe(`  ${at + 1}B`);
+      // no facts row without its name: every name row is followed by its facts within the list's rows
+      expect(list.filter((r) => /fixture-model/.test(r)).length * 2).toBe(list.filter((r) => r !== '').length);
+    }
+  });
+
+  it('in the drawer (80x24) a long name is cut so that its facts fit beside it on its row, never one without the other', () => {
+    const t = text(frame(local(), ui({ modelsOpen: true, focus: 'right' }), 80, 24));
+    expect(t.find((r) => r.includes('hf.co/'))).toContain('  hf.co/fixture-maker/a-very-long-… / 27.3B · Q4_K_M · 18.5 GB');
+    expect(t.some((r) => r.includes('  clef-flash:latest / not a chat model'))).toBe(true);
+  });
+
+  it('a relaunch after an answered turn shows the conversation even with no model chosen (not the first run\'s question)', () => {
+    const kept = center(text(frame(data({ route: { kind: 'local', words: 'chat: local · no model chosen · /model', ready: false } } as Partial<Data>), ui())));
+    expect(kept[4]).toBe('CHAT / tray');
+    expect(kept.join('\n')).toMatch(/YOU \/ \d\d:\d\d/);
+    expect(kept.join('\n')).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat/);
+  });
+});
+
+describe('Connect OpenRouter\'s box (R10 CHAT H167; the lead\'s Mac check of 50237ef, item 3)', () => {
+  const NONE = { route: { kind: 'none', words: 'chat: none', ready: false }, chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+  const box = (o: Record<string, unknown>) => ({ kind: 'connect', provider: 'openrouter', ...o }) as unknown as Ui['overlay'];
+  // FIXTURE: a string of a key's shape (not a key)
+  const KEY = 'FIXTURE-not-a-real-key-0123456789';
+
+  it('the first run says OpenRouter is signed in or pasted here, not typed in a shell', () => {
+    const c = center(text(frame(data(NONE), ui())));
+    expect(c).toContain('  Sign in with OpenRouter in your browser, or paste a key.');
+    expect(c.join('\n')).not.toMatch(/typed in a shell/);
+  });
+
+  it('its choices first: sign in, paste a key, cancel; nothing sent before one', () => {
+    const c = center(text(frame(data(NONE), ui({ overlay: box({ step: 'choose' }) }))));
+    expect(c).toContain('Connect OpenRouter');
+    expect(c).toContain('> [ Sign in with OpenRouter ]');
+    expect(c).toContain('  [ Paste a key ]');
+    expect(c).toContain('  [ Cancel ]');
+    expect(c.join(' ')).toMatch(/Nothing is sent until you choose; no account, purchase or credit is made here\./);
+  });
+
+  it('the hidden field says how many characters were typed, never which, at every width', () => {
+    for (const [w, h] of [[122, 37], [80, 24]] as const) {
+      const f = text(frame(data(NONE), ui({ overlay: box({ step: 'paste' }), input: { field: 'secret', text: KEY } }), w, h));
+      expect(f.join('\n'), `${w}x${h}`).toContain(`› ${KEY.length} characters typed (hidden)`);
+      expect(f.join('\n'), `${w}x${h}`).not.toContain(KEY);
+      expect(f.join('\n'), `${w}x${h}`).not.toContain(KEY.slice(0, 12));
+    }
+    const empty = text(frame(data(NONE), ui({ overlay: box({ step: 'code' }), input: { field: 'secret', text: '' } })));
+    expect(empty.join('\n')).toContain('› nothing typed yet (hidden)');
+    expect(empty.join('\n')).toMatch(/If the browser is on another computer/);
+  });
+
+  it('the sign-in\'s address is shown whole across its rows, with Open, the code\'s field and Cancel', () => {
+    const url = 'https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A9%2Fopenrouter%2Fcallback%2FFIXTURE-path&code_challenge=FIXTURE-challenge-FIXTURE-challenge-FIXTURE&code_challenge_method=S256';
+    const c = center(text(frame(data(NONE), ui({ overlay: box({ step: 'signin', url }) }))));
+    const at = c.findIndex((r) => r.startsWith('  https://'));
+    const rows: string[] = [];
+    for (let k = at; k >= 0 && /^ {2}\S+$/.test(c[k] ?? ''); k++) rows.push(c[k].slice(2));
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.join('')).toBe(url);
+    expect(c).toContain('> [ Open it in the browser ]');
+    expect(c).toContain('  [ Type the code from the browser ]');
+    expect(c.join(' ')).toMatch(/Esc cancels the sign-in; nothing is saved then\./);
+  });
+
+  it('what came of it, in words: the key saved (its fingerprint, not the key) and the route as read; or nothing saved', () => {
+    const ok = center(text(frame(data(NONE), ui({ overlay: box({ step: 'done', ok: true, words: 'Saved, not checked: the OpenRouter key (key 0123456789ab) is in providers.json in the Timmy home (0600).', route: 'The route as read now: FIXTURE route words.' }) }))));
+    expect(ok).toContain('OpenRouter: the key is saved');
+    expect(ok.join(' ')).toMatch(/Saved, not checked: the OpenRouter key \(key 0123456789ab\)/);
+    expect(ok).toContain('> [ Choose an OpenRouter model ]');
+    const no = center(text(frame(data(NONE), ui({ overlay: box({ step: 'done', ok: false, words: 'The sign-in timed out after 300 s with no answer from the browser: nothing was saved.' }) }))));
+    expect(no).toContain('OpenRouter: nothing was saved');
+    expect(no).toContain('> [ Sign in again ]');
+    expect(no).toContain('  [ Paste a key ]');
   });
 });

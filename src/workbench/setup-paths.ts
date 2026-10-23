@@ -42,8 +42,11 @@ export interface OllamaList {
   where: string;
   /** it answered with its list */
   answered: boolean;
-  /** the models it lists that run on that Ollama, with their facts: the ones offered here (cloud-backed ones are not) */
-  models: Array<{ name: string; facts: string }>;
+  /** the models it lists that run on that Ollama, with their facts: the ones offered here (cloud-backed ones are not). R10
+   *  CHAT (H167): `chat`, the probe's /api/show check of it (src/models/ollama-list.ts assertLocalOllamaModel: local
+   *  completion weights): false, its answer does not establish a chat model (an embedding or a classifier); null, not checked
+   *  (no answer in time, or an Ollama the probe does not ask: another computer's); absent, not asked */
+  models: Array<{ name: string; facts: string; chat?: boolean | null }>;
   /** how many it lists, and how many of those are cloud-backed */
   listed: number;
   cloud: number;
@@ -127,7 +130,22 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       const list = await listOllamaModels(host, { timeoutMs: 5000 });
       if (!list.ok) return { where: list.at ? atWords(list.at) : `Ollama at ${host}`, answered: false, models: [], listed: 0, cloud: 0, why: listProblem(list, host) };
       const runs = list.models.filter((m) => !m.cloud);
-      return { where: atWords(list.at), answered: true, models: runs.map((m) => ({ name: m.name, facts: listedFacts(m, list.at) })), listed: list.models.length, cloud: list.models.length - runs.length };
+      // R10 CHAT (H167; the lead's Mac check of 50237ef): each one's /api/show check, the probe's own (local completion
+      // weights): an embedding or a decision model it does not establish is not offered as a chat model. One request each, no
+      // model run; a loopback Ollama only (the probe asks no other)
+      const { assertLocalOllamaModel, getLocalOllamaBaseUrl } = await import('../models/ollama-list.js');
+      let base: string | null = null;
+      try { base = getLocalOllamaBaseUrl(host); } catch { base = null; }
+      // (its answer naming a remote host is a cloud-backed model: counted with the cloud ones, not offered here)
+      const chat = await Promise.all(runs.map(async (m): Promise<boolean | null | 'cloud'> => {
+        if (!base) return null;
+        try { await assertLocalOllamaModel(m.name, 4000, { baseUrl: base }); return true; } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          return /refuses cloud-backed/.test(why) ? 'cloud' : /does not establish/.test(why) ? false : null;
+        }
+      }));
+      const local = runs.flatMap((m, i) => { const ok = chat[i]; return ok === 'cloud' ? [] : [{ name: m.name, facts: listedFacts(m, list.at), chat: ok }]; });
+      return { where: atWords(list.at), answered: true, models: local, listed: list.models.length, cloud: list.models.length - local.length };
     },
     setLocal: async (model) => {
       // the writer makes an identity when the home has none: that is the setup's to do, in a shell, never a side effect here
@@ -155,6 +173,8 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
 const CHECK_NAMES: ReadonlyArray<[keyof ConnectionsRecord['checks'], string]> = [
   ['openrouter', 'OpenRouter (its key endpoint, no model called)'],
   ['ollama', 'Ollama (its list of models)'],
+  // (R10 H169's connection, asked only with its key: its model list, no model run)
+  ['ollama-cloud', 'Ollama Cloud (its model list, with the key; no model run)'],
   ['studio', 'Timmy Studio'],
   ['companion', 'Browser companion'],
   ['cloudflare', 'Cloudflare edge'],
@@ -175,7 +195,7 @@ export function checkRows(record: ConnectionsRecord, since: number): Array<{ nam
   return CHECK_NAMES.map(([id, name]) => {
     const c = record.checks[id];
     if (c && Date.parse(c.at) >= since) return { name, words: answerWords(c), answered: c.answer === 'accepted' };
-    const why = id === 'openrouter' ? 'not asked: no OpenRouter key is set up' : id === 'cloudflare' ? 'not asked: none is set up' : 'not asked this time';
+    const why = id === 'openrouter' ? 'not asked: no OpenRouter key is set up' : id === 'ollama-cloud' ? 'not asked: no Ollama Cloud key is set up' : id === 'cloudflare' ? 'not asked: none is set up' : 'not asked this time';
     return { name, words: why, answered: false };
   });
 }

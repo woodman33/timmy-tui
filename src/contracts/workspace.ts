@@ -100,7 +100,12 @@ export interface WorkspaceAction {
 /** A connection, as Timmy last observed it. `live` needs an answered request with its time; a setting alone is `configured`. */
 export type ConnectionState = 'live' | 'configured' | 'not set up' | 'unreachable' | 'refused' | 'unknown';
 
-export type ConnectionId = 'openrouter' | 'ollama' | 'cloudflare' | 'clef' | 'cloudroom' | 'companion' | 'studio' | 'mcp-sdk' | 'mcporter';
+/**
+ * R10 (H169; the lead's decision of 2026-10-22 18:02, on H170's proposal): 'ollama-cloud' is Ollama's hosted API, a connection
+ * of its own beside 'ollama' (this computer's): remote inference, labelled cloud, refused by local-only; set up by its key
+ * (src/setup/provider-keys.ts keyInUse('ollama-cloud')) and observed by a check that lists its models and runs none.
+ */
+export type ConnectionId = 'openrouter' | 'ollama' | 'ollama-cloud' | 'cloudflare' | 'clef' | 'cloudroom' | 'companion' | 'studio' | 'mcp-sdk' | 'mcporter';
 
 export interface WorkspaceConnection {
   id: ConnectionId;

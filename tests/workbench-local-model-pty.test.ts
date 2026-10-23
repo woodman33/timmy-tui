@@ -6,7 +6,8 @@
 //
 // FAKE here, each said where it is made:
 // - the Ollama: an HTTP server in this test's process, with no model behind it; it answers GET /api/tags with two FAKE models
-//   (names that begin "fake-") and counts every request it gets;
+//   (names that begin "fake-"), POST /api/show for each as a chat model (R10 CHAT H167: the box lists what that check
+//   establishes), and counts every request it gets;
 // - the openers on PATH (`open` and `xdg-open` stubs that only log; nothing presses Show).
 // Everything else is the real program, started as the installed command starts it (src/cli.ts through tsx's loader), over a
 // sandbox of its own (HOME, the XDG folders, the Timmy home, the settings folder, the store, TMPDIR and the tmux server).
@@ -88,8 +89,17 @@ beforeAll(async () => {
       res.end(JSON.stringify({ models: FAKE_MODELS }));
       return;
     }
+    // (each FAKE model's facts as Ollama gives them: local weights that complete, so a chat model)
+    if (req.method === 'POST' && req.url === '/api/show') {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ details: { format: 'gguf' }, capabilities: ['completion'] }));
+      });
+      return;
+    }
     res.writeHead(404, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: 'FAKE Ollama: only /api/tags is answered here' }));
+    res.end(JSON.stringify({ error: 'FAKE Ollama: only /api/tags and /api/show are answered here' }));
   });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   port = (server.address() as AddressInfo).port;
@@ -175,7 +185,8 @@ describe('`timmy workbench` in a terminal: the local model chosen in the Workben
     const chat = await t.waitFor(/tray1 \/ Chat · conversation[\s\S]*next turn: FAKE fake-qwen3:8b · this computer \(Ollama\)[\s\S]*\[Enter\] Type a message +· to FAKE fake-qwen3:8b/, 'Chat\'s route on the model chosen, and its composer ready', 30_000);
     // (R10 H167: a ready route has no "not ready" words)
     expect(chat).not.toMatch(/not ready/);
-    expect(asked.every((a) => a === 'GET /api/tags'), `the FAKE Ollama was asked only for its list: ${asked.join(', ')}`).toBe(true);
+    // (R10 CHAT H167: and each listed model's facts, /api/show, which runs no model)
+    expect(asked.every((a) => a === 'GET /api/tags' || a === 'POST /api/show'), `the FAKE Ollama was asked only for its list and its models' facts: ${asked.join(', ')}`).toBe(true);
     // nothing of this machine on the screens: not the sandbox's folders, not its name
     for (const s of [listed, done, chat]) {
       expect(s.includes(box)).toBe(false);

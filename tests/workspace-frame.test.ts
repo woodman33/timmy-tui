@@ -242,9 +242,11 @@ describe('the frame', () => {
   it('lists every connection, none live without an observation, the two MCP routes unknown', async () => {
     const f = await frame();
     const ids = f.connections.map((c) => c.id);
-    expect(ids).toEqual(['openrouter', 'ollama', 'cloudflare', 'clef', 'cloudroom', 'companion', 'studio', 'mcp-sdk', 'mcporter']);
+    // R10 (H169): Ollama Cloud, a connection of its own beside this computer's Ollama (the lead's decision of 2026-10-22)
+    expect(ids).toEqual(['openrouter', 'ollama', 'ollama-cloud', 'cloudflare', 'clef', 'cloudroom', 'companion', 'studio', 'mcp-sdk', 'mcporter']);
     expect(f.connections.filter((c) => c.state === 'live')).toEqual([]);
     expect(f.connections.find((c) => c.id === 'openrouter')?.state).toBe('not set up');
+    expect(f.connections.find((c) => c.id === 'ollama-cloud')?.state).toBe('not set up');
     expect(f.connections.find((c) => c.id === 'mcp-sdk')?.state).toBe('unknown');
     expect(f.connections.find((c) => c.id === 'mcporter')?.state).toBe('unknown');
   });
