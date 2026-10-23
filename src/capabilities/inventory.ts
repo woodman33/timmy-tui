@@ -15,11 +15,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cloudModelTag } from '../setup/ollama-models.js';
 import { resolveChatRoute, type ChatRoute } from '../agent/chat-route.js';
+import { readSetupState } from '../setup/questions.js';
 import { listLanes } from '../utils/dispatch.js';
+import { LANE_RUNNERS } from '../agent/lanes.js';
 import { keyWhere, type KeyedProvider } from '../setup/provider-keys.js';
 import { ollamaInstalled } from '../setup/ollama-local.js';
 import { providerStates, PROVIDER_LABEL, type ProviderState } from '../setup/providers-state.js';
-import { workspaceRoot, type Env } from '../setup/home.js';
+import type { Env } from '../setup/home.js';
 import { mcpRoutes, type McpRoute } from '../connectors/mcp-cli.js';
 import { mcporterConfigFiles, parseJsonc } from '../connectors/mcp-configured.js';
 import { OPENHANDS_ROUTE, OPENHANDS_IMAGE } from '../code-agents/openhands.js';
@@ -28,7 +30,7 @@ import { BUILD_CONTENTS } from '../utils/doctor.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 import { toolStatuses, type ToolStatus } from '../vox/tools.js';
 import { VISION_BRIDGE } from '../vision/runtime.js';
-import { readChain, verifyChain, type Receipt, type VerifyResult } from '../utils/receipts.js';
+import { readChain, rootStoreDir, verifyChain, verifySignature, type Receipt, type VerifyResult } from '../utils/receipts.js';
 import { chainEvidence, type ChainEvidence, type RunMark } from './evidence.js';
 import { whichOnPath } from './live.js';
 import { scrubHomes, scrubStrings } from '../utils/home-scrub.js';
@@ -71,7 +73,7 @@ export interface InventoryRow {
   available: Fact;
   configured: Fact;
   exercised: Exercised;
-  /** the one step that would move this row to its next word, in the product\'s existing setup words; absent once exercised */
+  /** the one step that would move this row to its next word, in the product's existing setup words; absent once exercised */
   next?: string;
 }
 
@@ -80,14 +82,14 @@ export interface InventoryContext {
   /** the project (the receipts chain, the vox venv, MCPorter's project config); process.cwd() when absent */
   cwd?: string;
   platform?: NodeJS.Platform;
-  /** the account\'s home (Ollama\'s app, MCPorter\'s home config); the env\'s HOME when absent */
+  /** the account's home (Ollama's app, MCPorter's home config); the env's HOME when absent */
   home?: string;
   now?: number;
   // seams, so a test stands in for the machine with a FAKE home: files and the PATH only, nothing run
   exists?: (p: string) => boolean;
   /** where a program is on the PATH (the first executable file), or null; nothing is run */
   which?: (program: string) => string | null;
-  /** the project\'s runs chain as read and verified here (readChain + verifyChain of src/utils/receipts.ts) */
+  /** the project's runs chain as read and verified here (readChain + verifyChain of src/utils/receipts.ts) */
   chain?: () => { receipts: Receipt[]; verify: VerifyResult };
   /** whether a packaged file (doctor.ts BUILD_CONTENTS) is in this build */
   packaged?: (rel: string) => boolean;
@@ -118,7 +120,7 @@ export function inventory(ctx: InventoryContext = {}): Inventory {
     ...visionRows(c, chain),
     receiptsRow(c, chain),
   ];
-  // no row shows a path under a home folder as absolute (src/utils/home-scrub.ts), and no row ever carries a key\'s value
+  // no row shows a path under a home folder as absolute (src/utils/home-scrub.ts), and no row ever carries a key's value
   const homes = (t: string): string => scrubHomes(t, c.env as NodeJS.ProcessEnv);
   const scrubbed = rows.map((r) => scrubStrings(r, homes));
   return { schema: 'timmy.capability-inventory/1', readAt: new Date(c.now).toISOString(), means: STATE_MEANS, groups: INVENTORY_GROUPS, rows: scrubbed };
@@ -178,53 +180,58 @@ const obj = (v: unknown): Obj | undefined => (v && typeof v === 'object' && !Arr
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
 const short = (hash: string): string => hash.replace(/^sha256_/, '').slice(0, 8);
 
-/** The receipts that may vouch for a run: on a chain that verifies, in an epoch whose segment verifies (as evidence.ts reads it). */
+/**
+ * The receipts that may vouch for a run, newest first: on a chain that verifies, in an epoch whose segment verifies (as
+ * evidence.ts reads it). A candidate counts only once its own signature verifies (`signed`), checked when it would be the
+ * run shown, so a long chain stays quick.
+ */
 function vouching(chain: Chain): Obj[] {
   if (!chain.verify.ok) return [];
   const ok = new Set(chain.verify.segments.filter((s) => s.ok).map((s) => s.epoch));
-  return (chain.receipts as unknown as Obj[]).filter((r) => ok.has(typeof r.epoch === 'number' ? r.epoch : 1) && typeof r.hash === 'string' && typeof r.ts === 'string');
+  return (chain.receipts as unknown as Obj[]).filter((r) => ok.has(typeof r.epoch === 'number' ? r.epoch : 1) && typeof r.hash === 'string' && typeof r.ts === 'string').reverse();
 }
+const signed = (r: Obj): boolean => { try { return verifySignature(r as unknown as Receipt); } catch { return false; } };
 
 const markOf = (r: Obj, what: string, record?: string): RunMark => ({ at: String(r.ts), what, receipt: short(String(r.hash)), hash: String(r.hash), ...(record ? { record } : {}), chain: 'on the runs chain, which verifies here' });
 
 /** The newest sealed chat turn (kind turn or chat, status ok) by route: OpenRouter, Ollama on this computer, or a cloud-backed Ollama model. */
 function turnReceipts(chain: Chain): { openrouter?: RunMark; ollamaLocal?: RunMark; ollamaCloud?: RunMark } {
   const out: { openrouter?: RunMark; ollamaLocal?: RunMark; ollamaCloud?: RunMark } = {};
-  for (const r of [...vouching(chain)].reverse()) {
+  for (const r of vouching(chain)) {
     if ((r.kind !== 'turn' && r.kind !== 'chat') || r.status !== 'ok') continue;
     const model = str(r.model_resolved) ?? str(r.model_requested) ?? 'a model';
     if (r.via === 'ollama') {
       const src = Array.isArray(r.sources) ? obj(r.sources.find((s) => obj(s)?.kind === 'ollama')) : undefined;
       const host = str(src?.host);
-      if (cloudModelTag(model)) { if (!out.ollamaCloud) out.ollamaCloud = markOf(r, `a sealed chat turn answered by ${model}, a cloud-backed model through Ollama${host ? ` at ${host}` : ''}`); }
-      else if (!out.ollamaLocal) out.ollamaLocal = markOf(r, `a sealed chat turn answered by ${model} through Ollama${host ? ` at ${host}` : ''}`);
-    } else if (!out.openrouter) out.openrouter = markOf(r, `a sealed chat turn answered by ${model} through OpenRouter`);
+      if (cloudModelTag(model)) { if (!out.ollamaCloud && signed(r)) out.ollamaCloud = markOf(r, `a sealed chat turn answered by ${model}, a cloud-backed model through Ollama${host ? ` at ${host}` : ''}`); }
+      else if (!out.ollamaLocal && signed(r)) out.ollamaLocal = markOf(r, `a sealed chat turn answered by ${model} through Ollama${host ? ` at ${host}` : ''}`);
+    } else if (!out.openrouter && signed(r)) out.openrouter = markOf(r, `a sealed chat turn answered by ${model} through OpenRouter`);
     if (out.openrouter && out.ollamaLocal && out.ollamaCloud) break;
   }
   return out;
 }
 
-/** The newest MCP call answered through a command-line route, by server name (the mcp.call receipt\'s own outcome). */
+/** The newest MCP call answered through a command-line route, by server name (the mcp.call receipt's own outcome). */
 function mcpCallReceipts(chain: Chain): Map<string, RunMark> {
   const out = new Map<string, RunMark>();
-  for (const r of [...vouching(chain)].reverse()) {
+  for (const r of vouching(chain)) {
     if (r.kind !== 'mcp.call' || r.status !== 'ok' || !Array.isArray(r.sources)) continue;
     const src = obj(r.sources[0]);
     const server = str(src?.server); const route = str(src?.route);
-    if (!src || !server || src.outcome !== 'answered' || src.called !== true || src.isError === true || out.has(server)) continue;
+    if (!src || !server || src.outcome !== 'answered' || src.called !== true || src.isError === true || out.has(server) || !signed(r)) continue;
     const record = Array.isArray(r.outputs) ? str(obj(r.outputs[0])?.path) : undefined;
     out.set(server, markOf(r, `an MCP call to ${server} answered through the ${route ?? 'command-line'} route`, record));
   }
   return out;
 }
 
-/** The newest dispatch of each lane (the launch\'s receipt, status ok: a run was started; its result is the job\'s own record). */
+/** The newest dispatch of each lane (the launch's receipt, status ok: a run was started; its result is the job's own record). */
 function dispatchReceipts(chain: Chain): Map<string, RunMark> {
   const out = new Map<string, RunMark>();
-  for (const r of [...vouching(chain)].reverse()) {
+  for (const r of vouching(chain)) {
     if (r.kind !== 'run' || r.status !== 'ok') continue;
     const m = /^dispatch (\S+) · (\S+) · (\d+)x$/.exec(String(r.subject ?? ''));
-    if (!m || out.has(m[2])) continue;
+    if (!m || out.has(m[2]) || !signed(r)) continue;
     out.set(m[2], markOf(r, `dispatch ${m[1]} started ${m[3]} ${m[3] === '1' ? 'copy' : 'copies'} of this lane (the launch\'s receipt; the result is in the job\'s own record)`));
   }
   return out;
@@ -237,7 +244,7 @@ const ran = (m: RunMark | undefined, source: string, none: string): ExercisedFou
   ? { ok: true, receipt: m.receipt, hash: m.hash, when: m.at, what: m.what, ...(m.record ? { record: m.record } : {}), source }
   : { ok: false, found: none, source });
 /** The exercised word when the chain cannot vouch: broken, or none read. */
-const chainNone = (chain: Chain, none: string): string => chain.unread ?? (chain.verify.ok ? none : `no run counts: ${chain.evidence.broken ?? 'the receipts chain does not verify'}`);
+const chainNone = (chain: Chain, none: string): string => chain.unread ?? (chain.verify.ok ? none : `no run counts: the receipts chain does not verify${chain.verify.reason ? ` (${chain.verify.reason})` : ''}`);
 
 type Draft = { id: string; name: string; group: InventoryGroup; available: FactFound; configured: FactFound; exercised: ExercisedFound; next?: string };
 
@@ -263,7 +270,8 @@ const ROUTE_SRC = 'resolveChatRoute (src/agent/chat-route.ts)';
 function modelRows(c: Ctx, chain: Chain): InventoryRow[] {
   const states = providerStates({ env: c.env, cwd: c.cwd, platform: c.platform, ...(c.home ? { home: c.home } : {}), now: c.now, exists: c.exists });
   const state = (id: ProviderState['id']): ProviderState => states.find((s) => s.id === id)!;
-  const route = ((): ChatRoute | null => { try { return resolveChatRoute({ env: c.env }); } catch { return null; } })();
+  // the setup's answers from the home the env names, for the project `cwd` (never this process's folder)
+  const route = ((): ChatRoute | null => { try { return resolveChatRoute({ env: c.env, state: readSetupState(c.env, c.cwd) }); } catch { return null; } })();
   const turns = turnReceipts(chain);
   const keyFact = (id: KeyedProvider): FactFound => {
     const k = ((): ReturnType<typeof keyWhere> => { try { return keyWhere(id, c.env, c.cwd); } catch { return null; } })();
@@ -279,7 +287,7 @@ function modelRows(c: Ctx, chain: Chain): InventoryRow[] {
     id: 'model:openrouter', name: PROVIDER_LABEL.openrouter, group: 'Models',
     available: fact(true, 'built in: Timmy\'s OpenRouter client (@openrouter/sdk); no install needed', 'capabilityInventory (src/capabilities/inventory.ts: the dependency is Timmy\'s own)'),
     configured: { ...orKey, found: `${orKey.found}; ${chatIs(route)}`, source: `${KEY_SRC}; ${ROUTE_SRC}` },
-    exercised: ran(orRun, orRun === orQualify ? SRC.evidence : SRC.turns, chainNone(chain, 'no sealed chat turn through OpenRouter yet')),
+    exercised: ran(orRun, orRun && orRun === orQualify ? SRC.evidence : SRC.turns, chainNone(chain, 'no sealed chat turn through OpenRouter yet')),
     next: !orKey.ok ? state('openrouter').next ?? 'Sign in with OpenRouter, or paste a key from openrouter.ai/keys' : route?.kind === 'openrouter' ? 'Send a message in the chat (each answered turn seals a receipt)' : 'Set the chat to OpenRouter (timmy init --chat openrouter, or /setup chat in the REPL), then send a message',
   });
 
@@ -292,10 +300,10 @@ function modelRows(c: Ctx, chain: Chain): InventoryRow[] {
       : route?.kind === 'local' ? fact(false, `${chatIs(route)}; Ollama at ${route.host}`, ROUTE_SRC) : fact(false, `${chatIs(route)}; no local model is chosen`, ROUTE_SRC);
   const ollamaLocal = row({
     id: 'model:ollama-local', name: PROVIDER_LABEL['ollama-local'], group: 'Models',
-    available: fact(inst.installed, `Ollama is ${inst.words}${inst.how ? ` (${inst.how})` : ''}`, 'ollamaInstalled (src/setup/ollama-local.ts)'),
+    available: fact(inst.installed, `Ollama is ${inst.words}`, 'ollamaInstalled (src/setup/ollama-local.ts)'),
     configured: localCfg,
     exercised: ran(turns.ollamaLocal, SRC.turns, chainNone(chain, 'no sealed chat turn through the Ollama on this computer yet')),
-    next: !inst.installed ? local.next ?? 'Install Ollama, then start it' : !localCfg.ok ? 'Choose a local model: timmy init --chat local --model <name>, or /model in the REPL' : local.next ?? 'Send a message in the chat (each answered turn seals a receipt)',
+    next: !inst.installed ? local.next ?? 'Install Ollama, then start it' : !localCfg.ok ? 'Choose a local model: timmy init --chat local --model <name>, or /model in the REPL' : 'Send a message in the chat (each answered turn seals a receipt)',
   });
 
   // Ollama Cloud: no local install; a key kept, or a cloud-backed model name (":cloud", as Ollama lists it) chosen for the chat,
@@ -342,7 +350,9 @@ function voxRows(c: Ctx, chain: Chain): InventoryRow[] {
       ? fact(keyPresent, keyPresent ? 'ROBOFLOW_API_KEY is set (its value is never shown)' : 'ROBOFLOW_API_KEY is not set', 'roboflowReady (src/vox/tools.ts: the key\'s presence only)')
       : fact(true, 'no key or address is needed', SRC_TOOLS);
     const m = chain.evidence.runs.get(`vox:${s.tool}`) ?? (s.tool === 'look' ? chain.evidence.runs.get('observe:look') : undefined);
-    const exercised = ran(m, SRC.evidence, chainNone(chain, `no vox record settled ok with ${s.name} yet`));
+    const exercised = ran(m, SRC.evidence, chainNone(chain, keyed
+      ? 'Roboflow inference is unverified: no vox record of a hosted model settled ok yet (a real authorized run would be the first)'
+      : `no vox record settled ok with ${s.name} yet`));
     return row({
       id: `vox:${s.tool}`, name: s.name, group: 'Tools', available, configured, exercised,
       next: !available.ok ? s.setup ?? 'see /vox' : !configured.ok ? s.setup ?? 'set ROBOFLOW_API_KEY' : `Run it once: ${voxAction(s.tool)} (its record and receipt seal the run)`,
@@ -438,10 +448,10 @@ function laneRows(c: Ctx, chain: Chain): InventoryRow[] {
     const keyNeeded = Boolean(l.key);
     const keySet = keyNeeded && Boolean(c.env[l.key!]?.trim());
     const mcp = l.mcp;
-    // listLanes folds the command, the key and the server into `available`; the words are kept apart here: its command is
-    // found when the lane is available, or when only its key or server is missing (listLanes says which)
-    const found = mcp ? mcp.found : l.available || (keyNeeded && !keySet);
-    const program = mcp?.program ?? l.id;
+    // listLanes folds the command, the key and the server into `available`, and looks the command up on this process's
+    // PATH; the words are kept apart here, and the command is looked up on the context's PATH (nothing run)
+    const program = mcp?.program ?? LANE_RUNNERS[l.id]?.cmd ?? l.id;
+    const found = c.which(program) !== null;
     const available = fact(found, found ? `${program} is on PATH` : `${program} is not on PATH`, SRC_LANES);
     const configured = mcp
       ? fact(mcp.configured, mcp.configured ? `its MCP server ${mcp.server} is named in ${mcp.where ?? 'MCPorter\'s config'}` : `its MCP server ${mcp.server} is not named in MCPorter\'s config (${mcp.checked.join(', ') || 'no file'})`, SRC_LANES)
@@ -485,17 +495,18 @@ function visionRows(c: Ctx, chain: Chain): InventoryRow[] {
 // ── Receipts: the project's runs chain ────────────────────────────────────────
 
 function receiptsRow(c: Ctx, chain: Chain): InventoryRow {
-  const dir = join(c.cwd, '.timmy', 'receipts', 'runs.jsonl');
-  const here = c.exists(dir);
+  // the store as the receipts module resolves it from the project (a store pin above cwd wins, as DOCTRINE §4 wants)
+  const store = ((): string | undefined => { try { return rootStoreDir(c.cwd); } catch { return undefined; } })();
+  const here = Boolean(store) && c.exists(join(store!, 'runs.jsonl'));
   const pin = c.exists(join(c.cwd, '.timmy', 'store-pin'));
   const n = chain.verify.count;
-  const newest = [...vouching(chain)].reverse()[0];
+  const newest = vouching(chain).find(signed);
   const m = newest && chain.verify.ok && n > 0 ? markOf(newest, `the newest receipt on the chain (${String(newest.kind)}: ${str(newest.subject) ?? 'no subject'}); ${n} receipt${n === 1 ? '' : 's'}, chain verified`) : undefined;
   return row({
     id: 'receipts:chain', name: 'Receipts (timmy receipts)', group: 'Receipts',
-    available: fact(here, here ? 'the runs chain is here (.timmy/receipts/runs.jsonl)' : 'no runs chain in this project yet (.timmy/receipts/runs.jsonl)', 'capabilityInventory (src/capabilities/inventory.ts: the files of src/utils/receipts.ts)'),
+    available: fact(here, here ? `the runs chain is here (${store!.startsWith(c.cwd) ? store!.slice(c.cwd.length + 1) : store}/runs.jsonl)` : store ? `no runs chain in the store yet (${store.startsWith(c.cwd) ? store.slice(c.cwd.length + 1) : store}/runs.jsonl)` : 'no store resolves from this project', 'rootStoreDir (src/utils/receipts.ts) and the chain file'),
     configured: fact(pin, pin ? 'the store pin names this project\'s store (.timmy/store-pin)' : 'no store pin (.timmy/store-pin): timmy init writes it', 'rootStoreDir (src/utils/receipts.ts: the pin, never bypassed)'),
-    exercised: m ? ran(m, SRC.chain, '') : { ok: false, found: chain.unread ?? (!chain.verify.ok ? `the chain does not verify: ${chain.verify.reason ?? 'its links or hashes fail'}` : 'no receipt sealed yet'), source: SRC.chain },
+    exercised: m ? ran(m, SRC.chain, '') : { ok: false, found: chain.unread ?? (!chain.verify.ok ? `the receipts chain does not verify${chain.verify.reason ? ` (${chain.verify.reason})` : ': its links or body hashes fail'}` : 'no receipt sealed yet'), source: SRC.chain },
     next: !here || !pin ? 'timmy init (it makes the store and its pin)' : 'any sealed run (a chat turn, /observe, /mcp call) appends a signed receipt',
   });
 }
