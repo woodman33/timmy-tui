@@ -11,7 +11,7 @@ import { eventLogView, frameTabs, isHub, pipelineLines, previewView, routeOf, ta
 import type { WorkspaceConnection } from '../contracts/workspace.js';
 import { headerRows, homeSideView, selectedHome } from './home-journey.js';
 import { bodyKind, chatLayout, layoutFor, MIN_COLUMNS, MIN_ROWS, type Layout, type Rect } from './layout.js';
-import { chatScreen, convoRowsAt, firstRowsAt, firstRunLines, isFirstRun, noModelLines, noModelNow } from './chat-shell.js';
+import { chatScreen, convoRowsAt, firstRowsAt, firstRunLines, isFirstRun, isWelcome, noModelLines, noModelNow, welcomeLines } from './chat-shell.js';
 import type { Data, Region, Ui, View } from './model.js';
 import { navItem } from './nav.js';
 import { endOf, keepInView, scrollFor } from './select.js';
@@ -252,11 +252,15 @@ function chatFrame(a: FrameAsk, layout: Layout): Frame {
   const { ui, data, g } = a;
   // R10 CHAT (H167): the first run's question (no model yet, not answered here), or Chat with no model and nothing said yet:
   // their choices are the center's items (list center:first); a box over the center (a setup's, a message) is drawn as before
-  if (!ui.overlay && (isFirstRun({ ui, data }) || noModelNow({ ui, data }))) {
+  // (R11 H167, step 2a: and the welcome of an empty conversation with a model on the route: its four starter actions)
+  if (!ui.overlay && (isFirstRun({ ui, data }) || noModelNow({ ui, data }) || isWelcome({ ui, data }))) {
     const first = isFirstRun({ ui, data });
     const at = first ? firstRowsAt(a.columns, a.rows) : convoRowsAt(a.columns, a.rows);
     const ctx = { ui, data, g, width: a.columns, height: a.rows, now: a.now };
-    const f = first ? firstRunLines(ctx, at.width, at.rows, ui.focus === 'center') : noModelLines(ctx, at.width, ui.focus === 'center');
+    // (the choices are marked while the conversation's zone has the keyboard and no field has it: a draft being typed below
+    // the welcome's choices leaves them plain)
+    const focused = ui.focus === 'center' && !ui.input.field;
+    const f = first ? firstRunLines(ctx, at.width, at.rows, focused) : noModelNow({ ui, data }) ? noModelLines(ctx, at.width, focused) : welcomeLines(ctx, at.width, at.rows, focused);
     const out = chatScreen(ctx, { convo: f.lines, convoItems: f.items, convoScroll: 0, convoTotal: f.lines.length, first, list: 'center:first', focus: ui.focus });
     return { screen: out.screen, layout, regions: { ...out.regions }, tabs: [], pages: [], actions: [], ...(out.chip ? { chip: out.chip } : {}) };
   }

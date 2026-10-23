@@ -262,10 +262,13 @@ describe('the terminal Workbench\'s Control Room lists every surface\'s chat tur
     await toControlRoom(c, f);
 
     // the rows as read: the project's three, the newest first, never the other project's
+    // (R11 H167, step 2b: each row carries its receipt's hash, verified in this reading, how it went out and its cost as sealed,
+    // for the evidence line under the answer; the Control Room's rows are as before)
+    const evidence = (hash: string, via: 'ollama' | 'openrouter') => ({ hash, verified: { ok: true }, via, cost: { usd: null, measured: false } });
     expect(c.data.turns).toEqual([
-      { receipt: wb, surface: 'workbench', state: 'answered', model: 'qwen3:8b-fixture', at: chain[3].ts, ms: 1200, operation: OP_WB, local: true },
-      { receipt: stopped, surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: chain[1].ts, ms: 800, operation: OP_STOP },
-      { receipt: repl, surface: 'repl', state: 'answered', model: 'fixture/chat-model', at: chain[0].ts, ms: 2400, operation: null },
+      { receipt: wb, surface: 'workbench', state: 'answered', model: 'qwen3:8b-fixture', at: chain[3].ts, ms: 1200, operation: OP_WB, local: true, ...evidence(chain[3].hash, 'ollama') },
+      { receipt: stopped, surface: 'workbench', state: 'stopped', model: 'qwen3:8b', at: chain[1].ts, ms: 800, operation: OP_STOP, ...evidence(chain[1].hash, 'openrouter') },
+      { receipt: repl, surface: 'repl', state: 'answered', model: 'fixture/chat-model', at: chain[0].ts, ms: 2400, operation: null, ...evidence(chain[0].hash, 'openrouter') },
     ]);
     const room = regionText(c, 'center');
     expect(room).toContain('RECENT (1)');

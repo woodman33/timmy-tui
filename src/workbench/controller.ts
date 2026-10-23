@@ -41,12 +41,13 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { ASK_DRAFT, CAP_VALUES, chatModel, checkRowWords, CONTEXT_VALUES, COST_VALUES, isWelcome, MODEL_CONTROLS, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railCost, railCursor, railProvider, shellControls, SORT_VALUES, statusRoom, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { checkProvider, describeCheck, providerStates, type ProviderState } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
 import { readVox } from './voxvision-tab.js';
-import type { Data, Item, Lazy, Overlay, Region, Ui, View } from './model.js';
+import type { Data, Item, Lazy, Overlay, Region, TurnRow, Ui, View } from './model.js';
+import { toolRuns } from './chat-evidence.js';
 import { companionWhat, handoffWords, homeDefault, inWords, routeLine, turnEndNotice, type WorkItem } from './home-journey.js';
 import { openTarget, recentWork as recentWorkOf, routeNow } from '../journey/index.js';
 import { buildInfo } from '../build-info.js';
@@ -68,7 +69,7 @@ import {
 import { releaseEndedCopies } from '../utils/dispatch.js';
 import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPlan } from './setup-paths.js';
 import { stopCurrent, type StopDeps } from './stop.js';
-import { clock, type Line, type Role } from './text.js';
+import { clock, lineCells, type Line, type Role } from './text.js';
 import { HoldWatch, type HoldsReading } from './turn-holds.js';
 import { actionsOf, bottomView, centerView, connectChoices, cursorOf, pageActions, rightView, routeShown, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
 import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
@@ -152,6 +153,10 @@ export class Controller {
   data: Data;
   private readonly listeners = new Set<() => void>();
   private timers: NodeJS.Timeout[] = [];
+  /** R11 (H167; step 2b): the 80 ms redraw while a tool of this Workbench's own turn runs (spinWhile) */
+  private spinTimer: NodeJS.Timeout | null = null;
+  /** R11 (H167; step 2, H172's finding 2): the rest of a notice said in a later flash (sayEach) */
+  private laterTimer: NodeJS.Timeout | null = null;
   private last: Frame | null = null;
   private size = { columns: 80, rows: 24 };
   private readonly mine = new Set<string>();
@@ -408,7 +413,7 @@ export class Controller {
     if (o.walks !== false) this.data.workflows = readWorkflows(root, { jobs: own, chain, files: files.groups.flatMap((g) => g.files.map((f) => f.rel)), env: this.d.env, onPath: this.d.onPath });
     this.data.decisions = readDecisions(root, this.records, chain, this.data.caps.state === 'ready' ? { checkedAt: new Date(this.data.caps.at).toISOString(), rows: this.data.caps.value } : undefined, this.d.env);
     // R4 (H117): the project's chat turns, every surface's, from their sealed receipts in the same chain (the Control Room's)
-    this.data.turns = readTurns(chain, root);
+    this.data.turns = this.turnsOf(chain, root);
     this.data.activity = this.activity();
     // R4 lead: the one route (chatRouteNow), read as the chat session reads it (this process's folder), and the open session's
     // own route read again with it, so the top line, Chat and Settings follow a /setup made elsewhere
@@ -491,6 +496,20 @@ export class Controller {
       const why = `Workflows could not be read: ${e instanceof Error ? e.message : String(e)}`;
       if (why !== this.wfError) { this.wfError = why; this.say(why, 'failure'); }
     }
+  }
+
+  /** R11 (H167; step 2b): each turn's receipt verified once per chain as read (verifyReceiptIn: its link and body hash), for
+   *  the evidence line under the answer: ✓ only for a receipt this reading verified. */
+  private turnsVerified: { key: string; by: Map<string, { ok: true } | { ok: false; reason: string }> } = { key: '', by: new Map() };
+  private turnsOf(chain: readonly Receipt[], root: string): TurnRow[] {
+    const key = this.chainCache?.key ?? '';
+    if (this.turnsVerified.key !== key) this.turnsVerified = { key, by: new Map() };
+    const seen = this.turnsVerified.by;
+    return readTurns(chain, root, undefined, (hash) => {
+      let v = seen.get(hash);
+      if (!v) { const r = verifyReceiptIn(chain, hash); v = r.ok ? { ok: true } : { ok: false, reason: r.reason }; seen.set(hash, v); }
+      return v;
+    });
   }
 
   /** R5 (H131): the newest run's pipeline (the Chat tab's row), its receipt verified here once per chain as read. */
@@ -728,7 +747,7 @@ export class Controller {
     this.data.holds = r;
     if ((before?.turns ?? []).some((t) => !r.turns.some((x) => x.id === t.id))) {
       const root = this.data.project.root;
-      try { this.data.turns = readTurns(this.chain(), root); } catch { /* the next reading */ }
+      try { this.data.turns = this.turnsOf(this.chain(), root); } catch { /* the next reading */ }
       this.data.chat = readChatTail(root);
       this.readPipeline();
       // R10 (H167): the turn that ended is Home's newest recent work at once
@@ -774,8 +793,27 @@ export class Controller {
     this.holds.close();
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    if (this.spinTimer) { clearInterval(this.spinTimer); this.spinTimer = null; }
+    if (this.laterTimer) { clearTimeout(this.laterTimer); this.laterTimer = null; }
     if (this.frameRead.timer) { clearTimeout(this.frameRead.timer); this.frameRead.timer = null; }
     this.d.studio.close();
+  }
+
+  /**
+   * R11 (H167; step 2b): while a tool of this Workbench's own turn runs, the screen is drawn again every 80 ms so that its
+   * spinner turns (src/workbench/chat-evidence.ts spinnerFrame: silence looks like a hang); the timer ends with the tool, the
+   * turn or the Workbench. With the mouse given back to the terminal (m) the screen is drawn only when something new happened
+   * (R4 H112: a selection holds between events), so the spinner holds its frame there too.
+   */
+  private spinWhile(turn: NonNullable<Data['turn']>): void {
+    const spinning = (): boolean => !this.disposed && this.data.turn === turn && turn.state === 'sending' && turn.ended === undefined && toolRuns(turn.tools).some((r) => r.running);
+    const stop = (): void => { if (this.spinTimer) { clearInterval(this.spinTimer); this.spinTimer = null; } };
+    if (!spinning()) { stop(); return; }
+    if (this.spinTimer) return;
+    this.spinTimer = setInterval(() => {
+      if (!spinning()) { stop(); return; }
+      if (!this.ui.mouse) this.emit();
+    }, 80);
   }
 
   // ── the frame ─────────────────────────────────────────────────────────────────
@@ -1142,6 +1180,21 @@ export class Controller {
       this.emit();
       return;
     }
+    // R11 (H167; step 2b): Esc on an answer whose activity is open folds it
+    if (!this.ui.overlay && this.chatShell() && this.ui.focus === 'center' && this.ui.chosen?.['center:chat'] && this.ui.evidenceOpen) {
+      const it = this.selected();
+      if (it?.kind === 'message' && it.evidence && this.ui.evidenceOpen[it.evidence]) {
+        delete this.ui.evidenceOpen[it.evidence];
+        this.emit();
+        return;
+      }
+    }
+    // R11 (H167; step 2a): Esc on the welcome's choice clears it (no choice selected: Enter opens the composer again)
+    if (!this.ui.overlay && this.chatShell() && this.ui.focus === 'center' && this.ui.cursor['center:first'] !== undefined && isWelcome({ ui: this.ui, data: this.data })) {
+      this.leaveWelcome();
+      this.emit();
+      return;
+    }
     if (this.ui.overlay) this.ui.overlay = null;
     else if (this.ui.rightOpen) { this.ui.rightOpen = false; this.ui.focus = this.backFromRight(); }
     else if (this.ui.navOpen) { this.ui.navOpen = false; this.ui.focus = 'center'; }
@@ -1247,6 +1300,13 @@ export class Controller {
     // by the keys, as a box with no rows does above
     if (!n && region === 'right' && this.last?.regions.right) { this.wheel('right', this.last.regions.right, delta); return; }
     if (!n) return;
+    // R11 (H167; step 2a): the welcome's cursor starts on no choice: ↓ reaches the first, ↑ leaves it on none
+    if (list === 'center:first' && this.ui.cursor[list] === undefined && this.chatShell() && isWelcome({ ui: this.ui, data: this.data })) {
+      if (delta < 0) return;
+      if (items) select(this.ui, list, items, 0); else this.ui.cursor[list] = 0;
+      this.emit();
+      return;
+    }
     // R5 (H137): a view that lays its items out as a grid names where ↑ and ↓ move from each (View items' `near`)
     const near = Math.abs(delta) === 1 ? items?.[this.ui.cursor[list] ?? 0]?.near : undefined;
     const at = Math.max(0, Math.min(n - 1, (delta > 0 ? near?.down : near?.up) ?? (this.ui.cursor[list] ?? 0) + delta));
@@ -1385,8 +1445,21 @@ export class Controller {
       case 'review': this.ui.firstRunDone = false; delete this.ui.cursor['center:first']; this.ui.focus = 'center'; this.emit(); return;
       // (the composer, with the draft kept when it was left: a draft waits for a model)
       case 'draft': this.ui.input = { field: 'composer', text: this.ui.draft ?? '' }; delete this.ui.draft; this.emit(); return;
+      // R11 (H167; step 2a): the welcome's four starter actions, each what the Workbench does today: a question typed as a
+      // draft into the composer (nothing sent until Enter there), the VoxVision page, Workflows, Studio · Show (s)
+      case 'ask': this.leaveWelcome(); this.ui.input = { field: 'composer', text: ASK_DRAFT }; delete this.ui.draft; this.emit(); return;
+      case 'inspect': this.leaveWelcome(); this.openRail('voxvision'); return;
+      case 'run': this.leaveWelcome(); this.openRail('workflows'); return;
+      case 'canvas': this.leaveWelcome(); await this.showStudio(); return;
       default: return;
     }
+  }
+
+  /** R11 (H167; step 2a): the welcome's cursor cleared (its choice was taken, or Esc): no choice is selected on it. */
+  private leaveWelcome(): void {
+    delete this.ui.cursor['center:first'];
+    delete this.ui.sel['center:first'];
+    if (this.ui.chosen) delete this.ui.chosen['center:first'];
   }
 
   /** Enter on the rail: the project selector lists projects (Home is one key away there), New project, or the menu's item: the
@@ -1818,7 +1891,7 @@ export class Controller {
       // sends this message again (a repeat of its Enter, a retry after a timeout, another process) repeats a turn that went out
       const r = await ws.ops.run(h, () => session.sendOnce(`wb-${h.id}`, text, {
         onText: (full) => { turn.answer = full; if (!heard) { heard = true; this.ownTurnId(turn); this.refreshFrame(); } this.emit(); },
-        onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.emit(); },
+        onTool: (e) => { turn.tools.push({ name: e.name, phase: e.phase, ...(e.outcome ? { outcome: e.outcome } : {}) }); this.spinWhile(turn); this.emit(); },
         askPerson: (req) => this.askPerson(req),
         signal: abort.signal,
       }));
@@ -1847,11 +1920,12 @@ export class Controller {
       this.say(turn.lines[0], 'failure', { operation: h.id });
     } finally {
       turn.ended = this.now();
+      this.spinWhile(turn);
       if (this.turnAbort === abort) this.turnAbort = null;
       try { this.data.chatRoute = session.route(); } catch { /* as before */ }
       this.data.chat = readChatTail(this.data.project.root);
       // R4 (H117): the turn's receipt is sealed by now: the Control Room lists it at once, not at the next reading
-      this.data.turns = readTurns(this.chain(), this.data.project.root);
+      this.data.turns = this.turnsOf(this.chain(), this.data.project.root);
       // R5 (H131; the operator's 22:32 order, item 1): its identity, from its sealed receipt (turn_id) when its hold was not read
       const sealed = turn.receipt ? this.data.turns.find((x) => x.receipt === receiptShort(turn.receipt!)) : undefined;
       if (sealed?.turn) turn.id = sealed.turn;
@@ -2263,9 +2337,49 @@ export class Controller {
     // (R11 H167: the identity made on this choice is said with the next turn, the files by their folder: the setup's record
     // says it was made by timmy workbench)
     const home = wrote.identity ? wrote.written.find((w) => /identity\.json$/.test(w)) : undefined;
-    // (short enough for the status row beside the terminal's size at 122x37: the folder, said from ~, is "its folder" there)
-    this.say(`Next turn: ${model} on this computer.${wrote.identity ? ` Set up now (identity made in ${home ? tildePath(home).replace(/\/identity\.json$/, '') : 'the Timmy home'}).` : ''}`, 'text');
+    // (short enough for the status row beside the terminal's size at 122x37: the folder, said from ~, is "its folder" there;
+    // R11 H167, step 2, H172's finding 2: where both sentences do not fit the row, the second in a flash of its own, after
+    // the first: never a cut sentence)
+    this.sayEach([`Next turn: ${model} on this computer.`, ...(wrote.identity ? [`Set up now (identity made in ${home ? tildePath(home).replace(/\/identity\.json$/, '') : 'the Timmy home'}).`] : [])], 'text');
     this.emit();
+  }
+
+  /**
+   * R11 (H167; step 2, H172's finding 2): a notice of several sentences on the status row: as many as fit its room at this
+   * size in one flash (src/workbench/chat-shell.ts statusRoom, the words as the row says them: inWords), the rest in a flash
+   * of their own once the first's 6 s have passed, while it is still the one shown (a newer notice drops the rest: it is in
+   * Activity whole). Off the Chat screen the whole notice at once, as before.
+   */
+  sayEach(sentences: string[], role: Role = 'text'): void {
+    const all = sentences.filter((s) => s.trim());
+    if (!all.length) return;
+    // Activity has the notice whole, once; the status row's flash is what fits
+    this.say(all.join(' '), role);
+    if (!this.chatShell() || all.length === 1 || !this.ui.flash || this.ui.flash.text !== all.join(' ')) return;
+    const room = statusRoom(this.size.columns, this.size.rows);
+    const fits = (t: string): boolean => lineCells([{ text: inWords(t) }]) <= room;
+    const flashes: string[] = [];
+    for (let i = 0; i < all.length;) {
+      let n = 1;
+      while (i + n < all.length && fits(all.slice(i, i + n + 1).join(' '))) n++;
+      flashes.push(all.slice(i, i + n).join(' '));
+      i += n;
+    }
+    if (flashes.length === 1) return;
+    if (this.laterTimer) clearTimeout(this.laterTimer);
+    const show = (k: number): void => {
+      const mine = { text: flashes[k], role, at: this.now() };
+      this.ui.flash = mine;
+      this.emit();
+      if (k + 1 >= flashes.length) return;
+      this.laterTimer = setTimeout(() => {
+        this.laterTimer = null;
+        // (a newer notice since, its own object: it has the row; the rest is in Activity)
+        if (this.disposed || this.ui.flash !== mine) return;
+        show(k + 1);
+      }, 6000);
+    };
+    show(0);
   }
 
   /** timmy workspace check, in this process: free requests only; what it asked and what answered, then the frame again. */
@@ -2665,9 +2779,27 @@ export class Controller {
       if (region === 'bottom') { await this.shellControl(shellControls({ data: this.data }, this.size.columns < WIDE_COLUMNS)[this.ui.cursor.shellBottom ?? 0]?.id ?? 'tools'); return; }
       if (region === 'center' && this.listOf('center') === 'center:first') {
         const items = this.itemsNow('center') ?? [];
+        // (R11 H167, step 2a: the welcome's cursor on no choice: a plain Enter opens the composer, with the draft kept)
+        if (this.ui.cursor['center:first'] === undefined && isWelcome({ ui: this.ui, data: this.data })) {
+          this.ui.input = { field: 'composer', text: this.ui.draft ?? '' };
+          delete this.ui.draft;
+          this.emit();
+          return;
+        }
         const it = items[Math.max(0, Math.min(items.length - 1, this.ui.cursor['center:first'] ?? 0))]?.item;
         if (it?.kind === 'action') await this.firstChoice(it.action);
         return;
+      }
+      // R11 (H167; step 2b): Enter on an answer the person selected (↑ ↓ or a click) opens or folds its activity: the tools
+      // its turn ran and its receipt's facts, under its evidence line (src/workbench/chat-evidence.ts)
+      if (region === 'center' && this.ui.chosen?.['center:chat']) {
+        const it = this.selected();
+        if (it?.kind === 'message' && it.evidence) {
+          const open = (this.ui.evidenceOpen ??= {});
+          if (open[it.evidence]) delete open[it.evidence]; else open[it.evidence] = true;
+          this.emit();
+          return;
+        }
       }
     }
     if (region === 'nav') { this.ui.focus = 'center'; this.ui.navOpen = false; this.emit(); return; }

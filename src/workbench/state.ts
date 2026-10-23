@@ -485,7 +485,8 @@ export function readChatTail(root: string, max = 6): ChatTail {
 
 // ── the project's chat turns ───────────────────────────────────────────────────
 
-/** R4 (H117): how many chat turns the Control Room lists (the newest). */
+/** R4 (H117): how many chat turns the Control Room lists (the newest). (R11 H167, step 2b: the conversation shows its last
+ *  three exchanges, src/workbench/state.ts readChatTail's six messages, so each answer's receipt is among these too.) */
 export const TURNS_SHOWN = 8;
 
 /**
@@ -494,7 +495,7 @@ export const TURNS_SHOWN = 8;
  * twice is one turn), as the REPL's Control Room reads them (src/room/index.ts chatRuns). A turn being answered has no receipt
  * yet and is not here. Receipts hold hashes only, and so do these rows: never a word of a prompt or an answer.
  */
-export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_SHOWN): TurnRow[] {
+export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_SHOWN, verify?: (hash: string) => { ok: true } | { ok: false; reason: string }): TurnRow[] {
   const id = projectId(root);
   const seen = new Set<string>();
   const out: TurnRow[] = [];
@@ -508,6 +509,11 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
     const status = r.status ?? 'ok';
     const model = [r.model_resolved, r.model_requested].find((m): m is string => typeof m === 'string' && m.trim() !== '') ?? null;
     const endpoint = turnOllama(r)?.endpoint;
+    // R11 (H167; step 2b): the receipt's tools, cost and way out, for the evidence line under the answer; verified when asked
+    const rec = r as Receipt & { via?: unknown };
+    const tools = Array.isArray(r.tool_outcomes) ? r.tool_outcomes.filter((t) => !!t && typeof t.name === 'string').map((t) => ({ name: t.name, outcome: typeof t.outcome === 'string' ? t.outcome : '' })) : [];
+    const via: TurnRow['via'] | undefined = rec.via === 'ollama' || endpoint ? 'ollama' : model ? 'openrouter' : undefined;
+    const hash = typeof r.hash === 'string' ? r.hash : undefined;
     out.push({
       receipt: shortReceipt(r), surface: turn.surface, state: status === 'ok' ? 'answered' : status === 'cancelled' ? 'stopped' : 'failed',
       model, at: r.ts, ...(typeof r.ms === 'number' && Number.isFinite(r.ms) ? { ms: r.ms } : {}),
@@ -515,6 +521,11 @@ export function readTurns(chain: readonly Receipt[], root: string, max = TURNS_S
       ...(endpoint === 'local' ? { local: true } : endpoint ? { local: false } : {}),
       ...(typeof r.turn_id === 'string' && r.turn_id ? { turn: r.turn_id } : {}),
       ...(typeof r.stopped_by === 'string' && r.stopped_by ? { stoppedBy: r.stopped_by } : {}),
+      ...(hash ? { hash } : {}),
+      ...(hash && verify ? { verified: verify(hash) } : {}),
+      ...(via ? { via } : {}),
+      ...(tools.length ? { tools } : {}),
+      ...(typeof r.cost_usd === 'number' || r.cost_measured !== undefined ? { cost: { usd: typeof r.cost_usd === 'number' && r.cost_measured !== false ? r.cost_usd : null, measured: r.cost_measured === true } } : {}),
     });
   }
   return out;

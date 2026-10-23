@@ -607,6 +607,15 @@ function bottomRows(c: ShellCtx, grid: ChatGrid, focused: boolean): { lines: Lin
   return { lines: [[S(' '), S((g.unicode ? '─' : '-').repeat(Math.max(0, w - 1)), 'border')], acts, status], items };
 }
 
+/** R11 (H167; step 2, H172's finding 2): the most cells a notice has on the status row at this size (the size at its right end
+ *  always; the spend and cloud sync give way to a long notice): the controller says a longer notice in more than one flash. */
+export function statusRoom(W: number, H: number): number {
+  const grid = chatGrid(W, H);
+  const w = grid.W - grid.railW - 1;
+  const margin = grid.W >= WIDE_COLUMNS ? 8 : 3;
+  return Math.max(4, w - 1 - `${grid.W} x ${grid.H}`.length - margin - 2);
+}
+
 // ── the bottom's drawers: Logs, Budget and (below WIDE_COLUMNS) More ─────────────
 
 /** Where a turn came from, in words ("here": this Workbench). */
@@ -906,6 +915,100 @@ export function noModelLines(c: ShellCtx, w: number, focused: boolean): { lines:
     lines.push([S(on ? '> ' : '  ', 'accent', on ? { selected: true } : {}), S(`[ ${label} ]`, on ? 'accent' : 'strong', on ? { bold: true, selected: true } : {})]);
   });
   return { lines, items };
+}
+
+// ── the welcome: an empty conversation with a model on the route ───────────────
+
+/**
+ * R11 (H167; step 2a, the plan's section 2 "Empty conversation"): the welcome, in the conversation's rows while a model is on
+ * the route and nothing has been said in this project yet (after the first run's choice, or a relaunch on a set-up home): what
+ * TIMMY is, how to start, where the logs live, and four starter actions that work today, drawn as the first run's choices. The
+ * composer stays below: the cursor starts on no choice, so a plain Enter opens it; ↓ reaches the choices, Esc clears the choice.
+ * Not the first run's question (no model yet) and not Chat with no model's rows: those keep their own words.
+ */
+export function isWelcome(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
+  return !!routeLine(c.data).model && !c.data.chat.messages.length && !c.data.turn && !c.data.chat.error && !isFirstRun(c) && !noModelNow(c);
+}
+
+/** The welcome's three lines (the handoff's 10:20 PT words, which the companion mirrors): what, how to start, where the logs are. */
+export const WELCOME_WORDS: readonly [string, string, string] = [
+  'TIMMY runs tools and workflows on your machine and keeps a receipt for every step.',
+  'Write below and press Enter: the model on the chip answers.',
+  'Logs and receipts stay on this computer, in this project\'s .timmy folder: Logs & records lists them.',
+];
+
+/** The four starter actions, each one the Workbench does today (the controller's firstChoice: nothing is sent, run, signed
+ *  up or downloaded by any of them; a question is typed as a draft, a workflow runs only after its own Run asks). */
+export const START_CHOICES: ReadonlyArray<{ id: 'ask' | 'inspect' | 'run' | 'canvas'; label: string; about: string }> = [
+  { id: 'ask', label: 'Ask about this project', about: 'A question typed as a draft: what the project does and what ran here last.' },
+  { id: 'inspect', label: 'Inspect an image', about: 'VoxVision: what Timmy measured on this project\'s images; /inspect in the REPL inspects a new one.' },
+  { id: 'run', label: 'Run a workflow', about: 'Workflows: this project\'s WORKFLOW.md blocks; Enter runs one after it asks.' },
+  { id: 'canvas', label: 'Open the canvas', about: 'Studio in your browser (s): this project\'s runs and drafts as cards.' },
+];
+
+/** The draft Ask about this project types into the composer (nothing is sent until Enter there). */
+export const ASK_DRAFT = 'What does this project do, and what ran here last?';
+
+/**
+ * The welcome's rows for the conversation's `rows` (`w` cells): the three lines, a blank row, START WITH, the four choices
+ * (amber with "> " on the cursor's while the center has the keyboard; none while the cursor is on no choice), each with its
+ * line under it in grey, whole. Where they do not fit, the blank rows between the choices go first (the target's 122x37),
+ * then the choices' lines are one row each, cut after a word, then left out, then the blank row before the label, then the
+ * choices go two to a row (the target's 80x24: the three lines wrapped, START WITH and two rows of two choices, eight rows;
+ * each choice is its own cell for a click), and the label last.
+ */
+export function welcomeLines(c: ShellCtx, w: number, rows: number, focused: boolean): { lines: Line[]; items: View['items'] } {
+  const cur = c.ui.cursor['center:first'];
+  const at = cur === undefined ? -1 : Math.max(0, Math.min(START_CHOICES.length - 1, cur));
+  const build = (o: { gaps: boolean; abouts: 'wrap' | 'one' | 'none'; label: boolean; gap: boolean; pairs: boolean }): { lines: Line[]; items: View['items'] } => {
+    const lines: Line[] = [
+      ...wrapText(WELCOME_WORDS[0], w).map((t): Line => [S(t, 'strong', { bold: true })]),
+      ...wrapText(WELCOME_WORDS[1], w).map((t): Line => [S(t, 'text')]),
+      ...wrapText(WELCOME_WORDS[2], w).map((t): Line => [S(t, 'secondary')]),
+    ];
+    if (o.label) lines.push(...(o.gap ? [blank] : []), [S('START WITH', 'secondary')]);
+    const items: View['items'] = [];
+    const cell = (k: number): Seg[] => {
+      const on = focused && at === k;
+      const sel = on ? { selected: true } : {};
+      return [S(on ? '> ' : '  ', 'accent', sel), S(`[ ${START_CHOICES[k].label} ]`, on ? 'accent' : 'strong', on ? { bold: true, ...sel } : {})];
+    };
+    if (o.pairs) {
+      // (the center's content starts one cell after its region's edge: an item's cells are counted from that edge)
+      for (let k = 0; k < START_CHOICES.length; k += 2) {
+        const a = cell(k);
+        const b = cell(k + 1);
+        const aw = lineCells(a);
+        items.push({ line: lines.length, item: { kind: 'action', key: `first:${START_CHOICES[k].id}`, action: START_CHOICES[k].id }, rows: 1, x: { from: 1, to: aw } });
+        items.push({ line: lines.length, item: { kind: 'action', key: `first:${START_CHOICES[k + 1].id}`, action: START_CHOICES[k + 1].id }, rows: 1, x: { from: aw + 2, to: aw + 1 + lineCells(b) } });
+        lines.push(trimTo([...a, S(' '), ...b], w, '…'));
+      }
+      return { lines, items };
+    }
+    START_CHOICES.forEach((x, k) => {
+      if (k && o.gaps) lines.push(blank);
+      const sel = focused && at === k ? { selected: true } : {};
+      const from = lines.length;
+      lines.push(cell(k));
+      // (its line whole, wrapped, where the rows allow; else one row cut after a word; else none)
+      const about = o.abouts === 'wrap' ? wrapText(x.about, Math.max(8, w - 2)) : o.abouts === 'one' ? [cut(x.about, Math.max(8, w - 2), '…')] : [];
+      for (const t of about) lines.push([S('  ', 'text', sel), S(t, 'secondary', sel)]);
+      items.push({ line: from, item: { kind: 'action', key: `first:${x.id}`, action: x.id }, rows: lines.length - from });
+    });
+    return { lines, items };
+  };
+  const tries: Array<Parameters<typeof build>[0]> = [
+    { gaps: true, abouts: 'wrap', label: true, gap: true, pairs: false },
+    { gaps: false, abouts: 'wrap', label: true, gap: true, pairs: false },
+    { gaps: false, abouts: 'one', label: true, gap: true, pairs: false },
+    { gaps: false, abouts: 'none', label: true, gap: true, pairs: false },
+    { gaps: false, abouts: 'none', label: true, gap: false, pairs: false },
+    { gaps: false, abouts: 'none', label: true, gap: false, pairs: true },
+    { gaps: false, abouts: 'none', label: false, gap: false, pairs: true },
+  ];
+  for (const t of tries) { const b = build(t); if (b.lines.length <= rows) return b; }
+  const b = build(tries[tries.length - 1]);
+  return { lines: b.lines.slice(0, rows), items: b.items.filter((x) => x.line < rows) };
 }
 
 /** The first run's rows and width at this size: the conversation's and the composer's rows together (the question takes the

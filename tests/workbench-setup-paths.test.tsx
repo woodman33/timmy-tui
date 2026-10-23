@@ -30,7 +30,7 @@ import { glyphsFor, screenText } from '../src/workbench/frame.js';
 import { routeOf } from '../src/workbench/hub.js';
 import type { Producers } from '../src/workbench/producers.js';
 import { CompanionControl, StudioControl, type Opener } from '../src/workbench/servers.js';
-import { catalogWords, checkRows, initFlags, realSetupDeps, type FreeCatalog, type OllamaList, type SetupDeps } from '../src/workbench/setup-paths.js';
+import { catalogWords, checkRows, initFlags, ollamaAddress, realSetupDeps, type FreeCatalog, type OllamaList, type SetupDeps } from '../src/workbench/setup-paths.js';
 import { pageActions } from '../src/workbench/views.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -336,6 +336,37 @@ describe('the chat\'s fixes, done from the Workbench (R5 H131, the finish line i
     const again = await realSetupDeps(process.env).setLocal('fake-qwen:4b');
     expect(again.identity).toBeUndefined();
     expect(again.written).not.toContain(join(home, 'identity.json'));
+  }, 30_000);
+
+  it('R11 step 2 (H172\'s finding 1): one reader of where Ollama is: the setup\'s record, else OLLAMA_HOST (or OLLAMA_BASE_URL), else the default; a choice on a home with no record writes the address it was listed at', async () => {
+    const { home } = sandbox();
+    // no record, nothing in the environment: the default
+    vi.stubEnv('OLLAMA_HOST', '');
+    vi.stubEnv('OLLAMA_BASE_URL', '');
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:11434');
+    // no record, OLLAMA_HOST set: that (a trailing slash dropped); OLLAMA_BASE_URL after it
+    vi.stubEnv('OLLAMA_BASE_URL', 'http://127.0.0.1:4461');
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:4461');
+    vi.stubEnv('OLLAMA_HOST', 'http://127.0.0.1:4460/');
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:4460');
+    // the setup's record first: setup.json's answer, then providers.json's ollama_host over it
+    writeFileSync(join(home, 'setup.json'), JSON.stringify({ version: 1, by: 'FAKE', at: new Date().toISOString(), answers: { chat: 'local', ollama: 'http://127.0.0.1:4462' } }));
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:4462');
+    writeFileSync(join(home, 'providers.json'), JSON.stringify({ ollama_host: 'http://127.0.0.1:4463' }));
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:4463');
+    // a fresh home (no record) with OLLAMA_HOST: the choice records that address, so the turn asks the Ollama the model was
+    // listed and checked at (before: the default was recorded while the list had come from OLLAMA_HOST)
+    const fresh = sandbox();
+    vi.stubEnv('OLLAMA_HOST', 'http://127.0.0.1:4460');
+    const r = await realSetupDeps(process.env).setLocal('fake-llama:8b');
+    expect(r.identity).toBe(true);
+    expect(JSON.parse(readFileSync(join(fresh.home, 'providers.json'), 'utf8'))).toMatchObject({ ollama_host: 'http://127.0.0.1:4460' });
+    expect(JSON.parse(readFileSync(join(fresh.home, 'setup.json'), 'utf8'))).toMatchObject({ by: 'timmy workbench', answers: { chat: 'local', model: 'fake-llama:8b', ollama: 'http://127.0.0.1:4460' } });
+    // and a home with a record keeps it (OLLAMA_HOST set to another address changes nothing recorded)
+    vi.stubEnv('OLLAMA_HOST', 'http://127.0.0.1:4461');
+    await realSetupDeps(process.env).setLocal('fake-qwen:4b');
+    expect(JSON.parse(readFileSync(join(fresh.home, 'providers.json'), 'utf8'))).toMatchObject({ ollama_host: 'http://127.0.0.1:4460' });
+    expect(await ollamaAddress(process.env)).toBe('http://127.0.0.1:4460');
   }, 30_000);
 
   it('Ollama does not answer: the box says so in its words and offers the check; Enter runs it here (FAKE probes) and the frame is read again', async () => {

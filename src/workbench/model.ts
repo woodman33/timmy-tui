@@ -103,6 +103,18 @@ export interface TurnRow {
   turn?: string;
   /** R5 lead: a stopped turn another surface asked to stop: that surface (its receipt's stopped_by) */
   stoppedBy?: string;
+  /** R11 (H167; step 2b): the receipt's whole hash (its link in the chain) */
+  hash?: string;
+  /** R11 (H167; step 2b): the receipt verified in this reading (src/utils/receipts.ts verifyReceiptIn: its chain link and body
+   *  hash); false with why; absent: not checked */
+  verified?: { ok: true } | { ok: false; reason: string };
+  /** R11 (H167; step 2b): how the turn went out, as the receipt says: through Ollama (its endpoint: `local`), or to OpenRouter
+   *  (a model asked for, no Ollama route); absent: the receipt says neither */
+  via?: 'ollama' | 'openrouter';
+  /** R11 (H167; step 2b): the tools the turn ran, as the receipt's tool_outcomes say them (names and outcomes only) */
+  tools?: Array<{ name: string; outcome: string }>;
+  /** R11 (H167; step 2b): the turn's cost as sealed: a measured amount, or declared unknown (cost_measured false) */
+  cost?: { usd: number | null; measured: boolean };
 }
 
 export interface Data {
@@ -210,7 +222,8 @@ export type Item =
   | { kind: 'starter'; key: string; name: string; about: string }
   | { kind: 'board'; key: string; board: BoardTemplate }
   | { kind: 'server'; key: string; which: 'companion' | 'studio' }
-  | { kind: 'message'; key: string; role: string; text: string }
+  // (R11 H167, step 2b: `evidence`: an answer with an evidence line under it, the key of its activity's open state, Ui.evidenceOpen)
+  | { kind: 'message'; key: string; role: string; text: string; evidence?: string }
   | { kind: 'event'; key: string; event: ActivityEvent }
   | { kind: 'project'; key: string; choice: ProjectChoice }
   | { kind: 'action'; key: string; action: string }
@@ -360,6 +373,9 @@ export interface Ui {
   /** R11 (H167; step 1c): the model chip at the composer's right has the keyboard (Tab from the composer): Enter opens Models,
    *  Esc goes back to the composer, Tab on to the next zone */
   chip?: boolean;
+  /** R11 (H167; step 2b): the answers whose evidence line is expanded (Enter on the selected answer; by its message key), to
+   *  the tools the turn ran and its receipt's facts */
+  evidenceOpen?: Record<string, boolean>;
   /** R11 (H167; step 1a, the operator's first-use failure): the readiness check of the local model last chosen (H170's
    *  checkLocalModel: one POST /api/show of that exact name, no model run): `checking` while Ollama is asked, then its
    *  answer, kept until the next choice. The model chip and the chosen row say it in words (B10: never colour alone);

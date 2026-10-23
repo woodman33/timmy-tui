@@ -268,6 +268,13 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(center[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
     expect(center[31]).toMatch(/^[●○] FAKE fake-qwen3:8b · this computer · (ready \d\d:\d\d|not checked|checking…)$/);
     expect(screen).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat|\[1 Home\]|\/ Home · recent work/);
+    // (R11 H167, step 2a: the welcome in the conversation's place: the three lines, START WITH and the four starter actions,
+    // none selected; the composer below them)
+    expect(center.slice(7, 9)).toEqual(['TIMMY runs tools and workflows on your machine and keeps a receipt', 'for every step.']);
+    expect(center[9]).toBe('Write below and press Enter: the model on the chip answers.');
+    expect(center.slice(10, 12)).toEqual(['Logs and receipts stay on this computer, in this project\'s .timmy', 'folder: Logs & records lists them.']);
+    expect(center[13]).toBe('START WITH');
+    expect([center[14], center[17], center[20], center[23]]).toEqual(['  [ Ask about this project ]', '  [ Inspect an image ]', '  [ Run a workflow ]', '  [ Open the canvas ]']);
     // Models: the route's model is SELECTED, the next turn's (once the list is read)
     const listed = await waitScreen(pane, { what: 'Models listing the route\'s model as SELECTED', re: /SELECTED[\s\S]*The next turn uses it\./, ms: 30_000 });
     const rail = listed.split('\n').map((r) => cols(r, 92, 121));
@@ -299,6 +306,24 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     const answered = await waitScreen(pane, { what: 'the FAKE answer in the conversation, the turn answered', re: /FIXTURE: what does the tray workflow do\?[\s\S]*TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d[\s\S]*FAKE answer from the test's stand-in/, test: (s) => !/BEING ANSWERED NOW/.test(s), ms: 60_000 });
     expect(answered).toMatch(/TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d/);
     expect(asked.filter((a) => a === 'POST /api/chat')).toHaveLength(1);
+    // (R11 H167, step 2b: the evidence line under the answer, from the receipt the real session sealed: the model, this
+    // computer, its seconds, its receipt, ✓ as verifyReceiptIn confirmed it in this reading; the old status row is gone)
+    const EVIDENCE = /  FAKE fake-qwen3:8b · this computer · \d+\.\d s · receipt [0-9a-f]{8} ✓/;
+    const sealed = await waitScreen(pane, { what: 'the evidence line under the answer', re: EVIDENCE, ms: 20_000 });
+    expect(sealed.split('\n').map((r) => cols(r, 20, 89)).join('\n')).not.toMatch(/answered · sent to a model|receipt sealed/);
+    const evidenceRow = sealed.split('\n').findIndex((r) => EVIDENCE.test(r));
+    expect(evidenceRow).toBeGreaterThan(7);
+    // Esc leaves the composer; ↓ selects the newest message (the answer); Enter opens its activity: no tool ran (the FAKE's
+    // scripted answer calls none), the receipt's facts; Esc folds it
+    await sendKeys(pane, ['Escape', 'Down', 'Enter']);
+    const open = await waitScreen(pane, { what: 'the answer\'s activity open', re: /  no tool ran[^\n]*\n[^\n]*  sealed \d\d:\d\d:\d\d · operation \S+ · answered · no charge[^\n]*\n[^\n]*  verified ✓/, ms: 20_000 });
+    keepScreen(pane, CAPTURES, 'chat-landing-122x37-03c-evidence-open-FAKE', { foot: 'drawn' });
+    const rows = open.split('\n').map((r) => cols(r, 20, 89));
+    expect(rows[evidenceRow + 1]).toBe('  no tool ran');
+    expect(rows[evidenceRow + 2]).toMatch(/^  sealed \d\d:\d\d:\d\d · operation \S+ · answered · no charge$/);
+    expect(rows[evidenceRow + 3]).toBe('  verified ✓');
+    await sendKeys(pane, ['Escape']);
+    await waitScreen(pane, { what: 'the activity folded', re: EVIDENCE, test: (s) => !/no tool ran/.test(s), ms: 20_000 });
     // quit (Ctrl+C): nothing of its own runs once the turn is answered, so it ends at once
     await sendKeys(pane, ['C-c']);
     await waitScreen(pane, { what: 'the Workbench ended', re: /EXIT=0/, ms: 20_000 });
@@ -312,6 +337,9 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(q, again.screen).toBeGreaterThan(4);
     expect(center[q - 1]).toMatch(/^YOU \/ \d\d:\d\d$/);
     expect(center.slice(q + 1)).toContain(FAKE_ANSWER);
+    // (R11 step 2b: the evidence line under the answer after the relaunch too: the receipt read and verified at the start)
+    expect(center[center.indexOf(FAKE_ANSWER) + 1]).toMatch(/^  FAKE fake-qwen3:8b · this computer · \d+\.\d s · receipt [0-9a-f]{8} ✓$/);
+    expect(again.screen).not.toMatch(/START WITH/);
     // the relaunch sent nothing: still the one turn
     expect(asked.filter((a) => a === 'POST /api/chat')).toHaveLength(1);
     stop('again');
