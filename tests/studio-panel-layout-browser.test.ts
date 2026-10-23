@@ -13,17 +13,18 @@
  * otherwise). Skipped, saying so, where no Chromium is found.
  *
  * R10 (H172; CI at ea03f40e failed the 800 x 600 case's "some Place buttons wholly in the open part"; locally, under load, the
- * 1440 x 900 case's last row once ended 13 px under the region): the panel moves under the test's own presses, and the test read
+ * 1440 x 900 case's last row once ended 13 px under the region): the panel moved under the test's own presses, and the test read
  * it once. Each change to the board (a card placed, the card growing as its detail is read, a canvas call) is saved, and the save
- * line says its states in one line or two (at 320 px: saved one, waiting to be saved two), so a save that began after the list
+ * line said its states in one line or two (at 320 px: saved one, waiting to be saved two), so a save that began after the list
  * was scrolled to its end moved the region's top down a line and left the list a line short of its end (the last row 12.9 px under
  * the region, read against a box taken before). And the middle Place button was centred in the region, which at 800 x 600 is
  * 63.6 px with its list's heading (18.8 px) stuck at its top: the button sat 0.4 px below that heading, and with one line less
  * room (a longer message, another font's wrapping; shown at 800 x 581) under it, so no Place button was wholly in the open part.
- * Now each check reads the panel in one frame of a settled page (settle below): the board saved, no job waiting to be recorded,
- * the strip drawn and the canvas below it, tldraw's foot measured, the panel's boxes unchanged for five frames in a row; the
- * scroll the check is about (the list's end, the middle Place button in the middle of the open part, below the heading) is made
- * again whenever the panel moved under it, and every box and hit-test the check asserts is taken in that same frame.
+ * Now the save line keeps two lines' room (index.html #save; the last cases below), and each check reads the panel in one frame
+ * of a settled page (settle below): the board saved, no job waiting to be recorded, the strip drawn and the canvas below it,
+ * tldraw's foot measured, the panel's boxes unchanged for five frames in a row; the scroll the check is about (the list's end, the
+ * middle Place button in the middle of the open part, below the heading) is made again whenever the panel moved under it, and
+ * every box and hit-test the check asserts is taken in that same frame.
  */
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -267,6 +268,60 @@ describe.skipIf(!browserPath)("Timmy Canvas's left panel: its lists scroll above
         const op = await page.evaluate(() => { const e = document.querySelector('.pcard-op'); return e ? getComputedStyle(e).color : null; });
         const bg = await page.$eval('#side', (e) => getComputedStyle(e).backgroundColor);
         for (const x of [...pairs, { s: '.pcard-op', fg: op!, bg }]) expect(contrast(x.fg, x.bg), `${x.s} ${x.fg} on ${x.bg}`).toBeGreaterThanOrEqual(4.5);
+        expect(errors).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }, 120_000);
+  }
+
+  // R10 (H172): the list region stays where it is while the board saves. The save line above it said its states in words of
+  // different lengths, one line or two (at 320 px: saved one, waiting to be saved two; at 280 px: saved two, saving one), so
+  // every save moved the region and everything in it a line down and back up, under a person's pointer: a press begun on a
+  // button there was let go of 18.8 px beside it, and lost. The save line now keeps two lines' room, whatever its state says.
+  for (const size of [{ width: 1440, height: 900 }, { width: 800, height: 600 }]) {
+    it(`at ${size.width} x ${size.height}: a change saved (a person's edit, then a canvas call) moves nothing in the list region: its top is the same in every frame until the board is saved again`, async () => {
+      const context = await browser.newContext({ viewport: size });
+      try {
+        const page = await context.newPage();
+        const errors: string[] = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(`${base}/#code=${await grant(Number(new URL(base).port), server.projectToken)}`);
+        await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
+        await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
+        if ((await page.getAttribute('#side', 'data-folded')) === 'true') await page.click('#side-fold');
+        await page.evaluate(() => { for (const id of ['jobs', 'project']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
+        const before = await settle(page, { kind: 'panel' });
+        type Frame = [top: number, state: string, lines: number];
+        // from here, in every frame and at every change of what the save line says (a state can last less than a frame): the
+        // region's top, the save line's state and how many lines it takes
+        await page.evaluate(() => {
+          const w = window as unknown as { __frames: Array<[number, string, number]> };
+          w.__frames = [];
+          const save = document.getElementById('save')!;
+          const read = (): void => { w.__frames.push([document.getElementById('side-scroll')!.getBoundingClientRect().top, save.dataset.state ?? '', Math.round(save.getBoundingClientRect().height / parseFloat(getComputedStyle(save).lineHeight))]); };
+          new MutationObserver(read).observe(save, { attributes: true, attributeFilter: ['data-state'], childList: true, subtree: true, characterData: true });
+          const tick = (): void => { read(); if (w.__frames.length < 4000) requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        });
+        const savedAgain = (n: number) => page.waitForFunction((k) => {
+          const f = (window as unknown as { __frames: Array<[number, string, number]> }).__frames;
+          const first = f.findIndex((x, i) => i >= k && x[1] !== 'saved');
+          return first >= 0 && f.slice(first).some((x) => x[1] === 'saved') ? f.length : null;
+        }, n, { polling: 'raf', timeout: 20_000 }).then((h) => h.jsonValue() as Promise<number>);
+        // a person's edit (drawn through the page's own editor): saved 400 ms after it, with "Not saved yet" until then
+        await page.evaluate(() => { (window as unknown as { timmyCanvas: { editor: { createShape: (s: unknown) => void } } }).timmyCanvas.editor.createShape({ type: 'geo', x: 8000, y: 8000 }); });
+        const afterEdit = await savedAgain(0);
+        // a canvas call's change, as the agent's canvas calls make one (the REPL's token): saved as the call is answered
+        const r = await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` }, body: JSON.stringify({ code: 'editor.createShape({ type: \'geo\', x: 8100, y: 8000 })', jobId: `steady-${size.width}` }) });
+        expect(r.status).toBe(200);
+        await savedAgain(afterEdit);
+        const frames = await page.evaluate(() => (window as unknown as { __frames: Array<[number, string, number]> }).__frames) as Frame[];
+        // the save line said what it did (not vacuous): it left "saved" and came back to it
+        expect([...new Set(frames.map((f) => f[1]))], 'the save line\'s states over the two saves').toContain('saved');
+        expect(frames.some((f) => f[1] !== 'saved'), 'the save line said a change waits or is being saved').toBe(true);
+        const moved = frames.filter((f) => Math.abs(f[0] - before.region.top) > 0.5);
+        expect(moved.map((f) => `${f[0].toFixed(2)} px while the save line said ${f[1]} on ${f[2]} lines`).slice(0, 4), `the list region's top moved from ${before.region.top.toFixed(2)} px in ${moved.length} of ${frames.length} frames`).toEqual([]);
         expect(errors).toEqual([]);
       } finally {
         await context.close();
