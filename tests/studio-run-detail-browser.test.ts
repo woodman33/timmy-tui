@@ -22,6 +22,7 @@ import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
 import { addOperation, type Operation } from './helpers/canvas-operation.js';
 import { grant } from './helpers/canvas-auth.js';
+import { groupBy } from './helpers/studio-steady.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -122,7 +123,8 @@ describe.skipIf(!browserPath)("Timmy Canvas: an operation's run detail in the si
     await page.goto(`${at}/#code=${await grant(Number(new URL(at).port), s.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
-    await page.click('#project-by button[data-by="operation"]');
+    // R10 (H172): the first press after the page's first cards, once the panel stands still (./helpers/studio-steady.ts)
+    await groupBy(page, 'operation');
     await page.waitForSelector(`#project-groups section.pop[data-op="${o.op}"] .pop-rd`, { timeout: 15_000 });
     return { page, origins, errors };
   }
