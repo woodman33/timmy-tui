@@ -33,6 +33,7 @@ import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { sealTurn } from '../src/repl/seal.js';
 import { tildePath } from '../src/utils/home-scrub.js';
+import { openWorkspaceTab } from './helpers/companion-page-kit.js';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -231,7 +232,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // R5 (H132): each panel sits in one of the ten workspace tabs (data-ws): that tab is opened first, then the panel's own
     // switch where it shares its place (the Chat tab's two views)
     const ws = await page.getAttribute(`#tab-${name}`, 'data-ws');
-    if (ws) await page.click(`#ws-tabs [data-ws-tab="${ws}"]`);
+    // R10 CHAT (H171): by the control drawn for it (the tab row, or on Chat the shell's left menu); Chat is shown already when
+    // the page opens on it
+    if (ws && (await page.getAttribute('body', 'data-dest')) !== ws) await openWorkspaceTab(page, ws);
     if (await page.locator(`.view-switch [data-tab="${name}"]`).count()) await page.click(`.view-switch [data-tab="${name}"]`);
     else if (await page.locator(`[data-tab="${name}"]`).count()) await page.click(`[data-tab="${name}"]`);
     await page.waitForFunction((n) => { const p = document.getElementById(`tab-${n}`); return Boolean(p?.classList.contains('active') && getComputedStyle(p).opacity === '1' && p.getAnimations().length === 0); }, name, { timeout: 10_000 });
@@ -589,6 +592,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const moving = await open();
     try {
       await connected(moving.page);
+      // R10 CHAT (H171): the page opens on Chat; from Home (key 1), opening Chat fades its page in, as before
+      await moving.page.keyboard.press('1');
+      await moving.page.waitForFunction(() => document.body.dataset.dest === 'home' && document.getAnimations().every((a) => a.playState !== 'running'), null, { timeout: 10_000 });
       await record(moving.page);
       // R5 (H132): a workspace tab (here 2, Chat & Intent) fades its page in; the chat's two views keep GSAP's fade
       await tab(moving.page, 'chat');
@@ -602,6 +608,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     const still = await open({ reducedMotion: 'reduce' });
     try {
       await connected(still.page);
+      // R10 CHAT (H171): from Home (key 1), where the tab row is drawn
+      await still.page.keyboard.press('1');
+      await still.page.waitForFunction(() => document.body.dataset.dest === 'home', null, { timeout: 10_000 });
       await record(still.page);
       await still.page.click('[data-tab="logs"]');
       await still.page.waitForFunction(() => document.getElementById('tab-logs')?.classList.contains('active') && !document.getElementById('ws-logs')?.hidden, null, { timeout: 5_000 });

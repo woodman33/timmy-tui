@@ -93,8 +93,9 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     try {
       await page.goto(companion.url);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
-      // R5 (H132): the mirror is the Chat tab's (2)
-      await page.click('#ws-tabs [data-ws-tab="chat"]');
+      // R5 (H132): the mirror is the Chat tab's (2). R10 CHAT (H171): Chat is the menu's first destination, and the mirror
+      // one of its older views, below the conversation
+      await page.click('#rail-menu .rail-item[data-dest="chat"]');
       await page.waitForSelector('#console-logs [data-mirror="empty"]', { timeout: 15_000 });
       const words = (await page.textContent('#console-logs [data-mirror="empty"]'))!.replace(/\s+/g, ' ');
       expect(words).toContain('In the Workbench (timmy workbench), each turn of its Chat appears here the same way, when it ends, labelled Workbench; a monitor\'s turn is labelled Monitor.');
@@ -199,8 +200,10 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
     try {
       await page.goto(own.url);
       await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'COMPANION SOCKET · CONNECTED', null, { timeout: 30_000 });
-      await page.click('#ws-tabs [data-ws-tab="chat"]');
-      await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
+      // R10 CHAT (H171): on Chat the strip is drawn behind the composition, whose own controls offer the same Stop
+      await page.click('#rail-menu .rail-item[data-dest="chat"]');
+      await page.waitForSelector(`#ws-actions [data-stop-turn="${t.hold.id}"]`, { state: 'attached', timeout: 15_000 });
+      await page.waitForSelector(`#cx-controls [data-stop-turn="${t.hold.id}"]`, { timeout: 15_000 });
       await page.waitForFunction(() => /^1 running/.test(document.getElementById('ws-activity-counts')?.textContent ?? ''), null, { timeout: 15_000 });
       // just after one of the page's 3 s reads has been answered, the turn ends: its receipt sealed with its identity
       const polled = reads.length;
@@ -209,7 +212,7 @@ describe.skipIf(!browserPath)('the companion\'s Chat Mirror: every surface\'s tu
       expect(reads.length).toBeGreaterThan(polled);
       const sealed = sealTurn({ prompt: 'SYNTHETIC stopped', answer: '', steps: 0, spend: 0, ms: 5, status: 'cancelled', surface: 'workbench', turnId: t.hold.id, stoppedBy: 'companion', model: 'qwen3:8b', project: 'demo', projectId: projectId(root) }, projectStore(root));
       // the whole page says it ended: no Stop on the strip, nothing running, its row in the mirror, before the next 3 s read
-      await page.waitForFunction((rc) => !document.querySelector('#ws-actions [data-stop-turn]')
+      await page.waitForFunction((rc) => !document.querySelector('#ws-actions [data-stop-turn]') && !document.querySelector('#cx-controls [data-stop-turn]')
         && /^0 running/.test(document.getElementById('ws-activity-counts')?.textContent ?? '')
         && [...document.querySelectorAll('#console-logs [data-mirror="surface-turn"]')].some((e) => (e.textContent ?? '').includes(rc) && /·\s*stopped/.test(e.textContent ?? '')), sealed.id, { timeout: 10_000 }).catch(async (e) => {
         const frame = await page.evaluate(`(async () => { const r = await companion.fetch('/api/workspace'); const f = await r.json(); return { chatTurn: f.activity && f.activity.chatTurn, running: f.activity && f.activity.running, turns: ((f.chat && f.chat.turns) || []).slice(0, 3) }; })()`).catch((x) => String(x));
