@@ -357,6 +357,9 @@ export interface Ui {
   draft?: string;
   /** R10 CHAT (H167): the zone that had the keyboard when M gave it to the Models rail (Esc gives it back) */
   modelsFrom?: Region;
+  /** R11 (H167; step 1c): the model chip at the composer's right has the keyboard (Tab from the composer): Enter opens Models,
+   *  Esc goes back to the composer, Tab on to the next zone */
+  chip?: boolean;
   /** R11 (H167; step 1a, the operator's first-use failure): the readiness check of the local model last chosen (H170's
    *  checkLocalModel: one POST /api/show of that exact name, no model run): `checking` while Ollama is asked, then its
    *  answer, kept until the next choice. The model chip and the chosen row say it in words (B10: never colour alone);

@@ -1042,6 +1042,14 @@ export class Controller {
     }
     // R4 (H112): what the key acts on is the item the person sees selected, wherever the records have moved it since
     this.reselect();
+    // R11 (H167; step 1c): the model chip has the keyboard (Tab from the composer): Enter opens Models, Esc goes back to the
+    // composer with the draft, Tab on to the next zone, Shift+Tab back to the composer; any other key leaves it and acts
+    if (this.ui.chip && !o && this.chatShell() && this.ui.focus === 'center') {
+      delete this.ui.chip;
+      if (k.return) { this.focusModels(); return 'the model chip: Enter opens Models'; }
+      if (k.escape || (k.tab && k.shift)) { this.ui.input = { field: 'composer', text: this.ui.draft ?? '' }; delete this.ui.draft; this.emit(); return 'the model chip: back to the composer'; }
+      if (k.tab) { this.cycleFocus(1); return 'the model chip: Tab moves on'; }
+    } else if (this.ui.chip) delete this.ui.chip;
     if (o && this.overlayKey(o, input, k)) return `the box ${o.kind}`;
     if (k.escape) { this.escape(); return 'Esc'; }
     if (k.tab) { this.cycleFocus(k.shift ? -1 : 1); return 'Tab'; }
@@ -1303,6 +1311,7 @@ export class Controller {
 
   /** M: Models has the keyboard (its drawer opened where it does not fit); Esc gives it back to the zone that had it. */
   private focusModels(): void {
+    delete this.ui.chip;
     if (this.ui.focus !== 'right') this.ui.modelsFrom = this.ui.focus;
     this.ui.rightOpen = false;
     this.ui.modelsOpen = true;
@@ -1635,11 +1644,22 @@ export class Controller {
       return;
     }
     if (k.backspace || k.delete) { this.ui.input.text = [...this.ui.input.text].slice(0, -1).join(''); if (f === 'tools') this.toolsTop(); if (f === 'msearch') this.modelsSearchNow(); this.emit(); return; }
-    // R10 CHAT (H167): Tab from the composer, in the shell, moves to the next pane with the words typed kept as the draft
+    // R10 CHAT (H167): Tab from the composer, in the shell, moves to the next pane with the words typed kept as the draft.
+    // R11 (step 1c): Tab goes to the model chip first (Enter on it opens Models; Esc comes back); Shift+Tab to the pane before
     if (k.tab && f === 'composer' && this.chatShell()) {
       if (this.ui.input.text.trim()) this.ui.draft = this.ui.input.text;
       this.ui.input = { field: null, text: '' };
-      this.cycleFocus(k.shift ? -1 : 1);
+      if (k.shift) { this.cycleFocus(-1); return; }
+      this.ui.chip = true;
+      this.ui.focus = 'center';
+      this.emit();
+      return;
+    }
+    // R11 (H167; step 1b; the playbook §17.2): Ctrl+J (Ink hands the linefeed on as text) puts a newline into the message;
+    // Enter sends, as before
+    if (f === 'composer' && input === '\n' && !k.ctrl && !k.meta) {
+      if ([...this.ui.input.text].length < COMPOSER_MAX) this.ui.input.text += '\n';
+      this.emit();
       return;
     }
     if (k.ctrl || k.meta || k.tab) return;
@@ -2243,7 +2263,8 @@ export class Controller {
     // (R11 H167: the identity made on this choice is said with the next turn, the files by their folder: the setup's record
     // says it was made by timmy workbench)
     const home = wrote.identity ? wrote.written.find((w) => /identity\.json$/.test(w)) : undefined;
-    this.say(`Next turn: ${model} on this computer.${wrote.identity ? ` Set up now: identity and setup written in ${home ? tildePath(home).replace(/\/identity\.json$/, '') : 'the Timmy home'}.` : ''}`, 'text');
+    // (short enough for the status row beside the terminal's size at 122x37: the folder, said from ~, is "its folder" there)
+    this.say(`Next turn: ${model} on this computer.${wrote.identity ? ` Set up now (identity made in ${home ? tildePath(home).replace(/\/identity\.json$/, '') : 'the Timmy home'}).` : ''}`, 'text');
     this.emit();
   }
 
@@ -2837,6 +2858,12 @@ export class Controller {
     // the [key] hint it lands on, wherever it is drawn
     const hint = keyAt(f.screen.map((l) => l.map((s) => s.text).join('')), m.x, m.y);
     const o = this.ui.overlay;
+    // R11 (H167; step 1c): a click on the model chip opens Models (the composer's words kept as the draft)
+    if (f.chip && !o && this.chatShell() && y === f.chip.y && x >= f.chip.x0 && x <= f.chip.x1 && this.ui.input.field !== 'secret') {
+      if (this.ui.input.field === 'composer') { if (this.ui.input.text.trim()) this.ui.draft = this.ui.input.text; this.ui.input = { field: null, text: '' }; }
+      this.focusModels();
+      return;
+    }
     if (o?.kind === 'needs-you') {
       if (hint === 'n') this.key('n', {});
       else if (hint === 'y' || hint === 'a') this.say('A click never allows: press y to allow once (or n, Esc or Enter to deny). The box waits for a key.', 'attention');

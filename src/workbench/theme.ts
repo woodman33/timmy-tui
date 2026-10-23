@@ -26,7 +26,7 @@
  * src/workbench/run.ts sets chalk's level from the terminal's, so Ink writes exactly what the mode says.
  */
 import type { ColorLevel } from '../term/capabilities.js';
-import { hexToRgb } from '../term/color.js';
+import { blend, hexToRgb, isLight } from '../term/color.js';
 import type { MeasuredColors } from '../term/palettes.js';
 import { HOMEBREW, HOMEBREW_TERMINAL } from '../theme/tokens.js';
 import type { Role, Seg } from './text.js';
@@ -170,11 +170,33 @@ function groundOf(palette: WorkbenchPalette): string | null {
   }
 }
 
+const hex = ([r, g, b]: readonly [number, number, number]): string => `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+
+/**
+ * R11 (H167; step 1b): the composer's tinted ground (the playbook's `block` input, §17.2-17.3): the terminal's own background
+ * with the text laid over it at 12% (a light one with black at 4%) when the terminal answered the colour probe (OSC 11:
+ * src/term/probe.ts measureTerminal, or TIMMY_PALETTE), else the same blend over B10's canvas (#000000 → #1F1F1F). The
+ * playbook's fallback is the bright-black slot (100m), but in the Timmy Homebrew profile that slot is the secondary grey
+ * (#8E8E93): off-white on it measures 2.3:1, under the floor, so it is not used. On 256 colours a near-neutral tint takes the
+ * grey ramp (the cube makes dark tints heavy); a terminal of 16 colours and NO_COLOR get no tint: the "› " and the cursor
+ * mark the composer then.
+ */
+export function inputGround(palette: WorkbenchPalette, measured: MeasuredColors = { background: null, slots: {} }): string | null {
+  if (palette === 'none' || palette === 'basic' || palette === 'homebrew-basic') return null;
+  const bg = hexToRgb((measured.background ?? HOMEBREW.ground).toUpperCase());
+  const t = isLight(bg) ? blend([0, 0, 0], bg, 0.04) : blend([255, 255, 255], bg, 0.12);
+  if (palette === 'truecolor') return hex(t);
+  const [r, g, b] = t;
+  if (Math.max(r, g, b) - Math.min(r, g, b) < 16) return `ansi256(${232 + Math.min(23, Math.max(0, Math.round(((r + g + b) / 3 - 8) / 10)))})`;
+  return `ansi256(${nearest256(hex(t))})`;
+}
+
 /**
  * How a segment is drawn: its role's colour (none when the terminal shows no colour), weight and ground. `palette`: how the
- * colours reach this terminal (workbenchPalette; B10's hex, as before, when not given).
+ * colours reach this terminal (workbenchPalette; B10's hex, as before, when not given). `ground`: the composer's tint
+ * (inputGround; its default, unmeasured, when not given).
  */
-export function styleOf(s: Seg, colour: boolean, palette: WorkbenchPalette = 'truecolor'): InkTextStyle {
+export function styleOf(s: Seg, colour: boolean, palette: WorkbenchPalette = 'truecolor', ground?: string | null): InkTextStyle {
   const role = s.role ?? 'text';
   const style: InkTextStyle = {};
   const shown = colour && palette !== 'none';
@@ -189,9 +211,13 @@ export function styleOf(s: Seg, colour: boolean, palette: WorkbenchPalette = 'tr
   if (s.inverse) style.inverse = true;
   // the selected row: the selection's ground with colour; inverted without it (its marker says it too)
   if (s.selected) {
-    const ground = shown ? groundOf(palette) : null;
-    if (ground) style.backgroundColor = ground;
+    const g = shown ? groundOf(palette) : null;
+    if (g) style.backgroundColor = g;
     else style.inverse = !style.inverse;
+  } else if (s.block && shown) {
+    // R11 (H167; step 1b): the composer's tinted row (none on a terminal that cannot show it: its "› " marks it)
+    const g = ground === undefined ? inputGround(palette) : ground;
+    if (g) style.backgroundColor = g;
   }
   return style;
 }

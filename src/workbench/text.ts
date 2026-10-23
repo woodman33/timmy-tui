@@ -47,6 +47,9 @@ export interface Seg {
   /** R8 (H157): raw content (what a job printed, a record as it was read): cut where the row ends (clip), never moved back to
    *  a word, since it is what was printed and not Timmy's words */
   raw?: boolean;
+  /** R11 (H167; step 1b): drawn on the composer's tinted ground (the playbook's `block` input: src/workbench/theme.ts
+   *  inputGround); the tint spans the row, so its padding carries the flag too (fit) */
+  block?: boolean;
 }
 
 export type Line = Seg[];
@@ -131,8 +134,8 @@ export function fit(line: Line, width: number, ellipsis = '…'): Line {
   const used = lineCells(out);
   if (used < width) {
     const last = out[out.length - 1];
-    // a selected row keeps its ground to the edge
-    out.push({ text: ' '.repeat(width - used), ...(last?.selected ? { selected: true } : {}) });
+    // a selected row keeps its ground to the edge, and so does the composer's tinted row
+    out.push({ text: ' '.repeat(width - used), ...(last?.selected ? { selected: true } : {}), ...(last?.block ? { block: true } : {}) });
   }
   return out;
 }

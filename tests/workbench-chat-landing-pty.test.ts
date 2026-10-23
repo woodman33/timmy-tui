@@ -119,7 +119,8 @@ beforeAll(async () => {
         const line = (o: Record<string, unknown>) => `${JSON.stringify({ model: 'fake-qwen3:8b', created_at: new Date().toISOString(), ...o })}\n`;
         res.writeHead(200, { 'content-type': 'application/x-ndjson' });
         res.write(line({ message: { role: 'assistant', content: FAKE_ANSWER }, done: false }));
-        res.end(line({ message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop', total_duration: 1, prompt_eval_count: 1, eval_count: 1 }));
+        // (its end comes after a while, as a model's does, so the turn being answered is seen: [ Stop ] in the composer)
+        setTimeout(() => res.end(line({ message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop', total_duration: 1, prompt_eval_count: 1, eval_count: 1 })), 2500);
       });
       return;
     }
@@ -230,7 +231,9 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     // Continue without a model (the fourth choice): Chat with no model, its composer keeping a draft
     await sendKeys(pane, ['Down', 'Down', 'Down', 'Enter']);
     const none = await waitScreen(pane, { what: 'Chat with no model', re: /A model is optional until you need an answer\./, ms: 20_000 });
-    expect(none).toMatch(/Connect a model to chat \(a draft is kept\)/);
+    // (R11 H167, step 1b/1c: the composer always drawn; Send dim with the reason; the chip says no model)
+    expect(none).toMatch(/› Message TIMMY…/);
+    expect(none).toMatch(/\[ Send \]  no model: M chooses one +○ no model · choose one \(M\)/);
     expect(none.split('\n').map((r) => cols(r, 20, 121))[1]).toBe('NEXT / Connect a model to chat');
     keepScreen(pane, CAPTURES, 'chat-landing-122x37-02-no-model', { foot: 'drawn' });
     // (H168's pass 3a, R4, its keys: Write a draft, a message, Enter: not sent, as the route has no model; the no-model view
@@ -251,7 +254,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     const host = `127.0.0.1:${port}`;
     const set = await cli(['init', '--yes', '--chat', 'local', '--ollama', host, '--model', 'fake-qwen3:8b']);
     expect(set.status, `${set.stdout}\n${set.stderr}`).toBe(0);
-    const { screen, pane } = await launch('model', /CHAT \/ tray1[\s\S]*MESSAGE/, 'the Chat screen with the composer');
+    const { screen, pane } = await launch('model', /CHAT \/ tray1[\s\S]*› Message TIMMY…/, 'the Chat screen with the composer');
     keepScreen(pane, CAPTURES, 'chat-landing-122x37-03-with-model-FAKE', { foot: 'drawn' });
     const rows = screen.split('\n');
     expect(cols(rows[0], 20, 121)).toMatch(/^tray1 \/ Chat +LOCAL RECORDS$/);
@@ -259,13 +262,18 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     expect(cols(rows[4], 20, 89)).toBe('CHAT / tray1');
     const center = rows.map((r) => cols(r, 20, 89));
     expect(center[27]).toBe('─'.repeat(69));
-    expect(center.slice(28, 30)).toEqual(['MESSAGE', 'Enter writes a message']);
+    // (R11 H167, step 1b/1c: the tinted composer with its placeholder; [ Send ] with the chord hint; the chip: green only once
+    // the listing's /api/show answered for the route's model, grey "not checked" before)
+    expect(center.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
+    expect(center[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(center[31]).toMatch(/^[●○] FAKE fake-qwen3:8b · this computer · (ready \d\d:\d\d|not checked|checking…)$/);
     expect(screen).not.toMatch(/WELCOME TO TIMMY|How would you like to run chat|\[1 Home\]|\/ Home · recent work/);
     // Models: the route's model is SELECTED, the next turn's (once the list is read)
     const listed = await waitScreen(pane, { what: 'Models listing the route\'s model as SELECTED', re: /SELECTED[\s\S]*The next turn uses it\./, ms: 30_000 });
     const rail = listed.split('\n').map((r) => cols(r, 92, 121));
     expect(rail).toContain('> FAKE fake-qwen3:8b');
     expect(rail.join('\n')).toMatch(/The next turn uses it\./);
+    expect(listed.split('\n').map((r) => cols(r, 20, 89))[31]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
     // no chat turn was sent: the FAKE Ollama was asked only what it lists and each model's facts
     expect(asked.filter((a) => !LISTING.test(a))).toEqual([]);
     stop('model');
@@ -274,7 +282,7 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
   it('an answered turn, quit, relaunch: the same conversation in the center (one turn to the FAKE Ollama, its scripted answer; the lead\'s ask for the Mac)', async () => {
     // (the home of the case before: the local route with FAKE fake-qwen3:8b)
     const QUESTION = 'FIXTURE: what does the tray workflow do?';
-    const { pane } = await launch('turn', /CHAT \/ tray1[\s\S]*MESSAGE/, 'the Chat screen with the composer');
+    const { pane } = await launch('turn', /CHAT \/ tray1[\s\S]*› Message TIMMY…/, 'the Chat screen with the composer');
     await sendKeys(pane, ['Enter']);
     await sendKeys(pane, [QUESTION], { literal: true });
     await sendKeys(pane, ['Enter']);
@@ -283,7 +291,12 @@ describe('`timmy workbench` opens on the Chat screen at 122x37 (tmux; R10 CHAT H
     for (const end = Date.now() + 30_000; Date.now() < end && !/FAKE answer from the test's stand-in/.test(readPane(pane).text); await sleep(250)) {
       if (/Not sent yet: /.test(readPane(pane).text) && readPane(pane).text.includes(QUESTION)) { await sleep(500); await sendKeys(pane, ['Enter']); }
     }
-    const answered = await waitScreen(pane, { what: 'the FAKE answer in the conversation', re: /FIXTURE: what does the tray workflow do\?[\s\S]*FAKE answer from the test's stand-in/, ms: 60_000 });
+    // (R11 H167, step 1b: while the FAKE's answer is still open, [ Stop ] in the composer's row: the turn being answered)
+    const during = keepScreen(pane, CAPTURES, 'chat-landing-122x37-03b-turn-FAKE', { foot: 'drawn', re: /\[ Stop \]  Esc stops the turn being answered/ });
+    expect(during).toMatch(/\[ Stop \]  Esc stops the turn being answered/);
+    expect(during).not.toMatch(/\[ Send \]/);
+    // (the turn answered: the answer under TIMMY / the model / its time, no longer BEING ANSWERED NOW)
+    const answered = await waitScreen(pane, { what: 'the FAKE answer in the conversation, the turn answered', re: /FIXTURE: what does the tray workflow do\?[\s\S]*TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d[\s\S]*FAKE answer from the test's stand-in/, test: (s) => !/BEING ANSWERED NOW/.test(s), ms: 60_000 });
     expect(answered).toMatch(/TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d/);
     expect(asked.filter((a) => a === 'POST /api/chat')).toHaveLength(1);
     // quit (Ctrl+C): nothing of its own runs once the turn is answered, so it ends at once
