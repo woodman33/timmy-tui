@@ -108,6 +108,22 @@ export function initFlags(command: string): string[] {
 }
 
 /** The real paths, over `env`. */
+/**
+ * R11 (H167; step 2, H172's finding 1): where Ollama is, for every reader of the Workbench (the list, the readiness check, the
+ * address the choice records): the setup's recorded address (providers.json ollama_host, else setup.json's answer), else
+ * OLLAMA_HOST (or OLLAMA_BASE_URL) where it is set, else Ollama's default. Before, the list and the check read the record else
+ * the default while src/models/ollama-list.ts ollamaAddressNow read OLLAMA_HOST with no record: two readers of "where Ollama
+ * is" disagreed on a home with no record and OLLAMA_HOST set. (A trailing slash is dropped; nothing else is checked here: the
+ * list and the check say what they could not ask.)
+ */
+export async function ollamaAddress(env: Env = process.env): Promise<string> {
+  const { OLLAMA_DEFAULT, readSetupState } = await import('../setup/questions.js');
+  let recorded: string | undefined;
+  try { const s = readSetupState(env); recorded = s.providers.ollama ?? s.recorded?.answers.ollama; } catch { recorded = undefined; }
+  const raw = recorded || env.OLLAMA_HOST || env.OLLAMA_BASE_URL || OLLAMA_DEFAULT;
+  return String(raw).trim().replace(/\/+$/, '');
+}
+
 export function realSetupDeps(env: Env = process.env): SetupDeps {
   return {
     freeModels: async () => {
@@ -131,11 +147,9 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       return { path: getConfig().path };
     },
     ollama: async () => {
-      const { OLLAMA_DEFAULT, readSetupState } = await import('../setup/questions.js');
       const { atWords, listOllamaModels, listProblem, modelFacts: listedFacts } = await import('../setup/ollama-models.js');
-      const s = readSetupState(env);
       // the address the local chat asks (src/agent/chat-route.ts resolveChatRoute), as `timmy init --model` checks a name there
-      const host = s.providers.ollama ?? s.recorded?.answers.ollama ?? OLLAMA_DEFAULT;
+      const host = await ollamaAddress(env);
       const list = await listOllamaModels(host, { timeoutMs: 5000 });
       if (!list.ok) return { where: list.at ? atWords(list.at) : `Ollama at ${host}`, answered: false, models: [], listed: 0, cloud: 0, why: listProblem(list, host) };
       const runs = list.models.filter((m) => !m.cloud);
@@ -157,12 +171,9 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       return { where: atWords(list.at), answered: true, models: local, listed: list.models.length, cloud: list.models.length - local.length };
     },
     checkLocal: async (model, signal) => {
-      const { OLLAMA_DEFAULT, readSetupState } = await import('../setup/questions.js');
       const { checkLocalModel } = await import('../setup/local-model-check.js');
-      const s = readSetupState(env);
       // the address the local chat asks (the same one ollama() lists from), so the check is of the Ollama the turn would ask
-      const host = s.providers.ollama ?? s.recorded?.answers.ollama ?? OLLAMA_DEFAULT;
-      return checkLocalModel(model, { env, origin: host, ...(signal ? { signal } : {}) });
+      return checkLocalModel(model, { env, origin: await ollamaAddress(env), ...(signal ? { signal } : {}) });
     },
     setLocal: async (model) => {
       const { readSetupState } = await import('../setup/questions.js');
@@ -171,8 +182,13 @@ export function realSetupDeps(env: Env = process.env): SetupDeps {
       // --yes --chat local --model <model>` would set it up, by the same writer (a new ed25519 identity, providers.json with
       // the Ollama address, setup.json recorded as made by 'timmy workbench', the first project), so the first run never sends
       // the person to a shell. R10 refused this ("never a side effect here"): the operator's first use ran into that refusal.
-      const fresh = !readSetupState(process.env).identity.exists;
-      const r = applySetup({ chat: 'local', model, ...(fresh ? { identity: 'generate' } : {}) }, { by: 'timmy workbench' });
+      const s = readSetupState(env);
+      const fresh = !s.identity.exists;
+      // (R11 H167, step 2; H172's finding 1: the address recorded is the one the model was listed and checked at, so that the
+      // turn asks the same Ollama: with no record yet, OLLAMA_HOST where it is set, else the default)
+      const recorded = s.providers.ollama ?? s.recorded?.answers.ollama;
+      const host = await ollamaAddress(env);
+      const r = applySetup({ chat: 'local', model, ...(fresh ? { identity: 'generate' } : {}), ...(recorded === undefined ? { ollama: host } : {}) }, { by: 'timmy workbench' });
       return { written: r.written, ...(fresh ? { identity: true } : {}) };
     },
     check: async () => (await import('../ops/workspace-frame.js')).checkConnections({ env }),

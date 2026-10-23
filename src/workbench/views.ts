@@ -19,6 +19,7 @@ import { createActions, createDetail, createItemFiles, createItemName, createIte
 import { fleetDetail, fleetItemName, fleetItemOperation, fleetView } from './fleet-tab.js';
 import type { Glyphs } from './frame.js';
 import { actionsRow, actionWords, awayOf, chatTurnNow, connectionMark, fieldHintLine, frameTabs, hintLine, newestLog, pageOf, plainWords, receiptShort, routeOf, tookWords, turnEndWords, turnEntry, turnStopHere, unfinishedMark, type ActionHit, type ActNow, type TurnNow } from './hub.js';
+import { evidenceLine, evidenceRows, toolRows, toolRuns } from './chat-evidence.js';
 import { boxed, costOnFace, diagnosticsLines, failedTurnWords, homeWorkView, inWords, routeLine, routeSegs, workDetail } from './home-journey.js';
 import { logsDetail, logsItemName, logsView } from './logs-tab.js';
 import type { Data, Item, Lazy, Overlay, TurnRow, Ui, View } from './model.js';
@@ -691,6 +692,9 @@ function chatView(c: ViewCtx): View {
       return;
     }
     const who = m.role === 'user' ? 'You' : 'Timmy';
+    // (R11 H167, step 2b: an answer carries the key its activity opens under, in both forms: the controller reads the item
+    // through the classic form's view; the shell draws the line)
+    if (m.role === 'assistant') item.evidence = evidenceKey(m, i);
     if (shell) {
       // R10 CHAT (H167): who spoke on a row of its own (YOU, TIMMY with the model the turn used, as its receipt names it), the
       // words under it, a blank row between messages
@@ -701,6 +705,15 @@ function chatView(c: ViewCtx): View {
       const on = sel ? { selected: true } : {};
       lines.push([S(who.toUpperCase(), m.role === 'user' ? 'secondary' : 'strong', { ...(m.role === 'user' ? {} : { bold: true }), ...on }), ...(used ? [S(` / ${/\bfake\b/i.test(used) ? 'FAKE ' : ''}${used}`, 'secondary', on)] : []), ...(m.at !== undefined ? [S(` / ${clock(new Date(m.at).toISOString()).slice(0, 5)}`, 'secondary', on)] : [])]);
       for (const b of body) lines.push([S(b, 'text', on)]);
+      // R11 (H167; step 2b): under each answer its evidence line (src/workbench/chat-evidence.ts): the model, where, the
+      // seconds and the receipt as sealed, ✓ only when verified in this reading; "no receipt" where none was found for it.
+      // Enter on the answer (selected) opens its activity under the line: the tools its turn ran (this Workbench's own turn's
+      // events while it has them; else the receipt's outcomes) and the receipt's facts
+      if (m.role === 'assistant' && item.evidence) {
+        const sealed = turnNear(data, m.at);
+        lines.push(evidenceLine(sealed, c.width, sel));
+        if (ui.evidenceOpen?.[item.evidence]) for (const r of evidenceRows(sealed, kept && i === ownAt && turn ? turn : null, g, c.now, c.width)) lines.push(sel ? r.map((x) => ({ ...x, selected: true })) : r);
+      }
       items.push({ line: at, item, rows: lines.length - at });
       lines.push(blank);
       return;
@@ -734,14 +747,17 @@ function chatView(c: ViewCtx): View {
         for (const l of said) lines.push(...para(l, c.width, 'secondary', '  '));
         lines.push(...failedRows);
         if (stoppedHere && !noted) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
-        else if (!stoppedHere) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
+        // (R11 H167, step 2b: in the shell an answered turn's facts are its evidence line under the answer, not said twice)
+        else if (!stoppedHere && !(shell && turn.state === 'answered')) lines.push(...para(status.filter(Boolean).join(` ${g.sep} `), c.width, statusRole, '  '));
       }
     } else {
       lines.push(blank);
       lines.push(heading(turn.state === 'sending' ? 'Being answered now' : 'Your last message here'));
       lines.push(...para(`You: ${turn.text}`, c.width, 'strong'));
       if (turn.answer) lines.push(...para(`Timmy${stoppedHere ? ' (partial)' : ''}: ${turn.answer}`, c.width, 'text'));
-      for (const x of turn.tools.slice(-4)) lines.push([S(`  ${x.phase === 'start' ? `${g.run} running` : `${g.ok} done`} ${x.name}`, 'secondary'), S(x.outcome ? ` ${x.outcome}` : '', 'secondary')]);
+      // (R11 H167, step 2b: in the shell the tools as grouped rows, the one still running with the spinner: never a silent wait)
+      if (shell) lines.push(...toolRows(toolRuns(turn.tools).slice(-4), g, c.now, c.width));
+      else for (const x of turn.tools.slice(-4)) lines.push([S(`  ${x.phase === 'start' ? `${g.run} running` : `${g.ok} done`} ${x.name}`, 'secondary'), S(x.outcome ? ` ${x.outcome}` : '', 'secondary')]);
       for (const l of said) lines.push(...para(l, c.width, turn.state === 'failed' && !failed ? 'failure' : 'secondary', '  '));
       lines.push(...failedRows);
       if (stoppedHere) lines.push(...wrapSegs([S('  '), ...stoppedHere], c.width, '  '));
@@ -818,6 +834,10 @@ function stoppedNote(turn: NonNullable<Data['turn']>, d: Data, g: Glyphs): Line 
   ].filter(Boolean);
   return [S(`${stopMark(g)} ${how}`, 'text'), S(` ${g.sep} ${rest.join(` ${g.sep} `)}`, 'secondary')];
 }
+
+/** R11 (H167; step 2b): the key an answer's activity is opened under (Ui.evidenceOpen): the message's time where it has one
+ *  (its place among the messages moves as the conversation grows), else its index. */
+export const evidenceKey = (m: { at?: number }, i: number): string => (m.at !== undefined ? `at:${m.at}` : `msg:${i}`);
 
 /** R5 (H131; the QA round's defect 8): the conversation's view follows its newest rows (an answer's end, its receipt and the
  *  composer) until the person selects a message; while the composer is open it is always in view. */

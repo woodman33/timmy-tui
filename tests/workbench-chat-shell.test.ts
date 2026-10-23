@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { glyphsFor } from '../src/workbench/frame.js';
 import { chatLayout } from '../src/workbench/layout.js';
 import { frameOf } from '../src/workbench/screen.js';
+import { evidenceSegs, spinnerFrame, toolRuns, turnCost, turnWhere } from '../src/workbench/chat-evidence.js';
 import { chatGrid, ctxWords, ollamaRows, priceWords, queryRows, railCatalog, RAIL, type CatalogRow } from '../src/workbench/chat-shell.js';
 import type { Data, Ui } from '../src/workbench/model.js';
 import { clock, plain } from '../src/workbench/text.js';
@@ -38,7 +39,8 @@ function data(o: Partial<Data> = {}): Data {
       { role: 'user', text: 'Summarise the newest run in one line.', at: at(3) },
       { role: 'assistant', text: 'FAKE answer from a stand-in: the run wrote two files.', at: at(3) },
     ] },
-    turns: [{ receipt: 'd2d756db', surface: 'workbench', state: 'answered', model: 'fake-qwen3:8b', at: iso(3), operation: 'oc372c7b3' }],
+    // (R11 step 2b: as readTurns reads a sealed turn now: how it went out, its seconds, its tools, verified in this reading)
+    turns: [{ receipt: 'd2d756db', surface: 'workbench', state: 'answered', model: 'fake-qwen3:8b', at: iso(3), operation: 'oc372c7b3', ms: 2100, via: 'ollama', local: true, hash: 'sha256:fixture', verified: { ok: true }, tools: [{ name: 'Read', outcome: 'path=README.md · 12 lines' }] }],
     vox: [], native: {}, starters: [], boards: [], studio: { state: 'idle' }, overview: { state: 'idle' }, caps: { state: 'idle' }, details: {}, readAt: NOW, away: [],
     models: {
       openrouter: { from: 'shipped', at: '2026-09-07', rows: railCatalog(CATALOG) },
@@ -104,6 +106,11 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     expect(c[8]).toBe('Summarise the newest run in one line.');
     expect(c[10]).toMatch(/^TIMMY \/ FAKE fake-qwen3:8b \/ \d\d:\d\d$/);
     expect(c[11]).toBe('FAKE answer from a stand-in: the run wrote two files.');
+    // (R11 H167, step 2b: the evidence line under the answer, grey, two cells in; ✓ green: verified in this reading)
+    expect(c[12]).toBe('  FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db ✓');
+    expect(c[13]).toBe('');
+    expect(f.screen[12].find((s) => s.text.startsWith('FAKE fake-qwen3:8b'))?.role).toBe('secondary');
+    expect(f.screen[12].find((s) => s.text === ' ✓')?.role).toBe('live');
     expect(c[27]).toBe('─'.repeat(69));
     // (R11 H167, step 1b/1c: two tinted rows with › and the placeholder; [ Send ] amber with the chord hint; the chip at the
     // right, green with the time Ollama's listing answered /api/show for the route's model)
@@ -239,7 +246,9 @@ describe('the Chat screen on the operator\'s grid at 122x37 (R10 CHAT H167; term
     const t = text(frame(data(), ui()));
     expect(cols(t[35], 20, 121)).toBe('[Attach]  [Tools]  [Plan / Run]  [Permissions]  [Budget]  [Stop]  [Logs]  [Cloudflare]');
     expect(cols(t[36], 20, 121)).toMatch(/^Logs: this computer \/ idle +cloud sync off \/ spend no charge \/ 122 x 37$/);
-    expect(t.join('\n')).not.toMatch(/d2d756db|oc372c7b3|127\.0\.0\.1|4463|\/p\/tray|~\/timmy/);
+    expect(t.join('\n')).not.toMatch(/oc372c7b3|127\.0\.0\.1|4463|\/p\/tray|~\/timmy/);
+    // (R11 step 2b: the receipt's short id is on the answer's evidence line, nowhere else)
+    expect(t.filter((r) => /d2d756db/.test(r))).toHaveLength(1);
     // a control with no capability behind it says what it needs, where the bottom has the keyboard
     const attach = text(frame(data(), ui({ focus: 'bottom', cursor: { shellBottom: 0 } })));
     expect(cols(attach[36], 20, 121)).toMatch(/^Attach: needs the companion: the terminal attaches no files yet/);
@@ -730,5 +739,194 @@ describe('H168\'s pass 3a on the Chat screen\'s frames (R10 CHAT H167): R1, R3, 
     expect(all).not.toMatch(/row 1|row 2|◆|the ten tabs/);
     // the title row says which of its rows show (the Keys' first line says it does)
     expect(h[4]).toMatch(/^CHAT \/ tray +Keys 1–\d+ of \d+$/);
+  });
+});
+
+describe('R11 step 2a: the welcome of an empty conversation with a model on the route (the plan\'s section 2; the handoff\'s 10:20 PT words)', () => {
+  // FIXTURE: the local route set up (the fixture's FAKE model), nothing said in this project yet
+  const EMPTY = { chat: { session: null, total: 0, messages: [] }, turns: [] } as unknown as Partial<Data>;
+
+  it('122x37: the three lines, START WITH and the four starter actions with their lines, the cursor on no choice; the composer and the chip below', () => {
+    const f = frame(data(EMPTY), ui());
+    const t = text(f);
+    expect(cols(t[1], 20, 121)).toBe('NEXT / Ollama local / FAKE fake-qwen3:8b');
+    const c = center(t);
+    expect(c[4]).toBe('CHAT / tray');
+    expect(c.slice(7, 13)).toEqual([
+      'TIMMY runs tools and workflows on your machine and keeps a receipt',
+      'for every step.',
+      'Write below and press Enter: the model on the chip answers.',
+      'Logs and receipts stay on this computer, in this project\'s .timmy',
+      'folder: Logs & records lists them.',
+      '',
+    ]);
+    expect(c[13]).toBe('START WITH');
+    // (each choice's line whole, on two rows; the blank rows between the choices give way to them at 31 content rows)
+    expect(c.slice(14, 27)).toEqual([
+      '  [ Ask about this project ]', '  A question typed as a draft: what the project does and what ran', '  here last.',
+      '  [ Inspect an image ]', '  VoxVision: what Timmy measured on this project\'s images; /inspect', '  in the REPL inspects a new one.',
+      '  [ Run a workflow ]', '  Workflows: this project\'s WORKFLOW.md blocks; Enter runs one after', '  it asks.',
+      '  [ Open the canvas ]', '  Studio in your browser (s): this project\'s runs and drafts as', '  cards.', '',
+    ]);
+    expect(f.screen[7].find((s) => s.text.startsWith('TIMMY runs'))).toMatchObject({ role: 'strong', bold: true });
+    expect(f.screen[10].find((s) => s.text.startsWith('Logs and receipts'))?.role).toBe('secondary');
+    expect(f.screen[14].find((s) => s.text === '[ Ask about this project ]')?.role).toBe('strong');
+    // the choices are the center's items (list center:first), one of two rows each; no "No conversation here yet"
+    expect(f.regions.center).toMatchObject({ list: 'center:first' });
+    expect(f.regions.center?.items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line, x.rows])).toEqual([['ask', 7, 3], ['inspect', 10, 3], ['run', 13, 3], ['canvas', 16, 3]]);
+    expect(t.join('\n')).not.toMatch(/No conversation here yet/);
+    expect(c.slice(28, 30)).toEqual(['› Message TIMMY…', '']);
+    expect(c[30]).toBe('[ Send ]  Enter sends · Ctrl+J newline');
+    expect(c[31]).toMatch(/^● FAKE fake-qwen3:8b · this computer · ready \d\d:\d\d$/);
+  });
+
+  it('the cursor on a choice: "> [ … ]" amber while the center has the keyboard, plain while the composer has it', () => {
+    const on = frame(data(EMPTY), ui({ cursor: { 'center:first': 1 } }));
+    const c = center(text(on));
+    expect(c[14]).toBe('  [ Ask about this project ]');
+    expect(c[17]).toBe('> [ Inspect an image ]');
+    expect(on.screen[17].find((s) => s.text === '[ Inspect an image ]')).toMatchObject({ role: 'accent', bold: true, selected: true });
+    const typing = center(text(frame(data(EMPTY), ui({ cursor: { 'center:first': 1 }, input: { field: 'composer', text: 'a draft' } }))));
+    expect(typing[17]).toBe('  [ Inspect an image ]');
+    expect(typing[28]).toBe('› a draft');
+  });
+
+  it('80x24: the three lines wrapped, START WITH, the choices two to a row (each its own cell for a click); the composer under them', () => {
+    const f = frame(data(EMPTY), ui({ cursor: { 'center:first': 3 } }), 80, 24);
+    const t = text(f);
+    const c = t.map((r) => cols(r, 16, 79));
+    expect(c.slice(7, 15)).toEqual([
+      'TIMMY runs tools and workflows on your machine and keeps a',
+      'receipt for every step.',
+      'Write below and press Enter: the model on the chip answers.',
+      'Logs and receipts stay on this computer, in this project\'s',
+      '.timmy folder: Logs & records lists them.',
+      'START WITH',
+      '  [ Ask about this project ]   [ Inspect an image ]',
+      '  [ Run a workflow ] > [ Open the canvas ]',
+    ]);
+    expect(c[15]).toBe('─'.repeat(62));
+    expect(c[16]).toBe('› Message TIMMY…');
+    const items = f.regions.center?.items ?? [];
+    expect(items.map((x) => [x.item.kind === 'action' ? x.item.action : '', x.line, x.x?.from, x.x?.to])).toEqual([['ask', 6, 1, 28], ['inspect', 6, 30, 51], ['run', 7, 1, 20], ['canvas', 7, 22, 42]]);
+    expect(f.screen[14].find((s) => s.text === '[ Open the canvas ]')).toMatchObject({ role: 'accent', selected: true });
+  });
+
+  it('not the welcome: the first run (no model, not answered), Chat with no model, a conversation kept, a turn being answered', () => {
+    const none = { route: { kind: 'none', words: 'chat: none · no key, no model', ready: false } } as unknown as Partial<Data>;
+    expect(center(text(frame(data({ ...EMPTY, ...none }), ui())))[7]).toBe('How would you like to run chat?');
+    expect(center(text(frame(data({ ...EMPTY, ...none }), ui({ firstRunDone: true }))))[7]).toBe('A model is optional until you need an answer.');
+    expect(center(text(frame(data(), ui())))[7]).toMatch(/^YOU \/ \d\d:\d\d$/);
+    const sending = center(text(frame(data({ ...EMPTY, turn: { text: 'Hello?', answer: '', state: 'sending', lines: [], sent: null, tools: [], at: NOW - 1000 } } as unknown as Partial<Data>), ui())));
+    expect(sending.join('\n')).not.toMatch(/START WITH/);
+    expect(sending.join('\n')).toMatch(/BEING ANSWERED NOW/i);
+  });
+});
+
+describe('R11 step 2b: the evidence line under each answer, and its activity (src/workbench/chat-evidence.ts)', () => {
+  const turn = (o: Partial<Data['turns'][number]> = {}): Data['turns'][number] => ({ ...data().turns[0], ...o });
+  const convo = (turns: Data['turns'], o: Partial<Data> = {}): Data => data({ turns, ...o });
+  const lineUnder = (d: Data, u: Ui = ui(), columns = 122, rows = 37) => {
+    const f = frame(d, u, columns, rows);
+    const c = columns === 122 ? center(text(f)) : text(f).map((r) => cols(r, 16, 79));
+    const i = c.findIndex((r) => /^TIMMY \//.test(r));
+    return { f, c, i, line: c[i + 2], segs: f.screen[i + 2] };
+  };
+
+  it('"<model> · <where> · <seconds> · receipt <id8> ✓": ✓ green only when verified in this reading; no mark otherwise; not verified says nothing on the line', () => {
+    expect(lineUnder(convo([turn()])).line).toBe('  FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db ✓');
+    const not = lineUnder(convo([turn({ verified: undefined })]));
+    expect(not.line).toBe('  FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db');
+    expect(not.segs.some((s) => s.role === 'live')).toBe(false);
+    expect(lineUnder(convo([turn({ verified: { ok: false, reason: 'its body hash differs' } })])).line).toBe('  FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db');
+  });
+
+  it('where: this computer, another computer, OpenRouter with its cost as sealed (measured, reported, unknown: never zero when unknown); not recorded said so', () => {
+    const words = (t: Data['turns'][number]) => plain(evidenceSegs(t));
+    expect(lineUnder(convo([turn({ local: false })])).line).toBe('  FAKE fake-qwen3:8b · another computer · 2.1 s · receipt d2d756db ✓');
+    expect(words(turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/newest-model:free', cost: { usd: 0, measured: true } }))).toBe('fixture-maker/newest-model:free · OpenRouter · $0 · 2.1 s · receipt d2d756db ✓');
+    expect(words(turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/older-model', cost: { usd: 0.0012, measured: false } }))).toBe('fixture-maker/older-model · OpenRouter · $0.0012 (reported) · 2.1 s · receipt d2d756db ✓');
+    expect(words(turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/older-model', cost: { usd: null, measured: false } }))).toBe('fixture-maker/older-model · OpenRouter · cost unknown · 2.1 s · receipt d2d756db ✓');
+    expect(words(turn({ via: undefined, local: undefined, ms: undefined, model: null }))).toBe('model not recorded · where not recorded · time not recorded · receipt d2d756db ✓');
+    // where the center's 69 cells do not hold them whole: the model's name cut first (whole on the row above), then the
+    // cost gives way (the opened facts say it); the receipt's id never
+    expect(lineUnder(convo([turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/newest-model:free', cost: { usd: 0, measured: true } })])).line).toBe('  fixture-maker/newes… · OpenRouter · $0 · 2.1 s · receipt d2d756db ✓');
+    expect(lineUnder(convo([turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/older-model', cost: { usd: 0.0012, measured: false } })])).line).toBe('  fixture-maker/older-model · OpenRouter · 2.1 s · receipt d2d756db ✓');
+    expect(lineUnder(convo([turn({ via: 'openrouter', local: undefined, model: 'fixture-maker/older-model', cost: { usd: null, measured: false } })])).line).toBe('  fixture-m… · OpenRouter · cost unknown · 2.1 s · receipt d2d756db ✓');
+  });
+
+  it('"no receipt" (amber) where none is sealed near the answer; a stopped or failed turn says so first', () => {
+    const none = lineUnder(convo([]));
+    expect(none.line).toBe('  no receipt');
+    expect(none.segs.find((s) => s.text === 'no receipt')?.role).toBe('attention');
+    // (a receipt sealed an hour before the answer is not its)
+    expect(lineUnder(convo([turn({ at: iso(63) })])).line).toBe('  no receipt');
+    expect(lineUnder(convo([turn({ state: 'failed' })])).line).toBe('  failed · FAKE fake-qw… · this computer · 2.1 s · receipt d2d756db ✓');
+    expect(plain(evidenceSegs(turn({ state: 'stopped' })))).toBe('stopped · FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db ✓');
+    expect(lineUnder(convo([turn({ state: 'failed' })])).segs.find((s) => s.text === 'failed')?.role).toBe('failure');
+  });
+
+  it('at 80x24 (62 cells) the model\'s name is cut to what the row leaves it; the where, the seconds, the receipt and the ✓ stay whole', () => {
+    expect(lineUnder(convo([turn()]), ui(), 80, 24).line).toBe('  FAKE fake-qwen… · this computer · 2.1 s · receipt d2d756db ✓');
+    const long = lineUnder(convo([turn({ model: 'fake-qwen3-coder-30b-a3b-instruct-q4_K_M:latest' })]), ui(), 80, 24);
+    expect(long.line).toBe('  FAKE fake-qwen… · this computer · 2.1 s · receipt d2d756db ✓');
+    expect([...long.line].length).toBeLessThanOrEqual(62);
+  });
+
+  it('opened (Ui.evidenceOpen by the answer\'s key): the tools the turn ran as grouped rows, then the receipt\'s facts; the selected answer\'s rows on the selection\'s ground', () => {
+    const d = convo([turn()]);
+    const key = `at:${d.chat.messages[1].at}`;
+    const open = lineUnder(d, ui({ evidenceOpen: { [key]: true } }));
+    expect(open.c.slice(open.i + 2, open.i + 7)).toEqual([
+      '  FAKE fake-qwen3:8b · this computer · 2.1 s · receipt d2d756db ✓',
+      '  ● Read',
+      '    └ path=README.md · 12 lines',
+      `  sealed ${clock(iso(3))} · operation oc372c7b3 · answered · no charge`,
+      '  verified ✓',
+    ]);
+    expect(open.f.screen[open.i + 6].find((s) => s.text === 'verified ')?.role).toBe('live');
+    // no tool, not verified, not checked, no receipt: each said
+    const bare = lineUnder(convo([turn({ tools: undefined, verified: { ok: false, reason: 'its body hash differs' } })]), ui({ evidenceOpen: { [key]: true } }));
+    expect(bare.c.slice(bare.i + 3, bare.i + 6)).toEqual(['  no tool ran', `  sealed ${clock(iso(3))} · operation oc372c7b3 · answered · no charge`, '  not verified: its body hash differs']);
+    expect(bare.f.screen[bare.i + 5].find((s) => s.text.startsWith('not verified'))?.role).toBe('failure');
+    // (with its one tool's two rows above the facts: the fixture's turn ran Read)
+    expect(lineUnder(convo([turn({ verified: undefined })]), ui({ evidenceOpen: { [key]: true } })).c[bare.i + 6]).toBe('  receipt not checked');
+    const none = lineUnder(convo([]), ui({ evidenceOpen: { [key]: true } }));
+    expect(none.c.slice(none.i + 2, none.i + 5)).toEqual(['  no receipt', '  no tool ran', '  no receipt for this answer: none sealed, or another project\'s']);
+    // selected (↑ ↓ or a click): the answer's rows, the line and its activity on the selection's ground
+    const sel = lineUnder(d, ui({ evidenceOpen: { [key]: true }, chosen: { 'center:chat': true }, cursor: { 'center:chat': 1 }, sel: { 'center:chat': 'msg:1' } }));
+    for (const y of [sel.i, sel.i + 1, sel.i + 2, sel.i + 3, sel.i + 5, sel.i + 6]) expect(sel.f.screen[y].some((s) => s.selected), `row ${y} selected`).toBe(true);
+    expect(sel.f.regions.center?.items[1]).toMatchObject({ item: { kind: 'message', evidence: key }, rows: 7 });
+  });
+
+  it('this Workbench\'s own turn being answered: its tools as grouped rows, the one still running with the spinner (silence looks like a hang)', () => {
+    const d = data({ turn: { text: 'Which files?', answer: 'Reading', state: 'sending', lines: [], sent: true, tools: [{ name: 'Read', phase: 'start' }, { name: 'Read', phase: 'end', outcome: 'path=a.md · 3 lines' }, { name: 'Bash', phase: 'start' }], at: NOW - 1500 } } as unknown as Partial<Data>);
+    const c = center(text(frame(d, ui())));
+    const i = c.findIndex((r) => /^BEING ANSWERED NOW/i.test(r));
+    expect(i).toBeGreaterThan(0);
+    expect(c.slice(i + 1, i + 6)).toEqual(['You: Which files?', 'Timmy: Reading', '  ● Read', '    └ path=a.md · 3 lines', `  ${spinnerFrame(NOW, g)} Running Bash`]);
+    expect(c[i + 6]).toBe('  being answered · Esc in the composer, or x, stops it');
+    // the spinner's frame turns with the time (80 ms a frame, ten frames); plain marks without Unicode (four, 160 ms each)
+    expect('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏').toContain(spinnerFrame(NOW, g));
+    expect(spinnerFrame(NOW + 80, g)).not.toBe(spinnerFrame(NOW, g));
+    expect(spinnerFrame(NOW + 800, g)).toBe(spinnerFrame(NOW, g));
+    const later = center(text(frameOf({ ui: ui(), data: d, g, columns: 122, rows: 37, now: NOW + 80, can })));
+    expect(later[i + 5]).toBe(`  ${spinnerFrame(NOW + 80, g)} Running Bash`);
+    const ascii = frameOf({ ui: ui(), data: d, g: glyphsFor(false), columns: 122, rows: 37, now: NOW, can }).screen.map(plain).map((r) => cols(r, 20, 88));
+    expect(ascii[i + 5]).toBe(`  ${spinnerFrame(NOW, glyphsFor(false))} Running Bash`);
+    expect(['|', '/', '-', '\\']).toContain(spinnerFrame(NOW, glyphsFor(false)));
+    expect(ascii[i + 3]).toBe('  * Read');
+    // the live turn's events as runs: a start without its end is running; an end closes the latest open one of its name
+    expect(toolRuns([{ name: 'Read', phase: 'start' }, { name: 'Read', phase: 'start' }, { name: 'Read', phase: 'end', outcome: 'b' }, { name: 'Grep', phase: 'end', outcome: 'c' }])).toEqual([{ name: 'Read', running: true }, { name: 'Read', running: false, outcome: 'b' }, { name: 'Grep', outcome: 'c' }]);
+    // a turn's cost in words: Ollama's no charge; OpenRouter's measured, reported, or unknown (never zero)
+    expect(turnCost({ via: 'ollama' })).toBe('no charge');
+    expect(turnCost({ via: 'openrouter', cost: { usd: 0.25, measured: true } })).toBe('$0.25');
+    expect(turnCost({ via: 'openrouter', cost: { usd: 0.0012, measured: true } })).toBe('$0.0012');
+    expect(turnCost({ via: 'openrouter', cost: { usd: 0.0012, measured: false } })).toBe('$0.0012 (reported)');
+    expect(turnCost({ via: 'openrouter' })).toBe('cost unknown');
+    expect(turnWhere({ via: 'ollama', local: true })).toBe('this computer');
+    expect(turnWhere({ via: 'ollama', local: false })).toBe('another computer');
+    expect(turnWhere({ via: 'openrouter' })).toBe('OpenRouter');
+    expect(turnWhere({})).toBe('where not recorded');
   });
 });

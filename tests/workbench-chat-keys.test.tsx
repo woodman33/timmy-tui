@@ -444,7 +444,10 @@ describe('the Chat screen\'s keys (R10 CHAT H167): opens on Chat; the draft, Tab
     for (const end = Date.now() + 10_000; Date.now() < end && c.ui.modelCheck?.state !== 'ready'; await sleep(20)) shown(c);
     t = shown(c);
     expect(c.ui.modelCheck).toMatchObject({ model: 'fake-qwen3:8b', state: 'ready', setUp: true });
-    expect(c.ui.flash?.text).toMatch(/^Next turn: fake-qwen3:8b on this computer\. Set up now \(identity made in \S*blankhome\)\.$/);
+    // (R11 step 2, H172's finding 2: this sandbox's home is not under ~, so its folder is said in full and the two sentences
+    // do not fit the status row at 122x37: the first flashes, the second after it; Activity has the notice whole)
+    expect(c.ui.flash?.text).toBe('Next turn: fake-qwen3:8b on this computer.');
+    expect(c.data.activity.last?.words).toMatch(/^Next turn: fake-qwen3:8b on this computer\. Set up now \(identity made in \S*blankhome\)\.$/);
     expect(c.ui.input.field).toBe('composer');
     expect(t.join('\n')).not.toMatch(/timmy init, in a shell|not set up on this computer/);
   });
@@ -922,5 +925,138 @@ describe('H168\'s pass 3a through the Controller (R10 CHAT H167): R1, R3, R4, R7
     c.paste('a'.repeat(4005));
     expect(c.ui.input.text).toHaveLength(4000);
     expect(c.ui.flash?.text).toBe('The message holds 4,000 characters; the rest was not typed in.');
+  });
+});
+
+describe('R11 step 2 through the Controller (H167): the welcome\'s starter actions, the evidence line\'s activity, a notice said in two flashes', { timeout: 60_000 }, () => {
+  it('the welcome: a plain Enter opens the composer (no choice selected); ↓ reaches Ask about this project, Enter types its question as a draft; Esc clears the choice', () => {
+    const c = workbench(homeWithModel('welcome'));
+    let t = shown(c);
+    const center = (rows: string[]) => rows.map((r) => cols(r, 20, 89));
+    expect(center(t)[7]).toBe('TIMMY runs tools and workflows on your machine and keeps a receipt');
+    expect(center(t)[13]).toBe('START WITH');
+    expect(center(t)[14]).toBe('  [ Ask about this project ]');
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    // Enter with no choice selected: the composer (empty); Esc back
+    t = press(c, '\r', ENTER);
+    expect(c.ui.input).toEqual({ field: 'composer', text: '' });
+    expect(center(t)[14]).toBe('  [ Ask about this project ]');
+    press(c, '', ESC);
+    expect(c.ui.input.field).toBeNull();
+    // ↑ with no choice: still none; ↓: the first choice, amber
+    press(c, '', { upArrow: true });
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    t = press(c, '', { downArrow: true });
+    expect(c.ui.cursor['center:first']).toBe(0);
+    expect(center(t)[14]).toBe('> [ Ask about this project ]');
+    // Esc clears it; ↓ ↓ Enter: Ask about this project types its question as a draft (nothing sent)
+    t = press(c, '', ESC);
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    expect(center(t)[14]).toBe('  [ Ask about this project ]');
+    press(c, '', { downArrow: true });
+    t = press(c, '\r', ENTER);
+    expect(c.ui.input).toEqual({ field: 'composer', text: 'What does this project do, and what ran here last?' });
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    expect(cols(t[28], 20, 89)).toBe('› What does this project do, and what ran here last?');
+    expect(c.data.turn).toBeUndefined();
+  });
+
+  it('the welcome: Inspect an image opens VoxVision, Run a workflow opens Workflows, Open the canvas is Studio · Show (FAKE: not started here); the welcome again on Chat', async () => {
+    const c = workbench(homeWithModel('starters'));
+    shown(c);
+    press(c, '', { downArrow: true });
+    press(c, '', { downArrow: true });
+    expect(cols(shown(c)[17], 20, 89)).toBe('> [ Inspect an image ]');
+    press(c, '\r', ENTER);
+    expect(c.ui.page).toBe('voxvision');
+    expect(c.ui.focus).toBe('center');
+    // back to Chat: the welcome, no choice selected
+    c.selectPage('chat');
+    let t = shown(c);
+    expect(cols(t[13], 20, 89)).toBe('START WITH');
+    expect(c.ui.cursor['center:first']).toBeUndefined();
+    for (let i = 0; i < 3; i++) press(c, '', { downArrow: true });
+    expect(cols(shown(c)[20], 20, 89)).toBe('> [ Run a workflow ]');
+    press(c, '\r', ENTER);
+    expect(c.ui.page).toBe('workflows');
+    c.selectPage('chat');
+    shown(c);
+    for (let i = 0; i < 4; i++) press(c, '', { downArrow: true });
+    expect(cols(shown(c)[23], 20, 89)).toBe('> [ Open the canvas ]');
+    press(c, '\r', ENTER);
+    for (const end = Date.now() + 5000; Date.now() < end && !/Studio/.test(c.ui.flash?.text ?? ''); await sleep(20)) shown(c);
+    // (the FAKE Studio control starts nothing: its refusal is said, nothing opened)
+    expect(c.ui.flash?.text).toMatch(/Studio/);
+    expect(c.ui.page).toBe('chat');
+    t = shown(c);
+    expect(cols(t[13], 20, 89)).toBe('START WITH');
+    expect(cols(t[23], 20, 89)).toBe('  [ Open the canvas ]');
+  });
+
+  it('an answer kept with no receipt: "no receipt" under it; selected (↓), Enter opens its activity (no tool ran; no receipt said), Enter again or Esc folds it; Enter with nothing selected writes', () => {
+    const p = homeWithModel('evidence');
+    const conv = new ConversationManager(join(p.root, '.sessions'));
+    conv.startNew();
+    conv.appendMessage({ role: 'user', content: 'FIXTURE: a question asked before.' });
+    conv.appendMessage({ role: 'assistant', content: 'FIXTURE: its answer, kept; no receipt was sealed for it.' });
+    const c = workbench(p);
+    let t = shown(c);
+    const center = (rows: string[]) => rows.map((r) => cols(r, 20, 89));
+    const a = center(t).indexOf('FIXTURE: its answer, kept; no receipt was sealed for it.');
+    expect(a).toBeGreaterThan(7);
+    expect(center(t)[a + 1]).toBe('  no receipt');
+    expect(c.frame(122, 37).screen[a + 1].find((s) => s.text === 'no receipt')?.role).toBe('attention');
+    // nothing selected (the conversation follows its newest): Enter writes
+    t = press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('composer');
+    press(c, '', ESC);
+    // ↓ selects the newest (the answer); Enter opens its activity under the line
+    press(c, '', { downArrow: true });
+    expect(c.ui.chosen?.['center:chat']).toBe(true);
+    t = press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBeNull();
+    expect(center(t).slice(a + 1, a + 4)).toEqual(['  no receipt', '  no tool ran', '  no receipt for this answer: none sealed, or another project\'s']);
+    expect(Object.values(c.ui.evidenceOpen ?? {})).toEqual([true]);
+    // Enter again folds it; Enter opens; Esc folds (the keyboard stays on the conversation, the answer still selected)
+    t = press(c, '\r', ENTER);
+    expect(center(t)[a + 2]).toBe('');
+    expect(c.ui.evidenceOpen).toEqual({});
+    press(c, '\r', ENTER);
+    expect(Object.values(c.ui.evidenceOpen ?? {})).toEqual([true]);
+    t = press(c, '', ESC);
+    expect(c.ui.evidenceOpen).toEqual({});
+    expect(c.ui.focus).toBe('center');
+    expect(c.ui.chosen?.['center:chat']).toBe(true);
+    expect(center(t)[a + 2]).toBe('');
+    // ↑ to the question: Enter there writes (a question has no activity)
+    press(c, '', { upArrow: true });
+    press(c, '\r', ENTER);
+    expect(c.ui.input.field).toBe('composer');
+  });
+
+  it('H172\'s finding 2: a notice of two sentences that does not fit the status row at 80x24 is said in two flashes (the first, then the second after 6 s), never cut; at 122x37 in one; Activity has it whole', async () => {
+    const c = workbench(homeWithModel('flashes'));
+    // (the start's own notices first: Models' list read)
+    for (const end = Date.now() + 5000; Date.now() < end && c.data.models?.ollama?.state !== 'listed'; await sleep(20)) shown(c);
+    c.frame(122, 37);
+    c.sayEach(['Next turn: fake-qwen3:8b on this computer.', 'Set up now (identity made in ~/timmy).'], 'text');
+    expect(c.ui.flash?.text).toBe('Next turn: fake-qwen3:8b on this computer. Set up now (identity made in ~/timmy).');
+    expect(cols(shown(c)[36], 20, 121)).toMatch(/^Next turn: fake-qwen3:8b on this computer\. Set up now \(identity made in its folder\)\. +122 x 37$/);
+    // at 80x24 the row holds 52 cells: the first sentence alone, whole; the second takes its place after 6 s
+    c.frame(80, 24);
+    c.sayEach(['Next turn: fake-qwen3:8b on this computer.', 'Set up now (identity made in ~/timmy).'], 'text');
+    expect(c.ui.flash?.text).toBe('Next turn: fake-qwen3:8b on this computer.');
+    const row = (): string => cols(c.frame(80, 24).screen.map(rowText)[23], 16, 79);
+    expect(row()).toMatch(/^Next turn: fake-qwen3:8b on this computer\. +80 x 24$/);
+    expect(row()).not.toMatch(/…/);
+    expect(c.data.activity.events[0]?.words ?? c.data.activity.last?.words).toContain('Next turn: fake-qwen3:8b on this computer. Set up now (identity made in ~/timmy).');
+    await sleep(6200);
+    expect(c.ui.flash?.text).toBe('Set up now (identity made in ~/timmy).');
+    expect(row()).toMatch(/^Set up now \(identity made in its folder\)\. +80 x 24$/);
+    // a newer notice meanwhile keeps the row: the rest is not said over it
+    c.sayEach(['Next turn: fake-qwen3:8b on this computer.', 'Set up now (identity made in ~/timmy).'], 'text');
+    c.say('FIXTURE: a newer notice.', 'secondary');
+    await sleep(6200);
+    expect(c.ui.flash?.text).toBe('FIXTURE: a newer notice.');
   });
 });
