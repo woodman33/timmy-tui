@@ -41,7 +41,7 @@ import { readFleet } from './fleet-tab.js';
 import { innerWidth, type Glyphs } from './frame.js';
 import { awayOf, chatTurnNow, isHub, pageOf, receiptShort, routeOf, workspaceOfPage, workspacesOf, type TurnNow } from './hub.js';
 import { bodyKind, contextIsColumn } from './layout.js';
-import { modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
+import { chatModel, modelRows, moreControls, ollamaRows, priceWords, PROVIDERS, RAIL, RAIL_ITEMS, railCatalog, railProvider, shellControls, WIDE_COLUMNS, type RailModels } from './chat-shell.js';
 import { providerStates } from '../setup/providers-state.js';
 import { readLogs } from './logs-tab.js';
 import { readTools } from './tools-tab.js';
@@ -56,6 +56,9 @@ import { OutputWatch } from './output.js';
 import { checkDetail, realProducers, type Loaded, type Producers, type RunDetailOf } from './producers.js';
 import { remember as rememberList, resolve, select } from './select.js';
 import type { CompanionControl, StudioControl } from './servers.js';
+import { systemOpener, type Opener } from './servers.js';
+import { startOpenRouterSignIn, type SignIn, type SignInOptions, type SignInResult } from '../setup/openrouter-signin.js';
+import { saveKey } from '../setup/provider-keys.js';
 import { frameOf, type Frame } from './screen.js';
 import { DEFAULT_SETTINGS, PRESETS, readSettings, RIGHT_TABS, saveSettings, SETTING_LABELS, type SaveResult, type SettingsRead, type WorkbenchSettings } from './settings.js';
 import {
@@ -67,7 +70,7 @@ import { checkRows, realSetupDeps, type OllamaList, type SetupDeps, type SetupPl
 import { stopCurrent, type StopDeps } from './stop.js';
 import { clock, type Line, type Role } from './text.js';
 import { HoldWatch, type HoldsReading } from './turn-holds.js';
-import { actionsOf, bottomView, centerView, cursorOf, pageActions, rightView, routeShown, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
+import { actionsOf, bottomView, centerView, connectChoices, cursorOf, pageActions, rightView, routeShown, runOfBlock, selectedAction, selectedItem, stopWords, type ViewCtx } from './views.js';
 import { endedOnChain, readWorkflowsTab, refreshBlockStates, selectedBlock } from './workflows-tab.js';
 
 /** R5 (H131): the workspace frame is read again at most this often (the order: "at most once a second"). */
@@ -118,6 +121,10 @@ export interface ControllerDeps {
   /** R6 (H141): each key (and paste) as one entry: what arrived, the box and field it met, what took it (run.ts writes them
    *  to the file TIMMY_WORKBENCH_KEYLOG names; a test reads them) */
   keyLog?: (entry: Record<string, unknown>) => void;
+  /** R10 CHAT (H167): OpenRouter's sign-in (absent: H170's startOpenRouterSignIn; a test gives a FAKE that listens on nothing)
+   *  and the opener of its page (absent: this computer's, src/workbench/servers.ts systemOpener; used only on Enter on Open) */
+  signIn?: (o: SignInOptions) => Promise<SignIn>;
+  opener?: Opener;
 }
 
 const plain = (l: Segment[] | Line): string => l.map((s) => s.text).join('');
@@ -152,6 +159,8 @@ export class Controller {
   /** the runs being started here (one press runs once) */
   private readonly starting = new Set<string>();
   private turnAbort: AbortController | null = null;
+  /** R10 CHAT (H167): OpenRouter's sign-in under way (its server on 127.0.0.1 until it ends: answered, cancelled, timed out) */
+  private flow: SignIn | null = null;
   /** R4 (H112): the notices' own order, and the lines running jobs printed (as first seen) */
   private noticeSeq = 0;
   /**
@@ -747,6 +756,9 @@ export class Controller {
     // a box nobody can answer any more is denied (deny is the default); a message being sent is stopped
     if (this.ui.overlay?.kind === 'needs-you') this.ui.overlay.answer('deny');
     this.turnAbort?.abort();
+    // R10 CHAT (H167): a sign-in under way ends with nothing saved; what was typed into the hidden field is dropped
+    this.cancelFlow();
+    if (this.ui.input.field === 'secret') this.ui.input = { field: null, text: '' };
     this.disposed = true;
     this.holds.close();
     for (const t of this.timers) clearInterval(t);
@@ -1304,7 +1316,9 @@ export class Controller {
       this.focusModels();
     };
     switch (id) {
-      case 'openrouter': this.ui.firstRunDone = true; this.ui.modelsProvider = 'openrouter'; await this.openSetup('init', 'timmy init --chat openrouter'); return;
+      // (R10 CHAT H167; the lead's Mac check of 50237ef, item 3: connected here, its sign-in or a pasted key; Cancel keeps the
+      // first run's question)
+      case 'openrouter': this.ui.modelsProvider = 'openrouter'; this.openConnect(); return;
       case 'ollama-local': this.ui.firstRunDone = true; toModels('ollama-local'); void this.loadModels(true); return;
       case 'ollama-cloud': this.ui.firstRunDone = true; toModels('ollama-cloud'); return;
       case 'cloudflare': toModels('cloudflare'); return;
@@ -1345,6 +1359,9 @@ export class Controller {
     const { rows, source } = modelRows({ ui: this.ui, data: this.data });
     const r = rows[this.ui.cursor['right:models'] ?? 0];
     if (!r) { this.say('No model is listed here to choose.', 'secondary'); return; }
+    // R10 CHAT (H167; the lead's Mac check of 50237ef): a local model the probe's /api/show check does not establish as a chat
+    // model (an embedding or a decision model) is never chosen for chat
+    if (!chatModel(r)) { this.say(`${r.name} is not chosen: Ollama's /api/show answer does not establish it as a chat model (no completion). Nothing was changed.`, 'secondary'); return; }
     if (source === 'ollama-local') { await this.chooseLocal(r.id); return; }
     if (this.data.route.kind !== 'openrouter') { this.say(`${r.name} runs on OpenRouter: Connect OpenRouter first (its key); the next turn stays on the route it has.`, 'secondary'); return; }
     // R10 CHAT (H167; the target's check "free-only blocks a priced selection without sending"): under free-only a model the
@@ -1488,6 +1505,14 @@ export class Controller {
   private typing(input: string, k: Partial<Key>): void {
     const f = this.ui.input.field!;
     if (k.escape) {
+      // R10 CHAT (H167): the hidden field (a key, the sign-in's code): what was typed is dropped, and the box goes back a step
+      if (f === 'secret') {
+        this.ui.input = { field: null, text: '' };
+        const o = this.connectBox();
+        if (o) { o.step = o.step === 'code' && this.flow ? 'signin' : 'choose'; delete o.note; this.ui.cursor.overlay = 0; }
+        this.say('Esc: nothing typed into the hidden field was kept.', 'secondary');
+        return;
+      }
       // R5 (H131; the QA round's defect 1): Esc says what it did. R10 (H167; H168's F1, High): while this Workbench's turn is
       // being answered, Esc stops that turn AND leaves the composer: the keys after it are the Workbench's again (a 1 opens a
       // tab), never the start of another message that a later Enter would send; what was typed meanwhile is not sent
@@ -1551,7 +1576,8 @@ export class Controller {
     // printable text only (a paste arrives as one string)
     const text = input.replace(/[\x00-\x1f\x7f]/g, '');
     if (!text) return;
-    this.ui.input.text = (this.ui.input.text + text).slice(0, 300);
+    // (R10 CHAT H167: the hidden field holds a key or a sign-in's whole address: longer than a name or a search)
+    this.ui.input.text = (this.ui.input.text + text).slice(0, f === 'secret' ? 4096 : 300);
     if (f === 'picker') this.ui.cursor.overlay = 0;
     if (f === 'tools') this.toolsTop();
     this.emit();
@@ -1607,6 +1633,7 @@ export class Controller {
       this.emit();
       return;
     }
+    if (field === 'secret') { this.connectSubmit(text); return; }
     if (field === 'new') {
       const o = this.ui.overlay;
       const from = o?.kind === 'new' ? o.from : undefined;
@@ -1752,9 +1779,23 @@ export class Controller {
       if (o.state === 'listed') { const m = o.catalog.models[cursorOf(this.ui, 'overlay', o.catalog.models.length)]; if (m) void this.chooseFree(m.id); }
       return true;
     }
+    // R10 CHAT (H167): Connect OpenRouter: Enter takes the selected choice; Esc cancels a sign-in under way and closes the box
+    if (o.kind === 'connect') {
+      if (k.escape) { this.closeConnect(); return true; }
+      if (!k.return) return false;
+      const ids = connectChoices(o);
+      const id = ids.length ? ids[cursorOf(this.ui, 'overlay', ids.length)] : undefined;
+      if (id) void this.connectChoice(id);
+      return true;
+    }
     if (o.kind === 'local-models') {
       if (!k.return) return false;
-      if (o.state === 'listed') { const m = o.list.models[cursorOf(this.ui, 'overlay', o.list.models.length)]; if (m) void this.chooseLocal(m.name); }
+      if (o.state === 'listed') {
+        const m = o.list.models[cursorOf(this.ui, 'overlay', o.list.models.length)];
+        // (R10 CHAT H167: one the probe's /api/show check does not establish as a chat model is not chosen)
+        if (m?.chat === false) { this.say(`${m.name} is not chosen: Ollama's /api/show answer does not establish it as a chat model (no completion). Nothing was changed.`, 'secondary'); }
+        else if (m) void this.chooseLocal(m.name);
+      }
       else if (o.state === 'failed') void this.runCheck();
       return true;
     }
@@ -1820,6 +1861,142 @@ export class Controller {
     this.emit();
   }
 
+  // ── Connect OpenRouter (R10 CHAT H167; the lead's Mac check of 50237ef, item 3) ─────────────────────────────
+
+  /** The box that connects OpenRouter: its sign-in (OpenRouter's own page) or a pasted key; nothing is sent before a choice. */
+  private openConnect(): void {
+    this.cancelFlow();
+    this.open({ kind: 'connect', provider: 'openrouter', step: 'choose' });
+  }
+
+  private connectBox(): Extract<Overlay, { kind: 'connect' }> | null {
+    const o = this.ui.overlay;
+    return o?.kind === 'connect' ? o : null;
+  }
+
+  /** Ends a sign-in under way (nothing saved, its server stopped); its end is then not said again. */
+  private cancelFlow(): void {
+    const f = this.flow;
+    this.flow = null;
+    f?.cancel();
+  }
+
+  /** Esc or Cancel: a sign-in under way is cancelled and the box closes; nothing typed is kept. */
+  private closeConnect(): void {
+    const o = this.connectBox();
+    const signing = this.flow !== null;
+    this.cancelFlow();
+    if (this.ui.input.field === 'secret') this.ui.input = { field: null, text: '' };
+    this.ui.overlay = null;
+    if (o && o.step !== 'done') this.say(signing ? 'The sign-in was cancelled: nothing was saved.' : 'Closed: nothing was saved.', 'secondary');
+    else this.emit();
+  }
+
+  /** Enter on one of the box's choices. */
+  private async connectChoice(id: string): Promise<void> {
+    const o = this.connectBox();
+    if (!o) return;
+    const step = (s: typeof o.step): void => { o.step = s; delete o.note; this.ui.cursor.overlay = 0; };
+    switch (id) {
+      case 'signin': await this.startSignIn(o); return;
+      case 'again': this.cancelFlow(); delete o.url; delete o.words; delete o.ok; delete o.route; await this.startSignIn(o); return;
+      case 'paste': this.cancelFlow(); step('paste'); this.ui.input = { field: 'secret', text: '' }; this.emit(); return;
+      case 'code': step('code'); this.ui.input = { field: 'secret', text: '' }; this.emit(); return;
+      case 'open': {
+        // (only on this Enter: the page is OpenRouter's, its address holds no secret)
+        if (!o.url) return;
+        const r = (this.d.opener ?? systemOpener(this.d.env, this.d.onPath)).open(o.url);
+        o.note = r.ok ? { text: 'Opened in the browser: sign in on OpenRouter\'s page, and this box says when the key is saved.' }
+          : { text: `Not opened: ${r.why}. Copy the address above (m gives the mouse back to the terminal), or type the code from the browser.`, failed: true };
+        this.emit();
+        return;
+      }
+      case 'models': this.ui.overlay = null; this.ui.modelsProvider = 'openrouter'; delete this.ui.cursor['right:models']; this.ui.modelsDetails = false; this.focusModels(); return;
+      default: this.closeConnect(); return;
+    }
+  }
+
+  /** Starts the sign-in (its server listens before the address is shown); its end comes back to the box. */
+  private async startSignIn(o: Extract<Overlay, { kind: 'connect' }>): Promise<void> {
+    o.step = 'starting';
+    delete o.note;
+    this.ui.cursor.overlay = 0;
+    this.emit();
+    let flow: SignIn;
+    try { flow = await (this.d.signIn ?? startOpenRouterSignIn)({ env: this.d.env }); } catch (e) {
+      if (this.connectBox() !== o) return;
+      o.step = 'done'; o.ok = false;
+      o.words = `The sign-in did not start (${e instanceof Error ? e.message : String(e)}): nothing was saved. Paste a key instead, or try again.`;
+      this.emit();
+      return;
+    }
+    // (the box closed meanwhile, or the Workbench is ending: it ends at once, nothing saved)
+    if (this.connectBox() !== o || o.step !== 'starting' || this.disposed) { flow.cancel(); return; }
+    this.flow = flow;
+    o.step = 'signin';
+    o.url = flow.url;
+    this.ui.cursor.overlay = 0;
+    this.emit();
+    void flow.done.then((r) => this.signInEnded(flow, r));
+  }
+
+  /** The sign-in's end: on the box while it waits for it, else said; a key saved reads the route and Models again. */
+  private signInEnded(flow: SignIn, r: SignInResult): void {
+    const current = this.flow === flow;
+    if (current) this.flow = null;
+    if (this.disposed || !current) return;
+    if (r.ok) this.connected();
+    const o = this.connectBox();
+    if (o && o.url === flow.url) {
+      if (this.ui.input.field === 'secret') this.ui.input = { field: null, text: '' };
+      o.step = 'done'; o.ok = r.ok; o.words = r.words; delete o.note; this.ui.cursor.overlay = 0;
+      if (r.ok) o.route = this.routeAfterKey();
+      this.emit();
+      return;
+    }
+    this.say(r.ok ? `OpenRouter: ${r.words}` : r.words, r.ok ? 'secondary' : 'attention');
+  }
+
+  /** Enter in the hidden field: the sign-in's code (exchanged by its flow) or a pasted key (saved, not checked). */
+  private connectSubmit(text: string): void {
+    const o = this.connectBox();
+    // (what was typed leaves the field at once, whatever comes of it)
+    this.ui.input = { field: null, text: '' };
+    if (!o) { this.emit(); return; }
+    if (o.step === 'code') {
+      const flow = this.flow;
+      if (!flow) { o.step = 'done'; o.ok = false; o.words = 'This sign-in has ended: nothing was saved. Sign in again, or paste a key.'; this.ui.cursor.overlay = 0; this.emit(); return; }
+      const r = flow.submit(text);
+      if (r.ok) { o.step = 'signin'; o.note = { text: r.words }; this.ui.cursor.overlay = 0; } else { o.note = { text: r.words, failed: true }; this.ui.input = { field: 'secret', text: '' }; }
+      this.emit();
+      return;
+    }
+    if (o.step !== 'paste') { this.emit(); return; }
+    const r = saveKey('openrouter', text, this.d.env);
+    if (!r.ok) { o.note = { text: `Not saved: ${r.why}.`, failed: true }; this.ui.input = { field: 'secret', text: '' }; this.emit(); return; }
+    this.connected();
+    o.step = 'done'; o.ok = true; o.words = r.words; o.route = this.routeAfterKey(); delete o.note; this.ui.cursor.overlay = 0;
+    this.say(`OpenRouter: ${r.words}`, 'secondary');
+  }
+
+  /** A key saved: the route and the journey's route read again, Models' states and lists; the first run is answered. */
+  private connected(): void {
+    this.ui.firstRunDone = true;
+    this.data.route = readRoute(this.d.env);
+    try { if (this.chat?.state === 'open' && this.chat.root === this.data.project.root) this.data.chatRoute = this.chat.session.route(); } catch { /* as it was */ }
+    try { this.data.journeyRoute = routeNow({ env: this.d.env, surface: 'workbench' }); } catch { /* as it was */ }
+    this.refreshFrame();
+    void this.loadModels();
+  }
+
+  /** What the route is once a key is saved, in words: OpenRouter's (a key is there, not checked), or the setup's local one. */
+  private routeAfterKey(): string {
+    const r = this.data.route;
+    return r.kind === 'openrouter'
+      ? `The route as read now: ${r.words}${r.ready ? '' : ' (not ready)'}. The key is not checked yet: OpenRouter's first answer says whether it takes it.`
+      : `The route as read now: ${r.words}. The setup's answer keeps the chat local; timmy init --chat openrouter, in a shell, makes OpenRouter the route (the key is kept either way).`;
+  }
+
   /** Makes `model` the local chat's model through the setup's writer, and says what that changed and what it did not. */
   private async chooseLocal(model: string): Promise<void> {
     const S = (text: string, role: Role = 'text'): Line[number] => ({ text, role });
@@ -1848,7 +2025,7 @@ export class Controller {
       [S('WHAT DID NOT', 'secondary')],
       [S('A REPL whose /model chose a model for its session keeps that one there.')],
       ...(this.d.env.TIMMY_CHAT_MODEL?.trim() ? [[S('TIMMY_CHAT_MODEL is set in this environment, and it wins over the setup\'s answer wherever it is set.', 'attention')]] : []),
-      [S('Nothing was downloaded and nothing was sent to any model: Ollama was asked for its list only.', 'secondary')],
+      [S('Nothing was downloaded and nothing was sent to any model: Ollama was asked only for its list and each model\'s facts (/api/show), which run no model.', 'secondary')],
     ];
     this.open({ kind: 'message', title, lines });
     this.say(`The local chat's model is now ${model} (the setup's answer).`, 'secondary');

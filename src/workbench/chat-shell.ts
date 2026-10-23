@@ -190,9 +190,12 @@ export function railCatalog(models: readonly OpenRouterCatalogModel[]): CatalogR
 
 /** What the local Ollama lists (the setup's own request, src/workbench/setup-paths.ts ollama: a name and its facts in words),
  *  as rows: installed (it lists them) and local; no charge; what it does not say, unknown. */
-export function ollamaRows(models: ReadonlyArray<{ name: string; facts: string }>): CatalogRow[] {
-  return models.map((m) => ({ source: 'ollama-local' as const, id: m.name, name: m.name, maker: m.name.split(/[:/]/)[0] ?? 'unknown', price: { inPerM: 0, outPerM: 0, free: true }, caps: {}, installed: true, facts: m.facts } as CatalogRow & { facts: string }));
+export function ollamaRows(models: ReadonlyArray<{ name: string; facts: string; chat?: boolean | null }>): CatalogRow[] {
+  return models.map((m) => ({ source: 'ollama-local' as const, id: m.name, name: m.name, maker: m.name.split(/[:/]/)[0] ?? 'unknown', price: { inPerM: 0, outPerM: 0, free: true }, caps: {}, installed: true, facts: m.facts, ...(m.chat !== undefined ? { chat: m.chat } : {}) } as CatalogRow & { facts: string; chat?: boolean | null }));
 }
+
+/** Whether a row can answer a chat: false where the probe's /api/show check did not establish it (a local row's `chat`). */
+export const chatModel = (r: CatalogRow): boolean => (r as CatalogRow & { chat?: boolean | null }).chat !== false;
 
 /** A local row's facts as the setup's list words them (absent on a catalog row). */
 const factsOf = (r: CatalogRow): string | undefined => (r as CatalogRow & { facts?: string }).facts;
@@ -278,7 +281,13 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
   // the shown provider's state (H170's providerStates: files and observations only, nothing asked), its word on the row under
   // the title: green only for a passed check, with its time
   const ps = data.models?.providers?.find((x) => x.id === p);
-  if (ps && !drawer) put(2, [S(ps.state === 'checked' && ps.at ? `checked ${clock(ps.at).slice(0, 5)}` : ps.state, ps.state === 'checked' ? 'live' : ps.state === 'refused' || ps.state === 'unreachable' ? 'failure' : 'secondary')]);
+  // (the local Ollama's own answer to Models' listing is the newest observation of it: an answer now is live, green, whatever
+  // the program's install says; no answer is said so)
+  const heard = p === 'ollama-local' ? data.models?.ollama : undefined;
+  const word: Seg | null = heard?.state === 'listed' ? S(`answered ${clock(heard.at ?? new Date(c.now).toISOString()).slice(0, 5)}`, 'live')
+    : heard?.state === 'failed' ? S(`did not answer${heard.at ? ` ${clock(heard.at).slice(0, 5)}` : ''}`, 'failure')
+      : ps ? S(ps.state === 'checked' && ps.at ? `checked ${clock(ps.at).slice(0, 5)}` : ps.state, ps.state === 'checked' ? 'live' : ps.state === 'refused' || ps.state === 'unreachable' ? 'failure' : 'secondary') : null;
+  if (word && !drawer) put(2, [word]);
   const rule: Line = [S((g.unicode ? '─' : '-').repeat(w), 'border')];
   const mark = (on: boolean): Seg => S(on ? '> ' : '  ', 'accent');
   if (drawer) {
@@ -344,19 +353,33 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     const on = focused && i === cur ? { selected: true } : {};
     const name = `${/\bfake\b/i.test(r.id) ? 'FAKE ' : ''}${r.name}`;
     items.push({ line: list.length, item: { kind: 'action', key: `model:${r.source}:${r.id}`, action: r.id }, rows: per });
-    const nameRow: Line = [S(i === cur ? '> ' : '  ', 'accent', on), S(name, i === cur ? 'accent' : 'strong', { ...(i === cur ? { bold: true } : {}), ...on })];
-    // a local model's facts without "local weights" (INSTALLED and the note below say where it runs; SELECTED keeps them whole)
-    const facts = (factsOf(r) || 'installed').replace(/^local weights · /, '');
+    // (a name as the provider gives it: cut where the row ends, never dropped for a word that does not fit)
+    const nameRow: Line = [S(i === cur ? '> ' : '  ', 'accent', on), S(name, i === cur ? 'accent' : chatModel(r) ? 'strong' : 'secondary', { ...(i === cur ? { bold: true } : {}), ...on, raw: true })];
+    // a local model's facts without "local weights" (INSTALLED and the note below say where it runs; SELECTED keeps them whole);
+    // one the probe's check does not establish as a chat model says so in their place
+    const facts = chatModel(r) ? (factsOf(r) || 'installed').replace(/^local weights · /, '') : 'not a chat model';
     // context / price; where it does not fit beside the indent, the price's own spaces go, then the word "context"
     const price = priceWords(r.price);
     const room = drawer ? w - lineCells(nameRow) - 3 : w - 2;
-    const sub = r.source === 'ollama-local' ? facts : [`${ctxWords(r.contextLength)} / ${price}`, `${ctxWords(r.contextLength)} / ${price.replace(/ \/ /g, '/')}`, `${ctxWords(r.contextLength).replace(/ context$/, '')} / ${price.replace(/ \/ /g, '/')}`].find((t) => t.length <= room) ?? `${ctxWords(r.contextLength)} / ${price}`;
-    if (drawer) list.push([...nameRow, S(` / ${sub}`, 'secondary', on)]);
-    else list.push(nameRow, [S('  ', 'text', on), S(sub, 'secondary', on)]);
+    const forms = [`${ctxWords(r.contextLength)} / ${price}`, `${ctxWords(r.contextLength)} / ${price.replace(/ \/ /g, '/')}`, `${ctxWords(r.contextLength).replace(/ context$/, '')} / ${price.replace(/ \/ /g, '/')}`];
+    const sub = r.source === 'ollama-local' ? facts : forms.find((t) => t.length <= room) ?? (drawer ? forms[forms.length - 1] : forms[0]);
+    if (drawer) {
+      // (one row: where the facts do not fit beside the whole name, the name is cut so that they do; never one without the other)
+      const nameRoom = Math.max(8, w - 2 - 3 - [...sub].length);
+      const shown = [...name].length > nameRoom ? cut(name, nameRoom, g.ellipsis) : name;
+      list.push([nameRow[0], { ...nameRow[1], text: shown }, S(` / ${sub}`, 'secondary', on)]);
+    } else list.push(nameRow, [S('  ', 'text', on), S(sub, 'secondary', on)]);
   });
   if (!rows.length) list.push([S(source === 'openrouter' ? (m?.openrouter ? (ui.modelsSearch ? 'No model matches.' : 'No catalog on this computer.') : 'Reading the catalog...') : m?.ollama?.state === 'listed' ? 'Ollama lists no model.' : '', 'secondary')]);
-  if (source === 'ollama-local' && m?.ollama?.state === 'listed') list.push(blank, blank, ...wrapText('Runs on this computer. A local model does not require a cloud account.', w).map((t): Line => [S(t, 'secondary')]));
-  const top = cur >= 0 ? Math.max(0, Math.min(Math.max(0, list.length - listRows), cur * per - Math.max(0, listRows - per))) : 0;
+  // (under the local list, where it runs: drawn whole below the models shown, or not at all)
+  const tail: Line[] = source === 'ollama-local' && m?.ollama?.state === 'listed' ? wrapText('Runs on this computer. A local model does not require a cloud account.', w).map((t): Line => [S(t, 'secondary')]) : [];
+  // the list scrolled by whole models (a model's name never left above its facts, nor its facts without their name), the
+  // cursor's in view
+  const fits = Math.max(1, Math.floor(listRows / per));
+  const top = cur >= 0 ? per * Math.max(0, Math.min(Math.max(0, Math.ceil((list.length - listRows) / per)), cur - fits + 1)) : 0;
+  const shownRows = list.slice(top, top + (rows.length ? fits * per : listRows));
+  const gap = shownRows.length + 2 + tail.length <= listRows ? 2 : shownRows.length + 1 + tail.length <= listRows ? 1 : -1;
+  if (tail.length && gap > 0) shownRows.push(...Array.from({ length: gap }, () => blank), ...tail);
   const picked = cur >= 0 ? rows[cur] : undefined;
   if (ui.modelsDetails && picked) {
     // Details: every field the record has, unknown said so, in place of the list and the selected block
@@ -375,29 +398,39 @@ function modelsLines(c: ShellCtx, n: number, w: number, focused: boolean, drawer
     d.slice(0, Math.max(0, n - listFrom)).forEach((l, k) => put(listFrom + k, l));
     return { lines, items: [], listFrom: n, listRows: 0, perItem: per };
   }
-  list.slice(top, top + listRows).forEach((l, k) => put(listFrom + k, l));
+  shownRows.forEach((l, k) => put(listFrom + k, l));
   if (drawer) return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
   put(footAt, rule);
   if (picked) {
-    // SELECTED / <model> on one row when it fits; else SELECTED, the name on the next and one row of its description
+    // SELECTED / <model> only for the next turn's model (the lead's Mac check of 50237ef: with no route chosen the cursor's
+    // model is not "selected"); any other the cursor is on is MODEL / <model>. One row when it fits, else the name below
+    // (and a model the probe's check does not establish as a chat model is never SELECTED, even one the route names)
+    const isNext = picked.id === rt.model;
+    const head = isNext && chatModel(picked) ? 'SELECTED' : 'MODEL';
     const shownName = `${/\bfake\b/i.test(picked.id) ? 'FAKE ' : ''}${picked.name}`;
-    const oneRow = 'SELECTED / '.length + [...shownName].length <= w;
-    put(footAt + 1, oneRow ? [S('SELECTED / ', 'strong', { bold: true }), S(shownName, 'strong', { bold: true })] : [S('SELECTED', 'strong', { bold: true })]);
-    if (!oneRow) put(footAt + 2, [S(shownName, 'strong', { bold: true })]);
+    const oneRow = `${head} / `.length + [...shownName].length <= w;
+    put(footAt + 1, oneRow ? [S(`${head} / `, 'strong', { bold: true }), S(shownName, 'strong', { bold: true, raw: true })] : [S(head, 'strong', { bold: true })]);
+    if (!oneRow) put(footAt + 2, [S(shownName, 'strong', { bold: true, raw: true })]);
     const about = picked.description ?? (picked.source === 'ollama-local' ? factsOf(picked) ?? 'Installed; Ollama gives no description.' : 'No description in the catalog.');
     const aboutRows = wrapText(about.replace(/\s+/g, ' '), w);
     const room = oneRow ? 2 : 1;
     aboutRows.slice(0, room).forEach((t, k) => put(footAt + (oneRow ? 2 : 3) + k, [S(k === room - 1 && aboutRows.length > room ? cut(`${t} ${aboutRows[room]}`, w, g.ellipsis) : t, 'secondary')]));
     // whether the next turn uses it, or what keeps it from that (words, never colour alone)
-    const isNext = picked.id === rt.model;
-    const note = isNext ? 'The next turn uses it.'
+    const note = !chatModel(picked) ? 'Not a chat model (checked).'
+      : isNext ? 'The next turn uses it.'
       : picked.source === 'openrouter' && data.route.kind !== 'openrouter' ? 'Route is not OpenRouter yet.'
         : freeOnly && picked.price.free !== true ? 'Priced: not under free-only.'
           : focused ? 'Enter: next turn uses it.' : '';
     if (note) put(footAt + 4, [S(note, isNext ? 'text' : 'secondary')]);
     put(footAt + 5, [S(picked.source === 'ollama-local' ? (w >= 33 ? 'no charge / runs on this computer' : 'no charge / this computer') : picked.price.free === true ? '$0 in / $0 out / 1M tokens' : picked.price.inPerM === undefined || picked.price.outPerM === undefined ? 'price unknown' : `${usd(picked.price.inPerM)} in / ${usd(picked.price.outPerM)} out / 1M`, 'text')]);
     put(footAt + 6, [S(picked.source === 'ollama-local' ? `Listed by Ollama: ${clock(m?.ollama?.at ?? new Date(c.now).toISOString()).slice(0, 5)}` : `${m?.openrouter?.from === 'fetched' ? 'Catalog fetched' : 'Catalog snapshot'}: ${shortDate(m?.openrouter?.at)}`, 'secondary')]);
-  } else put(footAt + 1, [S('SELECTED / ', 'strong', { bold: true }), S('none', 'secondary')]);
+  } else if (rt.model) {
+    // (R10 CHAT H167: no row for the next turn's model here, before its list is read or on another provider's: the route's
+    // model is still the next turn's, said so; never "none")
+    put(footAt + 1, [S('SELECTED', 'strong', { bold: true })]);
+    put(footAt + 2, [S(`${rt.fake ? 'FAKE ' : ''}${rt.model}`, 'strong', { bold: true, raw: true })]);
+    put(footAt + 3, [S(source === 'ollama-local' && m?.ollama?.state !== 'listed' ? 'Not listed here yet.' : 'Not in this list: the route names it.', 'secondary')]);
+  } else put(footAt + 1, [S('MODEL / ', 'strong', { bold: true }), S('none', 'secondary')]);
   return { lines, items: items.map((x) => ({ ...x, line: x.line - top })), listFrom, listRows, perItem: per };
 }
 
@@ -507,10 +540,14 @@ export function shellDrawerLines(c: ShellCtx, n: number, w: number): { lines: Li
     choice(n - 2, 0, 'open-logs', 'Open Logs & records', 'every receipt, run and log');
   } else if (which === 'budget') {
     const rt = routeLine(data);
-    const freeOnly = /\bfree-only\b/.test(data.route.words);
+    // (the policy as read with the route; its words where it was not read)
+    const freeOnly = data.route.policy?.freeOnly ?? /\bfree-only\b/.test(data.route.words);
+    const localOnly = data.route.policy?.localOnly ?? /\blocal-only\b/.test(data.route.words);
     put(4, [S('Next turn  ', 'secondary'), S(rt.model ? `${rt.fake ? 'FAKE ' : ''}${rt.model} / ${rt.price}` : 'no model: nothing is sent, nothing spent', 'text')]);
     put(5, [S('Free-only  ', 'secondary'), S(freeOnly ? 'on: a model the catalog does not price at 0 is not used' : 'off', 'text')]);
-    wrapText('Each turn\'s cost is sealed on its receipt (Logs & records). Settings turns free-only on or off.', w).slice(0, 2).forEach((t, k) => put(7 + k, [S(t, 'secondary')]));
+    put(6, [S('Local-only ', 'secondary'), S(localOnly ? 'on: no cloud route, fallback or tool model call' : 'off', 'text')]);
+    // (R10 CHAT H167; the lead's 20:06 note: where each really switches: the REPL, or the environment; not this Workbench)
+    wrapText('Each turn\'s cost is sealed on its receipt (Logs & records). Free-only and local-only switch in the REPL (timmy): /model free-only on|off and /model local-only on|off; TIMMY_CHAT_FREE_ONLY=1 or TIMMY_CHAT_LOCAL_ONLY=1 sets one for what runs with it. Settings here does not switch them.', w).slice(0, Math.max(1, n - 11)).forEach((t, k) => put(8 + k, [S(t, 'secondary')]));
     choice(n - 2, 0, 'settings', 'Open settings');
   } else {
     moreControls(c).forEach((k, i) => choice(4 + i, i, `ctl:${k.id}`, k.label, k.on ? undefined : `needs ${k.needs ?? 'what it names'}`));
@@ -558,7 +595,8 @@ function composerRows(c: ShellCtx, w: number): Line[] {
 /** The first run: the Chat screen asks how chat runs while the next turn has no model and the question is not answered in this
  *  Workbench (a choice, or Continue without a model; Review setup choices asks it again). */
 export function isFirstRun(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
-  return !routeLine(c.data).model && c.ui.firstRunDone !== true;
+  // (R10 CHAT H167, the lead's ask for the Mac: a relaunch after an answered turn shows that conversation, model or not)
+  return !routeLine(c.data).model && c.ui.firstRunDone !== true && !c.data.chat.messages.length && !c.data.turn;
 }
 
 /** Chat with no model and nothing in its conversation yet (after the first run's question): what it needs, said once. */
@@ -566,10 +604,11 @@ export function noModelNow(c: Pick<ShellCtx, 'ui' | 'data'>): boolean {
   return !isFirstRun(c) && !routeLine(c.data).model && !c.data.chat.messages.length && !c.data.turn;
 }
 
-/** The first run's choices, in the target's words where they are true (OpenRouter's sign-in in a browser is not in this build:
- *  its key is typed in a shell, hidden), each opening its own setup; Cloudflare only as the advanced one. */
+/** The first run's choices, in the target's words where they are true (R10 CHAT H167: OpenRouter's is connected here, by its
+ *  sign-in in a browser or a key pasted into a hidden field: the controller's Connect OpenRouter box), each opening its own
+ *  setup; Cloudflare only as the advanced one. */
 export const FIRST_CHOICES: ReadonlyArray<{ id: string; label: string; about: string; advanced?: boolean }> = [
-  { id: 'openrouter', label: 'OpenRouter / cloud', about: 'Use an API key from OpenRouter (typed in a shell, hidden).' },
+  { id: 'openrouter', label: 'OpenRouter / cloud', about: 'Sign in with OpenRouter in your browser, or paste a key.' },
   { id: 'ollama-local', label: 'Ollama / this computer', about: 'Use installed models; no cloud account needed.' },
   { id: 'ollama-cloud', label: 'Ollama / cloud', about: 'Remote models; no local weights required.' },
   { id: 'explore', label: 'Continue without a model', about: 'Explore files, setup and local records.' },
@@ -584,7 +623,7 @@ function guideLines(c: ShellCtx, w: number): Line[] {
   const item = (on: boolean, words: string): Line => [S(on ? '[x] ' : '[ ] ', 'secondary'), S(words, on ? 'text' : 'secondary')];
   return [
     [S('TIMMY GUIDE', 'strong', { bold: true })],
-    ...para('OpenRouter: an account and an API key (https://openrouter.ai/settings/keys); timmy init --chat openrouter asks for it in a shell, hidden.'),
+    ...para('OpenRouter: an account. Sign in here (OpenRouter\'s own page, in your browser), or paste a key made at https://openrouter.ai/keys; it is kept in providers.json in the Timmy home (0600).'),
     ...para('Ollama on this computer: the app (https://ollama.com/download) and a model it lists; Models shows them here.'),
     ...para('Ollama cloud: an Ollama account (https://ollama.com); Timmy does not set it up yet.'),
     item(true, 'Logs and records on this computer'),
@@ -668,7 +707,7 @@ export interface ShellRegion { rect: { x: number; y: number; w: number; h: numbe
  * the shell's form, already scrolled to the rows convoRowsAt gives, or the first run's question (`first`: WELCOME TO TIMMY,
  * the header's FIRST RUN, the rows firstRowsAt gives and no composer) or Chat with no model's rows; `list`: their cursor's.
  */
-export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: boolean; list?: string; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid } {
+export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['items']; convoScroll: number; convoTotal: number; first?: boolean; full?: boolean; list?: string; focus: Region }): { screen: Line[]; regions: Partial<Record<Region, ShellRegion>>; grid: ChatGrid } {
   const { g, ui, data } = c;
   const grid = chatGrid(c.width, c.height);
   const { W, H, railW, cw, contentH } = grid;
@@ -681,10 +720,12 @@ export function chatScreen(c: ShellCtx, a: { convo: Line[]; convoItems: View['it
   const title: Line = [S(a.first ? 'WELCOME TO TIMMY' : `CHAT / ${data.project.name}`, a.focus === 'center' && ui.input.field !== 'composer' ? 'accent' : 'strong', { bold: true })];
   const modelsKey: Line = grid.sepR === null && !drawer ? [S('[ Models ]', 'secondary')] : [];
   center[1] = [...title, S(' '.repeat(Math.max(1, cw - lineCells(title) - lineCells(modelsKey) - 3))), ...modelsKey];
-  // the first run's question takes the composer's rows too (the target's first run); else the rule, MESSAGE and the composer
-  const convoRows = a.first ? contentH - CONVO_AT : Math.max(1, ruleAt - CONVO_AT);
+  // the first run's question takes the composer's rows too (the target's first run), and so does a box that has every key
+  // until it closes (`full`: Connect OpenRouter); else the rule, MESSAGE and the composer
+  const whole = a.first === true || a.full === true;
+  const convoRows = whole ? contentH - CONVO_AT : Math.max(1, ruleAt - CONVO_AT);
   a.convo.slice(0, convoRows).forEach((l, k) => { center[CONVO_AT + k] = l; });
-  if (!a.first) {
+  if (!whole) {
     center[ruleAt] = [S((g.unicode ? '─' : '-').repeat(cw), 'border')];
     composerRows(c, cw).forEach((l, k) => { if (ruleAt + 1 + k < contentH) center[ruleAt + 1 + k] = l; });
   }
